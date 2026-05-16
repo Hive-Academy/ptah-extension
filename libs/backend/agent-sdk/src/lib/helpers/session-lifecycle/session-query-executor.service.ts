@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SessionQueryExecutor — owner of the SDK-query orchestration body.
  *
  * Wave C7i extracts `executeQuery` (originally lines 725–961, ~300 LOC) out of
@@ -152,8 +152,6 @@ export class SessionQueryExecutor {
       );
 
       // Step 6: Build query options
-      // TASK_2025_098: Pass sessionId and onCompactionStart for compaction hooks
-      // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
       // Resolve initial SDK permission mode from current autopilot config
       const currentLevel = this.permissionHandler.getPermissionLevel();
       const initialPermissionMode =
@@ -192,7 +190,7 @@ export class SessionQueryExecutor {
         // Forward partial-message opt-in. Builder defaults to true when
         // unspecified, matching previous hardcoded behavior.
         includePartialMessages,
-        // Forward caller-supplied MCP HTTP overrides (TASK_2026_108 T2).
+        // Forward caller-supplied MCP HTTP overrides.
         // Identity-preserved when undefined or empty — see
         // SdkQueryOptionsBuilder.mergeMcpOverride.
         mcpServersOverride,
@@ -236,7 +234,6 @@ export class SessionQueryExecutor {
       let promptMode: string;
 
       if (isSlashCommand) {
-        // TASK_2025_184: Slash commands MUST be passed as raw string prompt
         // even when resuming. The SDK only parses commands from string prompts.
         effectivePrompt = initialContent;
         promptMode = isResume
@@ -272,7 +269,7 @@ export class SessionQueryExecutor {
 
       // Step 7: Start SDK query.
       //
-      // Warm-query fast path (TASK_2026_109 Fix 3 wiring): when the caller
+      // Warm-query fast path: when the caller
       // hands us a `warmQuery` AND the session is a brand-new chat (NOT a
       // resume, NOT a fork, NOT a slash command — slash commands need the
       // SDK to parse the leading `/` from a string prompt, which a warm

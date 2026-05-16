@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Session Importer Service
  *
  * Imports existing Claude sessions from ~/.claude/projects/
@@ -76,7 +76,6 @@ export class SessionImporterService {
    * @param limit - Maximum number of sessions to import (default: 50)
    * @returns Number of sessions imported
    */
-  // TASK_2025_210: Increased default from 5 to 50 for cross-platform session discovery
   async scanAndImport(workspacePath: string, limit = 50): Promise<number> {
     this.logger.info('[SessionImporter] Scanning for existing sessions', {
       workspacePath,

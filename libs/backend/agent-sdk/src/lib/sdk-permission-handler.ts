@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SDK Permission Handler Service
  *
  * Bridges SDK's canUseTool callback to VS Code webview permission UI.
@@ -14,12 +14,10 @@
  * - Support parameter modification (user edits before approval)
  * - Unknown tools prompt user rather than silently denying
  *
- * TASK_2025_215: Removed 5-minute setTimeout-based timeout. Permission and question
  * requests now block indefinitely until the user responds (matching Claude Code CLI
  * behavior). Cancellation is handled via the SDK's AbortSignal, which fires on
  * session abort or extension deactivation.
  *
- * TASK_2025_291 Wave C7a: Tool classification tables, description generation,
  * input sanitization, and the "always allow" rule store are extracted into
  * sibling modules under `./permission/`. This class remains the DI-resolved
  * coordinator with an unchanged public surface.

@@ -11,7 +11,6 @@
  *   UC3 - CLI path (no tabId arg). Wire prompt.tabId = undefined so the
  *          frontend router falls through to agent-monitor routing.
  *
- * TASK_2026_120 Phase B additions:
  *   - createCallback type-safety: TabId/SessionId branded params enforce identity
  *   - cleanupPendingPermissions dual-match: keying by tabId OR sessionId
  *   - PermissionRequestSchema UUID validation for tabId and sessionId fields

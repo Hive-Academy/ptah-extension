@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Session Metadata Store
  *
  * Lightweight storage for session UI metadata ONLY.
@@ -16,7 +16,6 @@
  * - Conversation history (SDK handles this)
  * - Message content (SDK handles this)
  *
- * @see TASK_2025_088 for migration details
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -96,8 +95,6 @@ const STORAGE_KEY = 'ptah.sessionMetadata';
 @injectable()
 export class SessionMetadataStore {
   /**
-   * TASK_2025_199: Dependencies are now resolved via @inject() decorators.
-   * TASK_2025_208: Uses WORKSPACE_STATE_STORAGE. In Electron, this resolves to
    * WorkspaceAwareStateStorage which delegates to per-workspace storage based
    * on the active workspace. In VS Code, it resolves to the single workspace
    * state storage as before.

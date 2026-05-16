@@ -1,5 +1,5 @@
-/**
- * Copilot Provider Entry - TASK_2025_186
+﻿/**
+ * Copilot Provider Entry
  *
  * Static provider definition for GitHub Copilot.
  * Registered into the Anthropic-compatible provider registry.

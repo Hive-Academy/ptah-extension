@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Settings Export Service
- * TASK_2025_210: Collects all exportable settings into a PtahSettingsExport object.
  *
  * Platform-agnostic — uses ISecretStorage and IWorkspaceProvider via PLATFORM_TOKENS
  * so the same service works in both VS Code and Electron.

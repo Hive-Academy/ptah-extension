@@ -1,15 +1,11 @@
 /**
  * Copilot CLI Adapter (formerly Copilot SDK Adapter)
  *
- * History:
- * - TASK_2025_162: Original SDK-based integration via @github/copilot-sdk
- * - TASK_2025_169: Removed raw CLI fallback, SDK was sole adapter
- * - TASK_2026_FIX_COPILOT_SPAWN: Switched CLI-agent spawn path back to the
- *   official `@github/copilot` CLI binary because @github/copilot-sdk's
- *   transitive `vscode-jsonrpc/node` import fails in headless contexts (where
- *   vscode-jsonrpc is not hoisted by VS Code's extension host). The official
- *   CLI v1.0.26+ (GA March 2026) bundles its dependencies correctly and
- *   supports headless mode via `-p / --output-format json`.
+ * The CLI-agent spawn path uses the official `@github/copilot` CLI binary
+ * because @github/copilot-sdk's transitive `vscode-jsonrpc/node` import fails
+ * in headless contexts (where vscode-jsonrpc is not hoisted by VS Code's
+ * extension host). The official CLI v1.0.26+ bundles its dependencies
+ * correctly and supports headless mode via `-p / --output-format json`.
  *
  * IMPORTANT: This adapter is used ONLY for the CLI-agent spawn path
  * (`ptah_agent_spawn { cli: 'copilot' }`). The "main agent" Copilot integration

@@ -1,5 +1,5 @@
-/**
- * Local Model Provider Entries - TASK_2025_265, updated TASK_2025_281
+﻿/**
+ * Local Model Provider Entries
  *
  * Static provider definitions for Ollama (local + cloud) and LM Studio.
  * Ollama providers use Anthropic-native API (no proxy); LM Studio uses OpenAI translation proxy.

@@ -1,9 +1,5 @@
-/**
+﻿/**
  * CLI Detection Service
- * TASK_2025_157: Auto-detect installed CLI agents (Gemini, Codex)
- * TASK_2025_158: Added VS Code Language Model adapter
- * TASK_2025_162: Added Copilot SDK adapter with permission bridge
- * TASK_2025_169: Removed Copilot CLI fallback, SDK is the only adapter
  *
  * Detects on first call and caches results.
  * Registered adapters: Gemini CLI, Codex CLI, Copilot SDK, Cursor CLI.
@@ -40,7 +36,7 @@ export class CliDetectionService {
     this.adapters.set('gemini', new GeminiCliAdapter());
     this.adapters.set('codex', new CodexCliAdapter());
 
-    // Copilot SDK adapter with permission bridge (TASK_2025_162)
+    // Copilot SDK adapter with permission bridge
     const permissionBridge = new CopilotPermissionBridge();
     this.adapters.set('copilot', new CopilotSdkAdapter(permissionBridge));
 

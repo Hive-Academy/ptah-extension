@@ -1,5 +1,5 @@
-/**
- * OpenAI Response Translator — unit specs (TASK_2025_294 W6.B1).
+﻿/**
+ * OpenAI Response Translator — unit specs.
  *
  * Surface under test:
  *   - `OpenAIResponseTranslator.translateChunk()` converts OpenAI SSE chunks

@@ -1,5 +1,5 @@
-/**
- * SdkAgentAdapter — unit specs (TASK_2025_294 W3.B4).
+﻿/**
+ * SdkAgentAdapter — unit specs.
  *
  * Surface under test:
  *   - Query dispatch: startChatSession() and resumeSession() MUST delegate
@@ -704,7 +704,6 @@ describe('SdkAgentAdapter', () => {
 
   // -------------------------------------------------------------------------
   // SdkAgentAdapter.startChatSession (mcpServersOverride threading)
-  // TASK_2026_108 § 2 T2 — Layer 3 forwarding contract.
   // -------------------------------------------------------------------------
 
   describe('SdkAgentAdapter.startChatSession (mcpServersOverride threading)', () => {
@@ -1230,10 +1229,8 @@ describe('SdkAgentAdapter', () => {
       );
     });
 
-    // TASK_2026_118 Batch 8, Task 8.3 — realUUID-keyed lookup (the central bug fix)
-
     it('realUUID-keyed lookup succeeds: find(realUUID) returns a record with query set and rewindFiles resolves', async () => {
-      // This test exercises the central bug fix from TASK_2026_118.
+      // This test exercises the central bug fix for realUUID lookup.
       // Previously, find() only checked byTabId — passing a realUUID missed.
       // After the fix, find() checks byTabId then bySessionId.
       const h = makeAdapter();
@@ -1297,8 +1294,6 @@ describe('SdkAgentAdapter', () => {
       // that broader check (guard against accidental instanceof narrowing loss)
       expect(err).toBeInstanceOf(SdkError);
     });
-
-    // TASK_2026_118 Batch 10, audit gap 15 — dryRun=false (commit path) and omitted
 
     it('passes { dryRun: false } to query.rewindFiles when called with dryRun=false', async () => {
       const h = makeAdapter();
@@ -1373,7 +1368,6 @@ describe('SdkAgentAdapter', () => {
     });
 
     it('invokes SDK startup() once and retains the WarmQuery (does not close it)', async () => {
-      // TASK_2026_109 Fix 3: warm handle is now held for first chat send to
       // consume via consumeWarmQuery(); it is NOT closed in prewarm().
       const h = makeAdapter();
       const close = jest.fn();
@@ -1455,7 +1449,6 @@ describe('SdkAgentAdapter', () => {
     });
 
     it('does not throw when stale WarmQuery.close() throws during TTL eviction', async () => {
-      // TASK_2026_109 Fix 3: prewarm no longer closes the handle, so this
       // test now exercises the TTL-eviction path inside consumeWarmQuery.
       const h = makeAdapter();
       const closeError = new Error('close failed');
@@ -1483,7 +1476,6 @@ describe('SdkAgentAdapter', () => {
     });
 
     it('passes mcpServers into startup() when provided', async () => {
-      // TASK_2026_109 Fix 3: MCP handshake amortizes during prewarm.
       const h = makeAdapter();
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close });
@@ -1501,7 +1493,6 @@ describe('SdkAgentAdapter', () => {
     });
 
     it('discards a stale warm handle (>5min) on consumeWarmQuery and resets prewarmed flag', async () => {
-      // TASK_2026_109 Fix 3.
       const h = makeAdapter();
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close });
@@ -1524,7 +1515,6 @@ describe('SdkAgentAdapter', () => {
     });
 
     it('discards warm handle when fingerprint requirement (cli path) mismatches', async () => {
-      // TASK_2026_109 Fix 3 wiring: consumeWarmQuery(requirements) must
       // reject + close the handle when the baked fingerprint differs from
       // what the upcoming session needs. Here we exercise the cli-path
       // mismatch branch by initializing the adapter with one cli.js path,
@@ -1593,7 +1583,7 @@ describe('SdkAgentAdapter', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Warm-query wiring into startChatSession (TASK_2026_109 Fix 3 wiring)
+  // Warm-query wiring into startChatSession
   // -------------------------------------------------------------------------
 
   describe('startChatSession warm-query wiring', () => {

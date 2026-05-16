@@ -1,5 +1,5 @@
-/**
- * Codex Translation Proxy - TASK_2025_193 Batch 3
+﻿/**
+ * Codex Translation Proxy
  *
  * Subclass of TranslationProxyBase that provides Codex-specific
  * configuration: auth headers, API endpoint, and Responses API routing.

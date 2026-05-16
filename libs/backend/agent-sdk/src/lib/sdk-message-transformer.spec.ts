@@ -1,5 +1,5 @@
-/**
- * SdkMessageTransformer specs — compact_boundary handling (TASK_2026_109).
+﻿/**
+ * SdkMessageTransformer specs — compact_boundary handling.
  *
  * Coverage:
  *   - A1: compact_boundary resolves sessionId via SessionLifecycleManager when

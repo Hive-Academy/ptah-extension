@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Copilot Device Code Auth - GitHub Device Code Flow (RFC 8628)
  *
  * For Electron and other non-VS Code environments where the user
@@ -13,7 +13,6 @@
  * The caller then exchanges this token for a Copilot bearer token
  * via the existing exchangeToken() method.
  *
- * TASK_2026_104 B8a: Split into `requestDeviceCode` + `pollForAccessToken`
  * to support the headless CLI's non-blocking begin/poll/cancel API.
  * `executeDeviceCodeFlow` is preserved as a thin wrapper composing both,
  * so existing callers (CopilotAuthService.login) see no behavior change.

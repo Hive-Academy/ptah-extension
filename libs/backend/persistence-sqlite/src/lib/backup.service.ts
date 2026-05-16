@@ -12,8 +12,8 @@
  *
  * Note: `db.backup()` can block briefly on Windows with NTFS when a shared
  * WAL hasn't been checkpointed (the API restarts page copy on concurrent
- * reads). D2 backups fire at boot before RPC handlers register; D7 daily
- * backups fire at 03:00 UTC when user is inactive — both windows have
+ * reads). Pre-migration backups fire at boot before RPC handlers register;
+ * daily backups fire at 03:00 UTC when user is inactive — both windows have
  * negligible concurrent load.
  */
 import { inject, injectable } from 'tsyringe';

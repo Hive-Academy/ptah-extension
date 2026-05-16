@@ -2,7 +2,6 @@
 // Enforced by ESLint (no-template-curly-in-migration) + Semgrep
 // (sql-injection-in-migration). Adding interpolation = SQL injection by design.
 export const sql = `
--- TASK_2026_THOTH_PERSISTENCE_HARDENING R2
 -- Rebuild memory_chunks_fts with porter unicode61 tokenizer for stemming.
 -- Drop + recreate; repopulate from memory_chunks in the same transaction.
 --
@@ -17,9 +16,9 @@ export const sql = `
 -- bodies supply (rowid, text) which is sufficient for an external-content
 -- FTS5 table even when additional UNINDEXED columns are present.
 --
--- Risk note (R-C): on a corpus of 50 000+ chunks this INSERT can take 30-60s
+-- Risk note: on a corpus of 50 000+ chunks this INSERT can take 30-60s
 -- and holds an IMMEDIATE transaction for the duration. The pre-migration
--- backup (D2) is the recovery path if the migration fails midway.
+-- backup is the recovery path if the migration fails midway.
 
 DROP TABLE IF EXISTS memory_chunks_fts;
 CREATE VIRTUAL TABLE memory_chunks_fts USING fts5(

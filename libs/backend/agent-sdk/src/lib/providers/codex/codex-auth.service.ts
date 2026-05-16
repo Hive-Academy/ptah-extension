@@ -1,5 +1,5 @@
-/**
- * Codex Authentication Service - TASK_2025_193 Batch 3
+﻿/**
+ * Codex Authentication Service
  *
  * Reads and manages Codex authentication from ~/.codex/auth.json,
  * the auth file written by the Codex CLI (`codex login`).
@@ -12,14 +12,12 @@
  * - ApiKey → https://api.openai.com/v1
  * - OAuth → user-configured endpoint from settings, or https://chatgpt.com/backend-api/codex
  *
- * TASK_2025_245: Removed all outbound OAuth refresh logic. Tokens are read-only.
  * When an OAuth token expires, the user is directed to run `codex login`.
  *
  * Security: NEVER logs full tokens -- only length and first 4 characters.
  *
  * APPROVED EXCEPTION: This file does NOT import vscode — it reads credentials from
  * ~/.codex/auth.json using Node.js fs APIs. No platform abstraction needed.
- * See TASK_2025_199.
  */
 
 import { injectable, inject } from 'tsyringe';

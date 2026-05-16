@@ -83,11 +83,11 @@ export class SqliteMigrationRunner {
 
     const pending = sorted.filter((m) => !applied.has(m.version));
 
-    // D2: Take a pre-migration backup before applying any pending migrations.
+    // Take a pre-migration backup before applying any pending migrations.
     // Non-fatal — backup failure must not abort the migration run.
-    // D2 review fix: rotate() is guarded behind a successful backup.
-    // Rotating old backups when no new backup was written would silently shrink
-    // the archive on every boot with pending migrations but unavailable backup.
+    // rotate() is guarded behind a successful backup. Rotating old backups
+    // when no new backup was written would silently shrink the archive on
+    // every boot with pending migrations but unavailable backup.
     if (pending.length > 0 && this.backupService) {
       let backupDest: string | null = null;
       try {
@@ -168,7 +168,7 @@ export class SqliteMigrationRunner {
    * A migration providing both `sql` and `run` is a configuration error — this
    * method throws immediately so the misconfiguration surfaces at apply-time.
    *
-   * D3: `PRAGMA user_version = N` is written inside the bookkeeping transaction
+   * `PRAGMA user_version = N` is written inside the bookkeeping transaction
    * so it rolls back atomically with the INSERT if something goes wrong.
    */
   private applyOne(migration: Migration): void {
@@ -227,7 +227,7 @@ export class SqliteMigrationRunner {
           'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
         )
         .run(migration.version, Date.now());
-      // D3: persist the schema fingerprint inside this transaction so
+      // Persist the schema fingerprint inside this transaction so
       // user_version stays consistent with schema_migrations on rollback.
       this.db.exec(`PRAGMA user_version = ${migration.version}`);
       this.db.exec('COMMIT');

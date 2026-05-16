@@ -1,5 +1,5 @@
-/**
- * Ollama Model Discovery Service - TASK_2025_281
+﻿/**
+ * Ollama Model Discovery Service
  *
  * Fetches models from Ollama's native /api/tags endpoint and enriches
  * metadata from /api/show for each model (context length, capabilities).

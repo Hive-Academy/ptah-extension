@@ -1,5 +1,5 @@
-/**
- * OpenAI Response Translator - TASK_2025_193 Batch 1
+﻿/**
+ * OpenAI Response Translator
  *
  * Stateful streaming translator that converts OpenAI Chat Completions
  * SSE chunks into Anthropic Messages API SSE events.

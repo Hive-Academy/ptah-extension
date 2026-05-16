@@ -1,5 +1,5 @@
 /**
- * Memory Curator DI Registration (TASK_2026_HERMES Track 1).
+ * Memory Curator DI Registration.
  *
  * Registration order:
  *   1. EmbedderWorkerClient (concrete IEmbedder) under PERSISTENCE_TOKENS.EMBEDDER
@@ -95,9 +95,9 @@ export function registerMemoryCuratorServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // TASK_2026_THOTH_CODE_INDEX: Register MemoryStoreSymbolSink under the
-  // shared ISymbolSink port token so workspace-intelligence can inject it
-  // without a direct dependency on memory-curator.
+  // Register MemoryStoreSymbolSink under the shared ISymbolSink port token
+  // so workspace-intelligence can inject it without a direct dependency on
+  // memory-curator.
   container.register(
     MEMORY_CONTRACT_TOKENS.SYMBOL_SINK,
     { useClass: MemoryStoreSymbolSink },

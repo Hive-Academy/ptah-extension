@@ -1,4 +1,4 @@
-/**
+﻿/**
  * OAuthProxyStrategy — unit specs.
  *
  * The OAuth proxy strategy multiplexes two sub-providers:
@@ -58,7 +58,6 @@ function createMockCopilotAuth(): jest.Mocked<ICopilotAuthService> {
     getAuthState: jest.fn().mockResolvedValue(null),
     getHeaders: jest.fn().mockResolvedValue({}),
     logout: jest.fn().mockResolvedValue(undefined),
-    // TASK_2026_104 B8a: headless device-code API. The OAuth proxy strategy
     // never calls these directly (it uses tryRestoreAuth + isAuthenticated),
     // so a no-op mock is sufficient to satisfy the interface.
     beginLogin: jest.fn().mockResolvedValue({

@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Copilot CLI Skill Installer
- * TASK_2025_160: Copies Ptah plugin skills to ~/.copilot/skills/ptah-{skillName}/
  *
  * Copilot CLI discovers skills from ~/.copilot/skills/{skillName}/SKILL.md
  * (flat structure, one level deep). Each skill must be a direct child of
@@ -154,7 +153,7 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
         // Non-fatal: best-effort cleanup of stale skills
       }
 
-      // Sync command files from plugins (TASK_2025_201)
+      // Sync command files from plugins
       if (syncCommandsEnabled) {
         await this.syncCommands(pluginPaths, errors);
       }

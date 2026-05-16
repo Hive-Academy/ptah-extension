@@ -1,6 +1,6 @@
 // SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
 export const sql = `
--- TASK_2026_114: User-controlled workspace indexing state.
+-- User-controlled workspace indexing state.
 -- One row per workspace (keyed by fingerprint). Additive — no existing tables modified.
 
 CREATE TABLE IF NOT EXISTS indexing_state (

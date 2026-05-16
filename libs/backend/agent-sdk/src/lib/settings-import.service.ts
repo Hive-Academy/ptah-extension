@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Settings Import Service
- * TASK_2025_210: Imports a PtahSettingsExport object into the current platform's storage.
  *
  * Platform-agnostic — uses ISecretStorage via PLATFORM_TOKENS for secret import.
  * Config values are not imported because IWorkspaceProvider is read-only;

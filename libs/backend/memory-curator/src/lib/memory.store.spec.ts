@@ -190,7 +190,7 @@ describe('MemoryStore write-counter bumps', () => {
 });
 
 // ---------------------------------------------------------------------------
-// D5: handleFatalWriteError wiring
+// handleFatalWriteError wiring
 // ---------------------------------------------------------------------------
 
 describe('MemoryStore D5 — handleFatalWriteError wiring', () => {

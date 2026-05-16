@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Config Watcher - Handles automatic re-initialization on config changes
  *
  * Responsibilities:
@@ -43,7 +43,6 @@ export class ConfigWatcher {
     this.dispose();
 
     // Watch auth-related config keys (non-sensitive settings)
-    // TASK_2025_129 Batch 3: Added anthropicProviderId for multi-provider support
     const watchKeys = ['authMethod', 'anthropicProviderId'];
 
     for (const key of watchKeys) {

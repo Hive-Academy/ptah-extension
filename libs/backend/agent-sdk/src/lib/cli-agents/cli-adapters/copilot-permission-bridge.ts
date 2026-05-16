@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Copilot Permission Bridge
- * TASK_2025_162: Bidirectional async communication between the Copilot SDK's
  * permission hooks and the webview UI.
  *
  * Handles TWO SDK permission systems:
@@ -14,7 +13,6 @@
  *
  * Auto-approves read-only tools and 'read' permission kinds to reduce friction.
  *
- * TASK_2025_215: Removed 5-minute setTimeout-based timeout. Permission requests
  * now block indefinitely until the user responds or cleanup resolves them
  * (matching Claude Code CLI behavior).
  */
@@ -31,7 +29,6 @@ import type {
 
 /**
  * Fine-grained permission policy for Copilot SDK tool/permission approval.
- * TASK_2025_177: Replaces boolean autoApprove with structured presets.
  */
 export interface PermissionPolicy {
   readonly name: string;

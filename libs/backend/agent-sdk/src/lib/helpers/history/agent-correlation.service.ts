@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Agent Correlation Service
  *
  * Correlates agent sessions to Task tool_uses using timestamp-based matching.
@@ -10,7 +10,6 @@
  * - Correlate agents to tasks by timestamp proximity
  * - Extract tool_result blocks from user messages
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -64,7 +63,7 @@ export class AgentCorrelationService {
    * @returns Map of agentId to agent data entry
    */
   buildAgentDataMap(
-    agentSessions: AgentSessionData[]
+    agentSessions: AgentSessionData[],
   ): Map<string, AgentDataMapEntry> {
     const map = new Map<string, AgentDataMapEntry>();
 
@@ -181,7 +180,7 @@ export class AgentCorrelationService {
    */
   correlateAgentsToTasks(
     taskToolUses: TaskToolUse[],
-    agentDataMap: Map<string, AgentDataMapEntry>
+    agentDataMap: Map<string, AgentDataMapEntry>,
   ): Map<string, string> {
     const map = new Map<string, string>();
     const usedAgents = new Set<string>();
@@ -214,17 +213,17 @@ export class AgentCorrelationService {
             toolUseId: task.toolUseId,
             resumeAgentId: task.resumeAgentId,
             availableKeys: [...agentDataMap.keys()].slice(0, 10),
-          }
+          },
         );
       }
     }
 
     // === SECOND PASS: Timestamp-based matching for non-resume Tasks ===
     const sortedTasks = [...taskToolUses].sort(
-      (a, b) => a.timestamp - b.timestamp
+      (a, b) => a.timestamp - b.timestamp,
     );
     const sortedAgents = [...agentDataMap.values()].sort(
-      (a, b) => a.timestamp - b.timestamp
+      (a, b) => a.timestamp - b.timestamp,
     );
 
     for (const task of sortedTasks) {
@@ -274,7 +273,7 @@ export class AgentCorrelationService {
    * @returns Map of tool_use_id to tool result data
    */
   extractAllToolResults(
-    messages: SessionHistoryMessage[]
+    messages: SessionHistoryMessage[],
   ): Map<string, ToolResultData> {
     const results = new Map<string, ToolResultData>();
 

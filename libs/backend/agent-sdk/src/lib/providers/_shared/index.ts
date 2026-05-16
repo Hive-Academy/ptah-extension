@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Shared provider infrastructure.
  *
  * - provider-registry: the AnthropicProvider contract + ANTHROPIC_PROVIDERS
@@ -8,7 +8,7 @@
  *   extends TranslationProxyBase from here.
  *
  * Moved from helpers/anthropic-provider-registry.ts and openai-translation/
- * in TASK_2025_291 Wave C3.
+ *.
  */
 
 export * from './provider-registry';

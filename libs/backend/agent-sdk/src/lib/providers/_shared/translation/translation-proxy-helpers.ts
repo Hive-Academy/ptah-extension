@@ -1,7 +1,7 @@
-/**
+﻿/**
  * TranslationProxyBase helpers — stateless HTTP/JSON utilities.
  *
- * Extracted from `translation-proxy-base.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `translation-proxy-base.ts` as .
  *
  * These helpers have no instance dependencies; the translation proxy class
  * continues to own the HTTP server, auth flow, and request counter.

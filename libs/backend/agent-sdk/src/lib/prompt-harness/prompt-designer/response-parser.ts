@@ -1,7 +1,6 @@
-/**
+﻿/**
  * Response Parser for Prompt Designer Agent
  *
- * TASK_2025_137 Batch 2: Parses and validates LLM responses,
  * with fallback handling for malformed output.
  */
 
@@ -20,7 +19,7 @@ import type {
  */
 async function safeCountTokens(
   text: string,
-  countTokens: (t: string) => Promise<number>
+  countTokens: (t: string) => Promise<number>,
 ): Promise<number> {
   try {
     return await countTokens(text);
@@ -39,22 +38,22 @@ async function safeCountTokens(
  */
 export async function parseStructuredResponse(
   response: PromptDesignerResponse,
-  countTokens: (text: string) => Promise<number>
+  countTokens: (text: string) => Promise<number>,
 ): Promise<PromptDesignerOutput> {
   // Count tokens for each section using named object (avoids magic number indexing)
   const tokenCounts = {
     projectContext: await safeCountTokens(response.projectContext, countTokens),
     frameworkGuidelines: await safeCountTokens(
       response.frameworkGuidelines,
-      countTokens
+      countTokens,
     ),
     codingStandards: await safeCountTokens(
       response.codingStandards,
-      countTokens
+      countTokens,
     ),
     architectureNotes: await safeCountTokens(
       response.architectureNotes,
-      countTokens
+      countTokens,
     ),
     qualityGuidance: response.qualityGuidance
       ? await safeCountTokens(response.qualityGuidance, countTokens)
@@ -105,7 +104,6 @@ export async function parseStructuredResponse(
 
 /**
  * Extended sections type that includes optional qualityGuidance
- * @since TASK_2025_141
  */
 interface ExtractedSections extends Partial<PromptDesignerResponse> {
   qualityGuidance?: string;
@@ -122,7 +120,7 @@ interface ExtractedSections extends Partial<PromptDesignerResponse> {
  */
 export async function parseTextResponse(
   text: string,
-  countTokens: (text: string) => Promise<number>
+  countTokens: (text: string) => Promise<number>,
 ): Promise<PromptDesignerOutput | null> {
   const sections = extractSections(text);
 
@@ -135,19 +133,19 @@ export async function parseTextResponse(
   const tokenCounts = {
     projectContext: await safeCountTokens(
       sections.projectContext || '',
-      countTokens
+      countTokens,
     ),
     frameworkGuidelines: await safeCountTokens(
       sections.frameworkGuidelines || '',
-      countTokens
+      countTokens,
     ),
     codingStandards: await safeCountTokens(
       sections.codingStandards || '',
-      countTokens
+      countTokens,
     ),
     architectureNotes: await safeCountTokens(
       sections.architectureNotes || '',
-      countTokens
+      countTokens,
     ),
     qualityGuidance: sections.qualityGuidance
       ? await safeCountTokens(sections.qualityGuidance, countTokens)
@@ -204,7 +202,7 @@ export async function parseTextResponse(
  * - "### 1. Project Context"
  * - "**Project Context**"
  *
- * @since TASK_2025_141: Added qualityGuidance section extraction
+ * : Added qualityGuidance section extraction
  */
 function extractSections(text: string): ExtractedSections {
   const sections: ExtractedSections = {};
@@ -227,7 +225,7 @@ function extractSections(text: string): ExtractedSections {
       /(?:^|\n)#+\s*(?:\d+\.\s*)?Architecture\s*(?:Notes?|Guidelines?)\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
       /(?:^|\n)\*\*Architecture\s*(?:Notes?|Guidelines?)\*\*\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
     ],
-    // Quality Guidance patterns (TASK_2025_141)
+    // Quality Guidance patterns
     qualityGuidance: [
       /(?:^|\n)#+\s*(?:\d+\.\s*)?Quality\s*(?:Guidance|Context|Issues?)\s*(?:\(Optional\))?\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
       /(?:^|\n)\*\*Quality\s*(?:Guidance|Context|Issues?)\*\*\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
@@ -259,7 +257,7 @@ function extractSections(text: string): ExtractedSections {
 export function truncateToTokenBudget(
   content: string,
   maxTokens: number,
-  currentTokens: number
+  currentTokens: number,
 ): string {
   if (currentTokens <= maxTokens) {
     return content;
@@ -288,7 +286,7 @@ export function truncateToTokenBudget(
  *
  * @param output - Generated output to validate
  * @returns Validation result with issues
- * @since TASK_2025_141: Added qualityGuidance validation
+ * : Added qualityGuidance validation
  */
 export function validateOutput(output: PromptDesignerOutput): {
   valid: boolean;
@@ -312,7 +310,7 @@ export function validateOutput(output: PromptDesignerOutput): {
   // Architecture notes can be optional for simple projects
   // No minimum check
 
-  // Quality guidance validation (TASK_2025_141)
+  // Quality guidance validation
   // If present and non-empty (after trimming), it should have meaningful content (at least 30 chars)
   // Empty string or whitespace-only is allowed (treated as absent)
   if (
@@ -352,7 +350,7 @@ export function validateOutput(output: PromptDesignerOutput): {
   const tokenBudget = output.qualityGuidance ? 2300 : 2000;
   if (output.totalTokens > tokenBudget) {
     issues.push(
-      `Total tokens (${output.totalTokens}) exceeds budget of ${tokenBudget}`
+      `Total tokens (${output.totalTokens}) exceeds budget of ${tokenBudget}`,
     );
   }
 
@@ -367,7 +365,7 @@ export function validateOutput(output: PromptDesignerOutput): {
  *
  * @param output - Parsed output sections
  * @returns Formatted prompt string ready for appending
- * @since TASK_2025_141: Added qualityGuidance section formatting
+ * : Added qualityGuidance section formatting
  */
 export function formatAsPromptSection(output: PromptDesignerOutput): string {
   const parts: string[] = [];
@@ -375,7 +373,7 @@ export function formatAsPromptSection(output: PromptDesignerOutput): string {
   parts.push('# Project-Specific Guidance');
   parts.push('');
   parts.push(
-    '*This guidance was automatically generated based on workspace analysis.*'
+    '*This guidance was automatically generated based on workspace analysis.*',
   );
   parts.push('');
 
@@ -407,7 +405,7 @@ export function formatAsPromptSection(output: PromptDesignerOutput): string {
     parts.push('');
   }
 
-  // Quality Guidance section (TASK_2025_141)
+  // Quality Guidance section
   if (output.qualityGuidance) {
     parts.push('## Quality Guidance');
     parts.push('');

@@ -1,5 +1,5 @@
-/**
- * Enhanced Prompts Module (TASK_2025_137)
+﻿/**
+ * Enhanced Prompts Module
  *
  * Intelligent prompt generation system that analyzes workspaces and
  * generates project-specific guidance for Claude.
@@ -15,14 +15,14 @@
  *   - cache-invalidation.ts: File-based invalidation triggers
  */
 
-// Core prompt (TASK_2025_137 Batch 1)
+// Core prompt
 export {
   PTAH_CORE_SYSTEM_PROMPT,
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
   PTAH_MCP_MANDATE_PROMPT,
 } from './ptah-core-prompt';
 
-// Prompt Designer Agent (TASK_2025_137 Batch 2)
+// Prompt Designer Agent
 export {
   PromptDesignerAgent,
   PROMPT_DESIGNER_SYSTEM_PROMPT,
@@ -47,7 +47,7 @@ export type {
   CachedPromptDesign,
 } from './prompt-designer';
 
-// Prompt Cache Service (TASK_2025_137 Batch 3)
+// Prompt Cache Service
 export {
   PromptCacheService,
   DEFAULT_CACHE_CONFIG,
@@ -72,7 +72,7 @@ export type {
   CacheKeyComponents,
 } from './prompt-designer';
 
-// Enhanced Prompts Service (TASK_2025_137 Batch 4)
+// Enhanced Prompts Service
 export {
   DetectedStack,
   EnhancedPromptsState,

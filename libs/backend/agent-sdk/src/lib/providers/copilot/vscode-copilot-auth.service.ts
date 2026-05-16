@@ -1,4 +1,4 @@
-/**
+﻿/**
  * VS Code-Enhanced Copilot Auth Service
  *
  * Extends the platform-agnostic CopilotAuthService with VS Code's
@@ -9,7 +9,6 @@
  * 2. File-based token from ~/.config/github-copilot/hosts.json (base class)
  * 3. GitHub device code flow (base class fallback)
  *
- * TASK_2025_224: Created as VS Code-specific subclass to keep the base
  * CopilotAuthService platform-agnostic for Electron support.
  */
 import * as vscode from 'vscode';

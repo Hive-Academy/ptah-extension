@@ -1,5 +1,5 @@
-/**
- * Agent monitor + Copilot permission wiring (TASK_2025_291 Wave C4b).
+﻿/**
+ * Agent monitor + Copilot permission wiring.
  *
  * Shared across VS Code, Electron, TUI. Lazily resolves DI services so the
  * helper can run before some app-side services are registered; when a required

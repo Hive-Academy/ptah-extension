@@ -148,7 +148,7 @@ export class MemorySearchService implements IMemoryReader {
       if (workerClient !== null) {
         try {
           // Cap candidate text at 512 chars before sending to the worker to
-          // guard against OOM on unexpectedly large chunks (F-L3 defense-in-depth).
+          // guard against OOM on unexpectedly large chunks (defense-in-depth).
           const MAX_CANDIDATE_CHARS = 512;
           const rerankInput = fused.slice(0, limit * 4).map((e) => ({
             id: String(e.row.rowid),

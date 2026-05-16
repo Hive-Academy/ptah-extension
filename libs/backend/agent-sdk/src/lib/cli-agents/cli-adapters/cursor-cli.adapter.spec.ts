@@ -1,6 +1,5 @@
-/**
+﻿/**
  * CursorCliAdapter Unit Tests
- * TASK_2025_294 Batch W7.B1
  *
  * Tests: detect() (must resolve cursor-agent, NOT cursor), buildCommand(),
  *        runSdk() streaming with JSONL events, AbortSignal propagation,

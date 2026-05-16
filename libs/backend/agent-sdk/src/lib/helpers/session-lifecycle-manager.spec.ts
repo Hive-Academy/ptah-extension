@@ -1,5 +1,5 @@
-/**
- * SessionLifecycleManager — unit specs (TASK_2025_294 W3.B5).
+﻿/**
+ * SessionLifecycleManager — unit specs.
  *
  * Surface under test:
  *   - Workspace resolution & active-session ordering (legacy tests retained
@@ -825,7 +825,7 @@ describe('SessionLifecycleManager', () => {
   });
 
   // =========================================================================
-  // NEW COVERAGE (TASK_2026_118 Batch 8, Task 8.2): find() identity,
+  // NEW COVERAGE: find() identity,
   // getActiveSessionIds() ordering, executeQuery → bindRealSessionId flow.
   // =========================================================================
 
@@ -985,11 +985,11 @@ describe('SessionLifecycleManager', () => {
   });
 
   // =========================================================================
-  // END NEW COVERAGE (TASK_2026_118 Batch 8)
+  // END NEW COVERAGE
   // =========================================================================
 
   // -------------------------------------------------------------------------
-  // warmQuery wiring (TASK_2026_109 Fix 3 wiring)
+  // warmQuery wiring
   // -------------------------------------------------------------------------
 
   describe('warmQuery handoff (executeQuery)', () => {
@@ -1096,7 +1096,7 @@ describe('SessionLifecycleManager', () => {
   });
 
   // =========================================================================
-  // NEW COVERAGE (TASK_2026_118 Batch 9): real-registry integration tests
+  // NEW COVERAGE: real-registry integration tests
   // closing audit gaps 8 / 9 / 10 / 13.
   //
   // All four tests use the existing makeHarness() which wires a REAL
@@ -1383,7 +1383,6 @@ describe('SessionLifecycleManager', () => {
   });
 
   // =========================================================================
-  // TASK_2026_118 Batch 10 — error-path hardening (audit gaps 11 / 12).
   // =========================================================================
 
   // ---------------------------------------------------------------------------

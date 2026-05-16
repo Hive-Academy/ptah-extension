@@ -1,5 +1,5 @@
 /**
- * Pure salience scoring (TASK_2026_HERMES Track 1, §8.5).
+ * Pure salience scoring.
  *
  * `salience = base + 0.4*recency + 0.3*hits_decayed + 0.2*pinned + 0.1*tier_bias`
  *

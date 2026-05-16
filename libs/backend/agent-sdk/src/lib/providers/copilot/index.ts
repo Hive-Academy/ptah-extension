@@ -1,8 +1,6 @@
-/**
+﻿/**
  * Copilot Provider Module - Barrel exports
  *
- * @see TASK_2025_186 - Copilot Provider Integration
- * @see TASK_2025_193 - Shared OpenAI translation module extraction
  */
 
 // Auth service (injectable, stateful - platform-agnostic base class)
@@ -45,7 +43,6 @@ export type {
 
 // ---------------------------------------------------------------------------
 // Backward-compatible re-exports from shared openai-translation module
-// (TASK_2025_193: translators moved to openai-translation/)
 // ---------------------------------------------------------------------------
 
 // Response translator (renamed: CopilotResponseTranslator -> OpenAIResponseTranslator)

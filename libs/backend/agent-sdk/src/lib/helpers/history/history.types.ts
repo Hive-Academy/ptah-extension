@@ -1,10 +1,9 @@
-/**
+﻿/**
  * History Types Module
  *
  * Centralized type definitions for session history processing services.
  * Extracted from session-history-reader.service.ts for better maintainability.
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import type { JSONLMessage } from '@ptah-extension/shared';

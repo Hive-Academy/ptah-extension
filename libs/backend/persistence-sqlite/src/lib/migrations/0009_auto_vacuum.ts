@@ -1,8 +1,6 @@
 /**
  * Migration 0009 — Enable incremental auto-vacuum.
  *
- * TASK_2026_THOTH_PERSISTENCE_HARDENING D9
- *
  * Prevents unbounded DB file growth by switching auto_vacuum from NONE to
  * INCREMENTAL mode. Because changing auto_vacuum requires a full page rewrite,
  * VACUUM must be executed immediately after setting the pragma — and VACUUM
@@ -17,8 +15,8 @@
  * Idempotent: if mode is already INCREMENTAL (2), the migration is a no-op.
  * If mode is FULL (1), also switches to INCREMENTAL to standardise behaviour.
  *
- * D9 review fix: VACUUM INTO strategy
- * ------------------------------------
+ * VACUUM INTO strategy
+ * --------------------
  * The spec requires `VACUUM INTO` when auto_vacuum is currently NONE, because
  * plain `VACUUM` rewrites the DB file in-place:
  *   - Requires free disk space equal to the DB size (risk on small SSDs).

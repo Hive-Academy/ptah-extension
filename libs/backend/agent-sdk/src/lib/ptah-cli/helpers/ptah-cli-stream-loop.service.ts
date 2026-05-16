@@ -1,11 +1,10 @@
-/**
+﻿/**
  * Ptah CLI Stream Loop - Per-stream message processing
  *
  * **Not injectable** — instantiated per spawnAgent() call because it holds
  * mutable per-stream state (streaming flags, pending tool args, session ID).
  * Follows the same plain-class pattern as SdkStreamProcessor.
  *
- * @see TASK_2025_176 - PtahCliRegistry refactoring
  */
 
 import type {

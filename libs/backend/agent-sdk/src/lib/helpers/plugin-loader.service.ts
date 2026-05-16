@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Plugin Loader Service - Manages plugin metadata and per-workspace plugin configuration
  *
  * Responsibilities:
@@ -11,7 +11,6 @@
  * - All methods gracefully handle uninitialized state (null pluginsBasePath/workspaceState)
  * - Plugin IDs are validated against the known set to prevent arbitrary path construction
  *
- * @see TASK_2025_153 - Plugin Configuration Feature
  */
 
 import * as path from 'path';

@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Enhanced Prompts State Store — workspace-keyed in-memory + globalState persistence.
  *
- * Extracted from `enhanced-prompts.service.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `enhanced-prompts.service.ts` as .
  *
  * Plain class composed internally by `EnhancedPromptsService` — no DI token.
  * Owns the `Map<workspacePath, EnhancedPromptsState>` and the base64url storage

@@ -1,5 +1,5 @@
-/**
- * SdkStreamProcessor — unit specs (TASK_2025_294 W6.B1).
+﻿/**
+ * SdkStreamProcessor — unit specs.
  *
  * Surface under test:
  *   - SDK message consumption order: system → stream_event → assistant → user →

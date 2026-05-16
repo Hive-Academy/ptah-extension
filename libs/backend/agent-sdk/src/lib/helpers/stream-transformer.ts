@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Stream Transformer
  *
  * Transforms SDK message streams into FlatStreamEventUnion for UI rendering.
@@ -9,7 +9,6 @@
  * - Extract stats (cost, tokens, duration) from result messages
  *
  * NOTE: Does NOT store messages - SDK handles persistence natively.
- * @see TASK_2025_088 - Removed redundant message storage
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -37,7 +36,6 @@ import type { ModelResolver } from '../auth/model-resolver';
 
 /**
  * Callback type for notifying when real session ID is received from SDK.
- * TASK_2025_095: Now includes tabId for direct routing without temp ID lookup.
  * - tabId: Frontend tab ID for direct routing (undefined for resumed sessions)
  * - realSessionId: The actual SDK UUID that should be used for all subsequent operations
  */
@@ -95,7 +93,6 @@ export interface StreamTransformConfig {
   onSessionIdResolved?: SessionIdResolvedCallback;
   onResultStats?: ResultStatsCallback;
   /**
-   * TASK_2025_095: Frontend tab ID for direct routing of session:id-resolved.
    * Passed to callback so frontend can find tab directly without temp ID lookup.
    */
   tabId?: string;
@@ -209,7 +206,6 @@ function validateStats(
  * - Handle authentication errors gracefully
  *
  * Does NOT store messages - SDK handles persistence natively.
- * @see TASK_2025_088 - Simplified architecture
  */
 @injectable()
 export class StreamTransformer {
@@ -248,7 +244,6 @@ export class StreamTransformer {
       async *[Symbol.asyncIterator]() {
         let sdkMessageCount = 0;
         let yieldedEventCount = 0;
-        // TASK_2025_092: Track the effective session ID - updated when SDK resolves real UUID
         // Initial value is temp ID from config, updated to real UUID on system init message
         let effectiveSessionId = sessionId;
 
@@ -350,11 +345,9 @@ export class StreamTransformer {
             if (isSystemInit(sdkMessage)) {
               const realSessionId = sdkMessage.session_id;
 
-              // TASK_2025_092: Update effective session ID to real UUID
               // This ensures stats and events use the real UUID, not temp ID
               effectiveSessionId = realSessionId as SessionId;
 
-              // TASK_2025_095: Notify caller with tabId for direct routing
               // tabId allows frontend to find tab directly without temp ID lookup
               if (onSessionIdResolved) {
                 onSessionIdResolved(tabId, realSessionId);
@@ -371,7 +364,6 @@ export class StreamTransformer {
                 );
                 // Continue processing (don't throw) - stats are non-critical
               } else {
-                // TASK_2025_092: Use effectiveSessionId (real UUID) instead of temp ID
                 // This ensures frontend can find the tab by sessionId
                 // STATS_FIX: Now includes cache tokens for proper cost tracking
                 // Extract per-model usage data including context window
@@ -388,7 +380,6 @@ export class StreamTransformer {
                     }
 
                     // Resolve actual model for accurate pricing (e.g., "claude-opus-4-..." → "kimi-k2.5")
-                    // TASK_2025_164: Pass authEnv for provider-aware resolution
                     const resolvedModel = modelResolver.resolveForPricing(
                       model,
                       authEnv,
@@ -490,7 +481,7 @@ export class StreamTransformer {
               }
             }
 
-            // CRITICAL FIX (TASK_2025_092): Must process 'user' messages to extract tool_result!
+            // CRITICAL FIX: Must process 'user' messages to extract tool_result!
             // SDK sends tool_result content blocks in user messages after tool execution.
             // Without this, tools remain in __streaming: true state forever.
             // Also process compact_boundary (type: 'system') to emit compaction_complete events.
@@ -509,7 +500,6 @@ export class StreamTransformer {
               isCompactBoundary(sdkMessage) ||
               isLocalCommandOutput(sdkMessage)
             ) {
-              // TASK_2025_092: Use effectiveSessionId (real UUID) for events
               // This ensures events have the real sessionId for proper routing
               const flatEvents = messageTransformer.transform(
                 sdkMessage,

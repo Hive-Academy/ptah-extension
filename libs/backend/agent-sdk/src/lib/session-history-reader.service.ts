@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SessionHistoryReaderService - Facade for session history reading
  *
  * This service provides the public API for reading session history from Claude JSONL files
@@ -17,7 +17,6 @@
  * - readSessionHistory(sessionId, workspacePath): Promise<{events, stats}>
  * - readHistoryAsMessages(sessionId, workspacePath): Promise<{id, role, content, timestamp}[]>
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -578,7 +577,6 @@ export class SessionHistoryReaderService {
     }
 
     // Convert per-model map to sorted array (highest cost first).
-    // TASK_2026_109 C3 — primary-model selection is delegated to the shared
     // `pickPrimaryModel` helper below; the array is still cost-sorted for
     // downstream consumers that show a per-model breakdown.
     const modelUsageList = Array.from(perModelUsage.entries())
@@ -590,7 +588,6 @@ export class SessionHistoryReaderService {
       }))
       .sort((a, b) => b.costUSD - a.costUSD);
 
-    // TASK_2026_109 C3 — pick the primary model deterministically using
     // the same algorithm as the live SESSION_STATS aggregator path. This
     // prevents the displayed model name from flipping after a compaction
     // reload when costs are close (e.g. mostly Sonnet + one Opus turn).

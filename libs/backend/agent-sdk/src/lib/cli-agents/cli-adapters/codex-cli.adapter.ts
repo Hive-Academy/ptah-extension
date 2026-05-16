@@ -1,8 +1,5 @@
-/**
+﻿/**
  * Codex CLI Adapter
- * TASK_2025_157: Headless Codex CLI agent integration
- * TASK_2025_158: SDK-based execution via @openai/codex-sdk
- * TASK_2025_177: Session resume, progressive streaming, MCP/web_search/todo_list,
  *               toolCallId, reasoning→thinking, listModels
  *
  * CLI fallback: codex --quiet "task description"
@@ -141,7 +138,7 @@ let codexSdkModule: CodexSdkModule | null = null;
  * Lazily import the ESM-only @openai/codex-sdk package.
  * Only caches successful imports so a failed import can be retried.
  *
- * The SDK is bundled with the extension via esbuild (TASK_2025_232).
+ * The SDK is bundled with the extension via esbuild.
  * Uses a string literal in import() so esbuild can statically resolve
  * and bundle the package at build time.
  */
@@ -530,7 +527,6 @@ export class CodexCliAdapter implements CliAdapter {
    * The SDK is ESM-only so we use a cached dynamic import().
    * Abort is achieved via AbortSignal passed to thread.runStreamed().
    *
-   * TASK_2025_177: Supports session resume via resumeThread(), progressive
    * streaming via item.started/updated, toolCallId emission, and
    * reasoning→thinking mapping.
    */
@@ -745,7 +741,6 @@ export class CodexCliAdapter implements CliAdapter {
    * Process a single SDK stream event and emit relevant output + structured segments.
    * Dispatches to per-event-type handler methods for testability and readability.
    *
-   * TASK_2025_177: Handles item.started (early tool-call segments), item.updated
    * (progressive text/thinking deltas), and enhanced item.completed with toolCallId,
    * MCP tool calls, web_search, and todo_list.
    */

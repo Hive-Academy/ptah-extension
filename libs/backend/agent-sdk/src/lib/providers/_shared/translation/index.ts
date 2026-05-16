@@ -1,10 +1,9 @@
-/**
+﻿/**
  * OpenAI Translation Module - Barrel Exports
  *
  * Shared Anthropic <-> OpenAI translation infrastructure used by
  * all translation proxy providers (Copilot, Codex, etc.).
  *
- * @see TASK_2025_193 - Codex Translation Proxy Support
  */
 
 // Request translator (pure functions, stateless)

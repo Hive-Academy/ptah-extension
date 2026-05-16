@@ -1,4 +1,4 @@
-/**
+﻿/**
  * CopilotAuthService — unit specs.
  *
  * Covers the platform-agnostic Copilot authentication service. Security &
@@ -757,7 +757,6 @@ describe('CopilotAuthService', () => {
 
   // -------------------------------------------------------------------------
   // Headless device-code API: beginLogin() / pollLogin() / cancelLogin()
-  // (TASK_2026_104 B8a)
   // -------------------------------------------------------------------------
 
   describe('beginLogin() / pollLogin() / cancelLogin()', () => {

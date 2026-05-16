@@ -1,10 +1,9 @@
-/**
+﻿/**
  * Ptah CLI Config Persistence Service
  *
  * Injectable singleton responsible for loading, saving, and migrating
  * Ptah CLI agent configurations from VS Code's ConfigManager.
  *
- * @see TASK_2025_176 - PtahCliRegistry refactoring
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -29,7 +28,7 @@ export class PtahCliConfigPersistence {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
-    private readonly authSecrets: IAuthSecretsService
+    private readonly authSecrets: IAuthSecretsService,
   ) {}
 
   /**
@@ -38,7 +37,7 @@ export class PtahCliConfigPersistence {
   loadConfigs(): PtahCliConfig[] {
     return this.config.getWithDefault<PtahCliConfig[]>(
       PTAH_CLI_AGENTS_CONFIG_KEY,
-      []
+      [],
     );
   }
 
@@ -70,18 +69,18 @@ export class PtahCliConfigPersistence {
 
     const legacyConfigs = this.config.getWithDefault<PtahCliConfig[]>(
       LEGACY_CONFIG_KEY,
-      []
+      [],
     );
     if (legacyConfigs.length === 0) return;
 
     const currentConfigs = this.config.getWithDefault<PtahCliConfig[]>(
       PTAH_CLI_AGENTS_CONFIG_KEY,
-      []
+      [],
     );
     if (currentConfigs.length > 0) return;
 
     this.logger.info(
-      '[PtahCliConfigPersistence] Migrating legacy customAgents config...'
+      '[PtahCliConfigPersistence] Migrating legacy customAgents config...',
     );
 
     await this.config.set(PTAH_CLI_AGENTS_CONFIG_KEY, legacyConfigs);
@@ -89,20 +88,20 @@ export class PtahCliConfigPersistence {
     for (const agentConfig of legacyConfigs) {
       try {
         const legacyKey = await this.authSecrets.getProviderKey(
-          `${LEGACY_KEY_PREFIX}.${agentConfig.id}`
+          `${LEGACY_KEY_PREFIX}.${agentConfig.id}`,
         );
         if (legacyKey) {
           await this.authSecrets.setProviderKey(
             `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
-            legacyKey
+            legacyKey,
           );
           await this.authSecrets.deleteProviderKey(
-            `${LEGACY_KEY_PREFIX}.${agentConfig.id}`
+            `${LEGACY_KEY_PREFIX}.${agentConfig.id}`,
           );
         }
       } catch {
         this.logger.warn(
-          `[PtahCliConfigPersistence] Failed to migrate secret for agent ${agentConfig.id}`
+          `[PtahCliConfigPersistence] Failed to migrate secret for agent ${agentConfig.id}`,
         );
       }
     }
@@ -110,7 +109,7 @@ export class PtahCliConfigPersistence {
     await this.config.set(LEGACY_CONFIG_KEY, undefined);
 
     this.logger.info(
-      `[PtahCliConfigPersistence] Migrated ${legacyConfigs.length} agents to new config key`
+      `[PtahCliConfigPersistence] Migrated ${legacyConfigs.length} agents to new config key`,
     );
   }
 }

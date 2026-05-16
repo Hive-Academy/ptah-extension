@@ -4,8 +4,8 @@
  * Transforms messages from the official Claude Agent SDK into flat streaming events
  * that contain relationship IDs instead of nested children trees.
  *
- * CRITICAL CHANGE (TASK_2025_082): Emits FlatStreamEventUnion[] instead of ExecutionNode[].
- * The frontend builds ExecutionNode trees at render time from these flat events.
+ * Emits FlatStreamEventUnion[]; the frontend builds ExecutionNode trees at
+ * render time from these flat events.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -75,24 +75,19 @@ import {
 export { isResultMessage as isSDKResultMessage };
 
 /**
- * SdkMessageTransformer - Transforms SDK messages to flat stream events
+ * SdkMessageTransformer - Transforms SDK messages to flat stream events.
  *
- * CRITICAL CHANGE (TASK_2025_082):
- * - Returns FlatStreamEventUnion[] instead of ExecutionNode[]
- * - NO tree building (no children field manipulation)
+ * - Returns FlatStreamEventUnion[] (no tree building, no children field manipulation)
  * - Emits events with relationship IDs (messageId, toolCallId, parentToolUseId)
- * - Removed 87 lines of complex state tracking (messageStates, messageUuidStack)
- * - Simple currentMessageId variable tracking instead
- *
- * TASK_2025_096 FIX: Changed from single currentMessageId to per-context tracking.
- * Main agent and subagent streams interleave, so we must track messageId separately
- * for each context (parentToolUseId). Without this, subagent text_delta events
- * would be associated with wrong messageId when main agent continues streaming.
+ * - Per-context message ID tracking: main agent and subagent streams interleave,
+ *   so we track messageId separately for each context (parentToolUseId).
+ *   Without this, subagent text_delta events would be associated with the wrong
+ *   messageId when the main agent continues streaming.
  */
 @injectable()
 export class SdkMessageTransformer {
   /**
-   * TASK_2025_096 FIX: Per-context message ID tracking.
+   * Per-context message ID tracking.
    * Key: parentToolUseId (or '' for root messages)
    * Value: current messageId for that context
    *
@@ -103,7 +98,7 @@ export class SdkMessageTransformer {
   private currentMessageIdByContext: Map<string, string> = new Map();
 
   /**
-   * TASK_2025_217: Per-context model tracking for streaming.
+   * Per-context model tracking for streaming.
    * Captures model from message_start event so it can be included
    * in the message_complete event at message_stop time.
    * Key: parentToolUseId || '' (same as currentMessageIdByContext)
@@ -113,9 +108,7 @@ export class SdkMessageTransformer {
   /**
    * Maps blockIndex to real contentBlock.id from tool_use blocks.
    * Used to associate tool_delta events with correct toolCallId.
-   * Cleared on message boundaries.
-   *
-   * TASK_2025_096 FIX: Changed to per-context tracking.
+   * Cleared on message boundaries. Per-context tracking.
    * Key: `${context}:${blockIndex}` where context = parentToolUseId || ''
    */
   private toolCallIdByContextAndBlock: Map<string, string> = new Map();
@@ -129,14 +122,14 @@ export class SdkMessageTransformer {
   private backgroundTaskToolUseIds: Set<string> = new Set();
 
   /**
-   * Phase 1: Maps SDK task_id → parent tool_use_id for task_* message routing.
+   * Maps SDK task_id → parent tool_use_id for task_* message routing.
    * Populated when task_started fires; used by task_progress, task_updated,
    * and task_notification to recover the parentToolUseId for event emission.
    */
   private taskIdToParentToolUseId: Map<string, string> = new Map();
 
   /**
-   * Phase 1: Tracks which parentToolUseIds have already had an AgentStartEvent
+   * Tracks which parentToolUseIds have already had an AgentStartEvent
    * emitted via the authoritative task_started path. Used to suppress the
    * legacy tool_result correlation path for those agents, preventing duplicates.
    */
@@ -160,13 +153,13 @@ export class SdkMessageTransformer {
   private activeSkillToolUseIds: Set<string> = new Set();
 
   /**
-   * TASK_2026_109 (A2): Per-session live cumulative token tracker.
+   * Per-session live cumulative token tracker.
    *
-   * The snapshot map itself was extracted into `LiveUsageTracker` to break a
-   * DI cycle introduced by injecting the transformer into the PreCompact hook
-   * handler. The transformer remains the sole writer (from
-   * `message_start.message.usage` and `message_delta.usage`); the
-   * `CompactionHookHandler` is the sole reader at PreCompact firing time.
+   * The snapshot map lives in `LiveUsageTracker` to break a DI cycle introduced
+   * by injecting the transformer into the PreCompact hook handler. The
+   * transformer remains the sole writer (from `message_start.message.usage`
+   * and `message_delta.usage`); the `CompactionHookHandler` is the sole reader
+   * at PreCompact firing time.
    *
    * The transformer keeps thin pass-through methods (`getCumulativeTokens`,
    * `clearSessionTokenSnapshot`) that delegate to the tracker so existing
@@ -180,15 +173,15 @@ export class SdkMessageTransformer {
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
-    // TASK_2026_109 (A1): Active session correlator for compact_boundary fallback.
+    // Active session correlator for compact_boundary fallback.
     // The SDK occasionally omits session_id on SDKSystemMessage{compact_boundary},
-    // which previously caused compaction_complete to ship with sessionId=''
-    // and break frontend banner dismissal. Prefer the lifecycle manager's
+    // which causes compaction_complete to ship with sessionId='' and break
+    // frontend banner dismissal. Prefer the lifecycle manager's
     // most-recently-active session id over sdkMessage.session_id.
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly sessionLifecycle: SessionLifecycleManager,
-    // TASK_2026_109 (cycle-break): Shared writer-side tracker used by the
-    // PreCompact hook handler at compaction firing time.
+    // Shared writer-side tracker used by the PreCompact hook handler
+    // at compaction firing time.
     @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
     private readonly usageTracker: LiveUsageTracker,
   ) {}
@@ -210,10 +203,10 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * TASK_2026_109 (A2): Read the most recent cumulative pre-compaction tokens
-   * observed for the given session, summing input + output + cache_read +
-   * cache_creation. Returns 0 when no usage has been observed yet (empty
-   * sessions, or compaction firing before the first assistant turn).
+   * Read the most recent cumulative pre-compaction tokens observed for the
+   * given session, summing input + output + cache_read + cache_creation.
+   * Returns 0 when no usage has been observed yet (empty sessions, or
+   * compaction firing before the first assistant turn).
    *
    * Used by `CompactionHookHandler` at PreCompact firing time to enrich the
    * `compaction_start` event broadcast.
@@ -223,7 +216,7 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * TASK_2026_109 (A2): Clear the cached token snapshot for a session.
+   * Clear the cached token snapshot for a session.
    * Should be called on session deletion to avoid unbounded growth across
    * long-lived extension sessions. Currently called from session lifecycle
    * cleanup; safe to no-op if the session was never tracked.
@@ -233,11 +226,11 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * TASK_2026_109 (A2): Internal — record an observed cumulative usage frame
-   * for a session. Cumulative semantics: each field overwrites the previous
-   * value when the new value is greater (Anthropic API delivers monotonic
-   * cumulative counts within a turn; cross-turn aggregation is handled by
-   * downstream stats services, not here).
+   * Internal — record an observed cumulative usage frame for a session.
+   * Cumulative semantics: each field overwrites the previous value when the
+   * new value is greater (Anthropic API delivers monotonic cumulative counts
+   * within a turn; cross-turn aggregation is handled by downstream stats
+   * services, not here).
    */
   private recordSessionUsage(
     sessionId: string,
@@ -338,7 +331,7 @@ export class SdkMessageTransformer {
         );
         this.clearStreamingState();
 
-        // TASK_2026_109 (A1): Resolve session correlator with strict priority.
+        // Resolve session correlator with strict priority.
         // Prefer caller-provided sessionId (StreamTransformer threads the active
         // tracking id), then SessionLifecycleManager's most-recently-active id,
         // and finally sdkMessage.session_id. NEVER fall back to '' — emitting a
@@ -364,13 +357,13 @@ export class SdkMessageTransformer {
           return [];
         }
 
-        // TASK_2026_109 (A4 + C4): Prune subagent entries and the live token
-        // snapshot for this session at the compaction boundary. Post-boundary
-        // tool-use ID space is fresh — stale entries would otherwise drift the
-        // AGENTS header counter and re-poison cumulative token tracking.
-        // `clearStreamingState()` above already clears the local
-        // `backgroundTaskToolUseIds` set (transformer-internal), so late
-        // tool_results matching pre-boundary IDs are harmless no-ops.
+        // Prune subagent entries and the live token snapshot for this session
+        // at the compaction boundary. Post-boundary tool-use ID space is fresh —
+        // stale entries would otherwise drift the AGENTS header counter and
+        // re-poison cumulative token tracking. `clearStreamingState()` above
+        // already clears the local `backgroundTaskToolUseIds` set
+        // (transformer-internal), so late tool_results matching pre-boundary
+        // IDs are harmless no-ops.
         this.subagentRegistry.pruneSession(resolvedSessionId);
         this.clearSessionTokenSnapshot(resolvedSessionId);
 
@@ -436,7 +429,7 @@ export class SdkMessageTransformer {
         return this.transformStreamEventToFlatEvents(sdkMessage, sessionId);
       }
 
-      // Phase 1: SDK task_* messages — subagent visibility surface.
+      // SDK task_* messages — subagent visibility surface.
       // These system messages carry authoritative lifecycle state for
       // subagents tracked via `agentProgressSummaries: true` Option.
 
@@ -508,12 +501,12 @@ export class SdkMessageTransformer {
       // ========== MESSAGE LIFECYCLE ==========
 
       case 'message_start': {
-        // TASK_2025_094 FIX: Use Anthropic API's message.id for stable message correlation
+        // Use Anthropic API's message.id for stable message correlation.
         //
-        // Log evidence proves message.id (like "gen-1766961093-H9nAcWY4jRlYPHnMLdIi")
-        // IS CONSISTENT across stream_event AND assistant messages for the same response.
-        //
-        // The SDK's uuid is DIFFERENT for each SDK message, which breaks:
+        // message.id (like "gen-1766961093-H9nAcWY4jRlYPHnMLdIi") is
+        // CONSISTENT across stream_event AND assistant messages for the same
+        // response. The SDK's uuid is DIFFERENT for each SDK message, which
+        // breaks:
         // 1. Tool linking: tool_start and tool_result end up with different messageIds
         // 2. Deduplication: same content gets added twice with different messageIds
         // 3. Tree building: events for same message scattered across multiple messageIds
@@ -536,9 +529,9 @@ export class SdkMessageTransformer {
         const messageId =
           message?.id || sdkMessage.uuid || `stream-msg-${Date.now()}`;
 
-        // TASK_2026_109 (A2): Capture initial cumulative usage from
-        // message_start (carries input_tokens + cache fields). Output tokens
-        // arrive later via message_delta.
+        // Capture initial cumulative usage from message_start (carries
+        // input_tokens + cache fields). Output tokens arrive later via
+        // message_delta.
         if (sessionId && message?.usage) {
           this.recordSessionUsage(sessionId, {
             input: message.usage.input_tokens,
@@ -548,13 +541,13 @@ export class SdkMessageTransformer {
           });
         }
 
-        // TASK_2025_096 FIX: Track current message ID per context
-        // Context = parentToolUseId (for nested agent messages) or '' (for root messages)
+        // Track current message ID per context.
+        // Context = parentToolUseId (for nested agent messages) or '' (for root messages).
         // This prevents main agent and subagent streams from interfering with each other.
         const context = parentToolUseId || '';
         this.currentMessageIdByContext.set(context, messageId);
 
-        // TASK_2025_217: Track model for this context so message_complete includes it
+        // Track model for this context so message_complete includes it
         if (message?.model) {
           this.currentModelByContext.set(context, message.model);
         }
@@ -606,7 +599,7 @@ export class SdkMessageTransformer {
           }
         ).usage;
 
-        // TASK_2026_109 (A2): Record cumulative usage for PreCompact hook.
+        // Record cumulative usage for PreCompact hook.
         // message_delta carries the running cumulative token counts; capture
         // the latest snapshot so the compaction_start event can ship with
         // accurate pre-compaction tokens.
@@ -619,7 +612,7 @@ export class SdkMessageTransformer {
           });
         }
 
-        // TASK_2025_096 FIX: Look up messageId by context
+        // Look up messageId by context
         const context = parentToolUseId || '';
         const currentMessageId = this.currentMessageIdByContext.get(context);
 
@@ -644,17 +637,17 @@ export class SdkMessageTransformer {
       }
 
       case 'message_stop': {
-        // TASK_2025_096 FIX: Look up messageId by context
+        // Look up messageId by context
         const context = parentToolUseId || '';
         const currentMessageId = this.currentMessageIdByContext.get(context);
 
-        // TASK_2025_086: Emit message_complete when stream ends
-        // This is CRITICAL - without this, StreamTransformer never stores the message
-        // because it waits for message_complete to finalize the accumulator
+        // Emit message_complete when stream ends.
+        // CRITICAL: without this, StreamTransformer never stores the message
+        // because it waits for message_complete to finalize the accumulator.
         const events: FlatStreamEventUnion[] = [];
 
         if (currentMessageId) {
-          // TASK_2025_217: Include model captured from message_start
+          // Include model captured from message_start
           const contextModel = this.currentModelByContext.get(context);
           const messageCompleteEvent: MessageCompleteEvent = {
             id: generateEventId(),
@@ -670,7 +663,7 @@ export class SdkMessageTransformer {
           events.push(messageCompleteEvent);
         }
 
-        // TASK_2025_096 FIX: Clear tracking for this context only
+        // Clear tracking for this context only
         this.currentMessageIdByContext.delete(context);
         this.currentModelByContext.delete(context);
         for (const key of this.toolCallIdByContextAndBlock.keys()) {
@@ -698,7 +691,7 @@ export class SdkMessageTransformer {
 
         const blockType = contentBlock?.type || 'text';
 
-        // TASK_2025_096 FIX: Look up messageId by context
+        // Look up messageId by context
         const context = parentToolUseId || '';
         const currentMessageId = this.currentMessageIdByContext.get(context);
 
@@ -744,7 +737,7 @@ export class SdkMessageTransformer {
             );
           }
 
-          // TASK_2025_096 FIX: Track real toolCallId per context
+          // Track real toolCallId per context
           const blockKey = `${context}:${blockIndex}`;
           this.toolCallIdByContextAndBlock.set(blockKey, contentBlock.id);
 
@@ -761,7 +754,7 @@ export class SdkMessageTransformer {
             parentToolUseId,
           };
 
-          // TASK_2025_096 FIX: Only emit tool_start during streaming.
+          // Only emit tool_start during streaming.
           // DO NOT emit agent_start here - we don't have the agentType yet.
           // agent_start will be emitted when the complete message arrives
           // (in transformCompleteAssistantMessage) with the correct agentType.
@@ -786,7 +779,7 @@ export class SdkMessageTransformer {
           }
         ).delta;
 
-        // TASK_2025_096 FIX: Look up messageId by context
+        // Look up messageId by context
         const context = parentToolUseId || '';
         const currentMessageId = this.currentMessageIdByContext.get(context);
 
@@ -816,7 +809,7 @@ export class SdkMessageTransformer {
           case 'input_json_delta': {
             if (delta.partial_json === undefined) return [];
 
-            // TASK_2025_096 FIX: Get real toolCallId per context
+            // Get real toolCallId per context
             const blockKey = `${context}:${blockIndex}`;
             const realToolCallId =
               this.toolCallIdByContextAndBlock.get(blockKey) ||
@@ -939,10 +932,10 @@ export class SdkMessageTransformer {
       [key: string]: unknown;
     }>;
 
-    // TASK_2025_094 FIX: Use Anthropic API's message.id for stable message correlation
+    // Use Anthropic API's message.id for stable message correlation.
     //
-    // Log evidence proves message.id IS CONSISTENT across stream_event AND assistant.
-    // Using uuid causes tool_start and tool_result to have DIFFERENT messageIds,
+    // message.id is CONSISTENT across stream_event AND assistant. Using uuid
+    // would cause tool_start and tool_result to have DIFFERENT messageIds,
     // breaking tree builder tool collection (collectTools filters by messageId).
     //
     // Priority: Anthropic message.id > SDK uuid
@@ -1047,7 +1040,7 @@ export class SdkMessageTransformer {
             block.input['run_in_background'] === true;
           if (isBackground) {
             this.backgroundTaskToolUseIds.add(block.id);
-            // TASK_2025_217: Pre-mark in registry so register() auto-sets isBackground.
+            // Pre-mark in registry so register() auto-sets isBackground.
             // This eliminates the race condition where the agent starts executing tools
             // before the background_agent_started stream event arrives.
             this.subagentRegistry.markPendingBackground(block.id);
@@ -1178,7 +1171,7 @@ export class SdkMessageTransformer {
           }
         : undefined;
 
-    // TASK_2025_164: Pass authEnv for provider-aware model resolution
+    // Pass authEnv for provider-aware model resolution
     const cost = tokenUsage
       ? calculateMessageCost(
           this.modelResolver.resolveForPricing(message.model || ''),
@@ -1213,8 +1206,8 @@ export class SdkMessageTransformer {
    * - tool_result events (for tool_result content blocks)
    * - message_complete
    *
-   * TASK_2025_086: Skips empty user messages (SDK sends these for tool result confirmations)
-   * TASK_2025_092: Now extracts tool_result blocks from user messages
+   * Skips empty user messages (SDK sends these for tool result confirmations).
+   * Extracts tool_result blocks from user messages.
    */
   private transformUserToFlatEvents(
     sdkMessage: SDKUserMessage,
@@ -1225,9 +1218,9 @@ export class SdkMessageTransformer {
     const events: FlatStreamEventUnion[] = [];
     const messageId = uuid || `user-${Date.now()}`;
 
-    // TASK_2025_092: First, check for tool_result blocks in user messages
-    // SDK sends tool execution results as user messages with tool_result content blocks
-    // We MUST emit these as tool_result events, otherwise tools remain in streaming state
+    // First, check for tool_result blocks in user messages.
+    // SDK sends tool execution results as user messages with tool_result content blocks.
+    // We MUST emit these as tool_result events, otherwise tools remain in streaming state.
     //
     // Note: UserMessageContent type is different from ContentBlock - it includes image blocks
     // but excludes ThinkingBlock. We use inline type check instead of isToolResultBlock guard.
@@ -1311,8 +1304,8 @@ export class SdkMessageTransformer {
         .join('\n');
     }
 
-    // TASK_2025_086: Skip empty user messages (no text content AND no tool_result blocks)
-    // This prevents empty "You" bubbles from appearing in the UI
+    // Skip empty user messages (no text content AND no tool_result blocks).
+    // This prevents empty "You" bubbles from appearing in the UI.
     if (!textContent || !textContent.trim()) {
       this.logger.debug('[SdkMessageTransformer] Skipping empty user message', {
         uuid,
@@ -1320,7 +1313,7 @@ export class SdkMessageTransformer {
       return [];
     }
 
-    // TASK_2025_096 FIX: Include parentToolUseId on user message events.
+    // Include parentToolUseId on user message events.
     // When SDK invokes an agent, it sends a user message with the agent's prompt.
     // This message has parent_tool_use_id set, linking it to the parent Task tool.
     // We MUST include parentToolUseId so frontend filters these as nested messages.
@@ -1369,12 +1362,9 @@ export class SdkMessageTransformer {
     return events;
   }
 
-  // isSkillOrMetaContent and userMessageHasToolResult moved to
-  // ./message-transform/message-transform-helpers.ts (TASK_2025_291 Wave C7a).
-
   /**
-   * Clear streaming state - called for reset scenarios
-   * TASK_2025_096 FIX: Clears all per-context tracking
+   * Clear streaming state - called for reset scenarios.
+   * Clears all per-context tracking.
    */
   clearStreamingState(): void {
     this.currentMessageIdByContext.clear();
@@ -1387,7 +1377,7 @@ export class SdkMessageTransformer {
   }
 
   // ==========================================================================
-  // Phase 1: SDK task_* message handlers
+  // SDK task_* message handlers
   // ==========================================================================
 
   /**

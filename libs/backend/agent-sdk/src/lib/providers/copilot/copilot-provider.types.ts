@@ -1,15 +1,14 @@
-/**
- * Copilot Provider Types - TASK_2025_186 Batch 1, slimmed TASK_2025_193 Batch 2
+﻿/**
+ * Copilot Provider Types
  *
  * Copilot-specific types only. OpenAI/Anthropic protocol types have been
- * extracted to the shared openai-translation module (TASK_2025_193).
+ * extracted to the shared openai-translation module.
  *
  * Backward-compatible re-exports ensure existing consumers continue to work.
  */
 
 // ---------------------------------------------------------------------------
 // Backward-compatible re-exports from shared openai-translation module
-// (TASK_2025_193: protocol types moved to openai-translation)
 // ---------------------------------------------------------------------------
 
 export type {
@@ -139,7 +138,7 @@ export interface ICopilotAuthService {
   logout(): Promise<void>;
 
   // ---------------------------------------------------------------------------
-  // Headless-friendly device-code API (TASK_2026_104 B8a)
+  // Headless-friendly device-code API
   //
   // The legacy `login()` is preserved verbatim for the webview UX. The split
   // begin/poll/cancel surface lets the headless CLI surface the device-code

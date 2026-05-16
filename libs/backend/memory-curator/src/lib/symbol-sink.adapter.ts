@@ -1,5 +1,4 @@
 // libs/backend/memory-curator/src/lib/symbol-sink.adapter.ts
-// TASK_2026_THOTH_CODE_INDEX
 
 import { inject, injectable } from 'tsyringe';
 import type {

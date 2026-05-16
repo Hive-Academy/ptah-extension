@@ -1,6 +1,5 @@
-/**
+﻿/**
  * CLI Adapter Interface
- * TASK_2025_157: Extensible adapter pattern for CLI agent integration
  *
  * Adding a new CLI agent (e.g., Claude CLI, Aider) requires only:
  * 1. Implement this interface

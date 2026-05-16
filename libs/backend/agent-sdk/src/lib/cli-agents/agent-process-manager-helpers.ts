@@ -1,7 +1,7 @@
-/**
+﻿/**
  * AgentProcessManager helpers — stateless pure utilities.
  *
- * Extracted from `agent-process-manager.service.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `agent-process-manager.service.ts` as .
  *
  * These helpers have no instance dependencies and no I/O; they are safe to call
  * from anywhere. The manager retains all stateful logic (child-process tracking,

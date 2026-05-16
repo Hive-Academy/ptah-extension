@@ -1,5 +1,5 @@
-/**
- * CompactionHookHandler specs — PreCompact callback enrichment (TASK_2026_109 A2).
+﻿/**
+ * CompactionHookHandler specs — PreCompact callback enrichment.
  *
  * Coverage:
  *   - The PreCompact hook callback enriches the start payload with

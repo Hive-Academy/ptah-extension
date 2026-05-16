@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Copilot Authentication Service - Platform-Agnostic
  *
  * Handles GitHub OAuth login via file-based token reading or device code flow,
@@ -15,7 +15,6 @@
  * Pattern source: CodexAuthService (codex-auth.service.ts)
  * Security: NEVER logs full tokens — only length and first 4 characters.
  *
- * TASK_2025_224: Rewritten to remove all vscode imports.
  * Previously used vscode.authentication, vscode.extensions, vscode.version.
  */
 
@@ -171,7 +170,6 @@ export class CopilotAuthService implements ICopilotAuthService {
 
       // Strategy 2: GitHub Device Code flow.
       //
-      // TASK_2026_104 B8a: this path is now expressed as
       //   beginLogin() → surface user code via IUserInteraction → pollLogin()
       // so the headless CLI can drive the same primitives via JSON-RPC.
       // Webview UX is preserved verbatim — clipboard write, info message
@@ -300,7 +298,7 @@ export class CopilotAuthService implements ICopilotAuthService {
   }
 
   // ---------------------------------------------------------------------------
-  // Headless device-code API (TASK_2026_104 B8a)
+  // Headless device-code API
   // ---------------------------------------------------------------------------
 
   /**

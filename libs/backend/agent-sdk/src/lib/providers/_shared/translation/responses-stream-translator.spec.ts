@@ -1,5 +1,5 @@
-/**
- * ResponsesStreamTranslator — unit specs (TASK_2025_294 W6.B1).
+﻿/**
+ * ResponsesStreamTranslator — unit specs.
  *
  * Surface under test:
  *   - `ResponsesStreamTranslator.getInitialEvents()` emits a properly framed

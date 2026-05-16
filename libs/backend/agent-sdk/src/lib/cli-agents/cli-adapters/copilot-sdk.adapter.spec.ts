@@ -1,6 +1,5 @@
-/**
+﻿/**
  * CopilotSdkAdapter Unit Tests
- * TASK_2025_294 Batch W7.B1
  *
  * Tests: detect(), listModels() (static + dynamic), runSdk() session wiring
  *        with streaming events, abort propagation, auth-required negative

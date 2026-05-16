@@ -11,7 +11,6 @@
  * - SdkModuleLoader: Loads and caches SDK query function (for preload)
  * - SdkModelService: Fetches and caches supported models
  *
- * TASK_2025_102: Query orchestration and messaging moved to SessionLifecycleManager
  * Architecture: Thin orchestration layer that delegates to focused helper services.
  */
 
@@ -99,8 +98,6 @@ export interface WarmQueryHandle {
  * `consumeWarmQuery(requirements)` matches the requirements against this
  * fingerprint; any mismatch (extra hook, non-default permission mode, custom
  * cwd, MCP override, etc.) discards the handle.
- *
- * TASK_2026_109 Fix 3 wiring.
  */
 export interface WarmPrewarmFingerprint {
   /** cli.js path baked into startup() — must match the consuming session. */
@@ -161,7 +158,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   private cliInstallation: ClaudeInstallation | null = null;
 
   /**
-   * TASK_2025_194: Resolved path to cli.js - either from detected CLI or bundled fallback.
+   * Resolved path to cli.js - either from detected CLI or bundled fallback.
    * Always set during successful initialization. Passed to SDK as pathToClaudeCodeExecutable.
    */
   private cliJsPath: string | null = null;
@@ -179,26 +176,25 @@ export class SdkAgentAdapter implements IAgentAdapter {
   private resultStatsCallback: ResultStatsCallback | null = null;
 
   /**
-   * Callback to notify when compaction starts (TASK_2025_098)
+   * Callback to notify when compaction starts.
    * Set by RpcMethodRegistrationService to send session:compacting events
    */
   private compactionStartCallback: CompactionStartCallback | null = null;
 
   /**
-   * Callback to notify when SDK creates a worktree (TASK_2025_236)
+   * Callback to notify when SDK creates a worktree.
    * Set by RpcMethodRegistrationService to send git:worktreeChanged events
    */
   private worktreeCreatedCallback: WorktreeCreatedCallback | null = null;
 
   /**
-   * Callback to notify when SDK removes a worktree (TASK_2025_236)
+   * Callback to notify when SDK removes a worktree.
    * Set by RpcMethodRegistrationService to send git:worktreeChanged events
    */
   private worktreeRemovedCallback: WorktreeRemovedCallback | null = null;
 
   /**
    * Create SDK Agent Adapter with all dependencies injected
-   * TASK_2025_102: Reduced dependencies - query orchestration moved to SessionLifecycleManager
    */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -245,8 +241,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * {@link consumeWarmQuery} MAY return this handle (and null the slot) so
    * a single subsequent `query(prompt)` can amortize the spawn+handshake
    * cost. After consumption, the slot is empty until a new prewarm runs.
-   *
-   * TASK_2026_109 Fix 3.
    */
   private _warmQuery: WarmQueryHandle | null = null;
 
@@ -262,8 +256,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * agents, systemPrompt, plugins, file checkpointing, partial messages,
    * resume/fork) was frozen when `startup()` was called. So this snapshot
    * is the authoritative description of "what this warm handle can do".
-   *
-   * TASK_2026_109 Fix 3 wiring (this commit).
    */
   private _warmQueryFingerprint: WarmPrewarmFingerprint | null = null;
 
@@ -272,8 +264,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * {@link consumeWarmQuery} to evict warm handles older than 5 minutes —
    * the underlying CLI subprocess gets stale, and consuming a stale warm
    * handle risks dead-pipe errors at first send.
-   *
-   * TASK_2026_109 Fix 3.
    */
   private _warmQueryCreatedAt = 0;
 
@@ -304,8 +294,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * Backwards compat: when `requirements` is `undefined` the fingerprint
    * check is skipped (legacy single-arg behavior preserved for existing
    * tests and ad-hoc callers).
-   *
-   * TASK_2026_109 Fix 3.
    */
   public consumeWarmQuery(
     requirements?: WarmPrewarmFingerprint,
@@ -426,13 +414,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
    *
    * Idempotent: subsequent calls are no-ops (tracked via `_prewarmed`).
    *
-   * TASK_2026_109 Fix 3: the returned `WarmQuery` is now retained on the
-   * adapter (see {@link _warmQuery}) so the first real chat send can consume
-   * it via {@link consumeWarmQuery} and skip the spawn+handshake entirely.
-   * The handle has a 5-minute TTL — older handles are discarded so subsequent
-   * sessions don't pick up a stale subprocess. MCP server config and the
-   * authoritative tier env vars are passed into `startup()` so the MCP
-   * handshake also amortizes during prewarm.
+   * The returned `WarmQuery` is retained on the adapter (see {@link _warmQuery})
+   * so the first real chat send can consume it via {@link consumeWarmQuery} and
+   * skip the spawn+handshake entirely. The handle has a 5-minute TTL — older
+   * handles are discarded so subsequent sessions don't pick up a stale
+   * subprocess. MCP server config and the authoritative tier env vars are
+   * passed into `startup()` so the MCP handshake also amortizes during prewarm.
    *
    * Failures are swallowed with `logger.warn` — a failed pre-warm must NOT
    * block normal flow. The first real `query()` call will retry naturally.
@@ -463,7 +450,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
       // Pass pathToClaudeCodeExecutable so startup() resolves the same cli.js
       // the real query() will use. Without this, startup() falls back to the
-      // SDK's import.meta.url-based resolution (TASK_2025_194 backstory).
+      // SDK's import.meta.url-based resolution.
       // Also pass mcpServers so the MCP initialize handshake amortizes here
       // instead of slowing the first chat send.
       const startupOptions: Record<string, unknown> = {};
@@ -548,7 +535,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.logger.info(
           '[SdkAgentAdapter] Config change detected, re-initializing...',
         );
-        // TASK_2025_175: disposeAllSessions is now async, await it
         await this.sessionLifecycle.disposeAllSessions();
         this.cliDetector.clearCache();
         // Clear model cache so re-init fetches fresh models with new auth
@@ -558,7 +544,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       });
 
       // Step 1: Configure authentication FIRST (not dependent on CLI)
-      // TASK_2025_194: Auth runs before CLI detection so third-party providers
+      // Auth runs before CLI detection so third-party providers
       // (Z.AI, OpenRouter) work even without Claude CLI installed.
       const authMethod = this.config.get<string>('authMethod') || 'apiKey';
       const authResult =
@@ -574,7 +560,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       }
 
       // Step 2: Detect Claude CLI installation (soft requirement)
-      // TASK_2025_194: CLI detection no longer gates initialization.
+      // CLI detection does not gate initialization.
       // If CLI is not found, we fall back to the bundled cli.js shipped with the extension.
       this.logger.info(
         '[SdkAgentAdapter] Detecting Claude CLI installation...',
@@ -692,7 +678,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   dispose(): void {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
     this.configWatcher.dispose();
-    // TASK_2025_175: disposeAllSessions is now async, fire and log errors
+    // disposeAllSessions is async; fire and log errors
     this.sessionLifecycle.disposeAllSessions().catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Error during session disposal',
@@ -733,8 +719,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
   /**
    * Get the resolved path to the Claude Code CLI executable (cli.js).
    *
-   * TASK_2025_194: The SDK's default import.meta.url-based resolution bakes in
-   * the CI/build-time path which doesn't exist in production. This getter exposes
+   * The SDK's default import.meta.url-based resolution bakes in the
+   * CI/build-time path which doesn't exist in production. This getter exposes
    * the runtime-resolved path so InternalQueryService can pass it through.
    *
    * @returns Resolved cli.js path, or null if not yet initialized
@@ -780,10 +766,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   /**
-   * Start a NEW chat session with streaming support
-   *
-   * TASK_2025_093: Uses tabId as the primary tracking key for session lifecycle.
-   * TASK_2025_102: Refactored to use SessionLifecycleManager.executeQuery()
+   * Start a NEW chat session with streaming support.
+   * Uses tabId as the primary tracking key for session lifecycle.
    *
    * @param config - Session configuration with REQUIRED tabId
    */
@@ -797,26 +781,26 @@ export class SdkAgentAdapter implements IAgentAdapter {
       /** Inline images (pasted/dropped) to include with the initial message */
       images?: { data: string; mediaType: string }[];
       /**
-       * Premium user flag - enables MCP server and Ptah system prompt (TASK_2025_108)
-       * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT
-       * Defaults to false (free tier behavior)
+       * Premium user flag - enables MCP server and Ptah system prompt.
+       * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT.
+       * Defaults to false (free tier behavior).
        */
       isPremium?: boolean;
       /**
-       * Whether the MCP server is currently running (TASK_2025_108)
+       * Whether the MCP server is currently running.
        * When false, MCP config will not be included even for premium users.
        * This prevents configuring Claude with a dead MCP endpoint.
        * Defaults to true for backward compatibility.
        */
       mcpServerRunning?: boolean;
       /**
-       * Enhanced prompt content for system prompt (TASK_2025_151)
+       * Enhanced prompt content for system prompt.
        * AI-generated guidance resolved from EnhancedPromptsService.
        * When provided, appended to system prompt instead of PTAH_CORE_SYSTEM_PROMPT.
        */
       enhancedPromptsContent?: string;
       /**
-       * Plugin directory paths for this session (TASK_2025_153)
+       * Plugin directory paths for this session.
        * Resolved by PluginLoaderService for premium users.
        */
       pluginPaths?: string[];
@@ -828,10 +812,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
        */
       includePartialMessages?: boolean;
       /**
-       * Caller-supplied MCP HTTP server overrides (TASK_2026_108 T2).
+       * Caller-supplied MCP HTTP server overrides.
        * Keyed by MCP server name; entries are merged OVER the registry-built
        * map by `SdkQueryOptionsBuilder.mergeMcpOverride` (caller wins on key
-       * collision). Reserved for the Anthropic-compatible HTTP proxy in P3 —
+       * collision). Reserved for the Anthropic-compatible HTTP proxy —
        * non-proxy callers leave this `undefined` and the merge is a no-op.
        */
       mcpServersOverride?: Record<string, McpHttpServerOverride>;
@@ -859,13 +843,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { isPremium, mcpServerRunning },
     );
 
-    // TASK_2025_102: Delegate query execution to SessionLifecycleManager
-    // TASK_2025_098: Pass compactionStartCallback for compaction notifications
-    // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
-    // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
-    // TASK_2025_236: Pass worktree callbacks for worktree change notifications
-
-    // TASK_2026_109 Fix 3 wiring: try to consume the warm subprocess held by
+    // Try to consume the warm subprocess held by
     // `prewarm()`. We only ask for the handle when this session has
     // requirements that match what was baked in at startup() time:
     //   - same cli.js path (always true for this adapter — `cliJsPath` is
@@ -907,10 +885,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
         includePartialMessages,
-        // TASK_2026_108 T2: forward caller-supplied MCP HTTP overrides
+        // Forward caller-supplied MCP HTTP overrides
         mcpServersOverride,
-        // TASK_2026_109 Fix 3 wiring: hand the warm subprocess (if usable)
-        // to the executor for the very first SDK call of this session.
+        // Hand the warm subprocess (if usable) to the executor for the very
+        // first SDK call of this session.
         warmQuery: warmHandle ?? undefined,
       });
 
@@ -938,7 +916,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * End a chat session
    */
   endSession(sessionId: SessionId): void {
-    // TASK_2025_175: endSession() is now async but this interface method is void.
+    // endSession() is async but this interface method is void.
     // Use .catch() to prevent unhandled Promise rejections.
     this.sessionLifecycle.endSession(sessionId).catch((err) => {
       this.logger.warn(
@@ -950,8 +928,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   /**
    * Resume a session using SDK's native resume option.
-   * TASK_2025_102: Refactored to use SessionLifecycleManager.executeQuery()
-   * TASK_2025_108: Added isPremium support for resumed sessions
    *
    * When resuming a session, the SDK creates a new query with fresh options.
    * MCP server configuration and system prompt are part of query options,
@@ -966,26 +942,26 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     config?: AISessionConfig & {
       /**
-       * Premium user flag - enables MCP server and Ptah system prompt (TASK_2025_108)
-       * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT
-       * Defaults to false (free tier behavior)
+       * Premium user flag - enables MCP server and Ptah system prompt.
+       * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT.
+       * Defaults to false (free tier behavior).
        */
       isPremium?: boolean;
       /**
-       * Whether the MCP server is currently running (TASK_2025_108)
+       * Whether the MCP server is currently running.
        * When false, MCP config will not be included even for premium users.
        * This prevents configuring Claude with a dead MCP endpoint.
        * Defaults to true for backward compatibility.
        */
       mcpServerRunning?: boolean;
       /**
-       * Enhanced prompt content for system prompt (TASK_2025_151)
+       * Enhanced prompt content for system prompt.
        * AI-generated guidance resolved from EnhancedPromptsService.
        * When provided, appended to system prompt instead of PTAH_CORE_SYSTEM_PROMPT.
        */
       enhancedPromptsContent?: string;
       /**
-       * Plugin directory paths for this session (TASK_2025_153)
+       * Plugin directory paths for this session.
        * Resolved by PluginLoaderService for premium users.
        */
       pluginPaths?: string[];
@@ -1024,7 +1000,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       });
     }
 
-    // Extract isPremium, mcpServerRunning, enhancedPromptsContent, and pluginPaths from config (TASK_2025_108, TASK_2025_151, TASK_2025_153)
+    // Extract isPremium, mcpServerRunning, enhancedPromptsContent, and pluginPaths from config
     const isPremium = config?.isPremium ?? false;
     const mcpServerRunning = config?.mcpServerRunning ?? true;
     const enhancedPromptsContent = config?.enhancedPromptsContent;
@@ -1036,13 +1012,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       mcpServerRunning,
     });
 
-    // TASK_2025_102: Delegate query execution to SessionLifecycleManager
-    // TASK_2025_098: Pass compactionStartCallback for compaction notifications
-    // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
-    // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
-    // TASK_2025_153: Pass pluginPaths for session plugin loading
-    // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
-    // TASK_2025_236: Pass worktree callbacks for worktree change notifications
     const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeQuery({
         sessionId,
@@ -1089,12 +1058,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
     });
   }
 
-  // TASK_2025_109: resumeSubagent() method removed
-  // Subagent resumption is now handled via context injection in chat:continue RPC.
-  // When a parent session continues with interrupted subagents, context is injected
-  // into the prompt, allowing Claude to naturally resume agents through conversation.
-  // See chat-rpc.handlers.ts for the context injection implementation.
-
   /**
    * Check if a session is currently active in memory
    */
@@ -1103,8 +1066,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   /**
-   * Create a session ID callback that saves metadata and notifies webview
-   * TASK_2025_095: Now uses tabId for direct routing instead of temp ID lookup
+   * Create a session ID callback that saves metadata and notifies webview.
+   * Uses tabId for direct routing.
    * @param workspaceId - Workspace path for this session
    * @param sessionName - User-friendly session name
    * @param tabId - Frontend tab ID for direct routing
@@ -1132,8 +1095,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.sessionLifecycle.bindRealSessionId(tabId, realSessionId);
       }
 
-      // Notify webview of the resolved session ID
-      // TASK_2025_095: Pass tabId so frontend can find tab directly
+      // Notify webview of the resolved session ID; pass tabId so frontend can find tab directly
       if (this.sessionIdResolvedCallback) {
         this.sessionIdResolvedCallback(tabId, realSessionId);
       }
@@ -1157,7 +1119,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   /**
-   * Set callback for when compaction starts (TASK_2025_098)
+   * Set callback for when compaction starts.
    * Called by RpcMethodRegistrationService to send session:compacting events to webview
    */
   setCompactionStartCallback(callback: CompactionStartCallback): void {
@@ -1165,7 +1127,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   /**
-   * Set callback for when SDK creates a worktree (TASK_2025_236)
+   * Set callback for when SDK creates a worktree.
    * Called by RpcMethodRegistrationService to send git:worktreeChanged events to webview
    */
   setWorktreeCreatedCallback(callback: WorktreeCreatedCallback): void {
@@ -1173,7 +1135,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   /**
-   * Set callback for when SDK removes a worktree (TASK_2025_236)
+   * Set callback for when SDK removes a worktree.
    * Called by RpcMethodRegistrationService to send git:worktreeChanged events to webview
    */
   setWorktreeRemovedCallback(callback: WorktreeRemovedCallback): void {
@@ -1201,8 +1163,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * Execute a slash command within an existing session.
    * Starts a new SDK query with the command as a string prompt,
    * resuming the existing session to maintain conversation context.
-   *
-   * @see TASK_2025_184 - Follow-up slash command support
    */
   async executeSlashCommand(
     sessionId: SessionId,

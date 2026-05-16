@@ -1,7 +1,5 @@
-/**
+﻿/**
  * Prompt Designer Module
- *
- * TASK_2025_137 Batch 2-3: Intelligent prompt generation based on workspace analysis.
  *
  * This module provides:
  * - PromptDesignerAgent: Main agent that generates project-specific guidance

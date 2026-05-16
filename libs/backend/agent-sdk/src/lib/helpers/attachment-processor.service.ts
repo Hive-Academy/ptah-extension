@@ -1,4 +1,4 @@
-import { injectable, inject } from 'tsyringe';
+﻿import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   MAX_IMAGE_SIZE_BYTES,
@@ -33,7 +33,6 @@ export class AttachmentProcessorService {
   private readonly MAX_IMAGE_SIZE = MAX_IMAGE_SIZE_BYTES;
 
   /**
-   * TASK_2025_096: Hybrid file attachment approach
    * - Small files (< 5KB): Embed content directly (config files, small scripts)
    * - Large files (>= 5KB): Path reference - Claude uses Read tool on demand
    *
@@ -211,7 +210,6 @@ export class AttachmentProcessorService {
       return this.processFileReference(filePath, size);
     }
 
-    // TASK_2025_096: Hybrid approach - large files get path reference
     if (size >= this.SMALL_FILE_THRESHOLD) {
       this.logger.debug(
         `[AttachmentProcessor] File >= ${

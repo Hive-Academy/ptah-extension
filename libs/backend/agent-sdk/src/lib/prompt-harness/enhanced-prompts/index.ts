@@ -1,7 +1,5 @@
-/**
+﻿/**
  * Enhanced Prompts Module
- *
- * TASK_2025_137: Intelligent Prompt Generation System
  *
  * This module provides the Enhanced Prompts premium feature which generates
  * project-specific guidance that is appended to Anthropic's built-in

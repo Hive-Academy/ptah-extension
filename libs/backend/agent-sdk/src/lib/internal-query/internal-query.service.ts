@@ -1,4 +1,4 @@
-/**
+﻿/**
  * InternalQueryService - One-shot SDK query execution for internal use
  *
  * Provides a clean interface for running autonomous Claude Agent SDK queries
@@ -134,7 +134,7 @@ export class InternalQueryService {
    * @throws Error if SDK is not available or query function cannot be loaded
    */
   async execute(config: InternalQueryConfig): Promise<InternalQueryHandle> {
-    // 1. Resolve pathToClaudeCodeExecutable (TASK_2025_194 parity)
+    // 1. Resolve pathToClaudeCodeExecutable
     // The SDK's default import.meta.url-based resolution bakes in the build-time path.
     // Without this override, the subprocess resolves to a non-existent path in production
     // — causing immediate "process exited with code 1".
@@ -240,7 +240,7 @@ export class InternalQueryService {
    * - System prompt: identity prompt + custom append + enhanced prompts / PTAH_CORE
    * - MCP servers: configured when premium + running
    * - Hooks: subagent + compaction lifecycle hooks
-   * - Environment: merges process.env with AuthEnv singleton (TASK_2025_164)
+   * - Environment: merges process.env with AuthEnv singleton
    * - Settings: loads user, project, local sources (CLAUDE.md)
    *
    * Note: Compaction behavior is managed through PreCompact hooks (see buildHooks()),
@@ -305,13 +305,12 @@ export class InternalQueryService {
       // Don't persist internal sessions to disk
       persistSession: false,
 
-      // TASK_2025_194 parity: Override the SDK's baked-in import.meta.url path
       // with the runtime-resolved cli.js path. Without this, the SDK subprocess
       // resolves to the build-time path — causing "process exited with code 1"
       // in production where that path doesn't exist.
       pathToClaudeCodeExecutable: cliJsPath || undefined,
 
-      // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
+      // Merge AuthEnv with process.env — AuthEnv values override process.env
       // Guarantee tier env vars so SDK subagents can resolve bare tier names
       // Set NO_PROXY to prevent corporate proxy interception of localhost requests
       // Disable experimental betas for non-Anthropic base URLs (parity with
@@ -427,7 +426,7 @@ export class InternalQueryService {
    * the claude_code preset injects "You are Claude" into the system prompt.
    * This clarification overrides that for models that aren't Claude.
    *
-   * Uses the DI-injected AuthEnv singleton (TASK_2025_164) — matches
+   * Uses the DI-injected AuthEnv singleton — matches
    * the pattern in SdkQueryOptionsBuilder.buildModelIdentityPrompt().
    */
   private buildIdentityPrompt(): string | undefined {

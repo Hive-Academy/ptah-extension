@@ -1,5 +1,5 @@
-/**
- * Codex Provider Entry - TASK_2025_193 Batch 3
+﻿/**
+ * Codex Provider Entry
  *
  * Static provider definition for OpenAI Codex.
  * Registered into the Anthropic-compatible provider registry.

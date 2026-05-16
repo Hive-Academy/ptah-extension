@@ -9,9 +9,8 @@
  * schema-free way to attach this identity.
  *
  * Dedupe: SHA-256 of `subject + ' ' + content` (single space — see plan
- * §3.5 reference; plan §D4 mentions a null byte but §3.5 reference is
- * authoritative). When exactly one match exists and its embedded hash
- * equals the new hash, no DB writes are performed.
+ * §3.5 reference, which is authoritative). When exactly one match exists
+ * and its embedded hash equals the new hash, no DB writes are performed.
  */
 
 import { createHash } from 'crypto';
@@ -52,8 +51,7 @@ export class MemoryWriterAdapter implements IMemoryWriter {
   ) {}
 
   async upsert(req: MemoryWriteRequest): Promise<MemoryWriteResult> {
-    // NOTE: plan §D4 mentions a null-byte separator, but plan §3.5 reference
-    // code uses a single space. Following §3.5.
+    // NOTE: plan §3.5 reference code uses a single space separator.
     const newHash = sha256Hex(`${req.subject} ${req.content}`);
 
     // Tier-scoped scan (≤500 rows). No workspace filter — we want

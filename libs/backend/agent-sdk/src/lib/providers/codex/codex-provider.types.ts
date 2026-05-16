@@ -1,5 +1,5 @@
-/**
- * Codex Provider Types - TASK_2025_193 Batch 3
+﻿/**
+ * Codex Provider Types
  *
  * Codex-specific types for OpenAI Codex provider authentication
  * and proxy configuration. Mirrors the auth file structure used

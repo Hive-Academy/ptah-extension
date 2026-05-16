@@ -1,5 +1,5 @@
-/**
- * Anthropic-Compatible Provider Registry (TASK_2025_129 Batch 3)
+﻿/**
+ * Anthropic-Compatible Provider Registry
  *
  * Registry of providers that implement the Anthropic API protocol,
  * allowing Claude Agent SDK to route through them using:
@@ -85,20 +85,20 @@ export interface AnthropicProvider {
   /** Hardcoded models for providers without a dynamic API */
   staticModels?: ProviderStaticModel[];
   /**
-   * Authentication type (TASK_2025_186)
+   * Authentication type
    * - 'apiKey': Traditional API key input (default if not set)
    * - 'oauth': OAuth-based authentication (e.g., GitHub Copilot)
    * - 'none': No authentication needed (e.g., local providers like Ollama, LM Studio)
    */
   authType?: 'apiKey' | 'oauth' | 'none';
   /**
-   * Whether this provider requires a local translation proxy (TASK_2025_186)
+   * Whether this provider requires a local translation proxy
    * When true, a local HTTP proxy translates between Anthropic and provider protocols.
    * Defaults to false if not set.
    */
   requiresProxy?: boolean;
   /**
-   * Whether this is a local provider running on localhost (TASK_2025_265)
+   * Whether this is a local provider running on localhost
    * When true, the provider requires no API key and uses HTTP (not HTTPS).
    */
   isLocal?: boolean;

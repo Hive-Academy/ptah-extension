@@ -1,7 +1,6 @@
-/**
+﻿/**
  * Prompt Cache Service
  *
- * TASK_2025_137 Batch 3: Smart caching for generated prompt designs
  * with file-based invalidation and VS Code globalState persistence.
  *
  * Features:

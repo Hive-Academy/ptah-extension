@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Enhanced Prompts Types
  *
- * Type definitions for the Enhanced Prompts feature (TASK_2025_137).
+ * Type definitions for the Enhanced Prompts feature.
  * This premium feature generates project-specific guidance that is appended
  * to Anthropic's built-in claude_code system prompt.
  *
@@ -154,7 +154,7 @@ export const DEFAULT_ENHANCED_PROMPTS_CONFIG: EnhancedPromptsConfig = {
  * Initial state for a workspace without Enhanced Prompts configured
  */
 export function createInitialEnhancedPromptsState(
-  workspacePath: string
+  workspacePath: string,
 ): EnhancedPromptsState {
   return {
     enabled: false,

@@ -1,5 +1,5 @@
-/**
- * OpenAI Responses API Request Translator - TASK_2025_199
+﻿/**
+ * OpenAI Responses API Request Translator
  *
  * Pure function module that translates Anthropic Messages API requests
  * into OpenAI Responses API format for GPT-5.3+ and newer models.

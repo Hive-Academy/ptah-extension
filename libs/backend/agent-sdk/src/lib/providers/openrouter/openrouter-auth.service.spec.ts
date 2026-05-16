@@ -1,5 +1,5 @@
-/**
- * OpenRouterAuthService Tests — TASK_2025_294 Batch W3.B2
+﻿/**
+ * OpenRouterAuthService Tests
  *
  * OpenRouter's auth surface is intentionally thin:
  *   1. Read API key from SecretStorage via IAuthSecretsService.getProviderKey

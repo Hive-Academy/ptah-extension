@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Codex CLI Skill Installer
  * Copies Ptah plugin skills to ~/.agents/skills/ptah-{pluginId}/
  *
@@ -144,7 +144,7 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
         // Non-fatal: best-effort cleanup of stale skills
       }
 
-      // Sync command files from plugins (TASK_2025_201)
+      // Sync command files from plugins
       if (syncCommandsEnabled) {
         await this.syncCommands(pluginPaths, errors);
       }

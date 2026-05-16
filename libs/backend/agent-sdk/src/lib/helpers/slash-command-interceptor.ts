@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Slash Command Interceptor - Detects and classifies slash commands in messages
  *
  * The Claude Agent SDK only parses slash commands from raw string prompts passed
@@ -10,7 +10,6 @@
  * - 'new-query': Commands requiring a new SDK query (/context, /cost, /compact, /review, plugin commands)
  * - 'passthrough': Not a slash command, send as regular message
  *
- * @see TASK_2025_184 - Follow-up slash command support
  */
 
 import { injectable, inject } from 'tsyringe';

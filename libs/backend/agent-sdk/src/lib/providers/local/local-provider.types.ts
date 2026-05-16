@@ -1,5 +1,5 @@
-/**
- * Local Provider Types - TASK_2025_281 (updated from TASK_2025_265)
+﻿/**
+ * Local Provider Types
  *
  * Types and constants for Ollama and LM Studio providers.
  * Ollama providers use Anthropic-native API (no proxy).

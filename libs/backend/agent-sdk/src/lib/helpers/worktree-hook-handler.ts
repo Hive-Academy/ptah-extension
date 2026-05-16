@@ -1,4 +1,4 @@
-/**
+﻿/**
  * WorktreeHookHandler - Handles SDK WorktreeCreate/WorktreeRemove hooks and notifies via callback
  *
  * Connects SDK worktree lifecycle hooks to the UI notification system via callbacks.
@@ -18,7 +18,6 @@
  * 4. Session host sends RPC notification to frontend
  * 5. Hook returns { continue: true } to allow SDK to proceed
  *
- * @see TASK_2025_236 - Worktree Integration
  */
 
 import { injectable, inject } from 'tsyringe';

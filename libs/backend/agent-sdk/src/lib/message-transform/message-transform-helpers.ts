@@ -1,7 +1,7 @@
-/**
+﻿/**
  * SdkMessageTransformer helper functions — stateless predicates.
  *
- * Extracted from `sdk-message-transformer.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `sdk-message-transformer.ts` as .
  *
  * These are pure functions with no instance state; the coordinator's per-context
  * Maps and Sets remain on `SdkMessageTransformer`. Library-internal module.

@@ -15,8 +15,8 @@
  *    recorded in `walCheckpointCalls` for assertion in tests.
  *
  * Anything outside that grammar throws — that is intentional. Tests should
- * exercise real better-sqlite3 once Track 1+ install it. This fake is for
- * the prep track only.
+ * exercise real better-sqlite3 when the native module is installed; this
+ * fake is for environments where it is not.
  */
 
 import * as fs from 'node:fs';
@@ -33,7 +33,7 @@ interface MigrationRow {
 export class FakeSqliteDatabase implements SqliteDatabase {
   readonly tables = new Set<string>();
   readonly pragmas: string[] = [];
-  /** Records every `wal_checkpoint(TRUNCATE)` call — asserted in D1 tests. */
+  /** Records every `wal_checkpoint(TRUNCATE)` call — asserted in tests. */
   readonly walCheckpointCalls: string[] = [];
   private migrationRows: MigrationRow[] = [];
   private isOpen = true;
@@ -203,7 +203,7 @@ export class FakeSqliteDatabase implements SqliteDatabase {
   pragma(pragma: string, options?: { simple?: boolean }): unknown {
     this.pragmas.push(pragma);
 
-    // WAL checkpoint calls are tracked separately for D1 test assertions.
+    // WAL checkpoint calls are tracked separately for test assertions.
     if (/wal_checkpoint/i.test(pragma)) {
       this.walCheckpointCalls.push(pragma);
       return [];

@@ -1,8 +1,7 @@
-/**
+﻿/**
  * EnhancedPromptsService Null-Return Tests
  *
- * TASK_2025_149 Batch 6 (Task 6.2): Verifies the null-return behavior
- * of getEnhancedPromptContent() added in TASK_2025_149 Batch 1 (Task 1.6).
+ * of getEnhancedPromptContent() added (Task 1.6).
  *
  * Tests that:
  * - Returns null when enabled but no generated prompt exists
@@ -87,7 +86,7 @@ describe('EnhancedPromptsService - getEnhancedPromptContent', () => {
         mockWorkspaceIntelligence,
         mockInternalQueryService,
         mockConfig,
-      ] as unknown as ConstructorParameters<typeof EnhancedPromptsService>)
+      ] as unknown as ConstructorParameters<typeof EnhancedPromptsService>),
     );
   });
 
@@ -160,7 +159,7 @@ describe('EnhancedPromptsService - getEnhancedPromptContent', () => {
 
     expect(mockLogger.info).toHaveBeenCalledWith(
       'Enhanced prompts enabled but no generated prompt available. Run the setup wizard to generate enhanced prompts.',
-      expect.objectContaining({ workspacePath: testWorkspacePath })
+      expect.objectContaining({ workspacePath: testWorkspacePath }),
     );
   });
 
@@ -180,7 +179,7 @@ describe('EnhancedPromptsService - getEnhancedPromptContent', () => {
     const infoCallWithExpectedMessage = mockLogger.info.mock.calls.find(
       (args: unknown[]) =>
         typeof args[0] === 'string' &&
-        args[0].includes('Enhanced prompts enabled but no generated prompt')
+        args[0].includes('Enhanced prompts enabled but no generated prompt'),
     );
     expect(infoCallWithExpectedMessage).toBeUndefined();
   });

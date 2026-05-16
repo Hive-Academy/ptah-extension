@@ -1,4 +1,4 @@
-/**
+﻿/**
  * History Module - Session History Processing Services
  *
  * This module provides services for reading and processing session history
@@ -11,7 +11,6 @@
  * - AgentCorrelationService: Agent-to-task correlation
  * - SessionReplayService: Event replay orchestration
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 // Types

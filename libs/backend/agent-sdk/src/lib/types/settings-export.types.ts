@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Settings Export/Import Types
- * TASK_2025_210: Types, interfaces, and constants for cross-platform settings portability.
  *
  * The export schema is versioned for forward compatibility.
  * Secret keys and provider IDs are enumerated as constants to avoid
@@ -62,7 +61,6 @@ export function providerSecretKey(providerId: string): string {
  * Enumerated explicitly because IWorkspaceProvider.getConfiguration takes
  * (section, key) — wildcard reads are not supported.
  *
- * TASK_2025_247: Keys are split between two storage backends:
  * - VS Code config (package.json contributes.configuration) — safe keys
  * - File-based (~/.ptah/settings.json) — keys containing trademarked terms
  * The IWorkspaceProvider.getConfiguration() call transparently routes to the

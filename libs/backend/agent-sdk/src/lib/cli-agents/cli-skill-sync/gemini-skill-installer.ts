@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Gemini CLI Skill Installer
- * TASK_2025_160: Copies Ptah plugin skills to ~/.gemini/skills/ptah-{skillName}/
  *
  * Gemini CLI discovers skills from ~/.gemini/skills/{skillName}/SKILL.md
  * (flat structure, one level deep). Unlike Codex which supports nested
@@ -151,7 +150,7 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
         // Non-fatal: best-effort cleanup of stale skills
       }
 
-      // Sync command files from plugins (TASK_2025_201)
+      // Sync command files from plugins
       if (syncCommandsEnabled) {
         await this.syncCommands(pluginPaths, errors);
       }

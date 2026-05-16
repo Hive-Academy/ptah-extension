@@ -1,5 +1,5 @@
-/**
- * Copilot Translation Proxy - TASK_2025_193 Batch 2
+﻿/**
+ * Copilot Translation Proxy
  *
  * Thin subclass of TranslationProxyBase that provides Copilot-specific
  * configuration: auth headers, API endpoint, model prefix, and completions path.

@@ -1,6 +1,5 @@
-/**
+﻿/**
  * AgentProcessManager Unit Tests - SDK Execution Path
- * TASK_2025_158 Batch 3, Task 3.2
  *
  * Tests: SDK spawn path, output streaming, stop/abort, timeout, steer rejection,
  *        shutdownAll with mixed CLI/SDK agents, concurrent limit enforcement.
@@ -414,7 +413,6 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       // Simulate the SDK responding to abort by resolving
       sdkControls.resolve(1);
-      // TASK_2025_175: killProcess() awaits a 500ms grace period after
       // calling AbortController.abort() for SDK agents, so we must advance
       // past that window (jest.useFakeTimers() is active via beforeEach).
       jest.advanceTimersByTime(600);
@@ -570,7 +568,6 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       // The abort should trigger the SDK to resolve
       sdkControls.resolve(1);
-      // TASK_2025_175: killProcess() awaits a 500ms grace period for SDK
       // agents. Advance past it so the awaited timeout actually fires.
       jest.advanceTimersByTime(600);
       await Promise.resolve();

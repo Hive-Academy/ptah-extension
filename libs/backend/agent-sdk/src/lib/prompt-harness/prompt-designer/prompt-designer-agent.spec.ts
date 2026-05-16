@@ -1,8 +1,7 @@
-/**
+﻿/**
  * PromptDesignerAgent Fallback Tracking Tests
  *
- * TASK_2025_149 Batch 6 (Task 6.1): Verifies fallback tracking behavior
- * added in TASK_2025_149 Batch 1 (Task 1.5).
+ * added (Task 1.5).
  *
  * Tests that:
  * - usedFallback and fallbackReason are set when LLM is unavailable

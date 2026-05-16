@@ -1,10 +1,9 @@
-/**
+﻿/**
  * Ptah CLI Registry - Pure utility functions and constants
  *
  * No DI dependencies. Extracted from PtahCliRegistry for reuse
  * across helper services.
  *
- * @see TASK_2025_176 - PtahCliRegistry refactoring
  */
 
 import { randomUUID } from 'node:crypto';
@@ -40,7 +39,7 @@ export function generateAgentId(): string {
  * @returns Human-readable summary string, or undefined if empty
  */
 export function summarizeToolInput(
-  input: Record<string, unknown> | undefined
+  input: Record<string, unknown> | undefined,
 ): string | undefined {
   if (!input || Object.keys(input).length === 0) return undefined;
 
@@ -83,14 +82,14 @@ export function sanitizeErrorMessage(message: string): string {
   // Strip potential API key patterns (sk-*, key-*, token-* followed by 20+ alphanum chars)
   sanitized = sanitized.replace(
     /\b(sk-|key-|token-)[A-Za-z0-9_-]{20,}\b/g,
-    '[REDACTED]'
+    '[REDACTED]',
   );
   // Strip long hex/base64 strings that look like secrets (40+ chars)
   sanitized = sanitized.replace(/\b[A-Za-z0-9+/=_-]{40,}\b/g, '[REDACTED]');
   // Strip URLs with auth credentials (user:pass@host or tokens in query strings)
   sanitized = sanitized.replace(
     /https?:\/\/[^\s]*[:@][^\s]*/g,
-    '[REDACTED_URL]'
+    '[REDACTED_URL]',
   );
   // Strip stack traces (lines starting with "at ")
   sanitized = sanitized.replace(/^\s*at\s+.+$/gm, '').replace(/\n{2,}/g, '\n');

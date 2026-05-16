@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SessionControl — owner of the lifecycle-control methods that act on a
  * registered session's `query` handle: interrupt, end, dispose-all, set
  * permission level, set model.
@@ -95,8 +95,6 @@ export class SessionControl {
 
   /**
    * End session and cleanup
-   * TASK_2025_102: Now calls cleanupPendingPermissions to prevent unhandled promise rejections
-   * TASK_2025_103: Now marks all running subagents as interrupted before session removal
    *
    * CRITICAL RISK MITIGATION: SubagentStop hook doesn't fire when a session is aborted.
    * This method is the ONLY reliable way to detect interrupted subagents. All running
@@ -114,14 +112,11 @@ export class SessionControl {
 
     this.logger.info(`[SessionLifecycle] Ending session: ${sessionId}`);
 
-    // TASK_2025_102: Cleanup pending permissions FIRST to prevent unhandled promise rejections
     // This resolves any pending permission promises with deny before aborting the session
     this.permissionHandler.cleanupPendingPermissions(rec.tabId);
 
-    // TASK_2025_103: Mark all running subagents as interrupted BEFORE aborting
     // This is the key mechanism for detecting interrupted subagents since
     // SubagentStop hook doesn't fire on abort. Running subagents become resumable.
-    // TASK_2025_186: Use real UUID if resolved, since SubagentRegistryService records
     // may have been updated from tab ID to real UUID by resolveParentSessionId().
     const registrySessionId = rec.realSessionId ?? rec.tabId;
     this.subagentRegistry.markAllInterrupted(registrySessionId);
@@ -134,7 +129,6 @@ export class SessionControl {
       `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
     );
 
-    // TASK_2025_175: Await interrupt() with timeout BEFORE abort()
     // SDK best practice: interrupt() must complete before abort() is called.
     // abort() kills the underlying process, so calling it before interrupt()
     // means the graceful stop signal is never processed.
@@ -156,7 +150,6 @@ export class SessionControl {
           } for session: ${sessionId}`,
         );
       } catch (err) {
-        // TASK_2025_175: Log at WARN level so failures are visible
         this.logger.warn(
           `[SessionLifecycle] Interrupt failed for session ${sessionId}`,
           err instanceof Error ? err : new Error(String(err)),
@@ -188,17 +181,14 @@ export class SessionControl {
 
   /**
    * Cleanup all active sessions
-   * TASK_2025_102: Now calls cleanupPendingPermissions to prevent unhandled promise rejections
-   * TASK_2025_103: Now marks all running subagents as interrupted for each session
    */
   async disposeAllSessions(): Promise<void> {
     this.logger.info('[SessionLifecycle] Disposing all active sessions...');
 
-    // TASK_2025_102: Cleanup all pending permissions FIRST
     this.permissionHandler.cleanupPendingPermissions();
 
     // Snapshot all records BEFORE any clearAll() work to avoid stale-iterator bug
-    // (TASK_2026_118 Batch 3 fix): clearAll() empties byTabId, so a second
+    //: clearAll() empties byTabId, so a second
     // entries() call after clearAll would yield nothing. Snapshot once, use everywhere.
     const records = Array.from(this.registry.entries()).map(([, rec]) => rec);
 
@@ -207,14 +197,11 @@ export class SessionControl {
     const endedSessions: Array<{ sessionId: string; workspaceRoot: string }> =
       [];
 
-    // TASK_2025_175: Interrupt all sessions first, then abort
     const interruptPromises: Promise<void>[] = [];
 
     for (const rec of records) {
       this.logger.debug(`[SessionLifecycle] Ending session: ${rec.tabId}`);
 
-      // TASK_2025_103: Mark all running subagents as interrupted for this session
-      // TASK_2025_186: Use real UUID if resolved
       const registryId = rec.realSessionId ?? rec.tabId;
       this.subagentRegistry.markAllInterrupted(registryId);
 
@@ -224,7 +211,6 @@ export class SessionControl {
         endedSessions.push({ sessionId: registryId, workspaceRoot: root });
       }
 
-      // TASK_2025_175: Interrupt BEFORE abort, with timeout
       if (rec.query) {
         interruptPromises.push(
           Promise.race([

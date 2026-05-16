@@ -1,5 +1,5 @@
-/**
- * OpenAI Request Translator — unit specs (TASK_2025_294 W6.B1).
+﻿/**
+ * OpenAI Request Translator — unit specs.
  *
  * Surface under test:
  *   - `translateAnthropicToOpenAI()` end-to-end conversion of an Anthropic

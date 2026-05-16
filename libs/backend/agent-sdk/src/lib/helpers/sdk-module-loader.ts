@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SDK Module Loader - Loads and caches the bundled Claude Agent SDK query function
  *
  * The Claude Agent SDK is bundled into the extension via esbuild. The SDK's
@@ -7,8 +7,6 @@
  *
  * Single Responsibility: Load and cache the SDK query function
  *
- * @see TASK_2025_102 - Extracted to reduce SdkAgentAdapter complexity
- * @see TASK_2025_232 - Simplified from runtime resolution to direct import (SDK bundled)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -129,7 +127,7 @@ export class SdkModuleLoader {
    * Uses the CLI detector to find the installation, then returns the cliJsPath.
    * This path is needed by SDK query options as `pathToClaudeCodeExecutable`
    * to override the baked-in import.meta.url resolution that fails in production
-   * (TASK_2025_194).
+   *.
    *
    * Caches the result after first resolution. Returns null if CLI not found.
    */

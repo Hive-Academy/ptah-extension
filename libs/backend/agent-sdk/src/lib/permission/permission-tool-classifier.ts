@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Permission Tool Classifier — pure tool-category tables and classification helpers.
  *
- * Extracted from `sdk-permission-handler.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `sdk-permission-handler.ts` as .
  * These are stateless constants + pure functions; they have no DI surface and are
  * library-internal. See `permission-description.ts` for description generation.
  */

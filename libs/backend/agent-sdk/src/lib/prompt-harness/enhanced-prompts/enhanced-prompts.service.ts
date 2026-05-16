@@ -1,7 +1,5 @@
-/**
+﻿/**
  * Enhanced Prompts Service
- *
- * TASK_2025_137 Batch 4: Main orchestration service for the Enhanced Prompts feature.
  *
  * This premium feature:
  * 1. Analyzes the workspace to detect technology stack
@@ -81,7 +79,6 @@ export interface EnhancedPromptsSdkConfig {
 /**
  * Minimal interface for reading multi-phase analysis data.
  * Avoids tight coupling to AnalysisStorageService from agent-generation.
- * @since TASK_2025_154
  */
 export interface IMultiPhaseAnalysisReader {
   findLatestMultiPhaseAnalysis(workspacePath: string): Promise<{
@@ -165,7 +162,6 @@ const GENERATION_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 export class EnhancedPromptsService {
   /**
    * Workspace-keyed state persistence (in-memory + globalState).
-   * TASK_2025_291 Wave C7a: extracted from this class into EnhancedPromptsStateStore.
    */
   private readonly stateStore: EnhancedPromptsStateStore;
 
@@ -179,7 +175,6 @@ export class EnhancedPromptsService {
    * Optional multi-phase analysis reader for enriching prompts with
    * quality audit and elevation plan data. Set via setAnalysisReader()
    * from the application's DI setup to avoid cross-library constructor coupling.
-   * @since TASK_2025_154
    */
   private analysisReader: IMultiPhaseAnalysisReader | null = null;
 
@@ -223,7 +218,6 @@ export class EnhancedPromptsService {
    * and agent-generation services are registered.
    *
    * @param reader - AnalysisStorageService instance (or compatible reader)
-   * @since TASK_2025_154
    */
   setAnalysisReader(reader: IMultiPhaseAnalysisReader): void {
     this.analysisReader = reader;
@@ -423,7 +417,7 @@ export class EnhancedPromptsService {
         input = this.buildDesignerInput(workspacePath, analysis, config);
       }
 
-      // Step 3.5: Enrich with multi-phase analysis if available (TASK_2025_154)
+      // Step 3.5: Enrich with multi-phase analysis if available
       await this.enrichWithMultiPhaseAnalysis(
         input,
         workspacePath,
@@ -889,7 +883,7 @@ export class EnhancedPromptsService {
   }
 
   // ==========================================================================
-  // Private — Multi-Phase Analysis Enrichment (TASK_2025_154)
+  // Private — Multi-Phase Analysis Enrichment
   // ==========================================================================
 
   /**
@@ -1018,7 +1012,7 @@ export class EnhancedPromptsService {
   }
 
   // State management (loadState/saveState/getStorageKey) moved to
-  // ./enhanced-prompts-state-store.ts (TASK_2025_291 Wave C7a).
+  // ./enhanced-prompts-state-store.ts.
 
   // ==========================================================================
   // Private — Stack Detection & Input Building

@@ -1,5 +1,5 @@
-/**
- * Provider Models Service (TASK_2025_132 - generalized from OpenRouterModelsService)
+﻿/**
+ * Provider Models Service
  *
  * Fetches available models from any Anthropic-compatible provider and manages
  * model tier mappings for Sonnet/Opus/Haiku overrides.

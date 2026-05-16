@@ -1,9 +1,8 @@
 /**
- * Auth Module - TASK_AUTH_REFACTOR
+ * Auth Module
  *
- * Phase 1: Types, interfaces, and ModelResolver
- * Phase 2: Strategy implementations (strategies/ subdirectory)
- * Phase 3: Callsite migration to ModelResolver
+ * Exports types/interfaces, ModelResolver, strategy implementations, and the
+ * effective auth-route resolver.
  */
 
 // Strategy types and interface
@@ -16,7 +15,7 @@ export type {
 // ModelResolver - single source of truth for tier→model resolution
 export { ModelResolver } from './model-resolver';
 
-// Strategy implementations (Phase 2)
+// Strategy implementations
 export {
   ApiKeyStrategy,
   OAuthProxyStrategy,
@@ -25,9 +24,9 @@ export {
   CliStrategy,
 } from './strategies';
 
-// Effective auth-route resolver (Stream B item #7) — single source of truth
-// for "what would happen if I ran an agent right now?" Used by `ptah doctor`
-// and reusable from the Electron settings panel + VS Code status bar.
+// Effective auth-route resolver — single source of truth for "what would
+// happen if I ran an agent right now?" Used by `ptah doctor` and reusable
+// from the Electron settings panel + VS Code status bar.
 export {
   resolveEffectiveAuthRoute,
   type EffectiveRouteProvider,

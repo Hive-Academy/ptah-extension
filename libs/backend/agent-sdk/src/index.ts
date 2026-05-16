@@ -1,10 +1,10 @@
-/**
+﻿/**
  * Agent SDK Integration Library
  *
  * Official Claude Agent SDK wrapper providing IAIProvider implementation
  * with 10x performance improvements over CLI-based integration.
  *
- * Session Architecture (TASK_2025_088):
+ * Session Architecture:
  * - SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl
  * - SessionMetadataStore only tracks UI metadata (names, timestamps, cost)
  * - Single sessionId used everywhere (SDK's UUID from system 'init' message)
@@ -17,7 +17,7 @@ export type {
   ResultStatsCallback,
 } from './lib/sdk-agent-adapter';
 
-// Internal Query Service (TASK_2025_145)
+// Internal Query Service
 // One-shot SDK query execution, separate from interactive chat path
 export { InternalQueryService } from './lib/internal-query';
 export type {
@@ -50,13 +50,13 @@ export * from './lib/types/sdk-types/claude-sdk.types';
 // Permission handler exports
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 
-// Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
+// Provider models service
 export {
   ProviderModelsService,
   type DynamicModelFetcher,
 } from './lib/provider-models.service';
 
-// Errors (TASK_2025_291 Wave C8; ModelNotAvailableError added for Sentry NODE-NESTJS-3B/2W)
+// Errors
 export {
   SdkError,
   SessionNotActiveError,
@@ -68,13 +68,13 @@ export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';
 
-// Phase 2: Subagent bidirectional messaging dispatcher
+// Subagent bidirectional messaging dispatcher
 export {
   SubagentMessageDispatcher,
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 
-// Compaction callback registry (TASK_2026_HERMES Track 1)
+// Compaction callback registry.
 // Allows additional subscribers (e.g. memory curator) to receive PreCompact events.
 export { CompactionCallbackRegistry } from './lib/helpers';
 export {
@@ -90,7 +90,7 @@ export {
   buildTierEnvDefaults,
 } from './lib/helpers';
 
-// Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
+// Anthropic-compatible provider registry
 // Re-exported via providers barrel (canonical source: providers/_shared/provider-registry.ts)
 export {
   ANTHROPIC_PROVIDERS,
@@ -120,7 +120,7 @@ export type {
 } from './lib/helpers';
 
 // ============================================================
-// Enhanced Prompts System (TASK_2025_137)
+// Enhanced Prompts System
 // AI-powered, project-specific prompt generation
 // ============================================================
 
@@ -201,7 +201,7 @@ export type {
 } from './lib/prompt-harness';
 
 // ============================================================
-// Plugin Loader Service (TASK_2025_153)
+// Plugin Loader Service
 // ============================================================
 export { PluginLoaderService } from './lib/helpers';
 export {
@@ -211,7 +211,7 @@ export {
 } from './lib/helpers';
 
 // ============================================================
-// Skill Junction Service (TASK_2025_201)
+// Skill Junction Service
 // Manages workspace .ptah/skills/ junctions for third-party providers
 // ============================================================
 export {
@@ -221,14 +221,14 @@ export {
 } from './lib/helpers';
 
 // ============================================================
-// Ptah CLI (TASK_2025_167)
+// Ptah CLI
 // User-configured adapters for Anthropic-compatible providers
 // ============================================================
 export { PtahCliAdapter, PtahCliRegistry } from './lib/ptah-cli';
 export type { PtahCliPremiumConfig } from './lib/ptah-cli';
 
 // ============================================================
-// Copilot Provider (TASK_2025_186)
+// Copilot Provider
 // GitHub Copilot integration via OAuth + translation proxy
 // ============================================================
 export {
@@ -251,7 +251,7 @@ export type {
 } from './lib/providers';
 
 // ============================================================
-// Codex Provider (TASK_2025_193)
+// Codex Provider
 // OpenAI Codex integration via file-based OAuth + translation proxy
 // ============================================================
 export {
@@ -276,7 +276,7 @@ export {
 export type { IOpenRouterAuthService } from './lib/providers';
 
 // ============================================================
-// Local Model Providers (TASK_2025_265, updated TASK_2025_281)
+// Local Model Providers
 // Ollama (Anthropic-native) and LM Studio (translation proxy)
 // ============================================================
 export {
@@ -292,7 +292,7 @@ export {
 } from './lib/providers';
 
 // ============================================================
-// OpenAI Translation Module (TASK_2025_193)
+// OpenAI Translation Module
 // Shared Anthropic <-> OpenAI translation infrastructure
 // ============================================================
 export {
@@ -306,14 +306,14 @@ export type {
 } from './lib/providers';
 
 // ============================================================
-// Slash Command Interceptor (TASK_2025_184)
+// Slash Command Interceptor
 // Detects and classifies follow-up slash commands
 // ============================================================
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
 
 // ============================================================
-// Settings Export/Import (TASK_2025_210)
+// Settings Export/Import
 // Cross-platform settings portability
 // ============================================================
 export { SettingsExportService } from './lib/settings-export.service';
@@ -382,7 +382,7 @@ export {
 } from './lib/auth';
 
 // ============================================================
-// CLI Agents (TASK_2025_291 Wave C5)
+// CLI Agents
 // Relocated from the deleted @ptah-extension/llm-abstraction library.
 // External agent processes (Gemini, Codex, Copilot, Cursor) that Ptah
 // spawns and coordinates via stdio — peers of the Agent SDK itself,
@@ -408,7 +408,7 @@ export type {
 } from './lib/cli-agents';
 
 // ============================================================
-// RPC Wiring helpers (TASK_2025_291 Wave C4b)
+// RPC Wiring helpers
 // Shared SDK callback + agent event wiring reused by VS Code,
 // Electron, and TUI RPC registration services.
 // ============================================================

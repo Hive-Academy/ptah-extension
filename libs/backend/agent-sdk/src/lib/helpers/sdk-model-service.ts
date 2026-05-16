@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SDK Model Service - Fetches and caches supported models from SDK + Anthropic API
  *
  * Extracted from SdkAgentAdapter to separate model management concerns.
@@ -9,8 +9,6 @@
  *
  * Single Responsibility: Fetch, cache, and provide model information
  *
- * @see TASK_2025_102 - Extracted to reduce SdkAgentAdapter complexity
- * @see TASK_2025_237 - Added API model fetching for dynamic model discovery
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -368,7 +366,7 @@ export class SdkModelService {
    */
   private async fetchModelsViaSdk(): Promise<ModelInfo[]> {
     // Resolve pathToClaudeCodeExecutable — required for the SDK to start
-    // the bridge process in production (TASK_2025_194)
+    // the bridge process in production
     const cliJsPath = await this.moduleLoader.getCliJsPath();
     if (!cliJsPath) {
       this.logger.warn(
@@ -568,7 +566,6 @@ export class SdkModelService {
   /**
    * Fetch all available models from the Anthropic /v1/models API
    *
-   * TASK_2025_237: Queries the API to discover all available models dynamically,
    * including specific versions (e.g., claude-sonnet-4-5-20250514) that the SDK's
    * supportedModels() doesn't expose.
    *

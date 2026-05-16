@@ -3,8 +3,8 @@
  *
  * All tests inject FakeSqliteDatabase via the `configure({ factory })` seam
  * so the suite runs without better-sqlite3 native bindings. A second
- * "smoke" test against the real native module is left to Track 1+ once
- * dependencies are installed.
+ * "smoke" test against the real native module runs once dependencies
+ * are installed.
  */
 import 'reflect-metadata';
 import * as path from 'node:path';
@@ -157,7 +157,7 @@ describe('SqliteConnectionService', () => {
     expect(fs.existsSync(path.dirname(nested))).toBe(true);
   });
 
-  // --- D4: busy_timeout pragma ---
+  // --- busy_timeout pragma ---
 
   it('D4: applies busy_timeout = 5000 pragma on open', async () => {
     const fake = new FakeSqliteDatabase();
@@ -169,7 +169,7 @@ describe('SqliteConnectionService', () => {
     expect(fake.pragmas).toContain('busy_timeout = 5000');
   });
 
-  // --- D1: WAL checkpoint on close ---
+  // --- WAL checkpoint on close ---
 
   it('D1: wal_checkpoint(TRUNCATE) is called before close()', async () => {
     const fake = new FakeSqliteDatabase();
@@ -211,7 +211,7 @@ describe('SqliteConnectionService', () => {
     ).toBe(true);
   });
 
-  // --- D3: quick_check + boot continues ---
+  // --- quick_check + boot continues ---
 
   it('D3: quick_check pass logs info and boot continues normally', async () => {
     const fake = new FakeSqliteDatabase(); // default: quick_check returns 'ok'
@@ -248,7 +248,7 @@ describe('SqliteConnectionService', () => {
     ).toBe(true);
   });
 
-  // --- D6: logConnectionHealth ---
+  // --- logConnectionHealth ---
 
   it('D6: logConnectionHealth emits one info log with required health fields', async () => {
     const fake = new FakeSqliteDatabase();
@@ -304,7 +304,7 @@ describe('SqliteConnectionService', () => {
     ).toBe(true);
   });
 
-  // --- D5: classifyOpenFailure ENOSPC / EPERM ---
+  // --- classifyOpenFailure ENOSPC / EPERM ---
 
   it('D5: classifyOpenFailure sets open_failed + disk-full detail on ENOSPC', async () => {
     const logger = createMockLogger();
@@ -386,7 +386,7 @@ describe('SqliteConnectionService', () => {
     expect(service.unavailable?.detail).toMatch(/antivirus/i);
   });
 
-  // --- D5: handleFatalWriteError ---
+  // --- handleFatalWriteError ---
 
   it('D5: handleFatalWriteError closes + marks unavailable on SQLITE_FULL', async () => {
     const fake = new FakeSqliteDatabase();
@@ -451,7 +451,7 @@ describe('SqliteConnectionService', () => {
     expect(service.isOpen).toBe(true);
   });
 
-  // --- D10: foreign_key_check at boot ---
+  // --- foreign_key_check at boot ---
 
   it('D10: foreign_key_check is silent when there are no violations', async () => {
     const fake = new FakeSqliteDatabase();
@@ -529,8 +529,7 @@ describe('SqliteConnectionService', () => {
 
 describe('SqliteConnectionService — vec0 smoke (skipped without native)', () => {
   // Real better-sqlite3 + sqlite-vec smoke test. Skipped when the native
-  // modules aren't installed (Track 0 exit criteria forbids `npm install`).
-  // Track 1 / 2 will land alongside the deps and these will execute.
+  // modules aren't installed.
   // require.resolve only checks the JS shim exists — it doesn't validate
   // that the .node binary matches the host runtime's ABI. We need to
   // actually open a database to confirm the native module loads.

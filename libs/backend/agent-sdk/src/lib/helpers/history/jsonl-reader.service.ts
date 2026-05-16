@@ -1,4 +1,4 @@
-/**
+﻿/**
  * JSONL Reader Service
  *
  * Handles all JSONL file I/O operations for session history processing.
@@ -10,7 +10,6 @@
  * - Load linked agent session files
  * - Convert raw JSONL lines to SessionHistoryMessage format
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import { injectable, inject } from 'tsyringe';

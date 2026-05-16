@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Agent SDK Providers — umbrella barrel.
  *
  * Each provider sub-folder owns its own auth service, translation proxy,
@@ -11,7 +11,7 @@
  * one stable deep path per provider concern, and so intra-library code can
  * reach a sibling provider through a single import line.
  *
- * Consolidated under providers/ in TASK_2025_291 Wave C3.
+ * Consolidated under providers/.
  */
 
 // Shared provider infrastructure.

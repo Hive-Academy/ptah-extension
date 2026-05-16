@@ -1,6 +1,5 @@
-/**
+﻿/**
  * CLI Plugin Sync Service
- * TASK_2025_160: Orchestrates plugin/skill sync across CLI targets
  *
  * Top-level orchestrator for CLI skill sync. Called from:
  * 1. Extension activation (syncOnActivation) - conditional on content hash

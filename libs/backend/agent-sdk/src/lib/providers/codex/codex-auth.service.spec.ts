@@ -1,5 +1,5 @@
-/**
- * CodexAuthService Tests — TASK_2025_294 Batch W3.B2
+﻿/**
+ * CodexAuthService Tests
  *
  * Covers:
  * - API key resolution (snake_case + SCREAMING_CASE fallback)

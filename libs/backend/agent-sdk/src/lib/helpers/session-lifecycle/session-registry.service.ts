@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SessionRegistry — sole owner of `byTabId`, `bySessionId`, and
  * `_lastActiveTabId` state for the session-lifecycle subsystem.
  *
@@ -10,7 +10,6 @@
  * init-failure rollback path), eliminating the duplicate fallback logic that
  * previously lived in two places.
  *
- * TASK_2026_118 Batch 1.5: Collapsed to single-storage.
  * `activeSessions` and `tabIdToRealId` removed. All methods now read/write
  * through `byTabId` and `bySessionId` only. Both indexes point at the SAME
  * `SessionRecord` object — mutations via either lookup are immediately visible.
@@ -29,7 +28,6 @@ import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
  * Both `byTabId` and `bySessionId` point at the SAME object so mutations
  * via either lookup are immediately visible from the other.
  *
- * TASK_2026_118: canonical session type replacing the old ActiveSession.
  * Co-located here to avoid circular imports (sub-services import from the
  * registry, not from session-lifecycle-manager).
  */
@@ -118,7 +116,7 @@ export class SessionRegistry {
    * Empty/whitespace realSessionId is rejected: a malformed SDK init
    * message yielding a blank UUID would otherwise let `find('')` resolve
    * a live query, attaching arbitrary callers to whichever session is
-   * registered. See TASK_2026_118 Batch 10 Gap 1.
+   * registered. Batch 10 Gap 1.
    */
   bindRealSessionId(tabId: string, realSessionId: string): void {
     if (!realSessionId || realSessionId.trim().length === 0) {

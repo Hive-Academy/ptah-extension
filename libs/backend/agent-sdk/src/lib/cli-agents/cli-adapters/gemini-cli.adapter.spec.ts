@@ -1,6 +1,5 @@
-/**
+﻿/**
  * GeminiCliAdapter Unit Tests
- * TASK_2025_294 Batch W7.B1
  *
  * Tests: detect(), buildCommand(), runSdk() streaming with JSONL events,
  *        AbortSignal propagation, error propagation (spawn error, JSON parse),

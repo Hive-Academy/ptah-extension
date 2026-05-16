@@ -1,10 +1,9 @@
-/**
+﻿/**
  * Ptah CLI Helpers - Barrel exports
  *
  * Services extracted from PtahCliRegistry for better maintainability
  * and single responsibility.
  *
- * @see TASK_2025_176 - PtahCliRegistry refactoring
  */
 
 // Pure utility functions and constants

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * history-event-factory — unit specs.
  *
  * Covers `HistoryEventFactory`, the pure-function event constructors behind
@@ -12,7 +12,7 @@
  *     timestamp, blockIndex, delta where applicable.
  *   - Agent-scoped events include `parentToolUseId` in the event id to avoid
  *     collisions when multiple agents spawn inside one message block
- *     (TASK_2025_096).
+ *.
  *   - `createMessageComplete` + `createAgentMessageComplete` surface
  *     `tokenUsage`, `cost`, `model` ONLY when provided (usageData guards).
  *   - `extractTextContent` handles string, ContentBlock[], and unknown shapes.

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Ptah CLI Registry - Manages lifecycle of PtahCliAdapter instances
  *
  * DI-injectable singleton that handles CRUD operations for Ptah CLI
@@ -13,8 +13,6 @@
  * - PtahCliSpawnOptions: premium feature assembly
  * - PtahCliStreamLoop: per-stream message processing
  *
- * @see TASK_2025_167 Batch 2 - Ptah CLI Adapter + Registry
- * @see TASK_2025_176 - PtahCliRegistry refactoring
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -440,7 +438,6 @@ export class PtahCliRegistry {
             allowDangerouslySkipPermissions: true,
             includePartialMessages: false,
             env: buildSafeEnv(testAdapter['authEnv']),
-            // TASK_2025_194: Override baked-in CLI path for production
             pathToClaudeCodeExecutable:
               (await this.moduleLoader.getCliJsPath()) ?? undefined,
           } as Options,
@@ -560,7 +557,6 @@ export class PtahCliRegistry {
       };
     }
 
-    // TASK_2025_255: Create mutable holder for agentId.
     // The agentId is not available until after spawnFromSdkHandle() returns,
     // but the permission callback (canUseTool) is created before that.
     // The resolver closure captures this holder; the caller populates it
@@ -673,7 +669,6 @@ export class PtahCliRegistry {
         hooks: assembly.hooks,
         plugins: assembly.plugins,
         compactionControl: assembly.compactionControl,
-        // TASK_2025_194: Override baked-in CLI path for production
         pathToClaudeCodeExecutable:
           (await this.moduleLoader.getCliJsPath()) ?? undefined,
       } as Options,

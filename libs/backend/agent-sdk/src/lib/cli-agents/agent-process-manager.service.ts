@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Agent Process Manager
- * TASK_2025_157: Manages headless CLI agent child processes
  *
  * Responsibilities:
  * - Spawn CLI agent processes (gemini, codex, copilot)
@@ -408,7 +407,6 @@ export class AgentProcessManager {
 
     this.events.emit('agent:spawned', tracked.info);
 
-    // TASK_2025_186: Mark parent session's running subagents as CLI-orchestrating
     // so they are not interrupted when the parent SDK session ends.
     this.markParentSubagentsAsCliAgent(request.parentSessionId);
 
@@ -732,7 +730,6 @@ export class AgentProcessManager {
 
     this.events.emit('agent:spawned', tracked.info);
 
-    // TASK_2025_186: Mark parent session's running subagents as CLI-orchestrating
     // so they are not interrupted when the parent SDK session ends.
     this.markParentSubagentsAsCliAgent(info.parentSessionId);
 
@@ -925,7 +922,7 @@ export class AgentProcessManager {
       this.cleanupFlushTimer(agentId);
     }
 
-    // Dispose SDK adapters that hold long-lived client processes (TASK_2025_162).
+    // Dispose SDK adapters that hold long-lived client processes.
     // Fire-and-forget: errors are logged but do not block shutdown.
     try {
       const copilotAdapter = this.cliDetection.getAdapter('copilot');
@@ -1259,7 +1256,6 @@ export class AgentProcessManager {
     if (!child) {
       if (tracked.sdkAbortController) {
         tracked.sdkAbortController.abort();
-        // TASK_2025_175: Wait briefly for SDK process to respond to abort.
         // AbortController.abort() is synchronous but the SDK needs a tick
         // to process the signal and tear down resources.
         await new Promise<void>((resolve) => setTimeout(resolve, 500));
@@ -1465,7 +1461,6 @@ export class AgentProcessManager {
   }
 
   /**
-   * TASK_2025_186: Mark all running subagents for a parent session as CLI-orchestrating.
    * This prevents markAllInterrupted() from killing them when the parent session ends.
    * CLI agents run independently and should only stop on their own completion, timeout,
    * or explicit user action.

@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Shared CLI Adapter Utilities
- * TASK_2025_157: Common functions extracted from individual CLI adapters
  *
  * Cross-platform foundation using:
  * - `cross-spawn`: Transparent .cmd wrapper handling on Windows (no shell: true needed)

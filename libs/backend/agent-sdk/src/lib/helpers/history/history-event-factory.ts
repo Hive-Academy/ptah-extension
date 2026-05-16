@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HistoryEventFactory - Creates FlatStreamEventUnion events for session history replay
  *
  * This service provides factory methods for creating all event types needed to
@@ -12,7 +12,6 @@
  * - Generate unique IDs for events and messages
  * - Extract text content from various content block formats
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import { injectable } from 'tsyringe';
@@ -111,7 +110,7 @@ export class HistoryEventFactory {
       messageId,
       timestamp,
       source: 'history',
-      // Include usage data for per-message stats display (TASK_2025_098 fix)
+      // Include usage data for per-message stats display
       ...(usageData?.tokenUsage && { tokenUsage: usageData.tokenUsage }),
       ...(usageData?.cost !== undefined && { cost: usageData.cost }),
       ...(usageData?.model && { model: usageData.model }),
@@ -316,7 +315,7 @@ export class HistoryEventFactory {
   /**
    * Create a message_start event for agent-scoped messages.
    *
-   * CRITICAL: TASK_2025_096 FIX - Must include parentToolUseId in event ID
+   * CRITICAL: - Must include parentToolUseId in event ID
    * to prevent collision when multiple agents are spawned in the same message block.
    *
    * @param sessionId - Session identifier
@@ -481,7 +480,7 @@ export class HistoryEventFactory {
       parentToolUseId,
       timestamp,
       source: 'history',
-      // Include usage data for per-message stats display (TASK_2025_098 fix)
+      // Include usage data for per-message stats display
       ...(usageData?.tokenUsage && { tokenUsage: usageData.tokenUsage }),
       ...(usageData?.cost !== undefined && { cost: usageData.cost }),
       ...(usageData?.model && { model: usageData.model }),

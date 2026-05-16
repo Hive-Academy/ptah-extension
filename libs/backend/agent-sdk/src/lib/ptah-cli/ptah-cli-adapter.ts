@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Ptah CLI Adapter - IAIProvider for Anthropic-compatible providers
  *
  * Implements IAIProvider for user-configured Ptah CLI instances that connect
@@ -10,7 +10,6 @@
  * - Fully independent from SdkAgentAdapter: Own AuthEnv, session tracking, stream transformation
  * - Shares STATELESS services: SdkModuleLoader, SdkMessageTransformer, SdkPermissionHandler
  *
- * @see TASK_2025_167 Batch 2 - Ptah CLI Adapter + Registry
  */
 
 import {
@@ -160,7 +159,7 @@ export class PtahCliAdapter implements IAIProvider {
   private readonly compactionHookHandler?: CompactionHookHandler;
   private readonly compactionConfigProvider?: CompactionConfigProvider;
 
-  /** TASK_2025_194: Cached CLI js path for pathToClaudeCodeExecutable */
+  /** Cached CLI js path for pathToClaudeCodeExecutable */
   private resolvedCliJsPath: string | null = null;
 
   /**
@@ -291,7 +290,6 @@ export class PtahCliAdapter implements IAIProvider {
         uptime: Date.now(),
       };
 
-      // TASK_2025_194: Resolve CLI js path for pathToClaudeCodeExecutable
       this.resolvedCliJsPath = await this.moduleLoader.getCliJsPath();
 
       this.logger.info(
@@ -767,17 +765,16 @@ export class PtahCliAdapter implements IAIProvider {
     systemPrompt?: string;
     preset?: string;
     onCompactionStart?: CompactionStartCallback;
-    /** TASK_2025_184: Thinking/reasoning configuration */
+    /** Thinking/reasoning configuration */
     thinking?: ThinkingConfig;
-    /** TASK_2025_184: Effort level for reasoning depth */
+    /** Effort level for reasoning depth */
     effort?: EffortLevel;
   }): {
     prompt: AsyncIterable<SDKUserMessage>;
     options: SdkQueryOptions;
-    /** TASK_2025_255: Populate after spawn to route CLI agent permissions to agent monitor panel */
+    /** Populate after spawn to route CLI agent permissions to agent monitor panel */
     setAgentId: (id: string) => void;
   } {
-    // TASK_2025_255: Create mutable holder for agentId.
     // For interactive sessions the agentId is not typically available (no
     // AgentProcessManager spawn), so the resolver returns undefined and
     // permissions fall back to the existing main agent flow.
@@ -939,10 +936,8 @@ export class PtahCliAdapter implements IAIProvider {
         hooks,
         // NOTE: compactionControl is not in the SDK's Options type — it was a
         // phantom field silently ignored by the SDK. Removed in Phase 0 fix.
-        // TASK_2025_184: Reasoning configuration passthrough
         thinking,
         effort,
-        // TASK_2025_194: Override the SDK's baked-in import.meta.url path.
         // Without this, the subprocess resolves to the build-time path
         // causing "process exited with code 1" in production.
         pathToClaudeCodeExecutable: this.resolvedCliJsPath ?? undefined,
@@ -958,7 +953,6 @@ export class PtahCliAdapter implements IAIProvider {
             : undefined;
         })(),
       },
-      // TASK_2025_255: Expose setAgentId for callers to populate after spawn.
       // For interactive sessions this is typically never called (no spawn step),
       // so the resolver returns undefined and permissions use the main agent flow.
       setAgentId: (agentId: string) => {

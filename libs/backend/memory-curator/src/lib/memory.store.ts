@@ -228,7 +228,7 @@ export class MemoryStore implements IMemoryLister {
       this.bumpWriteCounter(insert.workspaceRoot);
       return result;
     } catch (err: unknown) {
-      // D5: If this is a fatal disk-full error, close the connection and mark it
+      // If this is a fatal disk-full error, close the connection and mark it
       // unavailable so subsequent RPC calls surface PERSISTENCE_UNAVAILABLE
       // instead of opaque SQLITE_FULL errors.
       this.connection.handleFatalWriteError(err);
@@ -382,7 +382,6 @@ export class MemoryStore implements IMemoryLister {
    * Delete all memory rows whose subject starts with `prefix` and matches workspaceRoot.
    * Used by CodeSymbolIndexer to clear stale file symbols before re-indexing.
    * Returns count of deleted rows.
-   * TASK_2026_THOTH_CODE_INDEX
    *
    * Uses ESCAPE clause to prevent LIKE metacharacters (`%`, `_`, `\`) in file paths
    * from silently over-matching and deleting symbols from the wrong files.
@@ -554,7 +553,7 @@ export class MemoryStore implements IMemoryLister {
       txn();
       this.bumpWriteCounter(ws);
     } catch (err: unknown) {
-      // D5: Wire fatal write error classification so disk-full errors close the
+      // Wire fatal write error classification so disk-full errors close the
       // connection and surface PERSISTENCE_UNAVAILABLE instead of raw SQLITE_FULL.
       this.connection.handleFatalWriteError(err);
       throw err;

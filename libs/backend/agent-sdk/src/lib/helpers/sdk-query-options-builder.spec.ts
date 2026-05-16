@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Unit specs for `SdkQueryOptionsBuilder.mergeMcpOverride` —
- * TASK_2026_108 § 2 T2 (Layer 5 helper).
  *
  * Scope: only the private `mergeMcpOverride(base, override)` helper. The full
  * `build()` flow is exercised by integration tests in this same suite path

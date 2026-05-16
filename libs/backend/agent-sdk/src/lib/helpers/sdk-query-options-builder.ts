@@ -10,9 +10,6 @@
  * - Environment variables
  *
  * Single Responsibility: Build SDK query options from session config
- *
- * @see TASK_2025_102 - Extracted to reduce SdkAgentAdapter complexity
- * @see TASK_2025_137 - Updated to use PTAH_CORE_SYSTEM_PROMPT directly
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -111,8 +108,8 @@ export function buildModelIdentityPrompt(
     return undefined;
   }
 
-  // Get the actual model being used from AuthEnv (TASK_2025_164)
-  // The SDK uses ANTHROPIC_DEFAULT_*_MODEL to map tiers to actual model IDs
+  // Get the actual model being used from AuthEnv.
+  // The SDK uses ANTHROPIC_DEFAULT_*_MODEL to map tiers to actual model IDs.
   const actualModel =
     authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
     authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
@@ -289,18 +286,18 @@ export interface QueryOptionsInput {
   /** Session ID to resume (undefined for new sessions) */
   resumeSessionId?: string;
   /**
-   * Session ID for hook tracking (TASK_2025_098)
-   * Used by compaction hooks to identify which session triggered compaction
+   * Session ID for hook tracking.
+   * Used by compaction hooks to identify which session triggered compaction.
    */
   sessionId?: string;
   /**
-   * Callback for compaction start events (TASK_2025_098)
-   * Called when SDK begins compacting (summarizing) conversation history
+   * Callback for compaction start events.
+   * Called when SDK begins compacting (summarizing) conversation history.
    */
   onCompactionStart?: CompactionStartCallback;
-  /** Callback when SDK creates a worktree (TASK_2025_236) */
+  /** Callback when SDK creates a worktree */
   onWorktreeCreated?: WorktreeCreatedCallback;
-  /** Callback when SDK removes a worktree (TASK_2025_236) */
+  /** Callback when SDK removes a worktree */
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
    * Premium user flag - enables MCP server and Ptah system prompt
@@ -309,21 +306,21 @@ export interface QueryOptionsInput {
    */
   isPremium?: boolean;
   /**
-   * Whether the MCP server is currently running (TASK_2025_108)
+   * Whether the MCP server is currently running.
    * When false, MCP config will not be included even for premium users.
    * This prevents configuring Claude with a dead MCP endpoint.
    * Defaults to true for backward compatibility.
    */
   mcpServerRunning?: boolean;
   /**
-   * Enhanced prompts content (TASK_2025_137)
+   * Enhanced prompts content.
    * AI-generated project-specific guidance appended as a premium top-up
    * alongside the base prompt (either claude_code preset or PTAH_CORE_SYSTEM_PROMPT).
    * Also triggers auto-selection of the Ptah harness path when no explicit preset is set.
    */
   enhancedPromptsContent?: string;
   /**
-   * Plugin paths to load for this session (TASK_2025_153)
+   * Plugin paths to load for this session.
    * Absolute paths to plugin directories resolved by PluginLoaderService.
    * Only populated for premium users with configured plugins.
    */
@@ -337,9 +334,9 @@ export interface QueryOptionsInput {
   permissionMode?: SdkQueryOptions['permissionMode'];
   /**
    * Explicit path to Claude Code CLI executable (cli.js).
-   * TASK_2025_194: Passed through to SDK SessionOptions to override
-   * the default import.meta.url-based resolution which bakes in
-   * the CI runner path at bundle time.
+   * Passed through to SDK SessionOptions to override the default
+   * import.meta.url-based resolution which bakes in the CI runner path at
+   * bundle time.
    */
   pathToClaudeCodeExecutable?: string;
   /**
@@ -384,9 +381,9 @@ export interface QueryOptionsInput {
   /**
    * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
    * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
-   * for the Anthropic-compatible HTTP proxy in P3 (TASK_2026_108 T2). When
-   * `undefined` or an empty object, the builder's `mcpServers` output is
-   * byte-identical to the pre-T2 behavior.
+   * for the Anthropic-compatible HTTP proxy. When `undefined` or an empty
+   * object, the builder's `mcpServers` output is byte-identical to the prior
+   * behavior.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
   /**
@@ -516,7 +513,7 @@ export class SdkQueryOptionsBuilder {
     }
     const cwd = sessionConfig.projectPath;
 
-    // Log resolved model and tier env vars for debugging (TASK_2025_132, TASK_2025_164: reads from AuthEnv)
+    // Log resolved model and tier env vars for debugging (reads from AuthEnv)
     const envSonnet = this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
     const envOpus = this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default';
     const envHaiku = this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default';
@@ -586,8 +583,6 @@ export class SdkQueryOptionsBuilder {
       );
 
     // Create merged hooks (subagent + compaction + worktree)
-    // TASK_2025_098: Pass sessionId and callback for compaction hooks
-    // TASK_2025_236: Pass worktree callbacks for worktree hooks
     const hooks = this.createHooks(
       cwd,
       sessionId,
@@ -596,7 +591,7 @@ export class SdkQueryOptionsBuilder {
       onWorktreeRemoved,
     );
 
-    // Get compaction configuration (TASK_2025_098)
+    // Get compaction configuration
     const compactionConfig = this.compactionConfigProvider.getConfig();
 
     // Log query options
@@ -611,7 +606,7 @@ export class SdkQueryOptionsBuilder {
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
-      // Premium feature status (TASK_2025_108)
+      // Premium feature status
       isPremium,
       mcpEnabled: isPremium,
       hasEnhancedPrompts: !!enhancedPromptsContent,
@@ -655,7 +650,7 @@ export class SdkQueryOptionsBuilder {
         )
           ? ['project', 'local']
           : ['user', 'project', 'local'],
-        // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
+        // Merge AuthEnv with process.env — AuthEnv values override process.env
         // Guarantee tier env vars (ANTHROPIC_DEFAULT_*_MODEL) are always present so the
         // SDK can resolve bare tier names ('haiku', 'sonnet', 'opus') in subagent
         // subprocesses. Without these, direct Anthropic users get "model not found" errors
@@ -714,11 +709,11 @@ export class SdkQueryOptionsBuilder {
         // Options type. It was silently ignored by the SDK. The compaction
         // threshold is handled by SDK-internal heuristics; our hook-based
         // approach (PreCompact hook in CompactionHookHandler) remains intact.
-        // TASK_2025_184: Reasoning configuration passthrough
-        // undefined values are omitted by SDK, preserving default behavior
+        // Reasoning configuration passthrough.
+        // undefined values are omitted by SDK, preserving default behavior.
         thinking: sessionConfig?.thinking,
         effort: sessionConfig?.effort,
-        // TASK_2025_194: Override baked-in import.meta.url path with runtime-resolved cli.js
+        // Override baked-in import.meta.url path with runtime-resolved cli.js
         pathToClaudeCodeExecutable,
         // Enable 1M context window for direct Anthropic connections.
         // The SDK doesn't auto-enable this beta like the CLI does — we must
@@ -1058,8 +1053,6 @@ export class SdkQueryOptionsBuilder {
    * Returns the original `base` reference unchanged when `override` is
    * `undefined` or empty — preserves identity for the existing chat path so
    * the merge is a no-op on every non-proxy call site.
-   *
-   * @see TASK_2026_108 T2 — threading mcpServersOverride through the SDK chain
    */
   private mergeMcpOverride(
     base: Record<string, McpHttpServerConfig>,
@@ -1071,7 +1064,7 @@ export class SdkQueryOptionsBuilder {
     // McpHttpServerOverride is structurally a subset of McpHttpServerConfig —
     // both share { type: 'http', url, headers? }. The widening cast lets the
     // SDK consume the override entries without a runtime conversion. This is
-    // the SINGLE documented widening cast for TASK_2026_108 T2; do NOT add
+    // the SINGLE documented widening cast for this path; do NOT add
     // additional `as` casts elsewhere in the threading path.
     return { ...base, ...(override as Record<string, McpHttpServerConfig>) };
   }

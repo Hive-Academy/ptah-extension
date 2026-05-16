@@ -1,8 +1,5 @@
-/**
+﻿/**
  * Prompt Designer Types
- *
- * TASK_2025_137 Batch 2: Type definitions for the intelligent prompt generation system.
- * TASK_2025_141 Batch 9: Extended with quality guidance types for code quality assessment.
  *
  * The Prompt Designer Agent analyzes workspaces and generates project-specific
  * guidance that is appended to PTAH_CORE_SYSTEM_PROMPT.
@@ -51,14 +48,12 @@ export interface PromptDesignerInput {
   /**
    * Pre-computed quality assessment from ProjectIntelligenceService.
    * If provided, the agent will use this instead of fetching quality data.
-   * @since TASK_2025_141
    */
   qualityAssessment?: QualityAssessment;
 
   /**
    * Pre-computed prescriptive guidance from ProjectIntelligenceService.
    * If provided, the agent will use this instead of generating guidance.
-   * @since TASK_2025_141
    */
   prescriptiveGuidance?: PrescriptiveGuidance;
 
@@ -66,7 +61,6 @@ export interface PromptDesignerInput {
    * Whether to include quality guidance in the generated output.
    * When true (default), quality assessment will be fetched if not provided.
    * @default true
-   * @since TASK_2025_141
    */
   includeQualityGuidance?: boolean;
 
@@ -74,7 +68,6 @@ export interface PromptDesignerInput {
    * Additional analysis context from multi-phase analysis.
    * When present, includes quality audit findings and elevation plan priorities
    * for richer prompt generation.
-   * @since TASK_2025_154
    */
   additionalContext?: string;
 }
@@ -101,21 +94,18 @@ export interface PromptDesignerOutput {
   /**
    * Quality-specific guidance based on detected anti-patterns and code issues.
    * Generated from quality assessment when available.
-   * @since TASK_2025_141
    */
   qualityGuidance?: string;
 
   /**
    * Quality score from code quality assessment (0-100).
    * Lower scores indicate more detected anti-patterns.
-   * @since TASK_2025_141
    */
   qualityScore?: number;
 
   /**
    * Full quality assessment data for advanced use cases.
    * Contains detailed anti-pattern information and recommendations.
-   * @since TASK_2025_141
    */
   qualityAssessment?: QualityAssessment;
 
@@ -139,7 +129,6 @@ export interface PromptDesignerOutput {
     architectureNotes: number;
     /**
      * Token count for quality guidance section.
-     * @since TASK_2025_141
      */
     qualityGuidance?: number;
   };
@@ -154,36 +143,35 @@ export const PromptDesignerResponseSchema = z.object({
   projectContext: z
     .string()
     .describe(
-      'Brief description of what this project is and its key technologies (under 400 tokens)'
+      'Brief description of what this project is and its key technologies (under 400 tokens)',
     ),
 
   frameworkGuidelines: z
     .string()
     .describe(
-      'Specific patterns and best practices for the detected frameworks (under 500 tokens)'
+      'Specific patterns and best practices for the detected frameworks (under 500 tokens)',
     ),
 
   codingStandards: z
     .string()
     .describe(
-      'SOLID principles, naming conventions, error handling derived from the project (under 400 tokens)'
+      'SOLID principles, naming conventions, error handling derived from the project (under 400 tokens)',
     ),
 
   architectureNotes: z
     .string()
     .describe(
-      'Library boundaries, dependency rules, import patterns, key abstractions (under 400 tokens)'
+      'Library boundaries, dependency rules, import patterns, key abstractions (under 400 tokens)',
     ),
 
   /**
    * Quality-specific guidance based on detected code issues.
-   * @since TASK_2025_141
    */
   qualityGuidance: z
     .string()
     .optional()
     .describe(
-      'Quality-specific guidance based on detected code issues such as anti-patterns, missing error handling, or architecture violations (under 300 tokens)'
+      'Quality-specific guidance based on detected code issues such as anti-patterns, missing error handling, or architecture violations (under 300 tokens)',
     ),
 });
 

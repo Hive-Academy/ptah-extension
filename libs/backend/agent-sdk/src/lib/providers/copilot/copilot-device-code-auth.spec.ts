@@ -1,4 +1,4 @@
-/**
+﻿/**
  * copilot-device-code-auth — unit specs.
  *
  * Covers the GitHub Device Code (RFC 8628) flow used by Copilot login when
@@ -450,7 +450,7 @@ describe('executeDeviceCodeFlow', () => {
 });
 
 // ---------------------------------------------------------------------------
-// requestDeviceCode — TASK_2026_104 B8a split. Standalone POST to the device
+// requestDeviceCode split. Standalone POST to the device
 // code endpoint, no polling, no callbacks. The CLI calls this directly so the
 // resulting deviceCode + userCode + verificationUri can be surfaced over
 // JSON-RPC instead of through IUserInteraction.
@@ -503,7 +503,7 @@ describe('requestDeviceCode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// pollForAccessToken — TASK_2026_104 B8a split. Polls the GitHub
+// pollForAccessToken split. Polls the GitHub
 // /login/oauth/access_token endpoint until the user completes browser auth
 // or the configured timeout / abort signal fires.
 // ---------------------------------------------------------------------------

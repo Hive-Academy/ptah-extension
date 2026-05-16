@@ -1,6 +1,5 @@
 /**
  * Agent SDK DI Registration
- * TASK_2025_044 Batch 3: Register all SDK services in DI container
  *
  * IMPORTANT: All SDK services are registered as singletons to ensure
  * the same instance is used across all consumers. This is critical for
@@ -43,23 +42,23 @@ import {
   SdkModelService,
   MemoryPromptInjector,
   SdkInternalQueryCuratorLlm,
-  // History reader child services (TASK_2025_106)
+  // History reader child services
   HistoryEventFactory,
   JsonlReaderService,
   AgentCorrelationService,
   SessionReplayService,
-  // Compaction configuration and hooks (TASK_2025_098)
+  // Compaction configuration and hooks
   CompactionConfigProvider,
   CompactionHookHandler,
-  // Compaction callback registry (TASK_2026_HERMES Track 1)
+  // Compaction callback registry
   CompactionCallbackRegistry,
-  // Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+  // Session end callback registry
   SessionEndCallbackRegistry,
-  // Live usage tracker (TASK_2026_109 cycle-break)
+  // Live usage tracker
   LiveUsageTracker,
-  // Worktree hook handler (TASK_2025_236)
+  // Worktree hook handler
   WorktreeHookHandler,
-  // Slash command interceptor (TASK_2025_184)
+  // Slash command interceptor
   SlashCommandInterceptor,
 } from '../helpers';
 import {
@@ -95,9 +94,8 @@ import {
  * Services are registered as singletons using tsyringe's lifecycle management.
  * The @injectable() decorators on each class enable auto-wiring of dependencies.
  *
- * TASK_2025_199: Removed vscode.ExtensionContext parameter. SessionMetadataStore
- * now resolves IStateStorage via PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE decorator
- * injection instead of receiving context.workspaceState manually.
+ * SessionMetadataStore resolves IStateStorage via
+ * PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE decorator injection.
  *
  * @param container - TSyringe DI container
  * @param logger - Logger instance
@@ -113,16 +111,15 @@ export function registerSdkServices(
   // ============================================================
 
   // Session metadata store - uses @inject decorators for IStateStorage and Logger
-  // TASK_2025_199: Now resolved via decorator injection (PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
-  // instead of manual construction with context.workspaceState
+  // Resolved via decorator injection (PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE).
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Shared mutable AuthEnv singleton (TASK_2025_164)
-  // Must be registered before AuthManager and ProviderModelsService which inject it
+  // Shared mutable AuthEnv singleton.
+  // Must be registered before AuthManager and ProviderModelsService which inject it.
   container.registerInstance(SDK_TOKENS.SDK_AUTH_ENV, createEmptyAuthEnv());
 
   // Session importer - scans existing Claude sessions
@@ -133,7 +130,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // History reader child services (TASK_2025_106)
+  // History reader child services
   // ============================================================
 
   // History event factory - creates FlatStreamEventUnion events
@@ -183,8 +180,8 @@ export function registerSdkServices(
   );
 
   // Live usage tracker - no deps; shared writer/reader for cumulative
-  // pre-compaction tokens (TASK_2026_109 cycle-break). Registered BEFORE
-  // SdkMessageTransformer and CompactionHookHandler so both can resolve it.
+  // pre-compaction tokens. Registered BEFORE SdkMessageTransformer and
+  // CompactionHookHandler so both can resolve it.
   container.register(
     SDK_TOKENS.SDK_LIVE_USAGE_TRACKER,
     { useClass: LiveUsageTracker },
@@ -248,7 +245,7 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Provider models service - depends on Logger, ConfigManager (TASK_2025_091 Phase 2, generalized TASK_2025_132)
+  // Provider models service - depends on Logger, ConfigManager
   container.register(
     SDK_TOKENS.SDK_PROVIDER_MODELS,
     { useClass: ProviderModelsService },
@@ -256,9 +253,8 @@ export function registerSdkServices(
   );
 
   // Subagent hook handler - depends on Logger, SubagentRegistryService.
-  // TASK_2026_109 Fix 2: AgentSessionWatcherService dep removed — subagent
-  // visibility now flows via `agentProgressSummaries: true` Option + task_*
-  // system messages handled by SdkMessageTransformer.
+  // Subagent visibility flows via `agentProgressSummaries: true` Option +
+  // task_* system messages handled by SdkMessageTransformer.
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
     { useClass: SubagentHookHandler },
@@ -273,8 +269,8 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Compaction config provider - depends on Logger, ConfigManager (TASK_2025_098)
-  // Provides SDK compaction settings from VS Code configuration
+  // Compaction config provider - depends on Logger, ConfigManager.
+  // Provides SDK compaction settings from VS Code configuration.
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
     { useClass: CompactionConfigProvider },
@@ -289,37 +285,37 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Compaction hook handler - depends on Logger (TASK_2025_098)
-  // Handles SDK PreCompact hooks and notifies via callback
+  // Compaction hook handler - depends on Logger.
+  // Handles SDK PreCompact hooks and notifies via callback.
   container.register(
     SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER,
     { useClass: CompactionHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Worktree hook handler - depends on Logger (TASK_2025_236)
-  // Handles SDK WorktreeCreate/WorktreeRemove hooks and notifies via callback
+  // Worktree hook handler - depends on Logger.
+  // Handles SDK WorktreeCreate/WorktreeRemove hooks and notifies via callback.
   container.register(
     SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER,
     { useClass: WorktreeHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // SDK module loader - caches SDK query function (TASK_2025_102)
+  // SDK module loader - caches SDK query function
   container.register(
     SDK_TOKENS.SDK_MODULE_LOADER,
     { useClass: SdkModuleLoader },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // SDK model service - fetches and caches supported models (TASK_2025_102)
+  // SDK model service - fetches and caches supported models
   container.register(
     SDK_TOKENS.SDK_MODEL_SERVICE,
     { useClass: SdkModelService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Message factory - creates SDK user messages with attachments (TASK_2025_102)
+  // Message factory - creates SDK user messages with attachments
   container.register(
     SDK_TOKENS.SDK_MESSAGE_FACTORY,
     { useClass: SdkMessageFactory },
@@ -353,7 +349,7 @@ export function registerSdkServices(
     MemoryPromptInjector,
   );
 
-  // Query options builder - constructs SDK query config (TASK_2025_102)
+  // Query options builder - constructs SDK query config
   container.register(
     SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER,
     { useClass: SdkQueryOptionsBuilder },
@@ -361,7 +357,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Enhanced Prompts Services (TASK_2025_137)
+  // Enhanced Prompts Services
   // ============================================================
 
   // Prompt Designer Agent - generates project-specific guidance (Batch 2)
@@ -389,7 +385,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Internal Query Service (TASK_2025_145)
+  // Internal Query Service
   // One-shot SDK queries, separate from interactive chat path
   // ============================================================
 
@@ -402,7 +398,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Plugin Loader Service (TASK_2025_153)
+  // Plugin Loader Service
   // Manages plugin discovery and per-workspace configuration
   // ============================================================
   container.register(
@@ -412,9 +408,9 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Skill Junction Service (TASK_2025_201)
+  // Skill Junction Service
   // Manages workspace .ptah/skills/ junctions to plugin skill directories
-  // So third-party providers (Codex, Copilot) can find skills via MCP search
+  // So third-party providers (Codex, Copilot) can find skills via MCP search.
   // ============================================================
   container.register(
     SDK_TOKENS.SDK_SKILL_JUNCTION,
@@ -423,7 +419,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Settings Export/Import Services (TASK_2025_210)
+  // Settings Export/Import Services
   // Platform-agnostic settings portability between VS Code and Electron
   // ============================================================
   container.register(
@@ -439,7 +435,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Ptah CLI Services (TASK_2025_167, TASK_2025_176)
+  // Ptah CLI Services
   // Config persistence, spawn options, and registry
   // ============================================================
   container.register(
@@ -461,7 +457,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Slash Command Interceptor (TASK_2025_184)
+  // Slash Command Interceptor
   // Detects and classifies slash commands in follow-up messages
   // ============================================================
   container.register(
@@ -471,8 +467,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // CLI Agent Services (ex-llm-abstraction, folded in Wave C5 of
-  // TASK_2025_291)
+  // CLI Agent Services
   // CliDetectionService enumerates installed CLI agents (Gemini, Codex,
   // Copilot, Cursor). AgentProcessManager spawns and supervises their
   // processes. CliPluginSyncService mirrors MCP plugins into each CLI's
@@ -494,7 +489,6 @@ export function registerSdkServices(
   );
 
   // Provider services (Copilot, Codex, OpenRouter, Ollama, LM Studio).
-  // Extracted to registerProviders() helper in TASK_2025_291 Wave C3.
   // Must register before AuthManager (auth strategies depend on these tokens).
   registerProviders(container);
 

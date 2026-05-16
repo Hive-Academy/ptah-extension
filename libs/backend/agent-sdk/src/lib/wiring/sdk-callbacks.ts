@@ -1,5 +1,5 @@
-/**
- * SDK adapter callback wiring (TASK_2025_291 Wave C4b).
+﻿/**
+ * SDK adapter callback wiring.
  *
  * Centralizes `setResultStatsCallback`, `setSessionIdResolvedCallback`,
  * `setCompactionStartCallback` and (optionally) the two worktree callbacks
@@ -231,7 +231,6 @@ function wireCompactionStartCallback(
     logger.info(
       `${tag} Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}, preTokens=${data.preTokens}`,
     );
-    // TASK_2026_109 (A2): Forward `preTokens` so the frontend can freeze
     // pre-compaction header stats and pair this start with the eventual
     // `compact_boundary` for duration / delta computation.
     const compactionEvent = {

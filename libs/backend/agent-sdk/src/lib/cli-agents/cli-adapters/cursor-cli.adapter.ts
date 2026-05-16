@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Cursor CLI Adapter
- * TASK_2025_267: Cursor agent CLI integration
  *
  * Uses --output-format stream-json for structured JSONL event streaming.
  * Events: init, assistant, thinking, tool_call, result, error

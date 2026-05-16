@@ -1,7 +1,5 @@
-/**
+﻿/**
  * PTAH_CORE_SYSTEM_PROMPT - Ptah's Extension-Specific System Prompt
- *
- * TASK_2025_137 Batch 1: Foundation for Intelligent Prompt Generation
  *
  * This prompt adapts and extends Anthropic's `claude_code` preset for the
  * VS Code extension context. It preserves Anthropic's carefully crafted

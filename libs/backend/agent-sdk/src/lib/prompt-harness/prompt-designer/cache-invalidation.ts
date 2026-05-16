@@ -1,7 +1,6 @@
-/**
+﻿/**
  * Cache Invalidation for Prompt Designer
  *
- * TASK_2025_137 Batch 3: Detects when cached prompt designs should be
  * invalidated based on workspace file changes.
  *
  * Monitors:
@@ -146,7 +145,7 @@ export function generateCacheKey(components: CacheKeyComponents): string {
  * @returns Normalized dependency string for hashing
  */
 export function extractDependencyInfo(
-  packageJsonContent: string
+  packageJsonContent: string,
 ): string | null {
   try {
     const pkg = JSON.parse(packageJsonContent);
@@ -195,7 +194,7 @@ export function isInvalidationTrigger(filePath: string): boolean {
  * @returns Specific invalidation reason
  */
 export function getInvalidationReason(
-  filePath: string
+  filePath: string,
 ): InvalidationReason | null {
   const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
 
@@ -279,7 +278,7 @@ export function createInvalidationEvent(
   reason: InvalidationReason,
   workspacePath: string,
   triggerFile?: string,
-  details?: string
+  details?: string,
 ): InvalidationEvent {
   return {
     reason,

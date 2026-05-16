@@ -1,6 +1,5 @@
-/**
+﻿/**
  * CLI Skill Installer Interface
- * TASK_2025_160: Strategy interface for CLI-specific skill installation
  *
  * Each CLI target (Copilot, Gemini) has its own installer implementation
  * that knows how to copy Ptah plugin skills to the CLI's discovery directory.

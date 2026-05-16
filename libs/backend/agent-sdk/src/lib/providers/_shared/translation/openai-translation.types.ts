@@ -1,5 +1,5 @@
-/**
- * OpenAI Translation Types - TASK_2025_193 Batch 1
+﻿/**
+ * OpenAI Translation Types
  *
  * Protocol-level types for Anthropic <-> OpenAI translation.
  * These types are provider-agnostic and shared across all translation proxies

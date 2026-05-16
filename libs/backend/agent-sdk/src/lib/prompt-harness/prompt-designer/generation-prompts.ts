@@ -1,9 +1,7 @@
-/**
+﻿/**
  * Generation Prompts for Prompt Designer Agent
  *
- * TASK_2025_137 Batch 2: Prompt templates used by the Prompt Designer Agent
  * to generate project-specific guidance.
- * TASK_2025_141 Batch 9: Added quality context section for code quality assessment.
  *
  * These prompts are carefully crafted to produce consistent, actionable
  * output that integrates well with PTAH_CORE_SYSTEM_PROMPT.
@@ -67,11 +65,10 @@ Prioritize the most impactful guidance over comprehensive coverage.`;
  * @param assessment - Quality assessment (from agentic analysis or legacy pipeline)
  * @param guidance - Prescriptive guidance with prioritized recommendations
  * @returns Formatted quality context string (under 300 tokens) or empty string if no data
- * @since TASK_2025_141
  */
 export function buildQualityContextPrompt(
   assessment: QualityAssessment | undefined,
-  guidance: PrescriptiveGuidance | undefined
+  guidance: PrescriptiveGuidance | undefined,
 ): string {
   // Return empty if no assessment or no detected issues from either source
   const hasAntiPatterns = assessment?.antiPatterns?.length ?? 0;
@@ -108,10 +105,10 @@ export function buildQualityContextPrompt(
         pattern.severity === 'error'
           ? '[ERROR]'
           : pattern.severity === 'warning'
-          ? '[WARN]'
-          : '[INFO]';
+            ? '[WARN]'
+            : '[INFO]';
       parts.push(
-        `- ${severityBadge} ${pattern.message} (${pattern.frequency} occurrences)`
+        `- ${severityBadge} ${pattern.message} (${pattern.frequency} occurrences)`,
       );
     }
     parts.push('');
@@ -126,7 +123,7 @@ export function buildQualityContextPrompt(
     };
     const sortedGaps = [...assessment.gaps].sort(
       (a, b) =>
-        (priorityOrder[b.priority] ?? 0) - (priorityOrder[a.priority] ?? 0)
+        (priorityOrder[b.priority] ?? 0) - (priorityOrder[a.priority] ?? 0),
     );
 
     const topGaps = sortedGaps.slice(0, 5);
@@ -136,8 +133,8 @@ export function buildQualityContextPrompt(
         gap.priority === 'high'
           ? '[HIGH]'
           : gap.priority === 'medium'
-          ? '[MEDIUM]'
-          : '[LOW]';
+            ? '[MEDIUM]'
+            : '[LOW]';
       parts.push(`- ${badge} **${gap.area}**: ${gap.description}`);
     }
     parts.push('');
@@ -165,7 +162,7 @@ export function buildQualityContextPrompt(
 
   // Instruction for the LLM
   parts.push(
-    '**Note:** Include specific guidance addressing these quality issues in the Quality Guidance section.'
+    '**Note:** Include specific guidance addressing these quality issues in the Quality Guidance section.',
   );
 
   return parts.join('\n');
@@ -180,7 +177,7 @@ export function buildQualityContextPrompt(
  */
 export function buildGenerationUserPrompt(
   input: PromptDesignerInput,
-  qualityContext?: string
+  qualityContext?: string,
 ): string {
   const dependencyList = input.dependencies.slice(0, 20).join(', ');
   const devDependencyList = input.devDependencies.slice(0, 15).join(', ');
@@ -250,7 +247,7 @@ Keep this section under 300 tokens.
 ${qualityContext}`;
   }
 
-  // Append additional analysis context from multi-phase analysis (TASK_2025_154)
+  // Append additional analysis context from multi-phase analysis
   if (input.additionalContext) {
     prompt += `
 

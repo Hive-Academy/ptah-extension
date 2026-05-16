@@ -1,7 +1,6 @@
-/**
+﻿/**
  * Codex Provider Module - Barrel exports
  *
- * @see TASK_2025_193 - Codex Translation Proxy Support
  */
 
 // Auth service (injectable, stateful)

@@ -1,5 +1,5 @@
-/**
- * Local Model Translation Proxy - TASK_2025_265, updated TASK_2025_281
+﻿/**
+ * Local Model Translation Proxy
  *
  * Translation proxy for local OpenAI-compatible model servers (LM Studio).
  * LM Studio exposes /v1/chat/completions and /v1/models endpoints with
@@ -10,7 +10,7 @@
  *   containing all shared logic for local OpenAI-compat providers.
  * - `LmStudioTranslationProxy` is the thin @injectable subclass.
  *
- * Note: Ollama no longer uses this proxy (TASK_2025_281). Ollama v0.14.0+
+ * Note: Ollama no longer uses this proxy. Ollama v0.14.0+
  * speaks Anthropic Messages API natively — see OllamaModelDiscoveryService.
  *
  * All HTTP server logic, request/response translation, retry, and streaming

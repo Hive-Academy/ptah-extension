@@ -1,5 +1,5 @@
-/**
- * Translation Proxy Base Class - TASK_2025_193 Batch 1
+﻿/**
+ * Translation Proxy Base Class
  *
  * Abstract base class for local HTTP proxy servers that translate between
  * the Anthropic Messages API (used by Claude Agent SDK) and the OpenAI

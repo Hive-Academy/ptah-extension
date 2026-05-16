@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Gemini CLI Adapter
- * TASK_2025_157: Headless Gemini CLI agent integration
  *
  * Uses --output-format stream-json for structured JSONL event streaming.
  * Events: init, message, tool_use, tool_result, error, result

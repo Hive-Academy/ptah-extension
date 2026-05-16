@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Session Replay Service
  *
  * Orchestrates the conversion of JSONL messages to FlatStreamEventUnion events.
@@ -17,11 +17,10 @@
  * - When events share the same timestamp, frontend sorts by timestamp which is undefined
  * - Micro-offsets keep events grouped by original message time while maintaining order
  *
- * CRITICAL: TASK_2025_096 fix for agent message ID collision
+ * CRITICAL: for agent message ID collision
  * - Must include parentToolUseId in agent message IDs to prevent collision
  * - Without this, multiple agents spawned in the same message block would collide
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
@@ -125,7 +124,6 @@ export class SessionReplayService {
     // Add micro-offsets (0.001ms per event) to preserve creation order while keeping
     // events grouped by their original message time.
     let messageSequence = 0;
-    // TASK_2025_098 FIX: Track accumulated usage for current assistant message
     // Usage is extracted from JSONL message.usage and accumulated across message blocks
     let currentMessageUsage: MessageUsageData | undefined;
 
@@ -171,7 +169,7 @@ export class SessionReplayService {
               currentMessageId,
               eventIndex++,
               currentMessageTimestamp + messageSequence++ * 0.001,
-              currentMessageUsage, // TASK_2025_098 FIX: Pass usage data for per-message stats
+              currentMessageUsage, // Pass usage data for per-message stats
             ),
           );
           currentMessageId = null;
@@ -249,7 +247,6 @@ export class SessionReplayService {
           );
         }
 
-        // TASK_2025_098 FIX: Extract usage data from assistant message for per-message stats
         // Usage comes from msg.message.usage (Claude API format)
         const msgUsage = msg.message.usage as {
           readonly input_tokens: number;
@@ -263,7 +260,6 @@ export class SessionReplayService {
         if (msgUsage) {
           const tokenUsage = extractTokenUsage(msgUsage);
           if (tokenUsage) {
-            // TASK_2025_164: Pass authEnv for provider-aware model resolution
             const cost = calculateMessageCost(
               this.modelResolver.resolveForPricing(msgModel),
               {
@@ -488,7 +484,7 @@ export class SessionReplayService {
           currentMessageId,
           eventIndex++,
           currentMessageTimestamp + messageSequence++ * 0.001,
-          currentMessageUsage, // TASK_2025_098 FIX: Pass usage data for per-message stats
+          currentMessageUsage, // Pass usage data for per-message stats
         ),
       );
     }
@@ -502,7 +498,7 @@ export class SessionReplayService {
    * CRITICAL: Must create message_start/message_complete events for each assistant message
    * so the frontend's buildToolChildren can find them via parentToolUseId.
    *
-   * CRITICAL: TASK_2025_096 FIX - Must include parentToolUseId in agent message IDs
+   * CRITICAL: - Must include parentToolUseId in agent message IDs
    * to prevent collision when multiple agents are spawned in the same message block.
    * Without this, the second agent's events would overwrite the first agent's events
    * (same messageId, different parentToolUseId).
@@ -533,7 +529,6 @@ export class SessionReplayService {
       const content = msg.message.content;
       if (!Array.isArray(content)) continue;
 
-      // TASK_2025_096 FIX: Generate unique message ID for this agent message.
       // CRITICAL: Must include parentToolUseId to prevent collision when multiple
       // agents are spawned in the same message block. Without this, the second agent's
       // events would overwrite the first agent's events (same messageId, different parentToolUseId).
@@ -604,7 +599,6 @@ export class SessionReplayService {
         }
       }
 
-      // TASK_2025_098 FIX: Extract usage data from agent message for per-message stats
       let agentMessageUsage: MessageUsageData | undefined;
       const agentMsgUsage = msg.message.usage as {
         readonly input_tokens: number;
@@ -616,7 +610,6 @@ export class SessionReplayService {
         const tokenUsage = extractTokenUsage(agentMsgUsage);
         if (tokenUsage) {
           const agentMsgModel = msg.message.model || '';
-          // TASK_2025_164: Pass authEnv for provider-aware model resolution
           agentMessageUsage = {
             tokenUsage: { input: tokenUsage.input, output: tokenUsage.output },
             model: agentMsgModel || undefined,
@@ -642,7 +635,7 @@ export class SessionReplayService {
           eventIndex++,
           completeTimestamp,
           parentToolUseId,
-          agentMessageUsage, // TASK_2025_098 FIX: Pass usage data for per-message stats
+          agentMessageUsage, // Pass usage data for per-message stats
         ),
       );
     }

@@ -1,5 +1,5 @@
-/**
- * InternalQueryService — unit specs (TASK_2025_294 W3.B4).
+﻿/**
+ * InternalQueryService — unit specs.
  *
  * Surface under test:
  *   - One-shot dispatch: execute() MUST load the SDK query function from

@@ -1,7 +1,7 @@
 /**
- * SubagentMessageDispatcher — bidirectional messaging for running subagents
+ * SubagentMessageDispatcher — bidirectional messaging for running subagents.
  *
- * Phase 2 addition. Provides three operations:
+ * Provides three operations:
  *   - `sendToSubagent` — push a user message into a running subagent via
  *     the session's streamInput channel, scoped by parentToolUseId.
  *   - `stopSubagent` — call Query.stopTask(taskId) to gracefully stop a

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Helper Services - Extracted from SdkAgentAdapter for better maintainability
  *
  * These services encapsulate specific responsibilities:
@@ -7,7 +7,6 @@
  * - ConfigWatcher: Config change detection and re-initialization
  * - StreamTransformer: SDK message to ExecutionNode transformation
  *
- * TASK_2025_102: SessionLifecycleManager now includes executeQuery() for query orchestration
  */
 
 export { AuthManager, type AuthResult, type AuthConfig } from './auth-manager';
@@ -51,9 +50,9 @@ export {
   type SessionEndCallback,
   type SessionEndPayload,
 } from './session-end-callback-registry';
-// Live usage tracker (TASK_2026_109 cycle-break)
+// Live usage tracker
 export { LiveUsageTracker } from './live-usage-tracker';
-// Worktree hook handler (TASK_2025_236)
+// Worktree hook handler
 export {
   WorktreeHookHandler,
   type WorktreeCreatedCallback,
@@ -88,15 +87,15 @@ export {
   type ModelTier,
   type EnvMappedTier,
 } from './sdk-model-service';
-// Slash command interceptor (TASK_2025_184)
+// Slash command interceptor
 export {
   SlashCommandInterceptor,
   type SlashCommandResult,
 } from './slash-command-interceptor';
-// History module (TASK_2025_106)
+// History module
 export * from './history';
 
-// Plugin loader (TASK_2025_153)
+// Plugin loader
 export { PluginLoaderService } from './plugin-loader.service';
 
 // Plugin skill discovery
@@ -106,7 +105,7 @@ export {
   type PluginSkillInfo,
 } from './plugin-skill-discovery';
 
-// Skill junction management (TASK_2025_201)
+// Skill junction management
 export {
   SkillJunctionService,
   type SkillJunctionActivateOptions,

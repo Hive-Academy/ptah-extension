@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SDK Message Factory - Creates SDK user messages with attachments
  *
  * Extracted from SdkAgentAdapter to eliminate code duplication.
@@ -7,7 +7,6 @@
  *
  * Single Responsibility: Create properly formatted SDK user messages
  *
- * @see TASK_2025_102 - Extracted to reduce SdkAgentAdapter complexity
  */
 
 import { injectable, inject } from 'tsyringe';

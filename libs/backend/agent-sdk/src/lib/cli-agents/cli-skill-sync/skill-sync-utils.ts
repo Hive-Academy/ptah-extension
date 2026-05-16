@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Shared Skill Sync Utilities
- * TASK_2025_160: Common utilities for CLI skill installers
  *
  * Extracted from CopilotSkillInstaller and GeminiSkillInstaller
  * to eliminate code duplication (~230 lines duplicated).

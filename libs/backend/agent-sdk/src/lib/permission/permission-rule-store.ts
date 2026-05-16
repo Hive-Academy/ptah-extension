@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Permission Rule Store — owns the in-memory `permissionRules` map.
  *
- * Extracted from `sdk-permission-handler.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `sdk-permission-handler.ts` as .
  *
  * This is a plain class composed internally by `SdkPermissionHandler` — no DI
  * token and no `@injectable()` decorator. A future wave can add persistence

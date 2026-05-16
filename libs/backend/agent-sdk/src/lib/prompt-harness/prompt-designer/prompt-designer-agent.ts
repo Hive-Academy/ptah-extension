@@ -1,7 +1,6 @@
-/**
+﻿/**
  * Prompt Designer Agent
  *
- * TASK_2025_137 Batch 2: Intelligent agent that analyzes workspaces and generates
  * project-specific guidance to append to PTAH_CORE_SYSTEM_PROMPT.
  *
  * This agent is now a pure prompt builder + result parser with NO LLM dependency.
@@ -81,7 +80,7 @@ export class PromptDesignerAgent {
    */
   async buildPrompts(
     input: PromptDesignerInput,
-    qualityContext?: string
+    qualityContext?: string,
   ): Promise<{
     systemPrompt: string;
     userPrompt: string;
@@ -113,7 +112,7 @@ export class PromptDesignerAgent {
     const systemPrompt = PROMPT_DESIGNER_SYSTEM_PROMPT;
     const userPrompt = buildGenerationUserPrompt(
       input,
-      effectiveQualityContext
+      effectiveQualityContext,
     );
 
     // Build JSON Schema from the Zod schema for SDK outputFormat
@@ -142,7 +141,7 @@ export class PromptDesignerAgent {
    */
   async parseAndValidateOutput(
     structuredOutput: unknown,
-    onProgress?: (progress: PromptGenerationProgress) => void
+    onProgress?: (progress: PromptGenerationProgress) => void,
   ): Promise<PromptDesignerOutput | null> {
     try {
       onProgress?.({
@@ -156,7 +155,7 @@ export class PromptDesignerAgent {
 
       const output = await parseStructuredResponse(
         structuredOutput as PromptDesignerResponse,
-        countTokens
+        countTokens,
       );
 
       // Enforce token budgets
@@ -182,7 +181,7 @@ export class PromptDesignerAgent {
         'PromptDesignerAgent: Failed to parse structured output',
         {
           error: error instanceof Error ? error.message : String(error),
-        }
+        },
       );
       return null;
     }
@@ -209,7 +208,7 @@ export class PromptDesignerAgent {
       output.projectContext = truncateToTokenBudget(
         output.projectContext,
         maxSection,
-        output.tokenBreakdown.projectContext
+        output.tokenBreakdown.projectContext,
       );
     }
 
@@ -217,7 +216,7 @@ export class PromptDesignerAgent {
       output.frameworkGuidelines = truncateToTokenBudget(
         output.frameworkGuidelines,
         maxSection,
-        output.tokenBreakdown.frameworkGuidelines
+        output.tokenBreakdown.frameworkGuidelines,
       );
     }
 
@@ -225,7 +224,7 @@ export class PromptDesignerAgent {
       output.codingStandards = truncateToTokenBudget(
         output.codingStandards,
         maxSection,
-        output.tokenBreakdown.codingStandards
+        output.tokenBreakdown.codingStandards,
       );
     }
 
@@ -233,14 +232,14 @@ export class PromptDesignerAgent {
       output.architectureNotes = truncateToTokenBudget(
         output.architectureNotes,
         maxSection,
-        output.tokenBreakdown.architectureNotes
+        output.tokenBreakdown.architectureNotes,
       );
     }
 
     // Recalculate total (approximate, since we used truncation)
     output.totalTokens = Math.min(
       output.totalTokens,
-      this.config.maxTotalTokens
+      this.config.maxTotalTokens,
     );
 
     return output;
@@ -257,7 +256,7 @@ export class PromptDesignerAgent {
   generateFallbackGuidance(
     input: PromptDesignerInput,
     qualityAssessment?: QualityAssessment,
-    fallbackReason?: string
+    fallbackReason?: string,
   ): PromptDesignerOutput {
     const fallbackText = buildFallbackGuidance(input);
 
@@ -268,12 +267,12 @@ export class PromptDesignerAgent {
       projectContext: this.extractSection(fallbackText, 'Project Context'),
       frameworkGuidelines: this.extractSection(
         fallbackText,
-        'Framework Guidelines'
+        'Framework Guidelines',
       ),
       codingStandards: this.extractSection(fallbackText, 'Coding Standards'),
       architectureNotes: this.extractSection(
         fallbackText,
-        'Architecture Notes'
+        'Architecture Notes',
       ),
       usedFallback: true,
       fallbackReason: fallbackReason ?? 'Fallback guidance generated',
@@ -300,7 +299,7 @@ export class PromptDesignerAgent {
 
       // Update token breakdown for quality guidance
       const qualityGuidanceTokens = Math.ceil(
-        output.qualityGuidance.length / 4
+        output.qualityGuidance.length / 4,
       );
       output.tokenBreakdown.qualityGuidance = qualityGuidanceTokens;
       output.totalTokens += qualityGuidanceTokens;
@@ -364,7 +363,7 @@ export class PromptDesignerAgent {
   private extractSection(text: string, sectionName: string): string {
     const regex = new RegExp(
       `## ${sectionName}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`,
-      'i'
+      'i',
     );
     const match = text.match(regex);
     return match?.[1]?.trim() || '';

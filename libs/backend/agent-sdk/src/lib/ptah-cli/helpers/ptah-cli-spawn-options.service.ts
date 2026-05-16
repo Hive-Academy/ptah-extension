@@ -1,11 +1,10 @@
-/**
+﻿/**
  * Ptah CLI Spawn Options Service
  *
  * Injectable singleton that assembles premium feature options for spawnAgent().
  * Handles MCP server detection, enhanced prompts, plugin resolution,
  * hooks, and compaction configuration.
  *
- * @see TASK_2025_176 - PtahCliRegistry refactoring
  */
 
 import { injectable, inject, container } from 'tsyringe';

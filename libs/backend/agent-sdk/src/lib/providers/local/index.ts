@@ -1,8 +1,6 @@
-/**
+﻿/**
  * Local Provider Module - Barrel exports
  *
- * @see TASK_2025_265 - Local Model Provider Integration
- * @see TASK_2025_281 - Ollama Anthropic-Native Upgrade
  */
 
 // Provider registry entries (static data)
@@ -18,7 +16,7 @@ export {
   LmStudioTranslationProxy,
 } from './local-model-translation-proxy';
 
-// Ollama model discovery (injectable) — TASK_2025_281
+// Ollama model discovery (injectable)
 export { OllamaModelDiscoveryService } from './ollama-model-discovery.service';
 
 // Ollama Cloud metadata service (injectable) — TASK_OLLAMA_CLOUD_KEY

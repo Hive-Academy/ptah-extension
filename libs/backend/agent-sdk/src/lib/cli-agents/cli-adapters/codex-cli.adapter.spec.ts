@@ -1,6 +1,5 @@
-/**
+﻿/**
  * CodexCliAdapter Unit Tests
- * TASK_2025_158 Batch 3, Task 3.1
  *
  * Tests: runSdk(), detect(), handleStreamEvent(), dynamic import caching, abort/cancellation
  */
@@ -204,7 +203,6 @@ describe('CodexCliAdapter', () => {
 
   describe('buildCommand()', () => {
     it('should build an `exec --full-auto --ephemeral` command with the task prompt', () => {
-      // TASK_2025_157: CLI fallback was migrated from `--quiet` to the
       // `exec` subcommand with `--full-auto --ephemeral` for non-interactive,
       // auto-approve, no-session-persistence execution.
       const cmd = adapter.buildCommand({
@@ -252,7 +250,6 @@ describe('CodexCliAdapter', () => {
       const handle: SdkHandle = await adapter.runSdk(defaultOptions);
 
       expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
-      // TASK_2025_177: threadOptions now always includes the headless
       // approvalPolicy/sandboxMode/skipGitRepoCheck trio so Codex runs
       // non-interactively without permission hooks.
       expect(mockStartThread).toHaveBeenCalledWith({
@@ -331,7 +328,6 @@ describe('CodexCliAdapter', () => {
 
       await handle.done;
 
-      // TASK_2025_177: reasoning items are surfaced as "[Thinking] ..." in
       // the plain-output stream (the structured segment uses type 'thinking').
       expect(output).toContain('[Thinking] Thinking about the problem\n');
     });

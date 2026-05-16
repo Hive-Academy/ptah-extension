@@ -1,5 +1,5 @@
-/**
- * OpenAI Responses API Stream Translator - TASK_2025_199
+﻿/**
+ * OpenAI Responses API Stream Translator
  *
  * Stateful streaming translator that converts OpenAI Responses API
  * SSE events into Anthropic Messages API SSE events.

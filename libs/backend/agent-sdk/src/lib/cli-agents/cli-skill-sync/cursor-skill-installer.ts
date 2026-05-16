@@ -1,6 +1,5 @@
-/**
+﻿/**
  * Cursor CLI Skill Installer
- * TASK_2025_267: Copies Ptah plugin skills to ~/.cursor/skills/ptah-{skillName}/
  *
  * Cursor CLI discovers skills from ~/.cursor/skills/{skillName}/SKILL.md
  * (flat structure, one level deep — same convention as Gemini CLI).

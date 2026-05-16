@@ -1,7 +1,7 @@
-/**
+﻿/**
  * LiveUsageTracker — Per-session live cumulative token snapshot.
  *
- * Extracted from `SdkMessageTransformer` (TASK_2026_109 follow-up) to break a
+ * Extracted from `SdkMessageTransformer` to break a
  * circular DI: `SessionLifecycleManager → SdkQueryOptionsBuilder →
  * CompactionHookHandler → SdkMessageTransformer → SessionLifecycleManager`.
  *
@@ -12,7 +12,6 @@
  *
  * Both writer and reader now depend on this orthogonal tracker instead of on
  * each other, eliminating the cycle without weakening A1/A2 semantics from
- * TASK_2026_109.
  *
  * Cumulative semantics: each field is monotonic within a turn (Anthropic API
  * delivers monotonic counts), so `recordSessionUsage` keeps the max of

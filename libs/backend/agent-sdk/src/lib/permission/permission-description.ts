@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Permission Description Helpers — pure functions.
  *
- * Extracted from `sdk-permission-handler.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `sdk-permission-handler.ts` as .
  * Contains:
  *   - `generateDescription()` — human-readable tool description for the UI prompt.
  *   - `sanitizeToolInput()` — redacts secrets from tool inputs before display.

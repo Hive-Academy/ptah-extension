@@ -1,5 +1,5 @@
-/**
- * Provider DI Registrations — consolidated in TASK_2025_291 Wave C3.
+﻿/**
+ * Provider DI Registrations — consolidated.
  *
  * Previously: 4 copy-pasted blocks at di/register.ts:407-487.
  * Now: one function called once from registerSdkServices.
@@ -33,7 +33,7 @@ import {
  */
 export function registerProviders(container: DependencyContainer): void {
   // ============================================================
-  // Copilot Provider Services (TASK_2025_186)
+  // Copilot Provider Services
   // Auth service and translation proxy for GitHub Copilot integration
   // Must be registered before AuthManager resolves (which depends on these)
   // ============================================================
@@ -51,7 +51,7 @@ export function registerProviders(container: DependencyContainer): void {
   );
 
   // ============================================================
-  // Codex Provider Services (TASK_2025_193)
+  // Codex Provider Services
   // Auth service and translation proxy for OpenAI Codex integration
   // Must be registered before AuthManager resolves (which depends on these)
   // ============================================================
@@ -88,7 +88,7 @@ export function registerProviders(container: DependencyContainer): void {
   );
 
   // ============================================================
-  // Local Model Provider Services (TASK_2025_265, updated TASK_2025_281)
+  // Local Model Provider Services
   // Ollama: model discovery service (Anthropic-native, no proxy)
   // LM Studio: translation proxy (OpenAI-compat, still needs proxy)
   // Must be registered before AuthManager resolves (which depends on these)

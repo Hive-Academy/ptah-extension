@@ -1,5 +1,5 @@
-/**
- * SessionRegistry — unit spec (TASK_2026_118 Batch 8, Task 8.1).
+﻿/**
+ * SessionRegistry — unit spec.
  *
  * Covers all 8 cases from implementation-plan.md §6a:
  *
@@ -475,7 +475,6 @@ describe('SessionRegistry', () => {
   });
 
   // -------------------------------------------------------------------------
-  // TASK_2026_118 Batch 10 — adversarial-input hardening (audit gaps 1-7)
   // -------------------------------------------------------------------------
 
   // Gap 1 — Empty / whitespace realSessionId guard (production guard added).

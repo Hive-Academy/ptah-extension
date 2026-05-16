@@ -1,4 +1,4 @@
-/**
+﻿/**
  * CompactionHookHandler - Handles SDK PreCompact hooks and notifies via callback
  *
  * Connects SDK compaction lifecycle hooks to the UI notification system via callbacks.
@@ -18,7 +18,6 @@
  * 4. UI shows "Optimizing Context" notification
  * 5. Hook returns { continue: true } to allow SDK to proceed with compaction
  *
- * @see TASK_2025_098 - SDK Session Compaction
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -45,7 +44,7 @@ import type { CompactionCallbackRegistry } from './compaction-callback-registry'
  *   PreCompact firing time. Used by the frontend to freeze the
  *   pre-compaction header stats during the compaction window and to pair
  *   the start event with the eventual `compact_boundary` for delta /
- *   duration computation. (TASK_2026_109 A2)
+ * duration computation.
  */
 export type CompactionStartCallback = (data: {
   sessionId: string;
@@ -87,7 +86,6 @@ export function isPreCompactHook(
 export class CompactionHookHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    // TASK_2026_109 (A2 + cycle-break): Inject the LiveUsageTracker to read
     // the latest cumulative pre-compaction token snapshot at PreCompact
     // firing time. The tracker aggregates `message_start` + `message_delta`
     // usage on the streaming wire (written by SdkMessageTransformer) and
@@ -171,7 +169,6 @@ export class CompactionHookHandler {
                   return { continue: true };
                 }
 
-                // TASK_2025_098: Validate trigger field before use
                 // SDK should always provide 'manual' or 'auto', but we guard against malformed data
                 const trigger = input.trigger;
                 if (trigger !== 'manual' && trigger !== 'auto') {
@@ -219,7 +216,6 @@ export class CompactionHookHandler {
 
                 // Notify via callback if provided
                 if (capturedCallback) {
-                  // TASK_2026_109 (A2): Sample cumulative pre-compaction tokens
                   // from the live usage tracker. Returns 0 for sessions that
                   // haven't yet produced any assistant turn — acceptable
                   // because compaction-before-first-turn is a no-op edge case.

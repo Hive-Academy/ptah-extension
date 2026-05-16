@@ -1,5 +1,5 @@
-/**
- * Skill Junction Service (TASK_2025_201)
+﻿/**
+ * Skill Junction Service
  *
  * Creates filesystem junctions from {workspace}/.claude/skills/{skillName}/
  * to {pluginsBasePath}/{pluginId}/skills/{skillName}/.

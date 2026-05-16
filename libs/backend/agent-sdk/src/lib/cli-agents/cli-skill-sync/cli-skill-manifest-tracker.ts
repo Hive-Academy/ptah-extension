@@ -1,6 +1,5 @@
-/**
+﻿/**
  * CLI Skill Manifest Tracker
- * TASK_2025_160: Track synced plugin state per CLI using globalState
  *
  * Uses VS Code globalState (Memento) for persistence, similar to
  * PluginLoaderService's use of workspaceState (plugin-loader.service.ts:163-171).

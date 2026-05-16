@@ -1,5 +1,5 @@
-/**
- * TranslationProxyBase — unit specs (TASK_2025_294 W6.B1).
+﻿/**
+ * TranslationProxyBase — unit specs.
  *
  * Surface under test:
  *   - Lifecycle: `start()` binds to an OS-assigned port on 127.0.0.1,

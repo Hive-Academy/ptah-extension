@@ -1,5 +1,5 @@
-/**
- * OpenAI Request Translator - TASK_2025_193 Batch 1
+﻿/**
+ * OpenAI Request Translator
  *
  * Pure function module that translates Anthropic Messages API requests
  * into OpenAI Chat Completions format for any OpenAI-compatible API.

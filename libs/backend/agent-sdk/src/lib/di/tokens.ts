@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DI Token Registry - Agent SDK Tokens
  *
  * CONVENTION: All DI tokens MUST use Symbol.for('DescriptiveName')
@@ -44,13 +44,13 @@ export const SDK_TOKENS = {
   SDK_CLI_DETECTOR: Symbol.for('SdkCliDetector'),
   SDK_ATTACHMENT_PROCESSOR: Symbol.for('SdkAttachmentProcessor'),
 
-  // Subagent hook handler (TASK_2025_099)
+  // Subagent hook handler
   SDK_SUBAGENT_HOOK_HANDLER: Symbol.for('SdkSubagentHookHandler'),
 
-  // Compaction configuration provider (TASK_2025_098)
+  // Compaction configuration provider
   SDK_COMPACTION_CONFIG_PROVIDER: Symbol.for('SdkCompactionConfigProvider'),
 
-  // Compaction hook handler (TASK_2025_098)
+  // Compaction hook handler
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
   /**
@@ -73,57 +73,57 @@ export const SDK_TOKENS = {
   // Worktree hook handler
   SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
 
-  // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
+  // Provider models service
   SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
 
-  // Extracted services (TASK_2025_102)
+  // Extracted services
   SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
   SDK_MODULE_LOADER: Symbol.for('SdkModuleLoader'),
   SDK_MODEL_SERVICE: Symbol.for('SdkModelService'),
-  // History reader child services (TASK_2025_106)
+  // History reader child services
   SDK_HISTORY_EVENT_FACTORY: Symbol.for('SdkHistoryEventFactory'),
   SDK_JSONL_READER: Symbol.for('SdkJsonlReader'),
   SDK_AGENT_CORRELATION: Symbol.for('SdkAgentCorrelation'),
   SDK_SESSION_REPLAY: Symbol.for('SdkSessionReplay'),
 
-  // Prompt Designer Agent (TASK_2025_137 Batch 2)
+  // Prompt Designer Agent
   SDK_PROMPT_DESIGNER_AGENT: Symbol.for('SdkPromptDesignerAgent'),
 
-  // Prompt Cache Service (TASK_2025_137 Batch 3)
+  // Prompt Cache Service
   SDK_PROMPT_CACHE_SERVICE: Symbol.for('SdkPromptCacheService'),
 
-  // Enhanced Prompts Service (TASK_2025_137 Batch 4)
+  // Enhanced Prompts Service
   SDK_ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
 
-  // Internal Query Service (TASK_2025_145)
+  // Internal Query Service
   // One-shot SDK query execution, separate from interactive chat path
   SDK_INTERNAL_QUERY_SERVICE: Symbol.for('SdkInternalQueryService'),
 
-  // Plugin Loader Service (TASK_2025_153)
+  // Plugin Loader Service
   // Manages plugin metadata and per-workspace plugin configuration
   SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader'),
 
-  /** Shared mutable AuthEnv singleton (TASK_2025_164) */
+  /** Shared mutable AuthEnv singleton */
   SDK_AUTH_ENV: Symbol.for('SdkAuthEnv'),
 
-  /** Ptah CLI Config Persistence (TASK_2025_176) */
+  /** Ptah CLI Config Persistence */
   SDK_PTAH_CLI_CONFIG_PERSISTENCE: Symbol.for('SdkPtahCliConfigPersistence'),
 
-  /** Ptah CLI Spawn Options (TASK_2025_176) */
+  /** Ptah CLI Spawn Options */
   SDK_PTAH_CLI_SPAWN_OPTIONS: Symbol.for('SdkPtahCliSpawnOptions'),
 
-  /** Ptah CLI Registry (TASK_2025_167) */
+  /** Ptah CLI Registry */
   SDK_PTAH_CLI_REGISTRY: Symbol.for('SdkPtahCliRegistry'),
 
-  /** Slash Command Interceptor (TASK_2025_184) */
+  /** Slash Command Interceptor */
   SDK_SLASH_COMMAND_INTERCEPTOR: Symbol.for('SdkSlashCommandInterceptor'),
 
-  /** Copilot Provider Services (TASK_2025_186) */
+  /** Copilot Provider Services */
   SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
   SDK_COPILOT_PROXY: Symbol.for('SdkCopilotProxy'),
 
-  /** Codex Provider Services (TASK_2025_193) */
+  /** Codex Provider Services */
   SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
   SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
 
@@ -131,17 +131,17 @@ export const SDK_TOKENS = {
   SDK_OPENROUTER_AUTH: Symbol.for('SdkOpenRouterAuth'),
   SDK_OPENROUTER_PROXY: Symbol.for('SdkOpenRouterProxy'),
 
-  /** Local Model Provider Services (TASK_2025_265, updated TASK_2025_281) */
+  /** Local Model Provider Services */
   SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
   SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
 
   /** Ollama Cloud metadata service — live tags + pricing (TASK_OLLAMA_CLOUD_KEY) */
   SDK_OLLAMA_CLOUD_METADATA: Symbol.for('SdkOllamaCloudMetadata'),
 
-  /** Skill Junction Service (TASK_2025_201) */
+  /** Skill Junction Service */
   SDK_SKILL_JUNCTION: Symbol.for('SdkSkillJunction'),
 
-  /** Settings Export/Import Services (TASK_2025_210) */
+  /** Settings Export/Import Services */
   SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
   SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
 
@@ -154,7 +154,7 @@ export const SDK_TOKENS = {
   SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
 
   /**
-   * Live usage tracker (TASK_2026_109 cycle-break).
+   * Live usage tracker.
    * Holds the per-session cumulative pre-compaction token snapshot. Written
    * by `SdkMessageTransformer` from streaming usage events and read by
    * `CompactionHookHandler` at PreCompact firing time.
