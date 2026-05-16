@@ -25,7 +25,7 @@ export interface SendMessageOptions {
 }
 
 /**
- * TASK_2025_102: Content block from agent JSONL file - preserves interleaved structure.
+ * Content block from agent JSONL file - preserves interleaved structure.
  * Mirrors the backend AgentContentBlock type for frontend usage.
  */
 export interface AgentContentBlock {
@@ -79,7 +79,7 @@ export interface StreamingState {
   agentSummaryAccumulators: Map<string, string>;
 
   /**
-   * TASK_2025_102: Structured content blocks from agent file watcher.
+   * Structured content blocks from agent file watcher.
    * Preserves the interleaved structure of text and tool_use blocks.
    * Keyed by agentId (stable across hook and complete events).
    * Frontend uses this to interleave text nodes between tool nodes.
@@ -118,7 +118,7 @@ export function createEmptyStreamingState(): StreamingState {
     textAccumulators: new Map(),
     toolInputAccumulators: new Map(),
     agentSummaryAccumulators: new Map(),
-    agentContentBlocksMap: new Map(), // TASK_2025_102: Structured content blocks
+    agentContentBlocksMap: new Map(),
     currentMessageId: null,
     currentTokenUsage: null,
     eventsByMessage: new Map(),
@@ -231,14 +231,6 @@ export interface TabState {
 
   /** Real Claude CLI session UUID (null if draft) */
   claudeSessionId: SessionId | null;
-
-  // TASK_2026_106 Phase 6b — `placeholderSessionId` removed. The router
-  // (StreamRouter in `@ptah-extension/chat-routing`) owns the
-  // "tab bound to a conversation with no sessions yet" state, and the
-  // first stream event for that tab seeds the conversation via
-  // `ConversationRegistry.appendSession`. Persisted state with the field
-  // present still parses cleanly — the field is silently dropped on the
-  // next save.
 
   /** User-provided or auto-generated session name */
   name: string;
@@ -368,7 +360,7 @@ export interface TabState {
    * Timestamp (ms since epoch) of the last `compaction_complete` applied to
    * this tab. Used by SessionStatsAggregatorService to drop late
    * `SESSION_STATS` events that were emitted for the last pre-compaction
-   * turn but arrive after the post-compaction reset. See TASK_2026_109 (B3).
+   * turn but arrive after the post-compaction reset.
    */
   lastCompactionAt?: number | null;
 
@@ -415,8 +407,8 @@ export const AccumulatorKeys = {
     `${messageId}-thinking-${blockIndex}`,
   /**
    * Key for agent summary content, keyed by agentId (NOT toolCallId).
-   * TASK_2025_099: agentId is stable across hook (UUID toolCallId) and
-   * complete message (toolu_* toolCallId), making it the reliable lookup key.
+   * agentId is stable across hook (UUID toolCallId) and complete message
+   * (toolu_* toolCallId), making it the reliable lookup key.
    */
   agentSummary: (agentId: string) => agentId,
 } as const;
