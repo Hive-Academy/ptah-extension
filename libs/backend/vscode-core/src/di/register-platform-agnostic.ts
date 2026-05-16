@@ -1,5 +1,5 @@
 /**
- * VS Code Core — Platform-Agnostic DI Registration (TASK_2025_291, Wave C1)
+ * VS Code Core — Platform-Agnostic DI Registration
  *
  * Registers vscode-core services that have ZERO runtime vscode dependency.
  * Safe to call from non-VS-Code hosts (Electron, tests, TUI).
@@ -62,11 +62,10 @@ export function registerVsCodeCorePlatformAgnostic(
     MessageValidatorService,
   );
 
-  // TODO(C1 step 2): remove guard once app containers stop double-registering
+  // TODO: remove guard once app containers stop double-registering
   // SUBAGENT_REGISTRY_SERVICE. Currently registered by both:
-  //   - apps/ptah-extension-vscode/src/di/container.ts Phase 1.5.1
+  //   - apps/ptah-extension-vscode/src/di/container.ts
   //   - apps/ptah-electron/src/di/container.ts (unguarded)
-  // Step 2 of Wave C1 removes those duplicates.
   if (!container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
     container.registerSingleton(
       TOKENS.SUBAGENT_REGISTRY_SERVICE,

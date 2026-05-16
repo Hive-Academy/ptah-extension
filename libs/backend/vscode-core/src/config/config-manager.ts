@@ -1,7 +1,5 @@
 /**
  * ConfigManager Service - Type-safe configuration management
- * Based on TASK_CORE_001 implementation plan
- * Extracted from apps/ptah-extension-vscode/src/config/ptah-config.service.ts
  *
  * Features:
  * - Dependency injection via TSyringe
@@ -42,10 +40,9 @@ export interface IFileSettingsStore {
  * ConfigManager service for type-safe configuration management
  * Manages VS Code extension settings with validation and change notifications
  *
- * TASK_2025_247: File-based settings routing.
- * Keys in fileBasedKeys are routed to the IFileSettingsStore (~/.ptah/settings.json)
- * instead of VS Code's workspace configuration. Call setFileSettingsStore() after
- * construction to enable routing.
+ * File-based settings routing: keys in fileBasedKeys are routed to the
+ * IFileSettingsStore (~/.ptah/settings.json) instead of VS Code's workspace
+ * configuration. Call setFileSettingsStore() after construction to enable routing.
  */
 @injectable()
 export class ConfigManager {

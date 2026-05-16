@@ -3,8 +3,6 @@
  *
  * Encapsulates all git CLI interactions for the Electron main process.
  * Uses cross-spawn for Windows compatibility. Zero new dependencies.
- *
- * TASK_2025_227: Git info bar + worktree management
  */
 
 import crossSpawn from 'cross-spawn';
@@ -174,7 +172,7 @@ export class GitInfoService {
   }
 
   // ==========================================================================
-  // Source Control Operations (TASK_2025_273)
+  // Source Control Operations
   // ==========================================================================
 
   /**
@@ -450,7 +448,7 @@ export class GitInfoService {
   }
 
   // ==========================================================================
-  // Branch, Checkout, Stash, Tag, Remote, Last-Commit (TASK_2026_111)
+  // Branch, Checkout, Stash, Tag, Remote, Last-Commit
   // ==========================================================================
 
   /**

@@ -1,9 +1,7 @@
 /**
- * RPC Handler - Routes RPC method calls to registered handlers
- * Phase 2: RPC Migration (TASK_2025_021)
+ * RPC Handler - Routes RPC method calls to registered handlers.
  *
- * This class replaces the old EventBus + MessageHandlerService pattern (deleted in Phase 0).
- * Instead of 94 message types and event subscriptions, we use simple method routing.
+ * Uses simple Map-based method routing instead of the legacy event-based bus.
  *
  * Features:
  * - Map-based method routing (registerMethod/handleMessage)
@@ -57,36 +55,36 @@ export const ALLOWED_METHOD_PREFIXES = [
   'auth:',
   'setup-status:',
   'setup-wizard:',
-  'llm:', // TASK_2025_073: LLM provider management (API keys, provider status)
-  'license:', // TASK_2025_079: License status for premium feature gating
-  'wizard:', // TASK_2025_124: Setup wizard deep analysis and agent recommendations
-  'command:', // TASK_2025_126: Webview command execution (ptah.* commands only)
-  'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts system (status, wizard, regenerate)
-  'quality:', // TASK_2025_144: Quality Dashboard (assessment, history, export)
-  'plugins:', // TASK_2025_153: Plugin configuration (list, get-config, save-config)
-  'agent:', // TASK_2025_157: Agent orchestration (getConfig, setConfig, detectClis)
-  'ptahCli:', // TASK_2025_170: Ptah CLI agent management (list, create, update, delete, testConnection, listModels)
-  'editor:', // TASK_2025_200: Editor operations (openFile, etc.) for Electron Monaco editor
+  'llm:', // LLM provider management (API keys, provider status)
+  'license:', // License status for premium feature gating
+  'wizard:', // Setup wizard deep analysis and agent recommendations
+  'command:', // Webview command execution (ptah.* commands only)
+  'enhancedPrompts:', // Enhanced Prompts system (status, wizard, regenerate)
+  'quality:', // Quality Dashboard (assessment, history, export)
+  'plugins:', // Plugin configuration (list, get-config, save-config)
+  'agent:', // Agent orchestration (getConfig, setConfig, detectClis)
+  'ptahCli:', // Ptah CLI agent management (list, create, update, delete, testConnection, listModels)
+  'editor:', // Editor operations (openFile, etc.) for Electron Monaco editor
   'layout:', // Electron desktop layout persistence (sidebar/editor panel widths)
-  'skillsSh:', // TASK_2025_204: Skills.sh marketplace (search, install, recommend)
-  'settings:', // TASK_2025_210: Settings export/import (Electron desktop)
-  'git:', // TASK_2025_227: Git info and worktree management
-  'terminal:', // TASK_2025_227: Terminal PTY session management
-  'webSearch:', // TASK_2025_235: Web search provider configuration (API key status)
+  'skillsSh:', // Skills.sh marketplace (search, install, recommend)
+  'settings:', // Settings export/import (Electron desktop)
+  'git:', // Git info and worktree management
+  'terminal:', // Terminal PTY session management
+  'webSearch:', // Web search provider configuration (API key status)
   'harness:', // Harness setup builder (initialize, suggest-config, apply, presets, chat)
   'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)
   'cron:', // Scheduled cron jobs (list, get, create, update, delete, toggle, runNow, runs, nextFire)
   'gateway:', // MCP gateway status, bindings, and messages
   'memory:', // Memory curator (list, search, get, pin, unpin, forget, rebuildIndex, stats)
   'skillSynthesis:', // Skills synthesis pipeline (listCandidates, getCandidate, promote, reject, invocations, stats)
-  'db:', // DB health + reset (TASK_2026_THOTH_PERSISTENCE_HARDENING — maintenance commands)
-  'subagent:', // Phase 2: bidirectional subagent messaging (send-message, stop, interrupt)
-  'indexing:', // TASK_2026_114: Workspace indexing control
-  'update:', // TASK_2026_117: Electron auto-update UX (check-now, install-now)
+  'db:', // DB health + reset — maintenance commands
+  'subagent:', // Bidirectional subagent messaging (send-message, stop, interrupt)
+  'indexing:', // Workspace indexing control
+  'update:', // Electron auto-update UX (check-now, install-now)
 ] as const;
 
 /**
- * RPC methods requiring Pro tier subscription (TASK_2025_124, TASK_2025_129)
+ * RPC methods requiring Pro tier subscription.
  *
  * Prefix matching: 'setup-status:' matches 'setup-status:get-status'
  *
@@ -94,7 +92,7 @@ export const ALLOWED_METHOD_PREFIXES = [
  * - setup_wizard      -> setup-status:, setup-wizard:, wizard:
  *
  * Community features with RPC endpoints (available to ALL users):
- * - openrouter_proxy  -> openrouter: (un-gated in TASK_2025_129)
+ * - openrouter_proxy  -> openrouter: (un-gated)
  *
  * Other Pro features WITHOUT RPC endpoints (gated via FeatureGateService):
  * - mcp_server            -> Backend-only, no RPC (uses MCP protocol)
@@ -109,8 +107,8 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'setup-status:', // setup_wizard feature
   'setup-wizard:', // setup_wizard feature
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
-  'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts (Pro-only intelligent prompt generation)
-  'ptahCli:', // TASK_2025_170: Ptah CLI agent management (Pro-only)
+  'enhancedPrompts:', // Enhanced Prompts (Pro-only intelligent prompt generation)
+  'ptahCli:', // Ptah CLI agent management (Pro-only)
 ] as const;
 
 /**
@@ -123,7 +121,7 @@ const PRO_ONLY_METHOD_PREFIXES = [
 const PRO_ONLY_METHODS: readonly string[] = [] as const;
 
 /**
- * RPC methods that bypass license check entirely (TASK_2025_124)
+ * RPC methods that bypass license check entirely.
  *
  * Required for license management and authentication flows.
  * These methods must work without a valid license to allow users to:
@@ -134,13 +132,13 @@ const PRO_ONLY_METHODS: readonly string[] = [] as const;
 const LICENSE_EXEMPT_PREFIXES = [
   'license:', // Must work to show license status and enter keys
   'auth:', // Must work for login/authentication flow
-  'command:', // TASK_2025_126: Must work for unlicensed users (welcome page actions)
+  'command:', // Must work for unlicensed users (welcome page actions)
   'settings:', // Must work for settings import on welcome page (cross-platform onboarding)
   'db:', // DB health + reset are maintenance/recovery commands; must work without a license
 ] as const;
 
 /**
- * Result of license validation for an RPC method (TASK_2025_124)
+ * Result of license validation for an RPC method.
  *
  * Used by validateLicense() to indicate whether a method is allowed
  * and provide structured error information for the frontend.
@@ -161,7 +159,7 @@ export interface RpcLicenseValidationResult {
  * RPC Handler service for routing RPC method calls
  * Manages registration and execution of RPC methods with security validation
  *
- * TASK_2025_124: Added license middleware for centralized license validation
+ * License middleware (centralized license validation):
  * - All RPC methods (except license:*, auth:*) require valid license
  * - Pro-only methods (setup-*, wizard:*) require Pro tier
  * - Uses getCachedStatus() only - NO server calls per request
@@ -252,8 +250,8 @@ export class RpcHandler {
       correlationId,
     });
 
-    // TASK_2025_124: License validation BEFORE handler lookup
-    // This ensures unlicensed users cannot execute ANY non-exempt RPC methods
+    // License validation runs BEFORE handler lookup so unlicensed users
+    // cannot execute ANY non-exempt RPC methods.
     const validation = this.validateLicense(method);
     if (!validation.allowed) {
       // Return structured error with errorCode for frontend handling
@@ -378,7 +376,7 @@ export class RpcHandler {
   }
 
   /**
-   * Validate license before allowing RPC method execution (TASK_2025_124)
+   * Validate license before allowing RPC method execution.
    *
    * Uses CACHED status only - NO server calls per request.
    * This ensures zero latency impact on RPC method execution.
@@ -405,8 +403,8 @@ export class RpcHandler {
       return { allowed: true };
     }
 
-    // TASK_2025_124: Defensive coding - wrap in try/catch to handle unexpected errors
-    // This prevents handleMessage from crashing if getCachedStatus throws
+    // Defensive try/catch: prevents handleMessage from crashing if
+    // getCachedStatus throws unexpectedly.
     try {
       // Step 2: Get cached license status (NO server call - O(1) memory read)
       const status: LicenseStatus | null =
@@ -492,7 +490,7 @@ export class RpcHandler {
   }
 
   /**
-   * Check if RPC method requires Pro tier subscription (TASK_2025_124)
+   * Check if RPC method requires Pro tier subscription.
    *
    * Pro-only methods are derived from PRO_ONLY_FEATURES in FeatureGateService:
    * - setup_wizard feature: setup-status:*, setup-wizard:*, wizard:*

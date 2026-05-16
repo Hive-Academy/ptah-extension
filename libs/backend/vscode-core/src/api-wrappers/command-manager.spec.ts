@@ -4,9 +4,6 @@
  * Exercises the real CommandManager surface: registration, execution wrapping,
  * metric tracking, and disposal. The class has a single injected dependency
  * (vscode.ExtensionContext), so only the `vscode` module needs to be mocked.
- *
- * TASK_2025_291 Wave B: replaces a ghost spec that mocked a nonexistent
- * EventBus dependency.
  */
 
 import 'reflect-metadata';

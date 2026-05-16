@@ -283,8 +283,8 @@ export class WebviewMessageHandlerService {
         correlationId: reqId,
       });
 
-      // Send response back (correlationId and data are the canonical fields)
-      // TASK_2025_124: Include errorCode for license-related errors
+      // Send response back (correlationId and data are the canonical fields).
+      // errorCode is included for license-related errors.
       // RPC hardening: error is always a string at the dispatcher boundary.
       await webview.postMessage({
         type: MESSAGE_TYPES.RPC_RESPONSE,
@@ -340,9 +340,9 @@ export class WebviewMessageHandlerService {
   }
 
   /**
-   * Handle AskUserQuestion responses (SDK clarifying questions)
+   * Handle AskUserQuestion responses (SDK clarifying questions).
    *
-   * TASK_2025_136: Routes user answers back to SdkPermissionHandler
+   * Routes user answers back to SdkPermissionHandler:
    * - Triggered by: User answering questions in webview UI
    * - Message type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE ('ask-user-question:response')
    * - Handler: SdkPermissionHandler.handleQuestionResponse()
@@ -465,9 +465,8 @@ export class WebviewMessageHandlerService {
         const permissionHandler = container.resolve<ISdkPermissionHandler>(
           SDK_PERMISSION_HANDLER,
         );
-        // TASK_2025_101_FIX: Pass correct PermissionResponse structure
-        // Previously passed 'approved' (boolean) which is NOT in PermissionResponse interface
-        // Must pass 'id' and 'decision' fields matching SdkPermissionHandler.PermissionResponse
+        // Must pass 'id' and 'decision' fields matching
+        // SdkPermissionHandler.PermissionResponse (not a boolean 'approved').
         const decision = payload?.decision ?? 'deny';
         permissionHandler.handleResponse(requestId, {
           id: requestId,

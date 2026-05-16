@@ -2,21 +2,19 @@
  * WorkspaceAwareStateStorage — IStateStorage proxy that delegates to
  * per-workspace IStateStorage instances based on the active workspace.
  *
- * TASK_2025_208: Replaces child container approach. This proxy is registered
- * as PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, so all services that inject
- * workspace-scoped storage automatically get the active workspace's storage
- * without needing child containers.
+ * Registered as PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, so all services that
+ * inject workspace-scoped storage automatically get the active workspace's
+ * storage without needing child containers.
  *
  * Key insight: RPC handler singletons inject WORKSPACE_STATE_STORAGE at
  * construction time. With child containers, they'd get the root container's
  * instance and never see workspace-specific data. This proxy solves that
  * by delegating at call-time to the active workspace's storage.
  *
- * TASK_2026_104 Sub-batch B5a: Lifted from `apps/ptah-electron`. The class
- * was decoupled from `ElectronStateStorage` via the `StateStorageFactory`
- * type so this layer-1 library has no dependency on `platform-electron`
- * (a layer 0.5 implementation). Apps must inject a factory that produces
- * `IStateStorage` instances for a given storage directory.
+ * The class is decoupled from `ElectronStateStorage` via the
+ * `StateStorageFactory` type so this layer-1 library has no dependency on
+ * `platform-electron` (a layer 0.5 implementation). Apps must inject a factory
+ * that produces `IStateStorage` instances for a given storage directory.
  */
 
 import type { IStateStorage } from '@ptah-extension/platform-core';

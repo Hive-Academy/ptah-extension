@@ -80,7 +80,7 @@ export class WebviewManager {
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
-    @inject(LOGGER) private readonly logger: Logger
+    @inject(LOGGER) private readonly logger: Logger,
   ) {}
 
   /**
@@ -93,7 +93,7 @@ export class WebviewManager {
    */
   createWebviewPanel<T extends Record<string, unknown>>(
     config: WebviewPanelConfig,
-    initialData?: T
+    initialData?: T,
   ): vscode.WebviewPanel {
     // Check if webview already exists
     if (this.activeWebviews.has(config.viewType)) {
@@ -101,7 +101,7 @@ export class WebviewManager {
       const existing = this.activeWebviews.get(config.viewType)!;
       existing.reveal(
         config.showOptions?.viewColumn,
-        config.showOptions?.preserveFocus
+        config.showOptions?.preserveFocus,
       );
       return existing;
     }
@@ -122,7 +122,7 @@ export class WebviewManager {
           vscode.Uri.joinPath(this.context.extensionUri, 'dist'),
           vscode.Uri.joinPath(this.context.extensionUri, 'webview'),
         ],
-      }
+      },
     );
 
     // Set up message handling with type safety
@@ -194,10 +194,10 @@ export class WebviewManager {
     });
 
     this.logger.debug(
-      `[WebviewManager] WebviewView registered successfully: ${viewType}`
+      `[WebviewManager] WebviewView registered successfully: ${viewType}`,
     );
     this.logger.debug(
-      `[WebviewManager] Active webviews: ${this.getActiveWebviews().join(', ')}`
+      `[WebviewManager] Active webviews: ${this.getActiveWebviews().join(', ')}`,
     );
   }
 
@@ -213,7 +213,7 @@ export class WebviewManager {
     viewType: string,
     type: T,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    payload: any
+    payload: any,
   ): Promise<boolean> {
     // Check both panels and views
     const panel = this.activeWebviews.get(viewType);
@@ -221,17 +221,17 @@ export class WebviewManager {
     const webview = panel?.webview || view?.webview;
 
     if (!webview) {
-      // TASK_2025_194: Downgrade from CRITICAL error to debug.
-      // During extension activation the ConfigWatcher may trigger reinit
-      // (which posts status to webview) before the webview provider is registered.
-      // This is a harmless timing issue — the message is simply dropped and
-      // the webview requests its initial state upon connection anyway.
+      // Debug-level (not error): during extension activation the ConfigWatcher
+      // may trigger reinit (which posts status to webview) before the webview
+      // provider is registered. This is a harmless timing issue — the message
+      // is simply dropped and the webview requests its initial state upon
+      // connection anyway.
       this.logger.debug(
         `[WebviewManager] Webview ${viewType} not found (may not be registered yet)`,
         {
           activePanels: Array.from(this.activeWebviews.keys()),
           activeViews: Array.from(this.activeWebviewViews.keys()),
-        }
+        },
       );
       return false;
     }
@@ -248,7 +248,7 @@ export class WebviewManager {
     } catch (error) {
       this.logger.error(
         `[WebviewManager] postMessage() threw error`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
       return false;
     }
@@ -322,7 +322,7 @@ export class WebviewManager {
   async broadcastMessage<T extends StrictMessageType>(
     type: T,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    payload: any
+    payload: any,
   ): Promise<void> {
     const allPromises: Promise<unknown>[] = [];
 
@@ -338,10 +338,10 @@ export class WebviewManager {
           (error) => {
             this.logger.warn(
               `[WebviewManager] Broadcast failed for view ${viewType}`,
-              error instanceof Error ? error : new Error(String(error))
+              error instanceof Error ? error : new Error(String(error)),
             );
-          }
-        )
+          },
+        ),
       );
     }
 
@@ -382,7 +382,7 @@ export class WebviewManager {
    */
   private handleWebviewMessage(
     webviewId: string,
-    message: WebviewMessage
+    message: WebviewMessage,
   ): void {
     // Update metrics
     const metrics = this.webviewMetrics.get(webviewId);
@@ -398,13 +398,13 @@ export class WebviewManager {
     } else if (isRoutableMessage(message)) {
       // Routable messages are handled by WebviewMessageHandlerService's parallel listener
       this.logger.debug(
-        `[WebviewManager] Routable message handled by WebviewMessageHandlerService: ${message.type}`
+        `[WebviewManager] Routable message handled by WebviewMessageHandlerService: ${message.type}`,
       );
     } else {
       this.logger.error(
         `[WebviewManager] Invalid message type: ${
           (message as { type?: string }).type || 'unknown'
-        }`
+        }`,
       );
     }
   }

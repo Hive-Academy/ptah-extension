@@ -1,6 +1,5 @@
 /**
  * Configuration Management Types - Type definitions for configuration
- * Based on TASK_CORE_001 implementation plan
  */
 
 import type * as vscode from 'vscode';

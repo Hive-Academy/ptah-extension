@@ -1,7 +1,8 @@
 /**
- * Subagent History Registrar (Wave C7a — TASK_2025_291)
+ * Subagent History Registrar
  *
- * Extracted from {@link SubagentRegistryService}.
+ * Library-internal helper that handles history-based replay registration
+ * for {@link SubagentRegistryService}.
  *
  * Responsibilities:
  * - Parse `FlatStreamEventUnion[]` loaded from session history (JSONL) and
@@ -42,10 +43,10 @@ export class SubagentHistoryRegistrar {
   /**
    * Register incomplete/interrupted agents from loaded session history.
    *
-   * TASK_2025_109: When loading a session from JSONL history (cold load),
-   * SDK hooks don't fire, so the registry is empty. This method parses
-   * history events to detect agents that started but never completed,
-   * and registers them as 'interrupted' for potential resumption.
+   * When loading a session from JSONL history (cold load), SDK hooks don't
+   * fire, so the registry is empty. This method parses history events to
+   * detect agents that started but never completed, and registers them as
+   * 'interrupted' for potential resumption.
    *
    * Algorithm:
    * 1. Find all agent_start events (indicates agent spawned)
@@ -135,7 +136,7 @@ export class SubagentHistoryRegistrar {
         continue;
       }
 
-      // TASK_2025_213 (Bug 1): Skip agents whose context was already injected
+      // Skip agents whose context was already injected
       // and removed from the registry. This breaks the re-registration cycle:
       // inject context -> remove from registry -> reload session -> re-register -> inject again
       if (this.store.wasInjected(toolCallId)) {

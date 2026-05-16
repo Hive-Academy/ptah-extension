@@ -1,6 +1,5 @@
 /**
  * Message Validator Service - Runtime Type Safety with Zod
- * Extracted from apps/ptah-extension-vscode/src/services/validation/message-validator.service.ts
  *
  * Provides comprehensive runtime validation for all message types with zero `any` types.
  * Integrated with TSyringe DI for extensibility.
@@ -39,7 +38,7 @@ export abstract class PtahError extends Error {
   constructor(
     message: string,
     public readonly context: Readonly<Record<string, unknown>> = {},
-    public readonly timestamp = Date.now()
+    public readonly timestamp = Date.now(),
   ) {
     super(message);
     this.name = this.constructor.name;
@@ -56,7 +55,7 @@ export class ValidationError extends PtahError {
       errors?: readonly z.ZodIssue[];
       received?: unknown;
       expected?: string;
-    }> = {}
+    }> = {},
   ) {
     super(message, context);
   }
@@ -68,7 +67,7 @@ export class MessageValidationError extends ValidationError {
   constructor(
     message: string,
     public readonly messageType: string,
-    context: Readonly<Record<string, unknown>> = {}
+    context: Readonly<Record<string, unknown>> = {},
   ) {
     super(message, context);
   }
@@ -85,7 +84,7 @@ export class MessageValidatorService {
    */
   validateMessage<T extends keyof MessagePayloadMap>(
     data: unknown,
-    expectedType: T
+    expectedType: T,
   ): StrictMessage<T> {
     try {
       // First validate the basic message structure
@@ -99,7 +98,7 @@ export class MessageValidatorService {
           {
             errors: baseResult.error.issues,
             received: data,
-          }
+          },
         );
       }
 
@@ -118,7 +117,7 @@ export class MessageValidatorService {
         expectedType,
         {
           originalError: error instanceof Error ? error.message : String(error),
-        }
+        },
       );
     }
   }
@@ -128,7 +127,7 @@ export class MessageValidatorService {
    */
   private validatePayloadForType<T extends keyof MessagePayloadMap>(
     payload: unknown,
-    messageType: T
+    messageType: T,
   ): MessagePayloadMap[T] {
     const schema = this.getPayloadSchemaForType(messageType);
     const result = schema.safeParse(payload);
@@ -140,7 +139,7 @@ export class MessageValidatorService {
         {
           errors: result.error.issues,
           received: payload,
-        }
+        },
       );
     }
 
@@ -275,7 +274,7 @@ export class MessageValidatorService {
                 'initializing',
                 'disabled',
               ]),
-            })
+            }),
           ),
         });
 
@@ -438,7 +437,7 @@ export class MessageValidatorService {
                   description: z.string().optional(),
                   required: z.boolean().optional(),
                   default: z.unknown().optional(),
-                })
+                }),
               )
               .optional(),
           }),
@@ -508,7 +507,7 @@ export class MessageValidatorService {
 
       default: {
         throw new ValidationError(
-          `No payload schema defined for message type: ${messageType}`
+          `No payload schema defined for message type: ${messageType}`,
         );
       }
     }
@@ -533,7 +532,7 @@ export class MessageValidatorService {
         'Chat message is missing required "id" property',
         {
           received: data,
-        }
+        },
       );
     }
 
@@ -592,7 +591,7 @@ export class MessageValidatorService {
    */
   safeValidateMessage<T extends keyof MessagePayloadMap>(
     data: unknown,
-    expectedType: T
+    expectedType: T,
   ): StrictMessage<T> | null {
     try {
       return this.validateMessage(data, expectedType);
@@ -621,7 +620,7 @@ export class MessageValidatorService {
 
     const validatedMessage = this.safeValidateMessage(
       data,
-      messageType as keyof MessagePayloadMap
+      messageType as keyof MessagePayloadMap,
     );
     if (!validatedMessage) {
       return null;
@@ -647,7 +646,7 @@ export class MessageValidatorService {
    */
   createErrorContext(
     error: unknown,
-    context: Readonly<Record<string, unknown>> = {}
+    context: Readonly<Record<string, unknown>> = {},
   ): Record<string, unknown> {
     const baseContext = {
       timestamp: Date.now(),

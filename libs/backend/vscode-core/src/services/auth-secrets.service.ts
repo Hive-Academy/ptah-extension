@@ -4,8 +4,6 @@
  * Manages SDK authentication credentials using VS Code's SecretStorage.
  * SecretStorage provides encrypted, secure storage for sensitive data.
  *
- * TASK_2025_076: Secure credential storage for API key
- *
  * @packageDocumentation
  */
 

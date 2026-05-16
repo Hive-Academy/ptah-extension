@@ -4,9 +4,6 @@
  * Exercises the real OutputManager surface: channel creation, write
  * formatting, metric tracking, lifecycle management (show/hide/clear),
  * and disposal.
- *
- * TASK_2025_291 Wave B: replaces a ghost spec that mocked a nonexistent
- * EventBus dependency.
  */
 
 import 'reflect-metadata';

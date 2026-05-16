@@ -5,9 +5,6 @@
  * revealing an existing panel, WebviewView registration, message sending and
  * broadcasting, message routing (system vs. routable), metric tracking, and
  * disposal.
- *
- * TASK_2025_291 Wave B: replaces a ghost spec that mocked a nonexistent
- * EventBus dependency.
  */
 
 import 'reflect-metadata';

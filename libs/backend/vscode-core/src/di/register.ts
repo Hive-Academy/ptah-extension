@@ -1,6 +1,7 @@
 /**
  * VS Code Core DI Registration
- * TASK_2025_071: Centralized registration for vscode-core infrastructure services
+ *
+ * Centralized registration for vscode-core infrastructure services.
  *
  * IMPORTANT: Logger AND OutputManager must be registered BEFORE calling this function.
  * - OutputManager is required by Logger (dependency injection)
@@ -12,7 +13,7 @@
  * 3. LOGGER (can now be resolved safely)
  * 4. This function (registers remaining services)
  *
- * TASK_2025_291 Wave C1: Platform-agnostic services are registered via
+ * Platform-agnostic services are registered via
  * `registerVsCodeCorePlatformAgnostic` (separate file with zero vscode imports).
  * This file retains the VS Code-specific registrations.
  */
@@ -46,7 +47,7 @@ export function registerVsCodeCoreServices(
   context: vscode.ExtensionContext,
   logger: Logger,
 ): void {
-  // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
+  // Dependency validation - fail fast if prerequisites missing
   if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
     throw new Error(
       '[VS Code Core] DEPENDENCY ERROR: TOKENS.EXTENSION_CONTEXT must be registered before calling registerVsCodeCoreServices. ' +
@@ -72,8 +73,7 @@ export function registerVsCodeCoreServices(
   logger.info('[VS Code Core] Registering infrastructure services...');
 
   // ============================================================
-  // Platform-agnostic block — delegated to the helper
-  // (TASK_2025_291 Wave C1). Registers:
+  // Platform-agnostic block — delegated to the helper. Registers:
   //   RPC_HANDLER, MESSAGE_VALIDATOR, AGENT_SESSION_WATCHER_SERVICE,
   //   SUBAGENT_REGISTRY_SERVICE, FEATURE_GATE_SERVICE, SENTRY_SERVICE,
   //   LICENSE_SERVICE, AUTH_SECRETS_SERVICE.

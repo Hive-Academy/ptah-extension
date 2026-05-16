@@ -1,17 +1,14 @@
 /**
- * Subagent Registry Service (coordinator — Wave C7a, TASK_2025_291)
- *
- * TASK_2025_103: Subagent Resumption Feature
+ * Subagent Registry Service (coordinator)
  *
  * Maintains an in-memory registry of subagent lifecycle states to enable
  * resumption of interrupted subagent executions. Tracks subagents from
  * SubagentStart hook through completion or interruption.
  *
- * TASK_2025_291 Wave C7a: This class is now a thin coordinator. Persistence
- * primitives (the in-memory Map, cleared/pending sets, TTL expiration, lazy
- * cleanup) live in {@link SubagentStateStore}. History-based replay
- * registration lives in {@link SubagentHistoryRegistrar}. The public surface
- * of this class is unchanged.
+ * This class is a thin coordinator. Persistence primitives (the in-memory
+ * Map, cleared/pending sets, TTL expiration, lazy cleanup) live in
+ * {@link SubagentStateStore}. History-based replay registration lives in
+ * {@link SubagentHistoryRegistrar}.
  *
  * Key responsibilities (coordinator):
  * - Register subagents when SubagentStart hook fires
@@ -93,8 +90,8 @@ export class SubagentRegistryService {
     // Run lazy cleanup periodically
     this.store.lazyCleanup();
 
-    // TASK_2025_217: Check if this toolCallId was pre-marked as background
-    // by SdkMessageTransformer (detected run_in_background: true in Task input).
+    // Check if this toolCallId was pre-marked as background by
+    // SdkMessageTransformer (detected run_in_background: true in Task input).
     // This eliminates the race condition where the agent starts executing tools
     // before the background_agent_started stream event arrives.
     const isPendingBackground = this.store.consumePendingBackground(
@@ -129,9 +126,9 @@ export class SubagentRegistryService {
    *
    * Typically called when SubagentStop hook fires to mark as 'completed'.
    *
-   * FIX (TASK_2025_103 QA): Completed subagents are now deleted immediately
-   * instead of being kept for 24 hours. Only interrupted subagents are kept
-   * for potential resumption. This prevents memory accumulation.
+   * Completed subagents are deleted immediately instead of being kept for
+   * 24 hours. Only interrupted subagents are kept for potential resumption.
+   * This prevents memory accumulation.
    *
    * @param toolCallId - The subagent's toolCallId
    * @param updates - Fields to update (status, interruptedAt)
@@ -245,7 +242,7 @@ export class SubagentRegistryService {
   }
 
   /**
-   * Phase 1: Look up a SubagentRecord by its SDK task_id.
+   * Look up a SubagentRecord by its SDK task_id.
    *
    * Used by SubagentMessageDispatcher to resolve a taskId from the frontend
    * into the registry record for routing subagent:stop calls.
@@ -263,7 +260,7 @@ export class SubagentRegistryService {
   }
 
   /**
-   * Phase 1: Associate an SDK task_id with a toolCallId entry.
+   * Associate an SDK task_id with a toolCallId entry.
    *
    * Called when SdkMessageTransformer receives task_started so that later
    * stop/interrupt calls can look up the SDK taskId from the registry.
@@ -346,7 +343,7 @@ export class SubagentRegistryService {
   /**
    * Get all running (non-background) subagents for a session.
    *
-   * TASK_2025_185: Used by frontend to show confirmation before interrupting.
+   * Used by the frontend to show confirmation before interrupting.
    * Returns agents that are actively running and would be killed by an abort.
    *
    * @param parentSessionId - The parent session ID to query
@@ -395,7 +392,7 @@ export class SubagentRegistryService {
         record.parentSessionId === parentSessionId &&
         record.status === 'running' &&
         !record.isBackground && // Background agents outlive the session turn
-        !record.isCliAgent // TASK_2025_186: CLI agents run independently of parent session
+        !record.isCliAgent // CLI agents run independently of parent session
       ) {
         record.status = 'interrupted';
         record.interruptedAt = interruptedAt;
@@ -424,7 +421,8 @@ export class SubagentRegistryService {
   }
 
   /**
-   * TASK_2025_186: Update parentSessionId for all records matching the old tab ID.
+   * Update parentSessionId for all records matching the old tab ID.
+   *
    * Called when the real SDK session UUID is resolved, so that
    * markParentSubagentsAsCliAgent() and markAllInterrupted() can find
    * records by either the tab ID or the real UUID.
@@ -451,8 +449,8 @@ export class SubagentRegistryService {
   }
 
   /**
-   * TASK_2025_213 (Bug 2): Look up the Task tool's toolCallId by the
-   * sub-agent's short hex ID (agentId).
+   * Look up the Task tool's toolCallId by the sub-agent's short hex ID
+   * (agentId).
    *
    * The SDK's canUseTool callback provides agentID (e.g., "a329b32") when
    * the tool runs inside a subagent. The frontend needs the Task tool's
@@ -503,7 +501,8 @@ export class SubagentRegistryService {
   }
 
   /**
-   * TASK_2025_217: Pre-mark a toolCallId as a background task.
+   * Pre-mark a toolCallId as a background task.
+   *
    * Called by SdkMessageTransformer when it detects run_in_background: true
    * in a Task tool_use input. The subsequent register() call will auto-set
    * isBackground: true and status: 'background' on the SubagentRecord.
@@ -519,9 +518,10 @@ export class SubagentRegistryService {
   }
 
   /**
-   * TASK_2025_213 (Bug 1): Mark a toolCallId as having been injected into
-   * context. Call this BEFORE remove() so the ID is recorded before the
-   * registry entry is deleted.
+   * Mark a toolCallId as having been injected into context.
+   *
+   * Call this BEFORE remove() so the ID is recorded before the registry
+   * entry is deleted.
    *
    * @param toolCallId - The toolCallId that was injected into context
    */
@@ -534,8 +534,8 @@ export class SubagentRegistryService {
   }
 
   /**
-   * TASK_2025_213 (Bug 1): Check if a toolCallId was previously injected
-   * into context and should not be re-registered from history.
+   * Check if a toolCallId was previously injected into context and should
+   * not be re-registered from history.
    *
    * @param toolCallId - The toolCallId to check
    * @returns true if the toolCallId was previously injected
@@ -545,7 +545,7 @@ export class SubagentRegistryService {
   }
 
   /**
-   * TASK_2026_109 (A4 + C4): Prune subagent entries scoped to a parent session.
+   * Prune subagent entries scoped to a parent session.
    *
    * Invoked from `SdkMessageTransformer` on `compact_boundary` to drop any
    * pre-compaction subagent records for the active session. After compaction,
@@ -641,7 +641,7 @@ export class SubagentRegistryService {
   }
 
   // ============================================================================
-  // HISTORY-BASED REGISTRATION (TASK_2025_109)
+  // HISTORY-BASED REGISTRATION
   // ============================================================================
 
   /**

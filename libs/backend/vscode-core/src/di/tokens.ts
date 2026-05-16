@@ -33,8 +33,6 @@
 // VS Code API Tokens
 // ========================================
 export const EXTENSION_CONTEXT = Symbol.for('ExtensionContext');
-// WEBVIEW_PROVIDER - DELETED in TASK_2025_078 (never registered, use WEBVIEW_MANAGER)
-// COMMAND_REGISTRY - DELETED in TASK_2025_078 (never registered, use COMMAND_MANAGER)
 
 // ========================================
 // Messaging System Tokens (DELETED - event-based system removed)
@@ -64,9 +62,8 @@ export const RPC_HANDLER = Symbol.for('RpcHandler');
 export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
   'RpcMethodRegistrationService',
 );
-// SDK_RPC_HANDLERS - DELETED in TASK_2025_092 (dead code - permission emitter moved to SdkPermissionHandler)
-// AGENT_SESSION_WATCHER_SERVICE - DELETED (no-op stub removed; subagent visibility now flows
-//   via `agentProgressSummaries: true` Option + task_* system messages handled by SdkMessageTransformer)
+// AGENT_SESSION_WATCHER_SERVICE deleted — subagent visibility flows via
+//   `agentProgressSummaries: true` Option + task_* system messages handled by SdkMessageTransformer.
 export const SUBAGENT_REGISTRY_SERVICE = Symbol.for('SubagentRegistryService');
 export const SENTRY_SERVICE = Symbol.for('SentryService');
 
@@ -115,37 +112,33 @@ export const CONTEXT_ENRICHMENT_SERVICE = Symbol.for(
 export const DEPENDENCY_GRAPH_SERVICE = Symbol.for('DependencyGraphService');
 
 // ========================================
-// LLM Abstraction Service Tokens (DELETED)
-// TASK_2025_212: LLM_SERVICE, PROVIDER_REGISTRY, LLM_SECRETS_SERVICE,
-// LLM_CONFIGURATION_SERVICE all removed. LLM abstraction layer is fully
-// vestigial — all AI queries go through Agent SDK now.
-// LLM_RPC_HANDLERS - DELETED in TASK_2025_209
+// LLM Abstraction Service Tokens (DELETED — all AI queries go through Agent SDK now)
 // ========================================
 
 // ========================================
-// Agent Orchestration Tokens (TASK_2025_157)
+// Agent Orchestration Tokens
 // ========================================
 export const AGENT_PROCESS_MANAGER = Symbol.for('AgentProcessManager');
 export const CLI_DETECTION_SERVICE = Symbol.for('CliDetectionService');
 
 // ========================================
-// CLI Plugin Sync Tokens (TASK_2025_160)
+// CLI Plugin Sync Tokens
 // ========================================
 export const CLI_PLUGIN_SYNC_SERVICE = Symbol.for('CliPluginSyncService');
 
 // ========================================
-// Auth Secrets Service Token (TASK_2025_076)
+// Auth Secrets Service Token
 // ========================================
 export const AUTH_SECRETS_SERVICE = Symbol.for('AuthSecretsService');
 
 // ========================================
-// License Service Token (TASK_2025_075)
+// License Service Token
 // ========================================
 export const LICENSE_SERVICE = Symbol.for('LicenseService');
 export const LICENSE_COMMANDS = Symbol.for('LicenseCommands');
 
 // ========================================
-// Feature Gate Service Token (TASK_2025_121)
+// Feature Gate Service Token
 // ========================================
 export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
 
@@ -159,9 +152,9 @@ export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
 // @ptah-extension/agent-generation (ContentGenerationService).
 
 // ========================================
-// Code Execution MCP (TASK_2025_025)
+// Code Execution MCP
 // ========================================
-// DELETED in TASK_2025_025: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
+// DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
 // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
 // (These languageModelTools only worked with Copilot, not Claude CLI)
 
@@ -191,19 +184,19 @@ export const PRICING_SERVICE = Symbol.for('PricingService');
 // VS Code Memento for pricing cache
 export const GLOBAL_STATE = Symbol.for('GlobalState');
 
-// Agent SDK adapter token (TASK_2025_057 Batch 1)
+// Agent SDK adapter token
 export const SDK_AGENT_ADAPTER = Symbol.for('SdkAgentAdapter');
 
 /**
  * AgentAdapter facade token — resolves to SdkAgentAdapter.
- * deep-agent runtime removed in TASK_2025_293.
+ * (deep-agent runtime is no longer present.)
  *
  * All consumers should inject TOKENS.AGENT_ADAPTER typed as IAgentAdapter.
  */
 export const AGENT_ADAPTER = Symbol.for('AgentAdapter');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
-// DELETED tokens (TASK_2025_023 purge)
+// DELETED tokens
 // SESSION_MANAGER - DELETED (in-memory session duplication)
 // INTERACTIVE_SESSION_MANAGER - DELETED (complex state machine)
 // SESSION_PROXY - DELETED (event-based orchestration removed)
@@ -216,10 +209,10 @@ export const AGENT_ADAPTER = Symbol.for('AgentAdapter');
 
 // Service dependencies
 export const STORAGE_SERVICE = Symbol.for('StorageService');
-// CONFIGURATION_PROVIDER - DELETED in TASK_2025_078 (orphaned, never registered)
+// CONFIGURATION_PROVIDER - DELETED (orphaned, never registered)
 
 // ========================================
-// Project Intelligence Service Tokens (TASK_2025_141)
+// Project Intelligence Service Tokens
 // ========================================
 
 /**
@@ -255,19 +248,19 @@ export const PRESCRIPTIVE_GUIDANCE_SERVICE = Symbol.for(
 );
 
 /**
- * FileHashCacheService - SHA-256 content hashing for incremental analysis (TASK_2025_144)
+ * FileHashCacheService - SHA-256 content hashing for incremental analysis.
  * Responsibilities: Cache file content hashes, detect changed files, store per-file analysis results
  */
 export const FILE_HASH_CACHE_SERVICE = Symbol.for('FileHashCacheService');
 
 /**
- * QualityHistoryService - Assessment history persistence via globalState (TASK_2025_144)
+ * QualityHistoryService - Assessment history persistence via globalState.
  * Responsibilities: Record assessment snapshots, retrieve history, manage max entries limit
  */
 export const QUALITY_HISTORY_SERVICE = Symbol.for('QualityHistoryService');
 
 /**
- * QualityExportService - Quality report export in multiple formats (TASK_2025_144)
+ * QualityExportService - Quality report export in multiple formats.
  * Responsibilities: Generate Markdown, JSON, and CSV reports from ProjectIntelligence data
  */
 export const QUALITY_EXPORT_SERVICE = Symbol.for('QualityExportService');
@@ -275,7 +268,7 @@ export const QUALITY_EXPORT_SERVICE = Symbol.for('QualityExportService');
 // ========================================
 // Main App Service Tokens (PARTIALLY DELETED)
 // ========================================
-// COMMAND_BUILDER_SERVICE - DELETED in TASK_2025_078 (never used)
+// COMMAND_BUILDER_SERVICE - DELETED (never used)
 // ANALYTICS_DATA_COLLECTOR - DELETED (analytics-data-collector removed)
 export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
 export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
@@ -287,7 +280,7 @@ export const WEBVIEW_HTML_GENERATOR = Symbol.for('WebviewHtmlGenerator');
 export const WEBVIEW_MESSAGE_HANDLER = Symbol.for('WebviewMessageHandler');
 
 // ========================================
-// Platform Abstraction Tokens (TASK_2025_203)
+// Platform Abstraction Tokens
 // ========================================
 export const PLATFORM_COMMANDS = Symbol.for('PlatformCommands');
 export const PLATFORM_AUTH_PROVIDER = Symbol.for('PlatformAuthProvider');
@@ -295,12 +288,12 @@ export const SAVE_DIALOG_PROVIDER = Symbol.for('SaveDialogProvider');
 export const MODEL_DISCOVERY = Symbol.for('ModelDiscovery');
 
 // ========================================
-// Workspace Context Management (TASK_2025_208)
+// Workspace Context Management
 // ========================================
 export const WORKSPACE_CONTEXT_MANAGER = Symbol.for('WorkspaceContextManager');
 
 // ========================================
-// Git Info Service (TASK_2026_104 Sub-batch B5b — lifted from electron-tokens)
+// Git Info Service
 // ========================================
 export const GIT_INFO_SERVICE = Symbol.for('GitInfoService');
 
@@ -313,8 +306,6 @@ export const TOKENS = {
   // VS Code APIs
   // ========================================
   EXTENSION_CONTEXT,
-  // WEBVIEW_PROVIDER - DELETED in TASK_2025_078
-  // COMMAND_REGISTRY - DELETED in TASK_2025_078
   COMMAND_MANAGER,
   WEBVIEW_MANAGER,
 
@@ -342,7 +333,6 @@ export const TOKENS = {
   CONTEXT_MANAGER,
   RPC_HANDLER,
   RPC_METHOD_REGISTRATION_SERVICE,
-  // SDK_RPC_HANDLERS - DELETED in TASK_2025_092
   // AGENT_SESSION_WATCHER_SERVICE - DELETED (forwardSubagentText now streams inline)
   SUBAGENT_REGISTRY_SERVICE,
   SENTRY_SERVICE,
@@ -375,7 +365,7 @@ export const TOKENS = {
   CONTEXT_ENRICHMENT_SERVICE,
   DEPENDENCY_GRAPH_SERVICE,
 
-  // Project Intelligence (TASK_2025_141)
+  // Project Intelligence
   CODE_QUALITY_ASSESSMENT_SERVICE,
   ANTI_PATTERN_DETECTION_SERVICE,
   PROJECT_INTELLIGENCE_SERVICE,
@@ -385,29 +375,24 @@ export const TOKENS = {
   QUALITY_EXPORT_SERVICE,
 
   // ========================================
-  // LLM Abstraction (DELETED in TASK_2025_212)
+  // LLM Abstraction (DELETED — all AI queries go through Agent SDK now)
   // ========================================
-  // LLM_SERVICE - DELETED
-  // PROVIDER_REGISTRY - DELETED
-  // LLM_SECRETS_SERVICE - DELETED
-  // LLM_CONFIGURATION_SERVICE - DELETED
-  // LLM_RPC_HANDLERS - DELETED in TASK_2025_209
 
-  // Agent Orchestration (TASK_2025_157)
+  // Agent Orchestration
   AGENT_PROCESS_MANAGER,
   CLI_DETECTION_SERVICE,
 
-  // CLI Plugin Sync (TASK_2025_160)
+  // CLI Plugin Sync
   CLI_PLUGIN_SYNC_SERVICE,
 
-  // Auth Secrets (TASK_2025_076)
+  // Auth Secrets
   AUTH_SECRETS_SERVICE,
 
-  // License Service (TASK_2025_075)
+  // License Service
   LICENSE_SERVICE,
   LICENSE_COMMANDS,
 
-  // Feature Gate Service (TASK_2025_121)
+  // Feature Gate Service
   FEATURE_GATE_SERVICE,
 
   // ========================================
@@ -415,7 +400,7 @@ export const TOKENS = {
   // ========================================
 
   // ========================================
-  // Code Execution MCP (TASK_2025_025)
+  // Code Execution MCP
   // ========================================
   // DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
   // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
@@ -442,11 +427,11 @@ export const TOKENS = {
   PRICING_SERVICE,
   GLOBAL_STATE,
   STORAGE_SERVICE,
-  // CONFIGURATION_PROVIDER - DELETED in TASK_2025_078
+  // CONFIGURATION_PROVIDER - DELETED
   SDK_AGENT_ADAPTER,
   AGENT_ADAPTER,
   // PERMISSION_SERVICE - DELETED (over-engineered, unused)
-  // DELETED (TASK_2025_023 cleanup): SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
+  // DELETED: SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
   // SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER, CHAT_ORCHESTRATION_SERVICE,
   // PROVIDER_ORCHESTRATION_SERVICE, ANALYTICS_ORCHESTRATION_SERVICE,
   // CONFIG_ORCHESTRATION_SERVICE, MESSAGE_HANDLER_SERVICE
@@ -454,7 +439,7 @@ export const TOKENS = {
   // ========================================
   // Main App Services (PARTIALLY DELETED)
   // ========================================
-  // COMMAND_BUILDER_SERVICE - DELETED in TASK_2025_078
+  // COMMAND_BUILDER_SERVICE - DELETED
   // ANALYTICS_DATA_COLLECTOR - DELETED
   ANGULAR_WEBVIEW_PROVIDER,
   COMMAND_HANDLERS,
@@ -464,7 +449,7 @@ export const TOKENS = {
   WEBVIEW_MESSAGE_HANDLER,
 
   // ========================================
-  // Platform Abstraction (TASK_2025_203)
+  // Platform Abstraction
   // ========================================
   PLATFORM_COMMANDS,
   PLATFORM_AUTH_PROVIDER,
@@ -472,12 +457,12 @@ export const TOKENS = {
   MODEL_DISCOVERY,
 
   // ========================================
-  // Workspace Context Management (TASK_2025_208)
+  // Workspace Context Management
   // ========================================
   WORKSPACE_CONTEXT_MANAGER,
 
   // ========================================
-  // Git Info Service (TASK_2026_104 Sub-batch B5b)
+  // Git Info Service
   // ========================================
   GIT_INFO_SERVICE,
 } as const;

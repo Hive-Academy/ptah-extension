@@ -4,9 +4,6 @@
  * Exercises the real FileSystemManager surface: read/write/delete/copy/move,
  * stat, readDirectory (with filtering), file watcher creation and disposal,
  * metric tracking on both success and failure, and disposal.
- *
- * TASK_2025_291 Wave B: replaces a ghost spec that mocked a nonexistent
- * EventBus dependency.
  */
 
 import 'reflect-metadata';

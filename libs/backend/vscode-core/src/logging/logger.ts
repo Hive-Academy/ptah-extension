@@ -1,7 +1,5 @@
 /**
  * Logger Service - Structured logging with VS Code integration
- * Based on TASK_CORE_001 implementation plan
- * Extracted from apps/ptah-extension-vscode/src/core/logger.ts
  *
  * Features:
  * - Dependency injection via TSyringe
@@ -50,7 +48,7 @@ export class Logger {
   };
 
   constructor(
-    @inject(OUTPUT_MANAGER) private readonly outputManager: OutputManager
+    @inject(OUTPUT_MANAGER) private readonly outputManager: OutputManager,
   ) {
     // Ensure output channel is created for logging
     this.outputManager.createOutputChannel({ name: Logger.CHANNEL_NAME });
@@ -139,7 +137,7 @@ export class Logger {
    */
   error(
     message: string | Error,
-    errorOrContext?: Error | Record<string, unknown>
+    errorOrContext?: Error | Record<string, unknown>,
   ): void {
     let actualMessage: string;
     let actualError: Error | undefined;
@@ -252,7 +250,7 @@ export class Logger {
   private createLogEntry(
     level: LogLevel,
     message: string,
-    context?: LogContext
+    context?: LogContext,
   ): LogEntry {
     return {
       level,
@@ -282,28 +280,28 @@ export class Logger {
       if (entry.context.service) {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
-          `  Service: ${entry.context.service}`
+          `  Service: ${entry.context.service}`,
         );
       }
 
       if (entry.context.operation) {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
-          `  Operation: ${entry.context.operation}`
+          `  Operation: ${entry.context.operation}`,
         );
       }
 
       if (entry.context.metadata) {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
-          `  Metadata: ${JSON.stringify(entry.context.metadata, null, 2)}`
+          `  Metadata: ${JSON.stringify(entry.context.metadata, null, 2)}`,
         );
       }
 
       if (entry.context.error) {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
-          `  Error: ${entry.context.error.message}`
+          `  Error: ${entry.context.error.message}`,
         );
       }
     }
@@ -344,7 +342,7 @@ export class Logger {
         console.error(
           consoleMessage,
           entry.context?.error || '',
-          ...consoleArgs
+          ...consoleArgs,
         );
         break;
     }

@@ -1,7 +1,8 @@
 /**
- * Subagent State Store (Wave C7a — TASK_2025_291)
+ * Subagent State Store
  *
- * Extracted from {@link SubagentRegistryService}.
+ * Library-internal helper that owns the subagent registry storage primitives
+ * for {@link SubagentRegistryService}.
  *
  * Responsibilities:
  * - Own the primary in-memory Map<toolCallId, SubagentRecord>
@@ -46,19 +47,18 @@ export class SubagentStateStore {
   private readonly registry = new Map<string, SubagentRecord>();
 
   /**
-   * TASK_2025_213 (Bug 1): Tracks toolCallIds that have been injected into
-   * context and removed from the registry. Prevents
-   * registerFromHistoryEvents() from re-registering these agents on session
-   * reload.
+   * Tracks toolCallIds that have been injected into context and removed from
+   * the registry. Prevents registerFromHistoryEvents() from re-registering
+   * these agents on session reload.
    *
-   * TASK_2025_264: Value is the timestamp when the ID was added; entries older
-   * than TTL_MS are pruned during the lazy cleanup sweep.
+   * Value is the timestamp when the ID was added; entries older than TTL_MS
+   * are pruned during the lazy cleanup sweep.
    */
   private readonly clearedToolCallIds = new Map<string, number>();
 
   /**
-   * TASK_2025_217: Tracks toolCallIds that have been detected as background
-   * tasks by SdkMessageTransformer BEFORE the SubagentStart hook fires.
+   * Tracks toolCallIds that have been detected as background tasks by
+   * SdkMessageTransformer BEFORE the SubagentStart hook fires.
    */
   private readonly pendingBackgroundToolCallIds = new Set<string>();
 
@@ -169,9 +169,9 @@ export class SubagentStateStore {
   /**
    * Check if a record is expired (older than TTL).
    *
-   * TASK_2025_217: Background agents are exempt from TTL cleanup —
-   * they can run for extended periods and must remain in the registry
-   * for permission auto-approval to work correctly.
+   * Background agents are exempt from TTL cleanup — they can run for extended
+   * periods and must remain in the registry for permission auto-approval to
+   * work correctly.
    */
   isExpired(record: SubagentRecord): boolean {
     if (record.isBackground || record.status === 'background') {
@@ -213,7 +213,7 @@ export class SubagentStateStore {
       this.registry.delete(toolCallId);
     }
 
-    // TASK_2025_264: Also prune expired entries from clearedToolCallIds.
+    // Also prune expired entries from clearedToolCallIds.
     // Uses the same TTL_MS (24h) as the registry records.
     const now = Date.now();
     const clearedToRemove: string[] = [];

@@ -1,17 +1,17 @@
 /**
- * License Service (coordinator — Wave C7a, TASK_2025_291)
+ * License Service (coordinator)
  *
  * Manages license verification, caching, and status events for VS Code extension.
  * Uses VS Code's SecretStorage for encrypted license key storage.
  *
- * TASK_2025_075 Batch 5: License verification with 1-hour cache
- * TASK_2025_121 Batch 3: Added offline grace period (7 days) for network failures
- * TASK_2025_291 Wave C7a: This class is now a thin coordinator. Actual work is
- * delegated to three library-internal helpers:
+ * Provides license verification with a 1-hour cache plus a 7-day offline grace
+ * period for network failures.
+ *
+ * This class is a thin coordinator; actual work is delegated to three
+ * library-internal helpers:
  *   - {@link LicenseFetcher} — HTTP + Ed25519 signature verification
  *   - {@link LicenseCache} — in-memory + persisted cache + grace period
  *   - {@link LicenseStateBroadcaster} — dedupe logic for license events
- * The public surface (methods, events, constructor injection) is unchanged.
  *
  * @packageDocumentation
  */
@@ -224,7 +224,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
 
       const status = await this.fetcher.fetchLicenseStatus(licenseKey);
 
-      // TASK_2025_128: Community fallback for expired Pro users
+      // Community fallback for expired Pro users.
       // When server says license is invalid (expired/trial_ended/not_found),
       // automatically fall back to Community tier instead of blocking.
       // ONLY explicit revocation by admin should block the user.
@@ -271,7 +271,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       this.cache.updateCache(status);
       this.emitLicenseEvent(status);
 
-      // Step 5: Persist cache to globalState (TASK_2025_121 - offline grace period)
+      // Step 5: Persist cache to globalState (for offline grace period).
       // Only persist valid licenses (we don't want to cache expired status)
       if (status.valid) {
         await this.cache.persistCacheToStorage(status);
@@ -294,8 +294,8 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         url: this.fetcher.licenseServerUrl,
       });
 
-      // TASK_2025_121: Check offline grace period cache
-      // Grace period is for NETWORK FAILURES only (not expired licenses)
+      // Check offline grace period cache.
+      // Grace period is for NETWORK FAILURES only (not expired licenses).
       const persistedCache = await this.cache.loadPersistedCache();
 
       if (persistedCache && this.cache.isWithinGracePeriod(persistedCache)) {
@@ -397,7 +397,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     await this.context.secrets.delete(SECRET_KEY);
     this.logger.info('[LicenseService.clearLicenseKey] License key removed');
 
-    // TASK_2025_121: Clear persisted cache as well (no grace period for manual removal)
+    // Clear persisted cache as well (no grace period for manual removal).
     await this.cache.clearPersistedCache();
     this.broadcaster.reset();
 

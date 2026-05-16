@@ -1,6 +1,5 @@
 /**
  * Error Handling Types - Type definitions for error management
- * Based on TASK_CORE_001 implementation plan
  */
 
 /**

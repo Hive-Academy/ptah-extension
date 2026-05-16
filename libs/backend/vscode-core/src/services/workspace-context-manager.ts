@@ -2,9 +2,8 @@
  * WorkspaceContextManager — Manages per-workspace storage isolation
  * via WorkspaceAwareStateStorage proxy.
  *
- * TASK_2025_208: Simplified from child-container approach. Instead of creating
- * tsyringe child containers (which don't work because RPC handler singletons
- * inject workspace-scoped services at construction time), this manager
+ * Tsyringe child containers don't work here because RPC handler singletons
+ * inject workspace-scoped services at construction time. Instead this manager
  * delegates to WorkspaceAwareStateStorage which routes get/update calls
  * to the correct workspace's storage at call-time.
  *

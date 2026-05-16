@@ -1,20 +1,20 @@
 // Main library exports
 
-// Dependency Injection - TOKENS and registration function (TASK_2025_071)
-// TASK_2025_071 Batch 6: TOKENS exported directly from tokens.ts (not via di/index.ts)
-// di/index.ts only exports registration function (pattern consistency with other libraries)
+// Dependency Injection - TOKENS and registration function.
+// TOKENS exported directly from tokens.ts (not via di/index.ts); di/index.ts
+// only exports the registration function (pattern consistency with other libs).
 export { TOKENS } from './di/tokens';
 export { registerVsCodeCoreServices } from './di';
 
-// TASK_2025_291 Wave C1: Platform-agnostic registration helper for non-VS-Code hosts
+// Platform-agnostic registration helper for non-VS-Code hosts
 export { registerVsCodeCorePlatformAgnostic } from './di/register-platform-agnostic';
 export type { PlatformAgnosticRegistrationOptions } from './di/register-platform-agnostic';
 
-// NOTE: DIContainer moved to apps/ptah-extension-vscode/src/di/container.ts
-// This library exports services, TOKENS, and registration function
-// DO NOT export tokens directly - only export via TOKENS namespace
+// NOTE: DIContainer lives in apps/ptah-extension-vscode/src/di/container.ts.
+// This library exports services, TOKENS, and registration function.
+// DO NOT export tokens directly - only export via TOKENS namespace.
 
-// Core Infrastructure (TASK_CORE_001)
+// Core Infrastructure
 export { Logger } from './logging';
 export type { LogLevel, LogContext, LogEntry } from './logging';
 
@@ -34,7 +34,7 @@ export type {
   ConfigUpdateOptions,
 } from './config';
 
-// Validation (TASK_CORE_001)
+// Validation
 export {
   MessageValidatorService,
   ValidationError,
@@ -64,10 +64,8 @@ export type {
   WebviewHtmlOptions,
 } from './api-wrappers';
 
-// NOTE: RpcMethodRegistrationService moved to app layer (TASK_2025_051)
-// to break circular dependency between vscode-core and agent-sdk
-// TASK_2025_092: SdkRpcHandlers deleted (dead code - permission emitter moved to SdkPermissionHandler)
-// TASK_2025_124: RpcLicenseValidationResult added for license middleware testing
+// NOTE: RpcMethodRegistrationService lives in the app layer to break the
+// circular dependency between vscode-core and agent-sdk.
 export { RpcHandler, RpcUserError, ALLOWED_METHOD_PREFIXES } from './messaging';
 export type {
   RpcMessage,
@@ -76,18 +74,14 @@ export type {
   RpcLicenseValidationResult,
 } from './messaging';
 
-// RPC Registration Verification (TASK_2025_074)
+// RPC Registration Verification
 export {
   verifyRpcRegistration,
   assertRpcRegistration,
 } from './messaging/rpc-verification';
 export type { RpcVerificationResult } from './messaging/rpc-verification';
 
-// RPC handlers (TASK_2025_073 Batch 5)
-// TASK_2025_209: LlmRpcHandlers deleted from vscode-core (moved to platform-agnostic @ptah-extension/rpc-handlers)
-// LlmProviderName, LlmProviderStatus, SetApiKeyRequest, SetApiKeyResponse, VsCodeModelInfo - all removed
-
-// Subagent Registry (TASK_2025_103: subagent resumption)
+// Subagent Registry (subagent resumption)
 export { SubagentRegistryService } from './services/subagent-registry.service';
 export type { SubagentRegistration } from './services/subagent-registry.service';
 
@@ -99,14 +93,14 @@ export type {
   WebviewMessage,
 } from './services/webview-message-handler.service';
 
-// Auth Secrets Service (TASK_2025_076)
+// Auth Secrets Service
 export { AuthSecretsService } from './services/auth-secrets.service';
 export type {
   IAuthSecretsService,
   AuthCredentialType,
 } from './services/auth-secrets.service';
 
-// License Service (TASK_2025_075, TASK_2025_121)
+// License Service
 export { LicenseService, isPremiumTier } from './services/license.service';
 export type {
   LicenseStatus,
@@ -114,23 +108,22 @@ export type {
   LicenseTierValue,
 } from './services/license.service';
 
-// Feature Gate Service (TASK_2025_121)
+// Feature Gate Service
 export { FeatureGateService } from './services/feature-gate.service';
 export type { Feature, ProOnlyFeature } from './services/feature-gate.service';
 
-// Sentry Error Monitoring Service (TASK_2025_287)
+// Sentry Error Monitoring Service
 export { SentryService } from './services/sentry.service';
 export type {
   SentryInitOptions,
   SentryErrorContext,
 } from './services/sentry.service';
 
-// Git Info Service (TASK_2026_104 Sub-batch B5b — lifted from ptah-electron app)
+// Git Info Service
 export { GitInfoService } from './services/git-info.service';
 
-// Workspace Context Manager + Workspace-Aware State Storage
-// (TASK_2026_104 Sub-batch B5a — lifted from ptah-electron app so the
-// shared WorkspaceRpcHandlers can be served by all hosts.)
+// Workspace Context Manager + Workspace-Aware State Storage so the shared
+// WorkspaceRpcHandlers can be served by all hosts.
 export { WorkspaceContextManager } from './services/workspace-context-manager';
 export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-storage';
 export type { StateStorageFactory } from './services/workspace-aware-state-storage';
@@ -146,7 +139,6 @@ export type {
   PremiumSubsystemsDeps,
 } from './services/license-reactivity';
 
-// Platform Abstraction Interfaces (TASK_2025_203)
-// Defined in @ptah-extension/rpc-handlers (import directly from there)
-// NOT re-exported here to avoid circular dependency:
-// vscode-core -> rpc-handlers -> vscode-core
+// Platform Abstraction Interfaces are defined in @ptah-extension/rpc-handlers
+// (import directly from there) — NOT re-exported here to avoid the circular
+// dependency: vscode-core -> rpc-handlers -> vscode-core.

@@ -5,8 +5,6 @@
  * backend handlers registered. This provides runtime verification that
  * complements the compile-time type safety of RpcMethodRegistry.
  *
- * TASK_2025_074: RPC Type Safety Improvements
- *
  * Purpose:
  * - Detect missing handlers (frontend can call methods that backend doesn't handle)
  * - Detect orphan handlers (backend has handlers for methods not in registry)

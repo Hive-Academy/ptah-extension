@@ -1,9 +1,8 @@
 /**
- * RPC Types - Type definitions for RPC messaging system
- * Phase 2: RPC Migration (TASK_2025_021)
+ * RPC Types - Type definitions for RPC messaging system.
  *
- * These types replace the old event-based messaging system (deleted in Phase 0).
- * Instead of 94 message types and EventBus subscriptions, we use simple RPC method routing.
+ * Replaces the legacy event-based messaging system: instead of 94 message
+ * types and EventBus subscriptions, we use simple RPC method routing.
  */
 
 /**
