@@ -1,7 +1,5 @@
 /**
  * Agent event / tool execution / CLI wire payloads.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { SessionId } from '../branded.types';

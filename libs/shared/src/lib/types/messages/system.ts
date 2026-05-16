@@ -1,8 +1,6 @@
 /**
  * System / provider / config / state / command / view / initial-data payloads
  * and system message discriminated union.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { CommandTemplate } from '../command-builder.types';

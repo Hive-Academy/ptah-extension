@@ -308,3 +308,47 @@ export class BrandedTypeValidator {
     return result.data as CorrelationId;
   }
 }
+
+/**
+ * Branded HarnessStreamId — identifies a streaming pipeline for the harness
+ * builder. Deliberately NON-UUID: format is `harness-${operationId}` where
+ * operationId is a caller-supplied string. Distinct brand so consumers that
+ * validate SessionId as UUID never accidentally receive this synthetic id.
+ */
+export type HarnessStreamId = string & { readonly __brand: 'HarnessStreamId' };
+
+export const HarnessStreamId = {
+  /** Construct from an operationId. Does NOT validate UUID — by design. */
+  from(operationId: string): HarnessStreamId {
+    if (!operationId || operationId.trim().length === 0) {
+      throw new TypeError('HarnessStreamId: operationId required');
+    }
+    return `harness-${operationId}` as HarnessStreamId;
+  },
+  validate(id: string): id is HarnessStreamId {
+    return /^harness-.+$/.test(id);
+  },
+};
+
+/**
+ * Branded WizardPhaseId — identifies a setup-wizard analysis phase or content-
+ * generation agent. Deliberately NON-UUID: format is `wizard-${phaseId}` or
+ * `gen-${agentId}`. Distinct brand to prevent leakage into UUID-validating
+ * SessionId consumers.
+ */
+export type WizardPhaseId = string & { readonly __brand: 'WizardPhaseId' };
+
+export const WizardPhaseId = {
+  fromPhase(phaseId: string): WizardPhaseId {
+    if (!phaseId || phaseId.trim().length === 0) {
+      throw new TypeError('WizardPhaseId: phaseId required');
+    }
+    return `wizard-${phaseId}` as WizardPhaseId;
+  },
+  fromAgent(agentId: string | undefined): WizardPhaseId {
+    return `gen-${agentId ?? 'unknown'}` as WizardPhaseId;
+  },
+  validate(id: string): id is WizardPhaseId {
+    return /^(wizard|gen)-.+$/.test(id);
+  },
+};

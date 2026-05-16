@@ -1,6 +1,5 @@
 /**
  * CLI Skill Sync Types
- * TASK_2025_160: Multi-CLI Plugin Sync and Agent Generation Architecture
  *
  * Shared type definitions for cross-CLI skill sync and agent transformation.
  * Used by llm-abstraction (skill sync) and agent-generation (agent transforms).

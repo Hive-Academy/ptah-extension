@@ -1,7 +1,5 @@
 /**
  * Message envelope / request-response / metadata types.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { SessionId, CorrelationId } from '../branded.types';

@@ -1,6 +1,7 @@
 /**
  * Agent Process Types for Async Agent Orchestration
- * TASK_2025_157: Branded AgentId, status enum, process tracking types
+ *
+ * Branded AgentId, status enum, process tracking types.
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { FlatStreamEventUnion } from './execution';

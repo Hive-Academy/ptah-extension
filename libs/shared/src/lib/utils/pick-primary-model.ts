@@ -1,7 +1,7 @@
 /**
  * pickPrimaryModel — deterministic primary-model selection.
  *
- * TASK_2026_109 C3: Centralizes the "which model is the user's primary?"
+ * Centralizes the "which model is the user's primary?"
  * decision used by both the live SESSION_STATS aggregator
  * (frontend/chat/.../session-stats-aggregator.service.ts) and the
  * post-compaction history reader

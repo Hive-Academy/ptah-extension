@@ -2,8 +2,7 @@
  * `@ptah-extension/shared/testing` — universal test utilities.
  *
  * Consumed by every spec in the monorepo. Kept deliberately framework-agnostic
- * (no VS Code, no Angular, no Nest) so it can load inside any Jest runner. See
- * `.ptah/specs/TASK_2025_294/implementation-plan.md` §3.1 for scope.
+ * (no VS Code, no Angular, no Nest) so it can load inside any Jest runner.
  */
 
 // --- Loggers -----------------------------------------------------------------

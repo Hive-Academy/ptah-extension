@@ -1,7 +1,5 @@
 /**
  * Setup Wizard code convention types — naming conventions and code style.
- *
- * Extracted from setup-wizard.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 // ============================================================================

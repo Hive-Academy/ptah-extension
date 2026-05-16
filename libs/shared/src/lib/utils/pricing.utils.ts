@@ -290,7 +290,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ============================================================================
-  // Ollama Cloud — :cloud-suffixed models (TASK_OLLAMA_CLOUD_KEY)
+  // Ollama Cloud — :cloud-suffixed models
   //
   // Bundled at $0/$0 so the stats panel renders cost UI immediately (instead of
   // falling through to the $3/$15 default). When the user configures an
@@ -351,8 +351,7 @@ export function updatePricingMap(
 }
 
 /**
- * Register provider-supplied pricing into the runtime pricing map
- * (TASK_OLLAMA_CLOUD_KEY).
+ * Register provider-supplied pricing into the runtime pricing map.
  *
  * Semantic alias for {@link updatePricingMap} — lets providers (e.g. Ollama
  * Cloud's metadata service after fetching ollama.com/api/usage) seed real

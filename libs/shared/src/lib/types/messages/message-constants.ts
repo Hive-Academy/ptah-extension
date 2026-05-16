@@ -1,7 +1,5 @@
 /**
  * MESSAGE_TYPES runtime constants + derived MessageType.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 /**
@@ -162,7 +160,6 @@ export const MESSAGE_TYPES = {
   SESSION_STATS: 'session:stats',
   /** Push notification: session metadata changed (created/updated/deleted/forked). */
   SESSION_METADATA_CHANGED: 'session:metadataChanged',
-  // TASK_2025_098: SESSION_COMPACTING removed - compaction now flows through CHAT_CHUNK
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
 
@@ -206,7 +203,7 @@ export const MESSAGE_TYPES = {
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
 
-  // ---- Agent Permission Messages (TASK_2025_162: Copilot SDK) ----
+  // ---- Agent Permission Messages (Copilot SDK) ----
   // CLI agent tool permission routing (Copilot SDK permission hooks)
   AGENT_MONITOR_PERMISSION_REQUEST: 'agent-monitor:permission-request',
   AGENT_MONITOR_PERMISSION_RESPONSE: 'agent-monitor:permission-response',
@@ -215,11 +212,11 @@ export const MESSAGE_TYPES = {
   AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
 
   // ---- Gateway Push Messages ----
-  // Backend → Frontend: adapter running/error state changed (TASK_2026_115)
+  // Backend → Frontend: adapter running/error state changed
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
 
   // ---- Update Messages ----
-  /** Backend → Frontend: update lifecycle state changed (Electron only). TASK_2026_117 */
+  /** Backend → Frontend: update lifecycle state changed (Electron only). */
   UPDATE_STATUS_CHANGED: 'update:statusChanged',
 } as const;
 

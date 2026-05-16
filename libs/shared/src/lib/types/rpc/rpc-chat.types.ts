@@ -10,7 +10,7 @@ import type { FlatStreamEventUnion } from '../execution';
 
 /**
  * Minimal HTTP-flavored MCP server descriptor used by the
- * `ChatStartParams.mcpServersOverride` escape hatch (TASK_2026_104 P2 — proxy).
+ * `ChatStartParams.mcpServersOverride` escape hatch (proxy).
  *
  * Mirrors the load-bearing subset of `McpHttpServerConfig` from
  * `@anthropic-ai/claude-agent-sdk` so the shared layer doesn't need to import
@@ -48,7 +48,7 @@ export interface ChatStartParams {
   name?: string;
   /** Workspace path for context */
   workspacePath?: string;
-  /** Ptah CLI agent instance ID (TASK_2025_170: routes to Ptah CLI agent adapter) */
+  /** Ptah CLI agent instance ID (routes to Ptah CLI agent adapter) */
   ptahCliId?: string;
   /** Additional options */
   options?: {
@@ -66,9 +66,9 @@ export interface ChatStartParams {
      * otherwise falls back to 'claude_code'.
      */
     preset?: 'claude_code' | 'enhanced';
-    /** TASK_2025_184: Thinking/reasoning configuration */
+    /** Thinking/reasoning configuration */
     thinking?: ThinkingConfig;
-    /** TASK_2025_184: Effort level for reasoning depth */
+    /** Effort level for reasoning depth */
     effort?: EffortLevel;
     /**
      * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
@@ -92,8 +92,6 @@ export interface ChatStartParams {
    * Symmetric with the `includePartialMessages` opt-in above — both are
    * surfaced via the same `ChatStartParams` envelope so the proxy and other
    * advanced callers get a uniform extension surface without per-feature RPCs.
-   *
-   * TASK_2026_104 P2 — proxy.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
@@ -125,9 +123,9 @@ export interface ChatContinueParams {
   files?: string[];
   /** Inline images (pasted/dropped) to include with the message */
   images?: InlineImageAttachment[];
-  /** TASK_2025_184: Thinking/reasoning configuration */
+  /** Thinking/reasoning configuration */
   thinking?: ThinkingConfig;
-  /** TASK_2025_184: Effort level for reasoning depth */
+  /** Effort level for reasoning depth */
   effort?: EffortLevel;
 }
 
@@ -150,13 +148,13 @@ export interface ChatAbortResult {
   error?: string;
 }
 
-/** Parameters for chat:running-agents RPC method (TASK_2025_185) */
+/** Parameters for chat:running-agents RPC method */
 export interface ChatRunningAgentsParams {
   /** Session ID to query running agents for */
   sessionId: SessionId;
 }
 
-/** Response from chat:running-agents RPC method (TASK_2025_185) */
+/** Response from chat:running-agents RPC method */
 export interface ChatRunningAgentsResult {
   /** List of currently running (non-background) agents */
   agents: { agentId: string; agentType: string }[];
@@ -169,14 +167,13 @@ export interface ChatResumeParams {
   /**
    * Tab ID for frontend correlation (REQUIRED)
    * Backend uses this to route streaming events back to the correct tab.
-   * TASK_2025_092: Added for consistent event routing.
    */
   tabId: string;
   /** Workspace path (needed for session context) */
   workspacePath?: string;
   /** Model to use (if different from session's original model) */
   model?: string;
-  /** Ptah CLI agent instance ID (TASK_2025_170: routes to Ptah CLI agent adapter) */
+  /** Ptah CLI agent instance ID (routes to Ptah CLI agent adapter) */
   ptahCliId?: string;
   /**
    * When `true`, backend also activates a live SDK Query alongside loading history.

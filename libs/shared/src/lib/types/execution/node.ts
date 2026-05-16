@@ -4,9 +4,9 @@
  * This is the core innovation of Ptah: a recursive tree structure that maps 1:1
  * to Claude CLI JSONL message types, enabling visual representation of nested
  * agent orchestration.
- *
- * Extracted from execution-node.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
+
+import type { SessionId } from '../branded.types';
 
 // ============================================================================
 // EXECUTION NODE TYPES
@@ -38,8 +38,8 @@ export type ExecutionStatus =
   | 'pending' // Waiting to execute
   | 'streaming' // Currently receiving content
   | 'complete' // Successfully finished
-  | 'interrupted' // User aborted/stopped (TASK_2025_098)
-  | 'resumed' // Previously interrupted, now resumed in a new agent (TASK_2025_211)
+  | 'interrupted' // User aborted/stopped
+  | 'resumed' // Previously interrupted, now resumed in a new agent
   | 'error'; // Failed with error
 
 /**
@@ -87,7 +87,7 @@ export interface MessageTokenUsage {
  *
  * Key feature: `children` array enables infinite nesting depth.
  *
- * **IMPORTANT - USAGE CONTEXT** (TASK_2025_082):
+ * **IMPORTANT - USAGE CONTEXT**:
  * - ExecutionNode represents **FINALIZED** message trees (after streaming completes)
  * - During streaming, use `FlatStreamEventUnion` instead (no nested children)
  * - Frontend builds ExecutionNode trees **at render time** from flat event map
@@ -139,7 +139,6 @@ export interface ExecutionNode {
    * Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook.
    * Used as a stable key for summary content lookup since toolCallId differs
    * between hook (UUID format) and complete message (toolu_* format).
-   * @see TASK_2025_099 - Real-time subagent streaming
    */
   readonly agentId?: string;
   /**
@@ -190,7 +189,7 @@ export interface ExecutionNode {
  */
 export interface ChatSessionSummary {
   /** Session identifier */
-  readonly id: string;
+  readonly id: SessionId;
   /** Session display name */
   readonly name: string;
   /** Number of messages in session */

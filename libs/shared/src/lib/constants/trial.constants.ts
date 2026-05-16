@@ -1,10 +1,10 @@
 /**
  * Trial Period Constants
  *
- * TASK_2025_142: Centralized trial duration to avoid magic numbers
- * across the codebase. All components should import from here.
+ * Centralized trial duration to avoid magic numbers across the codebase.
+ * All components should import from here.
  *
- * TASK_2025_143: Backend uses TRIAL_DURATION_DAYS env var for configurability.
+ * Backend uses TRIAL_DURATION_DAYS env var for configurability.
  * This constant is the default value and is used for:
  * - Frontend UI messaging ("Your 100-day trial")
  * - Trial progress calculations in the UI

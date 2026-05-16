@@ -16,6 +16,8 @@ import {
   TabId,
   JobId,
   RunId,
+  HarnessStreamId,
+  WizardPhaseId,
   SessionIdSchema,
   MessageIdSchema,
   CorrelationIdSchema,
@@ -532,5 +534,136 @@ describe('BrandedTypeValidator', () => {
         BrandedTypeValidator.validateCorrelationId({} as unknown),
       ).toThrow(TypeError);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HarnessStreamId — non-UUID synthetic brand for harness streaming pipelines
+// ---------------------------------------------------------------------------
+describe('HarnessStreamId', () => {
+  describe('from()', () => {
+    it('builds the harness-${operationId} string with the brand applied', () => {
+      const id = HarnessStreamId.from('op-123');
+      expect(id).toBe('harness-op-123');
+      expect(HarnessStreamId.validate(id)).toBe(true);
+    });
+
+    it('throws TypeError on empty operationId', () => {
+      expect(() => HarnessStreamId.from('')).toThrow(TypeError);
+    });
+
+    it('throws TypeError on whitespace-only operationId', () => {
+      expect(() => HarnessStreamId.from('   ')).toThrow(TypeError);
+    });
+  });
+
+  describe('validate()', () => {
+    it('accepts strings beginning with "harness-"', () => {
+      expect(HarnessStreamId.validate('harness-foo')).toBe(true);
+      expect(HarnessStreamId.validate('harness-op-1718999999999')).toBe(true);
+    });
+
+    it('rejects UUIDs (disjoint from SessionId key space)', () => {
+      expect(HarnessStreamId.validate(VALID_UUID)).toBe(false);
+    });
+
+    it('rejects bare strings without the prefix', () => {
+      expect(HarnessStreamId.validate('foo')).toBe(false);
+      expect(HarnessStreamId.validate('wizard-foo')).toBe(false);
+      expect(HarnessStreamId.validate('gen-foo')).toBe(false);
+      expect(HarnessStreamId.validate('')).toBe(false);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WizardPhaseId — non-UUID synthetic brand for wizard phase + content-gen agents
+// ---------------------------------------------------------------------------
+describe('WizardPhaseId', () => {
+  describe('fromPhase()', () => {
+    it('builds the wizard-${phaseId} string with the brand applied', () => {
+      const id = WizardPhaseId.fromPhase('phase-1');
+      expect(id).toBe('wizard-phase-1');
+      expect(WizardPhaseId.validate(id)).toBe(true);
+    });
+
+    it('throws TypeError on empty phaseId', () => {
+      expect(() => WizardPhaseId.fromPhase('')).toThrow(TypeError);
+    });
+
+    it('throws TypeError on whitespace-only phaseId', () => {
+      expect(() => WizardPhaseId.fromPhase('  \t  ')).toThrow(TypeError);
+    });
+  });
+
+  describe('fromAgent()', () => {
+    it('builds the gen-${agentId} string', () => {
+      const id = WizardPhaseId.fromAgent('team-leader');
+      expect(id).toBe('gen-team-leader');
+      expect(WizardPhaseId.validate(id)).toBe(true);
+    });
+
+    it('falls back to gen-unknown when agentId is undefined', () => {
+      const id = WizardPhaseId.fromAgent(undefined);
+      expect(id).toBe('gen-unknown');
+      expect(WizardPhaseId.validate(id)).toBe(true);
+    });
+  });
+
+  describe('validate()', () => {
+    it('accepts the wizard- prefix', () => {
+      expect(WizardPhaseId.validate('wizard-phase-1')).toBe(true);
+    });
+
+    it('accepts the gen- prefix', () => {
+      expect(WizardPhaseId.validate('gen-foo')).toBe(true);
+      expect(WizardPhaseId.validate('gen-unknown')).toBe(true);
+    });
+
+    it('rejects UUIDs (disjoint from SessionId key space)', () => {
+      expect(WizardPhaseId.validate(VALID_UUID)).toBe(false);
+    });
+
+    it('rejects bare strings without a known prefix', () => {
+      expect(WizardPhaseId.validate('foo')).toBe(false);
+      expect(WizardPhaseId.validate('harness-foo')).toBe(false);
+      expect(WizardPhaseId.validate('')).toBe(false);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-brand symmetry — synthetic brands and SessionId occupy disjoint
+// key spaces. This is the whole reason the brands exist: a wizard/harness
+// id must never validate as a SessionId (UUID), and vice versa.
+// ---------------------------------------------------------------------------
+describe('Cross-brand disjointness', () => {
+  it('SessionId.validate rejects a HarnessStreamId', () => {
+    const harnessId = HarnessStreamId.from('x');
+    expect(SessionId.validate(harnessId)).toBe(false);
+  });
+
+  it('SessionId.validate rejects a WizardPhaseId (fromPhase)', () => {
+    const wizardId = WizardPhaseId.fromPhase('phase-1');
+    expect(SessionId.validate(wizardId)).toBe(false);
+  });
+
+  it('SessionId.validate rejects a WizardPhaseId (fromAgent)', () => {
+    const wizardId = WizardPhaseId.fromAgent('agent');
+    expect(SessionId.validate(wizardId)).toBe(false);
+  });
+
+  it('HarnessStreamId.validate rejects a freshly created SessionId', () => {
+    expect(HarnessStreamId.validate(SessionId.create())).toBe(false);
+  });
+
+  it('WizardPhaseId.validate rejects a freshly created SessionId', () => {
+    expect(WizardPhaseId.validate(SessionId.create())).toBe(false);
+  });
+
+  it('HarnessStreamId and WizardPhaseId reject each other', () => {
+    expect(HarnessStreamId.validate(WizardPhaseId.fromPhase('p'))).toBe(false);
+    expect(HarnessStreamId.validate(WizardPhaseId.fromAgent('a'))).toBe(false);
+    expect(WizardPhaseId.validate(HarnessStreamId.from('op'))).toBe(false);
   });
 });

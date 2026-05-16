@@ -76,7 +76,7 @@ export interface AIMessageOptions {
 }
 
 /**
- * TASK_2025_184: Thinking/reasoning mode configuration for Claude SDK.
+ * Thinking/reasoning mode configuration for Claude SDK.
  * Controls how Claude uses extended thinking.
  * - adaptive: Claude decides when/how much to think (default for Opus 4.6+)
  * - enabled: Fixed thinking token budget
@@ -90,7 +90,7 @@ export type ThinkingConfig =
   | { type: 'disabled' };
 
 /**
- * TASK_2025_184: Effort level for Claude's reasoning depth.
+ * Effort level for Claude's reasoning depth.
  * Works with adaptive thinking to guide thinking depth.
  * - low: Minimal thinking, fastest responses
  * - medium: Moderate thinking
@@ -113,7 +113,7 @@ export interface AISessionConfig {
   readonly model?: string;
   readonly temperature?: number;
   /**
-   * TASK_2025_095: Frontend tab ID for direct event routing.
+   * Frontend tab ID for direct event routing.
    * Used to route session:id-resolved events directly to the correct tab
    * without needing temp session ID lookup.
    */
@@ -131,7 +131,7 @@ export interface AISessionConfig {
    */
   readonly preset?: 'claude_code' | 'enhanced';
   /**
-   * TASK_2025_184: Thinking/reasoning configuration for Claude SDK.
+   * Thinking/reasoning configuration for Claude SDK.
    * Controls how Claude uses extended thinking.
    * - adaptive: Claude decides when/how much to think (default for Opus 4.6+)
    * - enabled: Fixed thinking token budget
@@ -141,7 +141,7 @@ export interface AISessionConfig {
    */
   readonly thinking?: ThinkingConfig;
   /**
-   * TASK_2025_184: Effort level for Claude's reasoning depth.
+   * Effort level for Claude's reasoning depth.
    * Works with adaptive thinking to guide thinking depth.
    * - low: Minimal thinking, fastest responses
    * - medium: Moderate thinking
@@ -208,7 +208,7 @@ export interface IAIProvider {
   /**
    * Start a NEW chat session with streaming support
    *
-   * TASK_2025_093: Uses tabId as the primary tracking key for session lifecycle.
+   * Uses tabId as the primary tracking key for session lifecycle.
    * The real SDK UUID is resolved later via session:id-resolved event.
    *
    * @param config - Session configuration with REQUIRED tabId for multi-tab isolation

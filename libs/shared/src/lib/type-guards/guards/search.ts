@@ -1,6 +1,5 @@
 // Search domain tool types and guards.
 // Tools: Grep, Glob.
-// Extracted from tool-input-guards.ts (TASK_2025_291 Wave C2) — zero behavior change.
 
 // --- TOOL INPUT TYPES ---
 /** Grep tool input — Tool: Grep (search file contents). */

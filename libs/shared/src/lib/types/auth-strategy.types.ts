@@ -1,5 +1,5 @@
 /**
- * Authentication Strategy Types - TASK_AUTH_REFACTOR Phase 1
+ * Authentication Strategy Types
  *
  * The 5 strategies map 1:1 to actual authentication flows:
  * - api-key:       Direct API key (Anthropic, OpenRouter, Moonshot, Z.AI)

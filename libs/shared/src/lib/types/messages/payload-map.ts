@@ -1,7 +1,5 @@
 /**
  * MessagePayloadMap — strict type mapping from message type → payload interface.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type {
@@ -187,7 +185,7 @@ export interface MessagePayloadMap {
   switchView: ViewChangedPayload;
   workspaceChanged: WorkspaceChangedPayload;
   'gateway:statusChanged': GatewayStatusChangedPayload;
-  // TASK_2026_117: Electron auto-update UX
+  // Electron auto-update UX
   'update:statusChanged': UpdateStatusChangedPayload;
 
   // Response event types (MessageHandlerService appends :response suffix)

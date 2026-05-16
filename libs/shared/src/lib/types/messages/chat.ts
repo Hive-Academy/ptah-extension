@@ -1,7 +1,5 @@
 /**
  * Chat / Context / Analytics wire payloads.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { SessionId, MessageId, CorrelationId } from '../branded.types';

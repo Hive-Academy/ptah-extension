@@ -1,7 +1,5 @@
 /**
  * Strict message type literal union across all domains.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 /**
@@ -108,11 +106,11 @@ export type StrictMessageType =
   | 'workspaceChanged'
   // Setup Wizard Messages
   | 'setup-wizard:scan-progress'
-  // Agent Permission Messages (TASK_2025_162: Copilot SDK)
+  // Agent Permission Messages (Copilot SDK)
   | 'agent-monitor:permission-request'
   | 'agent-monitor:permission-response'
   | 'agent-monitor:user-input-request'
   | 'agent-monitor:user-input-response'
-  // Update Messages (TASK_2026_117: Electron auto-update UX)
+  // Update Messages (Electron auto-update UX)
   | 'update:statusChanged'
   | string; // Allow extensibility for custom message types

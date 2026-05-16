@@ -1,6 +1,5 @@
 /**
  * Agent Permission Types for CLI Agent Tool Approval
- * TASK_2025_162: Copilot SDK Integration
  *
  * These types handle Copilot agent tool permission requests routed to the
  * webview UI. Distinct from SDK permissions (Claude tool approval) and

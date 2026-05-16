@@ -1,5 +1,4 @@
 // Cross-domain union types and tool-name maps.
-// Extracted from tool-input-guards.ts (TASK_2025_291 Wave C2) — zero behavior change.
 
 import type {
   EditToolInput,

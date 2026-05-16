@@ -1,6 +1,5 @@
 // Network domain tool types and guards.
 // Tools: WebFetch, WebSearch.
-// Extracted from tool-input-guards.ts (TASK_2025_291 Wave C2) — zero behavior change.
 
 // --- TOOL INPUT TYPES ---
 /** WebFetch tool input — Tool: WebFetch (fetch web content). */

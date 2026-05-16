@@ -1,6 +1,5 @@
 // File-system domain tool types and guards.
 // Tools: Read, Write, Edit, NotebookEdit, LSP, ListMcpResources, ReadMcpResource.
-// Extracted from tool-input-guards.ts (TASK_2025_291 Wave C2) — zero behavior change.
 
 // --- TOOL INPUT TYPES ---
 /** Read tool input — Tool: Read (read file contents). */

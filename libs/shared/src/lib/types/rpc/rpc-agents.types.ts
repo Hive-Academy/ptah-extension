@@ -8,7 +8,7 @@ import type { PtahCliSummary } from '../ptah-cli.types';
 import type { AgentPermissionDecision } from '../agent-permission.types';
 
 // ============================================================
-// Skills.sh Marketplace Types (TASK_2025_204)
+// Skills.sh Marketplace Types
 // ============================================================
 
 /** A skill entry from skills.sh search/browse results */
@@ -63,7 +63,7 @@ export interface SkillDetectionResult {
 }
 
 // ============================================================
-// Agent Orchestration RPC Types (TASK_2025_157)
+// Agent Orchestration RPC Types
 // ============================================================
 
 /** Agent orchestration configuration for settings UI */
@@ -144,7 +144,7 @@ export interface AgentSetConfigParams {
 }
 
 // ============================================================
-// Ptah CLI Agent RPC Types (TASK_2025_167 -> TASK_2025_170)
+// Ptah CLI Agent RPC Types
 // ============================================================
 
 /** Parameters for ptahCli:list RPC method */

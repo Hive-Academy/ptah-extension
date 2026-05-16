@@ -1,7 +1,5 @@
 /**
  * Agent / chat-message wrappers for ExecutionNode-based chat UI.
- *
- * Extracted from execution-node.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { ExecutionNode, MessageRole, MessageTokenUsage } from './node';
@@ -123,7 +121,7 @@ export interface ExecutionChatMessage {
    */
   readonly agentInfo?: AgentInfo;
 
-  // ---- Usage Metrics (TASK_2025_047) ----
+  // ---- Usage Metrics ----
 
   /** Token usage for this message (aligned with Claude SDK) */
   readonly tokens?: MessageTokenUsage;

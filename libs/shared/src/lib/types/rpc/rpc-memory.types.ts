@@ -112,6 +112,7 @@ export interface MemoryStatsResult {
   readonly core: number;
   readonly recall: number;
   readonly archival: number;
+  readonly codeIndex: number;
   readonly lastCuratedAt: number | null;
 }
 
@@ -122,5 +123,14 @@ export interface MemoryPurgeBySubjectPatternParams {
   readonly workspaceRoot?: string | null;
 }
 export interface MemoryPurgeBySubjectPatternResult {
+  readonly deleted: number;
+}
+
+// ---- memory:purgeJunk ----
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface MemoryPurgeJunkParams {
+  readonly workspaceRoot?: string | null;
+}
+export interface MemoryPurgeJunkResult {
   readonly deleted: number;
 }

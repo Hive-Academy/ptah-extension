@@ -21,11 +21,6 @@ export type IndexingState =
 
 export type IndexingPipeline = 'symbols' | 'memory';
 
-export type BootStrategy =
-  | 'auto-index-first-time'
-  | 'skip'
-  | 'mark-stale-and-skip';
-
 // ---- Cursor for resumable symbol indexing ----
 
 export interface SymbolsCursor {

@@ -1,7 +1,6 @@
 // Execution / agent-control domain tool types and guards.
 // Tools: Bash, BashOutput, KillShell, Task, TaskOutput, TaskStop, TodoWrite,
 // AskUserQuestion, ExitPlanMode, plus isAgentDispatchTool.
-// Extracted from tool-input-guards.ts (TASK_2025_291 Wave C2) — zero behavior change.
 
 // --- TOOL INPUT TYPES ---
 /** Bash tool input — Tool: Bash (execute bash command). */

@@ -1,7 +1,5 @@
 /**
  * Zod runtime validation schemas for messages, sessions, and content blocks.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import { z } from 'zod';
@@ -175,7 +173,7 @@ export const StrictChatMessageSchema = z.object({
   isComplete: z.boolean().optional(),
   // For system messages
   level: z.enum(['info', 'warning', 'error']).optional(),
-  // NEW: Message lifecycle fields (TASK_2025_008 - Batch 2)
+  // Message lifecycle fields
   cost: z.number().nonnegative().optional(),
   tokens: z
     .object({
@@ -206,7 +204,7 @@ export const StrictChatSessionSchema = z
         maxTokens: z.number().positive().optional(),
       })
       .strict(),
-    // NEW: IMPLEMENTATION_PLAN compatibility fields (TASK_2025_008 - Batch 2)
+    // IMPLEMENTATION_PLAN compatibility fields
     capabilities: SessionCapabilitiesSchema.optional(),
     model: z.string().optional(),
     totalCost: z.number().nonnegative().optional(),

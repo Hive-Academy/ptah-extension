@@ -1,8 +1,6 @@
 /**
  * Subagent Registry Types
  *
- * TASK_2025_103: Subagent Resumption Feature
- *
  * These types support tracking subagent lifecycle state to enable
  * resumption of interrupted subagent executions. The SubagentRegistryService
  * uses these types to maintain in-memory state of all subagents.
@@ -94,7 +92,7 @@ export interface SubagentRecord {
    * interrupted when the parent SDK session ends. They stop only on their own completion,
    * timeout, or explicit user action (ptah_agent_stop).
    *
-   * TASK_2025_186: Set by AgentProcessManager after spawning a CLI agent.
+   * Set by AgentProcessManager after spawning a CLI agent.
    */
   readonly isCliAgent?: boolean;
 
@@ -119,18 +117,13 @@ export interface SubagentRecord {
   completedAt?: number;
 
   /**
-   * SDK task_id from SDKTaskStartedMessage (Phase 1 addition).
+   * SDK task_id from SDKTaskStartedMessage.
    * Populated by SubagentRegistryService.setTaskId() when the SDK emits
    * task_started for this agent. Used by SubagentMessageDispatcher to
    * route subagent:stop calls via Query.stopTask(taskId).
    */
   taskId?: string;
 }
-
-// TASK_2025_109: SubagentResumeParams and SubagentResumeResult removed
-// Subagent resumption is now handled via context injection in chat:continue RPC,
-// allowing Claude to naturally resume interrupted agents through conversation.
-// See chat-rpc.handlers.ts for the context injection implementation.
 
 /**
  * Parameters for the subagent:query RPC method
@@ -158,7 +151,7 @@ export interface SubagentQueryResult {
 }
 
 // ============================================================================
-// Phase 2: Bidirectional messaging + stop/interrupt RPC types
+// Bidirectional messaging + stop/interrupt RPC types
 // ============================================================================
 
 /**

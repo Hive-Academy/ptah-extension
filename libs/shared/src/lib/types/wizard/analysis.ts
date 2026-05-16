@@ -1,8 +1,6 @@
 /**
  * Setup Wizard analysis types — architecture patterns, key file locations,
  * language stats, diagnostics, test coverage estimate.
- *
- * Extracted from setup-wizard.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 // ============================================================================
