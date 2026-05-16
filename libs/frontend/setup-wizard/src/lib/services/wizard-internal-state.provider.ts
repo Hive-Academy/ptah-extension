@@ -2,10 +2,6 @@
  * provideWizardInternalState — Composition-root helper for binding the
  * `WIZARD_INTERNAL_STATE` token to the `SetupWizardStateService` instance.
  *
- * TASK_2026_103 Wave F1. Mirrors B1's `provideStreamingControl()` shape so
- * the webview app config wires the inverted contract alongside the other
- * cycle-breaking providers.
- *
  * Usage in app.config.ts:
  *
  *   providers: [

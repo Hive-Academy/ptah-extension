@@ -509,7 +509,7 @@ export class AgentSelectionComponent {
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
 
-  // === Community Agent Pack State (TASK_2025_258) ===
+  // === Community Agent Pack State ===
 
   /** Local signal controlling the active agent source tab. */
   protected readonly activeTab = signal<'project' | 'community'>('project');
@@ -718,7 +718,7 @@ export class AgentSelectionComponent {
     this.wizardState.setCurrentStep('analysis');
   }
 
-  // === Community Agent Pack Methods (TASK_2025_258) ===
+  // === Community Agent Pack Methods ===
 
   /**
    * Check if a pack is currently expanded.

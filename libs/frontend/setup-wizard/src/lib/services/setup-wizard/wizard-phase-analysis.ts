@@ -17,7 +17,7 @@ import type { WizardSurfaceFacade } from '../setup-wizard-state.service';
  * Owns no signals. Translates scan/analysis/available-agents messages
  * into signal updates on the shared {@link WizardInternalState} and
  * forwards flat-events through {@link WizardSurfaceFacade} so they reach
- * the canonical streaming pipeline (TASK_2026_107 Phase 3).
+ * the canonical streaming pipeline.
  */
 export class WizardPhaseAnalysis {
   public constructor(
@@ -27,8 +27,7 @@ export class WizardPhaseAnalysis {
 
   /**
    * Handle scan progress updates (fileScanned counts + agentic phase fields).
-   * Also derives generationProgress percent and extracts multi-phase fields
-   * (TASK_2025_154).
+   * Also derives generationProgress percent and extracts multi-phase fields.
    */
   public handleScanProgress(payload: ScanProgressPayload): void {
     this.state.scanProgress.set({
@@ -52,7 +51,7 @@ export class WizardPhaseAnalysis {
       detections: payload.detections,
     });
 
-    // TASK_2025_154: Extract multi-phase analysis progress fields
+    // Extract multi-phase analysis progress fields
     if (payload.currentPhaseNumber !== undefined) {
       this.state.currentPhaseNumber.set(payload.currentPhaseNumber);
     }
@@ -74,9 +73,8 @@ export class WizardPhaseAnalysis {
   public handleAnalysisStream(payload: AnalysisStreamPayload): void {
     this.state.analysisStream.update((messages) => [...messages, payload]);
     if (payload.flatEvent) {
-      // TASK_2026_107 Phase 3: route through StreamRouter instead of the
-      // deleted WizardStreamAccumulator. The façade lazy-mints the surface
-      // on first event for a given phaseKey, so wizard backends that don't
+      // Route through StreamRouter. The façade lazy-mints the surface on
+      // first event for a given phaseKey, so wizard backends that don't
       // emit a discrete "phase start" continue to work.
       this.surfaces.routePhaseEvent(
         payload.flatEvent.messageId,
@@ -107,10 +105,10 @@ export class WizardPhaseAnalysis {
     this.state.projectContext.set(analysisResults.projectContext);
     this.state.setStepToAnalysis();
 
-    // TASK_2026_107 Phase 3: tear down all analysis-phase routing bindings.
-    // The accumulated StreamingStates remain visible in the public
-    // `phaseStreamingStates` signal (so the transcript keeps rendering
-    // completed phases), but the routing/registry state is cleaned up.
+    // Tear down all analysis-phase routing bindings. The accumulated
+    // StreamingStates remain visible in the public `phaseStreamingStates`
+    // signal (so the transcript keeps rendering completed phases), but
+    // the routing/registry state is cleaned up.
     this.surfaces.unregisterAllPhaseSurfaces();
   }
 

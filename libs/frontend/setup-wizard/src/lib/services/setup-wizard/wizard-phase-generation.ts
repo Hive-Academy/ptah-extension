@@ -105,10 +105,10 @@ export class WizardPhaseGeneration {
     this.state.completionData.set(completionData);
     this.state.setCurrentStepIfGeneration();
 
-    // TASK_2026_107 Phase 3: tear down generation-phase routing bindings.
-    // The accumulated StreamingStates remain visible in the public
-    // `phaseStreamingStates` signal until the next generation pass starts
-    // (`handleGenerationStream` resets them on first event of new pass).
+    // Tear down generation-phase routing bindings. The accumulated
+    // StreamingStates remain visible in the public `phaseStreamingStates`
+    // signal until the next generation pass starts (`handleGenerationStream`
+    // resets them on first event of new pass).
     this.surfaces.unregisterAllPhaseSurfaces();
   }
 
@@ -121,17 +121,16 @@ export class WizardPhaseGeneration {
   public handleGenerationStream(payload: GenerationStreamPayload): void {
     if (!this.generationStreamInitialized) {
       this.generationStreamInitialized = true;
-      // TASK_2026_107 Phase 3: clear stale analysis-phase surfaces (and their
-      // accumulated states) before the generation pass begins. Equivalent to
-      // the deleted `WizardStreamAccumulator.reset()`.
+      // Clear stale analysis-phase surfaces (and their accumulated states)
+      // before the generation pass begins.
       this.surfaces.resetPhaseSurfaces();
     }
 
     this.state.generationStream.update((msgs) => [...msgs, payload]);
 
     if (payload.flatEvent) {
-      // TASK_2026_107 Phase 3: route through StreamRouter; surface is lazy-
-      // minted on first event for the generation phase's messageId.
+      // Route through StreamRouter; surface is lazy-minted on first event
+      // for the generation phase's messageId.
       this.surfaces.routePhaseEvent(
         payload.flatEvent.messageId,
         payload.flatEvent,
@@ -162,9 +161,9 @@ export class WizardPhaseGeneration {
     };
     this.state.errorState.set(errorState);
 
-    // TASK_2026_107 Phase 3: a fatal wizard error tears down any active
-    // surface routing bindings so residual stream events from a partially-
-    // dead phase are dropped (router resolves to no adapter and no-ops).
+    // A fatal wizard error tears down any active surface routing bindings
+    // so residual stream events from a partially-dead phase are dropped
+    // (router resolves to no adapter and no-ops).
     this.surfaces.unregisterAllPhaseSurfaces();
   }
 }

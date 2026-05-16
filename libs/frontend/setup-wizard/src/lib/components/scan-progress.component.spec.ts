@@ -8,19 +8,17 @@ import {
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { ScanProgressComponent } from './scan-progress.component';
 
-// F8: The ScanProgressComponent imports @ptah-extension/chat transitively
-// (via SetupWizardStateService -> chat-routing/chat-streaming -> chat barrel
-// — TASK_2026_107 Phase 3 swapped the legacy WizardStreamAccumulator for
-// StreamRouter, but the transitive chat-barrel pull-in is unchanged).
-// That barrel eagerly pulls in ExecutionNodeComponent + its deep component
-// tree, at least one of which is `undefined` at Angular TestBed compile time
-// in the Jest ESM/CJS interop window — `queueTypesFromModulesArrayRecur`
-// throws "Cannot read properties of undefined (reading 'ɵcmp')" before any
-// test body runs. Additionally every assertion in this suite targets the
-// pre-TASK_2025_258 UI (simple heading + table) and no longer matches the
-// current multi-phase / activity-indicator template. Unblocking requires a
-// dedicated spec rewrite with NO_ERRORS_SCHEMA + stub sub-components, which
-// is out of scope for the F8 pre-existing-failure batch.
+// The ScanProgressComponent imports @ptah-extension/chat transitively
+// (via SetupWizardStateService -> chat-routing/chat-streaming -> chat
+// barrel). That barrel eagerly pulls in ExecutionNodeComponent + its deep
+// component tree, at least one of which is `undefined` at Angular TestBed
+// compile time in the Jest ESM/CJS interop window —
+// `queueTypesFromModulesArrayRecur` throws "Cannot read properties of
+// undefined (reading 'ɵcmp')" before any test body runs. Additionally
+// every assertion in this suite targets the legacy UI (simple heading +
+// table) and no longer matches the current multi-phase /
+// activity-indicator template. Unblocking requires a dedicated spec
+// rewrite with NO_ERRORS_SCHEMA + stub sub-components.
 describe.skip('ScanProgressComponent', () => {
   let component: ScanProgressComponent;
   let fixture: ComponentFixture<ScanProgressComponent>;

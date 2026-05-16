@@ -49,8 +49,6 @@ import type {
  * so they can route flat events through the canonical streaming pipeline
  * without holding a reference to the entire {@link SetupWizardStateService}.
  *
- * TASK_2026_107 Phase 3: replaces the deleted `WizardStreamAccumulator`.
- *
  * - `ensurePhaseSurface` — idempotent lazy mint of a SurfaceId for a phaseKey
  * - `routePhaseEvent` — forwards a flat event to
  *   `StreamRouter.routeStreamEventForSurface` (lazy-mints the surface if not
@@ -81,10 +79,10 @@ export type {
   TestCoverageEstimate,
 } from '@ptah-extension/shared';
 
-// Wizard state types (12 declarations) extracted to a sibling file in Wave C7h
-// to keep the coordinator under the 800-LOC ceiling. Re-exported here so that
-// existing consumer imports (`from '.../setup-wizard-state.service'`) continue
-// to resolve unchanged.
+// Wizard state types (12 declarations) extracted to a sibling file to keep
+// the coordinator under the 800-LOC ceiling. Re-exported here so that
+// existing consumer imports (`from '.../setup-wizard-state.service'`)
+// continue to resolve unchanged.
 export type {
   WizardStep,
   ProjectContext,
@@ -109,7 +107,7 @@ export type {
  * Pattern: Signal-based state (no RxJS BehaviorSubject)
  * Zoneless Compatible: Yes (pure signal-based reactivity)
  *
- * Architecture (Wave C7b + C7h):
+ * Architecture:
  * - This coordinator owns ALL writable signals (signal identity preserved
  *   for `asReadonly()` consumers).
  * - State mutation logic is delegated to 9 plain-class helpers under
@@ -123,16 +121,16 @@ export type {
 })
 export class SetupWizardStateService {
   private readonly vscodeService = inject(VSCodeService);
-  // TASK_2026_107 Phase 3: surface routing dependencies. Wizard registers a
-  // SurfaceId per analysis/generation phase so its stream events flow through
-  // the canonical pipeline (dedup, batching, agent stores, session binding).
+  // Surface routing dependencies. Wizard registers a SurfaceId per
+  // analysis/generation phase so its stream events flow through the
+  // canonical pipeline (dedup, batching, agent stores, session binding).
   private readonly streamRouter = inject(StreamRouter);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
 
   /** Per-coordinator-instance gate preventing duplicate listener registration. */
   private isMessageListenerRegistered = false;
 
-  // TASK_2026_107 Phase 3: surface registration state.
+  // Surface registration state.
   //
   // Surfaces are minted lazily on first stream event for a given phaseKey
   // (the wizard backend uses `event.messageId === wizard-phase-${currentPhase}`
@@ -150,7 +148,7 @@ export class SetupWizardStateService {
 
   // === Private Writable Signals ===
   // All signals live on the coordinator so signal IDENTITY is preserved for
-  // `asReadonly()` consumers. C7b/C7h helpers mutate these via the shared
+  // `asReadonly()` consumers. Helpers mutate these via the shared
   // `WizardInternalState` handle (see constructor). Public docs for each
   // signal live alongside its `public readonly X = ...asReadonly()` projection
   // below.
@@ -164,10 +162,10 @@ export class SetupWizardStateService {
   );
   private readonly scanProgressSignal = signal<ScanProgress | null>(null);
   private readonly analysisStreamSignal = signal<AnalysisStreamPayload[]>([]);
-  // TASK_2025_229 / Wave F2: per-phase StreamingState entries keyed by phase
-  // messageId. Stored as an immutable list so Angular's reference-equality
-  // change detection always sees a new array on update; the byId computed
-  // below provides O(1) lookup for the rare consumer that needs it.
+  // Per-phase StreamingState entries keyed by phase messageId. Stored as an
+  // immutable list so Angular's reference-equality change detection always
+  // sees a new array on update; the byId computed below provides O(1)
+  // lookup for the rare consumer that needs it.
   private readonly phaseStreamingStatesSignal = signal<
     readonly PhaseStreamingEntry[]
   >([]);
@@ -186,7 +184,7 @@ export class SetupWizardStateService {
   private readonly completionDataSignal = signal<CompletionData | null>(null);
   private readonly errorStateSignal = signal<ErrorState | null>(null);
 
-  // Deep Analysis (TASK_2025_111)
+  // Deep Analysis
   private readonly deepAnalysisSignal = signal<ProjectAnalysisResult | null>(
     null,
   );
@@ -209,7 +207,7 @@ export class SetupWizardStateService {
   private readonly enhancedPromptsSummarySignal =
     signal<EnhancedPromptsSummary | null>(null);
 
-  // Multi-Phase Analysis (TASK_2025_154) — 1-based phase counters.
+  // Multi-Phase Analysis — 1-based phase counters.
   private readonly _currentPhaseNumber = signal<number | null>(null);
   private readonly _totalPhaseCount = signal<number | null>(null);
   private readonly _phaseStatuses = signal<
@@ -222,7 +220,7 @@ export class SetupWizardStateService {
   private readonly savedAnalysesSignal = signal<SavedAnalysisMetadata[]>([]);
   private readonly analysisLoadedFromHistorySignal = signal(false);
 
-  // Community Agent Pack (TASK_2025_258)
+  // Community Agent Pack
   private readonly communityPacksSignal = signal<AgentPackInfoDto[]>([]);
   private readonly communityPacksLoadingSignal = signal(false);
   // agentInstallStatus key format: "{source}::{file}".
@@ -232,9 +230,9 @@ export class SetupWizardStateService {
   private readonly expandedPackSourceSignal = signal<string | null>(null);
 
   // === Public Readonly Projections ===
-  // One-line projections for each writable signal above. Per-field JSDoc was
-  // intentionally removed in Wave C7h to keep the coordinator under the LOC
-  // ceiling — field names + their declared types provide sufficient context.
+  // One-line projections for each writable signal above. Per-field JSDoc is
+  // omitted to keep the coordinator under the LOC ceiling — field names +
+  // their declared types provide sufficient context.
 
   // Core flow
   public readonly currentStep = this.currentStepSignal.asReadonly();
@@ -255,7 +253,7 @@ export class SetupWizardStateService {
   public readonly completionData = this.completionDataSignal.asReadonly();
   public readonly errorState = this.errorStateSignal.asReadonly();
 
-  // Deep Analysis (TASK_2025_111)
+  // Deep Analysis
   public readonly deepAnalysis = this.deepAnalysisSignal.asReadonly();
   public readonly recommendations = this.recommendationsSignal.asReadonly();
   public readonly skillGenerationProgress =
@@ -278,7 +276,7 @@ export class SetupWizardStateService {
   public readonly analysisLoadedFromHistory =
     this.analysisLoadedFromHistorySignal.asReadonly();
 
-  // Community Agent Pack (TASK_2025_258)
+  // Community Agent Pack
   public readonly communityPacks = this.communityPacksSignal.asReadonly();
   public readonly communityPacksLoading =
     this.communityPacksLoadingSignal.asReadonly();
@@ -287,38 +285,38 @@ export class SetupWizardStateService {
   public readonly expandedPackSource =
     this.expandedPackSourceSignal.asReadonly();
 
-  // Multi-Phase Analysis (TASK_2025_154)
+  // Multi-Phase Analysis
   public readonly currentPhaseNumber = this._currentPhaseNumber.asReadonly();
   public readonly totalPhaseCount = this._totalPhaseCount.asReadonly();
   public readonly phaseStatuses = this._phaseStatuses.asReadonly();
   public readonly multiPhaseResult = this.multiPhaseResultSignal.asReadonly();
 
   // ============================================================================
-  // HELPER COMPOSITION (Wave C7b + C7h split)
+  // HELPER COMPOSITION
   // ============================================================================
 
-  // C7b helpers — message-handling pipeline
+  // Message-handling pipeline helpers
   private readonly phaseAnalysis: WizardPhaseAnalysis;
   private readonly phaseGeneration: WizardPhaseGeneration;
   private readonly messageDispatcher: WizardMessageDispatcher;
 
   /**
-   * Wave F1 (TASK_2026_103): the {@link WizardInternalState} handle the
-   * coordinator constructs for its in-process helpers. Exposed so
-   * `provideWizardInternalState()` can bind it to the
-   * `WIZARD_INTERNAL_STATE` DI token for external consumers without
-   * re-importing the coordinator class (which would re-form a cycle).
+   * The {@link WizardInternalState} handle the coordinator constructs for
+   * its in-process helpers. Exposed so `provideWizardInternalState()` can
+   * bind it to the `WIZARD_INTERNAL_STATE` DI token for external consumers
+   * without re-importing the coordinator class (which would re-form a
+   * cycle).
    */
   private internalState!: WizardInternalState;
 
-  // C7h helpers — state-mutation surface
+  // State-mutation surface helpers
   private readonly flowState: WizardFlowState;
   private readonly scanState: WizardScanState;
   private readonly analysisState: WizardAnalysisState;
   private readonly generationState: WizardGenerationState;
   private readonly communityPacksState: WizardCommunityPacksState;
 
-  // C7h: derived (computed) signals — see ./setup-wizard/wizard-computeds.ts
+  // Derived (computed) signals — see ./setup-wizard/wizard-computeds.ts
   private readonly computeds: WizardComputeds;
 
   // === Public Computed Signals (delegated to WizardComputeds) ===
@@ -341,7 +339,7 @@ export class SetupWizardStateService {
 
   public constructor() {
     this.internalState = {
-      // C7b core flow
+      // Core flow
       projectContext: this.projectContextSignal,
       availableAgents: this.availableAgentsSignal,
       generationProgress: this.generationProgressSignal,
@@ -366,33 +364,32 @@ export class SetupWizardStateService {
           this.currentStepSignal.set('enhance');
         }
       },
-      // C7h: wizard step
+      // Wizard step
       currentStep: this.currentStepSignal,
-      // C7h: deep analysis + recommendations + selection + history
+      // Deep analysis + recommendations + selection + history
       deepAnalysis: this.deepAnalysisSignal,
       recommendations: this.recommendationsSignal,
       selectedAgentsMap: this.selectedAgentsMapSignal,
       multiPhaseResult: this.multiPhaseResultSignal,
       savedAnalyses: this.savedAnalysesSignal,
       analysisLoadedFromHistory: this.analysisLoadedFromHistorySignal,
-      // C7h: enhanced prompts
+      // Enhanced prompts
       enhancedPromptsStatus: this.enhancedPromptsStatusSignal,
       enhancedPromptsError: this.enhancedPromptsErrorSignal,
       enhancedPromptsDetectedStack: this.enhancedPromptsDetectedStackSignal,
       enhancedPromptsSummary: this.enhancedPromptsSummarySignal,
-      // C7h: community packs (TASK_2025_258)
+      // Community packs
       communityPacks: this.communityPacksSignal,
       communityPacksLoading: this.communityPacksLoadingSignal,
       agentInstallStatus: this.agentInstallStatusSignal,
       expandedPackSource: this.expandedPackSourceSignal,
     };
 
-    // C7b helpers
-    // TASK_2026_107 Phase 3: WizardStreamAccumulator deleted; the helpers
-    // below now route stream events through StreamRouter via the surface
-    // management methods on `this` (registerPhaseSurface / routePhaseEvent /
-    // resetPhaseSurfaces). The state service is passed as a thin façade so
-    // helpers stay loosely coupled to the wider coordinator surface.
+    // The helpers below route stream events through StreamRouter via the
+    // surface management methods on `this` (registerPhaseSurface /
+    // routePhaseEvent / resetPhaseSurfaces). The state service is passed
+    // as a thin façade so helpers stay loosely coupled to the wider
+    // coordinator surface.
     const surfaceFacade: WizardSurfaceFacade = {
       ensurePhaseSurface: (phaseKey): SurfaceId =>
         this.registerPhaseSurface(phaseKey),
@@ -433,7 +430,7 @@ export class SetupWizardStateService {
       this.errorStateSignal,
     );
 
-    // C7h helpers — state-mutation surface
+    // State-mutation surface helpers
     this.flowState = new WizardFlowState(this.internalState);
     this.scanState = new WizardScanState(this.internalState);
     this.analysisState = new WizardAnalysisState(this.internalState);
@@ -442,7 +439,7 @@ export class SetupWizardStateService {
       this.internalState,
     );
 
-    // C7h: derived signals — delegated 1:1 (same Signal instance)
+    // Derived signals — delegated 1:1 (same Signal instance)
     this.computeds = new WizardComputeds(this.internalState);
     this.installedCommunityAgentCount =
       this.computeds.installedCommunityAgentCount;
@@ -464,9 +461,9 @@ export class SetupWizardStateService {
   }
 
   /**
-   * Wave F1 (TASK_2026_103): expose the internal-state handle for the
-   * `WIZARD_INTERNAL_STATE` provider. Caller MUST be `provideWizardInternalState`
-   * — components and other services should use the dedicated public surface.
+   * Expose the internal-state handle for the `WIZARD_INTERNAL_STATE`
+   * provider. Caller MUST be `provideWizardInternalState` — components and
+   * other services should use the dedicated public surface.
    */
   public getInternalState(): WizardInternalState {
     return this.internalState;
@@ -509,7 +506,7 @@ export class SetupWizardStateService {
     }
   }
 
-  // === State Mutations (delegated to C7h sub-helpers) ===
+  // === State Mutations (delegated to sub-helpers) ===
   // Per-method JSDoc lives on the helper classes under ./setup-wizard/.
   // Coordinator methods are thin 1-line passthroughs; method names + signatures
   // are preserved byte-identical for the 11 component consumers.
@@ -538,16 +535,15 @@ export class SetupWizardStateService {
    * Reset wizard state (for restart).
    *
    * Orchestrates the cross-cutting reset by invoking each sub-helper's
-   * `reset()` slice plus `phaseGeneration.resetPassState()` plus 5
-   * direct-set calls for signals owned by C7b helpers that don't expose
-   * a `reset()` method (analysisStream, phaseStreamingStates,
-   * generationStream, enhanceStream, scanProgress).
+   * `reset()` slice plus `phaseGeneration.resetPassState()` plus direct-set
+   * calls for signals whose owning helper doesn't expose a `reset()` method
+   * (analysisStream, phaseStreamingStates, generationStream, enhanceStream,
+   * scanProgress).
    *
-   * The set of signals reset here is byte-equivalent to the original
-   * 47-LOC body at lines 1107–1153 (pre-C7h). Source order is not
-   * strictly preserved because the helper-level groupings interleave —
-   * however all `.set()` calls are independent and computeds re-run only
-   * after all sets complete, so final state is identical.
+   * Source order is not strictly preserved because the helper-level
+   * groupings interleave — however all `.set()` calls are independent and
+   * computeds re-run only after all sets complete, so final state is
+   * identical.
    *
    * Note: `savedAnalyses` is intentionally NOT reset (kept intact across
    * wizard restarts — see `WizardAnalysisState.reset()` JSDoc).
@@ -560,21 +556,21 @@ export class SetupWizardStateService {
     this.communityPacksState.reset();
     this.phaseGeneration.resetPassState();
 
-    // Direct-set: signals owned by C7b helpers without reset() methods.
+    // Direct-set: signals whose owning helper has no reset() method.
     this.scanProgressSignal.set(null);
     this.analysisStreamSignal.set([]);
-    this.phaseStreamingStatesSignal.set([]); // TASK_2025_229 / Wave F2
+    this.phaseStreamingStatesSignal.set([]);
     this.generationStreamSignal.set([]);
     this.enhanceStreamSignal.set([]);
 
-    // TASK_2026_107 Phase 3: tear down all per-phase surface registrations
-    // when the wizard restarts. Each phase's SurfaceId is unbound from its
-    // conversation and removed from the surface adapter registry so the
-    // router doesn't fan stale events to a dead phase entry.
+    // Tear down all per-phase surface registrations when the wizard
+    // restarts. Each phase's SurfaceId is unbound from its conversation
+    // and removed from the surface adapter registry so the router doesn't
+    // fan stale events to a dead phase entry.
     this.resetPhaseSurfaces();
   }
 
-  // === Community Agent Pack State Mutations (TASK_2025_258) ===
+  // === Community Agent Pack State Mutations ===
 
   public setCommunityPacks(packs: AgentPackInfoDto[]): void {
     this.communityPacksState.setCommunityPacks(packs);
@@ -595,7 +591,7 @@ export class SetupWizardStateService {
     this.communityPacksState.toggleExpandedPack(source);
   }
 
-  // === Deep Analysis State Mutations (TASK_2025_111) ===
+  // === Deep Analysis State Mutations ===
 
   public setDeepAnalysis(analysis: ProjectAnalysisResult): void {
     this.analysisState.setDeepAnalysis(analysis);
@@ -679,7 +675,7 @@ export class SetupWizardStateService {
   }
 
   // ===========================================================================
-  // TASK_2026_107 Phase 3 — Surface routing (replaces WizardStreamAccumulator).
+  // Surface routing.
   //
   // Wizard phases (analysis + generation) participate in the canonical chat
   // streaming pipeline by registering a `SurfaceId` per `phaseKey`. The
@@ -696,7 +692,7 @@ export class SetupWizardStateService {
    * binds via `StreamRouter.onSurfaceCreated` and registers the surface
    * adapter with `StreamingSurfaceRegistry` BEFORE this method returns, so
    * the very next `routeStreamEventForSurface` call has a live adapter to
-   * resolve (Phase 2 discovery #3 — registration must precede the first event).
+   * resolve (registration must precede the first event).
    */
   public registerPhaseSurface(phaseKey: string): SurfaceId {
     const existing = this._phaseSurfaces.get(phaseKey);
@@ -742,7 +738,7 @@ export class SetupWizardStateService {
   /**
    * Tear down a single phase surface. Calls `StreamRouter.onSurfaceClosed`
    * (which handles unregistering the adapter from `StreamingSurfaceRegistry`
-   * — see Phase 2 discovery #1: do NOT call surfaceRegistry.unregister here)
+   * — do NOT call surfaceRegistry.unregister here)
    * and removes the per-phase Map entries.
    *
    * The phase's accumulated `StreamingState` is intentionally retained in
@@ -754,9 +750,8 @@ export class SetupWizardStateService {
     const surfaceId = this._phaseSurfaces.get(phaseKey);
     if (!surfaceId) return;
 
-    // Phase 2 discovery #1: onSurfaceClosed handles surfaceRegistry.unregister
-    // internally; calling it ourselves first would race residual events into
-    // the void.
+    // onSurfaceClosed handles surfaceRegistry.unregister internally;
+    // calling it ourselves first would race residual events into the void.
     this.streamRouter.onSurfaceClosed(surfaceId);
     this._phaseSurfaces.delete(phaseKey);
     // _phaseStateRefs stays — the analysis-transcript reads completed-phase

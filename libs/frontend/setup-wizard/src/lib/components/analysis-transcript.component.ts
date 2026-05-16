@@ -28,7 +28,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
  * - Auto-scroll to bottom on new messages unless user has scrolled up
  * - Skeleton loading state when no events have arrived
  *
- * Architecture (TASK_2025_229):
+ * Architecture:
  * - Backend emits FlatStreamEventUnion events via AnalysisStreamPayload.flatEvent
  * - SetupWizardStateService accumulates events into per-phase StreamingState maps
  * - This component calls buildTree() at render time via computed signal

@@ -23,11 +23,8 @@ export default {
     'jest-preset-angular/build/serializers/ng-snapshot',
     'jest-preset-angular/build/serializers/html-comment',
   ],
-  // F8 post-fix baseline: Statements 37.84 / Branches 17.50 / Functions
-  // 25.86 / Lines 38.09 (162 passing tests, 101 skipped with rationale).
   // Floors rounded DOWN to nearest 5 to catch regressions without
-  // flapping on minor refactors. Raise once the 3 skipped suites
-  // (scan-progress, agent-selection, completion) are rewritten.
+  // flapping on minor refactors.
   coverageThreshold: {
     global: {
       statements: 35,

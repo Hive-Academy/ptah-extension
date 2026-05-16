@@ -3,9 +3,6 @@ export { SetupWizardStateService } from './lib/services/setup-wizard-state.servi
 export { WizardRpcService } from './lib/services/wizard-rpc.service';
 export { ToolOutputFormatterService } from './lib/services/tool-output-formatter.service';
 
-// Wave F1 (TASK_2026_103): inverted-dependency contract for the wizard
-// internal-state map. Composition root binds the token via
-// `provideWizardInternalState()` (mirrors B1's STREAMING_CONTROL pattern).
 export {
   WIZARD_INTERNAL_STATE,
   type WizardInternalState,

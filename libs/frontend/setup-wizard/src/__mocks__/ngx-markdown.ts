@@ -2,7 +2,7 @@
 // dependency during setup-wizard tests. The MarkdownBlockComponent from
 // @ptah-extension/chat is pulled in through the chat barrel (transitively
 // imported by setup-wizard via the @ptah-extension/chat-streaming + chat-routing
-// re-exports — TASK_2026_107 Phase 3), but Jest still loads the real
+// re-exports), but Jest still loads the real
 // ngx-markdown module at runtime and fails on `ɵcmp` resolution because its
 // Angular metadata is not registered. This stub provides a minimal,
 // standalone `MarkdownComponent` and `MarkdownModule` that compile cleanly

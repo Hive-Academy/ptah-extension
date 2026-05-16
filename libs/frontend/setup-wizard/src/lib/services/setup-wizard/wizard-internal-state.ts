@@ -27,16 +27,11 @@ import type {
  * Shared signal context for setup-wizard helpers.
  *
  * All wizard signals live on the coordinator service so their identity is
- * preserved across the Wave C7b/C7h splits. Helpers mutate signals through
- * this handle — no helper owns state of its own.
- *
- * Wave C7h: extended additively with 22 new writable-signal fields to
- * support the 5 new state-management helpers (`WizardFlowState`,
- * `WizardScanState`, `WizardAnalysisState`, `WizardGenerationState`,
- * `WizardCommunityPacksState`).
+ * preserved. Helpers mutate signals through this handle — no helper owns
+ * state of its own.
  */
 export interface WizardInternalState {
-  // === Core flow signals (C7b) ===
+  // === Core flow signals ===
   readonly projectContext: WritableSignal<ProjectContext | null>;
   readonly availableAgents: WritableSignal<AgentSelection[]>;
   readonly generationProgress: WritableSignal<GenerationProgress | null>;
@@ -45,35 +40,35 @@ export interface WizardInternalState {
   readonly completionData: WritableSignal<CompletionData | null>;
   readonly errorState: WritableSignal<ErrorState | null>;
 
-  // === Stream accumulators (C7b) ===
+  // === Stream accumulators ===
   readonly analysisStream: WritableSignal<AnalysisStreamPayload[]>;
   readonly generationStream: WritableSignal<GenerationStreamPayload[]>;
   readonly enhanceStream: WritableSignal<AnalysisStreamPayload[]>;
   readonly phaseStreamingStates: WritableSignal<readonly PhaseStreamingEntry[]>;
 
-  // === Multi-phase progress (C7b — TASK_2025_154) ===
+  // === Multi-phase progress ===
   readonly currentPhaseNumber: WritableSignal<number | null>;
   readonly totalPhaseCount: WritableSignal<number | null>;
   readonly phaseStatuses: WritableSignal<Array<{ id: string; status: string }>>;
 
-  // === Skill generation per-item tracking (C7b) ===
+  // === Skill generation per-item tracking ===
   readonly skillGenerationProgress: WritableSignal<
     SkillGenerationProgressItem[]
   >;
 
-  // === Fallback warning (C7b — agentic → quick analysis degrade) ===
+  // === Fallback warning (agentic → quick analysis degrade) ===
   readonly fallbackWarning: WritableSignal<string | null>;
 
-  // === Current step transitions driven by message handlers (C7b) ===
+  // === Current step transitions driven by message handlers ===
   /** Set step to 'analysis' (called after analysis-complete). */
   setStepToAnalysis(): void;
   /** If current step is 'generation', set it to 'enhance' (auto-transition). */
   setCurrentStepIfGeneration(): void;
 
-  // === Wave C7h: Wizard step ===
+  // === Wizard step ===
   readonly currentStep: WritableSignal<WizardStep>;
 
-  // === Wave C7h: Deep analysis + recommendations + selection + history ===
+  // === Deep analysis + recommendations + selection + history ===
   readonly deepAnalysis: WritableSignal<ProjectAnalysisResult | null>;
   readonly recommendations: WritableSignal<AgentRecommendation[]>;
   readonly selectedAgentsMap: WritableSignal<Record<string, boolean>>;
@@ -81,13 +76,13 @@ export interface WizardInternalState {
   readonly savedAnalyses: WritableSignal<SavedAnalysisMetadata[]>;
   readonly analysisLoadedFromHistory: WritableSignal<boolean>;
 
-  // === Wave C7h: Enhanced Prompts state ===
+  // === Enhanced Prompts state ===
   readonly enhancedPromptsStatus: WritableSignal<EnhancedPromptsWizardStatus>;
   readonly enhancedPromptsError: WritableSignal<string | null>;
   readonly enhancedPromptsDetectedStack: WritableSignal<string[] | null>;
   readonly enhancedPromptsSummary: WritableSignal<EnhancedPromptsSummary | null>;
 
-  // === Wave C7h: Community agent packs (TASK_2025_258) ===
+  // === Community agent packs ===
   readonly communityPacks: WritableSignal<AgentPackInfoDto[]>;
   readonly communityPacksLoading: WritableSignal<boolean>;
   readonly agentInstallStatus: WritableSignal<
@@ -113,9 +108,9 @@ export type {
 /**
  * DI token for {@link WizardInternalState}.
  *
- * TASK_2026_103 Wave F1: Mirrors B1's `STREAMING_CONTROL` pattern — the
- * coordinator (`SetupWizardStateService`) constructs the writable-signal
- * map and exposes it through this token via `provideWizardInternalState()`.
+ * The coordinator (`SetupWizardStateService`) constructs the
+ * writable-signal map and exposes it through this token via
+ * `provideWizardInternalState()`.
  *
  * Helpers that live inside this library are still constructed by the
  * coordinator via plain `new` and receive the state through their

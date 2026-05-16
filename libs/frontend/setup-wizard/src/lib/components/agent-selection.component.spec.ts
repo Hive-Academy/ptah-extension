@@ -7,13 +7,12 @@ import {
 } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
-// F8: AgentSelectionComponent was substantially refactored in TASK_2025_258
-// (community agent packs, project/community tab switcher, recommendations-
-// based selection via wizardState.recommendedAgents). This spec was authored
-// against the old avail/selection table API and mocks a different state
-// shape; every template-assertion test (31/41) fails against the new UI.
-// Keeping skipped with full pre-existing coverage captured in the service
-// spec — dedicated component-spec rewrite tracked as follow-up.
+// AgentSelectionComponent was substantially refactored (community agent
+// packs, project/community tab switcher, recommendations-based selection via
+// wizardState.recommendedAgents). This spec was authored against the old
+// avail/selection table API and mocks a different state shape; every
+// template-assertion test (31/41) fails against the new UI. Kept skipped
+// with full pre-existing coverage captured in the service spec.
 describe.skip('AgentSelectionComponent', () => {
   let component: AgentSelectionComponent;
   let fixture: ComponentFixture<AgentSelectionComponent>;

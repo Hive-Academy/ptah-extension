@@ -143,7 +143,7 @@ export class WizardRpcService {
     }
   }
 
-  // === Analysis Cancellation (TASK_2025_145 SERIOUS-6) ===
+  // === Analysis Cancellation ===
 
   /**
    * Cancel a running agentic workspace analysis.
@@ -168,7 +168,7 @@ export class WizardRpcService {
     }
   }
 
-  // === Deep Analysis Methods (TASK_2025_111) ===
+  // === Deep Analysis Methods ===
 
   /**
    * Deep analyze the workspace project structure.
@@ -272,7 +272,7 @@ export class WizardRpcService {
     };
   }
 
-  // === Enhanced Prompts Settings Methods (TASK_2025_149 Batch 5) ===
+  // === Enhanced Prompts Settings Methods ===
 
   /**
    * Toggle enhanced prompts on or off for a workspace.
@@ -417,7 +417,7 @@ export class WizardRpcService {
     throw new Error(result.error || 'Failed to load analysis');
   }
 
-  // === Community Agent Pack Methods (TASK_2025_258) ===
+  // === Community Agent Pack Methods ===
 
   /**
    * List available community agent packs.
