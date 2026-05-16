@@ -18,7 +18,6 @@ export default {
     'jest-preset-angular/build/serializers/ng-snapshot',
     'jest-preset-angular/build/serializers/html-comment',
   ],
-  // Wave-1 ratchet baseline (TASK_2026_105 G3).
   coverageThreshold: {
     global: {
       statements: 60,
