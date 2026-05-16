@@ -352,66 +352,22 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       jest.useRealTimers();
     });
 
-    it('createTab mints a UUID-v4 tab id (v0.2.32 regression)', () => {
-      // The backend permission path now calls `SessionId.from(tabId)` and
-      // `TabId.from(tabId)`, both of which throw on non-UUID input. The
-      // legacy `tab_<timestamp>_<random>` generator crashed every
-      // `chat:start` until this was fixed — guard against regression.
+    it('createTab mints a UUID-v4 tab id', () => {
       const id = service.createTab('uuid-check');
       expect(TabId.validate(id)).toBe(true);
-      expect(id.startsWith('tab_')).toBe(false);
-    });
-
-    it('loadTabState re-mints legacy tab_* ids and remaps activeTabId', () => {
-      // v0.2.32 and earlier persisted ids like `tab_1778939573732_w43e75q`.
-      // These crash the backend on chat:start; the load path must migrate
-      // them to UUID v4 in-place and keep activeTabId pointing at the
-      // re-minted id.
-      const legacyId = 'tab_1778939573732_w43e75q';
-      localStorage.setItem(
-        'ptah.tabs',
-        JSON.stringify({
-          version: 1,
-          activeTabId: legacyId,
-          tabs: [
-            {
-              id: legacyId,
-              claudeSessionId: null,
-              name: 'legacy',
-              title: 'legacy',
-              order: 0,
-              status: 'loaded',
-              isDirty: false,
-              lastActivityAt: 0,
-              messages: [],
-              streamingState: null,
-            },
-          ],
-        }),
-      );
-      service.loadTabState();
-      const tab = service.tabs()[0];
-      expect(tab).toBeDefined();
-      expect(tab?.id).not.toBe(legacyId);
-      expect(TabId.validate(tab?.id ?? '')).toBe(true);
-      expect(service.activeTabId()).toBe(tab?.id);
     });
 
     it('loadTabState restores persisted tabs and clears streamingState', () => {
-      // TASK_2026_106 Phase 6b — `placeholderSessionId` was removed from
-      // `TabState`. Persisted state from old releases that still carries
-      // the field MUST parse cleanly (back-compat). This fixture keeps
-      // the legacy field on purpose to exercise that read path.
+      const persistedId = TabId.create();
       localStorage.setItem(
         'ptah.tabs',
         JSON.stringify({
-          version: 1,
-          activeTabId: 't-1',
+          version: 2,
+          activeTabId: persistedId,
           tabs: [
             {
-              id: 't-1',
-              claudeSessionId: 'sess-stale',
-              placeholderSessionId: null,
+              id: persistedId,
+              claudeSessionId: SessionId.create(),
               name: 'persisted',
               title: 'persisted',
               order: 0,
@@ -429,11 +385,20 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(tab?.streamingState).toBeNull();
       expect(tab?.claudeSessionId).toBeNull();
       expect(tab?.status).toBe('loaded');
-      // Confirm legacy field is dropped from in-memory state — TabState
-      // shape no longer carries it.
-      expect((tab as Record<string, unknown>)?.placeholderSessionId).toBe(
-        undefined,
+    });
+
+    it('loadTabState ignores persisted state with a stale schema version', () => {
+      localStorage.setItem(
+        'ptah.tabs',
+        JSON.stringify({
+          version: 1,
+          activeTabId: 't-1',
+          tabs: [{ id: 't-1' }],
+        }),
       );
+      service.loadTabState();
+      expect(service.tabs()).toEqual([]);
+      expect(service.activeTabId()).toBeNull();
     });
   });
 

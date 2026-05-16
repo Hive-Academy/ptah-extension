@@ -1,6 +1,5 @@
 import { Injectable } from '@angular/core';
 import { TabState } from '@ptah-extension/chat-types';
-import { TabId } from './identity/ids';
 
 /**
  * Internal type for a workspace's tab set stored in the workspace tab map.
@@ -71,12 +70,6 @@ export class TabWorkspacePartitionService {
   private _activeWorkspacePath: string | null = null;
 
   /**
-   * Whether the one-time migration from global 'ptah.tabs' has been performed.
-   * Prevents re-migration on subsequent switchWorkspace() calls.
-   */
-  private _migrationDone = false;
-
-  /**
    * TASK_2025_208 Fix 4: Reverse index from sessionId to workspacePath for O(1) lookup.
    * Populated when tabs are created/loaded with a claudeSessionId.
    * Used by findTabBySessionIdAcrossWorkspaces() instead of O(W*T) linear scan.
@@ -100,27 +93,10 @@ export class TabWorkspacePartitionService {
   >();
   private readonly BG_SAVE_DEBOUNCE_MS = 500;
 
-  /**
-   * Panel-aware localStorage key components for tab state persistence.
-   * Set once during initialize() from TabManagerService.
-   */
   private _panelId: string | undefined;
-  private _legacyStorageKey = 'ptah.tabs';
 
-  // ============================================================================
-  // INITIALIZATION
-  // ============================================================================
-
-  /**
-   * Initialize workspace partition service with panel configuration.
-   * Must be called by TabManagerService during its constructor.
-   *
-   * @param panelId - Panel ID for localStorage namespacing (undefined for sidebar)
-   * @param legacyStorageKey - Legacy storage key for migration
-   */
-  initialize(panelId: string | undefined, legacyStorageKey: string): void {
+  initialize(panelId: string | undefined): void {
     this._panelId = panelId;
-    this._legacyStorageKey = legacyStorageKey;
   }
 
   // ============================================================================
@@ -167,13 +143,7 @@ export class TabWorkspacePartitionService {
       });
     }
 
-    // Step 2: One-time migration from global localStorage key
-    if (!this._migrationDone) {
-      this._migrateGlobalTabState(workspacePath);
-      this._migrationDone = true;
-    }
-
-    // Step 3: Load target workspace's tab state
+    // Step 2: Load target workspace's tab state
     this._activeWorkspacePath = workspacePath;
     const targetTabSet = this._workspaceTabSets.get(workspacePath);
 
@@ -490,37 +460,19 @@ export class TabWorkspacePartitionService {
       if (!stored) return null;
 
       const state = JSON.parse(stored);
-      if (state.version !== 1 || !state.tabs || !Array.isArray(state.tabs)) {
+      if (state.version !== 2 || !state.tabs || !Array.isArray(state.tabs)) {
         return null;
       }
 
-      // Sanitize loaded tabs (clear transient streaming state) and
-      // re-mint legacy `tab_<timestamp>_<random>` ids that pre-date the
-      // UUID v4 tab-id format. The backend permission path now calls
-      // `SessionId.from(tabId)` / `TabId.from(tabId)` which throw on
-      // anything else (v0.2.32 regression).
-      const idRemap = new Map<string, string>();
-      const sanitizedTabs = state.tabs.map((tab: TabState) => {
-        const migratedId = TabId.validate(tab.id) ? tab.id : TabId.create();
-        if (migratedId !== tab.id) {
-          idRemap.set(tab.id, migratedId);
-        }
-        return {
-          ...tab,
-          id: migratedId,
-          streamingState: null,
-          status: tab.status === 'streaming' ? 'loaded' : tab.status,
-        };
-      });
-
-      const remappedActiveId =
-        typeof state.activeTabId === 'string' && idRemap.has(state.activeTabId)
-          ? (idRemap.get(state.activeTabId) ?? null)
-          : (state.activeTabId ?? null);
+      const sanitizedTabs = state.tabs.map((tab: TabState) => ({
+        ...tab,
+        streamingState: null,
+        status: tab.status === 'streaming' ? 'loaded' : tab.status,
+      }));
 
       return {
         tabs: sanitizedTabs,
-        activeTabId: remappedActiveId,
+        activeTabId: state.activeTabId ?? null,
       };
     } catch {
       return null;
@@ -540,7 +492,7 @@ export class TabWorkspacePartitionService {
       const state = {
         tabs: tabSet.tabs,
         activeTabId: tabSet.activeTabId,
-        version: 1,
+        version: 2,
       };
       localStorage.setItem(key, JSON.stringify(state));
     } catch (error) {
@@ -573,61 +525,6 @@ export class TabWorkspacePartitionService {
     }, this.BG_SAVE_DEBOUNCE_MS);
 
     this._backgroundSaveTimers.set(workspacePath, timer);
-  }
-
-  /**
-   * One-time migration from global 'ptah.tabs' localStorage key to workspace-scoped key.
-   *
-   * TASK_2025_208: When the first switchWorkspace() call happens:
-   * 1. Check if global 'ptah.tabs' (or 'ptah.tabs.{panelId}') exists in localStorage
-   * 2. Check if workspace-scoped key already exists (migration already done)
-   * 3. If global exists but workspace-scoped doesn't, assign global tabs to this workspace
-   * 4. Delete the global key to prevent re-migration
-   *
-   * This ensures existing users don't lose their tabs when upgrading to workspace-aware version.
-   */
-  private _migrateGlobalTabState(firstWorkspacePath: string): void {
-    try {
-      const wsKey = this._getWorkspaceStorageKey(firstWorkspacePath);
-
-      // If workspace-scoped key already exists, migration was already done
-      if (localStorage.getItem(wsKey)) return;
-
-      // Check if legacy global key has data
-      const globalData = localStorage.getItem(this._legacyStorageKey);
-      if (!globalData) return;
-
-      // Migrate: copy global data to workspace-scoped key
-      localStorage.setItem(wsKey, globalData);
-
-      // Also load into the in-memory map if not already there
-      if (!this._workspaceTabSets.has(firstWorkspacePath)) {
-        const state = JSON.parse(globalData);
-        if (state.version === 1 && state.tabs && Array.isArray(state.tabs)) {
-          const sanitizedTabs = state.tabs.map((tab: TabState) => ({
-            ...tab,
-            streamingState: null,
-            status: tab.status === 'streaming' ? 'loaded' : tab.status,
-          }));
-          this._workspaceTabSets.set(firstWorkspacePath, {
-            tabs: sanitizedTabs,
-            activeTabId: state.activeTabId,
-          });
-        }
-      }
-
-      // Delete global key to prevent re-migration and avoid stale data
-      localStorage.removeItem(this._legacyStorageKey);
-
-      console.log(
-        `[TabWorkspacePartition] Migrated global tab state to workspace: ${firstWorkspacePath}`,
-      );
-    } catch (error) {
-      console.warn(
-        '[TabWorkspacePartition] Failed to migrate global tab state:',
-        error,
-      );
-    }
   }
 
   /**

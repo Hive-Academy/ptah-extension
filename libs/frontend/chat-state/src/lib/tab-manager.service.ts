@@ -427,12 +427,8 @@ export class TabManagerService {
       ? `ptah.tabs.${this._panelId}`
       : 'ptah.tabs';
 
-    // Initialize workspace partition service with panel configuration
-    this.workspacePartition.initialize(this._panelId, this._legacyStorageKey);
+    this.workspacePartition.initialize(this._panelId);
 
-    // Load saved tab state on service initialization.
-    // At this point we don't know the workspace path yet, so we load from the
-    // legacy global key. When switchWorkspace() is called, we'll migrate.
     this.loadTabState();
 
     // If panel was opened with a specific session (pop-out), load that session tab
@@ -1514,7 +1510,7 @@ export class TabManagerService {
       const state = {
         tabs: this._tabs(),
         activeTabId: this._activeTabId(),
-        version: 1,
+        version: 2,
       };
 
       const activeWsPath = this.workspacePartition.activeWorkspacePath;
@@ -1547,58 +1543,26 @@ export class TabManagerService {
 
       const state = JSON.parse(stored);
 
-      if (state.version !== 1) {
-        console.warn('[TabManager] Incompatible tab state version');
+      if (state.version !== 2) {
         return;
       }
 
       if (state.tabs && Array.isArray(state.tabs)) {
-        // Re-mint any persisted tab whose id is not a valid UUID v4
-        // (v0.2.32 and earlier minted `tab_<timestamp>_<random>` strings
-        // that fail backend UUID validation). Build an id-remap so we
-        // can rewrite activeTabId in the same pass.
-        const idRemap = new Map<string, string>();
-        // TASK_2025_087: Clear streamingState when loading from localStorage
-        // Maps (events, eventsByMessage, etc.) don't serialize to JSON properly
-        // and become plain objects, causing "get is not a function" errors
-        const sanitizedTabs = state.tabs.map((tab: TabState) => {
-          // TASK_2026_106 Phase 6b — drop legacy `placeholderSessionId`
-          // field if present in persisted state from older releases. The
-          // field is no longer part of `TabState` and routing now lives
-          // in `ConversationRegistry` + `TabSessionBinding` (read by
-          // StreamRouter at bootstrap).
-          const { placeholderSessionId: _drop, ...rest } = tab as TabState & {
-            placeholderSessionId?: unknown;
-          };
-          void _drop;
-          const migratedId = TabId.validate(rest.id) ? rest.id : TabId.create();
-          if (migratedId !== rest.id) {
-            idRemap.set(rest.id, migratedId);
-          }
-          return {
-            ...rest,
-            id: migratedId,
-            streamingState: null,
-            // Backend sessions don't survive app restarts — clear the ID so
-            // the frontend starts a fresh session instead of attempting resume.
-            claudeSessionId: null,
-            status:
-              rest.status === 'streaming' ||
-              rest.status === 'resuming' ||
-              rest.status === 'switching'
-                ? 'loaded'
-                : rest.status,
-            queuedContent: null,
-            queuedOptions: null,
-          };
-        });
+        const sanitizedTabs = state.tabs.map((tab: TabState) => ({
+          ...tab,
+          streamingState: null,
+          claudeSessionId: null,
+          status:
+            tab.status === 'streaming' ||
+            tab.status === 'resuming' ||
+            tab.status === 'switching'
+              ? 'loaded'
+              : tab.status,
+          queuedContent: null,
+          queuedOptions: null,
+        }));
         this._tabs.set(sanitizedTabs);
-        const remappedActiveId =
-          typeof state.activeTabId === 'string' &&
-          idRemap.has(state.activeTabId)
-            ? (idRemap.get(state.activeTabId) ?? null)
-            : (state.activeTabId ?? null);
-        this._activeTabId.set(remappedActiveId);
+        this._activeTabId.set(state.activeTabId ?? null);
       }
     } catch (error) {
       console.warn('[TabManager] Failed to load tab state:', error);
@@ -1729,15 +1693,6 @@ export class TabManagerService {
   // UTILITIES
   // ============================================================================
 
-  /**
-   * Generate unique tab ID.
-   *
-   * Returns a UUID v4 minted via the canonical `TabId.create()` factory.
-   * The backend permission/routing path (sdk-query-options-builder)
-   * calls `SessionId.from(tabId)` / `TabId.from(tabId)` which throw on
-   * non-UUID input — see the v0.2.32 regression where the legacy
-   * `tab_<timestamp>_<random>` format crashed every `chat:start`.
-   */
   private generateTabId(): TabId {
     return TabId.create();
   }
