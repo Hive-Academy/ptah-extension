@@ -492,3 +492,153 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     expect(modelService.getSupportedModels).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// SdkQueryOptionsBuilder.build — permission routing safeParse fallback
+//
+// NODE-NESTJS-3Y hardening: previously `build()` called `SessionId.from(...)`
+// / `TabId.from(...)` on the routing args, which THROW on a non-UUID input
+// and crashed the adapter (see Sentry issue from v0.2.32). The chat RPC
+// schema now blocks malformed ids at the boundary, but defense-in-depth in
+// this layer keeps any other caller (CLI, MCP proxy, IPC) from crashing.
+// We safeParse instead and emit a warn-level log on the malformed id.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback', () => {
+  function makeBuilderWithPermissionSpy(): {
+    builder: SdkQueryOptionsBuilder;
+    logger: {
+      info: jest.Mock;
+      warn: jest.Mock;
+      error: jest.Mock;
+      debug: jest.Mock;
+    };
+    permissionHandler: { createCallback: jest.Mock };
+  } {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    };
+    const permissionHandler = {
+      createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })),
+    };
+    const subagentHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+    const compactionConfigProvider = {
+      getConfig: jest
+        .fn()
+        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+    };
+    const compactionHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+    const worktreeHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+    const authEnv: AuthEnv = {} as AuthEnv;
+    const modelService = {
+      resolveModelId: jest
+        .fn()
+        .mockImplementation((m: string) => m || 'claude-sonnet-4'),
+    };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    const builder = new ctor(
+      logger,
+      permissionHandler,
+      subagentHookHandler,
+      compactionConfigProvider,
+      compactionHookHandler,
+      worktreeHookHandler,
+      authEnv,
+      modelService,
+    );
+    return { builder, logger, permissionHandler };
+  }
+
+  async function runBuild(
+    builder: SdkQueryOptionsBuilder,
+    sessionConfig: AISessionConfig,
+  ): Promise<void> {
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    await builder.build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig,
+    });
+  }
+
+  const VALID_SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
+  const VALID_TAB_UUID = '11111111-2222-4333-8444-555555555555';
+  const LEGACY_TAB_ID = 'tab_1778939573732_w43e75q';
+
+  it('passes the parsed branded ids to createCallback when both are valid UUIDs', async () => {
+    const { builder, permissionHandler } = makeBuilderWithPermissionSpy();
+    const sessionConfig = {
+      model: 'claude-sonnet-4',
+      projectPath: 'D:/tmp/ws',
+      tabId: VALID_TAB_UUID,
+      sessionId: VALID_SESSION_UUID,
+    } as AISessionConfig;
+
+    await runBuild(builder, sessionConfig);
+
+    // First arg is the routingId (tabId here for a new session); third arg
+    // is the explicit TabId stamp. Both must be the original strings.
+    expect(permissionHandler.createCallback).toHaveBeenCalledWith(
+      VALID_TAB_UUID,
+      undefined,
+      VALID_TAB_UUID,
+    );
+  });
+
+  it('falls back to undefined when sessionConfig.tabId is not a UUID (no SessionId.from throw)', async () => {
+    const { builder, logger, permissionHandler } =
+      makeBuilderWithPermissionSpy();
+    const sessionConfig = {
+      model: 'claude-sonnet-4',
+      projectPath: 'D:/tmp/ws',
+      tabId: LEGACY_TAB_ID, // the original NODE-NESTJS-3Y payload
+    } as AISessionConfig;
+
+    // Before the hardening this build() call threw a TypeError. After the
+    // fix it must resolve cleanly.
+    await expect(runBuild(builder, sessionConfig)).resolves.not.toThrow();
+
+    // Both routing args degrade to undefined when the id is malformed.
+    expect(permissionHandler.createCallback).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    // The malformed id is logged at warn-level for observability.
+    const warnMessages = logger.warn.mock.calls.map(([msg]) => msg as string);
+    const warnedAboutRouting = warnMessages.some((m) =>
+      m.includes('Permission routing id is not a UUID'),
+    );
+    const warnedAboutTabId = warnMessages.some((m) =>
+      m.includes('Permission tabId is not a UUID'),
+    );
+    expect(warnedAboutRouting).toBe(true);
+    expect(warnedAboutTabId).toBe(true);
+  });
+});

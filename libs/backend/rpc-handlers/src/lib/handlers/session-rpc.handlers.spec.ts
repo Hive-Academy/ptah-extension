@@ -129,7 +129,10 @@ function makeMetadata(
   overrides: Partial<MetadataFixture> = {},
 ): MetadataFixture {
   return {
-    sessionId: 'sess-uuid-1',
+    // Default UUID v4 — `SessionRpcHandlers.session:list` and
+    // `session:load` now promote metadata ids through `SessionId.from(...)`,
+    // which rejects anything that does not match the shared `UUID_REGEX`.
+    sessionId: '11111111-2222-4333-8444-555555555555',
     name: 'My Session',
     workspaceId: '/fake/workspace',
     createdAt: 1_700_000_000_000,
@@ -147,6 +150,15 @@ function makeMetadata(
 const WORKSPACE = '/fake/workspace';
 /** Valid UUID-shaped session id passing the handler's `/^[0-9a-f-]{36}$/i` guard. */
 const VALID_SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+/**
+ * Stable UUID v4 generator for fixtures that need distinct ids across rows
+ * (e.g. `session:list` pagination). The pattern uses the row index in the
+ * last segment so assertions can reference `uuidForRow(0)` etc.
+ */
+function uuidForRow(i: number): string {
+  const hex = i.toString(16).padStart(12, '0');
+  return `aaaaaaaa-bbbb-4ccc-8ddd-${hex}`;
+}
 /** Valid userMessageId passing the handler's 1-100 chars + no path-separator guard. */
 const VALID_USER_MESSAGE_ID = 'msg_01HXYZABCDEF';
 
@@ -336,7 +348,7 @@ describe('SessionRpcHandlers', () => {
       const h = makeHarness();
       const items = Array.from({ length: 5 }, (_, i) =>
         makeMetadata({
-          sessionId: `sess-${i}`,
+          sessionId: uuidForRow(i),
           name: `Session ${i}`,
           lastActiveAt: 1_700_000_000_000 + i,
         }),
@@ -357,7 +369,7 @@ describe('SessionRpcHandlers', () => {
       expect(page1.total).toBe(5);
       expect(page1.hasMore).toBe(true);
       expect(page1.sessions).toHaveLength(2);
-      expect(page1.sessions[0].id).toBe('sess-0');
+      expect(page1.sessions[0].id).toBe(uuidForRow(0));
 
       const lastPage = await call<{
         sessions: Array<{ id: string }>;
@@ -377,7 +389,7 @@ describe('SessionRpcHandlers', () => {
     it('uses default limit=10 / offset=0 when params omit them', async () => {
       const h = makeHarness();
       h.metadataStore.getForWorkspace.mockResolvedValue([
-        makeMetadata({ sessionId: 'sess-1' }),
+        makeMetadata({ sessionId: uuidForRow(1) }),
       ]);
       h.handlers.register();
 
@@ -392,13 +404,15 @@ describe('SessionRpcHandlers', () => {
 
     it('includes tokenUsage only when metadata has non-zero token totals', async () => {
       const h = makeHarness();
+      const zeroId = uuidForRow(10);
+      const nonZeroId = uuidForRow(11);
       h.metadataStore.getForWorkspace.mockResolvedValue([
         makeMetadata({
-          sessionId: 'sess-zero',
+          sessionId: zeroId,
           totalTokens: { input: 0, output: 0 },
         }),
         makeMetadata({
-          sessionId: 'sess-nonzero',
+          sessionId: nonZeroId,
           totalTokens: { input: 100, output: 50 },
         }),
       ]);
@@ -411,10 +425,43 @@ describe('SessionRpcHandlers', () => {
         }>;
       }>(h, 'session:list', { workspacePath: WORKSPACE });
 
-      const zero = result.sessions.find((s) => s.id === 'sess-zero');
-      const nonzero = result.sessions.find((s) => s.id === 'sess-nonzero');
+      const zero = result.sessions.find((s) => s.id === zeroId);
+      const nonzero = result.sessions.find((s) => s.id === nonZeroId);
       expect(zero?.tokenUsage).toBeUndefined();
       expect(nonzero?.tokenUsage).toEqual({ input: 100, output: 50 });
+    });
+
+    it('swallows corrupt sessionId rows and returns the valid remainder', async () => {
+      // Regression for the identity-audit §4 Priority 3 hardening: a single
+      // bad row in the metadata store must not crash the whole list.
+      const h = makeHarness();
+      const okId = uuidForRow(20);
+      h.metadataStore.getForWorkspace.mockResolvedValue([
+        makeMetadata({ sessionId: 'tab_legacy_format', name: 'corrupt' }),
+        makeMetadata({ sessionId: okId, name: 'good' }),
+      ]);
+      h.handlers.register();
+
+      const result = await call<{
+        sessions: Array<{ id: string; name: string }>;
+        total: number;
+        hasMore: boolean;
+      }>(h, 'session:list', { workspacePath: WORKSPACE });
+
+      // Total still reflects the raw store count (pagination invariants),
+      // but the corrupt row is filtered out of the projected result.
+      expect(result.total).toBe(2);
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0].id).toBe(okId);
+      // The corrupt row is logged at error-level for observability.
+      const errorMessages = (h.logger.error as jest.Mock).mock.calls.map(
+        ([msg]) => msg as string,
+      );
+      expect(
+        errorMessages.some((m) =>
+          m.includes('session:list skipping row with corrupt sessionId'),
+        ),
+      ).toBe(true);
     });
 
     it('wraps metadataStore errors with "Failed to list sessions:" and reports to Sentry', async () => {
@@ -440,8 +487,9 @@ describe('SessionRpcHandlers', () => {
   describe('session:load', () => {
     it('returns sessionId with empty arrays when metadata exists (validation-only)', async () => {
       const h = makeHarness();
+      const loadId = uuidForRow(30);
       h.metadataStore.get.mockResolvedValue(
-        makeMetadata({ sessionId: 'sess-load' }) as never,
+        makeMetadata({ sessionId: loadId }) as never,
       );
       h.handlers.register();
 
@@ -449,9 +497,9 @@ describe('SessionRpcHandlers', () => {
         sessionId: SessionId;
         messages: unknown[];
         agentSessions: unknown[];
-      }>(h, 'session:load', { sessionId: 'sess-load' });
+      }>(h, 'session:load', { sessionId: loadId });
 
-      expect(result.sessionId).toBe('sess-load');
+      expect(result.sessionId).toBe(loadId);
       expect(result.messages).toEqual([]);
       expect(result.agentSessions).toEqual([]);
     });
@@ -469,6 +517,32 @@ describe('SessionRpcHandlers', () => {
       expect(response.error).toMatch(/Session not found/);
       expect(response.error).toMatch(/sess-missing/);
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+
+    it('fails cleanly when metadata row carries a corrupted (non-UUID) sessionId', async () => {
+      // Regression for the identity-audit §4 Priority 3 hardening: corrupt
+      // metadata must throw a clean error at the RPC boundary instead of
+      // leaking a non-UUID into the frontend's branded surfaces.
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({ sessionId: 'tab_legacy_format' }) as never,
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:load', {
+        sessionId: 'tab_legacy_format',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Session metadata corrupted/);
+      const errorMessages = (h.logger.error as jest.Mock).mock.calls.map(
+        ([msg]) => msg as string,
+      );
+      expect(
+        errorMessages.some((m) =>
+          m.includes('session:load aborted - metadata row has corrupt'),
+        ),
+      ).toBe(true);
     });
   });
 

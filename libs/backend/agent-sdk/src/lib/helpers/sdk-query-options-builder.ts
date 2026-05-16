@@ -571,15 +571,41 @@ export class SdkQueryOptionsBuilder {
     // for resumed sessions sessionId is the real SDK UUID.
     const routingId = sessionConfig?.tabId ?? sessionId;
 
+    // NODE-NESTJS-3Y hardening: previously these branches called
+    // `SessionId.from(routingId)` / `TabId.from(sessionConfig.tabId)`, which
+    // THROW on a non-UUID input. The chat RPC schema now rejects malformed
+    // ids at the boundary, but defense-in-depth here keeps any other caller
+    // (CLI, MCP proxy, IPC) from crashing the adapter. We `safeParse`
+    // instead — on a bad id the permission callback simply omits the
+    // routing key and falls back to broadcasting permissions, which the
+    // permission handler already tolerates (`createCallback` accepts
+    // `undefined` for both routing args).
+    const routingSessionId = routingId ? SessionId.safeParse(routingId) : null;
+    const routingTabId = sessionConfig?.tabId
+      ? TabId.safeParse(sessionConfig.tabId)
+      : null;
+    if (routingId && routingSessionId === null) {
+      this.logger.warn(
+        '[SdkQueryOptionsBuilder] Permission routing id is not a UUID — falling back to broadcast',
+        { routingId },
+      );
+    }
+    if (sessionConfig?.tabId && routingTabId === null) {
+      this.logger.warn(
+        '[SdkQueryOptionsBuilder] Permission tabId is not a UUID — falling back to broadcast',
+        { tabId: sessionConfig.tabId },
+      );
+    }
+
     // Pass `sessionConfig?.tabId` as the explicit third arg (TabId) so the
     // permission handler stamps the authoritative tab ID on every emitted
     // `PermissionRequest` and `AskUserQuestionRequest`. The frontend stream
     // router prefers `prompt.tabId` over `prompt.sessionId` for routing.
     const canUseToolCallback: CanUseTool =
       this.permissionHandler.createCallback(
-        routingId ? SessionId.from(routingId) : undefined,
+        routingSessionId ?? undefined,
         undefined,
-        sessionConfig?.tabId ? TabId.from(sessionConfig.tabId) : undefined,
+        routingTabId ?? undefined,
       );
 
     // Create merged hooks (subagent + compaction + worktree)

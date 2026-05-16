@@ -51,6 +51,12 @@ import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service'
 import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import { hasStopIntent } from '../chat/session/chat-stop-intent';
+import {
+  ChatStartParamsSchema,
+  ChatContinueParamsSchema,
+  ChatResumeParamsSchema,
+  ChatAbortParamsSchema,
+} from './chat-rpc.schema';
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
 type RpcHandlerFn<TParams, TResp> = (params: TParams) => Promise<TResp>;
@@ -178,22 +184,36 @@ export class ChatRpcHandlers {
     this.wire<ChatStartParams, ChatStartResult>(
       'chat:start',
       'registerChatStart',
-      (params) => this.session.startSession(params),
+      (params) => {
+        // Defense-in-depth: reject malformed tabId at the RPC boundary so the
+        // SDK adapter never sees a non-UUID routing key (NODE-NESTJS-3Y).
+        ChatStartParamsSchema.parse(params);
+        return this.session.startSession(params);
+      },
     );
     this.wire<ChatContinueParams, ChatContinueResult>(
       'chat:continue',
       'registerChatContinue',
-      (params) => this.session.continueSession(params),
+      (params) => {
+        ChatContinueParamsSchema.parse(params);
+        return this.session.continueSession(params);
+      },
     );
     this.wire<ChatResumeParams, ChatResumeResult>(
       'chat:resume',
       'registerChatResume',
-      (params) => this.session.resumeSession(params),
+      (params) => {
+        ChatResumeParamsSchema.parse(params);
+        return this.session.resumeSession(params);
+      },
     );
     this.wire<ChatAbortParams, ChatAbortResult>(
       'chat:abort',
       'registerChatAbort',
-      (params) => this.session.abortSession(params),
+      (params) => {
+        ChatAbortParamsSchema.parse(params);
+        return this.session.abortSession(params);
+      },
     );
     this.wire<ChatRunningAgentsParams, ChatRunningAgentsResult>(
       'chat:running-agents',

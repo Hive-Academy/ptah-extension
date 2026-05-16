@@ -260,25 +260,46 @@ export class SessionRpcHandlers {
           const paginated = allSessions.slice(offset, offset + limit);
           const hasMore = offset + limit < total;
 
-          // Transform to RPC response format (ChatSessionSummary)
-          const sessions = paginated.map((s) => ({
-            id: s.sessionId as SessionId,
-            name: s.name,
-            lastActivityAt: s.lastActiveAt,
-            createdAt: s.createdAt,
-            messageCount: 0, // SDK handles messages - count not stored in metadata
-            isActive: false, // Listed sessions are not currently active
-            // Pass through token usage from metadata if available
-            ...(s.totalTokens &&
-            (s.totalTokens.input > 0 || s.totalTokens.output > 0)
-              ? {
-                  tokenUsage: {
-                    input: s.totalTokens.input,
-                    output: s.totalTokens.output,
-                  },
-                }
-              : {}),
-          }));
+          // Transform to RPC response format (ChatSessionSummary).
+          // Per identity-audit §4 Priority 3, promote `s.sessionId` via
+          // `SessionId.from(...)` so corrupt store rows fail-fast instead of
+          // silently leaking a non-UUID string downstream. We swallow the
+          // failure per-row so a single bad row cannot crash the whole
+          // `session:list` response.
+          const sessions = paginated.flatMap((s) => {
+            let id: SessionId;
+            try {
+              id = SessionId.from(s.sessionId);
+            } catch (parseError) {
+              this.logger.error(
+                'RPC: session:list skipping row with corrupt sessionId',
+                parseError instanceof Error
+                  ? parseError
+                  : new Error(String(parseError)),
+              );
+              return [];
+            }
+            return [
+              {
+                id,
+                name: s.name,
+                lastActivityAt: s.lastActiveAt,
+                createdAt: s.createdAt,
+                messageCount: 0, // SDK handles messages - count not stored in metadata
+                isActive: false, // Listed sessions are not currently active
+                // Pass through token usage from metadata if available
+                ...(s.totalTokens &&
+                (s.totalTokens.input > 0 || s.totalTokens.output > 0)
+                  ? {
+                      tokenUsage: {
+                        input: s.totalTokens.input,
+                        output: s.totalTokens.output,
+                      },
+                    }
+                  : {}),
+              },
+            ];
+          });
 
           return { sessions, total, hasMore };
         } catch (error) {
@@ -334,9 +355,27 @@ export class SessionRpcHandlers {
             },
           );
 
+          // Promote via `SessionId.from(...)` so a corrupt metadata row fails
+          // here at the RPC boundary rather than leaking a non-UUID into the
+          // frontend's branded surfaces (identity-audit §4 Priority 3).
+          let validatedSessionId: SessionId;
+          try {
+            validatedSessionId = SessionId.from(metadata.sessionId);
+          } catch (parseError) {
+            this.logger.error(
+              'RPC: session:load aborted - metadata row has corrupt sessionId',
+              parseError instanceof Error
+                ? parseError
+                : new Error(String(parseError)),
+            );
+            throw new Error(
+              `Session metadata corrupted (non-UUID sessionId): ${sessionId}`,
+            );
+          }
+
           // Return empty arrays - actual messages loaded via chat:resume
           return {
-            sessionId: metadata.sessionId as SessionId,
+            sessionId: validatedSessionId,
             messages: [], // Empty by design - see SessionLoadResult docs
             agentSessions: [], // Empty by design - SDK handles everything
           };
