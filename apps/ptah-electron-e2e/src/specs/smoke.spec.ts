@@ -19,15 +19,12 @@ const FATAL_STARTUP_ERROR_MARKERS = [
 ] as const;
 
 /**
- * Smoke specs for the Playwright-Electron harness (Wave B.B1).
+ * Smoke specs for the Playwright-Electron harness.
  *
  * These verify the harness itself works end-to-end:
  *   1. Electron launches and presents a window with a non-empty title.
  *   2. The window loads the renderer SPA from a file:// URL.
  *   3. The RpcBridge can round-trip state via 'get-state' / 'set-state'.
- *
- * Subsequent waves (B.B2-B.B4) will write feature-level specs against
- * this same fixture set.
  */
 test.describe('Ptah Electron harness smoke', () => {
   test('no fatal startup error markers appear in main-process output', async ({

@@ -1,7 +1,7 @@
 import { test, expect } from '../support/fixtures';
 
 /**
- * Wave B.B2 -- IPC contract specs for `get-state` (sync) + `set-state` (async).
+ * IPC contract specs for `get-state` (sync) + `set-state` (async).
  *
  * The preload script exposes:
  *   - `ipcRenderer.sendSync('get-state')`     -> returns the cached state object

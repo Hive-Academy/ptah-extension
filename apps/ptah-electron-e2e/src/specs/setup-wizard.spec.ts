@@ -2,7 +2,7 @@ import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../support/fixtures';
 
 /**
- * Setup Wizard Service E2E specs (Wave B.B3).
+ * Setup Wizard Service E2E specs.
  *
  * Targets apps/ptah-electron/src/services/electron-setup-wizard.service.ts.
  *

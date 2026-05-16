@@ -5,30 +5,18 @@ import { test, expect } from '../support/fixtures';
 import { launchPtah, resolveElectronEntry } from '../support/electron-launcher';
 
 /**
- * Wave B.B4 -- Auto-updater e2e specs.
+ * Auto-updater e2e specs.
  *
- * References:
- *   apps/ptah-electron/src/activation/post-window.ts (Phase 6)
- *
- *   if (process.env['NODE_ENV'] !== 'development') {
- *     try {
- *       const { autoUpdater } = await import('electron-updater');
- *       await autoUpdater.checkForUpdatesAndNotify();
- *       console.log('[Ptah Electron] Auto-updater check completed');
- *     } catch (error) {
- *       console.error('[Ptah Electron] Auto-updater failed (non-fatal):', ...);
- *     }
- *   }
- *
- * Phase 6 is a dynamic `import('electron-updater')` -- intercepting the import
- * from the test process is not generally possible without modifying the bundle.
- * The harness therefore tests *observable* behavior:
- *   - In dev (NODE_ENV=test, the harness default), Phase 6 is skipped.
+ * The auto-updater path uses a dynamic `import('electron-updater')` --
+ * intercepting the import from the test process is not generally possible
+ * without modifying the bundle. The harness therefore tests *observable*
+ * behavior:
+ *   - In dev (NODE_ENV=test, the harness default), the updater is skipped.
  *   - In production NODE_ENV, the dynamic import either resolves or fails;
  *     either way the app must not crash and the renderer must remain alive.
  *   - The bundled electron-builder.yml declares the GitHub publish provider.
  */
-test.describe('Auto-updater (Phase 6)', () => {
+test.describe('Auto-updater', () => {
   test('dev mode: auto-updater is NOT invoked (no completion log)', async ({
     electronApp,
     mainWindow,
@@ -44,7 +32,7 @@ test.describe('Auto-updater (Phase 6)', () => {
     });
 
     await mainWindow.waitForLoadState('domcontentloaded');
-    // Give Phase 6 time to run (or be skipped).
+    // Give the updater time to run (or be skipped).
     await mainWindow.waitForTimeout(750);
 
     const joined = logs.join('');
@@ -58,9 +46,9 @@ test.describe('Auto-updater (Phase 6)', () => {
     expect(title).toBeTruthy();
   });
 
-  test('forced development NODE_ENV: Phase 6 is skipped entirely', async (// eslint-disable-next-line no-empty-pattern
+  test('forced development NODE_ENV: updater is skipped entirely', async (// eslint-disable-next-line no-empty-pattern
   {}, testInfo) => {
-    // Spawn a fresh app with NODE_ENV=development so Phase 6's guard
+    // Spawn a fresh app with NODE_ENV=development so the updater guard
     // (`!== 'development'`) short-circuits.
     testInfo.setTimeout(45_000);
     const app = await launchPtah({ env: { NODE_ENV: 'development' } });
@@ -78,7 +66,7 @@ test.describe('Auto-updater (Phase 6)', () => {
       await win.waitForTimeout(1_000);
 
       const joined = logs.join('');
-      // Neither completion nor failure messages from Phase 6 should appear.
+      // Neither completion nor failure messages from the updater should appear.
       expect(joined).not.toContain('Auto-updater check completed');
       expect(joined).not.toContain('Auto-updater failed');
     } finally {
@@ -89,7 +77,7 @@ test.describe('Auto-updater (Phase 6)', () => {
   test('forced production NODE_ENV: app does not crash even when updater fails', async (// eslint-disable-next-line no-empty-pattern
   {}, testInfo) => {
     // In CI / sandboxes there's no GitHub release feed, so
-    // `checkForUpdatesAndNotify` will reject. The Phase 6 try/catch must
+    // `checkForUpdatesAndNotify` will reject. The updater try/catch must
     // swallow the error -- the app must still launch and load the
     // renderer. We block all network at the Electron session level via
     // the same evaluate so we don't accidentally hit github.com in CI.
@@ -107,7 +95,7 @@ test.describe('Auto-updater (Phase 6)', () => {
       // Block network from the default session as soon as the app is up.
       // This is best-effort -- electron-updater's HTTP client lives in
       // node land and may bypass session.webRequest. The dynamic import
-      // itself happens in Phase 6 right after the window load.
+      // itself happens right after the window load.
       await app.evaluate(({ session }) => {
         session.defaultSession.webRequest.onBeforeRequest(
           { urls: ['*://*/*'] },
@@ -117,7 +105,7 @@ test.describe('Auto-updater (Phase 6)', () => {
 
       const win = await app.firstWindow();
       await win.waitForLoadState('domcontentloaded');
-      // Give Phase 6 a reasonable window to either complete or fail.
+      // Give the updater a reasonable window to either complete or fail.
       await win.waitForTimeout(2_500);
 
       // App must still be alive: window has a title, renderer URL is set.
@@ -126,10 +114,8 @@ test.describe('Auto-updater (Phase 6)', () => {
       const url = win.url();
       expect(url.startsWith('file://')).toBe(true);
 
-      // Phase 6 must have executed -- either the success log or the
+      // The updater must have executed -- either the success log or the
       // non-fatal error log should appear. We tolerate either.
-      // TASK_2026_117: Phase 6 now drives the event-driven UpdateManager;
-      // its start/fail log lines replaced the legacy auto-updater messages.
       const joined = logs.join('');
       const ranSuccessfully = joined.includes('UpdateManager started');
       const failedNonFatal = joined.includes(
@@ -187,11 +173,11 @@ test.describe('Auto-updater (Phase 6)', () => {
     expect(provider).toBe('github');
   });
 
-  test('app remains functional after Phase 6 path completes', async ({
+  test('app remains functional after updater path completes', async ({
     rpcBridge,
     mainWindow,
   }) => {
-    // Even with the harness default (NODE_ENV=test), Phase 6 runs and
+    // Even with the harness default (NODE_ENV=test), the updater runs and
     // either succeeds or fails non-fatally. State persistence -- which
     // is wired up in earlier phases -- must still work.
     await mainWindow.waitForLoadState('domcontentloaded');

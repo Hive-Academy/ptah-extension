@@ -1,7 +1,7 @@
 import { test, expect } from '../support/fixtures';
 
 /**
- * Wave B.B2 -- IPC contract specs for the multiplexed 'rpc' channel.
+ * IPC contract specs for the multiplexed 'rpc' channel.
  *
  * The renderer sends `{ type: 'rpc:call', payload: { method, params, correlationId } }`
  * on channel 'rpc'; the main process routes via `IpcBridge` -> `RpcHandler`
@@ -14,9 +14,8 @@ import { test, expect } from '../support/fixtures';
  * preserves correlationIds, and reports errors as data instead of throwing.
  *
  * NOTE: Method names use a colon separator (e.g. 'license:getStatus'), not
- * a dot. The task brief mentions 'file.list' / 'git.status' / 'command.list'
- * but those method names are not registered on this codebase -- we cover
- * the same envelope behavior with real and intentionally-invalid methods.
+ * a dot. We cover the envelope behavior with real and intentionally-invalid
+ * methods.
  */
 
 interface RpcResponseEnvelope {
@@ -214,9 +213,7 @@ test.describe('rpc channel envelope', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
 
     // sendRpc itself observes a single 'to-renderer' message keyed on
-    // correlationId, validating the push channel works end-to-end. This is
-    // explicitly the "verify renderer receives push events via 'to-renderer'"
-    // assertion from the Wave B.B2 brief.
+    // correlationId, validating the push channel works end-to-end.
     const myId = `cid-push-${Date.now()}`;
     const res = (await rpcBridge.sendRpc(
       'rpc',
