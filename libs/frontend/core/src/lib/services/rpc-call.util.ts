@@ -29,11 +29,9 @@ interface PendingRequest {
  * RpcClient — singleton that multiplexes all RPC calls over a single
  * window `message` listener.
  *
- * Wave E1 (TASK_2026_103): promoted from the editor library into core so
- * it is the single canonical RPC client for every webview consumer
- * (chat, editor, setup-wizard, harness-builder, canvas, app shell). The
- * editor-bespoke client has been deleted; consumers now import this
- * util from `@ptah-extension/core`.
+ * This is the single canonical RPC client for every webview consumer
+ * (chat, editor, setup-wizard, harness-builder, canvas, app shell).
+ * Consumers import this util from `@ptah-extension/core`.
  *
  * Responsibilities:
  * - Attach the `message` listener exactly once (at construction) so no

@@ -28,7 +28,7 @@ export interface RpcCallOptions {
    * Optional AbortSignal — when fired, the pending call is dropped and the
    * promise resolves with `success=false, error='RPC aborted: <method>'`.
    *
-   * TASK_2026_103 Wave E2: drives the chat tab-close → stream-cancel flow.
+   * Drives the chat tab-close → stream-cancel flow.
    * The webview-side timeout/lookup remains the source of truth for response
    * correlation; aborting here only releases the caller's awaited promise.
    * The matching backend cancellation (e.g. `chat:abort`) MUST be issued
@@ -65,7 +65,7 @@ export class RpcResult<T> {
   }
 
   /**
-   * Check if error is license-related (TASK_2025_124)
+   * Check if error is license-related
    */
   isLicenseError(): boolean {
     return (
@@ -75,7 +75,7 @@ export class RpcResult<T> {
   }
 
   /**
-   * Check if Pro tier is required (TASK_2025_124)
+   * Check if Pro tier is required
    */
   isProRequired(): boolean {
     return this.errorCode === 'PRO_TIER_REQUIRED';
@@ -127,7 +127,7 @@ const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   // ModelStateService log RPC-blocked errors during webview bootstrap.
   'config:autopilot-get',
   'config:models-list',
-  // Workspace indexing tab is a free top-level setting (TASK_2026_114 AC #4).
+  // Workspace indexing tab is a free top-level setting.
   'indexing:getStatus',
   'indexing:start',
   'indexing:pause',
@@ -211,7 +211,7 @@ export class ClaudeRpcService implements MessageHandler {
     const timeout = options?.timeout ?? 30000;
     const signal = options?.signal;
 
-    // TASK_2026_103 Wave E2: short-circuit if caller pre-aborted.
+    // Short-circuit if caller pre-aborted.
     if (signal?.aborted) {
       return new RpcResult<RpcMethodResult<T>>(
         false,
@@ -262,7 +262,7 @@ export class ClaudeRpcService implements MessageHandler {
         detachAbortListener();
         // Normalize error: backend may send string or { message: string }
         const errorStr = this.normalizeError(response.error);
-        // TASK_2025_124: Pass errorCode for license-related errors
+        // Pass errorCode for license-related errors
         resolve(
           new RpcResult(
             response.success,
@@ -273,7 +273,7 @@ export class ClaudeRpcService implements MessageHandler {
         );
       }) as (response: RpcResponse<unknown>) => void);
 
-      // TASK_2026_103 Wave E2: bridge AbortSignal → promise resolution.
+      // Bridge AbortSignal → promise resolution.
       // We only release the caller's promise; backend cancellation must be
       // issued separately (e.g. via chat:abort RPC).
       if (signal) {
@@ -391,7 +391,7 @@ export class ClaudeRpcService implements MessageHandler {
   }
 
   /**
-   * Delete a chat session from storage (TASK_2025_086)
+   * Delete a chat session from storage
    * @param sessionId - Session ID to delete
    * @returns Promise with success status
    */
@@ -466,10 +466,9 @@ export class ClaudeRpcService implements MessageHandler {
   }
 
   // ============================================================================
-  // SUBAGENT RPC METHODS (TASK_2025_103)
+  // SUBAGENT RPC METHODS
   // ============================================================================
 
-  // TASK_2025_109: resumeSubagent method removed - now uses context injection
   // Subagent resumption is handled via context injection in chat:continue RPC.
   // Users can type "resume agent {agentId}" to trigger natural resumption.
 
@@ -483,7 +482,7 @@ export class ClaudeRpcService implements MessageHandler {
   }
 
   // ============================================================================
-  // SUBAGENT BIDIRECTIONAL MESSAGING (Phase 2/3 — TASK_2026 subagent visibility)
+  // SUBAGENT BIDIRECTIONAL MESSAGING
   // ============================================================================
   //
   // Send-message, stop, and interrupt RPCs let the user steer running SDK

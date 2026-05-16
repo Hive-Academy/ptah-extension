@@ -1,13 +1,9 @@
 /**
  * Model State Service - Signal-Based Model Selection State Management
- * TASK_2025_035: Model selector and autopilot integration
  *
  * Manages Claude model selection state with RPC synchronization.
  * Loads available models dynamically from backend for future extensibility.
  * Follows AppStateManager signal-based pattern (private _signal, public asReadonly).
- *
- * Pattern source: app-state.service.ts:30-120
- * RPC integration: claude-rpc.service.ts:93-125
  */
 
 import { Injectable, signal, computed, inject } from '@angular/core';

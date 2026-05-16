@@ -1,8 +1,7 @@
 /**
- * App State Manager - SIMPLIFIED for TASK_2025_023
+ * App State Manager
  *
  * Keeping essential navigation and loading state.
- * This service is already well-designed with signals.
  */
 
 import { Injectable, signal, computed } from '@angular/core';
@@ -40,7 +39,7 @@ export type LayoutMode = 'single' | 'grid';
 export const THOTH_FIRST_RUN_DISMISSED_KEY = 'ptah-thoth-first-run-dismissed';
 
 /**
- * Legacy `localStorage` key used before TASK_2026_THOTH_RENAME. The
+ * Legacy `localStorage` key used before the Thoth rename. The
  * migration shim in {@link AppStateManager.initializeState} reads this key
  * once on startup if the new key is missing, copies it forward, and removes
  * the old entry so user state is preserved across the rename upgrade.
@@ -174,7 +173,6 @@ export class AppStateManager implements MessageHandler {
   readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
 
   // Computed signals
-  // TASK_2025_126: Added welcome view check to prevent license bypass
   // Users on welcome view (unlicensed) cannot navigate to other views
   readonly canSwitchViews = computed(() => {
     const onWelcomeView = this._currentView() === 'welcome';

@@ -1,4 +1,4 @@
-// Core Services - Angular 20+ Signal-Based State Management
+// Core Services - Signal-Based State Management
 // Core Services - Foundation Layer (0 dependencies)
 export * from './logging.service';
 export {
@@ -6,13 +6,12 @@ export {
   provideVSCodeService,
   type WebviewConfig,
 } from './vscode.service';
-// DELETED: MessageHandlerService - redundant, components subscribe directly to VSCodeService
 
 // Core Services - State Layer (depend on foundation)
 export * from './app-state.service';
 export * from './webview-navigation.service';
 
-// Theme Service (TASK_2025_100)
+// Theme Service
 export {
   ThemeService,
   type ThemeName,
@@ -20,17 +19,17 @@ export {
   DAISYUI_THEMES,
 } from './theme.service';
 
-// Model & Autopilot State Services (TASK_2025_035)
+// Model & Autopilot State Services
 export { ModelStateService } from './model-state.service';
 export { AutopilotStateService } from './autopilot-state.service';
 
 // Effort State Service (reasoning effort persistence)
 export { EffortStateService } from './effort-state.service';
 
-// Auth State Service (TASK_2025_133)
+// Auth State Service
 export { AuthStateService } from './auth-state.service';
 
-// LLM Provider State Service (TASK_2025_155)
+// LLM Provider State Service
 export { LlmProviderStateService } from './llm-provider-state.service';
 
 // Message Router (handler registration pattern)
@@ -40,18 +39,17 @@ export {
   provideMessageRouter,
 } from './message-router.service';
 
-// RPC Services (Phase 2 - TASK_2025_021)
+// RPC Services
 export {
   ClaudeRpcService,
   RpcResult,
   type RpcCallOptions,
 } from './claude-rpc.service';
 
-// RPC Util — function-based RPC client with ready-gate (Wave E1, TASK_2026_103).
-// Promoted from the editor library; the editor-bespoke client was deleted.
+// RPC Util — function-based RPC client with ready-gate.
 export { rpcCall, getRpcClient, type RpcCallResult } from './rpc-call.util';
 
-// Ptah CLI State Service (TASK_2025_167 -> TASK_2025_170)
+// Ptah CLI State Service
 export { PtahCliStateService } from './ptah-cli-state.service';
 
 // Electron Layout Service (desktop 3-panel layout)
@@ -60,7 +58,7 @@ export {
   type WorkspaceFolder,
 } from './electron-layout.service';
 
-// Discovery Facades (Phase 2 - TASK_2025_019)
+// Discovery Facades
 export {
   AgentDiscoveryFacade,
   type AgentSuggestion,
@@ -70,7 +68,7 @@ export {
   type CommandSuggestion,
 } from './command-discovery.facade';
 
-// Push-event utilities (TASK_2026_115)
+// Push-event utilities
 // Note: createPushEventSubscriber was removed — it depended on a non-existent
 // `vscode.messages$` Observable. The actual codebase uses the MessageHandler
 // pattern via MESSAGE_HANDLERS (see message-router.types.ts). Future

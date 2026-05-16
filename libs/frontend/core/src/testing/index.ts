@@ -13,7 +13,7 @@
  *      defaults above into Angular's `TestBed` at the right DI tokens.
  *
  * Excluded from the production build via `tsconfig.lib.json` so none of this
- * ships in `dist/`. See `.ptah/specs/TASK_2025_294/implementation-plan.md`.
+ * ships in `dist/`.
  */
 
 export {

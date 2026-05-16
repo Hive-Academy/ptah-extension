@@ -5,8 +5,8 @@
  * Manages workspace sidebar width, editor panel width/visibility,
  * workspace folders, and layout persistence via state storage.
  *
- * TASK_2025_208 Batch 4: Workspace switch coordination, active streams
- * confirmation on close, and initial workspace:switch RPC on renderer load.
+ * Coordinates workspace switching, confirms active streams on close,
+ * and issues the initial workspace:switch RPC on renderer load.
  */
 
 import {
@@ -66,11 +66,11 @@ export class ElectronLayoutService implements MessageHandler {
   private readonly _workspaceFolders = signal<WorkspaceFolder[]>([]);
   private readonly _activeWorkspaceIndex = signal(0);
 
-  // TASK_2025_208: Workspace switch coordination state
+  // Workspace switch coordination state
   private _switchId = 0;
   private _switchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // TASK_2026_115: Origin-tag self-echo guard. Stamped immediately before the
+  // Origin-tag self-echo guard. Stamped immediately before the
   // user-initiated workspace:switch RPC; cleared either when the matching
   // WORKSPACE_CHANGED echo arrives (drop) or when the RPC fails (rollback).
   // Plain object ref — not a signal — because nothing renders it.
@@ -305,7 +305,7 @@ export class ElectronLayoutService implements MessageHandler {
   /**
    * Remove a workspace folder by index.
    *
-   * TASK_2025_208: Before removal, checks for streaming tabs in the workspace.
+   * Before removal, checks for streaming tabs in the workspace.
    * If streaming tabs exist, shows a confirmation dialog. On confirm, sends
    * chat:abort RPC for each streaming session before proceeding with removal.
    * After removal, cleans up TabManagerService and EditorService state.
@@ -318,7 +318,7 @@ export class ElectronLayoutService implements MessageHandler {
 
     const removedFolder = folders[index];
 
-    // TASK_2025_208: Check for streaming tabs before removal
+    // Check for streaming tabs before removal
     if (this.coordinator) {
       const streamingSessionIds = this.coordinator.getStreamingSessionIds(
         removedFolder.path,
@@ -388,7 +388,7 @@ export class ElectronLayoutService implements MessageHandler {
       this._activeWorkspaceIndex.set(newLength - 1);
     }
 
-    // TASK_2025_208: Clean up frontend state for the removed workspace
+    // Clean up frontend state for the removed workspace
     this.cleanupWorkspaceState(removedFolder.path);
 
     // If we still have folders, coordinate switch to the new active workspace
@@ -409,7 +409,7 @@ export class ElectronLayoutService implements MessageHandler {
   /**
    * Switch to a workspace by index.
    *
-   * TASK_2025_208: Implements debounced workspace switching with stale-response
+   * Implements debounced workspace switching with stale-response
    * protection. The UI updates immediately (signal set before RPC) for instant
    * perceived switch. The backend RPC is debounced by 100ms to handle rapid
    * clicking. A switchId counter ensures stale RPC responses are discarded.
@@ -447,7 +447,7 @@ export class ElectronLayoutService implements MessageHandler {
     this._workspaceFolders.set(folders);
   }
 
-  // ── Workspace switch coordination (TASK_2025_208) ─────────────────
+  // ── Workspace switch coordination ─────────────────────────────────
 
   /**
    * Debounce workspace switch RPC calls. If called again within SWITCH_DEBOUNCE_MS,
@@ -470,7 +470,7 @@ export class ElectronLayoutService implements MessageHandler {
     this._switchDebounceTimer = setTimeout(async () => {
       this._switchDebounceTimer = null;
 
-      // TASK_2026_115: Stamp origin token immediately before the RPC so the
+      // Stamp origin token immediately before the RPC so the
       // resulting WORKSPACE_CHANGED echo can be identified and dropped by
       // handleMessage. Cleared on echo (handleMessage) or on RPC failure.
       const origin = crypto.randomUUID();
@@ -525,7 +525,7 @@ export class ElectronLayoutService implements MessageHandler {
    * Uses WORKSPACE_COORDINATOR DI token (provided by chat library) to avoid
    * circular dependencies between core and chat/editor.
    *
-   * TASK_2025_208 Fix 5: Improved error handling. If coordination fails,
+   * If coordination fails,
    * reverts _activeWorkspaceIndex to the previous value to prevent leaving
    * the UI in an inconsistent state (sidebar showing workspace A, but chat
    * showing workspace B's tabs).
@@ -537,7 +537,7 @@ export class ElectronLayoutService implements MessageHandler {
     try {
       if (this.coordinator) {
         const result = this.coordinator.switchWorkspace(newPath);
-        // Handle async coordinator (returns Promise<void> after TASK_2025_259)
+        // Handle async coordinator (returns Promise<void>)
         if (result instanceof Promise) {
           result.catch((error) => {
             console.error(
@@ -586,7 +586,7 @@ export class ElectronLayoutService implements MessageHandler {
     if (this.coordinator) {
       try {
         const result = this.coordinator.removeWorkspaceState(workspacePath);
-        // Handle async coordinator (returns Promise<void> after TASK_2025_259)
+        // Handle async coordinator (returns Promise<void>)
         if (result instanceof Promise) {
           result.catch((error) => {
             console.error(
@@ -619,7 +619,7 @@ export class ElectronLayoutService implements MessageHandler {
   /**
    * Restore layout from persisted webview state.
    *
-   * TASK_2025_208 (Task 4.4): After restoring workspace folders and active index,
+   * After restoring workspace folders and active index,
    * sends an initial workspace:switch RPC for the active workspace to ensure the
    * backend activates the correct child container on renderer load. Also
    * coordinates TabManagerService and EditorService for the restored workspace.
