@@ -15,8 +15,6 @@
  *
  * IMPORT CONSTRAINT: This service must NOT import workspace-intelligence libs directly.
  * Indexer callables are passed at start() call time to avoid circular dependencies.
- *
- * TASK_2026_114: Batch 3
  */
 
 import { inject, injectable } from 'tsyringe';

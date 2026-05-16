@@ -6,8 +6,6 @@
  *   - State machine: never-indexed → indexing → indexed; pause; cancel; stale
  *   - Cursor: serialize on pause, restore fingerprint-check discard on resume
  *   - cancel: clears cursor, does NOT update git_head_sha or last_indexed_at
- *
- * TASK_2026_114: Batch 3
  */
 
 import 'reflect-metadata';

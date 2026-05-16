@@ -53,8 +53,7 @@ export class MemoryWriterAdapter implements IMemoryWriter {
 
   async upsert(req: MemoryWriteRequest): Promise<MemoryWriteResult> {
     // NOTE: plan §D4 mentions a null-byte separator, but plan §3.5 reference
-    // code (the authoritative source per Batch 3 task brief) uses a single
-    // space. Following §3.5.
+    // code uses a single space. Following §3.5.
     const newHash = sha256Hex(`${req.subject} ${req.content}`);
 
     // Tier-scoped scan (≤500 rows). No workspace filter — we want

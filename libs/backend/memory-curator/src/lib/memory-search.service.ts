@@ -103,7 +103,7 @@ export class MemorySearchService implements IMemoryReader {
     if (!trimmed)
       return { hits: [], bm25Only: !this.connection.vecExtensionLoaded };
 
-    // R3: LRU cache — short-circuit the full pipeline on repeated identical queries.
+    // LRU cache — short-circuit the full pipeline on repeated identical queries.
     const cacheKey = this.makeCacheKey(trimmed, workspaceRoot);
     const cached = this.cache.get(cacheKey);
     if (cached) {
@@ -128,22 +128,20 @@ export class MemorySearchService implements IMemoryReader {
       }
     }
 
-    // R5: Token-count-based weight heuristic.
+    // Token-count-based weight heuristic.
     // Short queries (< 4 tokens) favour exact BM25 term matching;
     // longer queries with context favour semantic vector similarity.
     const tokenCount = trimmed.split(/\s+/).filter((t) => t.length > 0).length;
     const bm25Weight = tokenCount < 4 ? 0.6 : 0.3;
     const weights = { bm25: bm25Weight, vec: 1 - bm25Weight };
 
-    // R1: Reranker — skip if too few candidates, fall back to RRF order on error.
+    // Reranker — skip if too few candidates, fall back to RRF order on error.
     // EmbedderWorkerClient is registered as the concrete impl under EMBEDDER;
     // cast once here instead of widening IEmbedder (VS Code + CLI environments
     // may use a non-worker embedder that has no rerank capability).
     //
     // Pass limit * 4 to rrfFuse so the reranker receives 4× the final topK as
-    // candidates, then slice back to limit after reranking. Previously rrfFuse
-    // was called with `limit`, which sliced the fused list to topK immediately
-    // and made the subsequent .slice(0, limit * 4) a no-op (Critical R1 fix).
+    // candidates, then slice back to limit after reranking.
     let fused = this.rrfFuse(bm25Rows, vecRows, limit * 4, { k: 25, weights });
     if (fused.length >= 5) {
       const workerClient = this.workerClient;

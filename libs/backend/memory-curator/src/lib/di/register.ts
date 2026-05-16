@@ -104,7 +104,7 @@ export function registerMemoryCuratorServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // TASK_2026_114: IndexingControlService — user-controlled workspace indexing.
+  // IndexingControlService — user-controlled workspace indexing.
   container.register(
     MEMORY_TOKENS.INDEXING_CONTROL,
     { useClass: IndexingControlService },

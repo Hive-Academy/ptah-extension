@@ -3,11 +3,10 @@
  *
  * Mirrors the contract of `registerSdkServices` in
  * `libs/backend/agent-sdk/src/lib/di/register.ts`: callers must already have
- * `TOKENS.LOGGER` registered (vscode-core / electron container Phase 1) plus
- * a `useValue` registration for `PERSISTENCE_TOKENS.SQLITE_DB_PATH` (set by
- * `phase-3-storage.ts` in the Electron host).
+ * `TOKENS.LOGGER` registered plus a `useValue` registration for
+ * `PERSISTENCE_TOKENS.SQLITE_DB_PATH`.
  *
- * Track 1 (memory-curator) is responsible for registering
+ * `memory-curator` is responsible for registering
  * `PERSISTENCE_TOKENS.EMBEDDER` later — this function deliberately does NOT
  * touch that token.
  */
@@ -27,7 +26,7 @@ import { SqliteBackupService } from '../backup.service';
  * Post-conditions:
  *  - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` resolves to a singleton
  *    `SqliteConnectionService`. The connection itself is opened lazily
- *    (Electron's `wire-runtime.ts` Phase 4.51 calls `openAndMigrate()`).
+ *    via a later `openAndMigrate()` call by the host.
  */
 export function registerPersistenceSqliteServices(
   container: DependencyContainer,

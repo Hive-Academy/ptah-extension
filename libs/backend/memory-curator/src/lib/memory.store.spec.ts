@@ -1,5 +1,5 @@
 /**
- * Unit tests for MemoryStore write-counter API (R3).
+ * Unit tests for MemoryStore write-counter API.
  *
  * Covers:
  *   - `getWriteCounter` returns 0 for a workspace that has never been written

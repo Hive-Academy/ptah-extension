@@ -67,7 +67,7 @@ export type {
   FingerprintSource,
 } from './lib/workspace-fingerprint';
 
-// Indexing control — user-controlled workspace indexing (TASK_2026_114).
+// Indexing control — user-controlled workspace indexing.
 export { IndexingControlService } from './lib/control/indexing-control.service';
 export type {
   IndexingStatus,

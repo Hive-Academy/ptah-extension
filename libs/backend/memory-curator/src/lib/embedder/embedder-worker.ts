@@ -204,7 +204,7 @@ async function rerank(
 /**
  * Pre-load both models and JIT-compile ONNX execution providers via a
  * small dummy inference pass. Called by the WARMUP message 3s after
- * window-ready (R4) so the first real query pays no cold-start cost.
+ * window-ready so the first real query pays no cold-start cost.
  */
 async function warmup(): Promise<void> {
   await loadPipeline();

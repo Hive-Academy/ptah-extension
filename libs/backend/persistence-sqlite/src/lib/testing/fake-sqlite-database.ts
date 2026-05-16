@@ -266,7 +266,6 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     return fn;
   }
 
-  // Internal helpers used by FakeStatement.
   insertMigrationRow(version: number, appliedAt: number): void {
     const idx = this.migrationRows.findIndex((r) => r.version === version);
     if (idx >= 0) {
