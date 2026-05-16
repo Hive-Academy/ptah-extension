@@ -4,8 +4,6 @@
  * Defines interfaces for multi-file text search functionality.
  * Used by SearchPanelComponent for UI rendering and by the
  * editor:searchInFiles RPC method for backend communication.
- *
- * TASK_2025_283 Batch 1, Task 1.4
  */
 
 /** A single text match within a file. */

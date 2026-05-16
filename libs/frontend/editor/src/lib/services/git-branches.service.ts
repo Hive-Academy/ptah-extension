@@ -59,8 +59,6 @@ const EMPTY_BRANCHES: GitBranchesResult = {
  *
  * Recent-branches persistence uses VSCodeService webview state keyed by
  * workspace root so each repo gets its own most-recent list.
- *
- * Wave: TASK_2026_111 Batch 3.
  */
 @Injectable({ providedIn: 'root' })
 export class GitBranchesService {

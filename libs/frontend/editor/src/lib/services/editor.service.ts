@@ -15,8 +15,8 @@ import { EditorFileOpsHelper } from './editor/editor-file-ops';
 import { EditorDiffSplitHelper } from './editor/editor-diff-split';
 
 // Re-exported so existing consumers (`from '@ptah-extension/editor'`)
-// keep resolving without changes. Wave F3 (TASK_2026_103) moved the
-// declaration to a sibling file to break the cycle with editor helpers.
+// keep resolving without changes; declaration lives in a sibling file
+// to break the cycle with editor helpers.
 export type { EditorTab } from './editor/editor-tab.types';
 
 /**
@@ -32,7 +32,7 @@ export type { EditorTab } from './editor/editor-tab.types';
  * reference identity is preserved across the refactor.
  *
  * Complexity Level: 2 (Medium - signal-based state, RPC communication,
- * workspace partitioning). Wave C7b (TASK_2025_291) split.
+ * workspace partitioning).
  */
 @Injectable({
   providedIn: 'root',
@@ -41,7 +41,7 @@ export class EditorService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
 
   // ============================================================================
-  // WORKSPACE STATE (TASK_2025_208)
+  // WORKSPACE STATE
   // ============================================================================
 
   /**
@@ -71,9 +71,9 @@ export class EditorService implements MessageHandler {
   private readonly _splitFilePath = signal<string | undefined>(undefined);
   private readonly _splitFileContent = signal('');
   private readonly _focusedPane = signal<'left' | 'right'>('left');
-  // Terminal panel state — promoted from EditorPanelComponent (TASK_2026_111
-  // Batch 3) so the status-bar terminal toggle and other consumers can
-  // read/write a single source of truth.
+  // Terminal panel state — promoted from EditorPanelComponent so the
+  // status-bar terminal toggle and other consumers can read/write a
+  // single source of truth.
   private readonly _terminalVisible = signal(false);
   private readonly _terminalHeight = signal(200);
   private errorTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -185,7 +185,7 @@ export class EditorService implements MessageHandler {
   }
 
   // ============================================================================
-  // WORKSPACE OPERATIONS (TASK_2025_208) — delegated to EditorWorkspaceHelper
+  // WORKSPACE OPERATIONS — delegated to EditorWorkspaceHelper
   // ============================================================================
 
   /**
@@ -250,7 +250,7 @@ export class EditorService implements MessageHandler {
   }
 
   // ============================================================================
-  // TERMINAL PANEL STATE (TASK_2026_111 Batch 3)
+  // TERMINAL PANEL STATE
   // ============================================================================
 
   /** Flip the integrated terminal panel visibility. */
@@ -390,9 +390,9 @@ export class EditorService implements MessageHandler {
   }
 
   /**
-   * Wave F3 (TASK_2026_103): expose the internal-state handle for the
-   * `EDITOR_INTERNAL_STATE` provider. Caller MUST be `provideEditorInternalState`
-   * — components and other services should use the public surface above.
+   * Expose the internal-state handle for the `EDITOR_INTERNAL_STATE`
+   * provider. Caller MUST be `provideEditorInternalState` — components
+   * and other services should use the public surface above.
    */
   getInternalState(): EditorInternalState {
     return this.internalState;

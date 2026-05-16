@@ -41,8 +41,6 @@ import { GitBranchesService } from '../services/git-branches.service';
  *     `branchCheckedOut` and `closed`.
  *
  * Outside-click closes the dropdown via the `(document:click)` host listener.
- *
- * Wave: TASK_2026_111 Batch 4.
  */
 @Component({
   selector: 'ptah-branch-picker-dropdown',

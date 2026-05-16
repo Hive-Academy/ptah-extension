@@ -37,8 +37,6 @@ import type {
  * - Click-to-navigate emitting { filePath, line }
  * - Loading spinner, empty state, truncation warning
  * - Clear button to reset search
- *
- * TASK_2025_283 Batch 3, Task 3.1
  */
 @Component({
   selector: 'ptah-search-panel',

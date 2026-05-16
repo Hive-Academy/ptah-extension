@@ -28,7 +28,7 @@ import type {
  * - List worktrees via git:worktrees RPC
  * - Add new worktrees via git:addWorktree RPC and auto-register as workspace folders
  * - Remove worktrees via git:removeWorktree RPC and unregister workspace folders
- * - Listen for git:worktreeChanged push notifications from the backend (TASK_2025_236)
+ * - Listen for git:worktreeChanged push notifications from the backend
  *
  * Communication: Uses MESSAGE_TYPES.RPC_CALL / RPC_RESPONSE with correlationId matching.
  */
@@ -64,7 +64,6 @@ export class WorktreeService {
 
   /**
    * Fetch the list of worktrees via git:worktrees RPC and update the signal.
-   * Called by GitStatusBarComponent on init to populate the worktree indicator.
    */
   async loadWorktrees(): Promise<void> {
     this._isLoading.set(true);
@@ -164,7 +163,7 @@ export class WorktreeService {
   }
 
   // ============================================================================
-  // NOTIFICATION LISTENER (TASK_2025_236)
+  // NOTIFICATION LISTENER
   // ============================================================================
 
   /**

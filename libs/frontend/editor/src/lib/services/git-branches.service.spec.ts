@@ -1,5 +1,5 @@
 /**
- * GitBranchesService — unit specs (TASK_2026_111 Batch 6).
+ * GitBranchesService — unit specs.
  *
  * Coverage:
  *   - Initial state: all signals empty/null/0/false

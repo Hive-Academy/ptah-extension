@@ -119,7 +119,6 @@ export class TerminalService {
 
   /**
    * Register an xterm instance's write callback for data forwarding.
-   * Called by TerminalComponent after xterm.js is initialized.
    *
    * Flushes any pending data that arrived before the writer was registered,
    * preserving insertion order. The buffer is cleared after flushing.
@@ -273,7 +272,6 @@ export class TerminalService {
 
   /**
    * Write user input data to a terminal session via binary IPC.
-   * Called by TerminalComponent when the user types in xterm.
    *
    * @param id - Terminal session ID
    * @param data - Input data from xterm.onData
@@ -284,7 +282,6 @@ export class TerminalService {
 
   /**
    * Resize a terminal session via binary IPC.
-   * Called by TerminalComponent when the container resizes.
    *
    * @param id - Terminal session ID
    * @param cols - New column count
@@ -301,8 +298,6 @@ export class TerminalService {
   /**
    * Switch terminal state to a different workspace.
    * Saves current state, restores target from cache or resets to defaults.
-   *
-   * Called by WorkspaceCoordinatorService when the active workspace changes.
    */
   switchWorkspace(workspacePath: string): void {
     if (this._activeWorkspacePath === workspacePath) return;

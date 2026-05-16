@@ -25,8 +25,6 @@ import type {
  * - Retrieve original file content from HEAD for diff views
  *
  * Communication: Uses rpcCall utility for MESSAGE_TYPES.RPC_CALL / RPC_RESPONSE with correlationId.
- *
- * TASK_2025_273
  */
 @Injectable({ providedIn: 'root' })
 export class SourceControlService {

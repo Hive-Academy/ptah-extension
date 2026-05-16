@@ -66,9 +66,8 @@ export { BranchDetailsPopoverComponent } from './lib/branch-picker/branch-detail
 export { EditorService } from './lib/services/editor.service';
 export type { EditorTab } from './lib/services/editor/editor-tab.types';
 
-// Wave F3 (TASK_2026_103): inverted-dependency contract for the editor
-// internal-state map. Composition root binds the token via
-// `provideEditorInternalState()` (mirrors B1's STREAMING_CONTROL pattern).
+// Inverted-dependency contract for the editor internal-state map.
+// Composition root binds the token via `provideEditorInternalState()`.
 export {
   EDITOR_INTERNAL_STATE,
   type EditorInternalState,

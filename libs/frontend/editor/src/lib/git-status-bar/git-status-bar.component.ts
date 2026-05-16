@@ -31,11 +31,6 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
  *     {@link BranchDetailsPopoverComponent}.
  *   - Click Δ count → toggles inline changed-files panel.
  *   - Click terminal icon → toggles `EditorService.terminalVisible`.
- *
- * Worktree count and the dropdown were removed in TASK_2026_111 Batch 4 —
- * worktrees are now managed inside the Source Control panel.
- *
- * Wave: TASK_2026_111 Batch 4.
  */
 @Component({
   selector: 'ptah-git-status-bar',

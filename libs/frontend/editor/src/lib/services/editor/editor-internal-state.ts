@@ -6,7 +6,7 @@ import type { EditorTab } from './editor-tab.types';
 /**
  * Internal per-workspace editor state cache.
  * Stores editor state that should be isolated between workspaces
- * (TASK_2025_208 — instant workspace switching).
+ * for instant workspace switching.
  */
 export interface EditorWorkspaceState {
   fileTree: FileTreeNode[];
@@ -56,13 +56,11 @@ export interface EditorInternalState {
 /**
  * DI token for {@link EditorInternalState}.
  *
- * TASK_2026_103 Wave F3: Mirrors F1's `WIZARD_INTERNAL_STATE` and B1's
- * `STREAMING_CONTROL` patterns. The coordinator (`EditorService`)
- * constructs the writable-signal map and exposes it through this token
- * via `provideEditorInternalState()` so external consumers can read or
- * mutate editor state without depending on the coordinator class — that
- * import direction is what previously formed the cycle with the
- * in-process editor helpers.
+ * The coordinator (`EditorService`) constructs the writable-signal map
+ * and exposes it through this token via `provideEditorInternalState()`
+ * so external consumers can read or mutate editor state without
+ * depending on the coordinator class — that import direction is what
+ * previously formed the cycle with the in-process editor helpers.
  *
  * Helpers that live inside this library are still constructed by the
  * coordinator via plain `new` and receive the state through their

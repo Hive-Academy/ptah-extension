@@ -26,8 +26,6 @@ import { GitBranchesService } from '../services/git-branches.service';
  * Lazy fetches: when `isOpen` becomes true, this component asks
  * `GitBranchesService` to refresh remotes (and tags) so the data is fresh
  * without paying the cost on every status update.
- *
- * Wave: TASK_2026_111 Batch 4.
  */
 @Component({
   selector: 'ptah-branch-details-popover',

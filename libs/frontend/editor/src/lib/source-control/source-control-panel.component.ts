@@ -33,8 +33,6 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
  *
  * After stage/unstage/discard/commit, the GitStatusService auto-refreshes
  * via push events from the backend watcher (no manual refresh needed).
- *
- * TASK_2025_273
  */
 @Component({
   selector: 'ptah-source-control-panel',

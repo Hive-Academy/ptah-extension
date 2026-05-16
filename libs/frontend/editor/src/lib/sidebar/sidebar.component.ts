@@ -24,9 +24,6 @@ import { SearchPanelComponent } from '../search/search-panel.component';
  *
  * Complexity Level: 1 (Simple tab container, delegates rendering to child components)
  * Patterns: Standalone, OnPush, signal-based tab state, composition
- *
- * Worktrees tab was removed in TASK_2026_111 Batch 4 — worktrees are now
- * managed inside the Source Control panel via {@link WorktreeSectionComponent}.
  */
 @Component({
   selector: 'ptah-sidebar',

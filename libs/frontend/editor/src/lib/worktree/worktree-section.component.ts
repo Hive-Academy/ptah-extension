@@ -26,8 +26,6 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
  * {@link WorktreePanelComponent} but renders as a section header + body
  * instead of a full sidebar tab. Collapsed by default to keep the SCM
  * panel focused on Changes.
- *
- * Wave: TASK_2026_111 Batch 4.
  */
 @Component({
   selector: 'ptah-worktree-section',

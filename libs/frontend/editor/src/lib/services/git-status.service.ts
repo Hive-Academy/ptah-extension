@@ -157,8 +157,6 @@ export class GitStatusService {
    * Switch git state to a different workspace.
    * Saves current state, restores target from cache or resets to defaults.
    * Triggers an immediate git:info fetch for the new workspace.
-   *
-   * Called by WorkspaceCoordinatorService when the active workspace changes.
    */
   switchWorkspace(workspacePath: string): void {
     if (this._activeWorkspacePath() === workspacePath) return;
