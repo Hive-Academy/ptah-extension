@@ -619,7 +619,6 @@ export interface GenerationSummary {
   /**
    * Per-CLI agent distribution results (Phase 5).
    * Present when targetClis was specified in OrchestratorGenerationOptions.
-   * TASK_2025_160: Multi-CLI agent distribution
    */
   cliResults?: import('@ptah-extension/shared').CliGenerationResult[];
 }

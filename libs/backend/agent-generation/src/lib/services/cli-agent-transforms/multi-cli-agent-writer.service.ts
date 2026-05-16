@@ -1,7 +1,7 @@
 /**
  * Multi-CLI Agent Writer Service
- * TASK_2025_160: Orchestrates agent transformation and writing for all target CLIs
  *
+ * Orchestrates agent transformation and writing for all target CLIs.
  * Called by AgentGenerationOrchestratorService after Phase 4 (Claude agent writing).
  * Transforms GeneratedAgent[] from Claude format to each target CLI format and
  * writes to user-level directories.

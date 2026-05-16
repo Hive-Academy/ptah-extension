@@ -121,7 +121,7 @@ export const OUTPUT_VALIDATION_SERVICE = Symbol.for('OutputValidationService');
 export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
 
 /**
- * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs (TASK_2025_160)
+ * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs
  * Responsibilities: Transform Claude agents to Copilot/Gemini format, write to user-level directories
  */
 export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
@@ -139,7 +139,7 @@ export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
 export const MIGRATION_SERVICE = Symbol.for('MigrationService');
 
 // ========================================
-// Wizard Child Services (TASK_2025_115)
+// Wizard Child Services
 // ========================================
 
 /**

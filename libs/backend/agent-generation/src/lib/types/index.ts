@@ -41,7 +41,7 @@ export type {
   AgentCategory,
 } from './analysis.types';
 
-// Multi-phase analysis types (TASK_2025_154)
+// Multi-phase analysis types
 export type {
   MultiPhaseId,
   PhaseResult,
@@ -60,7 +60,7 @@ export type {
   FileType,
 } from '@ptah-extension/workspace-intelligence';
 
-// Re-export quality assessment types for DeepProjectAnalysis consumers (TASK_2025_141)
+// Re-export quality assessment types for DeepProjectAnalysis consumers.
 // These types are used by the optional quality fields in DeepProjectAnalysis
 export type {
   QualityAssessment,

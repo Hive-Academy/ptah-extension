@@ -8,9 +8,6 @@
  * - AgenticAnalysisService (SDK-powered analysis)
  * - SetupRpcHandlers (wizard:recommend-agents input validation)
  *
- * TASK_2025_145: Extracted to eliminate schema duplication (SERIOUS-7),
- * add normalization layer (CRITICAL-1), and fix codeConventions defaults (SERIOUS-1).
- *
  * @module @ptah-extension/agent-generation
  */
 
@@ -239,8 +236,8 @@ function resolveMonorepoType(
  * Validates the structure of analysis data from LLM output or frontend input.
  * Provides sensible defaults for all required fields to prevent runtime errors.
  *
- * TASK_2025_145:
- * - codeConventions uses .default() instead of .optional() (SERIOUS-1)
+ * Notes:
+ * - codeConventions uses .default() instead of .optional()
  * - trailingComma included in defaults since CodeConventions requires it
  */
 export const ProjectAnalysisZodSchema = z.object({
@@ -446,7 +443,7 @@ export const ProjectAnalysisZodSchema = z.object({
       hasE2eTests: false,
     }),
 
-  // Quality assessment from agentic analysis (TASK_2025_151)
+  // Quality assessment from agentic analysis.
   // The LLM agent assesses code quality based on its MCP tool exploration.
   // All fields optional with defaults for backward compatibility with
   // analysis runs that predate quality integration.
@@ -498,8 +495,6 @@ export type ProjectAnalysisZodOutput = z.infer<typeof ProjectAnalysisZodSchema>;
  * Performs case-insensitive mapping from LLM-produced strings to workspace-intelligence
  * enum values (ProjectType, Framework, MonorepoType). Fills in sensible defaults for
  * any required fields the LLM may have omitted.
- *
- * TASK_2025_145 CRITICAL-1: Replaces the unsafe `as unknown as DeepProjectAnalysis` cast.
  *
  * @param zodData - Zod-validated schema output
  * @returns Properly typed DeepProjectAnalysis with enum values
@@ -592,7 +587,7 @@ export function normalizeAgentOutput(
     result.monorepoType = monorepoType;
   }
 
-  // Map quality assessment fields (TASK_2025_151)
+  // Map quality assessment fields
   if (zodData.qualityAssessment) {
     const qa = zodData.qualityAssessment;
 

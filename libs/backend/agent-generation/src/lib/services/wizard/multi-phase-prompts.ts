@@ -1,7 +1,7 @@
 /**
  * Multi-Phase Analysis Prompt Builders
  *
- * TASK_2025_154: Prompt functions for phases 1-4 of the multi-phase analysis pipeline.
+ * Prompt functions for phases 1-4 of the multi-phase analysis pipeline.
  * Each function returns { systemPrompt, userPrompt } for use with InternalQueryService.
  *
  * Phase 1: Project Profile (factual only, zero opinions)

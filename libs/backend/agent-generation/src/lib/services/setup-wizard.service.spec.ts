@@ -1,14 +1,12 @@
 /**
  * Setup Wizard Service (Facade) Unit Tests
  *
- * Covers the thin facade API introduced in TASK_2025_115:
+ * Covers the thin facade API:
  *  - launchWizard(workspacePath)
  *  - cancelWizard(sessionId, saveProgress)
  *  - getCurrentSession()
  *
- * Old postMessage handlers, step-machine, and session management have been
- * removed from this service. The Angular SPA now communicates via RPC
- * handlers — those live (and are tested) elsewhere.
+ * The Angular SPA communicates via RPC handlers, which are tested elsewhere.
  */
 
 import 'reflect-metadata';

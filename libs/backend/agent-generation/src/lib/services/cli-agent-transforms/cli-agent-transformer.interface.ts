@@ -1,7 +1,7 @@
 /**
  * CLI Agent Transformer Interface
- * TASK_2025_160: Strategy interface for CLI-specific agent content transformation
  *
+ * Strategy interface for CLI-specific agent content transformation.
  * Each CLI target (Copilot, Gemini) has its own transformer that rewrites
  * Claude-format agent content into the CLI's expected format.
  *

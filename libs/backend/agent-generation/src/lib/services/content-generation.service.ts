@@ -8,9 +8,7 @@
  * - VAR sections are filled by the LLM with project-specific values
  * - Remaining {{VARS}} outside sections are substituted from analysis context
  *
- * LLM Pipeline Migration:
- * Previously: VsCodeLmService → VsCodeLmProvider (required Copilot)
- * Now: InternalQueryService → Agent SDK (uses API key directly)
+ * Uses InternalQueryService → Agent SDK (uses API key directly).
  *
  * Makes ONE SDK call per template with structured output to fill ALL dynamic
  * sections at once, instead of N separate calls per section.
@@ -836,7 +834,7 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
   }
 
   // ==========================================================================
-  // Multi-Phase Analysis Integration (TASK_2025_154)
+  // Multi-Phase Analysis Integration
   // ==========================================================================
 
   /**

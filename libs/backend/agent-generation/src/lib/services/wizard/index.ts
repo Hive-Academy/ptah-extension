@@ -14,7 +14,7 @@ export { WizardWebviewLifecycleService } from './webview-lifecycle.service';
 export { AgenticAnalysisService } from './agentic-analysis.service';
 export { MultiPhaseAnalysisService } from './multi-phase-analysis.service';
 
-// Shared analysis schema and normalization (TASK_2025_145)
+// Shared analysis schema and normalization
 export {
   ProjectAnalysisZodSchema,
   normalizeAgentOutput,

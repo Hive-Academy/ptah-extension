@@ -1,7 +1,7 @@
 /**
  * Cursor Agent Transformer
- * TASK_2025_267: Transform Claude-format agent content to Cursor CLI format
  *
+ * Transforms Claude-format agent content to Cursor CLI format.
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
  *

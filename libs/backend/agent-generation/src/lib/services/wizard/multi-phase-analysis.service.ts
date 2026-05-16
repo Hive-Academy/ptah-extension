@@ -1,7 +1,7 @@
 /**
  * MultiPhaseAnalysisService - Multi-phase workspace analysis orchestrator
  *
- * TASK_2025_154: Executes 4 sequential LLM phases (project profile, architecture
+ * Executes 4 sequential LLM phases (project profile, architecture
  * assessment, quality audit, elevation plan).
  *
  * Architecture:
@@ -555,7 +555,7 @@ export class MultiPhaseAnalysisService {
     let capturedResultText: string | null = null;
     const textChunks: string[] = [];
 
-    // TASK_2025_229: Conversion context for FlatStreamEventUnion generation.
+    // Conversion context for FlatStreamEventUnion generation.
     // Tracks mutable state (counters, active tool ID) across events within this phase.
     const convCtx = {
       messageId: `wizard-phase-${phaseId}`,
@@ -576,7 +576,7 @@ export class MultiPhaseAnalysisService {
           textChunks.push(event.content);
         }
 
-        // TASK_2025_229: Convert StreamEvent to FlatStreamEventUnion
+        // Convert StreamEvent to FlatStreamEventUnion
         const flatEvent = this.convertStreamEventToFlatEvent(
           event,
           phaseId,
@@ -591,7 +591,7 @@ export class MultiPhaseAnalysisService {
       },
     };
 
-    // TASK_2025_229: Emit message_start before processing the stream
+    // Emit message_start before processing the stream
     this.broadcastStreamMessage({
       kind: 'status',
       content: `Phase ${phaseId} starting...`,
@@ -651,7 +651,7 @@ export class MultiPhaseAnalysisService {
       convCtx.activeToolCallId = null;
     }
 
-    // TASK_2025_229: Emit message_complete after processing finishes
+    // Emit message_complete after processing finishes
     this.broadcastStreamMessage({
       kind: 'status',
       content: `Phase ${phaseId} complete`,
@@ -750,7 +750,7 @@ export class MultiPhaseAnalysisService {
    * Convert a StreamEvent (kind-based) to a FlatStreamEventUnion (eventType-based)
    * for the ExecutionNode rendering pipeline.
    *
-   * TASK_2025_229: Maps each StreamEvent kind to the corresponding FlatStreamEventUnion
+   * Maps each StreamEvent kind to the corresponding FlatStreamEventUnion
    * variant. Returns null for event kinds that have no FlatStreamEventUnion equivalent
    * (error, status).
    */

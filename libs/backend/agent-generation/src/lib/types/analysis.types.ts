@@ -14,7 +14,7 @@ import {
   MonorepoType,
 } from '@ptah-extension/workspace-intelligence';
 
-// Import quality assessment types for DeepProjectAnalysis extension (TASK_2025_141)
+// Import quality assessment types for DeepProjectAnalysis extension
 import type {
   QualityAssessment,
   QualityGap,
@@ -191,7 +191,7 @@ export interface DeepProjectAnalysis {
   testCoverage: TestCoverageEstimate;
 
   // ========================================
-  // Quality Assessment Fields (TASK_2025_141)
+  // Quality Assessment Fields
   // All fields optional for backward compatibility
   // ========================================
 

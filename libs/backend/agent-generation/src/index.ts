@@ -12,25 +12,25 @@
  * @see README.md for development status and extraction tasks
  */
 
-// DI tokens (Task 0.3)
+// DI tokens
 export * from './lib/di';
 
-// Type system (Task 0.2)
+// Type system
 export * from './lib/types';
 
-// Service interfaces (Task 0.4)
+// Service interfaces
 export * from './lib/interfaces';
 
-// Error classes (Task 0.5)
+// Error classes
 export * from './lib/errors';
 
-// Content processing utilities (Task -1.2)
+// Content processing utilities
 export * from './lib/utils/content-processor';
 
-// Orchestration patterns (Task -1.3)
+// Orchestration patterns
 export * from './lib/patterns';
 
-// Services (Batch 1, Batch 3A, Batch 3B)
+// Services
 export { TemplateStorageService } from './lib/services/template-storage.service';
 export { ContentGenerationService } from './lib/services/content-generation.service';
 export { OutputValidationService } from './lib/services/output-validation.service';
@@ -48,7 +48,7 @@ export { AnalysisStorageService } from './lib/services/analysis-storage.service'
 // Orchestrator types (exported for RPC handler consumption)
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
 
-// Multi-CLI Agent Transforms (TASK_2025_160)
+// Multi-CLI Agent Transforms
 export { MultiCliAgentWriterService } from './lib/services/cli-agent-transforms';
 export type { ICliAgentTransformer } from './lib/services/cli-agent-transforms';
 

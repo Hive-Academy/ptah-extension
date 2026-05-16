@@ -1,7 +1,7 @@
 /**
  * Agent Transform Rules
- * TASK_2025_160: Shared transformation rules and regex patterns
  *
+ * Shared transformation rules and regex patterns.
  * Used by both CopilotAgentTransformer and GeminiAgentTransformer.
  * Extracts common rewrite logic to avoid duplication.
  *

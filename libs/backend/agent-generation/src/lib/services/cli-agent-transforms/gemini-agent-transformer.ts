@@ -1,7 +1,7 @@
 /**
  * Gemini Agent Transformer
- * TASK_2025_160: Transform Claude-format agent content to Gemini CLI format
  *
+ * Transforms Claude-format agent content to Gemini CLI format.
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
  *
@@ -47,7 +47,7 @@ export class GeminiAgentTransformer implements ICliAgentTransformer {
       agent.content,
       'gemini',
       agentId,
-      description
+      description,
     );
 
     // Target path: ~/.gemini/agents/ptah-{agent-id}.md (prefixed for cleanup)

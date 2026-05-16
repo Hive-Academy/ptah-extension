@@ -1,15 +1,11 @@
 /**
  * WizardWebviewLifecycleService - Webview Panel Management Service
- * TASK_2025_115: Setup Wizard Service Decomposition
  *
  * Responsibility:
  * - Create webview panel with message handlers
  * - Send RPC responses to webview
  * - Emit progress events to webview
  * - Dispose webview on cleanup
- *
- * Pattern Source: setup-wizard.service.ts:141-221, 1757-1820, 1563-1589
- * Extracted from: SetupWizardService webview management methods
  */
 
 import { injectable, inject } from 'tsyringe';

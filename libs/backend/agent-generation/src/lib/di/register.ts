@@ -1,6 +1,5 @@
 /**
  * Agent Generation DI Registration
- * TASK_2025_069: Register all agent-generation services in DI container
  *
  * Pattern: Follow agent-sdk registration pattern for consistency.
  * Services use @injectable() decorators for auto-wiring.
@@ -97,7 +96,7 @@ export function registerAgentGenerationServices(
   // ============================================================
 
   // Agentic analysis service - Claude Agent SDK-powered workspace analysis
-  // Note: Depends on SDK_AGENT_ADAPTER, SDK_MODULE_LOADER (registered in Phase 2.7), WEBVIEW_MANAGER
+  // Note: Depends on SDK_AGENT_ADAPTER, SDK_MODULE_LOADER, WEBVIEW_MANAGER
   container.register(
     AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE,
     { useClass: AgenticAnalysisService },
@@ -147,7 +146,7 @@ export function registerAgentGenerationServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Multi-CLI agent writer service - transforms and writes for Copilot/Gemini (TASK_2025_160)
+  // Multi-CLI agent writer service - transforms and writes for Copilot/Gemini
   container.register(
     AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
     { useClass: MultiCliAgentWriterService },

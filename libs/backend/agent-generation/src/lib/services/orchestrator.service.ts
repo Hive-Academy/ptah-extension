@@ -4,13 +4,8 @@
  * Coordinates the end-to-end workflow for intelligent agent generation through 4 phases:
  * 1. Analysis - Workspace and project analysis
  * 2. Selection - Template selection based on relevance
- * 3. Rendering - Template rendering with LLM-driven content generation
+ * 3. Rendering - Template rendering with LLM-driven content generation via InternalQueryService (Agent SDK)
  * 4. Writing - Atomic file writing with rollback
- *
- * LLM Pipeline Migration:
- * Previously: 5 phases with separate Phase 3 (LLM customization via VsCodeLmService)
- * Now: 4 phases - Phase 3 removed (was dead code - its results were never used by Phase 4).
- * Content generation now routes through InternalQueryService (Agent SDK) in Phase 3 (Rendering).
  *
  * Pattern: Service Orchestration with Transaction Management
  *
@@ -132,7 +127,6 @@ export interface OrchestratorGenerationOptions {
   /**
    * Target CLI platforms for agent distribution (premium only).
    * When provided, Phase 5 transforms and writes agents to these CLI directories.
-   * TASK_2025_160: Multi-CLI agent distribution
    */
   targetClis?: CliTarget[];
 }
@@ -458,7 +452,7 @@ export class AgentGenerationOrchestratorService {
         return Result.err(new Error('All agent file writes failed'));
       }
 
-      // Phase 5: Multi-CLI Agent Distribution (TASK_2025_160)
+      // Phase 5: Multi-CLI Agent Distribution
       let cliResults: CliGenerationResult[] | undefined;
       if (options.targetClis && options.targetClis.length > 0) {
         this.logger.info('Phase 5: Distributing agents to CLI targets', {

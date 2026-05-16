@@ -1,7 +1,7 @@
 /**
  * Copilot Agent Transformer
- * TASK_2025_160: Transform Claude-format agent content to Copilot CLI format
  *
+ * Transforms Claude-format agent content to Copilot CLI format.
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
  *
@@ -47,7 +47,7 @@ export class CopilotAgentTransformer implements ICliAgentTransformer {
       agent.content,
       'copilot',
       agentId,
-      description
+      description,
     );
 
     // Target path: ~/.copilot/agents/ptah-{agent-id}.md (prefixed for cleanup)
@@ -55,7 +55,7 @@ export class CopilotAgentTransformer implements ICliAgentTransformer {
       homedir(),
       '.copilot',
       'agents',
-      `ptah-${agentId}.md`
+      `ptah-${agentId}.md`,
     );
 
     return {
