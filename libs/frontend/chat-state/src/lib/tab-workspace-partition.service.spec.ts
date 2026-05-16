@@ -145,7 +145,7 @@ describe('TabWorkspacePartitionService', () => {
     });
 
     it('respects the panelId namespace when initialized with one', () => {
-      svc.initialize('panel-uuid', 'ptah.tabs.panel-uuid');
+      svc.initialize('panel-uuid');
       expect(svc.getStorageKeyForWorkspace('/ws/a')).toContain('.panel-uuid');
     });
   });
