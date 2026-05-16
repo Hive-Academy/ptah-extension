@@ -67,6 +67,7 @@ export type {
 // Registration helpers
 export * from './lib/register-all';
 export * from './lib/verify-and-report';
+export { registerSharedRpcHandlers } from './lib/register-shared-rpc-handlers';
 
 // Harness sub-service DI tokens + registration helper
 export { HARNESS_TOKENS, registerHarnessServices } from './lib/harness';

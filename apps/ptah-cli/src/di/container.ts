@@ -67,7 +67,6 @@ import {
 
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type {
   EnhancedPromptsService,
@@ -91,19 +90,16 @@ import {
   ConfigRpcHandlers,
   AuthRpcHandlers,
   ContextRpcHandlers,
-  SetupRpcHandlers,
   LicenseRpcHandlers,
-  WizardGenerationRpcHandlers,
   AutocompleteRpcHandlers,
   SubagentRpcHandlers,
   PluginRpcHandlers,
   PtahCliRpcHandlers,
-  EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,
   ProviderRpcHandlers,
-  LlmRpcHandlers,
   WebSearchRpcHandlers,
   WorkspaceRpcHandlers,
+  registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // CLI adapters
@@ -197,6 +193,8 @@ export class CliDIContainer {
    */
   static setup(options: CliBootstrapOptions = {}): CliBootstrapResult {
     const container = globalContainer;
+
+    container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
 
     // Resolve default paths
     const userDataPath =
@@ -753,76 +751,22 @@ export class CliDIContainer {
       container.registerSingleton(ConfigRpcHandlers);
       container.registerSingleton(AuthRpcHandlers);
       container.registerSingleton(ContextRpcHandlers);
-
-      // SetupRpcHandlers requires container instance for lazy resolution.
-      container.register(SetupRpcHandlers, {
-        useFactory: (c) =>
-          new SetupRpcHandlers(
-            c.resolve(TOKENS.LOGGER),
-            c.resolve(TOKENS.RPC_HANDLER),
-            c.resolve(SETTINGS_TOKENS.MODEL_SETTINGS),
-            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-            c,
-            c.resolve(TOKENS.SENTRY_SERVICE),
-            c.resolve(TOKENS.PLATFORM_COMMANDS),
-          ),
-      });
-
       container.registerSingleton(LicenseRpcHandlers);
-
-      // WizardGenerationRpcHandlers requires container instance for lazy resolution.
-      container.register(WizardGenerationRpcHandlers, {
-        useFactory: (c) =>
-          new WizardGenerationRpcHandlers(
-            c.resolve(TOKENS.LOGGER),
-            c.resolve(TOKENS.RPC_HANDLER),
-            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-            c,
-            c.resolve(TOKENS.SENTRY_SERVICE),
-          ),
-      });
-
       container.registerSingleton(AutocompleteRpcHandlers);
       container.registerSingleton(SubagentRpcHandlers);
       container.registerSingleton(PluginRpcHandlers);
       container.registerSingleton(PtahCliRpcHandlers);
-
-      // EnhancedPromptsRpcHandlers requires container instance for lazy resolution.
-      container.register(EnhancedPromptsRpcHandlers, {
-        useFactory: (c) =>
-          new EnhancedPromptsRpcHandlers(
-            c.resolve(TOKENS.LOGGER),
-            c.resolve(TOKENS.RPC_HANDLER),
-            c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
-            c.resolve(TOKENS.LICENSE_SERVICE),
-            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-            c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
-            c,
-            c.resolve(TOKENS.SENTRY_SERVICE),
-          ),
-      });
-
       container.registerSingleton(QualityRpcHandlers);
       container.registerSingleton(ProviderRpcHandlers);
-
-      // LlmRpcHandlers uses DependencyContainer for lazy resolution
-      container.register(LlmRpcHandlers, {
-        useFactory: (c) =>
-          new LlmRpcHandlers(
-            c.resolve(TOKENS.LOGGER),
-            c.resolve(TOKENS.RPC_HANDLER),
-            c,
-            c.resolve(TOKENS.SENTRY_SERVICE),
-          ),
-      });
-
       container.registerSingleton(WebSearchRpcHandlers);
 
       // WorkspaceRpcHandlers (lifted from Electron).
       container.registerSingleton(WorkspaceRpcHandlers);
+
+      // SetupRpcHandlers, WizardGenerationRpcHandlers, EnhancedPromptsRpcHandlers,
+      // LlmRpcHandlers — all four have @inject-decorated constructors and live in
+      // one shared registration site so apps stay in lockstep.
+      registerSharedRpcHandlers(container);
 
       logger.info('[CLI DI] Shared RPC handler classes registered (18)');
 

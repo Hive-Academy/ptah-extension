@@ -16,8 +16,6 @@ import {
   GitInfoService,
   type Logger,
 } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 
 // Shared RPC handler classes.
 // These are platform-agnostic handlers that can be used in both VS Code and Electron.
@@ -28,17 +26,13 @@ import {
   ConfigRpcHandlers,
   AuthRpcHandlers,
   ContextRpcHandlers,
-  SetupRpcHandlers,
   LicenseRpcHandlers,
-  WizardGenerationRpcHandlers,
   AutocompleteRpcHandlers,
   SubagentRpcHandlers,
   PluginRpcHandlers,
   PtahCliRpcHandlers,
-  EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,
   ProviderRpcHandlers,
-  LlmRpcHandlers,
   WebSearchRpcHandlers,
   HarnessRpcHandlers,
   McpDirectoryRpcHandlers,
@@ -49,6 +43,7 @@ import {
   GatewayRpcHandlers,
   registerHarnessServices,
   registerChatServices,
+  registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes.
@@ -112,67 +107,18 @@ export function registerPhase4Handlers(
   container.registerSingleton(ConfigRpcHandlers);
   container.registerSingleton(AuthRpcHandlers);
   container.registerSingleton(ContextRpcHandlers);
-  // SetupRpcHandlers requires container instance for lazy resolution of agent-generation services.
-  // Must use factory pattern because DependencyContainer is an interface (no reflection metadata).
-  container.register(SetupRpcHandlers, {
-    useFactory: (c) =>
-      new SetupRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(SETTINGS_TOKENS.MODEL_SETTINGS),
-        c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c,
-        c.resolve(TOKENS.SENTRY_SERVICE),
-        c.resolve(TOKENS.PLATFORM_COMMANDS),
-      ),
-  });
   container.registerSingleton(LicenseRpcHandlers);
-  // WizardGenerationRpcHandlers requires container instance for lazy resolution.
-  container.register(WizardGenerationRpcHandlers, {
-    useFactory: (c) =>
-      new WizardGenerationRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c,
-        c.resolve(TOKENS.SENTRY_SERVICE),
-      ),
-  });
   container.registerSingleton(AutocompleteRpcHandlers);
   container.registerSingleton(SubagentRpcHandlers);
   container.registerSingleton(PluginRpcHandlers);
   container.registerSingleton(PtahCliRpcHandlers);
-  // EnhancedPromptsRpcHandlers requires container instance for lazy resolution.
-  container.register(EnhancedPromptsRpcHandlers, {
-    useFactory: (c) =>
-      new EnhancedPromptsRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
-        c.resolve(TOKENS.LICENSE_SERVICE),
-        c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
-        c,
-        c.resolve(TOKENS.SENTRY_SERVICE),
-      ),
-  });
   container.registerSingleton(QualityRpcHandlers);
   container.registerSingleton(ProviderRpcHandlers);
-  // LlmRpcHandlers is platform-agnostic, uses DependencyContainer for lazy resolution.
-  container.register(LlmRpcHandlers, {
-    useFactory: (c) =>
-      new LlmRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c,
-        c.resolve(TOKENS.SENTRY_SERVICE),
-      ),
-  });
-  // WebSearchRpcHandlers — web search settings management (API keys, config, testing).
   container.registerSingleton(WebSearchRpcHandlers);
+  // SetupRpcHandlers, WizardGenerationRpcHandlers, EnhancedPromptsRpcHandlers,
+  // LlmRpcHandlers — all four have @inject-decorated constructors and live in
+  // one shared registration site so apps stay in lockstep.
+  registerSharedRpcHandlers(container);
 
   // Harness Setup Builder RPC handlers.
   container.registerSingleton(HarnessRpcHandlers);

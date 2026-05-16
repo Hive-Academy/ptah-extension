@@ -18,12 +18,10 @@ import type { DependencyContainer } from 'tsyringe';
 
 import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
   registerChatServices,
   registerHarnessServices,
+  registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 import {
@@ -36,15 +34,11 @@ import {
   EditorRpcHandlers,
   ConfigRpcHandlers,
   AuthRpcHandlers,
-  SetupRpcHandlers,
   LicenseRpcHandlers,
-  LlmRpcHandlers as AppLlmRpcHandlers,
   ProviderRpcHandlers,
   SubagentRpcHandlers,
   CommandRpcHandlers,
-  EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,
-  WizardGenerationRpcHandlers,
   PluginRpcHandlers,
   AgentRpcHandlers,
   PtahCliRpcHandlers,
@@ -93,33 +87,6 @@ export function registerPhase3Handlers(
   container.registerSingleton(AuthRpcHandlers);
   container.registerSingleton(LicenseRpcHandlers);
 
-  // SetupRpcHandlers and LlmRpcHandlers require container instance for lazy
-  // resolution. Must use factory pattern because DependencyContainer is an
-  // interface (no reflection metadata).
-  container.register(SetupRpcHandlers, {
-    useFactory: (c) =>
-      new SetupRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(SETTINGS_TOKENS.MODEL_SETTINGS),
-        c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c,
-        c.resolve(TOKENS.SENTRY_SERVICE),
-        c.resolve(TOKENS.PLATFORM_COMMANDS),
-      ),
-  });
-
-  container.register(AppLlmRpcHandlers, {
-    useFactory: (c) =>
-      new AppLlmRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c,
-        c.resolve(TOKENS.SENTRY_SERVICE),
-      ),
-  });
-
   // ProviderRpcHandlers requires SDK_PROVIDER_MODELS which is registered by
   // the library phase. Registered as singleton here, resolved lazily at RPC
   // service factory resolve time (after the library phase has run).
@@ -130,23 +97,6 @@ export function registerPhase3Handlers(
 
   // Command RPC handlers for webview command execution.
   container.registerSingleton(CommandRpcHandlers);
-
-  // Enhanced Prompts RPC handlers.
-  // Factory pattern — DependencyContainer is an interface (no reflection metadata).
-  container.register(EnhancedPromptsRpcHandlers, {
-    useFactory: (c) =>
-      new EnhancedPromptsRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
-        c.resolve(TOKENS.LICENSE_SERVICE),
-        c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
-        c,
-        c.resolve(TOKENS.SENTRY_SERVICE),
-      ),
-  });
 
   // Quality Dashboard RPC handlers.
   container.registerSingleton(QualityRpcHandlers);
@@ -169,18 +119,10 @@ export function registerPhase3Handlers(
   // Harness Setup Builder RPC handlers
   container.registerSingleton(HarnessRpcHandlers);
 
-  // Wizard Generation RPC handlers (requires container for lazy resolution).
-  container.register(WizardGenerationRpcHandlers, {
-    useFactory: (c) =>
-      new WizardGenerationRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c,
-        c.resolve(TOKENS.SENTRY_SERVICE),
-      ),
-  });
+  // SetupRpcHandlers, WizardGenerationRpcHandlers, EnhancedPromptsRpcHandlers,
+  // LlmRpcHandlers — all four have @inject-decorated constructors and live in
+  // one shared registration site so apps stay in lockstep.
+  registerSharedRpcHandlers(container);
 
   // ========================================
   // RPC Method Registration Service (orchestrator)
