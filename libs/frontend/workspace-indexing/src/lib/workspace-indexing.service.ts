@@ -1,12 +1,10 @@
 /**
- * WorkspaceIndexingService — Frontend bridge for the `indexing:*` RPC namespace
- * (TASK_2026_114).
+ * WorkspaceIndexingService — Frontend bridge for the `indexing:*` RPC namespace.
  *
  * Owns:
  *  - The latest `IndexingStatusWire` snapshot (signal).
  *  - The most recent push `indexing:progress` event (signal).
- *  - A `uiState` computed that maps the backend status into one of 8 UX states
- *    (the 6 documented in task-description.md plus `loading` / `no-workspace`).
+ *  - A `uiState` computed that maps the backend status into one of 8 UX states.
  *
  * Push events from the backend arrive via the `MessageHandler` /
  * `MESSAGE_HANDLERS` token wired in `apps/ptah-extension-webview/src/app/app.config.ts`.

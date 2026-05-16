@@ -1,11 +1,10 @@
 /**
  * WorkspaceIndexingComponent — Settings panel for the workspace-indexing
- * feature (TASK_2026_114).
+ * feature.
  *
- * Renders all 6 backend states defined in task-description.md UX Spec
- * (`never-indexed`, `indexing`, `paused`, `indexed`, `stale`, `error`) plus
- * two pseudo-states (`loading`, `no-workspace`) and the always-visible
- * per-pipeline toggle row.
+ * Renders all 6 backend states (`never-indexed`, `indexing`, `paused`,
+ * `indexed`, `stale`, `error`) plus two pseudo-states (`loading`,
+ * `no-workspace`) and the always-visible per-pipeline toggle row.
  *
  * Architecture:
  *  - `OnPush` change detection (signals do the work).
