@@ -88,7 +88,7 @@ export class EnhancedPromptsRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SAVE_DIALOG_PROVIDER)
     private readonly saveDialogProvider: ISaveDialogProvider,
-    @inject('DependencyContainer')
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly container: DependencyContainer,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,

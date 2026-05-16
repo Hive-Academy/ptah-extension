@@ -145,7 +145,7 @@ export class EditorRpcHandlers {
     private readonly fs: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject('DependencyContainer')
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly container: DependencyContainer,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewBroadcaster,

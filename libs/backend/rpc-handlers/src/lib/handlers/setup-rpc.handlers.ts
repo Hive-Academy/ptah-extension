@@ -135,7 +135,7 @@ export class SetupRpcHandlers {
     private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    @inject('DependencyContainer')
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly container: DependencyContainer,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,

@@ -39,6 +39,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { parseWorktreeList } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import * as vscode from 'vscode';
 
 // VS Code-specific handlers (local to this app).
@@ -125,7 +126,7 @@ export class RpcMethodRegistrationService {
     @inject(AgentRpcHandlers) private readonly agentHandlers: AgentRpcHandlers,
     @inject(SkillsShRpcHandlers)
     private readonly skillsShHandlers: SkillsShRpcHandlers,
-    @inject('DependencyContainer')
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly container: DependencyContainer,
   ) {
     this.registerSetupAgentsCommand();
