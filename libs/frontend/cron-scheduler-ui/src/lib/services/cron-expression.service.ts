@@ -100,7 +100,6 @@ export class CronExpressionService {
     if (!v.valid) return '';
     const [minute, hour, dom, month, dow] = expr.trim().split(/\s+/);
 
-    // Every minute: * * * * *
     if (
       minute === '*' &&
       hour === '*' &&
@@ -111,7 +110,6 @@ export class CronExpressionService {
       return 'Every minute';
     }
 
-    // Step expressions
     const stepMin = this.parseStep(minute);
     if (
       stepMin !== null &&
@@ -136,7 +134,6 @@ export class CronExpressionService {
         : `At minute ${m}, every ${stepHour} hours`;
     }
 
-    // Hourly: 0 * * * *
     if (
       this.isFixedNumber(minute) &&
       hour === '*' &&
@@ -147,7 +144,6 @@ export class CronExpressionService {
       return `Every hour at minute ${Number(minute)}`;
     }
 
-    // Daily: m h * * *
     if (
       this.isFixedNumber(minute) &&
       this.isFixedNumber(hour) &&
@@ -158,7 +154,6 @@ export class CronExpressionService {
       return `Every day at ${this.formatHourMinute(Number(hour), Number(minute))}`;
     }
 
-    // Weekday range: m h * * 1-5
     if (
       this.isFixedNumber(minute) &&
       this.isFixedNumber(hour) &&
@@ -172,7 +167,6 @@ export class CronExpressionService {
       )}, Monday through Friday`;
     }
 
-    // Specific weekday: m h * * d
     if (
       this.isFixedNumber(minute) &&
       this.isFixedNumber(hour) &&
@@ -187,7 +181,6 @@ export class CronExpressionService {
       )}`;
     }
 
-    // Day of month: m h D * *
     if (
       this.isFixedNumber(minute) &&
       this.isFixedNumber(hour) &&
@@ -201,7 +194,6 @@ export class CronExpressionService {
       )}`;
     }
 
-    // Generic fallback
     return `Minute=${minute}, Hour=${hour}, DayOfMonth=${dom}, Month=${month}, DayOfWeek=${dow}`;
   }
 
@@ -211,7 +203,6 @@ export class CronExpressionService {
     max: number,
   ): string | null {
     if (field === '*') return null;
-    // List
     if (field.includes(',')) {
       for (const part of field.split(',')) {
         const err = this.validateField(part, min, max);
@@ -219,7 +210,6 @@ export class CronExpressionService {
       }
       return null;
     }
-    // Step
     if (field.includes('/')) {
       const [range, stepStr] = field.split('/');
       if (range === undefined || stepStr === undefined) {
@@ -235,7 +225,6 @@ export class CronExpressionService {
       }
       return null;
     }
-    // Range
     if (field.includes('-')) {
       const [lo, hi] = field.split('-');
       const a = Number(lo);
@@ -249,7 +238,6 @@ export class CronExpressionService {
       if (a > b) return 'range start greater than end';
       return null;
     }
-    // Plain integer
     const n = Number(field);
     if (!Number.isInteger(n)) return 'not an integer';
     if (n < min || n > max) return `value ${n} outside ${min}-${max}`;

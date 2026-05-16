@@ -24,21 +24,18 @@ export interface CronAggregateStats {
 export class CronStateService {
   private readonly rpc = inject(CronRpcService);
 
-  // === Writable state ===
   private readonly _jobs = signal<ScheduledJobDto[]>([]);
   private readonly _selectedJobId = signal<string | null>(null);
   private readonly _runs = signal<JobRunDto[]>([]);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
 
-  // === Readonly exports ===
   public readonly jobs = this._jobs.asReadonly();
   public readonly selectedJobId = this._selectedJobId.asReadonly();
   public readonly runs = this._runs.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
 
-  // === Computed ===
   public readonly selectedJob = computed<ScheduledJobDto | null>(() => {
     const id = this._selectedJobId();
     if (!id) return null;
