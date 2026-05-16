@@ -1,12 +1,9 @@
 /**
- * Chat premium-context resolution helpers (Wave C7e).
+ * Chat premium-context resolution helpers.
  *
  * Owns the three premium-config helpers that ChatSessionService and
  * ChatPtahCliService share: MCP-server availability check, enhanced
- * prompt resolution (TASK_2025_151), and plugin-path resolution
- * (TASK_2025_153).
- *
- * Extracted byte-identically from `chat-rpc.handlers.ts`.
+ * prompt resolution, and plugin-path resolution.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -31,8 +28,8 @@ export class ChatPremiumContextService {
   ) {}
 
   /**
-   * Checks if the MCP server is currently running (TASK_2025_108)
-   * Uses CodeExecutionMCP.getPort() - non-null means server is running
+   * Checks if the MCP server is currently running.
+   * Uses CodeExecutionMCP.getPort() - non-null means server is running.
    *
    * @returns true if MCP server is available
    */
@@ -41,7 +38,7 @@ export class ChatPremiumContextService {
   }
 
   /**
-   * Resolve enhanced prompt content for premium users (TASK_2025_151)
+   * Resolve enhanced prompt content for premium users.
    *
    * Returns the AI-generated enhanced prompt content if available and enabled,
    * or undefined to fall back to default behavior.
@@ -76,7 +73,7 @@ export class ChatPremiumContextService {
   }
 
   /**
-   * Resolve plugin paths for premium users (TASK_2025_153)
+   * Resolve plugin paths for premium users.
    *
    * Reads workspace plugin configuration and resolves to absolute paths.
    * Only returns paths for premium users. Non-premium users get no plugins.

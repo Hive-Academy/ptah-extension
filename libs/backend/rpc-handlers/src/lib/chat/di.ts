@@ -1,5 +1,5 @@
 /**
- * Chat sub-service DI registration (Wave C7e).
+ * Chat sub-service DI registration.
  *
  * Registers the extracted chat services as tsyringe singletons bound
  * to the tokens in `./tokens.ts`.

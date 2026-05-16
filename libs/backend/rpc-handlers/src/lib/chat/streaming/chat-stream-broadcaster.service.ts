@@ -1,5 +1,5 @@
 /**
- * Chat stream broadcaster (Wave C7e).
+ * Chat stream broadcaster.
  *
  * Owns the webview broadcast loop (`streamEventsToWebview`). Moves
  * byte-identically from `chat-rpc.handlers.ts`. The streaming lifecycle
@@ -63,12 +63,7 @@ export class ChatStreamBroadcaster {
 
   /**
    * Stream flat events to webview
-   * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages
-   *
-   * TASK_2025_082: Migrated from ExecutionNode to FlatStreamEventUnion
-   * TASK_2025_092: Added tabId for frontend event routing
-   * TASK_2025_092: CRITICAL FIX - Added message_complete handling for turn completion
-   *   (This fix was previously only in dead-code SdkRpcHandlers, not here!)
+   * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages.
    *
    * The webview rebuilds ExecutionNode trees at render time from these flat events.
    * Events include tabId for routing and sessionId (real SDK UUID) for storage.
@@ -87,9 +82,9 @@ export class ChatStreamBroadcaster {
     );
     let eventCount = 0;
 
-    // TASK_2025_092: Track if we've sent chat:complete for this turn
+    // Track if we've sent chat:complete for this turn.
     // This prevents duplicate completion signals when multiple message_complete events arrive
-    // (e.g., OpenRouter sends duplicate assistant messages with same messageId)
+    // (e.g., OpenRouter sends duplicate assistant messages with same messageId).
     let turnCompleteSent = false;
 
     // Track whether we've saved child session metadata for Ptah CLI sessions.
@@ -168,8 +163,8 @@ export class ChatStreamBroadcaster {
           event,
         });
 
-        // TASK_2025_092: Reset turnCompleteSent when new turn starts (message_start)
-        // This ensures multi-turn conversations properly signal completion for each turn
+        // Reset turnCompleteSent when new turn starts (message_start).
+        // This ensures multi-turn conversations properly signal completion for each turn.
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
         }

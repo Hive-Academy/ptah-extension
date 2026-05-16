@@ -1,5 +1,5 @@
 /**
- * Harness sub-service DI tokens (Wave C7d).
+ * Harness sub-service DI tokens.
  *
  * These Symbol-based tokens are used by `HarnessRpcHandlers` (and the harness
  * sub-services themselves, for service-to-service injection) to resolve the

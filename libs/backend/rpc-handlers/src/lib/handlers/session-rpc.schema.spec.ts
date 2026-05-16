@@ -1,5 +1,5 @@
 /**
- * SessionRpcSchema — unit specs (TASK_2025_294 W2.B4).
+ * SessionRpcSchema — unit specs.
  *
  * Surface under test: `./session-rpc.schema.ts`, which is intentionally an
  * empty-export module (see the file header there for rationale — the
@@ -7,8 +7,8 @@
  * TS types from `@ptah-extension/shared` plus inline guards).
  *
  * This spec exists so:
- *   1. The "every handler has a paired schema spec" invariant from
- *      TASK_2025_294 holds across the rpc-handlers library.
+ *   1. The "every handler has a paired schema spec" invariant holds across
+ *      the rpc-handlers library.
  *   2. A future PR that accidentally adds a Zod schema to
  *      `session-rpc.schema.ts` without wiring tests has a pre-existing
  *      file to extend (forcing the author to think about coverage).
@@ -34,7 +34,7 @@ describe('session-rpc.schema', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AgentJsonlFirstLineSchema — JSONL first-line validation (Phase 6 / C-1)
+// AgentJsonlFirstLineSchema — JSONL first-line validation
 //
 // This schema is exported from session-rpc.handlers.ts and guards the
 // JSON.parse path that previously admitted any parsed value unchecked.

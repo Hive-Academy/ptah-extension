@@ -1,5 +1,5 @@
 /**
- * Unit tests for MemoryRpcHandlers — `memory:purgeBySubjectPattern` (TASK_2026_119 Batch 5).
+ * Unit tests for MemoryRpcHandlers — `memory:purgeBySubjectPattern`.
  *
  * Verifies:
  *   - Valid params with authorized workspaceRoot → routes to store, returns { deleted: N }.
@@ -114,7 +114,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// memory:search — workspaceRoot forwarding (TASK_2026_122)
+// memory:search — workspaceRoot forwarding
 // ---------------------------------------------------------------------------
 
 describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {

@@ -273,7 +273,7 @@ export class PersistenceRpcHandlers {
    *  1. backup('reset')
    *  2. connection.close()
    *  3. fs.renameSync (EPERM async retry after 200 ms on Windows)
-   *     Also renames -wal and -shm sidecar files (D11 fix).
+   *     Also renames -wal and -shm sidecar files.
    *  4. connection.openAndMigrate()
    *  5. Return success result
    *
@@ -282,18 +282,18 @@ export class PersistenceRpcHandlers {
    * are caught and returned as `{ success: false }`.
    *
    * Security notes:
-   *  F-M1: The confirmation token must be a UUID minted by `mintResetChallengeToken()`
-   *   in the trusted main-process context. The static `'CONFIRM'` literal is
-   *   retained for the deprecated fallback path only.
-   *  F-M3: The returned `backupPath` contains only the basename of the backup
-   *   file — never the absolute path — to avoid leaking the OS username via RPC.
-   *   Error messages are sanitised (absolute paths stripped) before being returned.
+   *  - The confirmation token must be a UUID minted by `mintResetChallengeToken()`
+   *    in the trusted main-process context. The static `'CONFIRM'` literal is
+   *    retained for the deprecated fallback path only.
+   *  - The returned `backupPath` contains only the basename of the backup
+   *    file — never the absolute path — to avoid leaking the OS username via RPC.
+   *    Error messages are sanitised (absolute paths stripped) before being returned.
    */
   private async handleReset(
     params: DbResetParams | undefined,
   ): Promise<DbResetResult> {
     // Guard: validate the confirmation token.
-    // F-M1: Accept a valid single-use challenge UUID (preferred) OR the deprecated
+    // Accept a valid single-use challenge UUID (preferred) OR the deprecated
     // static 'CONFIRM' literal. The challenge UUID cannot be minted by renderer-
     // side agents, closing the agent-bypass path described in the security review.
     if (!params || !this.isValidResetConfirmation(params.confirm)) {
@@ -340,10 +340,10 @@ export class PersistenceRpcHandlers {
       this.connection.close();
 
       // Step 3: rename old file to .deleted-<ts>-<random>.
-      // F-L4: Include a random hex suffix to avoid collision under rapid resets
-      //   (Date.now() has ms resolution; two resets in the same ms would collide).
-      // D11: Also rename -wal and -shm sidecar files so SQLite cannot replay
-      //   stale WAL content into the freshly-opened empty DB.
+      // Include a random hex suffix to avoid collision under rapid resets
+      // (Date.now() has ms resolution; two resets in the same ms would collide).
+      // Also rename -wal and -shm sidecar files so SQLite cannot replay
+      // stale WAL content into the freshly-opened empty DB.
       const randomSuffix = crypto.randomBytes(4).toString('hex');
       const deletedPath = `${dbPath}.deleted-${Date.now()}-${randomSuffix}`;
       const renamed = await this.tryRename(dbPath, deletedPath);
@@ -355,7 +355,7 @@ export class PersistenceRpcHandlers {
         };
       }
 
-      // D11: Clean up WAL and SHM sidecars — non-fatal if absent or locked.
+      // Clean up WAL and SHM sidecars — non-fatal if absent or locked.
       this.renameDbSidecar(`${dbPath}-wal`, `${deletedPath}-wal`);
       this.renameDbSidecar(`${dbPath}-shm`, `${deletedPath}-shm`);
 
@@ -363,8 +363,8 @@ export class PersistenceRpcHandlers {
       await this.connection.openAndMigrate();
 
       // Step 5: return success.
-      // F-M3: Return only the basename of the backup path to avoid leaking
-      //   the OS username (C:\Users\<name>\... or /home/<user>/...) to the renderer.
+      // Return only the basename of the backup path to avoid leaking
+      // the OS username (C:\Users\<name>\... or /home/<user>/...) to the renderer.
       const backupBasename = rawBackupPath
         ? path.basename(rawBackupPath)
         : null;
@@ -377,8 +377,8 @@ export class PersistenceRpcHandlers {
         message: `Database reset. ${backupNote}`,
       };
     } catch (err: unknown) {
-      // F-M3: Sanitise error messages — strip absolute paths before returning
-      //   to the renderer so OS usernames are not leaked.
+      // Sanitise error messages — strip absolute paths before returning
+      // to the renderer so OS usernames are not leaked.
       const raw = err instanceof Error ? err.message : String(err);
       const sanitised = sanitiseErrorMessage(raw);
       this.logger.error('[persistence] db:reset failed', { error: raw });
@@ -392,7 +392,7 @@ export class PersistenceRpcHandlers {
 
   /**
    * Validate the reset confirmation token.
-   * Accepts either a single-use UUID challenge token (preferred, F-M1) or the
+   * Accepts either a single-use UUID challenge token (preferred) or the
    * deprecated static literal 'CONFIRM'.
    */
   private isValidResetConfirmation(token: string): boolean {
@@ -412,9 +412,8 @@ export class PersistenceRpcHandlers {
    * Returns `{ ok: true }` on success or `{ ok: false, error: string }` after
    * both attempts fail.
    *
-   * F-L2 fix: replaced the synchronous busy-wait spin-loop with an async
-   * `setTimeout` so the Electron main-process event loop is not blocked during
-   * the 200 ms wait.
+   * Uses async `setTimeout` (not a sync busy-wait spin-loop) so the Electron
+   * main-process event loop is not blocked during the 200 ms wait.
    */
   private async tryRename(
     src: string,
@@ -448,7 +447,7 @@ export class PersistenceRpcHandlers {
   }
 
   /**
-   * D11: Rename a WAL or SHM sidecar file as part of the db:reset flow.
+   * Rename a WAL or SHM sidecar file as part of the db:reset flow.
    * Non-fatal — if the file is absent (fully checkpointed) or cannot be
    * renamed, logs a debug message and continues.
    */

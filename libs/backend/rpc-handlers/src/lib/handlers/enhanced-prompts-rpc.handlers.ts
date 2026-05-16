@@ -8,10 +8,6 @@
  * - enhancedPrompts:regenerate - Force regenerate the prompt
  * - enhancedPrompts:getPromptContent - Get generated prompt content for preview
  * - enhancedPrompts:download - Download generated prompt as .md file
- *
- * TASK_2025_137: Intelligent Prompt Generation System
- * TASK_2025_149 Batch 5: Added getPromptContent and download handlers
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode APIs with platform abstractions)
  */
 
 /**
@@ -277,7 +273,7 @@ export class EnhancedPromptsRpcHandlers {
                   .sort((a, b) => b.percentage - a.percentage)
                   .map((l) => l.language)
               : params.analysisData.languages,
-            // Quality data flows from agentic analysis (Step 1) via analysisData.
+            // Quality data flows from agentic analysis via analysisData.
             // When quality data is present, pass it through to avoid re-running
             // the separate ProjectIntelligenceService quality assessment pipeline.
             includeQualityGuidance:
@@ -568,7 +564,7 @@ export class EnhancedPromptsRpcHandlers {
    * Returns the full generated prompt content for a workspace, or null
    * if no prompt has been generated or enhanced prompts is disabled.
    *
-   * TASK_2025_149 Batch 5: Added for prompt content preview in settings UI
+   * Added for prompt content preview in settings UI.
    */
   private registerGetPromptContent(): void {
     this.rpcHandler.registerMethod<
@@ -624,7 +620,7 @@ export class EnhancedPromptsRpcHandlers {
    * save dialog with .md filter, and writes the content to the selected
    * file path.
    *
-   * TASK_2025_149 Batch 5: Added for prompt download in settings UI
+   * Added for prompt download in settings UI.
    */
   private registerDownload(): void {
     this.rpcHandler.registerMethod<
@@ -809,7 +805,7 @@ export class EnhancedPromptsRpcHandlers {
    * Resolve workspace path from frontend value.
    * The frontend may send '.' or './' since it doesn't have access to the
    * real filesystem path. We resolve these to the actual workspace folder.
-   * TASK_2025_203: Uses IWorkspaceProvider instead of vscode.workspace.workspaceFolders
+   * Uses IWorkspaceProvider instead of vscode.workspace.workspaceFolders.
    */
   private resolveWorkspacePath(rawPath: string): string {
     if (rawPath === '.' || rawPath === './') {

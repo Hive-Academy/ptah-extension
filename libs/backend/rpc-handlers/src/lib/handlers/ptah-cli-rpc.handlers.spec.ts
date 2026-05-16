@@ -1,5 +1,5 @@
 /**
- * PtahCliRpcHandlers — unit specs (TASK_2025_294 W2.B2).
+ * PtahCliRpcHandlers — unit specs.
  *
  * Surface under test: six RPC methods that back the Ptah CLI agent admin
  * UI (`list`, `create`, `update`, `delete`, `testConnection`, `listModels`)

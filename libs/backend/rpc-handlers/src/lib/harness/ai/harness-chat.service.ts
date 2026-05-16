@@ -1,5 +1,5 @@
 /**
- * HarnessChatService — Wave C7d.
+ * HarnessChatService.
  *
  * LLM-powered conversational surfaces for the harness wizard:
  *   - `buildIntelligentChatReply` → step-aware chat reply with suggested

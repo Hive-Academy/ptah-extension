@@ -1,8 +1,8 @@
 /**
- * AuthSettingsSchema — unit specs (TASK_2025_294 W2.B1.1).
+ * AuthSettingsSchema — unit specs.
  *
- * Surface under test: the Zod schema extracted from `auth-rpc.handlers.ts` in
- * W0.B6. This file locks in the shape/behaviour the handler depends on so
+ * Surface under test: the Zod schema extracted from `auth-rpc.handlers.ts`.
+ * This file locks in the shape/behaviour the handler depends on so
  * future edits to the schema cannot silently change what the saveSettings RPC
  * accepts or rejects.
  *

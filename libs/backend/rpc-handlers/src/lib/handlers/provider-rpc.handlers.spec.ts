@@ -1,5 +1,5 @@
 /**
- * ProviderRpcHandlers — unit specs (TASK_2025_294 W2.B2).
+ * ProviderRpcHandlers — unit specs.
  *
  * Surface under test: four RPC methods backing the provider model selector
  * (`listModels`, `setModelTier`, `getModelTiers`, `clearModelTier`) plus
@@ -459,7 +459,7 @@ describe('ProviderRpcHandlers', () => {
         'anthropic/claude-3.5-sonnet',
         'mainAgent',
       );
-      // TASK_2025_132 contract: clear the SDK cache so the next models-list
+      // Contract: clear the SDK cache so the next models-list
       // call re-fetches with fresh tier env vars.
       expect(h.sdkAdapter.clearModelCache).toHaveBeenCalledTimes(1);
     });

@@ -1,5 +1,5 @@
 /**
- * ContextRpcHandlers schema — unit specs (TASK_2025_294 W2.B5).
+ * ContextRpcHandlers schema — unit specs.
  *
  * Surface under test: the schema module is intentionally empty — the context
  * handler defers validation to the downstream `ContextOrchestrationService`

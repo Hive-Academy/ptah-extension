@@ -1,5 +1,5 @@
 /**
- * LicenseRpcHandlers — unit specs (TASK_2025_294 W2.B1.3).
+ * LicenseRpcHandlers — unit specs.
  *
  * Surface under test: three RPC methods (`license:getStatus`, `license:setKey`,
  * `license:clearKey`) and their shared mapping logic
@@ -19,7 +19,7 @@
  *   - clearKey: calls `licenseService.clearLicenseKey()` and also schedules
  *     reloadWindow().
  *   - reason mapping: backend 'revoked' → frontend 'expired', 'not_found' →
- *     'no_license', 'trial_ended' → 'trial_ended' (TASK_2025_126).
+ *     'no_license', 'trial_ended' → 'trial_ended'.
  *
  * Mocking posture:
  *   - Direct constructor injection (no tsyringe container).

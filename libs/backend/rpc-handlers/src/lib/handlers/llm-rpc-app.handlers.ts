@@ -2,11 +2,10 @@
  * LLM RPC Handlers (Platform-Agnostic)
  *
  * Handles LLM provider management RPC methods: llm:getProviderStatus, llm:setApiKey,
- * llm:removeApiKey, llm:getDefaultProvider, llm:validateApiKeyFormat, llm:listVsCodeModels
+ * llm:removeApiKey, llm:getDefaultProvider, llm:validateApiKeyFormat, llm:listVsCodeModels.
  *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_209: Rewritten to be platform-agnostic. Uses ISecretStorage directly
- * instead of delegating to vscode-core's LlmRpcHandlers interface.
+ * Platform-agnostic — uses ISecretStorage directly instead of delegating to
+ * vscode-core's LlmRpcHandlers interface.
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';

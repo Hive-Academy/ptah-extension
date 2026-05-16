@@ -1,5 +1,5 @@
 /**
- * Skill Synthesis RPC Handlers (TASK_2026_HERMES Track 2).
+ * Skill Synthesis RPC Handlers.
  *
  * Bridges the frontend Skill Synthesis UI to the backend SkillCandidateStore +
  * SkillSynthesisService. Six methods:
@@ -69,7 +69,7 @@ import {
   UpdateSkillSynthesisSettingsParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
-/** Minimal interface for the Curator service (registered later in Batch 3). */
+/** Minimal interface for the Curator service. */
 interface ICuratorService {
   runManual(): Promise<{
     reportPath: string;

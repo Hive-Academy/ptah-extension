@@ -1,5 +1,5 @@
 /**
- * HarnessDocumentGenerationService — Wave C7d.
+ * HarnessDocumentGenerationService.
  *
  * LLM-powered comprehensive PRD/requirements document generation for the
  * harness wizard. Delegates the streaming LLM call to {@link HarnessLlmRunner}

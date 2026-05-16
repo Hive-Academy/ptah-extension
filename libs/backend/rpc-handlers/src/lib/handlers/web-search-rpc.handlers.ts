@@ -3,8 +3,6 @@
  *
  * Handles web search settings management: API key storage, provider config,
  * and search testing via platform-agnostic abstractions.
- *
- * TASK_2025_235 Batch 3: Frontend Settings UI + Backend RPC Handlers
  */
 
 import { injectable, inject } from 'tsyringe';

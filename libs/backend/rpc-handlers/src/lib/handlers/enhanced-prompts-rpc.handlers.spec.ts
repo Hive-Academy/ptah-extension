@@ -1,5 +1,5 @@
 /**
- * EnhancedPromptsRpcHandlers — unit specs (TASK_2025_294 W2.B1.2).
+ * EnhancedPromptsRpcHandlers — unit specs.
  *
  * Surface under test: six RPC methods exposing the Enhanced Prompts feature
  * to the webview (`getStatus`, `runWizard`, `setEnabled`, `regenerate`,

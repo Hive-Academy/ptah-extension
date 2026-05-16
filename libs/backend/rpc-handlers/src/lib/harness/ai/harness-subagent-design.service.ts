@@ -1,5 +1,5 @@
 /**
- * HarnessSubagentDesignService — Wave C7d.
+ * HarnessSubagentDesignService.
  *
  * LLM-powered subagent fleet design for the harness wizard. Delegates the
  * streaming LLM call to {@link HarnessLlmRunner} and validates / sanitises the

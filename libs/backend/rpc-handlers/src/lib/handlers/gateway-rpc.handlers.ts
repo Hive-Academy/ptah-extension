@@ -1,5 +1,5 @@
 /**
- * Gateway RPC Handlers (TASK_2026_HERMES Track 4)
+ * Gateway RPC Handlers
  *
  * Bridges the eight `gateway:*` RPC methods to {@link GatewayService}. Lives
  * in `rpc-handlers` (not in any app) because the messaging gateway is shared

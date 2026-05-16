@@ -1,5 +1,5 @@
 /**
- * Shared RPC Handler Registration (TASK_2025_291 Wave C4b)
+ * Shared RPC Handler Registration
  *
  * Centralizes shared RPC handler registration so each app no longer needs
  * to hand-maintain a per-handler fan-out. Each handler class declares a

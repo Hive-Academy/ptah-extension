@@ -1,5 +1,5 @@
 /**
- * QualityRpcSchema — unit specs (TASK_2025_294 W2.B6).
+ * QualityRpcSchema — unit specs.
  *
  * The quality handler has no Zod schemas (see `quality-rpc.schema.ts` — exports
  * are intentionally empty). This spec exists so the schema-file contract is

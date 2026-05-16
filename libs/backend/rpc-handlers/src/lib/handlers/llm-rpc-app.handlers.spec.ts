@@ -1,5 +1,5 @@
 /**
- * LlmRpcHandlers — unit specs (TASK_2025_294 W2.B2).
+ * LlmRpcHandlers — unit specs.
  *
  * Surface under test: nine RPC methods that back the LLM provider admin
  * UI (`getProviderStatus`, `setApiKey`, `removeApiKey`,

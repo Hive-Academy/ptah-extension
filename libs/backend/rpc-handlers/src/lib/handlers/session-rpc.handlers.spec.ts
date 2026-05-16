@@ -1,5 +1,5 @@
 /**
- * SessionRpcHandlers — unit specs (TASK_2025_294 W2.B4).
+ * SessionRpcHandlers — unit specs.
  *
  * Surface under test: seven RPC methods exposing the session metadata
  * store and the SDK session history reader to the webview

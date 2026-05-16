@@ -5,9 +5,6 @@
  * - quality:getAssessment - Get quality assessment (with optional cache bypass)
  * - quality:getHistory - Get historical assessment entries
  * - quality:export - Export quality report in Markdown/JSON/CSV
- *
- * TASK_2025_144: Phase G - Reporting and Visualization
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode APIs with platform abstractions)
  */
 
 import { injectable, inject } from 'tsyringe';

@@ -1,7 +1,7 @@
 /**
  * Zod schemas for {@link AuthRpcHandlers}.
  *
- * Extracted from `auth-rpc.handlers.ts` (TASK_2025_294 W0.B6) so the schemas can
+ * Extracted from `auth-rpc.handlers.ts` so the schemas can
  * be unit-tested in isolation without spinning up the full handler surface, and
  * so call-site code stays focused on RPC plumbing rather than validation shape.
  *
@@ -37,8 +37,8 @@ export const AuthSettingsSchema = z.object({
   authMethod: z.enum(['apiKey', 'claudeCli', 'thirdParty']),
   anthropicApiKey: z.string().optional(),
   providerApiKey: z.string().optional(),
-  // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
-  // Validated against known provider IDs from the registry
+  // Selected Anthropic-compatible provider.
+  // Validated against known provider IDs from the registry.
   anthropicProviderId: z
     .enum(ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]])
     .optional(),

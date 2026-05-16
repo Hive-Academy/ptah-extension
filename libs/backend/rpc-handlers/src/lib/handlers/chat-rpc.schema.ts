@@ -6,7 +6,7 @@
  * `ChatStartParams`, `ChatContinueParams`, `ChatAbortParams`) plus inline
  * guards like `if (!workspacePath)` / `if (!params?.ptahCliId)`. No
  * `z.object({...})` literals existed in `chat-rpc.handlers.ts` at the time of
- * TASK_2025_294 W2.B6 extraction.
+ * the schema extraction.
  *
  * This empty export exists so every handler has a consistent `*.schema.ts`
  * sibling, and so future tasks can add Zod validation here without having to

@@ -1,5 +1,5 @@
 /**
- * Chat session service (Wave C7e cleanup pass 2).
+ * Chat session service.
  *
  * SDK-adapter orchestration for the six chat RPC methods (`chat:start`,
  * `chat:continue` with auto-resume + slash-command intercept, `chat:resume`,
@@ -142,7 +142,7 @@ export class ChatSessionService {
         ptahCliId: params.ptahCliId,
       });
 
-      // TASK_2025_167: Ptah CLI dispatch
+      // Ptah CLI dispatch
       if (params.ptahCliId) {
         // Forward the resolved workspacePath so the Ptah CLI adapter uses
         // the actual workspace as cwd instead of falling back to homedir
@@ -164,7 +164,7 @@ export class ChatSessionService {
         return dispatch.result;
       }
 
-      // TASK_2025_184: Intercept native slash commands on initial message
+      // Intercept native slash commands on initial message
       const interceptResult = prompt
         ? this.slashCommandInterceptor.intercept(prompt)
         : { action: 'passthrough' as const };
@@ -194,7 +194,7 @@ export class ChatSessionService {
         return { success: true };
       }
 
-      // TASK_2025_108: License + MCP gating; TASK_2025_151/153: enhanced prompts + plugin paths
+      // License + MCP gating; enhanced prompts + plugin paths
       const licenseStatus = await this.licenseService.verifyLicense();
       const isPremium = isPremiumTier(licenseStatus);
       const mcpServerRunning = this.premiumContext.isMcpServerRunning();
@@ -228,7 +228,7 @@ export class ChatSessionService {
         this.modelSettings.selectedModel.get() ||
         DEFAULT_FALLBACK_MODEL_ID;
 
-      // TASK_2025_093: tabId is the primary tracking key; SDK generates real UUID
+      // tabId is the primary tracking key; SDK generates real UUID
       const files = options?.files ?? [];
       if (files.length > 0) {
         this.logger.debug('RPC: chat:start received files', {
@@ -238,7 +238,7 @@ export class ChatSessionService {
         });
       }
 
-      // TASK_2025_181: SDK handles slash commands natively when receiving string prompts
+      // SDK handles slash commands natively when receiving string prompts
       const images = options?.images ?? [];
       const stream = await this.sdkAdapter.startChatSession({
         tabId,
@@ -249,18 +249,18 @@ export class ChatSessionService {
         name,
         prompt,
         files,
-        images, // TASK_2025_176: inline pasted/dropped images
+        images, // inline pasted/dropped images
         isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
-        thinking: options?.thinking, // TASK_2025_184
-        effort: options?.effort, // TASK_2025_184
+        thinking: options?.thinking,
+        effort: options?.effort,
         // Opt-in passthrough for SDK partial-message stream events. When
         // omitted, the SDK plumbing defaults to ON (preserves historical
         // Ptah behavior — StreamTransformer already consumes stream_event).
         includePartialMessages: options?.includePartialMessages,
-        // TASK_2026_108 T2: Caller-supplied MCP HTTP server overrides
+        // Caller-supplied MCP HTTP server overrides
         // (populated by the Anthropic-compatible HTTP proxy via the
         // X-Ptah-Mcp-Servers header). Identity-preserved when undefined or
         // empty — see SdkQueryOptionsBuilder.mergeMcpOverride.
@@ -322,7 +322,7 @@ export class ChatSessionService {
         sessionName: name,
       });
 
-      // TASK_2025_167: Check if this is a Ptah CLI session
+      // Check if this is a Ptah CLI session
       const ptahCliResult = await this.ptahCli.handleContinue(params);
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
@@ -359,7 +359,7 @@ export class ChatSessionService {
         });
       }
 
-      // TASK_2025_184: Intercept slash commands BEFORE subagent context injection.
+      // Intercept slash commands BEFORE subagent context injection.
       // Subagent injection mutates the registry; running it for a slash command
       // (whose enhanced prompt is discarded) would lose interrupted-agent state.
       const slashResult =
@@ -374,7 +374,7 @@ export class ChatSessionService {
         return slashResult;
       }
 
-      // TASK_2025_109: Inject interrupted-subagent context so Claude auto-resumes.
+      // Inject interrupted-subagent context so Claude auto-resumes.
       const { prompt: enhancedPrompt } =
         await this.subagentContextInjector.injectInterruptedAgentsContext(
           prompt,
@@ -463,7 +463,7 @@ export class ChatSessionService {
         ptahCliId: params.ptahCliId,
       });
 
-      // TASK_2025_167: Track Ptah CLI session for subsequent chat:continue/abort
+      // Track Ptah CLI session for subsequent chat:continue/abort
       if (params.ptahCliId) {
         this.ptahCli.registerResumedSession(
           sessionId as string,
@@ -472,7 +472,7 @@ export class ChatSessionService {
         );
       }
 
-      // TASK_2025_092: Full FlatStreamEventUnion[] for tree reconstruction
+      // Full FlatStreamEventUnion[] for tree reconstruction
       const result = await this.historyReader.readSessionHistory(
         sessionId,
         resolvedWorkspacePath,
@@ -485,7 +485,7 @@ export class ChatSessionService {
         resolvedWorkspacePath,
       );
 
-      // TASK_2025_109: Register interrupted agents from history so context
+      // Register interrupted agents from history so context
       // injection can fire on cold-loaded sessions (live SDK hooks haven't run).
       const registeredFromHistory =
         this.subagentRegistry.registerFromHistoryEvents(events, sessionId);
@@ -497,11 +497,11 @@ export class ChatSessionService {
         });
       }
 
-      // TASK_2025_103 + TASK_2025_109: Frontend marks resumable agent nodes
+      // Frontend marks resumable agent nodes
       const resumableSubagents =
         this.subagentRegistry.getResumableBySession(sessionId);
 
-      // TASK_2025_168: Query CLI sessions from session metadata
+      // Query CLI sessions from session metadata
       let cliSessions: CliSessionReference[] | undefined;
       try {
         const metadata = await this.sessionMetadataStore.get(sessionId);
@@ -580,13 +580,13 @@ export class ChatSessionService {
     }
   }
 
-  /** chat:abort - Interrupt session (TASK_2025_175). */
+  /** chat:abort - Interrupt session. */
   async abortSession(params: ChatAbortParams): Promise<ChatAbortResult> {
     try {
       const { sessionId } = params;
       this.logger.debug('RPC: chat:abort called', { sessionId });
 
-      // TASK_2025_167: Ptah CLI sessions take a separate abort path
+      // Ptah CLI sessions take a separate abort path
       const customAbortResult = await this.ptahCli.handleAbort(params);
       if (customAbortResult.error !== '__NOT_PTAH_CLI__') {
         return customAbortResult;
@@ -610,7 +610,7 @@ export class ChatSessionService {
 
   /**
    * chat:running-agents - Query running (non-background) subagents
-   * (TASK_2025_185: frontend abort-confirmation hook).
+   * (frontend abort-confirmation hook).
    */
   async getRunningAgents(
     params: ChatRunningAgentsParams,
@@ -735,8 +735,8 @@ export class ChatSessionService {
         enhancedPromptsContent,
         pluginPaths,
         tabId,
-        thinking: params.thinking, // TASK_2025_184
-        effort: params.effort, // TASK_2025_184
+        thinking: params.thinking,
+        effort: params.effort,
         prompt,
       });
       this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);

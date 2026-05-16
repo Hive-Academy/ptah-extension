@@ -1,5 +1,5 @@
 /**
- * Provider RPC Handlers (TASK_2025_132 - generalized from OpenRouterRpcHandlers)
+ * Provider RPC Handlers (generalized from OpenRouterRpcHandlers).
  *
  * Handles provider-related RPC methods for model listing and tier configuration:
  * - provider:listModels - Fetch models from provider API (or return static list)
@@ -8,7 +8,6 @@
  * - provider:clearModelTier - Clear a tier override (reset to default)
  *
  * Supports all Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI).
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.lm with IModelDiscovery)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -241,7 +240,7 @@ export class ProviderRpcHandlers {
   /**
    * Register a dynamic model fetcher for direct Anthropic auth (oauth/apiKey/claudeCli).
    *
-   * TASK_2025_270: 'anthropic' is a virtual provider ID for direct Claude auth
+   * 'anthropic' is a virtual provider ID for direct Claude auth
    * users — it is NOT in the ANTHROPIC_PROVIDERS registry.
    *
    * Cascade:
@@ -355,7 +354,7 @@ export class ProviderRpcHandlers {
    * Provider ID routing:
    * - Registry providers (openrouter, moonshot, z-ai, github-copilot, openai-codex, etc.):
    *   Resolved via ANTHROPIC_PROVIDERS registry → fetchModels() handles static/dynamic paths.
-   * - 'anthropic' (virtual provider for direct OAuth/API key auth, TASK_2025_270):
+   * - 'anthropic' (virtual provider for direct OAuth/API key auth):
    *   NOT in the registry. Handled via dynamic fetcher registered by
    *   registerAnthropicDirectFetcher() — ProviderModelsService.fetchModels() checks
    *   dynamic fetchers before the registry lookup, so this works without a registry entry.

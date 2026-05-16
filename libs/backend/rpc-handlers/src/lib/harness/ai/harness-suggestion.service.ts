@@ -1,5 +1,5 @@
 /**
- * HarnessSuggestionService — Wave C7d.
+ * HarnessSuggestionService.
  *
  * LLM-powered persona analysis + intent analysis surfaces:
  *   - `buildSuggestionFromPersona` → persona→config suggestion with heuristic fallback.

@@ -1,5 +1,5 @@
 /**
- * Indexing RPC Handlers (TASK_2026_114 Batch 5).
+ * Indexing RPC Handlers.
  *
  * Surfaces 8 `indexing:*` methods backed by `IndexingControlService`:
  * getStatus / start / pause / resume / cancel /

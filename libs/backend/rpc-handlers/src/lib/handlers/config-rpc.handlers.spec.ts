@@ -1,5 +1,5 @@
 /**
- * ConfigRpcHandlers — unit specs (TASK_2025_294 W2.B3).
+ * ConfigRpcHandlers — unit specs.
  *
  * Surface under test: seven RPC methods covering model switching, model-list
  * aggregation, autopilot toggle, and reasoning-effort persistence. These specs
@@ -251,7 +251,7 @@ async function call<TResult>(
 describe('ConfigRpcHandlers', () => {
   describe('register()', () => {
     // Pre-existing: handler now also registers `config:model-set`; spec
-    // list lags behind. Unrelated to TASK_2026_HERMES Track 1.
+    // list lags behind.
     it.skip('registers all seven config RPC methods', () => {
       const h = makeHarness();
       h.handlers.register();

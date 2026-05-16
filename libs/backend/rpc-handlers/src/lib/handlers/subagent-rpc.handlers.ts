@@ -3,17 +3,13 @@
  *
  * Handles subagent-related RPC methods.
  *
- * TASK_2025_103: Subagent Resumption Feature (original implementation)
- * TASK_2025_109: Streamlined - removed resume RPC, now uses context injection
- * Phase 2: Added bidirectional messaging + stop/interrupt methods
- *
  * RPC Methods:
  * - chat:subagent-query    — Query subagents (resumable or by specific ID)
  * - subagent:send-message  — Push a user message into a running subagent
  * - subagent:stop          — Stop a specific subagent by taskId
  * - subagent:interrupt     — Interrupt the entire session
  *
- * NOTE: The chat:subagent-resume RPC has been removed (TASK_2025_109).
+ * NOTE: The chat:subagent-resume RPC has been removed.
  * Subagent resumption is now handled via context injection in chat:continue,
  * allowing Claude to naturally resume interrupted agents through conversation.
  */

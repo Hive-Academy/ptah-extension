@@ -4,8 +4,6 @@
  * Shared RPC handler classes for the Ptah Extension.
  * These handlers are platform-agnostic (no vscode imports) and can be
  * used by both VS Code and Electron applications.
- *
- * TASK_2025_203: Unify RPC Handler Architecture
  */
 
 export {
@@ -17,28 +15,28 @@ export {
   LlmRpcHandlers,
   PluginRpcHandlers,
   PtahCliRpcHandlers,
-  // Tier 2 handlers (TASK_2025_203 Batch 3)
+  // Tier 2 handlers
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
   ConfigRpcHandlers,
   LicenseRpcHandlers,
   ChatRpcHandlers,
-  // Tier 2 handlers (TASK_2025_203 Batch 4)
+  // Tier 2 handlers
   AuthRpcHandlers,
   EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,
   ProviderRpcHandlers,
-  // Tier 2 handlers (TASK_2025_235 - web search settings)
+  // Tier 2 handlers - web search settings
   WebSearchRpcHandlers,
   // Harness Setup Builder handlers
   HarnessRpcHandlers,
-  // MCP Server Directory handlers (TASK_2026_104 Batch 6a)
+  // MCP Server Directory handlers
   McpDirectoryRpcHandlers,
-  // Git handlers (TASK_2026_104 Sub-batch B5b)
+  // Git handlers
   GitRpcHandlers,
-  // Workspace handlers (TASK_2026_104 Sub-batch B5a)
+  // Workspace handlers
   WorkspaceRpcHandlers,
-  // Settings handlers (TASK_2026_107 Bug 6)
+  // Settings handlers
   SettingsRpcHandlers,
   MemoryRpcHandlers,
   SkillsSynthesisRpcHandlers,
@@ -46,7 +44,7 @@ export {
   GatewayRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
-  // Workspace indexing control handlers (TASK_2026_114)
+  // Workspace indexing control handlers
   IndexingRpcHandlers,
 } from './lib/handlers';
 export type {
@@ -56,8 +54,8 @@ export type {
   DbResetResult,
 } from './lib/handlers';
 
-// Platform abstraction interfaces (TASK_2025_203 Batch 2)
-// Moved to @ptah-extension/platform-core in Wave C8 (TASK_2025_291).
+// Platform abstraction interfaces.
+// Canonical home is @ptah-extension/platform-core.
 // Re-exported here for backwards-compat; prefer importing from platform-core directly.
 export type {
   IPlatformCommands,
@@ -66,15 +64,15 @@ export type {
   IModelDiscovery,
 } from '@ptah-extension/platform-core';
 
-// Registration helpers (TASK_2025_291 Wave C4b)
+// Registration helpers
 export * from './lib/register-all';
 export * from './lib/verify-and-report';
 
-// Harness sub-service DI tokens + registration helper (TASK_2025_291 Wave C7d)
+// Harness sub-service DI tokens + registration helper
 export { HARNESS_TOKENS, registerHarnessServices } from './lib/harness';
 
-// Chat sub-service DI tokens + registration helper (TASK_2025_291 Wave C7e)
+// Chat sub-service DI tokens + registration helper
 export { CHAT_TOKENS, registerChatServices } from './lib/chat';
 
-// Shared workspace-authorization utility (PR-267 Fix #1)
+// Shared workspace-authorization utility
 export { isAuthorizedWorkspace } from './lib/utils/workspace-authorization';

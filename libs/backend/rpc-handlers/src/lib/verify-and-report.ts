@@ -1,7 +1,7 @@
 /**
- * Shared RPC verification + Sentry drift reporting helper (TASK_2025_291 Wave C4b).
+ * Shared RPC verification + Sentry drift reporting helper.
  *
- * Collapses the ~35-line verification / Sentry / dev-assertion block that was
+ * Collapses the verification / Sentry / dev-assertion block that was
  * duplicated across the three app-level RPC registration services (VS Code,
  * Electron, TUI) into a single helper. Platform is surfaced in the Sentry
  * payload so dashboard filters still work.

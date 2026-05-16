@@ -1,8 +1,8 @@
 /**
- * Zod schemas for {@link SubagentRpcHandlers} — Phase 2 additions.
+ * Zod schemas for {@link SubagentRpcHandlers}.
  *
  * The original `chat:subagent-query` handler uses static TypeScript types
- * and trivial presence checks (no Zod). The three new Phase 2 methods
+ * and trivial presence checks (no Zod). The three methods
  * (`subagent:send-message`, `subagent:stop`, `subagent:interrupt`) each
  * validate their params with Zod schemas defined here.
  */

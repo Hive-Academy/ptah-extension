@@ -1,5 +1,5 @@
 /**
- * AutocompleteRpcHandlers — unit specs (TASK_2025_294 W2.B5).
+ * AutocompleteRpcHandlers — unit specs.
  *
  * Surface under test: two RPC methods (`autocomplete:agents`,
  * `autocomplete:commands`) that proxy into AgentDiscoveryService and

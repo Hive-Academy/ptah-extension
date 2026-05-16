@@ -1,5 +1,5 @@
 /**
- * HarnessLlmRunner — Wave C7d follow-up.
+ * HarnessLlmRunner.
  *
  * Centralises the streaming-LLM-call boilerplate previously duplicated across
  * the five harness AI services (`harness-suggestion`, `harness-subagent-design`,

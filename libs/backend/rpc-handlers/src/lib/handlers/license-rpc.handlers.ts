@@ -1,11 +1,8 @@
 /**
  * License RPC Handlers
  *
- * Handles license-related RPC methods: license:getStatus
- *
- * TASK_2025_079: License status exposure for frontend premium feature gating
- * TASK_2025_128: Freemium model (Community + Pro)
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.commands with IPlatformCommands)
+ * Handles license-related RPC methods: license:getStatus.
+ * Freemium model (Community + Pro).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -30,9 +27,7 @@ import type {
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
- * RPC handlers for license operations
- *
- * TASK_2025_128: Freemium model (Community + Pro)
+ * RPC handlers for license operations (Freemium model: Community + Pro).
  *
  * Exposes license status to the frontend for:
  * - Conditional settings visibility (premium sections)
@@ -77,9 +72,7 @@ export class LicenseRpcHandlers {
   }
 
   /**
-   * license:getStatus - Get current license status
-   *
-   * TASK_2025_128: Updated for freemium model
+   * license:getStatus - Get current license status (freemium model).
    *
    * Returns tier, validity, and feature flags for frontend gating.
    * Uses cached status (1-hour TTL) to minimize API calls.
@@ -123,7 +116,7 @@ export class LicenseRpcHandlers {
           { errorSource: 'LicenseRpcHandlers.registerGetStatus' },
         );
 
-        // TASK_2025_128: On error, check cached status to determine fallback.
+        // On error, check cached status to determine fallback.
         // If user was on Community tier (or no cached status exists, meaning
         // no license key), return Community instead of expired to avoid
         // blocking free-tier users due to transient errors.
@@ -297,9 +290,9 @@ export class LicenseRpcHandlers {
   }
 
   /**
-   * Map internal LicenseStatus to RPC response format
+   * Map internal LicenseStatus to RPC response format.
    *
-   * TASK_2025_128: Maps the internal LicenseStatus from LicenseService
+   * Maps the internal LicenseStatus from LicenseService
    * to the LicenseGetStatusResponse format expected by the frontend.
    *
    * Tier mapping for convenience flags:
@@ -322,7 +315,7 @@ export class LicenseRpcHandlers {
     // Determine trial status from tier (only Pro has trial)
     const trialActive = status.trialActive ?? status.tier === 'trial_pro';
 
-    // TASK_2025_126: Map reason field for context-aware welcome messaging
+    // Map reason field for context-aware welcome messaging
     // Backend uses: 'expired' | 'revoked' | 'not_found' | 'trial_ended'
     // Frontend expects: 'expired' | 'trial_ended' | 'no_license'
     let reason: 'expired' | 'trial_ended' | 'no_license' | undefined;
@@ -386,7 +379,7 @@ export class LicenseRpcHandlers {
           }
         : undefined,
       reason,
-      // TASK_2025_129: Forward user profile data
+      // Forward user profile data
       user: status.user
         ? {
             email: status.user.email,

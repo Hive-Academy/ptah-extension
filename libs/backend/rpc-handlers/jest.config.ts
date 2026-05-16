@@ -13,8 +13,6 @@ export default {
   moduleNameMapper: {
     '^vscode$': '<rootDir>/../../../__mocks__/vscode.ts',
   },
-  // Ratchet floor from TASK_2025_294 W8.B1 baseline (S 66.75 / B 41.42 /
-  // F 74.62 / L 67.2). Rounded down to the nearest 5.
   coverageThreshold: {
     global: {
       statements: 65,

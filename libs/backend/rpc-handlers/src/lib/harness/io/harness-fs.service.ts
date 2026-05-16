@@ -1,5 +1,5 @@
 /**
- * HarnessFsService — Wave C7d.
+ * HarnessFsService.
  *
  * Owns the harness wizard's local filesystem surface:
  *   - `createSkillPlugin` writes a custom skill plugin to

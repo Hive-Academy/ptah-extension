@@ -1,5 +1,5 @@
 /**
- * ChatRpcSchema — unit specs (TASK_2025_294 W2.B6).
+ * ChatRpcSchema — unit specs.
  *
  * The chat handler has no Zod schemas (see `chat-rpc.schema.ts` — exports are
  * intentionally empty). This spec exists so the schema-file contract is

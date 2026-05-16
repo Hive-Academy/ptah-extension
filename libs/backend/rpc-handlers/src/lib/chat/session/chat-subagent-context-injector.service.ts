@@ -1,5 +1,5 @@
 /**
- * Subagent context injector (Wave C7e cleanup pass 2).
+ * Subagent context injector.
  *
  * Owns the `[SYSTEM CONTEXT - INTERRUPTED AGENTS]` prompt prefix injection
  * + watcher pre-warming + registry mark/remove. Extracted from
@@ -145,10 +145,10 @@ IMPORTANT INSTRUCTIONS:
       })),
     });
 
-    // TASK_2025_109 FIX: Remove injected subagents from registry to prevent
+    // Remove injected subagents from registry to prevent
     // re-injection on subsequent messages. The context is a one-shot injection;
     // once Claude receives the resumption instructions, we don't need to send them again.
-    // TASK_2025_213 FIX: Mark as injected BEFORE removing so that
+    // Mark as injected BEFORE removing so that
     // registerFromHistoryEvents() skips these on session reload.
     for (const s of resumableSubagents) {
       this.subagentRegistry.markAsInjected(s.toolCallId);

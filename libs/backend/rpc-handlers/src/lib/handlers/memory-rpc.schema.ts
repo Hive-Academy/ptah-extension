@@ -1,12 +1,12 @@
 /**
- * Zod validation schemas for Memory RPC handlers (TASK_2026_119).
+ * Zod validation schemas for Memory RPC handlers.
  *
  * `MemoryPurgeBySubjectPatternParamsSchema` validates params for the
  * `memory:purgeBySubjectPattern` RPC method before the handler acts on them.
  * The `min(1)` guard is belt-and-braces on top of the store-level empty-string guard.
  *
  * `MemorySearchParamsSchema` validates params for `memory:search`, including
- * the optional `workspaceRoot` filter added in TASK_2026_122.
+ * the optional `workspaceRoot` filter.
  */
 import { z } from 'zod';
 

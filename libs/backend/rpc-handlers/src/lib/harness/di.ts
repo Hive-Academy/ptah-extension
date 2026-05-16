@@ -1,5 +1,5 @@
 /**
- * Harness sub-service DI registration (Wave C7d).
+ * Harness sub-service DI registration.
  *
  * Registers all extracted harness services + the stream broadcaster as
  * tsyringe singletons bound to the tokens in `./tokens.ts`.

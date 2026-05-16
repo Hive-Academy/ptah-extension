@@ -4,10 +4,7 @@
  * Handles session-related RPC methods: session:list, session:load, session:delete, session:rename,
  * session:validate, session:cli-sessions, session:stats-batch
  * Uses SessionMetadataStore for lightweight UI metadata.
- * SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_088: Simplified to use SDK-native session persistence
+ * SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -67,7 +64,7 @@ export const AgentJsonlFirstLineSchema = z.object({
 /**
  * RPC handlers for session operations (SDK-based)
  *
- * Session Architecture (TASK_2025_088):
+ * Session Architecture:
  * - SDK handles message persistence to ~/.claude/projects/{sessionId}.jsonl
  * - This handler manages metadata only (names, timestamps, cost)
  * - session:load returns minimal data - actual messages come from SDK resume
@@ -309,9 +306,8 @@ export class SessionRpcHandlers {
    * This is a lightweight check that returns immediately with empty arrays.
    * To load conversation history, frontend must call chat:resume after this.
    *
-   * Flow: session:load (validate) → chat:resume (trigger SDK replay)
-   *
-   * TASK_2025_089: Clarified that this is validation only, not data loading
+   * Flow: session:load (validate) → chat:resume (trigger SDK replay).
+   * This is validation only, not data loading.
    */
   private registerSessionLoad(): void {
     this.rpcHandler.registerMethod<SessionLoadParams, SessionLoadResult>(
@@ -710,7 +706,6 @@ export class SessionRpcHandlers {
    * stats (cost, tokens, model, message count). This bypasses the broken metadata
    * pipeline (addStats never called) and reads directly from source of truth.
    *
-   * TASK_2025_206 v2: Dashboard redesign with per-session stats cards
    */
   private registerSessionStatsBatch(): void {
     this.rpcHandler.registerMethod<
@@ -1019,9 +1014,9 @@ export class SessionRpcHandlers {
           this.sentryService.captureException(errorObj, {
             errorSource: 'SessionRpcHandlers.registerRewindFiles',
           });
-          // Prefer the stable error type over regex-matching the message
-          // (Fix 8). The regex fallback is preserved below for safety in
-          // case a non-typed error bubbles up through legacy paths.
+          // Prefer the stable error type over regex-matching the message.
+          // The regex fallback is preserved below for safety in case a
+          // non-typed error bubbles up through legacy paths.
           if (error instanceof SessionNotActiveError) {
             throw new Error(`session-not-active: ${errorObj.message}`);
           }

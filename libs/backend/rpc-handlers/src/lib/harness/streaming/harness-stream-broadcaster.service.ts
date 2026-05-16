@@ -1,5 +1,5 @@
 /**
- * HarnessStreamBroadcaster — Wave C7d.
+ * HarnessStreamBroadcaster.
  *
  * Owns the webview streaming infrastructure for harness operations:
  *   - Creates per-operation stream emitters that broadcast `harness:stream`

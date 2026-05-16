@@ -1,5 +1,5 @@
 /**
- * Workspace RPC Handlers (TASK_2026_104 Sub-batch B5a)
+ * Workspace RPC Handlers
  *
  * Lifted from `apps/ptah-electron/src/services/rpc/handlers/workspace-rpc.handlers.ts`
  * into the shared `rpc-handlers` library so all hosts (Electron, CLI, and
@@ -260,7 +260,7 @@ export class WorkspaceRpcHandlers {
 
         try {
           // Store the origin token so the broadcast listener can echo it back
-          // to the frontend for self-echo suppression (TASK_2026_115).
+          // to the frontend for self-echo suppression.
           this.workspaceLifecycle.setPendingOrigin?.(params.origin ?? null);
 
           // Switch workspace context (creates lazily if needed),

@@ -6,9 +6,6 @@
  * - wizard:cancel - Cancel active generation or wizard session
  * - wizard:retry-item - Retry a single failed generation item
  *
- * TASK_2025_148: Wire Setup Wizard Generation Pipeline via RPC
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.workspace.workspaceFolders with IWorkspaceProvider)
- *
  * Design decisions:
  * - Uses lazy DI resolution via container (same as SetupRpcHandlers)
  * - Concurrent generation guard prevents multiple simultaneous generations
@@ -108,11 +105,9 @@ interface EnhancedPromptsServiceInterface {
 /**
  * RPC handlers for setup wizard generation operations.
  *
- * TASK_2025_148: Connects the frontend Angular SPA to the backend
+ * Connects the frontend Angular SPA to the backend
  * AgentGenerationOrchestratorService via RPC, replacing the old
  * postMessage-based webview panel handlers.
- *
- * TASK_2025_154: Added multi-phase analysis RPC handlers.
  *
  * Concurrency: Only one generation can run at a time. The `isGenerating`
  * flag prevents concurrent submissions and is always reset in finally blocks.
@@ -207,7 +202,7 @@ export class WizardGenerationRpcHandlers {
   /**
    * Register all wizard generation RPC methods.
    *
-   * TASK_2025_154 wiring: Removed wizard:start-multi-phase-analysis and
+   * Removed wizard:start-multi-phase-analysis and
    * wizard:cancel-multi-phase-analysis — these are now integrated into
    * wizard:deep-analyze and wizard:cancel-analysis in SetupRpcHandlers.
    */
@@ -384,9 +379,8 @@ export class WizardGenerationRpcHandlers {
           );
         }
 
-        // Detect installed CLI targets for multi-CLI agent generation (TASK_2025_160, TASK_2025_268)
+        // Detect installed CLI targets for multi-CLI agent generation.
         // Only premium users get cross-CLI sync; includes all supported CLI targets.
-        // cursor support added in TASK_2025_267.
         let targetClis: CliTarget[] | undefined;
         if (isPremium) {
           try {
@@ -951,8 +945,7 @@ export class WizardGenerationRpcHandlers {
     });
   }
 
-  // TASK_2025_154 wiring: wizard:start-multi-phase-analysis and
-  // wizard:cancel-multi-phase-analysis removed. Multi-phase analysis is now
-  // integrated into wizard:deep-analyze (SetupRpcHandlers) and
-  // wizard:cancel-analysis (SetupRpcHandlers).
+  // wizard:start-multi-phase-analysis and wizard:cancel-multi-phase-analysis
+  // removed. Multi-phase analysis is now integrated into wizard:deep-analyze
+  // (SetupRpcHandlers) and wizard:cancel-analysis (SetupRpcHandlers).
 }

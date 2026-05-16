@@ -1,5 +1,5 @@
 /**
- * HarnessPromptBuilderService — Wave C7d.
+ * HarnessPromptBuilderService.
  *
  * Pure functions (wrapped in an injectable for DI symmetry + future state)
  * that build the structured system-prompt sections and the CLAUDE.md content

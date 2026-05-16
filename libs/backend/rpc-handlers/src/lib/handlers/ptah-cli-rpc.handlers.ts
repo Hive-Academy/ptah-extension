@@ -8,8 +8,6 @@
  * - ptahCli:delete - Delete a Ptah CLI agent
  * - ptahCli:testConnection - Test connection to a Ptah CLI agent's provider
  * - ptahCli:listModels - List available models for a Ptah CLI agent's provider
- *
- * TASK_2025_167 Batch 3: RPC Handlers + DI Wiring
  */
 
 import { injectable, inject } from 'tsyringe';

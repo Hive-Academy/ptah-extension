@@ -9,7 +9,7 @@
  * - mcpDirectory:listInstalled - List all installed MCP servers
  * - mcpDirectory:getPopular - Get popular/trending servers (cached)
  *
- * TASK_2026_104 Batch 6a: Lifted from
+ * Lifted from
  * `apps/ptah-extension-vscode/src/services/rpc/handlers/` so all three apps
  * (VS Code, Electron, CLI) consume it via `registerAllRpcHandlers()`.
  * Replaced `vscode.workspace.workspaceFolders` with `IWorkspaceProvider`

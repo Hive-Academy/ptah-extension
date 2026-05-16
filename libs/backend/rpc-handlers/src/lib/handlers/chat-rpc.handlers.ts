@@ -1,5 +1,5 @@
 /**
- * Chat RPC Handlers — thin facade (Wave C7e cleanup pass 2).
+ * Chat RPC Handlers — thin facade.
  *
  * Registers the six `chat:*` / `agent:backgroundList` RPC methods and delegates
  * each call to one of the extracted chat sub-services:
@@ -15,20 +15,12 @@
  * Error handling: each `ChatSessionService` method already wraps its body in
  * try/catch and returns a result-shaped failure (`{ success: false, error }`)
  * after capturing the error to Sentry directly. The `runRpc` helper here adds
- * the C7d-style outer try/catch + entry/exit debug logs so any unexpected
+ * an outer try/catch + entry/exit debug logs so any unexpected
  * throw (re-thrown error or new bug) still gets logged and captured.
  *
  * `registerChatServices(container)` from `@ptah-extension/rpc-handlers` MUST
  * be invoked BEFORE `registerAllRpcHandlers(container)` resolves this class —
  * registration order is documented in `../chat/di.ts`.
- *
- * Original history:
- *   TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService.
- *   TASK_2025_203: Moved to @ptah-extension/rpc-handlers.
- *   TASK_2025_291 / Wave C7e: Split monolith into chat/ sub-services.
- *   Wave C7e cleanup pass 2: aligned with C7d harness pattern (DI over
- *   callbacks; runRpc with logging + Sentry; subagent-context + slash-command
- *   carve-outs).
  */
 
 import { injectable, inject } from 'tsyringe';

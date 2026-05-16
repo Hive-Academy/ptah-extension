@@ -9,7 +9,7 @@
  * Platform-agnostic settings collection / import is delegated to
  * `SettingsExportService` and `SettingsImportService` from `@ptah-extension/agent-sdk`.
  *
- * TASK_2026_107 Bug 6: Lifted from
+ * Lifted from
  * `apps/ptah-electron/src/services/rpc/handlers/settings-rpc.handlers.ts` so all
  * three apps consume it via `registerAllRpcHandlers()`. The Electron-specific
  * `dialog.showMessageBox` plaintext warning is dropped — the renderer is the

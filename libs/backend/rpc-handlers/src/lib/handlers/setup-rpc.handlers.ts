@@ -6,12 +6,6 @@
  * - setup-wizard:launch - Launch setup wizard webview
  * - wizard:deep-analyze - Perform deep project analysis
  * - wizard:recommend-agents - Calculate agent recommendations
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_069: Setup wizard integration
- * TASK_2025_111: Added deep analysis and recommendation handlers
- * TASK_2025_145: Use shared ProjectAnalysisZodSchema + normalizeAgentOutput (SERIOUS-7, CRITICAL-1)
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.workspace.workspaceFolders with IWorkspaceProvider)
  */
 
 import * as path from 'path';

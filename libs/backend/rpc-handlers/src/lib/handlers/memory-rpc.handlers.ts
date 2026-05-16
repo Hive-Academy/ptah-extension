@@ -1,5 +1,5 @@
 /**
- * Memory RPC Handlers (TASK_2026_HERMES Track 1).
+ * Memory RPC Handlers.
  *
  * Surfaces 8 `memory:*` methods backed by the `@ptah-extension/memory-curator`
  * library: list / search / get / pin / unpin / forget / rebuildIndex / stats.

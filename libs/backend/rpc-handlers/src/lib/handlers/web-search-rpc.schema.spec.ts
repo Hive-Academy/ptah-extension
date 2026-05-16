@@ -1,7 +1,7 @@
 /**
- * WebSearchRpcHandlers schema — unit specs (TASK_2025_294 W2.B5).
+ * WebSearchRpcHandlers schema — unit specs.
  *
- * Surface under test: the schema module extracted in W2.B5 — it exposes
+ * Surface under test: the extracted schema module — it exposes
  * `VALID_PROVIDERS` (runtime Set used by the handler's validateProvider()
  * throw-path), `SECRET_KEY_PREFIX` (SecretStorage namespace — changing it
  * would orphan already-stored end-user keys), and `WebSearchProviderSchema`

@@ -1,9 +1,9 @@
 /**
  * Zod schemas and validation constants for {@link WebSearchRpcHandlers}.
  *
- * Extracted from `web-search-rpc.handlers.ts` (TASK_2025_294 W2.B5) so the
- * provider enum and SecretStorage key prefix can be unit-tested in isolation
- * and reused without duplicating literal sets across handler and specs.
+ * Extracted from `web-search-rpc.handlers.ts` so the provider enum and
+ * SecretStorage key prefix can be unit-tested in isolation and reused
+ * without duplicating literal sets across handler and specs.
  *
  * IMPORTANT — extraction contract:
  *   - `VALID_PROVIDERS` must keep the same three members ('tavily', 'serper',

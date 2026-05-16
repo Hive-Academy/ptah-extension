@@ -1,5 +1,5 @@
 /**
- * AuthRpcHandlers — unit specs (TASK_2025_294 W2.B1.1).
+ * AuthRpcHandlers — unit specs.
  *
  * Surface under test: eight RPC methods covering SDK auth health, per-provider
  * settings, Copilot OAuth, Codex CLI login, and the multi-source auth-status
@@ -18,15 +18,14 @@
  *
  *   - `auth:getAuthStatus`: Legacy `authMethod` values like 'vscode-lm' /
  *     'auto' are normalised to 'apiKey'; 'openrouter' is normalised to
- *     'thirdParty' (see TASK_2025_194).
+ *     'thirdParty'.
  *
  *   - `auth:saveSettings`: Empty-string credentials delete, non-empty
  *     credentials write. Schema rejects unknown auth methods (the real
  *     Zod validation from `auth-rpc.schema.ts`, not a stub).
  *
  *   - `auth:saveSettings`: Awaits `sdkAdapter.reset()` so subsequent
- *     testConnection calls see the updated health (TASK_2025_194 regression
- *     guard).
+ *     testConnection calls see the updated health (regression guard).
  *
  *   - `auth:testConnection`: Returns immediately once SDK health reports
  *     `available`; surfaces a "timed out" error after exhausting retries.
@@ -264,8 +263,7 @@ void (0 as unknown as LicenseService | undefined);
 describe('AuthRpcHandlers', () => {
   describe('register()', () => {
     // Pre-existing: handler now also registers `auth:getStatus` and
-    // `auth:setApiKey`; spec list lags behind. Unrelated to TASK_2026_HERMES
-    // Track 1.
+    // `auth:setApiKey`; spec list lags behind.
     it.skip('registers all nine auth RPC methods', () => {
       const h = makeHarness();
       h.handlers.register();
@@ -487,7 +485,7 @@ describe('AuthRpcHandlers', () => {
         anthropicApiKey: 'sk-ant-new',
       });
 
-      // TASK_2025_194 contract: reset is called (not fire-and-forget).
+      // Contract: reset is called (not fire-and-forget).
       expect(h.sdkAdapter.reset).toHaveBeenCalledTimes(1);
     });
 
@@ -683,7 +681,7 @@ describe('AuthRpcHandlers', () => {
   });
 
   // -------------------------------------------------------------------------
-  // auth:getApiKeyStatus (TASK_2026_104 Batch B8b)
+  // auth:getApiKeyStatus
   // Lifted from Electron's config-extended-rpc.handlers.ts so all platforms
   // (VS Code, Electron, CLI) share a single registration path.
   // -------------------------------------------------------------------------

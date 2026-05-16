@@ -1,5 +1,5 @@
 /**
- * Harness RPC Handlers — thin facade (Wave C7d).
+ * Harness RPC Handlers — thin facade.
  *
  * Registers the sixteen `harness:*` RPC methods and delegates each call to one
  * of the extracted harness services:

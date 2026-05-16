@@ -1,10 +1,9 @@
 /**
- * ChatRpcHandlers — thin facade specs (Wave C7e cleanup pass 2). Locks five
- * invariants:
+ * ChatRpcHandlers — thin facade specs. Locks five invariants:
  * 1. `register()` wires exactly the six `METHODS` entries, in order.
  * 2. Each method delegates to `ChatSessionService` on the happy path.
  * 3. `register()` subscribes the broadcaster to background-agent events.
- * 4. `runRpc` matches the C7d shape: emits `RPC: {method} called` /
+ * 4. `runRpc` shape: emits `RPC: {method} called` /
  *    `success` debug logs on the happy path, and on a rejection logs
  *    `RPC: {method} failed`, captures Sentry under
  *    `errorSource: ChatRpcHandlers.{tag}`, and re-throws.
@@ -171,8 +170,7 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // chat:start mcpServersOverride passthrough
-  // TASK_2026_108 § 2 T2 — verifies the RPC facade does not strip the field.
+  // chat:start mcpServersOverride passthrough — verifies the RPC facade does not strip the field.
   // -------------------------------------------------------------------------
 
   describe('ChatRpcHandlers chat:start (mcpServersOverride passthrough)', () => {

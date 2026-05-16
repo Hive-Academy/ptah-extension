@@ -1,11 +1,8 @@
 /**
  * Config RPC Handlers
  *
- * Handles config-related RPC methods: config:model-*, config:autopilot-*
+ * Handles config-related RPC methods: config:model-*, config:autopilot-*.
  * Manages model selection and autopilot configuration persistence.
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (removed vscode.ConfigurationTarget)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -198,7 +195,7 @@ export class ConfigRpcHandlers {
   /**
    * config:model-set - Persist model selection and/or autopilot flag.
    *
-   * TASK_2026_107 Bug 6: Lifted from
+   * Lifted from
    * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`
    * so all three apps (VS Code, Electron, CLI) consume it via
    * `registerAllRpcHandlers()`. The original used `StorageService`; this shared
@@ -440,7 +437,7 @@ export class ConfigRpcHandlers {
   /**
    * config:models-list - Get available models with metadata
    *
-   * TASK_2025_237: Merges two model sources:
+   * Merges two model sources:
    * 1. SDK's supportedModels() — 3 tier slots (opus/sonnet/haiku) as recommended shortcuts
    * 2. Anthropic /v1/models API — ALL available models for specific version selection
    *

@@ -1,11 +1,9 @@
 /**
- * HarnessWorkspaceContextService — Wave C7d.
+ * HarnessWorkspaceContextService.
  *
  * Owns workspace + plugin discovery for the harness wizard: workspace project
  * detection (package.json / requirements.txt / go.mod / Cargo.toml), the
  * hardcoded 4-agent CLI roster, and skill discovery via `PluginLoaderService`.
- *
- * Extracted from `harness-rpc.handlers.ts` (lines 267–275, 1292–1458).
  */
 
 import * as path from 'path';

@@ -1,5 +1,5 @@
 /**
- * WizardGenerationRpcSchema — unit specs (TASK_2025_294 W2.B6).
+ * WizardGenerationRpcSchema — unit specs.
  *
  * The wizard-generation handler has no Zod schemas (see
  * `wizard-generation-rpc.schema.ts` — exports are intentionally empty). This

@@ -1,5 +1,5 @@
 /**
- * Stop-intent detector (Wave C7e cleanup pass 2).
+ * Stop-intent detector.
  *
  * Free function extracted from `ChatRpcHandlers.hasStopIntent` so that
  * `ChatSessionService` can use it without taking a callback dependency on

@@ -1,12 +1,12 @@
 /**
- * Shared RPC Handler Classes (TASK_2025_203)
+ * Shared RPC Handler Classes.
  *
  * Platform-agnostic RPC handler classes that can be used by both
  * VS Code and Electron applications. These handlers have NO vscode imports
  * and depend only on library-level services via DI tokens.
  *
- * Tier 1 handlers: Zero refactoring needed (no vscode imports)
- * Tier 2 handlers: Refactored to use platform abstractions (TASK_2025_203 Batch 3+4)
+ * Tier 1 handlers: Zero refactoring needed (no vscode imports).
+ * Tier 2 handlers: Refactored to use platform abstractions.
  */
 
 // Tier 1 handlers (no refactoring needed)
@@ -25,46 +25,46 @@ export { ConfigRpcHandlers } from './config-rpc.handlers';
 export { LicenseRpcHandlers } from './license-rpc.handlers';
 export { ChatRpcHandlers } from './chat-rpc.handlers';
 
-// Tier 2 handlers (Batch 4 - require additional platform abstractions)
+// Tier 2 handlers (require additional platform abstractions)
 export { AuthRpcHandlers } from './auth-rpc.handlers';
 export { EnhancedPromptsRpcHandlers } from './enhanced-prompts-rpc.handlers';
 export { QualityRpcHandlers } from './quality-rpc.handlers';
 export { ProviderRpcHandlers } from './provider-rpc.handlers';
 
-// Tier 2 handlers (TASK_2025_235 - web search settings)
+// Tier 2 handlers - web search settings
 export { WebSearchRpcHandlers } from './web-search-rpc.handlers';
 
 // Harness Setup Builder handlers
 export { HarnessRpcHandlers } from './harness-rpc.handlers';
 
-// MCP Server Directory handlers (TASK_2026_104 Batch 6a — lifted from VS Code app)
+// MCP Server Directory handlers - lifted from VS Code app
 export { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';
 
-// Git handlers (TASK_2026_104 Sub-batch B5b — lifted from Electron app)
+// Git handlers - lifted from Electron app
 export { GitRpcHandlers } from './git-rpc.handlers';
 
-// Workspace handlers (TASK_2026_104 Sub-batch B5a — lifted from Electron app)
+// Workspace handlers - lifted from Electron app
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 
-// Settings handlers (TASK_2026_107 Bug 6 — lifted from Electron app)
+// Settings handlers - lifted from Electron app
 export { SettingsRpcHandlers } from './settings-rpc.handlers';
 
-// Memory curator handlers (TASK_2026_HERMES Track 1)
+// Memory curator handlers
 export { MemoryRpcHandlers } from './memory-rpc.handlers';
 
-// Workspace indexing control handlers (TASK_2026_114)
+// Workspace indexing control handlers
 export { IndexingRpcHandlers } from './indexing-rpc.handlers';
 
-// Skill synthesis handlers (TASK_2026_HERMES Track 2)
+// Skill synthesis handlers
 export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 
-// Cron scheduler handlers (TASK_2026_HERMES Track 3)
+// Cron scheduler handlers
 export { CronRpcHandlers } from './cron-rpc.handlers';
 
-// Messaging gateway handlers (TASK_2026_HERMES Track 4)
+// Messaging gateway handlers
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';
 
-// Persistence health + reset handlers (TASK_2026_THOTH_PERSISTENCE_HARDENING Batch 4)
+// Persistence health + reset handlers
 export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,

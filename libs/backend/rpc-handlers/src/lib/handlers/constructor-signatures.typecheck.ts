@@ -2,13 +2,13 @@
  * constructor-signatures.typecheck.ts
  *
  * Purpose: compile-time guard against constructor-argument drift for the five
- * highest-risk RPC handler classes (§4.2 of test-strategy-plan.md).
+ * highest-risk RPC handler classes.
  *
  * This file contains NO runtime tests — it exists solely so `tsc --noEmit`
  * (run via `nx typecheck rpc-handlers`) catches constructor-signature changes
  * before they reach integration specs or app-layer call sites.
  *
- * Pattern (§6.2):
+ * Pattern:
  *   type _Args = ConstructorParameters<typeof SomeHandler>;
  *   type _ParamN = _Args[N];
  *   const _assert: _ParamN extends ExpectedType ? true : never = true;
@@ -17,8 +17,6 @@
  * Each `const _assert: ... = true` is a compile-time assertion.  If the
  * handler's constructor signature changes the assertion produces a type error,
  * which `tsc --noEmit` surfaces as a CI failure in the `typecheck` target.
- *
- * TASK_2026_118 Phase 5 — Deliverable C
  */
 
 // ---------------------------------------------------------------------------
@@ -63,7 +61,7 @@ const _assertSetupParam1: _SetupParam1 extends RpcHandler ? true : never = true;
 void _assertSetupParam1;
 
 // param 2 must be ModelSettings (not ConfigManager — regression guard for the
-// ConfigManager → ModelSettings drift caught in TASK_2026_118 §6.1)
+// ConfigManager → ModelSettings drift)
 type _SetupParam2 = _SetupRpcHandlersArgs[2];
 const _assertSetupParam2: _SetupParam2 extends ModelSettings ? true : never =
   true;

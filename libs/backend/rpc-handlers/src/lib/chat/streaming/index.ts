@@ -1,5 +1,5 @@
 /**
- * Chat streaming sub-barrel (Wave C7e).
+ * Chat streaming sub-barrel.
  *
  * Re-exports the broadcaster service that owns the webview event loop
  * and the background-agent-completed subscription.

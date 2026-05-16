@@ -1,5 +1,5 @@
 /**
- * Zod schema tests for `MemoryPurgeBySubjectPatternParamsSchema` (TASK_2026_119 Batch 5).
+ * Zod schema tests for `MemoryPurgeBySubjectPatternParamsSchema`.
  *
  * Verifies that the schema accepts valid inputs and rejects invalid ones,
  * including the belt-and-braces `pattern.min(1)` guard and the tightened

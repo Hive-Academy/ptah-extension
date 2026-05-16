@@ -5,8 +5,6 @@
  * - plugins:list-available - List all bundled plugins with metadata
  * - plugins:get-config - Get per-workspace plugin configuration
  * - plugins:save-config - Save plugin configuration (enabled plugins + disabled skills)
- *
- * TASK_2025_153: Plugin Configuration Feature
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -27,8 +25,6 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for plugin configuration operations.
- *
- * TASK_2025_153: Plugin Configuration Feature
  *
  * Exposes plugin management to the frontend for:
  * - Displaying available plugins in the Plugin Browser modal

@@ -1,5 +1,5 @@
 /**
- * Chat Ptah-CLI dispatch + tracking service (Wave C7e).
+ * Chat Ptah-CLI dispatch + tracking service.
  *
  * Owns the Ptah CLI adapter routing for chat:start / chat:continue /
  * chat:abort plus the two private maps that previously lived on
@@ -72,7 +72,7 @@ export class ChatPtahCliService {
   ) {}
 
   // ============================================================================
-  // PTAH CLI DISPATCH METHODS (TASK_2025_167)
+  // PTAH CLI DISPATCH METHODS
   // ============================================================================
 
   /**
@@ -150,8 +150,8 @@ export class ChatPtahCliService {
       mcpServerRunning,
       enhancedPromptsContent,
       pluginPaths,
-      thinking: options?.thinking, // TASK_2025_184: Reasoning configuration
-      effort: options?.effort, // TASK_2025_184: Effort level
+      thinking: options?.thinking, // Reasoning configuration
+      effort: options?.effort, // Effort level
     });
 
     // Track this session as belonging to the Ptah CLI agent

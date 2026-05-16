@@ -4,8 +4,6 @@
  * Extracted to keep `harness-suggestion.service.ts` below the 600-LOC review
  * threshold. The strings/objects here are intentionally export-only (no class)
  * so they can be tree-shaken and unit-tested in isolation.
- *
- * Wave C7d follow-up — content is byte-identical to the inlined originals.
  */
 
 import type {

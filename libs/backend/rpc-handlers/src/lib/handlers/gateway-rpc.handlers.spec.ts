@@ -1,5 +1,5 @@
 /**
- * GatewayRpcHandlers — thin facade specs (TASK_2026_HERMES_FINISH Batch C1).
+ * GatewayRpcHandlers — thin facade specs.
  *
  * Locks two invariants critical to the "Send test" button flow shipped in
  * commit eb6d236c:
@@ -88,7 +88,7 @@ describe('GatewayRpcHandlers', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // GATEWAY_STATUS_CHANGED emission (TASK_2026_115 Batch 9 — T9.1)
+  // GATEWAY_STATUS_CHANGED emission
   // ---------------------------------------------------------------------------
 
   describe('GatewayRpcHandlers — GATEWAY_STATUS_CHANGED emission', () => {

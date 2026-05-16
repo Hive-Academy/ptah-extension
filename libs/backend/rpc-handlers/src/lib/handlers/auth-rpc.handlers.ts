@@ -2,11 +2,7 @@
  * Auth RPC Handlers
  *
  * Handles authentication-related RPC methods: auth:getHealth, auth:saveSettings,
- * auth:testConnection, auth:getAuthStatus
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_076: SecretStorage integration for secure credential storage
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.window/auth with platform abstractions)
+ * auth:testConnection, auth:getAuthStatus.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -171,7 +167,7 @@ export class AuthRpcHandlers {
         const rawMethod = this.configManager.get<string>('authMethod');
         const authMethod = parseAuthMethod(rawMethod);
 
-        // TASK_2025_129 Batch 3: Get selected provider ID
+        // Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
           'anthropicProviderId',
           DEFAULT_PROVIDER_ID,
@@ -182,7 +178,7 @@ export class AuthRpcHandlers {
         const hasOpenRouterKey =
           await this.authSecretsService.hasProviderKey(checkProviderId);
 
-        // TASK_2025_194: Check if ANY provider has a key configured.
+        // Check if ANY provider has a key configured.
         // This supports users who only use third-party providers (z-ai, moonshot, etc.)
         // without Claude/Anthropic auth. The per-provider check above only verifies the
         // currently selected provider, which may miss keys stored for other providers.
@@ -215,8 +211,8 @@ export class AuthRpcHandlers {
               : undefined,
         }));
 
-        // Check Copilot auth status (TASK_2025_191)
-        // Wrapped in try/catch so Copilot failures don't crash the entire auth status response
+        // Check Copilot auth status.
+        // Wrapped in try/catch so Copilot failures don't crash the entire auth status response.
         let copilotAuthenticated = false;
         let copilotUsername: string | undefined;
         try {
@@ -233,8 +229,8 @@ export class AuthRpcHandlers {
           );
         }
 
-        // Check Codex auth status (TASK_2025_199)
-        // Wrapped in try/catch so Codex failures don't crash the entire auth status response
+        // Check Codex auth status.
+        // Wrapped in try/catch so Codex failures don't crash the entire auth status response.
         let codexAuthenticated = false;
         let codexTokenStale = false;
         try {
@@ -376,7 +372,7 @@ export class AuthRpcHandlers {
           this.providerModels.clearCache(targetProviderId);
         }
 
-        // TASK_2025_129 Batch 3: Save selected Anthropic-compatible provider ID
+        // Save selected Anthropic-compatible provider ID
         if (validated.anthropicProviderId !== undefined) {
           await this.configManager.set(
             'anthropicProviderId',
@@ -387,7 +383,7 @@ export class AuthRpcHandlers {
           await this.autoMapProviderTiers(validated.anthropicProviderId);
         }
 
-        // TASK_2025_194: Explicitly await reinit so testConnection sees updated health.
+        // Explicitly await reinit so testConnection sees updated health.
         // Without this, saveSettings returns before reinit completes (fire-and-forget
         // via ConfigWatcher), causing testConnection polls to fail.
         this.logger.info('RPC: auth:saveSettings triggering adapter reset...');
@@ -481,9 +477,9 @@ export class AuthRpcHandlers {
   }
 
   /**
-   * auth:copilotLogin - Trigger GitHub OAuth login for Copilot provider
+   * auth:copilotLogin - Trigger GitHub OAuth login for Copilot provider.
    *
-   * TASK_2025_186: Initiates the VS Code GitHub authentication flow,
+   * Initiates the VS Code GitHub authentication flow,
    * exchanges the token for a Copilot bearer token, and returns the
    * connected username.
    */
@@ -536,7 +532,7 @@ export class AuthRpcHandlers {
   /**
    * auth:copilotLogout - Disconnect GitHub Copilot OAuth
    *
-   * TASK_2025_191: Clears the in-memory Copilot auth state.
+   * Clears the in-memory Copilot auth state.
    */
   private registerCopilotLogout(): void {
     this.rpcHandler.registerMethod<Record<string, never>, { success: boolean }>(
@@ -565,7 +561,7 @@ export class AuthRpcHandlers {
   /**
    * auth:copilotStatus - Check if Copilot is already authenticated
    *
-   * TASK_2025_186: Returns current authentication state without
+   * Returns current authentication state without
    * triggering a login flow.
    */
   private registerCopilotStatus(): void {
@@ -606,7 +602,7 @@ export class AuthRpcHandlers {
   /**
    * auth:setApiKey - Store or clear an API key for a provider.
    *
-   * TASK_2026_107 Bug 6: Lifted from
+   * Lifted from
    * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`
    * so all three apps (VS Code, Electron, CLI) consume it via
    * `registerAllRpcHandlers()`. Empty/whitespace `apiKey` deletes the slot
@@ -655,7 +651,7 @@ export class AuthRpcHandlers {
   /**
    * auth:getStatus - Compact auth status for the active Anthropic provider.
    *
-   * TASK_2026_107 Bug 6: Lifted from
+   * Lifted from
    * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`.
    * Distinct from `auth:getAuthStatus` (which returns full provider list +
    * Copilot/Codex/Claude CLI flags); this method is the lightweight check
@@ -695,7 +691,7 @@ export class AuthRpcHandlers {
   /**
    * auth:getApiKeyStatus - List all providers with their key presence
    *
-   * TASK_2026_104 Batch B8b: Lifted from
+   * Lifted from
    * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`
    * so all three apps (VS Code, Electron, CLI) consume it via
    * `registerAllRpcHandlers()`. Body is a verbatim port; the only mechanical
@@ -744,7 +740,7 @@ export class AuthRpcHandlers {
   /**
    * auth:codexLogin - Open a terminal for the user to run `codex login`
    *
-   * TASK_2025_199: Codex authentication is managed externally via the CLI.
+   * Codex authentication is managed externally via the CLI.
    * This handler opens a VS Code terminal with `codex login` pre-typed,
    * making it one-click from the auth settings UI.
    */
@@ -817,7 +813,7 @@ export class AuthRpcHandlers {
   /**
    * Retrieve the GitHub username from the platform auth provider.
    * Returns undefined if no active session is found.
-   * TASK_2025_203: Delegates to IPlatformAuthProvider instead of vscode.authentication
+   * Delegates to IPlatformAuthProvider instead of vscode.authentication.
    */
   private async getGitHubUsername(): Promise<string | undefined> {
     return this.platformAuth.getGitHubUsername();

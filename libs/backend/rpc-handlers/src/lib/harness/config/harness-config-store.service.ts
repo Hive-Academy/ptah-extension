@@ -1,5 +1,5 @@
 /**
- * HarnessConfigStore — Wave C7d.
+ * HarnessConfigStore.
  *
  * Filesystem + configuration persistence for the harness wizard:
  *   - Writes CLAUDE.md to the workspace .claude/ directory (with backup).

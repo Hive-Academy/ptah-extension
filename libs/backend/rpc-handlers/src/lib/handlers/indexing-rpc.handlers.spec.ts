@@ -1,5 +1,5 @@
 /**
- * Unit tests for IndexingRpcHandlers (TASK_2026_114 Batch 5).
+ * Unit tests for IndexingRpcHandlers.
  *
  * Verifies that each of the 8 RPC methods correctly delegates to
  * IndexingControlService and returns the expected result shape.

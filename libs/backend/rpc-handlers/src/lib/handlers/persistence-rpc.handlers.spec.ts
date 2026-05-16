@@ -1,5 +1,5 @@
 /**
- * Specs for PersistenceRpcHandlers (TASK_2026_THOTH_PERSISTENCE_HARDENING Batch 4).
+ * Specs for PersistenceRpcHandlers.
  *
  * Coverage matrix:
  *   db:health — healthy DB (isOpen=true, stats populated)
@@ -510,7 +510,7 @@ describe('PersistenceRpcHandlers', () => {
     ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
   });
 
-  // ---- db:reset — D11: WAL/SHM sidecar cleanup ----
+  // ---- db:reset — WAL/SHM sidecar cleanup ----
 
   it('D11: renames -wal and -shm sidecar files when they exist', async () => {
     const { conn } = makeConnection({
@@ -571,7 +571,7 @@ describe('PersistenceRpcHandlers', () => {
     expect(sidecarRenames).toHaveLength(0);
   });
 
-  // ---- db:reset — F-L4: random suffix on deleted path ----
+  // ---- db:reset — random suffix on deleted path ----
 
   it('F-L4: deleted path includes a random hex suffix to avoid collision', async () => {
     const { conn } = makeConnection({ isOpen: true });

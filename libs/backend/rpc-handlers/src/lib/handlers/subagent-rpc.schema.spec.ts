@@ -1,7 +1,7 @@
 /**
- * SubagentRpcSchema — unit specs (Phase 2 update).
+ * SubagentRpcSchema — unit specs.
  *
- * Surface under test: Zod schemas for the three Phase 2 RPC methods
+ * Surface under test: Zod schemas for the three RPC methods
  * (`subagent:send-message`, `subagent:stop`, `subagent:interrupt`).
  *
  * Note: `chat:subagent-query` has no Zod schema (uses static TS types

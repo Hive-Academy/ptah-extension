@@ -1,11 +1,11 @@
 /**
- * SubagentRpcHandlers — unit specs (Phase 2 update).
+ * SubagentRpcHandlers — unit specs.
  *
  * Surface under test: all RPC methods registered by SubagentRpcHandlers:
- *   - chat:subagent-query  (original)
- *   - subagent:send-message (Phase 2)
- *   - subagent:stop         (Phase 2)
- *   - subagent:interrupt    (Phase 2)
+ *   - chat:subagent-query
+ *   - subagent:send-message
+ *   - subagent:stop
+ *   - subagent:interrupt
  *
  * Behavioural contracts:
  *   - Registration: `register()` wires all four methods into the mock RpcHandler.
@@ -318,7 +318,7 @@ describe('SubagentRpcHandlers', () => {
   });
 
   // -------------------------------------------------------------------------
-  // subagent:send-message (Phase 2)
+  // subagent:send-message
   // -------------------------------------------------------------------------
 
   describe('subagent:send-message', () => {
@@ -371,7 +371,7 @@ describe('SubagentRpcHandlers', () => {
   });
 
   // -------------------------------------------------------------------------
-  // subagent:stop (Phase 2)
+  // subagent:stop
   // -------------------------------------------------------------------------
 
   describe('subagent:stop', () => {
@@ -402,7 +402,7 @@ describe('SubagentRpcHandlers', () => {
   });
 
   // -------------------------------------------------------------------------
-  // subagent:interrupt (Phase 2)
+  // subagent:interrupt
   // -------------------------------------------------------------------------
 
   describe('subagent:interrupt', () => {

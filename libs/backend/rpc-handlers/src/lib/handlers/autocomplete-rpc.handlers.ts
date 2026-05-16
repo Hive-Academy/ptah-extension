@@ -1,10 +1,8 @@
 /**
  * Autocomplete RPC Handlers
  *
- * Handles autocomplete-related RPC methods: autocomplete:agents, autocomplete:commands
+ * Handles autocomplete-related RPC methods: autocomplete:agents, autocomplete:commands.
  * Uses AgentDiscoveryService and CommandDiscoveryService for discovery.
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
  */
 
 import { injectable, inject } from 'tsyringe';
