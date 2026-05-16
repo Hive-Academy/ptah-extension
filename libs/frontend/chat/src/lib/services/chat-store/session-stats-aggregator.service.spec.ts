@@ -27,6 +27,12 @@ import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
 import type { TabState } from '@ptah-extension/chat-types';
+import { SessionId } from '@ptah-extension/shared';
+
+// Production `SessionStatsAggregatorService.handleSessionStats` validates the
+// inbound sessionId via `SessionId.from()` (UUID v4). Mint stable ids per run.
+const SESS_1 = SessionId.create();
+const SESS_UNKNOWN = SessionId.create();
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {
@@ -36,7 +42,7 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     messages: [],
     streamingState: null,
     currentMessageId: null,
-    claudeSessionId: 'sess-1',
+    claudeSessionId: SESS_1,
     isCompacting: false,
     queuedContent: null,
     queuedOptions: null,
@@ -48,7 +54,7 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
 }
 
 const baseStats = {
-  sessionId: 'sess-1',
+  sessionId: SESS_1,
   cost: 0.5,
   tokens: { input: 100, output: 50, cacheRead: 10, cacheCreation: 5 },
   duration: 1000,
@@ -134,7 +140,7 @@ describe('SessionStatsAggregatorService', () => {
 
   it('finds tab by sessionId and clears compaction state', () => {
     service.handleSessionStats(baseStats);
-    expect(findTabsBySessionIdMock).toHaveBeenCalledWith('sess-1');
+    expect(findTabsBySessionIdMock).toHaveBeenCalledWith(SESS_1);
     expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
   });
 
@@ -143,10 +149,10 @@ describe('SessionStatsAggregatorService', () => {
   // foreign-session stats cannot pollute the active tab during a tab switch.
   it('N7 — drops the event without active-tab fallback when no tab is bound', () => {
     findTabsBySessionIdMock.mockReturnValue([]);
-    service.handleSessionStats({ ...baseStats, sessionId: 'unknown' });
+    service.handleSessionStats({ ...baseStats, sessionId: SESS_UNKNOWN });
     expect(warn).toHaveBeenCalledWith(
       '[ChatStore] handleSessionStats: no tab bound to sessionId, dropping event',
-      { sessionId: 'unknown' },
+      { sessionId: SESS_UNKNOWN },
     );
     // None of the downstream side-effects fire — the event is fully dropped.
     expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
@@ -346,7 +352,7 @@ describe('SessionStatsAggregatorService', () => {
       // The aggregator logs a warning to make the drop observable.
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleSessionStats: dropped late event after compaction',
-        expect.objectContaining({ sessionId: 'sess-1' }),
+        expect.objectContaining({ sessionId: SESS_1 }),
       );
     });
   });
@@ -414,7 +420,7 @@ describe('SessionStatsAggregatorService', () => {
     it('prefers tab sessionModel over the higher-cost cost-based pick', () => {
       tabs = [
         makeTab({
-          claudeSessionId: 'sess-1',
+          claudeSessionId: SESS_1,
           // The user picked Opus for this session.
           sessionModel: 'claude-opus-4',
         } as Partial<TabState>),
@@ -452,7 +458,7 @@ describe('SessionStatsAggregatorService', () => {
     it('falls back to cost-based primary when sessionModel is absent from modelUsage', () => {
       tabs = [
         makeTab({
-          claudeSessionId: 'sess-1',
+          claudeSessionId: SESS_1,
           sessionModel: 'claude-opus-4',
         } as Partial<TabState>),
       ];

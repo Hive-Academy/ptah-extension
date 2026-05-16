@@ -17,6 +17,7 @@ import {
   ExecutionNode,
   FlatStreamEventUnion,
   ExecutionChatMessage,
+  SessionId,
   UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -127,7 +128,9 @@ export class StreamingHandlerService {
       // (using `findTabsBySessionId` again at line ~191) then visits every
       // bound tab including secondaries.
       if (!primaryTab) {
-        const bound = this.tabManager.findTabsBySessionId(event.sessionId);
+        const bound = this.tabManager.findTabsBySessionId(
+          SessionId.from(event.sessionId),
+        );
         primaryTab = bound.length > 0 ? bound[0] : undefined;
       }
 
@@ -196,7 +199,9 @@ export class StreamingHandlerService {
       // findTabsBySessionId uses the conversation registry; it falls back to
       // the legacy single-tab lookup when no binding exists yet, so the
       // returned array always includes the primary tab in well-formed cases.
-      const allBoundTabs = this.tabManager.findTabsBySessionId(event.sessionId);
+      const allBoundTabs = this.tabManager.findTabsBySessionId(
+        SessionId.from(event.sessionId),
+      );
       if (allBoundTabs.length > 1) {
         for (const otherTab of allBoundTabs) {
           if (otherTab.id === primaryTab.id) continue;
@@ -397,7 +402,9 @@ export class StreamingHandlerService {
     // to the caller for auto-send. Secondary tabs are processed for state
     // writes only; their queuedContent is ignored to avoid sending the
     // queued message N times.
-    const boundTabs = this.tabManager.findTabsBySessionId(stats.sessionId);
+    const boundTabs = this.tabManager.findTabsBySessionId(
+      SessionId.from(stats.sessionId),
+    );
     let primaryTab: TabState | undefined = boundTabs[0];
 
     // Fallback to active tab if no bound tab found

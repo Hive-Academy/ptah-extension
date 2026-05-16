@@ -12,6 +12,17 @@ import { CompletionHandlerService } from './completion-handler.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
+import { SessionId } from '@ptah-extension/shared';
+
+// Production `CompletionHandlerService.handleChatError` validates the incoming
+// sessionId via `SessionId.from()` (UUID v4). Mint stable ids per spec run.
+const SESS_1 = SessionId.create();
+const SESS_SHARED = SessionId.create();
+const SESS_OTHER = SessionId.create();
+const SESS_FOREIGN = SessionId.create();
+const SESS_UNKNOWN = SessionId.create();
+const SESS_X = SessionId.create();
+const SESS_S = SessionId.create();
 
 type TabManagerSlice = Pick<
   TabManagerService,
@@ -81,24 +92,24 @@ describe('CompletionHandlerService', () => {
 
   describe('handleChatError', () => {
     it('routes the error to the tab matching the payload sessionId', () => {
-      const targetTab = makeTab({ id: 'tab-abc', claudeSessionId: 'sess-1' });
+      const targetTab = makeTab({ id: 'tab-abc', claudeSessionId: SESS_1 });
       tabManager.findTabsBySessionId.mockReturnValue([targetTab]);
 
-      service.handleChatError({ sessionId: 'sess-1', error: 'CLI crashed' });
+      service.handleChatError({ sessionId: SESS_1, error: 'CLI crashed' });
 
-      expect(tabManager.findTabsBySessionId).toHaveBeenCalledWith('sess-1');
+      expect(tabManager.findTabsBySessionId).toHaveBeenCalledWith(SESS_1);
       expect(tabManager.applyStatusErrorReset).toHaveBeenCalledWith('tab-abc');
       expect(sessionManager.setStatus).toHaveBeenCalledWith('loaded');
       expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-abc');
     });
 
     it('fans out reset to ALL tabs bound to the same sessionId (TASK_2026_106 Phase 4b)', () => {
-      const tabA = makeTab({ id: 'tab-a', claudeSessionId: 'sess-shared' });
-      const tabB = makeTab({ id: 'tab-b', claudeSessionId: 'sess-shared' });
+      const tabA = makeTab({ id: 'tab-a', claudeSessionId: SESS_SHARED });
+      const tabB = makeTab({ id: 'tab-b', claudeSessionId: SESS_SHARED });
       tabManager.findTabsBySessionId.mockReturnValue([tabA, tabB]);
 
       service.handleChatError({
-        sessionId: 'sess-shared',
+        sessionId: SESS_SHARED,
         error: 'CLI crashed',
       });
 
@@ -116,7 +127,7 @@ describe('CompletionHandlerService', () => {
       tabManager.activeTabId.mockReturnValue('tab-active');
       tabManager.activeTab.mockReturnValue(activeTab);
 
-      service.handleChatError({ sessionId: 'unknown-session', error: 'boom' });
+      service.handleChatError({ sessionId: SESS_UNKNOWN, error: 'boom' });
 
       expect(tabManager.applyStatusErrorReset).toHaveBeenCalledWith(
         'tab-active',
@@ -128,21 +139,21 @@ describe('CompletionHandlerService', () => {
       tabManager.findTabsBySessionId.mockReturnValue([]);
       const activeTab = makeTab({
         id: 'tab-active',
-        claudeSessionId: 'other-session',
+        claudeSessionId: SESS_OTHER,
       });
       tabManager.activeTabId.mockReturnValue('tab-active');
       tabManager.activeTab.mockReturnValue(activeTab);
 
       service.handleChatError({
-        sessionId: 'foreign-session',
+        sessionId: SESS_FOREIGN,
         error: 'nope',
       });
 
       expect(consoleWarn).toHaveBeenCalledWith(
         expect.stringContaining('Error for unknown session'),
         expect.objectContaining({
-          sessionId: 'foreign-session',
-          activeTabSessionId: 'other-session',
+          sessionId: SESS_FOREIGN,
+          activeTabSessionId: SESS_OTHER,
         }),
       );
       expect(tabManager.applyStatusErrorReset).not.toHaveBeenCalled();
@@ -154,7 +165,7 @@ describe('CompletionHandlerService', () => {
       tabManager.activeTabId.mockReturnValue(null);
       tabManager.activeTab.mockReturnValue(null);
 
-      service.handleChatError({ sessionId: 'x', error: 'y' });
+      service.handleChatError({ sessionId: SESS_X, error: 'y' });
 
       expect(consoleWarn).toHaveBeenCalledWith(
         expect.stringContaining('No target tab for chat error'),
@@ -178,13 +189,13 @@ describe('CompletionHandlerService', () => {
 
     it('logs the error via console.error before processing', () => {
       tabManager.findTabsBySessionId.mockReturnValue([
-        makeTab({ id: 'tab-1', claudeSessionId: 's' }),
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_S }),
       ]);
-      service.handleChatError({ sessionId: 's', error: 'network' });
+      service.handleChatError({ sessionId: SESS_S, error: 'network' });
 
       expect(consoleError).toHaveBeenCalledWith(
         expect.stringContaining('Chat error'),
-        expect.objectContaining({ sessionId: 's', error: 'network' }),
+        expect.objectContaining({ sessionId: SESS_S, error: 'network' }),
       );
     });
   });

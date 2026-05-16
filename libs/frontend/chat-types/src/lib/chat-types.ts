@@ -4,6 +4,8 @@ import {
   FlatStreamEventUnion,
   InlineImageAttachment,
   EffortLevel,
+  TabId,
+  SessionId,
 } from '@ptah-extension/shared';
 
 /**
@@ -225,10 +227,10 @@ export interface SessionLoadResult {
  */
 export interface TabState {
   /** Unique tab identifier (frontend-generated) */
-  id: string;
+  id: TabId;
 
   /** Real Claude CLI session UUID (null if draft) */
-  claudeSessionId: string | null;
+  claudeSessionId: SessionId | null;
 
   // TASK_2026_106 Phase 6b — `placeholderSessionId` removed. The router
   // (StreamRouter in `@ptah-extension/chat-routing`) owns the

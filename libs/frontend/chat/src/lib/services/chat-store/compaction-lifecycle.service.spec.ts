@@ -32,6 +32,18 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import type { TabState } from '@ptah-extension/chat-types';
+import { SessionId, TabId as SharedTabId } from '@ptah-extension/shared';
+
+// Production `CompactionLifecycleService` calls `SessionId.from()` on every
+// inbound session id (handleCompactionStart, handleCompactionComplete via
+// compactionSessionId), and `TabId.from()` on the tabId for the
+// closed-mid-compaction fallback path. Mint stable UUIDs once per spec run.
+const SESS_1 = SessionId.create();
+const SESS_RELOAD = SessionId.create();
+const SESS_SHARED = SessionId.create();
+const SESS_UNKNOWN = SessionId.create();
+const SESS_X = SessionId.create();
+const NONEXISTENT_TAB_ID = SharedTabId.create();
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {
@@ -41,7 +53,7 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     messages: [],
     streamingState: null,
     currentMessageId: null,
-    claudeSessionId: 'sess-1',
+    claudeSessionId: SESS_1,
     isCompacting: false,
     compactionCount: 0,
     queuedContent: null,
@@ -148,7 +160,7 @@ describe('CompactionLifecycleService', () => {
 
   describe('handleCompactionStart', () => {
     it('writes inFlight=true on the conversation registry and schedules safety timeout', () => {
-      service.handleCompactionStart('sess-1');
+      service.handleCompactionStart(SESS_1);
       expect(setCompactionStateMock).toHaveBeenCalledWith(
         tabToConv['tab-1'],
         expect.objectContaining({ inFlight: true }),
@@ -156,24 +168,24 @@ describe('CompactionLifecycleService', () => {
     });
 
     it('warns and does nothing when no tab matches sessionId', () => {
-      service.handleCompactionStart('unknown-session');
+      service.handleCompactionStart(SESS_UNKNOWN);
       expect(setCompactionStateMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleCompactionStart: no tab found for sessionId',
-        { sessionId: 'unknown-session' },
+        { sessionId: SESS_UNKNOWN },
       );
     });
 
     it('clears prior timeout before scheduling new one', () => {
-      service.handleCompactionStart('sess-1');
-      service.handleCompactionStart('sess-1');
+      service.handleCompactionStart(SESS_1);
+      service.handleCompactionStart(SESS_1);
       // Advance time to verify only ONE timeout fires (the second one)
       jest.advanceTimersByTime(120000);
       expect(applyCompactionTimeoutResetMock).toHaveBeenCalledTimes(1);
     });
 
     it('safety timeout resets tab fields, marks idle, sets sessionManager loaded', () => {
-      service.handleCompactionStart('sess-1');
+      service.handleCompactionStart(SESS_1);
       jest.advanceTimersByTime(120000);
       expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-1');
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
@@ -194,14 +206,14 @@ describe('CompactionLifecycleService', () => {
       ];
       service.handleCompactionComplete({
         tabId: 'tab-1',
-        compactionSessionId: 'reload-sess',
+        compactionSessionId: SESS_RELOAD,
       });
       expect(clearCacheMock).toHaveBeenCalled();
       expect(applyCompactionCompleteMock).toHaveBeenCalledWith(
         'tab-1',
         expect.objectContaining({ compactionCount: 3 }),
       );
-      expect(switchSessionMock).toHaveBeenCalledWith('sess-1');
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_1);
     });
 
     it('snapshots preloadedStats when none exist and messages are present', () => {
@@ -213,7 +225,7 @@ describe('CompactionLifecycleService', () => {
       ];
       service.handleCompactionComplete({
         tabId: 'tab-1',
-        compactionSessionId: 'reload-sess',
+        compactionSessionId: SESS_RELOAD,
       });
       const call = applyCompactionCompleteMock.mock.calls.find(
         (c) => (c[1] as { compactionCount: number }).compactionCount === 1,
@@ -227,8 +239,8 @@ describe('CompactionLifecycleService', () => {
 
     it('does nothing when tab no longer exists', () => {
       service.handleCompactionComplete({
-        tabId: 'nonexistent',
-        compactionSessionId: 'sess-x',
+        tabId: NONEXISTENT_TAB_ID,
+        compactionSessionId: SESS_X,
       });
       // tree builder cache still cleared from clearCompactionState path
       expect(switchSessionMock).not.toHaveBeenCalled();
@@ -257,7 +269,7 @@ describe('CompactionLifecycleService', () => {
 
       service.handleCompactionComplete({
         tabId: 'tab-1',
-        compactionSessionId: 'reload-sess',
+        compactionSessionId: SESS_RELOAD,
       });
 
       expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(1);
@@ -299,7 +311,7 @@ describe('CompactionLifecycleService', () => {
 
       service.handleCompactionComplete({
         tabId: 'tab-1',
-        compactionSessionId: 'reload-sess',
+        compactionSessionId: SESS_RELOAD,
       });
 
       // Synchronously after the call: suppression must be ON for the
@@ -323,7 +335,7 @@ describe('CompactionLifecycleService', () => {
 
       service.handleCompactionComplete({
         tabId: 'tab-1',
-        compactionSessionId: 'reload-sess',
+        compactionSessionId: SESS_RELOAD,
       });
 
       // inFlight is cleared in the `switchSession(...).finally(...)` settle
@@ -356,7 +368,7 @@ describe('CompactionLifecycleService', () => {
         }),
       ];
 
-      service.handleCompactionStart('sess-1');
+      service.handleCompactionStart(SESS_1);
       expect(setCompactionStateMock).toHaveBeenCalledWith(
         tabToConv['tab-1'],
         expect.objectContaining({ inFlight: true }),
@@ -366,7 +378,7 @@ describe('CompactionLifecycleService', () => {
 
       service.handleCompactionComplete({
         tabId: 'tab-1',
-        compactionSessionId: 'reload-sess',
+        compactionSessionId: SESS_RELOAD,
       });
       // inFlight clear is async (settles after the switchSession reload
       // promise). Drain microtasks before asserting.
@@ -392,13 +404,13 @@ describe('CompactionLifecycleService', () => {
       tabs = [
         makeTab({
           id: 'tab-1',
-          claudeSessionId: 'shared-sess',
+          claudeSessionId: SESS_SHARED,
           messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
           compactionCount: 0,
         }),
         makeTab({
           id: 'tab-2',
-          claudeSessionId: 'shared-sess',
+          claudeSessionId: SESS_SHARED,
           messages: [{ id: 'm2' } as unknown as TabState['messages'][number]],
           compactionCount: 4,
         }),
@@ -406,7 +418,7 @@ describe('CompactionLifecycleService', () => {
 
       service.handleCompactionComplete({
         tabId: 'tab-1',
-        compactionSessionId: 'shared-sess',
+        compactionSessionId: SESS_SHARED,
       });
 
       // Both tabs reset; per-tab compactionCount incremented from its own value.
@@ -432,23 +444,23 @@ describe('CompactionLifecycleService', () => {
       tabs = [
         makeTab({
           id: 'tab-1',
-          claudeSessionId: 'shared-sess',
+          claudeSessionId: SESS_SHARED,
           messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
         }),
         makeTab({
           id: 'tab-2',
-          claudeSessionId: 'shared-sess',
+          claudeSessionId: SESS_SHARED,
           messages: [],
         }),
       ];
 
       service.handleCompactionComplete({
         tabId: 'tab-1',
-        compactionSessionId: 'shared-sess',
+        compactionSessionId: SESS_SHARED,
       });
 
       expect(switchSessionMock).toHaveBeenCalledTimes(1);
-      expect(switchSessionMock).toHaveBeenCalledWith('shared-sess');
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED);
     });
   });
 
@@ -463,7 +475,7 @@ describe('CompactionLifecycleService', () => {
 
   describe('clearCompactionState', () => {
     it('clears specified conversation and the timeout', () => {
-      service.handleCompactionStart('sess-1');
+      service.handleCompactionStart(SESS_1);
       setCompactionStateMock.mockClear();
       service.clearCompactionState('tab-1');
       expect(setCompactionStateMock).toHaveBeenCalledWith(tabToConv['tab-1'], {

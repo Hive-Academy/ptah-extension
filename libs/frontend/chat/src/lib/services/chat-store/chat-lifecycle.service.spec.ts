@@ -39,6 +39,16 @@ import {
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import type { TabState, StreamingState } from '@ptah-extension/chat-types';
+import { SessionId } from '@ptah-extension/shared';
+
+// Production `ChatLifecycleService.handleAgentSummaryChunk` and
+// `handleChatError` both call `SessionId.from()` on the inbound sessionId
+// (UUID v4). Mint stable ids per spec run.
+const SESS_1 = SessionId.create();
+const SESS_2 = SessionId.create();
+const SESS_OTHER = SessionId.create();
+const SESS_ACTUAL = SessionId.create();
+const SESS_UNKNOWN_AGENT = SessionId.create();
 
 function makeStreamingState(
   overrides: Partial<StreamingState> = {},
@@ -67,7 +77,7 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     messages: [],
     streamingState: null,
     currentMessageId: null,
-    claudeSessionId: 'sess-1',
+    claudeSessionId: SESS_1,
     isCompacting: false,
     queuedContent: null,
     queuedOptions: null,
@@ -295,11 +305,11 @@ describe('ChatLifecycleService', () => {
         toolUseId: 't1',
         summaryDelta: 'hello',
         agentId: 'agent-1',
-        sessionId: 'sess-unknown',
+        sessionId: SESS_UNKNOWN_AGENT,
       });
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] No tab with streamingState for summary chunk:',
-        { toolUseId: 't1', agentId: 'agent-1', sessionId: 'sess-unknown' },
+        { toolUseId: 't1', agentId: 'agent-1', sessionId: SESS_UNKNOWN_AGENT },
       );
       expect(setStreamingStateMock).not.toHaveBeenCalled();
     });
@@ -312,7 +322,7 @@ describe('ChatLifecycleService', () => {
         toolUseId: 't1',
         summaryDelta: 'next',
         agentId: 'agent-1',
-        sessionId: 'sess-1',
+        sessionId: SESS_1,
       });
       expect(state.agentSummaryAccumulators.get('agent-1')).toBe('prev next');
       expect(setStreamingStateMock).toHaveBeenCalledWith(
@@ -328,7 +338,7 @@ describe('ChatLifecycleService', () => {
         toolUseId: 't1',
         summaryDelta: '',
         agentId: 'agent-1',
-        sessionId: 'sess-1',
+        sessionId: SESS_1,
         contentBlocks: [{ type: 'text', text: 'hi' }],
       });
       expect(state.agentContentBlocksMap.get('agent-1')).toEqual([
@@ -382,20 +392,20 @@ describe('ChatLifecycleService', () => {
     });
 
     it('falls back to sessionId lookup when tabId absent', () => {
-      tabs = [makeTab({ id: 'tab-2', claudeSessionId: 'sess-2' })];
-      service.handleChatError({ sessionId: 'sess-2', error: 'boom' });
-      expect(findTabsBySessionIdMock).toHaveBeenCalledWith('sess-2');
+      tabs = [makeTab({ id: 'tab-2', claudeSessionId: SESS_2 })];
+      service.handleChatError({ sessionId: SESS_2, error: 'boom' });
+      expect(findTabsBySessionIdMock).toHaveBeenCalledWith(SESS_2);
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-2');
     });
 
     it('warns and returns when sessionId mismatches active tab', () => {
-      tabs = [makeTab({ id: 'tab-1', claudeSessionId: 'sess-actual' })];
-      service.handleChatError({ sessionId: 'sess-other', error: 'boom' });
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_ACTUAL })];
+      service.handleChatError({ sessionId: SESS_OTHER, error: 'boom' });
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] Error for unknown session',
         {
-          sessionId: 'sess-other',
-          activeTabSessionId: 'sess-actual',
+          sessionId: SESS_OTHER,
+          activeTabSessionId: SESS_ACTUAL,
         },
       );
       expect(markTabIdleMock).not.toHaveBeenCalled();

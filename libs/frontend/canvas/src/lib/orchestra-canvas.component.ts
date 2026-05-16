@@ -21,6 +21,7 @@ import {
 import { LucideAngularModule, Plus, X, Check } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { AppStateManager } from '@ptah-extension/core';
+import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
@@ -301,13 +302,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
     effect(() => {
       const req = this.appState.canvasSessionRequest();
       if (req) {
-        const tabId = this.canvasStore.addTileFromSession(
-          req.sessionId,
-          req.name,
-        );
+        const sessionId = SessionId.from(req.sessionId);
+        const tabId = this.canvasStore.addTileFromSession(sessionId, req.name);
         this.appState.clearCanvasSessionRequest();
         if (tabId) {
-          this.chatStore.switchSession(req.sessionId);
+          this.chatStore.switchSession(sessionId);
         }
       }
     });
@@ -324,7 +323,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
     // Reactive cleanup: remove orphaned tiles whose backing tab no longer exists
     effect(() => {
       const tabs = this.tabManager.tabs();
-      const tabIds = new Set(tabs.map((t) => t.id));
+      const tabIds = new Set<string>(tabs.map((t) => t.id));
       const tiles = untracked(() => this.canvasStore.tiles());
       for (const tile of tiles) {
         if (!tabIds.has(tile.tabId)) {

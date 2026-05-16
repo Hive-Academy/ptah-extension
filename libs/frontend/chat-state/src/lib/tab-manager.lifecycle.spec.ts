@@ -17,6 +17,12 @@ import { TabWorkspacePartitionService } from './tab-workspace-partition.service'
 import { ConversationRegistry } from './conversation-registry.service';
 import { TabSessionBinding } from './tab-session-binding.service';
 import { TabId, type ClaudeSessionId } from './identity/ids';
+import { SessionId } from '@ptah-extension/shared';
+
+// Production `TabManagerService.attachSession` validates the inbound sessionId
+// via `SessionId.from()` (UUID v4). Mint stable ids per spec run.
+const SESS_X = SessionId.create();
+const SESS_SHARED = SessionId.create();
 
 describe('TabManagerService — tab lifecycle + selectors', () => {
   let service: TabManagerService;
@@ -144,7 +150,7 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
     it('forceCloseTab skips confirmation', () => {
       const id = service.createTab('popout');
       service.markStreaming(id);
-      service.attachSession(id, 'sess-x');
+      service.attachSession(id, SESS_X);
       service.forceCloseTab(id);
       expect(service.tabs().length).toBe(0);
       expect(confirm).not.toHaveBeenCalled();
@@ -231,17 +237,17 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       const tabA = service.createTab('A');
       const tabB = service.createTab('B');
       // Attach the same SDK session to both tabs (canvas-grid scenario).
-      service.attachSession(tabA, 'sess-shared');
-      service.attachSession(tabB, 'sess-shared');
+      service.attachSession(tabA, SESS_SHARED);
+      service.attachSession(tabB, SESS_SHARED);
 
       // tab IDs from TabManager are not UUIDs (tab_xxx_yyy format) — cast
       // through `unknown` to satisfy the branded TabId type for the
       // test-only direct registry write.
-      const convId = registry.create('sess-shared' as ClaudeSessionId);
+      const convId = registry.create(SESS_SHARED as ClaudeSessionId);
       binding.bind(tabA as unknown as TabId, convId);
       binding.bind(tabB as unknown as TabId, convId);
 
-      const result = service.findTabsBySessionId('sess-shared');
+      const result = service.findTabsBySessionId(SESS_SHARED);
       expect(result.length).toBe(2);
       const ids = result.map((t) => t.id).sort();
       expect(ids).toEqual([tabA, tabB].sort());

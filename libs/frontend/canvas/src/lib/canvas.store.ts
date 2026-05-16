@@ -1,5 +1,6 @@
 import { Injectable, computed, signal, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
+import { SessionId } from '@ptah-extension/shared';
 import { CanvasLayoutService } from './canvas-layout.service';
 
 export interface CanvasTile {
@@ -47,7 +48,7 @@ export class CanvasStore {
    * exists, focuses it instead of creating a duplicate.
    * @returns The tabId, or null if the tile cap is reached.
    */
-  addTileFromSession(sessionId: string, name?: string): string | null {
+  addTileFromSession(sessionId: SessionId, name?: string): string | null {
     if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const existingTile = this._tiles().find((t) => {

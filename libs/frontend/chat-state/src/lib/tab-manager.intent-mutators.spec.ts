@@ -12,7 +12,16 @@ import {
   StreamingState,
   createEmptyStreamingState,
 } from '@ptah-extension/chat-types';
-import { ExecutionChatMessage } from '@ptah-extension/shared';
+import { ExecutionChatMessage, SessionId } from '@ptah-extension/shared';
+
+// Production `TabManagerService.attachSession` and `applyResumingSession`
+// validate the incoming sessionId via `SessionId.from()` (UUID v4). Mint
+// stable ids per spec run.
+const SESS_123 = SessionId.create();
+const SESS_XYZ = SessionId.create();
+const SESS_X = SessionId.create();
+const SESS_R = SessionId.create();
+const SESS_PRE = SessionId.create();
 
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import {
@@ -88,9 +97,9 @@ describe('TabManagerService — intent-named mutators', () => {
   describe('session id attach', () => {
     it('attachSession sets claudeSessionId', () => {
       const id = service.createTab('attach');
-      service.attachSession(id, 'sess-123');
+      service.attachSession(id, SESS_123);
       expect(service.tabs().find((t) => t.id === id)?.claudeSessionId).toBe(
-        'sess-123',
+        SESS_123,
       );
     });
 
@@ -99,10 +108,10 @@ describe('TabManagerService — intent-named mutators', () => {
     // pairing has the same observable effect as the retired helper.
     it('attachSession + markStreaming is the post-Phase-6b replacement for adoptStreamingSession', () => {
       const id = service.createTab('adopt-replacement');
-      service.attachSession(id, 'sess-XYZ');
+      service.attachSession(id, SESS_XYZ);
       service.markStreaming(id);
       const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.claudeSessionId).toBe('sess-XYZ');
+      expect(tab?.claudeSessionId).toBe(SESS_XYZ);
       expect(tab?.status).toBe('streaming');
     });
   });
@@ -236,7 +245,7 @@ describe('TabManagerService — intent-named mutators', () => {
 
     it('detachSessionAndMarkLoaded clears claudeSessionId', () => {
       const id = service.createTab('detach');
-      service.attachSession(id, 'sess-x');
+      service.attachSession(id, SESS_X);
       service.detachSessionAndMarkLoaded(id);
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.claudeSessionId).toBeNull();
@@ -421,13 +430,13 @@ describe('TabManagerService — intent-named mutators', () => {
       const id = service.createTab('resume');
       const state = createEmptyStreamingState();
       service.applyResumingSession(id, {
-        sessionId: 'sess-r',
+        sessionId: SESS_R,
         name: 'name',
         title: 'title',
         streamingState: state,
       });
       const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.claudeSessionId).toBe('sess-r');
+      expect(tab?.claudeSessionId).toBe(SESS_R);
       expect(tab?.status).toBe('resuming');
       expect(tab?.streamingState).toBe(state);
     });
@@ -463,7 +472,7 @@ describe('TabManagerService — intent-named mutators', () => {
 
     it('applyNewConversationDraft sets draft + clears claudeSessionId', () => {
       const id = service.createTab('draft');
-      service.attachSession(id, 'pre-existing');
+      service.attachSession(id, SESS_PRE);
       service.applyNewConversationDraft(id, 'Drafted');
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.status).toBe('draft');

@@ -10,6 +10,7 @@ import {
   ExecutionChatMessage,
   EffortLevel,
   getModelContextWindow,
+  SessionId,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -126,7 +127,7 @@ export class TabManagerService {
    * SessionLoaderService listens to this to trigger session loading,
    * breaking the circular dependency (TabManager → SessionLoader → TabManager).
    */
-  private readonly _pendingSessionLoad = signal<string | null>(null);
+  private readonly _pendingSessionLoad = signal<SessionId | null>(null);
   readonly pendingSessionLoad = this._pendingSessionLoad.asReadonly();
 
   /**
@@ -370,10 +371,9 @@ export class TabManagerService {
    * `findTabBySessionId` is preserved unchanged for the many call sites that
    * only need one tab (presence checks, single-tab UI actions).
    */
-  findTabsBySessionId(sessionId: string): readonly TabState[] {
-    const convRecord = this.conversationRegistry.findContainingSession(
-      sessionId as ClaudeSessionId,
-    );
+  findTabsBySessionId(sessionId: SessionId): readonly TabState[] {
+    const convRecord =
+      this.conversationRegistry.findContainingSession(sessionId);
     if (!convRecord) {
       // Legacy fallback — tab existed before StreamRouter hydrated bindings,
       // or was created in a path that doesn't touch the router yet.
@@ -385,7 +385,7 @@ export class TabManagerService {
     if (tabIds.length === 0) return [];
 
     const boundTabIds = new Set<TabId>(tabIds);
-    return this._tabs().filter((t) => boundTabIds.has(t.id as TabId));
+    return this._tabs().filter((t) => boundTabIds.has(t.id));
   }
 
   /**
@@ -441,13 +441,13 @@ export class TabManagerService {
       // Clear any default tabs and open the requested session
       this._tabs.set([]);
       this.openSessionTab(
-        initialSessionId,
+        SessionId.from(initialSessionId),
         ptahConfig?.initialSessionName || undefined,
       );
 
       // Signal that a session needs loading. SessionLoaderService listens to this
       // signal via effect() — no circular dependency needed.
-      this._pendingSessionLoad.set(initialSessionId);
+      this._pendingSessionLoad.set(SessionId.from(initialSessionId));
     }
     // No default tab creation -- the empty state is shown when there are no tabs.
     // A tab is created on-demand when the user sends their first message
@@ -541,7 +541,7 @@ export class TabManagerService {
    * @param title - Optional tab title (defaults to session ID prefix)
    * @returns Tab ID (existing or newly created)
    */
-  openSessionTab(claudeSessionId: string, title?: string): string {
+  openSessionTab(claudeSessionId: SessionId, title?: string): TabId {
     // Check if tab already exists for this session (active workspace only)
     const existingTab = this._tabs().find(
       (t) => t.claudeSessionId === claudeSessionId,
@@ -907,7 +907,9 @@ export class TabManagerService {
 
   /** Attach the real Claude SDK session UUID to the tab. */
   attachSession(tabId: string, sessionId: string): void {
-    this.updateTabInternal(tabId, { claudeSessionId: sessionId });
+    this.updateTabInternal(tabId, {
+      claudeSessionId: SessionId.from(sessionId),
+    });
   }
 
   // TASK_2026_106 Phase 6b — `adoptStreamingSession` removed. The
@@ -1300,7 +1302,7 @@ export class TabManagerService {
   applyResumingSession(
     tabId: string,
     payload: {
-      sessionId: string;
+      sessionId: SessionId;
       name: string;
       title: string;
       streamingState: StreamingState;
@@ -1736,7 +1738,7 @@ export class TabManagerService {
    * non-UUID input — see the v0.2.32 regression where the legacy
    * `tab_<timestamp>_<random>` format crashed every `chat:start`.
    */
-  private generateTabId(): string {
+  private generateTabId(): TabId {
     return TabId.create();
   }
 }
