@@ -1,5 +1,5 @@
 /**
- * P3.B2 — Chat flow E2E specs: streaming response render.
+ * Chat flow E2E specs: streaming response render.
  *
  * Validates the inbound side of the bridge: the host streams `chat:chunk`
  * messages and a final `chat:done`, and the webview renders tokens as they

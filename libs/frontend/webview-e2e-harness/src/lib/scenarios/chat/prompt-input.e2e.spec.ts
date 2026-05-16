@@ -1,5 +1,5 @@
 /**
- * P3.B2 — Chat flow E2E specs: prompt input.
+ * Chat flow E2E specs: prompt input.
  *
  * These specs exercise the contract between a webview prompt input and the
  * extension host RPC bridge. They run against the placeholder fixture HTML
@@ -7,9 +7,6 @@
  * scaffolding under test is injected per-test via `page.evaluate` and driven
  * with real Playwright APIs (typing, keyboard, click). The outbound RPC
  * surface is asserted via `bridge.captured`/`bridge.waitForOutbound`.
- *
- * Spec authors at P3.B3+ should re-target these against real chat
- * components once the Angular build is wired into the fixture root.
  */
 import { test, expect } from '../../test-fixtures';
 

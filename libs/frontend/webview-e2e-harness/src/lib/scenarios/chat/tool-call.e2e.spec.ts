@@ -1,5 +1,5 @@
 /**
- * P3.B2 — Chat flow E2E specs: tool-call card render.
+ * Chat flow E2E specs: tool-call card render.
  *
  * Exercises the tool-call portion of the streaming protocol:
  *   - `tool:call`   — host announces a tool invocation

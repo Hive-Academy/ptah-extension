@@ -1,5 +1,5 @@
 /**
- * E2E: command palette (P3.B3).
+ * E2E: command palette.
  *
  * Covers the keyboard-shortcut entry, fuzzy-search filtering of registered
  * commands, executing a selected command (which should emit the

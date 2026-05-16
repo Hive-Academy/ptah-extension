@@ -1,5 +1,5 @@
 /**
- * E2E: session list rendering & switching (P3.B3).
+ * E2E: session list rendering & switching.
  *
  * Drives the webview SPA via the harness fixtures. The Angular shell may not
  * be present when the harness falls back to its inline placeholder

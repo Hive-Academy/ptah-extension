@@ -1,5 +1,5 @@
 /**
- * E2E: settings — user preferences (P3.B3).
+ * E2E: settings — user preferences.
  *
  * Exercises the theme toggle (light/dark), keymap preference selection, and
  * persistence of preferences to the extension host via the settings RPC.

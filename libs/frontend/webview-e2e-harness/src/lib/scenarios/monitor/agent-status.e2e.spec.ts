@@ -1,5 +1,5 @@
 /**
- * E2E: agent monitor — status badge transitions & log streaming (P3.B3).
+ * E2E: agent monitor — status badge transitions & log streaming.
  *
  * Pushes a status timeline (queued → running → completed / failed) through
  * the inbound channel and verifies the page survives each transition. Also

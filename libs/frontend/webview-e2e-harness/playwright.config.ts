@@ -12,7 +12,7 @@ import { defineConfig, devices } from '@playwright/test';
  * - Browser binaries are NOT installed by `npm install`. CI must run
  *   `npx playwright install --with-deps chromium` before invoking the
  *   `e2e` target.
- * - Spec authors (B2/B3) should drop their files under `src/lib/scenarios/`
+ * - Spec authors should drop their files under `src/lib/scenarios/`
  *   alongside `*.e2e.spec.ts` files referenced from `testDir` below.
  */
 const isCI = !!process.env['CI'];

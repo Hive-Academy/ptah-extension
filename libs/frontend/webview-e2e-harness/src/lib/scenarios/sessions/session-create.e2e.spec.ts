@@ -1,5 +1,5 @@
 /**
- * E2E: session creation flow (P3.B3).
+ * E2E: session creation flow.
  *
  * Verifies that the create-session UI emits the expected RPC payload with
  * the user-typed name, that the new session id is reflected back via the

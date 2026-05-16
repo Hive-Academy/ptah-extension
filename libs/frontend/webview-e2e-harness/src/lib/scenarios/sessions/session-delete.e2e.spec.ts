@@ -1,5 +1,5 @@
 /**
- * E2E: session deletion flow (P3.B3).
+ * E2E: session deletion flow.
  *
  * Covers the confirm-dialog gate, the eventual sessions:delete RPC, the
  * active-session re-selection that follows a successful delete, and the

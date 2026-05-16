@@ -1,5 +1,5 @@
 /**
- * E2E: agent monitor — spawn flow (P3.B3).
+ * E2E: agent monitor — spawn flow.
  *
  * Verifies the spawn dialog opens, accepts an agent name, emits the spawn
  * RPC with the chosen provider, that the new agent appears in the live
