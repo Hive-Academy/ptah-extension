@@ -13,8 +13,7 @@
  * Pattern: Modeled after ElectronWorkspaceProvider's loadConfigSync + persistConfig pattern.
  * Platform-agnostic: NO vscode imports. Usable from both VS Code and Electron contexts.
  *
- * TASK_2025_247 Batch 2, Task 2.1
- * WP-5A: Cross-process reactivity via fs.watch on settings.json.
+ * Cross-process reactivity is provided via fs.watch on settings.json.
  */
 
 import * as fs from 'fs';
@@ -50,12 +49,12 @@ export class PtahFileSettingsManager {
   private writePromise: Promise<void> = Promise.resolve();
   /**
    * In-process listeners for individual setting keys.
-   * WP-5A adds cross-process fs.watch() on top of these.
+   * Cross-process fs.watch() layers on top of these.
    */
   private readonly listeners = new Map<string, Set<(value: unknown) => void>>();
 
   // ---------------------------------------------------------------------------
-  // Cross-process watcher state (WP-5A)
+  // Cross-process watcher state
   // ---------------------------------------------------------------------------
   /** Active FSWatcher, set by enableCrossProcessWatch(). */
   private crossProcessWatcher: FSWatcher | null = null;
@@ -127,8 +126,8 @@ export class PtahFileSettingsManager {
    * Subscribe to in-process changes on a single settings key.
    *
    * The callback fires whenever `set(key, value)` resolves successfully.
-   * This covers in-process writes only — cross-process reactivity (fs.watch on
-   * settings.json) is deferred to Phase 5 (cross-process reactivity WP-5).
+   * This covers in-process writes only — cross-process reactivity is handled
+   * by `enableCrossProcessWatch()` via fs.watch on settings.json.
    *
    * Returns a disposable handle to unsubscribe.
    */
@@ -146,7 +145,7 @@ export class PtahFileSettingsManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Cross-process reactivity (WP-5A)
+  // Cross-process reactivity
   // ---------------------------------------------------------------------------
 
   /**
@@ -236,7 +235,7 @@ export class PtahFileSettingsManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Cross-process watcher — private implementation (WP-5A)
+  // Cross-process watcher — private implementation
   // ---------------------------------------------------------------------------
 
   /**
@@ -691,8 +690,6 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
  * Handles primitives, null, arrays (by JSON serialization), and plain objects
  * (by JSON serialization). JSON round-trip is sufficient here because setting
  * values originate from JSON.parse and contain only JSON-serializable types.
- *
- * WP-5A: Cross-process reactivity.
  */
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;

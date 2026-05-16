@@ -2,8 +2,7 @@
  * `runMasterKeyProviderContract` — cross-platform invariants for `IMasterKeyProvider`.
  *
  * Asserts observable key shape, persistence semantics, and idempotency policy.
- * Does NOT assert secure-storage internals or corruption/data-loss paths —
- * those belong in Phase 3 (data-loss audit).
+ * Does NOT assert secure-storage internals or corruption/data-loss paths.
  *
  * Factory signature supports adapters with and without a persistent state root:
  *

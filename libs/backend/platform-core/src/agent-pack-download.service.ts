@@ -10,8 +10,6 @@
  * - Handles first-run gracefully (directories don't exist)
  * - In-flight promise deduplication
  * - 30s timeout per download
- *
- * TASK_2025_257
  */
 
 import * as fs from 'fs';
@@ -231,7 +229,6 @@ export class AgentPackDownloadService {
     targetDir: string,
     onProgress?: AgentPackProgressCallback,
   ): Promise<AgentPackDownloadResult> {
-    // Step 1: Validate agent file names for security
     const validationError = this.validateAgentFiles(agentFiles);
     if (validationError) {
       return {
@@ -242,7 +239,6 @@ export class AgentPackDownloadService {
       };
     }
 
-    // Step 2: Fetch manifest
     let manifest: AgentPackManifest;
     try {
       manifest = await this.fetchManifest(manifestUrl);
@@ -256,7 +252,6 @@ export class AgentPackDownloadService {
       };
     }
 
-    // Step 3: Verify requested files exist in the manifest
     const manifestFileSet = new Set(manifest.agents.map((a) => a.file));
     const missingFiles = agentFiles.filter((f) => !manifestFileSet.has(f));
     if (missingFiles.length > 0) {
@@ -268,7 +263,7 @@ export class AgentPackDownloadService {
       };
     }
 
-    // Step 4: Check cache (skip if contentHash is empty — forces re-download)
+    // Skip cache when contentHash is empty — forces re-download.
     const cacheEntry = this.getCacheEntry(manifestUrl);
     if (
       cacheEntry &&
@@ -292,7 +287,6 @@ export class AgentPackDownloadService {
       }
     }
 
-    // Step 5: Download agent files
     const totalFiles = agentFiles.length;
     let succeeded = 0;
     let failed = 0;
@@ -341,7 +335,6 @@ export class AgentPackDownloadService {
       }
     }
 
-    // Step 6: Update cache metadata
     const cacheMetadata = this.loadCacheMetadata();
     cacheMetadata.packs[manifestUrl] = {
       contentHash: manifest.contentHash,

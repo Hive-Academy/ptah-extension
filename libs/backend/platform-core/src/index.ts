@@ -42,7 +42,7 @@ export type {
 } from './interfaces/http-server-provider.interface';
 export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
 
-// Platform abstractions (moved from @ptah-extension/rpc-handlers in C8)
+// Platform abstractions
 export type {
   IPlatformCommands,
   IPlatformAuthProvider,
@@ -56,7 +56,7 @@ export { PLATFORM_TOKENS } from './di';
 // Utilities
 export { createEvent } from './utils/event-emitter';
 
-// File-Based Settings (TASK_2025_247)
+// File-Based Settings
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
 export {
@@ -65,14 +65,14 @@ export {
   isFileBasedSettingKey,
 } from './file-settings-keys';
 
-// Content Download (TASK_2025_248)
+// Content Download
 export { ContentDownloadService } from './content-download.service';
 export type {
   ContentDownloadResult,
   ContentProgressCallback,
 } from './content-download.service';
 
-// Agent Pack Download (TASK_2025_257)
+// Agent Pack Download
 export { AgentPackDownloadService } from './agent-pack-download.service';
 export type {
   AgentPackInfo,
@@ -80,5 +80,5 @@ export type {
   AgentPackDownloadResult,
 } from './agent-pack-download.service';
 
-// Settings auth key resolution helper (WP-2A)
+// Settings auth key resolution helper
 export { resolveAuthProviderKey } from './settings-auth-key';

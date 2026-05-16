@@ -9,8 +9,6 @@
  * - Uses atomic writes (temp + rename) for safety
  * - Handles first-run gracefully (directories don't exist)
  * - Write serialization via writePromise chain pattern
- *
- * TASK_2025_248
  */
 
 import * as fs from 'fs';
@@ -181,7 +179,6 @@ export class ContentDownloadService {
     onProgress?: ContentProgressCallback,
     forceRefresh?: boolean,
   ): Promise<ContentDownloadResult> {
-    // Step 1: Fetch manifest from GitHub
     onProgress?.('Fetching manifest', 0, 1);
     let manifest: ContentManifest;
 
@@ -204,7 +201,6 @@ export class ContentDownloadService {
       };
     }
 
-    // Step 2: Check if cache is up to date
     if (!forceRefresh) {
       const cachedMeta = this.loadCacheMetadata();
       if (cachedMeta && cachedMeta.contentHash === manifest.contentHash) {
@@ -218,11 +214,9 @@ export class ContentDownloadService {
       }
     }
 
-    // Step 3: Prune stale cached files no longer present in the manifest
     this.pruneStaleFiles(this.pluginsDir, manifest.plugins.files);
     this.pruneStaleFiles(this.templatesDir, manifest.templates.files);
 
-    // Step 4: Download all files
     const totalFiles =
       manifest.plugins.files.length + manifest.templates.files.length;
     let downloadedCount = 0;
@@ -255,7 +249,7 @@ export class ContentDownloadService {
       },
     );
 
-    // Step 5: Update cache metadata (serialized through writePromise chain)
+    // Serialize cache-metadata writes through writePromise chain.
     const cacheMetadata: ContentCacheMetadata = {
       contentHash: manifest.contentHash,
       downloadedAt: new Date().toISOString(),

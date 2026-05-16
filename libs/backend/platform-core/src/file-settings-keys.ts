@@ -9,8 +9,6 @@
  * These keys use flat dot-notation matching the existing
  * getConfiguration('ptah', 'provider.github-copilot.clientId') call pattern.
  * The Set provides O(1) lookup for routing checks in workspace providers.
- *
- * TASK_2025_247 Batch 2, Task 2.2
  */
 
 /**
@@ -21,7 +19,7 @@
  * We cannot import that constant here because settings-core depends on
  * platform-core (not the reverse) — a circular dependency would result.
  *
- * WP-3C (R1 fix): these keys must be in FILE_BASED_SETTINGS_KEYS so that
+ * These keys must be in FILE_BASED_SETTINGS_KEYS so that
  * VscodeWorkspaceProvider routes them to ~/.ptah/settings.json instead of
  * vscode.workspace.getConfiguration (which has no schema for them).
  */
@@ -120,11 +118,11 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // CLI agent configurations
   'ptahCliAgents',
 
-  // Browser automation (TASK_2025_244)
+  // Browser automation
   'browser.allowLocalhost',
   'browser.recordingDir',
 
-  // Editor preferences (TASK_2025_283)
+  // Editor preferences
   'editor.vimMode',
 
   // Memory curator
@@ -180,7 +178,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'gateway.slack.appTokenCipher',
   'gateway.slack.allowedTeamIds',
 
-  // Provider-scoped per-auth model + effort keys (WP-3C, R1 fix).
+  // Provider-scoped per-auth model + effort keys.
   // Generated from KNOWN_AUTH_KEYS_FOR_FILE_ROUTING — one selectedModel and
   // one reasoningEffort key per provider auth identity.
   // Keeps VS Code's getConfiguration router from falling through to the
@@ -281,11 +279,11 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // CLI agent configurations
   ptahCliAgents: [],
 
-  // Browser automation (TASK_2025_244)
+  // Browser automation
   'browser.allowLocalhost': false,
   'browser.recordingDir': '',
 
-  // Editor preferences (TASK_2025_283)
+  // Editor preferences
   'editor.vimMode': false,
 
   // Memory curator
@@ -343,7 +341,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'gateway.slack.appTokenCipher': '',
   'gateway.slack.allowedTeamIds': [],
 
-  // Provider-scoped per-auth model + effort keys (WP-3C, R1 fix).
+  // Provider-scoped per-auth model + effort keys.
   // Empty string = "no selection yet / use provider default".
   ...Object.fromEntries(
     KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [

@@ -1,8 +1,6 @@
 /**
  * IHttpServerProvider — platform-agnostic HTTP server interface.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
- *
  * Pure interface: no Node `http` imports, no platform coupling. The CLI
  * implementation (`CliHttpServerProvider`) wraps `node:http`, while VS Code /
  * Electron / browser environments may register stubs that throw or no-op (the

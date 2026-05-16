@@ -50,10 +50,10 @@ export const PLATFORM_TOKENS = {
   /** IDiagnosticsProvider — workspace diagnostics (errors, warnings) */
   DIAGNOSTICS_PROVIDER: Symbol.for('PlatformDiagnosticsProvider'),
 
-  /** ContentDownloadService — downloads plugins/templates from GitHub (TASK_2025_248) */
+  /** ContentDownloadService — downloads plugins/templates from GitHub */
   CONTENT_DOWNLOAD: Symbol.for('PlatformContentDownload'),
 
-  /** IHttpServerProvider — platform-agnostic HTTP server (TASK_2026_104 P2 proxy) */
+  /** IHttpServerProvider — platform-agnostic HTTP server */
   HTTP_SERVER_PROVIDER: Symbol.for('PlatformHttpServerProvider'),
 
   /** IMemoryWriter — upsert memory entries by stable (fingerprint, subject) identity. */
