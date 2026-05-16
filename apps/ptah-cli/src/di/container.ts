@@ -1,8 +1,8 @@
 /**
  * TUI DI Container Orchestrator
  *
- * TASK_2025_263 Batch 3: Mirrors the Electron ElectronDIContainer.setup() pattern
- * but registers CLI-specific adaptations instead of Electron-specific ones.
+ * Mirrors the Electron ElectronDIContainer.setup() pattern but registers
+ * CLI-specific adaptations instead of Electron-specific ones.
  *
  * CRITICAL DESIGN DECISIONS:
  * - DOES NOT call registerVsCodeCoreServices() (it imports the vscode module)
@@ -143,16 +143,12 @@ export interface CliBootstrapOptions {
    * (used by read-only commands that only need platform + storage adapters).
    * `'full'` mirrors Electron's phase-4-handlers.ts and registers every
    * shared RPC handler. Defaults to `'full'`.
-   *
-   * TASK_2026_104 Batch 4 — Discovery D12.
    */
   bootstrapMode?: 'minimal' | 'full';
   /**
    * When true, emit `debug.di.phase` notifications via `pushAdapter` at the
    * start AND end of every numbered DI phase. Consumed by the JSON-RPC
    * event-pipe under the global `--verbose` flag.
-   *
-   * TASK_2026_104 Batch 4 — task-description.md § 4.1.9.
    */
   verbose?: boolean;
 }
@@ -285,9 +281,9 @@ export class CliDIContainer {
     // ========================================
     // PHASE 1.0b: SentryService (opt-in; uninitialized until SENTRY_DSN is set)
     // ========================================
-    // Wave C4b: shared RPC handler factories require TOKENS.SENTRY_SERVICE.
-    // The service is a no-op until `initialize()` is called with a DSN, so
-    // registering it unconditionally is safe for the CLI.
+    // Shared RPC handler factories require TOKENS.SENTRY_SERVICE. The service
+    // is a no-op until `initialize()` is called with a DSN, so registering it
+    // unconditionally is safe for the CLI.
     container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
 
     // ========================================
@@ -316,15 +312,15 @@ export class CliDIContainer {
       FeatureGateService,
     );
 
-    // TASK_2026_104 Sub-batch B5b: GitInfoService is shared (cross-spawn around
-    // git CLI — no platform coupling). Required by the lifted GitRpcHandlers.
+    // GitInfoService is shared (cross-spawn around git CLI — no platform
+    // coupling). Required by the lifted GitRpcHandlers.
     container.register(TOKENS.GIT_INFO_SERVICE, {
       useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
     });
 
-    // TASK_2026_104 Sub-batch B5a: WorkspaceContextManager + WorkspaceAwareStateStorage.
-    // Required by the lifted shared WorkspaceRpcHandlers so the CLI can serve
-    // workspace:* (getInfo / addFolder / registerFolder / removeFolder / switch).
+    // WorkspaceContextManager + WorkspaceAwareStateStorage required by the
+    // lifted shared WorkspaceRpcHandlers so the CLI can serve workspace:*
+    // (getInfo / addFolder / registerFolder / removeFolder / switch).
     //
     // We override Phase 0's WORKSPACE_STATE_STORAGE with the workspace-aware
     // proxy so any handler that injects WORKSPACE_STATE_STORAGE later gets
@@ -353,7 +349,7 @@ export class CliDIContainer {
       useValue: workspaceContextManager,
     });
 
-    // Eagerly create + activate the startup workspace (mirrors Electron Phase 1).
+    // Eagerly create + activate the startup workspace (mirrors Electron).
     // Synchronous container setup can't await; fire-and-forget with logging is
     // safe because the JSON-RPC stdio loop / commander handler doesn't dispatch
     // workspace:* calls until well after this resolves.
@@ -410,7 +406,7 @@ export class CliDIContainer {
     // ========================================
     // ConfigManager (vscode-core) imports 'vscode' directly and cannot be used
     // in the CLI. We keep the shim but source fileSettings from the
-    // CliWorkspaceProvider registered in Phase 0 so both the workspace provider
+    // CliWorkspaceProvider registered earlier so both the workspace provider
     // and the config shim share the same PtahFileSettingsManager instance.
     // The shared instance is stored on CliDIContainer._fileSettings so that
     // process.on('exit', ...) in main.ts can call flushSync() synchronously.
@@ -560,7 +556,7 @@ export class CliDIContainer {
     // ========================================
     // PHASE 1.6: Seed community license (CLI has no registration gate)
     // ========================================
-    // Must be after Phase 1.5 (EXTENSION_CONTEXT + CONFIG_MANAGER are required by LicenseService)
+    // Must be after EXTENSION_CONTEXT + CONFIG_MANAGER are registered (required by LicenseService)
     try {
       const licenseService = container.resolve<LicenseService>(
         TOKENS.LICENSE_SERVICE,
@@ -586,9 +582,9 @@ export class CliDIContainer {
     // Phase 2.2: Agent SDK (Claude Agent SDK integration)
     registerSdkServices(container, logger);
 
-    // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (Wave C4b: shared wiring helpers
-    // resolve via TOKENS.AGENT_ADAPTER; mirror VS Code / Electron pattern so
-    // the helper sees the adapter when called from tui-rpc-method-registration).
+    // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (shared wiring helpers resolve
+    // via TOKENS.AGENT_ADAPTER; mirror VS Code / Electron pattern so the
+    // helper sees the adapter when called from tui-rpc-method-registration).
     container.register(TOKENS.AGENT_ADAPTER, {
       useFactory: (c) =>
         c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
@@ -627,9 +623,8 @@ export class CliDIContainer {
       '[CLI DI] SETUP_WIZARD_SERVICE stub registered (no setup wizard in CLI)',
     );
 
-    // TASK_2025_291 Wave C5: CLI agent services now registered by
-    // registerSdkServices (earlier in Phase 2). The llm-abstraction
-    // library has been deleted.
+    // CLI agent services are registered by registerSdkServices (earlier in
+    // Phase 2). The llm-abstraction library has been deleted.
 
     phaseEnd('2', phase2Start);
 
@@ -715,7 +710,7 @@ export class CliDIContainer {
     // ========================================
     // Skipped entirely under `bootstrapMode === 'minimal'`. Read-only commands
     // (config, status, etc.) need only Phases 0-3.5 and can avoid the cost of
-    // resolving every RPC handler class. Discovery D12.
+    // resolving every RPC handler class.
     if (bootstrapMode === 'full') {
       const phase4Start = phaseStart('4');
 
@@ -826,7 +821,7 @@ export class CliDIContainer {
 
       container.registerSingleton(WebSearchRpcHandlers);
 
-      // TASK_2026_104 Sub-batch B5a: WorkspaceRpcHandlers (lifted from Electron).
+      // WorkspaceRpcHandlers (lifted from Electron).
       container.registerSingleton(WorkspaceRpcHandlers);
 
       logger.info('[CLI DI] Shared RPC handler classes registered (18)');

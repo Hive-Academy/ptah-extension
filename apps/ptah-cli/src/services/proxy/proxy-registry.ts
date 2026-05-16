@@ -1,6 +1,6 @@
 /**
  * `proxy-registry` — persistent on-disk registry of running Anthropic-compatible
- * proxy processes (TASK_2026_108 T3).
+ * proxy processes.
  *
  * Layout: `<userDataPath>/proxies/<port>.json`. Sibling to the existing
  * `<userDataPath>/proxy/<port>.token` directory used by `proxy-auth.ts` —
@@ -25,9 +25,9 @@
  * Pure functional module — no DI, no classes, no logger. Mirror of
  * `proxy-auth.ts`. All paths absolute. No `any`.
  *
- * Q3=A locked (TASK_2026_108 § 8): registry directory `~/.ptah/proxies/`
- * (plural). Token directory `~/.ptah/proxy/` (singular) is UNCHANGED — no
- * migration of existing `proxy-auth.ts` paths.
+ * Registry directory `~/.ptah/proxies/` (plural). Token directory
+ * `~/.ptah/proxy/` (singular) is UNCHANGED — no migration of existing
+ * `proxy-auth.ts` paths.
  */
 
 import { createHash, randomBytes } from 'node:crypto';

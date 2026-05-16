@@ -1,8 +1,8 @@
 /**
  * `ptah quality` command — quality assessment dashboard surface.
  *
- * TASK_2026_104 Sub-batch B9b. Backed by the shared `QualityRpcHandlers`
- * (registered globally via `registerAllRpcHandlers()`).
+ * Backed by the shared `QualityRpcHandlers` (registered globally via
+ * `registerAllRpcHandlers()`).
  *
  * Sub-commands (per task-description.md §3.1 `quality *` table):
  *

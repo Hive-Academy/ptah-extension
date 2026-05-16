@@ -1,5 +1,5 @@
 /**
- * CLI Platform Implementations (TASK_2025_263)
+ * CLI Platform Implementations
  *
  * Platform-specific implementations of the abstraction interfaces
  * defined in @ptah-extension/rpc-handlers.

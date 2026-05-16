@@ -1,8 +1,8 @@
 /**
  * `ptah wizard` command — low-level Setup Wizard escape hatch.
  *
- * TASK_2026_104 Sub-batch B9c. Backed by `WizardGenerationRpcHandlers`
- * (registered globally via `registerAllRpcHandlers()`):
+ * Backed by `WizardGenerationRpcHandlers` (registered globally via
+ * `registerAllRpcHandlers()`):
  *
  *   submit-selection --file <path>   RPC `wizard:submit-selection`
  *                                    fire-and-forget; broadcasts via

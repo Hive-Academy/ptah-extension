@@ -1,7 +1,5 @@
 /**
  * Unit tests for the serialized stdout writer.
- *
- * TASK_2026_104 Batch 3.
  */
 
 import { PassThrough } from 'node:stream';

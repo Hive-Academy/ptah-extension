@@ -1,7 +1,5 @@
 /**
  * Unit tests for the backend-event → JSON-RPC notification pipe.
- *
- * TASK_2026_104 Batch 3.
  */
 
 import { EventEmitter } from 'node:events';
@@ -43,8 +41,7 @@ describe('EventPipe', () => {
       ['task:start', 'task.start'],
       ['task:complete', 'task.complete'],
       ['task:error', 'task.error'],
-      // Setup-wizard generation — TASK_2026_104 Sub-batch B9a
-      // (task-description.md §4.1.3).
+      // Setup-wizard generation — task-description.md §4.1.3.
       ['setup-wizard:generation-progress', 'wizard.generation.progress'],
       ['setup-wizard:generation-stream', 'wizard.generation.stream'],
       ['setup-wizard:generation-complete', 'wizard.generation.complete'],

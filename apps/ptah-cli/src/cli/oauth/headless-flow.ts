@@ -1,8 +1,6 @@
 /**
  * Headless OAuth orchestration for `ptah auth login copilot`.
  *
- * TASK_2026_104 Batch 8d.
- *
  * Coordinates three async surfaces of the GitHub Copilot Device Code flow
  * (RFC 8628), wired against the headless-friendly API split delivered by B8a:
  *

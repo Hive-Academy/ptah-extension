@@ -1,8 +1,6 @@
 /**
  * Unit tests for `runHeadlessLogin` — the headless OAuth orchestrator.
  *
- * TASK_2026_104 Batch 8d.
- *
  * Coverage targets:
  *   - happy path: success flows through `auth.login.{start,url,complete}` and
  *     returns exit code 0.

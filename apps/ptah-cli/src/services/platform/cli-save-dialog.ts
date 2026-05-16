@@ -1,5 +1,5 @@
 /**
- * CLI Save Dialog Provider Implementation (TASK_2025_263)
+ * CLI Save Dialog Provider Implementation
  *
  * Implements ISaveDialogProvider for the CLI/TUI environment:
  * - showSaveAndWrite: Writes content to the specified default filename

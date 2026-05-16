@@ -2,8 +2,6 @@
  * `ptah provider` command — sub-dispatcher for status / set-key / remove-key /
  * default get / default set / models list / tier set / tier get / tier clear.
  *
- * TASK_2026_104 Batch 8d.
- *
  * Sub-commands (per task-description.md §3.1 lines 459-469):
  *
  *   status                        — Read-only. Calls `llm:getProviderStatus`,

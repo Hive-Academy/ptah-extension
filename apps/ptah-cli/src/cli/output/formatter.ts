@@ -2,8 +2,6 @@
  * Output formatter — JSON-RPC NDJSON (default) vs human-readable pretty
  * printer.
  *
- * TASK_2026_104 Batch 3.
- *
  * Both formatters share a common `Formatter` interface so commands and the
  * event-pipe can stay agnostic of which mode is active. The factory
  * `buildFormatter(globals)` resolves the mode from the global flags and
@@ -257,8 +255,8 @@ export class HumanFormatter implements Formatter {
    *   3. Providers — table (id, type, status)
    *   4. Effective — route / ready / blockers (one per line)
    *
-   * Stream B item #7 — only this notification's render lives here. Other
-   * formatter changes (Stream A) must NOT be touched.
+   * Only the doctor.report render lives here. Other formatter sections
+   * must NOT be touched.
    */
   private renderDoctorReport(obj: Record<string, unknown>): string {
     const lines: string[] = [];

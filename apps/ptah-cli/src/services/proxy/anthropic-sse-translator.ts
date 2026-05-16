@@ -3,8 +3,6 @@
  * `chat:chunk` / `chat:complete` / `chat:error` broadcasts onto Anthropic
  * Messages API SSE frames.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
- *
  * The translator is a stateful, single-turn projection. Each `Translator`
  * instance handles ONE Anthropic request → ONE SSE response stream:
  *

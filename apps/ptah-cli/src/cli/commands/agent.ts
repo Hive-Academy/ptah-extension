@@ -1,5 +1,5 @@
 /**
- * `ptah agent` command — agent surface (TASK_2026_104 B7).
+ * `ptah agent` command — agent surface.
  *
  * Sub-commands per `task-description.md` §3 `agent *` table:
  *

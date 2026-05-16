@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah session` command — TASK_2026_104 Sub-batch B10c.
+ * Unit tests for `ptah session` command.
  *
  * Coverage matrix:
  *

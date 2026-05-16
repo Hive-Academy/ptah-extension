@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah prompts` command — TASK_2026_104 Sub-batch B6c.
+ * Unit tests for `ptah prompts` command.
  *
  * Coverage:
  *   - status:     dispatches enhancedPrompts:getStatus; emits prompts.status

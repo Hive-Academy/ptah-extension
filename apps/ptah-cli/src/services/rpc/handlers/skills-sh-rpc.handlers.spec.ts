@@ -1,8 +1,8 @@
 /**
  * Parity test for the CLI Skills.sh RPC Handlers.
  *
- * TASK_2026_104 Sub-batch B6b — verifies the CLI re-registration of
- * `SkillsShRpcHandlers` exposes the same six RPC method names as the
+ * Verifies the CLI re-registration of `SkillsShRpcHandlers` exposes the
+ * same six RPC method names as the
  * Electron handler, in the same registration order. Drift between the two
  * apps would silently regress functionality (e.g. webview "Recommended
  * Skills" panel pointing at a method the CLI no longer registers), so this

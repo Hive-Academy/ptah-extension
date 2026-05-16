@@ -2,13 +2,8 @@
  * Commander router for the `ptah` headless CLI.
  *
  * Declares all subcommands (config, harness, agent, run, execute-spec,
- * interact, etc.) plus the global flags listed in
- * `.ptah/specs/TASK_2026_104/task-description.md` § 5.
- *
- * TASK_2026_104 Batch 2 — scaffold only. Each subcommand handler invokes a
- * stub that prints "not yet implemented" and exits 0; real behavior lands in
- * Batches 4-6. No DI bootstrap occurs here — that lives inside each command's
- * `execute()` from Batch 5 onward.
+ * interact, etc.) plus the global flags. No DI bootstrap occurs here — that
+ * lives inside each command's `execute()`.
  */
 
 import { Command, Option } from 'commander';
@@ -356,9 +351,9 @@ export function buildRouter(): Command {
     });
 
   // -- ptah harness ----------------------------------------------------------
-  // TASK_2026_104 Sub-batch B6c. Backed by shared HarnessRpcHandlers
-  // (registered globally via `registerAllRpcHandlers()`), so VS Code, Electron,
-  // and the CLI all dispatch identical RPC verbs.
+  // Backed by shared HarnessRpcHandlers (registered globally via
+  // `registerAllRpcHandlers()`), so VS Code, Electron, and the CLI all
+  // dispatch identical RPC verbs.
   const harness = program
     .command('harness')
     .description(
@@ -461,8 +456,8 @@ export function buildRouter(): Command {
   // ---------------------------------------------------------------------------
   // `harness chat` — alias for `ptah session start --scope harness-skill`.
   //
-  // TASK_2026_104 Sub-batch B10d. The flag set mirrors `session start --scope
-  // harness-skill` for stream-handling parity. Delegation lives in
+  // The flag set mirrors `session start --scope harness-skill` for
+  // stream-handling parity. Delegation lives in
   // `commands/harness.ts:runChatAlias` and ultimately calls
   // `executeSessionStart` from `session.ts`.
   // ---------------------------------------------------------------------------
@@ -541,8 +536,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah agent ------------------------------------------------------------
-  // TASK_2026_104 Batch B7. Replaces the deprecated `profile` surface
-  // (deletion shim removed in Batch B11 — TASK_2026_104).
+  // Replaces the deprecated `profile` surface (deletion shim removed).
   const agent = program
     .command('agent')
     .description(
@@ -604,9 +598,9 @@ export function buildRouter(): Command {
     });
 
   // -- ptah agent-cli --------------------------------------------------------
-  // TASK_2026_104 Batch B7. Allowlist enforced — only `glm` and `gemini` are
-  // accepted for `--cli`; rejection emits ptah_code: cli_agent_unavailable
-  // and exits 3 (AuthRequired). NEVER bypassable via env vars.
+  // Allowlist enforced — only `glm` and `gemini` are accepted for `--cli`;
+  // rejection emits ptah_code: cli_agent_unavailable and exits 3
+  // (AuthRequired). NEVER bypassable via env vars.
   const agentCli = program
     .command('agent-cli')
     .description(
@@ -707,7 +701,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah run --------------------------------------------------------------
-  // TASK_2026_104 Sub-batch B10d: `ptah run` is a thin deprecation alias for
+  // `ptah run` is a thin deprecation alias for
   // `ptah session start --task <text>` and will be removed in the next
   // release. The body delegates to `executeSessionStart` and emits a single-
   // line deprecation notice on stderr.
@@ -740,7 +734,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah auth -------------------------------------------------------------
-  // TASK_2026_104 Batch 8d. Sub-dispatcher: status / login / logout / test.
+  // Sub-dispatcher: status / login / logout / test.
   const auth = program
     .command('auth')
     .description('inspect and manage agent provider authentication');
@@ -798,8 +792,8 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
-  // `auth use <providerId>` (Stream B item #4) — switch the active auth
-  // strategy without going through a full login flow. Writes
+  // `auth use <providerId>` — switch the active auth strategy without going
+  // through a full login flow. Writes
   // ptah.authMethod / ptah.defaultProvider / ptah.anthropicProviderId via
   // the workspace provider (routed to ~/.ptah/settings.json).
   auth
@@ -833,8 +827,8 @@ export function buildRouter(): Command {
     });
 
   // -- ptah provider ---------------------------------------------------------
-  // TASK_2026_104 Batch 8d. Sub-dispatcher with nested actions for default,
-  // models, and tier (each spec'd in task-description.md §3.1 lines 459-469).
+  // Sub-dispatcher with nested actions for default, models, and tier (each
+  // spec'd in task-description.md §3.1 lines 459-469).
   const provider = program
     .command('provider')
     .description(
@@ -1097,7 +1091,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah workspace --------------------------------------------------------
-  // TASK_2026_104 Sub-batch B5d. Backed by shared WorkspaceRpcHandlers (B5a).
+  // Backed by shared WorkspaceRpcHandlers.
   const workspace = program
     .command('workspace')
     .description('manage workspace folders (info / add / remove / switch)');
@@ -1153,8 +1147,8 @@ export function buildRouter(): Command {
     });
 
   // -- ptah skill ------------------------------------------------------------
-  // TASK_2026_104 Sub-batch B6b. Backed by `SkillsShRpcHandlers` re-registered
-  // in the CLI app + shared `harness:create-skill`.
+  // Backed by `SkillsShRpcHandlers` re-registered in the CLI app + shared
+  // `harness:create-skill`.
   const skill = program
     .command('skill')
     .description(
@@ -1261,7 +1255,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah mcp --------------------------------------------------------------
-  // TASK_2026_104 Sub-batch B6b. Backed by shared McpDirectoryRpcHandlers (B6a).
+  // Backed by shared McpDirectoryRpcHandlers.
   const mcp = program
     .command('mcp')
     .description(
@@ -1350,9 +1344,9 @@ export function buildRouter(): Command {
     });
 
   // -- ptah plugin -----------------------------------------------------------
-  // TASK_2026_104 Sub-batch B6c. Backed by shared PluginRpcHandlers.
-  // NOTE: there is intentionally NO `install` sub-subcommand — Discovery D8
-  // locked "install = enable" so `plugin enable <id>` IS the install verb.
+  // Backed by shared PluginRpcHandlers.
+  // NOTE: there is intentionally NO `install` sub-subcommand — "install =
+  // enable" so `plugin enable <id>` IS the install verb.
   const plugin = program
     .command('plugin')
     .description(
@@ -1463,9 +1457,9 @@ export function buildRouter(): Command {
     });
 
   // -- ptah prompts ----------------------------------------------------------
-  // TASK_2026_104 Sub-batch B6c. Backed by shared EnhancedPromptsRpcHandlers.
-  // The `regenerate` sub-subcommand is premium-gated (license_required is
-  // surfaced by the backend and converted to a task.error).
+  // Backed by shared EnhancedPromptsRpcHandlers. The `regenerate`
+  // sub-subcommand is premium-gated (license_required is surfaced by the
+  // backend and converted to a task.error).
   const prompts = program
     .command('prompts')
     .description(
@@ -1549,7 +1543,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah git --------------------------------------------------------------
-  // TASK_2026_104 Sub-batch B5d. Backed by shared GitRpcHandlers (B5b).
+  // Backed by shared GitRpcHandlers.
   const git = program
     .command('git')
     .description('git introspection + worktrees + source control');
@@ -1682,7 +1676,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah license ----------------------------------------------------------
-  // TASK_2026_104 Sub-batch B5d. Backed by shared LicenseRpcHandlers.
+  // Backed by shared LicenseRpcHandlers.
   const license = program
     .command('license')
     .description('inspect / set / clear the Ptah license key');
@@ -1722,7 +1716,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah websearch --------------------------------------------------------
-  // TASK_2026_104 Sub-batch B5d. Backed by shared WebSearchRpcHandlers.
+  // Backed by shared WebSearchRpcHandlers.
   const websearch = program
     .command('websearch')
     .description('web-search provider settings + connectivity test');
@@ -1812,8 +1806,8 @@ export function buildRouter(): Command {
     });
 
   // -- ptah settings ---------------------------------------------------------
-  // TASK_2026_104 Sub-batch B5d. Direct DI to SDK SettingsExportService /
-  // SettingsImportService — bypasses the Electron-only RPC dialogs.
+  // Direct DI to SDK SettingsExportService / SettingsImportService —
+  // bypasses the Electron-only RPC dialogs.
   const settings = program
     .command('settings')
     .description('export / import portable settings bundles');
@@ -1850,7 +1844,7 @@ export function buildRouter(): Command {
     });
 
   // -- ptah quality ----------------------------------------------------------
-  // TASK_2026_104 Sub-batch B9b. Backed by shared QualityRpcHandlers.
+  // Backed by shared QualityRpcHandlers.
   const quality = program
     .command('quality')
     .description(
@@ -1898,11 +1892,11 @@ export function buildRouter(): Command {
     });
 
   // -- ptah session ----------------------------------------------------------
-  // TASK_2026_104 Sub-batch B10c. 10-sub-subcommand dispatcher driving the
-  // chat session surface end-to-end. Streaming sub-subcommands (start/resume/
-  // send) wire B10b's ChatBridge + ApprovalBridge against the engine's
-  // pushAdapter; non-streaming ones run a single RPC and exit. State persisted
-  // under WORKSPACE_STATE_STORAGE namespace `sessions.<tabId>`.
+  // 10-sub-subcommand dispatcher driving the chat session surface end-to-end.
+  // Streaming sub-subcommands (start/resume/send) wire ChatBridge +
+  // ApprovalBridge against the engine's pushAdapter; non-streaming ones run a
+  // single RPC and exit. State persisted under WORKSPACE_STATE_STORAGE
+  // namespace `sessions.<tabId>`.
   const session = program
     .command('session')
     .description(
@@ -2060,10 +2054,10 @@ export function buildRouter(): Command {
     });
 
   // -- ptah wizard -----------------------------------------------------------
-  // TASK_2026_104 Sub-batch B9c. Low-level Setup Wizard escape hatch backed by
+  // Low-level Setup Wizard escape hatch backed by
   // WizardGenerationRpcHandlers (submit-selection / cancel / retry-item) plus
   // a status read of `setup.lastCompletedPhase` from WORKSPACE_STATE_STORAGE.
-  // The high-level orchestrator lives in `ptah setup` (B9d).
+  // The high-level orchestrator lives in `ptah setup`.
   const wizard = program
     .command('wizard')
     .description(
@@ -2127,11 +2121,11 @@ export function buildRouter(): Command {
     });
 
   // -- ptah setup ------------------------------------------------------------
-  // TASK_2026_104 Sub-batch B9d. Top-level 5-phase Setup Wizard orchestrator
-  // built on top of the B9c phase-runner. Each phase is wrapped with a best-
-  // effort rollback strategy; `setup.lastCompletedPhase` is persisted to
-  // WORKSPACE_STATE_STORAGE after every successful phase (so `ptah wizard
-  // status` from B9c reads the live progress). On any phase failure: emits
+  // Top-level 5-phase Setup Wizard orchestrator built on top of the
+  // phase-runner. Each phase is wrapped with a best-effort rollback strategy;
+  // `setup.lastCompletedPhase` is persisted to WORKSPACE_STATE_STORAGE after
+  // every successful phase (so `ptah wizard status` reads the live progress).
+  // On any phase failure: emits
   // `task.error { ptah_code: 'wizard_phase_failed', data: { phase, error } }`
   // and exits 1. `--dry-run` skips phases 3-5 (writes-free smoke test).
   program
@@ -2161,8 +2155,8 @@ export function buildRouter(): Command {
     });
 
   // -- ptah analyze ----------------------------------------------------------
-  // TASK_2026_104 Sub-batch B5d. Top-level command — drives wizard:deep-analyze
-  // and streams analyze.* notifications. Premium licence gated by the backend.
+  // Top-level command — drives wizard:deep-analyze and streams analyze.*
+  // notifications. Premium licence gated by the backend.
   program
     .command('analyze')
     .description('run a multi-phase workspace analysis via wizard:deep-analyze')
@@ -2182,8 +2176,8 @@ export function buildRouter(): Command {
     });
 
   // -- ptah doctor / diagnose ------------------------------------------------
-  // Stream B item #7. Top-level diagnostic snapshot. Boots the full DI graph
-  // with `requireSdk: false` so the report still renders when auth is broken.
+  // Top-level diagnostic snapshot. Boots the full DI graph with
+  // `requireSdk: false` so the report still renders when auth is broken.
   // Emits a single `doctor.report` notification then exits.
   const doctorAction = async (): Promise<void> => {
     const exit = await doctorCmd.execute({}, resolveGlobals(program));
@@ -2201,8 +2195,8 @@ export function buildRouter(): Command {
     .action(doctorAction);
 
   // -- ptah proxy ------------------------------------------------------------
-  // Anthropic-compatible HTTP proxy (TASK_2026_104 P2). `start` is long-blocking;
-  // `stop` and `status` are deferred to Phase 2.
+  // Anthropic-compatible HTTP proxy. `start` is long-blocking;
+  // `stop` and `status` are deferred.
   const proxyCommand = program
     .command('proxy')
     .description('Anthropic-compatible HTTP proxy (Messages API)');

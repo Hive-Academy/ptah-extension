@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah plugin` command — TASK_2026_104 Sub-batch B6c.
+ * Unit tests for `ptah plugin` command.
  *
  * Coverage:
  *   - list:         dispatches plugins:list-available; emits plugin.list

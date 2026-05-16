@@ -1,8 +1,7 @@
 /**
  * `runPhase` — dual-mode phase runner.
  *
- * TASK_2026_104 Sub-batch B9c. The single most-complex new abstraction in
- * batch B9; consumed by the upcoming `setup.ts` orchestrator (B9d).
+ * Consumed by the `setup.ts` orchestrator.
  *
  * Two execution shapes share one emission contract:
  *

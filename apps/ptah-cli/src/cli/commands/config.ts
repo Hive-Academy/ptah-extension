@@ -2,8 +2,6 @@
  * `ptah config` command — file-backed reads/writes + RPC sub-subcommands for
  * model / autopilot / effort.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1):
  *
  *   get <key>                  Read a value via IWorkspaceProvider.getConfiguration

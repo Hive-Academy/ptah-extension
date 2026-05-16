@@ -1,9 +1,9 @@
 /**
  * TUI-compatible adapters for VS Code-specific services
  *
- * TASK_2025_263 Batch 3: These adapters replace vscode-core services that
- * import the 'vscode' module. They provide the same interface contract
- * expected by downstream consumers (Logger, RpcHandler, etc.).
+ * These adapters replace vscode-core services that import the 'vscode'
+ * module. They provide the same interface contract expected by downstream
+ * consumers (Logger, RpcHandler, etc.).
  *
  * Mirrors apps/ptah-electron/src/di/electron-adapters.ts with CLI-specific
  * adaptations (no Electron/VS Code imports).

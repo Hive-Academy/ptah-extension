@@ -1,8 +1,6 @@
 /**
  * JSON-RPC 2.0 stdio server.
  *
- * TASK_2026_104 Batch 3.
- *
  * Bidirectional dispatcher for `interact` mode and the inbound channel of
  * `run` / `execute-spec` (which only receives permission responses).
  *
@@ -19,7 +17,7 @@
  *   -32602 Invalid params (when handler throws an `InvalidParamsError`)
  *   -32603 Internal error (handler threw unexpectedly)
  *
- * No DI imports. Pure protocol layer — wired by `interact.ts` in Batch 6.
+ * No DI imports. Pure protocol layer — wired by `interact.ts`.
  */
 
 import {

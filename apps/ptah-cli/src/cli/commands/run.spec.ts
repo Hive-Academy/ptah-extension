@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah run` — TASK_2026_104 Sub-batch B10d.
+ * Unit tests for `ptah run`.
  *
  * `ptah run` is a thin deprecation alias for `ptah session start --task`. The
  * body prints a deprecation notice on stderr and delegates to

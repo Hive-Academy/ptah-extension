@@ -1,8 +1,8 @@
 /**
  * CLI Skills.sh RPC Handlers
  *
- * TASK_2026_104 Sub-batch B6b — re-registration in the CLI app of the
- * Electron-specific SkillsShRpcHandlers. Logic is mirrored verbatim from
+ * Re-registration in the CLI app of the Electron-specific
+ * SkillsShRpcHandlers. Logic is mirrored verbatim from
  * `apps/ptah-electron/src/services/rpc/handlers/skills-sh-rpc.handlers.ts`
  * because both apps already inject `IWorkspaceProvider` (PLATFORM_TOKENS.WORKSPACE_PROVIDER)
  * and have no other platform coupling — keeping the file local to the CLI app

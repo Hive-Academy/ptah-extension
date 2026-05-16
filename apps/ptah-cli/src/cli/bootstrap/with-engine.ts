@@ -1,11 +1,9 @@
 /**
  * `withEngine` — deterministic DI bootstrap + dispose helper.
  *
- * TASK_2026_104 Batch 4 (Discovery D12, implementation-plan.md § 7).
- *
- * Every CLI command from Batch 5 onward calls `withEngine(globals, { mode },
- * fn)` to bootstrap the DI container, run its work inside `fn`, and tear the
- * container down deterministically in `finally` — including the throw path.
+ * Every CLI command calls `withEngine(globals, { mode }, fn)` to bootstrap
+ * the DI container, run its work inside `fn`, and tear the container down
+ * deterministically in `finally` — including the throw path.
  *
  * The helper is intentionally small and dependency-light:
  *   - It does not import commander, the formatter, or the JSON-RPC server.
@@ -57,10 +55,10 @@ const AGENT_ADAPTER_TOKEN = Symbol.for('AgentAdapter');
  * — `SDK_TOKENS.SDK_PERMISSION_HANDLER`). Resolved by `Symbol.for(...)` to
  * keep `with-engine.ts` dependency-light, mirroring `AGENT_ADAPTER_TOKEN`.
  *
- * Used by the `--auto-approve` / `PTAH_AUTO_APPROVE=true` wiring (Bug 2 in
- * PTAH_CLI_BUGS.md) to elevate the permission level to `'yolo'` post DI
- * bootstrap so headless `ptah run` / `ptah session start` invocations don't
- * hang at the `canUseTool` gate waiting for a webview that never connects.
+ * Used by the `--auto-approve` / `PTAH_AUTO_APPROVE=true` wiring to elevate
+ * the permission level to `'yolo'` post DI bootstrap so headless `ptah run` /
+ * `ptah session start` invocations don't hang at the `canUseTool` gate
+ * waiting for a webview that never connects.
  */
 const SDK_PERMISSION_HANDLER_TOKEN = Symbol.for('SdkPermissionHandler');
 
@@ -202,7 +200,7 @@ export async function withEngine<T>(
     pushAdapter: result.pushAdapter,
   };
 
-  // ---- WP-3C: File-settings migration ----------------------------------------
+  // ---- File-settings migration -----------------------------------------------
   //
   // SETTINGS_TOKENS (SETTINGS_STORE, all 9 repository tokens, MIGRATION_RUNNER)
   // are registered by CliDIContainer.setup() in Phase 3.6 — BEFORE Phase 4
@@ -235,7 +233,7 @@ export async function withEngine<T>(
     }
   })();
 
-  // ---- CLI bug batch item #12: authMethod camelCase → kebab-case migration --
+  // ---- authMethod camelCase → kebab-case migration --------------------------
   //
   // Older configs persist `authMethod: 'claudeCli'`. The canonical form is
   // `'claude-cli'` so the value matches the provider id used everywhere else
@@ -261,7 +259,7 @@ export async function withEngine<T>(
     });
   }
 
-  // ---- P0 Fix 1: initialize the SDK agent adapter under `mode === 'full'` --
+  // ---- Initialize the SDK agent adapter under `mode === 'full'` ------------
   //
   // Without this, `chat:start` RPCs throw `SdkAgentAdapter not initialized`
   // inside the chat-session service, the throw is swallowed by an inner
@@ -308,8 +306,8 @@ export async function withEngine<T>(
         initErrorMessage ??
         'SDK agent adapter initialize() returned false (auth not configured)';
       // Emit the structured stderr NDJSON line BEFORE we tear down so
-      // supervisors per cli-shift.md see the deterministic error code even
-      // if the JSON-RPC stdout channel is closed.
+      // supervisors see the deterministic error code even if the JSON-RPC
+      // stdout channel is closed.
       emitFatalError('sdk_init_failed', message, {
         command: 'engine.bootstrap',
         bootstrap_mode: opts.mode,
@@ -323,13 +321,13 @@ export async function withEngine<T>(
     }
   }
 
-  // ---- Bug 2 Fix: wire `--auto-approve` / `PTAH_AUTO_APPROVE` to YOLO -----
+  // ---- Wire `--auto-approve` / `PTAH_AUTO_APPROVE` to YOLO -----------------
   //
-  // The `--auto-approve` global flag (router.ts:188) was resolved into
-  // `globals.autoApprove` (router.ts:94) but no code path consulted it to
-  // elevate the SdkPermissionHandler's permission level. Tools outside the
-  // safe-tool whitelist hung indefinitely at the `canUseTool` gate waiting
-  // for a webview response that never arrives in headless mode.
+  // The `--auto-approve` global flag is resolved into `globals.autoApprove`
+  // and must elevate the SdkPermissionHandler's permission level. Without
+  // this, tools outside the safe-tool whitelist hang indefinitely at the
+  // `canUseTool` gate waiting for a webview response that never arrives in
+  // headless mode.
   //
   // We wire post DI Phase 4 RPC registration AND post `SdkAgentAdapter.
   // initialize()` so the permission handler singleton is guaranteed to be
@@ -338,8 +336,6 @@ export async function withEngine<T>(
   //
   // The env var `PTAH_AUTO_APPROVE=true` is honored with the same semantics
   // for parity with `approval-bridge.ts` (which already consults it).
-  //
-  // Refs: PTAH_CLI_BUGS.md Bug 2.
   if (opts.mode === 'full') {
     const autoApproveRequested =
       globals.autoApprove === true ||

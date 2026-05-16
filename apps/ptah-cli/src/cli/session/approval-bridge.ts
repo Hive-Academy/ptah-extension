@@ -1,8 +1,8 @@
 /**
  * `ApprovalBridge` — backend permission/question requests ↔ JSON-RPC stdio.
  *
- * TASK_2026_104 Sub-batch B10b. Closes the round-trip gap for
- * `permission:request` and `ask-user-question:request`: backend `SdkPermissionHandler`
+ * Closes the round-trip gap for `permission:request` and
+ * `ask-user-question:request`: backend `SdkPermissionHandler`
  * emits these as push-adapter events; this bridge re-emits them as JSON-RPC
  * notifications on stdout, registers `permission.response / question.response`
  * inbound handlers on the JSON-RPC server, and calls back into

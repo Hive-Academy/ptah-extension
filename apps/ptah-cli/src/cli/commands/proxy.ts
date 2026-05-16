@@ -1,9 +1,6 @@
 /**
  * `ptah proxy` command — Anthropic-compatible HTTP proxy MVP + lifecycle parity.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy MVP).
- * TASK_2026_108 T3 (persistent registry + `proxy stop` / `proxy status`).
- *
  * Three subcommands per `task-description.md`:
  *   - `ptah proxy start [...flags]` — bind the HTTP listener, mint a token,
  *     register the proxy in `~/.ptah/proxies/<port>.json`, and run until
@@ -32,8 +29,8 @@
  * caller wires a `JsonRpcServer` into `executeWith` so notifications flow
  * over stdout instead.
  *
- * Q3=A locked (TASK_2026_108 § 8): registry at `~/.ptah/proxies/` (plural).
- * Token directory `~/.ptah/proxy/` (singular) is sibling and unchanged.
+ * Registry at `~/.ptah/proxies/` (plural). Token directory
+ * `~/.ptah/proxy/` (singular) is sibling and unchanged.
  *
  * No commit, no backwards compat — direct in-place command.
  */
@@ -120,7 +117,7 @@ export interface ProxyLifecycleHooks {
  *
  * Resolves to an exit code so the router can set `process.exitCode` instead
  * of calling `process.exit` directly (matches the pattern used by every
- * other Batch 5+ command).
+ * other command).
  */
 export async function executeStart(
   opts: ProxyStartOptions,
@@ -191,7 +188,7 @@ export async function executeStart(
         ctx.pushAdapter,
         // No JSON-RPC peer when standalone — notifications drop. When
         // embedded inside `interact`, the parent process bridges the proxy
-        // by importing this command's internals (see Phase 2 TODO below).
+        // by importing this command's internals.
       );
 
       // Track the bound port so the `finally` block can unregister even when
@@ -283,7 +280,7 @@ export async function executeStart(
 }
 
 // ---------------------------------------------------------------------------
-// `ptah proxy stop` — TASK_2026_108 T3 Task 3.4
+// `ptah proxy stop`
 // ---------------------------------------------------------------------------
 
 /**
@@ -477,7 +474,7 @@ function isPidAlive(
 }
 
 // ---------------------------------------------------------------------------
-// `ptah proxy status` — TASK_2026_108 T3 Task 3.5
+// `ptah proxy status`
 // ---------------------------------------------------------------------------
 
 /**

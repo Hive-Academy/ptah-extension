@@ -1,6 +1,6 @@
 /**
  * `proxy-auth` — bearer-token mint + verify for the Anthropic-compatible HTTP
- * proxy (TASK_2026_104 P2).
+ * proxy.
  *
  * Three responsibilities:
  *   1. Mint a fresh 32-byte (256-bit) random token via `crypto.randomBytes`

@@ -2,8 +2,6 @@
  * Backend push events (`pushAdapter` EventEmitter) → JSON-RPC notifications
  * on stdout via the `Formatter`.
  *
- * TASK_2026_104 Batch 3.
- *
  * The `pushAdapter` is a generic `EventEmitter`. Backend services call
  * `sendMessage(viewType, type, payload)` which fires `emit(type, payload)`.
  * This pipe subscribes to a fixed mapping table from backend event types to
@@ -25,7 +23,7 @@ import type { Formatter } from './formatter.js';
 
 /** Mapping table from backend event type → Ptah notification method. */
 export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
-  // NOTE: chat surface (chat:chunk/chat:complete/chat:error) is handled by ChatBridge in cli/chat/chat-bridge.ts (B10b) — events are demuxed and reshaped per spec § 4.1.2 there, not here.
+  // NOTE: chat surface (chat:chunk/chat:complete/chat:error) is handled by ChatBridge in cli/chat/chat-bridge.ts — events are demuxed and reshaped per spec § 4.1.2 there, not here.
   // Session metering — handled specially (delta computation below).
   'session:cost': 'session.cost',
   'session:cost-delta': 'session.cost',
@@ -38,9 +36,9 @@ export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
   // Diagnostics — only forwarded when `globals.verbose === true`. The CLI
   // DI container emits `debug.di.phase` events at the start/end of each
   // numbered bootstrap phase (see `apps/ptah-cli/src/di/container.ts`).
-  // TASK_2026_104 Batch 4 (task-description.md § 4.1.9).
+  // (task-description.md § 4.1.9).
   'debug.di.phase': 'debug.di.phase',
-  // Resource Catalog — TASK_2026_104 Sub-batch B6b (task-description.md §4.1.5).
+  // Resource Catalog — task-description.md §4.1.5.
   // Forwarded only when backend services emit them. The CLI commands themselves
   // emit the same notifications synchronously via `formatter.writeNotification`,
   // so these mappings exist for parity with Electron push events (e.g. when
@@ -49,24 +47,23 @@ export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
   'skill:removed': 'skill.removed',
   'mcp:installed': 'mcp.installed',
   'mcp:uninstalled': 'mcp.uninstalled',
-  // Plugin / Prompts / Harness — TASK_2026_104 Sub-batch B6c
-  // (task-description.md §3.1). Most B6c notifications are emitted
-  // synchronously by the CLI command body via `formatter.writeNotification`,
-  // so these mappings exist purely for parity with Electron push events
-  // (e.g. an asynchronous skill-junction rebuild after `plugins:save-config`,
-  // a streaming `harness:design-agents` run, or `setup-wizard:enhance-stream`
-  // chunks during `enhancedPrompts:regenerate`). No `harness.chat.*` mapping
-  // is added here — `harness chat` is a deferred-to-Batch-10 alias stub that
-  // emits `task.error` synchronously without any push events. See harness.ts.
+  // Plugin / Prompts / Harness — task-description.md §3.1. Most notifications
+  // are emitted synchronously by the CLI command body via
+  // `formatter.writeNotification`, so these mappings exist purely for parity
+  // with Electron push events (e.g. an asynchronous skill-junction rebuild
+  // after `plugins:save-config`, a streaming `harness:design-agents` run, or
+  // `setup-wizard:enhance-stream` chunks during `enhancedPrompts:regenerate`).
+  // No `harness.chat.*` mapping is added here — `harness chat` is an alias
+  // stub that emits `task.error` synchronously without any push events. See
+  // harness.ts.
   'plugin:config-updated': 'plugin.config.updated',
   'setup-wizard:enhance-stream': 'prompts.regenerate.start',
   'harness:flat-stream': 'harness.document.stream',
   'harness:flat-stream-complete': 'harness.document.complete',
-  // Setup-wizard generation — TASK_2026_104 Sub-batch B9a
-  // (task-description.md §4.1.3). Forwarded when the backend
-  // `setup-wizard:generation-*` push events fire during wizard prompt
-  // generation. Consumed by the upcoming B9c phase-runner async-broadcast
-  // mode and the B9d setup orchestrator.
+  // Setup-wizard generation — task-description.md §4.1.3. Forwarded when
+  // the backend `setup-wizard:generation-*` push events fire during wizard
+  // prompt generation. Consumed by the phase-runner async-broadcast mode
+  // and the setup orchestrator.
   'setup-wizard:generation-progress': 'wizard.generation.progress',
   'setup-wizard:generation-stream': 'wizard.generation.stream',
   'setup-wizard:generation-complete': 'wizard.generation.complete',

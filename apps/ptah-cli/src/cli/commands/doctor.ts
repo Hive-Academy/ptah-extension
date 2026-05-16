@@ -1,7 +1,7 @@
 /**
  * `ptah doctor` (alias `diagnose`) — single-shot diagnostic walk.
  *
- * Stream B item #7. Emits a `doctor.report` notification with a snapshot of:
+ * Emits a `doctor.report` notification with a snapshot of:
  *
  *   - License        — tier / valid / daysRemaining / expiryWarning
  *   - Auth           — authMethod / defaultProvider / anthropicProviderId

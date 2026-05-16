@@ -1,19 +1,16 @@
 /**
- * Compaction lifecycle e2e (TASK_2026_109 commit `9edbbbc1`).
+ * Compaction lifecycle e2e.
  *
- * Per architect Q1 decision (TASK_2026_110): the four compaction-surface
- * tests ship as `it.skip(...)` placeholders rather than wiring full
- * scenarios. Reaching `compaction_start` / `compact_boundary` from the
- * CLI requires a real upstream Claude turn that crosses the context
- * threshold, which is not feasible without burning tokens on every CI
- * run. The placeholders document the surfaces so a follow-up task can
- * stand them up against a recorded SDK fixture or a synthetic harness
- * once one exists.
+ * The four compaction-surface tests ship as `it.skip(...)` placeholders rather
+ * than wiring full scenarios. Reaching `compaction_start` / `compact_boundary`
+ * from the CLI requires a real upstream Claude turn that crosses the context
+ * threshold, which is not feasible without burning tokens on every CI run.
+ * The placeholders document the surfaces so a follow-up task can stand them up
+ * against a recorded SDK fixture or a synthetic harness once one exists.
  *
- * NO production code is changed by this file — see Q1 in
- * `.ptah/specs/TASK_2026_110/clarifications.md`.
+ * NO production code is changed by this file.
  *
- * Surfaces tracked (from commit `9edbbbc1`):
+ * Surfaces tracked:
  *   1. preTokens flow on `compaction_start` (chat-store-compaction-listener
  *      forwards the pre-compaction token snapshot to session-stats-aggregator)
  *   2. sessionId resolution on `compact_boundary` (boundary event resolves

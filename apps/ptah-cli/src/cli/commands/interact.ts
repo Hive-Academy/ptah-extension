@@ -1,17 +1,14 @@
 /**
  * `ptah interact` command — full bidirectional A2A JSON-RPC stdio bridge.
  *
- * TASK_2026_104 Sub-batch B10e (B10_EXPANSION.md § B10e, lines 289-337).
- *
- * Replaces the prior 27-line scaffold with the canonical persistent JSON-RPC
- * 2.0 stdio loop that an A2A peer (Electron app, IDE plugin, automation
- * harness) drives end-to-end:
+ * The canonical persistent JSON-RPC 2.0 stdio loop that an A2A peer (Electron
+ * app, IDE plugin, automation harness) drives end-to-end:
  *
  *   1. Bootstraps full DI ONCE via `withEngine({ mode: 'full' })`.
- *   2. Attaches the (post-B10a) `EventPipe` to the push adapter so non-chat
- *      backend events (setup-wizard.*, harness.*, plugin.*, mcp.*, agent.*,
- *      etc.) flow out as JSON-RPC notifications.
- *   3. Wires `ApprovalBridge` (B10b) — backend permission/question requests
+ *   2. Attaches the `EventPipe` to the push adapter so non-chat backend
+ *      events (setup-wizard.*, harness.*, plugin.*, mcp.*, agent.*, etc.)
+ *      flow out as JSON-RPC notifications.
+ *   3. Wires `ApprovalBridge` — backend permission/question requests
  *      ↔ JSON-RPC `permission.request | question.ask` notifications + inbound
  *      `permission.response | question.response` handlers.
  *   4. Holds a singleton `ChatBridge` (B10b) used by `task.submit` to bridge
@@ -80,18 +77,18 @@ import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manag
 export interface InteractOptions {
   /** Optional resume target — currently only echoed in `session.ready`. */
   session?: string;
-  /** TASK_2026_108 T1 — boot an embedded Anthropic-compatible HTTP proxy. */
+  /** Boot an embedded Anthropic-compatible HTTP proxy. */
   proxyStart?: boolean;
-  /** TASK_2026_108 T1 — TCP port for the embedded proxy (0 = OS-assigned). */
+  /** TCP port for the embedded proxy (0 = OS-assigned). */
   proxyPort?: number;
-  /** TASK_2026_108 T1 — bind host for the embedded proxy. */
+  /** Bind host for the embedded proxy. */
   proxyHost?: string;
-  /** TASK_2026_108 T1 — surface workspace MCP tools via embedded proxy. */
+  /** Surface workspace MCP tools via embedded proxy. */
   proxyExposeWorkspaceTools?: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Embedded proxy test seam (TASK_2026_108 T1)
+// Embedded proxy test seam
 // ---------------------------------------------------------------------------
 
 /**
@@ -105,7 +102,7 @@ export interface AnthropicProxyServiceLike {
     port: number;
     host: string;
     tokenPath: string;
-    /** TASK_2026_108 T3 — sha256 fingerprint of the bearer token. */
+    /** Sha256 fingerprint of the bearer token. */
     tokenFingerprint: string;
   }>;
   stop(reason?: 'shutdown' | 'sigint' | 'rpc'): Promise<void>;
@@ -173,10 +170,9 @@ export interface InteractExecuteHooks {
    */
   returnExitCode?: boolean;
   /**
-   * TASK_2026_108 T1 — test seam for the embedded proxy lifecycle. Production
-   * callers omit this; `defaultProxyServiceFactory` wires the real
-   * `AnthropicProxyService` constructor. Tests inject a
-   * `jest.Mocked<AnthropicProxyServiceLike>`.
+   * Test seam for the embedded proxy lifecycle. Production callers omit this;
+   * `defaultProxyServiceFactory` wires the real `AnthropicProxyService`
+   * constructor. Tests inject a `jest.Mocked<AnthropicProxyServiceLike>`.
    */
   proxyServiceFactory?: (
     config: AnthropicProxyConfig,
@@ -282,7 +278,7 @@ export async function execute(
   hooks: InteractExecuteHooks = {},
 ): Promise<number> {
   // `opts.session` is reserved for future resume; surfaced in session.ready below.
-  // `opts.proxy*` flags drive the embedded Anthropic-compatible proxy (TASK_2026_108 T1).
+  // `opts.proxy*` flags drive the embedded Anthropic-compatible proxy.
   const formatter = hooks.formatter ?? buildFormatter(globals);
   const engine = hooks.withEngine ?? withEngine;
   const uuid = hooks.randomUUID ?? nodeRandomUUID;
@@ -314,8 +310,8 @@ export async function execute(
 
   try {
     await engine(globals, { mode: 'full' }, async (ctx) => {
-      // 0. TASK_2026_108 T1 — install the `PTAH_INTERACT_ACTIVE=1` marker
-      //    BEFORE any bridges attach or sub-process spawn. Capture the prior
+      // 0. Install the `PTAH_INTERACT_ACTIVE=1` marker BEFORE any bridges
+      //    attach or sub-process spawn. Capture the prior
       //    value (including the unset case via `hasOwnProperty`) so the drain
       //    can restore it byte-identically. A blanket `delete` would silently
       //    erase a `'0'` set by an outer supervisor.
@@ -407,7 +403,7 @@ export async function execute(
       //    `session.ready` — `notify(...)` requires the writer to be attached.
       server.start(stdinReader, stdoutWriter);
 
-      // 7b. TASK_2026_108 T1 — embedded Anthropic-compatible HTTP proxy.
+      // 7b. Embedded Anthropic-compatible HTTP proxy.
       //     When `--proxy-start` is set, construct the proxy via the test seam
       //     factory, bind the listener, and register the `proxy.shutdown`
       //     inbound RPC. The lifecycle order on drain is intentional and
@@ -498,8 +494,8 @@ export async function execute(
         protocol_version: '2.0',
       });
 
-      // 11a. Stream B item #11 — advertise the Ptah JSON-RPC schema version
-      //      so peers can detect protocol skew. Emitted right after
+      // 11a. Advertise the Ptah JSON-RPC schema version so peers can detect
+      //      protocol skew. Emitted right after
       //      `session.ready` so it lands inside the same handshake window.
       await server.notify('system.schema.version', {
         version: JSONRPC_SCHEMA_VERSION,
@@ -704,7 +700,7 @@ export async function execute(
         }
         approvalBridge?.detach();
         eventPipe.detach();
-        // TASK_2026_108 T1 — embedded proxy teardown order:
+        // Embedded proxy teardown order:
         //   proxy.stop() → unregister() → server.stop()
         // The unregister MUST run before `server.stop()` so a second
         // `proxy.shutdown` re-entry hits the proxy's idempotent
@@ -738,8 +734,8 @@ export async function execute(
         } catch {
           /* swallow — formatter may share the writer with the server */
         }
-        // TASK_2026_108 T1 — restore the captured `PTAH_INTERACT_ACTIVE`
-        // exactly. `delete` is reserved for the previously-unset case so a
+        // Restore the captured `PTAH_INTERACT_ACTIVE` exactly. `delete` is
+        // reserved for the previously-unset case so a
         // prior `'0'` (or any other string) round-trips intact.
         if (priorInteractActiveSet && priorInteractActive !== undefined) {
           process.env['PTAH_INTERACT_ACTIVE'] = priorInteractActive;

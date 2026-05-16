@@ -1,7 +1,7 @@
 /**
- * Unit tests for `ChatBridge` — TASK_2026_104 Sub-batch B10b.
+ * Unit tests for `ChatBridge`.
  *
- * Covers (per spec § B10b):
+ * Covers:
  *   1. happy path — text_delta x2 → message_complete (no text) → resolves
  *      success with two `agent.message` notifications emitted (is_partial:true)
  *   2. thought stream — thought_delta → complete → one `agent.thought`
@@ -466,7 +466,7 @@ describe('ChatBridge — runTurn', () => {
     expectNoListenerLeaks(adapter);
   });
 
-  // P1 Fix 3 — defensive backstop on `{ success: false }` ack from rpcCall.
+  // Defensive backstop on `{ success: false }` ack from rpcCall.
   // Without this, the bridge waits forever in `outerPromise` because the
   // backend never broadcasts a terminal `chat:complete | chat:error`.
   it('rpcCall ack { success: false } — bridge settles deterministically without hanging', async () => {
@@ -502,9 +502,9 @@ describe('ChatBridge — runTurn', () => {
     expectNoListenerLeaks(adapter);
   });
 
-  // P1 Fix 3 — `{ success: false }` ack must clean up the timeout handle so
-  // no dangling setTimeout keeps the test/process event loop alive after the
-  // bridge settles. Use fake timers to assert no pending timers remain.
+  // `{ success: false }` ack must clean up the timeout handle so no dangling
+  // setTimeout keeps the test/process event loop alive after the bridge
+  // settles. Use fake timers to assert no pending timers remain.
   it('rpcCall ack { success: false } with timeoutMs — clears timeout on settle (no dangling timers)', async () => {
     jest.useFakeTimers();
     try {
@@ -652,12 +652,11 @@ describe('ChatBridge — runTurn', () => {
     expectNoListenerLeaks(adapter);
   });
 
-  // Bug 1+4 — TASK_2026_107. Headless `--json` runs must always end with a
-  // visible turn boundary on stdout; otherwise consumers see only
-  // `session.created` and the process exits 0 with no signal that the turn
-  // finished. The bridge owns the terminal-notification contract so every
-  // caller (session start/resume/send AND interact task.submit) gets the
-  // same envelope shape.
+  // Headless `--json` runs must always end with a visible turn boundary on
+  // stdout; otherwise consumers see only `session.created` and the process
+  // exits 0 with no signal that the turn finished. The bridge owns the
+  // terminal-notification contract so every caller (session start/resume/send
+  // AND interact task.submit) gets the same envelope shape.
   it('emits a task.complete notification on chat:complete (success path)', async () => {
     const { bridge, adapter, calls } = makeBridge();
 

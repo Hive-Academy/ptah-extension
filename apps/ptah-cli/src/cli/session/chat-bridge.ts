@@ -1,15 +1,15 @@
 /**
  * `ChatBridge` — fire-and-forget broadcast → JSON-RPC turn primitive.
  *
- * TASK_2026_104 Sub-batch B10b. Closes the gap between backend `chat:start /
- * chat:continue / chat:resume` (which return synchronously with `{ success:
- * true }` and stream the actual turn out-of-band via `chat:chunk`,
- * `chat:complete`, `chat:error` broadcasts on the `pushAdapter`) and the
- * JSON-RPC turn-completion contract from spec § 4.1.2.
+ * Closes the gap between backend `chat:start / chat:continue / chat:resume`
+ * (which return synchronously with `{ success: true }` and stream the actual
+ * turn out-of-band via `chat:chunk`, `chat:complete`, `chat:error` broadcasts
+ * on the `pushAdapter`) and the JSON-RPC turn-completion contract from spec
+ * § 4.1.2.
  *
- * Pattern is intentionally aligned with B9c's `phase-runner.ts` async-broadcast
- * mode (register listeners BEFORE invoking the RPC, race completion vs
- * timeout vs abort, ALWAYS detach in `finally`).
+ * Pattern is intentionally aligned with `phase-runner.ts` async-broadcast mode
+ * (register listeners BEFORE invoking the RPC, race completion vs timeout vs
+ * abort, ALWAYS detach in `finally`).
  *
  * Behavior summary
  * ----------------
@@ -194,7 +194,7 @@ export class ChatBridge {
 
     // Aggregate assistant text from `text_delta` chunks so the terminal
     // `task.complete` summary carries the final message body for headless
-    // consumers that only read the terminal notification (Bug 1+4 repro).
+    // consumers that only read the terminal notification.
     let aggregatedText = '';
 
     let resolveOuter: (result: ChatTurnResult) => void = () => undefined;
@@ -411,7 +411,7 @@ export class ChatBridge {
       // discarded — we watch for `chat:complete | chat:error | abort |
       // timeout`. BUT if the backend returns `{ success: false }` (rather
       // than throwing) the bridge would otherwise wait forever for terminal
-      // events that will never arrive (P1 Fix 3 — HANDOFF-ptah-cli.md).
+      // events that will never arrive.
       //
       // Defensive backstop: settle with that failure result immediately so
       // `outerPromise` resolves to a deterministic `task.error` instead of

@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah license` command — TASK_2026_104 Sub-batch B5d.
+ * Unit tests for `ptah license` command.
  */
 
 import { execute } from './license.js';

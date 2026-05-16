@@ -4,7 +4,7 @@
  * Three guardrails are exercised here, each tied to a production invariant
  * documented in `apps/ptah-cli/src/cli/commands/interact.ts`:
  *
- *   1. TERMINAL NOTIFICATION on every settle path (Bug 1+4 / chat-bridge.ts:212).
+ *   1. TERMINAL NOTIFICATION on every settle path (chat-bridge.ts:212).
  *      A fake `ANTHROPIC_API_KEY` reaches `session.ready` (SDK init does not
  *      validate the key) but the first upstream call fails. The guardrail is
  *      that chat-bridge MUST emit a `task.error` notification with

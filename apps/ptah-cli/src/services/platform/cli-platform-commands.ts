@@ -1,5 +1,5 @@
 /**
- * CLI Platform Commands Implementation (TASK_2025_263)
+ * CLI Platform Commands Implementation
  *
  * Implements IPlatformCommands for the CLI/TUI environment:
  * - reloadWindow: No-op (CLI has no window to reload)

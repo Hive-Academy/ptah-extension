@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah websearch` command — TASK_2026_104 Sub-batch B5d.
+ * Unit tests for `ptah websearch` command.
  */
 
 import { execute } from './websearch.js';

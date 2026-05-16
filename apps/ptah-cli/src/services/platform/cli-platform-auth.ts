@@ -1,5 +1,5 @@
 /**
- * CLI Platform Auth Provider Implementation (TASK_2025_263)
+ * CLI Platform Auth Provider Implementation
  *
  * Implements IPlatformAuthProvider for the CLI/TUI environment:
  * - getGitHubUsername: Returns undefined (no GitHub auth session in CLI)

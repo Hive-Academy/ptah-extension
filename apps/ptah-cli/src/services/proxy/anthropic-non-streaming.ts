@@ -3,8 +3,6 @@
  * `chat:chunk` events into the Anthropic Messages API non-streaming JSON
  * response shape (`stream: false`).
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
- *
  * Mirrors the same translation table as `anthropic-sse-translator.ts` but
  * collapses the streaming frames back into a single response body. The
  * proxy service uses this when the caller's request had `stream: false`.

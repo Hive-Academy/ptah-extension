@@ -1,10 +1,9 @@
 /**
  * `emitFatalError` — structured NDJSON error channel on stderr.
  *
- * cli-shift.md Phase 2 / HANDOFF-ptah-cli.md P1 Fix 4. Supervisors that monitor
- * stderr (per cli-shift.md) get a deterministic, machine-readable line for
- * fatal orchestration failures. This is SEPARATE from the JSON-RPC `task.error`
- * notification on stdout — both channels coexist:
+ * Supervisors that monitor stderr get a deterministic, machine-readable line
+ * for fatal orchestration failures. This is SEPARATE from the JSON-RPC
+ * `task.error` notification on stdout — both channels coexist:
  *
  *   - stdout (JSON-RPC NDJSON):  `{"jsonrpc":"2.0","method":"task.error", ...}`
  *   - stderr (this helper):      `{"error":"sdk_init_failed","message":"..."}`
@@ -33,7 +32,7 @@ export const FatalErrorCode = {
   WorkspaceMissing: 'workspace_missing',
   AuthRequired: 'auth_required',
   LicenseRequired: 'license_required',
-  // Anthropic-compatible HTTP proxy (TASK_2026_104 P2 — proxy).
+  // Anthropic-compatible HTTP proxy.
   // Surfaced from `ptah proxy start` so supervisors that monitor stderr see a
   // deterministic NDJSON line for fatal proxy startup / runtime failures even
   // when the JSON-RPC stdout channel is unavailable (CLI invoked outside

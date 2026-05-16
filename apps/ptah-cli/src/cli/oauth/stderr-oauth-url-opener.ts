@@ -7,8 +7,6 @@
  * Returns `{ opened: false }` so the caller knows the URL was NOT opened on
  * the user's behalf and that polling should still proceed (the user may
  * still complete the flow out-of-band in a browser).
- *
- * TASK_2026_104 Batch 8c.
  */
 
 import type { IOAuthUrlOpener } from '@ptah-extension/platform-cli';

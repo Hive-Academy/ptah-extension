@@ -4,7 +4,7 @@
  * SAFETY NET against future bootstrap regressions. Even if `--help` and
  * `--version` don't go through `withEngine`, validating that the bundle
  * launches at all catches a class of bugs (missing dependency, ESM resolution
- * failure as in cli-shift.md "Bug B", broken main.mjs shebang).
+ * failure, broken main.mjs shebang).
  *
  * Tests are SKIPPED automatically when `dist/apps/ptah-cli/main.mjs` is not
  * present (i.e. local dev mode without a build) so the dev-loop test runs
@@ -94,10 +94,10 @@ describeIfBuilt('ptah-cli smoke (dist/apps/ptah-cli/main.mjs)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // TASK_2026_108 T4 (Task 4.4) — proxy gate fail-fast (Smoke 3) and
-  // registry cleanup on graceful shutdown (Smoke 4 minus the curl healthz
-  // check, which is reserved for the bash smoke harness). Both scenarios
-  // exercise the dist binary via `child_process.spawn`.
+  // Proxy gate fail-fast (Smoke 3) and registry cleanup on graceful shutdown
+  // (Smoke 4 minus the curl healthz check, which is reserved for the bash
+  // smoke harness). Both scenarios exercise the dist binary via
+  // `child_process.spawn`.
   // ---------------------------------------------------------------------------
 
   describe('proxy permission-gate fail-fast (Smoke 3)', () => {

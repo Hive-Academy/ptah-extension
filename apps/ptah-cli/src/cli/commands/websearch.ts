@@ -1,8 +1,6 @@
 /**
  * `ptah websearch` command — search provider settings + connectivity test.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1) — all delegate to the shared
  * WebSearchRpcHandlers:
  *

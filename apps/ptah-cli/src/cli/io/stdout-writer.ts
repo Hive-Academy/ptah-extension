@@ -1,8 +1,6 @@
 /**
  * Serialized writer over an arbitrary `Writable` stream.
  *
- * TASK_2026_104 Batch 3.
- *
  * Internally queues writes so concurrent callers see strict FIFO ordering.
  * Awaits the `'drain'` event when `process.stdout.write(...)` returns
  * `false`, preventing memory growth under backpressure on slow consumers.

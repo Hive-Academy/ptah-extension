@@ -1,5 +1,5 @@
 /**
- * `ptah agent-cli` command — agent CLI surface (TASK_2026_104 B7).
+ * `ptah agent-cli` command — agent CLI surface.
  *
  * Sub-commands per `task-description.md` §3 `agent-cli *` table:
  *
@@ -122,7 +122,7 @@ export async function execute(
 }
 
 // ---------------------------------------------------------------------------
-// Allowlist enforcement (locked — TASK_2026_104 B7 user directive 2026-04-25).
+// Allowlist enforcement (locked).
 // ---------------------------------------------------------------------------
 
 /**

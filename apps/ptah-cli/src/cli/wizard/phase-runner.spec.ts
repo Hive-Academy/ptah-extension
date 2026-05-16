@@ -1,5 +1,5 @@
 /**
- * Unit tests for `runPhase` — TASK_2026_104 Sub-batch B9c.
+ * Unit tests for `runPhase`.
  *
  * Covers the eight blocker scenarios from the spec:
  *   1. sync happy path → emits start + complete, returns 'completed'

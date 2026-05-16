@@ -1,6 +1,4 @@
 /**
- * Bug 5 (TASK_2026_107 commit `07108d76`).
- *
  * `ptah session start --task ... --once` must:
  *   1. Wait for the chat-bridge terminal `task.complete` / `task.error`
  *      notification BEFORE exiting (block-then-exit, not run-then-exit).
@@ -60,7 +58,7 @@ describe('--once flag (Bug 5)', () => {
 
     // A terminal envelope (`task.complete` or `task.error`) must be present
     // — proves chat-bridge fired the terminal event AND `--once` waited
-    // for it before exiting (Bug 5 + Bug 1+4 interaction).
+    // for it before exiting.
     const terminal = result.stdoutLines.find(
       (l): l is { method: string; params: unknown } =>
         isObj(l) &&

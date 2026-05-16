@@ -1,10 +1,8 @@
 /**
  * `ptah git` command — git repo introspection + worktrees + source control.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1) — all delegate to the shared
- * GitRpcHandlers (lifted in B5b):
+ * GitRpcHandlers:
  *
  *   info                                            git:info
  *   worktrees                                       git:worktrees

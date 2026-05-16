@@ -1,8 +1,6 @@
 /**
  * `ptah settings` command — export / import portable settings bundles.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1):
  *
  *   export [--out <path>]      Collect settings via SDK SettingsExportService

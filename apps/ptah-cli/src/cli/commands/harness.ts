@@ -1,7 +1,6 @@
 /**
  * `ptah harness` command — Harness Setup Builder operations.
  *
- * TASK_2026_104 Sub-batch B6c. Replaces the Batch 2 3-line stub with the full
  * 10-sub-subcommand surface specified by `task-description.md` §3.1
  * (`harness *` table) and §4.1 notification schema.
  *
@@ -40,7 +39,7 @@
  *
  * `init` and `chat` deliberately bypass `withEngine` — `init` because pure
  * `mkdir` doesn't need DI (and must work on an unbootstrapped workspace),
- * `chat` because it's a synchronous deferred-error path until Batch 10 lands.
+ * `chat` because it's a synchronous deferred-error path.
  */
 
 import { promises as fs } from 'node:fs';
@@ -131,8 +130,8 @@ export interface HarnessExecuteHooks {
   /** Override hook for tests — defaults to `node:fs/promises.readFile`. */
   readFile?: (path: string) => Promise<string>;
   /**
-   * Override hook for tests — defaults to delegating into B10c's
-   * `executeSessionStart`. Used by `harness chat` (TASK_2026_104 B10d).
+   * Override hook for tests — defaults to delegating into
+   * `executeSessionStart`. Used by `harness chat`.
    */
   executeSessionStart?: typeof executeSessionStart;
 }
@@ -475,9 +474,7 @@ async function runPresetLoad(
 // ---------------------------------------------------------------------------
 // chat — alias for `ptah session start --scope harness-skill`.
 //
-// TASK_2026_104 Sub-batch B10d (was previously a deferred `task.error` stub
-// per the locked architect contract; B10c shipped `executeSessionStart` so
-// this delegation is now real).
+// Delegates via `executeSessionStart`.
 //
 // The flag set on the router (`--task`, `--profile`, `--session`,
 // `--auto-approve`) mirrors `session start --scope harness-skill` for stream-

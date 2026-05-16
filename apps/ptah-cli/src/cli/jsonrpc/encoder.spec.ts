@@ -1,7 +1,5 @@
 /**
  * Unit tests for the JSON-RPC 2.0 encoder/decoder.
- *
- * TASK_2026_104 Batch 3.
  */
 
 import {

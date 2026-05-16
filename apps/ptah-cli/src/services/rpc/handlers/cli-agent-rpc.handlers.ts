@@ -1,5 +1,5 @@
 /**
- * CLI parity copy of Electron AgentRpcHandlers — TASK_2026_104 B7.
+ * CLI parity copy of Electron AgentRpcHandlers.
  *
  * Handles the seven `agent:*` RPC methods locally inside the CLI app. The
  * Electron implementation lives at
@@ -13,8 +13,7 @@
  *
  * Injected tokens are IDENTICAL. `PLATFORM_TOKENS.STATE_STORAGE` resolves to
  * the existing `CliStateStorage` instance registered at Phase 0 by
- * `registerPlatformCliServices()` — Discovery D10 ruling and user
- * escalation E1 (2026-04-25): NO new `CliStateStorage` class is created.
+ * `registerPlatformCliServices()`. NO new `CliStateStorage` class is created.
  *
  * Method registration order is fixed by `static readonly METHODS` and
  * MUST stay in lockstep with the Electron tuple. Drift is asserted by the

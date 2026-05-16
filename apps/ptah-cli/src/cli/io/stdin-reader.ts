@@ -1,8 +1,6 @@
 /**
  * Line-buffered NDJSON parser over an arbitrary `Readable` stream.
  *
- * TASK_2026_104 Batch 3.
- *
  * Wraps `node:readline` with a `.start()` / `.stop()` lifecycle that decodes
  * each line into a JSON-RPC message via the encoder. Tolerates split chunks
  * (`readline` already line-buffers under the hood). Bad JSON does NOT crash

@@ -2,8 +2,6 @@
  * Sensitive-key redactor for `config list` and any other surface that emits
  * arbitrary configuration payloads.
  *
- * TASK_2026_104 Batch 3.
- *
  * Walks an arbitrary value (object/array/scalar) recursively. For object
  * keys matching `/apikey|api_key|token|secret|password/i`, the value is
  * replaced with the literal string `'<redacted>'`. The `reveal` option

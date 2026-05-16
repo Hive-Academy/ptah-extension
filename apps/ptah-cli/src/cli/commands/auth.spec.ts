@@ -1,8 +1,6 @@
 /**
  * Unit tests for `ptah auth` command dispatcher.
  *
- * TASK_2026_104 Batch 8d.
- *
  * Coverage:
  *   - status: emits auth.status / auth.health / auth.api_key.status, redacts
  *     api keys unless --reveal

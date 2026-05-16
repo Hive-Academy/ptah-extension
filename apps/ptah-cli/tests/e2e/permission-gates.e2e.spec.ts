@@ -1,14 +1,14 @@
 /**
- * Bug 2 (commit `b2e17396`) + Bug 3 — permission level wiring.
+ * Permission level wiring.
  *
- * Bug 2: `--auto-approve` global flag and `PTAH_AUTO_APPROVE=true` env var
+ * `--auto-approve` global flag and `PTAH_AUTO_APPROVE=true` env var
  * must elevate the SdkPermissionHandler permission level to 'yolo'. Verified
  * by spawning `ptah interact` with each input and confirming SDK init still
  * reaches `session.ready` (init succeeds → permission handler resolved →
  * `setPermissionLevel('yolo')` ran without throwing). Direct-observable
  * proof of the level itself is via stderr breadcrumb when `--verbose` is on.
  *
- * Bug 3: `ptah config autopilot set true|false` maps to
+ * `ptah config autopilot set true|false` maps to
  * `permissionLevel: 'yolo'|'ask'` via the `config:autopilot-toggle` RPC.
  * The CLI emits `config.autopilot` notification with the resolved values.
  *

@@ -1,9 +1,9 @@
 /**
  * `ptah plugin` command — workspace plugin management.
  *
- * TASK_2026_104 Sub-batch B6c. Backed by the shared `PluginRpcHandlers`
- * (registered globally via `registerAllRpcHandlers()`), so VS Code, Electron,
- * and the CLI all dispatch identical RPC verbs.
+ * Backed by the shared `PluginRpcHandlers` (registered globally via
+ * `registerAllRpcHandlers()`), so VS Code, Electron, and the CLI all
+ * dispatch identical RPC verbs.
  *
  * Sub-commands (per task-description.md §3.1 `plugin *` table):
  *
@@ -16,7 +16,7 @@
  *                                     RPC `plugins:save-config`
  *   skills list [--plugins <list>]    RPC `plugins:list-skills`
  *
- * **NO `install` sub-subcommand** (Discovery D8 — "install = enable").
+ * **NO `install` sub-subcommand** ("install = enable").
  *
  * Idempotency contract (`plugin.config.updated` payload):
  *   - `changed: bool` — true on first effective enable/disable (or `config set`

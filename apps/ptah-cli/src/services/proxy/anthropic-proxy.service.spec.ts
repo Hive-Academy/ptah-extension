@@ -1,6 +1,5 @@
 /**
- * Unit tests for `AnthropicProxyService.registerShutdownRpc` —
- * TASK_2026_108 T1 (Batch 1, Task 1.5).
+ * Unit tests for `AnthropicProxyService.registerShutdownRpc`.
  *
  * Scope: only the inbound `proxy.shutdown` JSON-RPC handler that the embedded
  * `ptah interact` host wires onto its `JsonRpcServer`. The HTTP dispatch /
@@ -309,7 +308,7 @@ describe('AnthropicProxyService.registerShutdownRpc', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AnthropicProxyService — mcpServersOverride population (TASK_2026_108 T2).
+// AnthropicProxyService — mcpServersOverride population.
 //
 // Drives a synthetic POST /v1/messages through the captured dispatcher so we
 // can assert the parser extracts X-Ptah-Mcp-Servers correctly and forwards

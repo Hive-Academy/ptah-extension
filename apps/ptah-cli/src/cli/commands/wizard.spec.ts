@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah wizard` command — TASK_2026_104 Sub-batch B9c.
+ * Unit tests for `ptah wizard` command.
  *
  * Coverage:
  *   - submit-selection: --file required; unreadable / invalid JSON / schema-

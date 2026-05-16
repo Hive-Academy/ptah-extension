@@ -1,8 +1,7 @@
 /**
  * `ptah setup` command — top-level 5-phase orchestrator.
  *
- * TASK_2026_104 Sub-batch B9d. Drives the Setup Wizard pipeline end-to-end via
- * the B9c phase-runner:
+ * Drives the Setup Wizard pipeline end-to-end via the phase-runner:
  *
  *   1. analyze         (sync)            wizard:deep-analyze
  *   2. recommend       (sync)            wizard:recommend-agents (input = phase 1)

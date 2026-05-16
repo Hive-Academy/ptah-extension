@@ -1,7 +1,6 @@
 /**
  * Unit tests for `emitFatalError` — structured NDJSON stderr channel.
  *
- * Covers the helper from cli-shift.md Phase 2 / HANDOFF-ptah-cli.md P1 Fix 4.
  * Coverage targets: write shape (one NDJSON line per call), code/message
  * preservation, optional details merge, key-collision protection.
  */

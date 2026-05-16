@@ -1,5 +1,5 @@
 /**
- * Parity test for the CLI Agent RPC Handlers — TASK_2026_104 B7.
+ * Parity test for the CLI Agent RPC Handlers.
  *
  * Asserts that `CliAgentRpcHandlers` re-registers the same seven `agent:*`
  * methods as the Electron `AgentRpcHandlers`, in the same registration order.
@@ -20,7 +20,7 @@ import { CliAgentRpcHandlers } from './cli-agent-rpc.handlers.js';
 // truth for the agent RPC surface. Importing it here ensures any drift in
 // either tuple fails this test before the apps diverge in production. The
 // `@nx/enforce-module-boundaries` rule normally rejects cross-app imports,
-// but parity guards are the documented exception (TASK_2026_104 B7).
+// but parity guards are the documented exception.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { AgentRpcHandlers } from '../../../../../ptah-electron/src/services/rpc/handlers/agent-rpc.handlers.js';
 

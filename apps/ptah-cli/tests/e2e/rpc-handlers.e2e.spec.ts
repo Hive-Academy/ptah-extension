@@ -1,5 +1,5 @@
 /**
- * Bug 6 (TASK_2026_107 commit `0a810737`) — 5 RPC handlers registered.
+ * 5 RPC handlers registered.
  *
  * The fix added registration for `config:model-set`, `auth:setApiKey`,
  * `auth:getStatus`, `settings:export`, `settings:import` against the

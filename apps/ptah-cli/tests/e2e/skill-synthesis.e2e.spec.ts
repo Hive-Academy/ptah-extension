@@ -1,5 +1,5 @@
 /**
- * Skill Synthesis e2e (TASK_2026_HERMES Track 2).
+ * Skill Synthesis e2e.
  *
  * Surface under test: `skillSynthesis:listCandidates`, `skillSynthesis:stats`,
  * `skillSynthesis:promote` RPC methods backed by `@ptah-extension/skill-synthesis`.

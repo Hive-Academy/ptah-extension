@@ -1,9 +1,7 @@
 /**
  * `ptah auth` command — sub-dispatcher for status / login / logout / test.
  *
- * TASK_2026_104 Batch 8d.
- *
- * Sub-commands (per task-description.md §3.1 and B8_EXPANSION.md §3):
+ * Sub-commands (per task-description.md §3.1):
  *
  *   status                — Read-only. Calls `auth:getAuthStatus` +
  *                           `auth:getHealth` + `auth:getApiKeyStatus`.

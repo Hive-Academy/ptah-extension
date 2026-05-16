@@ -1,7 +1,5 @@
 /**
  * Unit tests for the JSON / Human formatter.
- *
- * TASK_2026_104 Batch 3.
  */
 
 import { PassThrough } from 'node:stream';

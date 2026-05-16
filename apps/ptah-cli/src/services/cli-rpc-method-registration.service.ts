@@ -1,13 +1,11 @@
 /**
  * CLI RPC Method Registration Service
  *
- * TASK_2025_263 Batch 3: original CLI orchestrator.
- * TASK_2025_291 Wave C4b: shared-handler fan-out + SDK / agent-event wiring
- * moved to platform-agnostic helpers; CLI now opts out of worktree,
- * wizard broadcast, Copilot permission, and CLI session persistence.
- * TASK_2026_104 Batch 4: shrink CLI exclusion list to ~22 entries (webview-only
- * surfaces) and unblock HarnessRpcHandlers so the CLI exposes Electron parity
- * for every backend capability documented in task-description.md § 0.
+ * Shared-handler fan-out + SDK / agent-event wiring moved to platform-agnostic
+ * helpers; CLI opts out of worktree, wizard broadcast, Copilot permission,
+ * and CLI session persistence. CLI exclusion list (~22 entries, webview-only
+ * surfaces) keeps HarnessRpcHandlers active so the CLI exposes Electron parity
+ * for every backend capability.
  */
 
 import { container } from 'tsyringe';
@@ -40,7 +38,6 @@ import { SkillsShRpcHandlers } from './rpc/handlers/skills-sh-rpc.handlers.js';
  * stdio process. Anything not in this list is either implemented today or
  * scheduled for first-class CLI commands per task-description.md § 3.
  *
- * Final shape per TASK_2026_104 Batch 4 (~22 entries) — task-description.md § 0.8.
  */
 const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   // File operations — VS Code / Electron file pickers and save dialogs are
@@ -84,9 +81,9 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'terminal:create',
   'terminal:kill',
 
-  // TASK_2026_HERMES — cron / gateway / memory / skill-synthesis services
-  // depend on persistence-sqlite + croner + voice/gateway adapters that
-  // are Electron-only. Excluded from the CLI runtime; their RPC handlers
+  // Cron / gateway / memory / skill-synthesis services depend on
+  // persistence-sqlite + croner + voice/gateway adapters that are
+  // Electron-only. Excluded from the CLI runtime; their RPC handlers
   // are skipped during shared-handler registration.
   'cron:list',
   'cron:get',
@@ -128,11 +125,10 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'db:health',
   'db:reset',
 
-  // TASK_2026_114 — IndexingRpcHandlers depends on IndexingControlService
-  // (memory-curator), which the CLI does not register. The CLI is a
-  // short-lived headless process; workspace indexing is an Electron-only
-  // user-controlled feature. Excluded so DI resolution does not fail at
-  // bootstrap.
+  // IndexingRpcHandlers depends on IndexingControlService (memory-curator),
+  // which the CLI does not register. The CLI is a short-lived headless
+  // process; workspace indexing is an Electron-only user-controlled feature.
+  // Excluded so DI resolution does not fail at bootstrap.
   'indexing:getStatus',
   'indexing:start',
   'indexing:pause',
@@ -173,13 +169,12 @@ export class CliRpcMethodRegistrationService {
     // ordering used by Electron / VS Code.
     registerHarnessServices(container);
 
-    // TASK_2026_104 Batch 4: drop `exclude: [HarnessRpcHandlers]` so the
-    // harness handler joins the shared set. Parity with Electron.
+    // HarnessRpcHandlers joins the shared set for parity with Electron.
     //
-    // TASK_2026_HERMES: cron / gateway / memory / skill-synthesis services
-    // are Electron-only (require persistence-sqlite, croner, voice/gateway
-    // adapters not wired in the headless CLI). Exclude their RPC handlers
-    // so DI resolution does not fail at bootstrap.
+    // Cron / gateway / memory / skill-synthesis services are Electron-only
+    // (require persistence-sqlite, croner, voice/gateway adapters not wired
+    // in the headless CLI). Exclude their RPC handlers so DI resolution does
+    // not fail at bootstrap.
     registerAllRpcHandlers(container, {
       exclude: [
         CronRpcHandlers,
@@ -190,27 +185,26 @@ export class CliRpcMethodRegistrationService {
         // never registered in the headless CLI runtime (better-sqlite3 lives
         // in the Electron host only).
         PersistenceRpcHandlers,
-        // TASK_2026_114 — IndexingRpcHandlers depends on
-        // IndexingControlService (memory-curator), which the CLI does not
-        // register. Indexing is an Electron-only user-controlled feature.
+        // IndexingRpcHandlers depends on IndexingControlService
+        // (memory-curator), which the CLI does not register. Indexing is an
+        // Electron-only user-controlled feature.
         IndexingRpcHandlers,
       ],
     });
 
-    // TASK_2026_104 Sub-batch B6b: re-register `SkillsShRpcHandlers` (CLI
-    // copy of the Electron handler — `skills-sh-rpc.handlers.ts`). The Skills
-    // handler is intentionally NOT in the shared rpc-handlers library; both
-    // Electron and the CLI keep app-local copies because the upstream
-    // `npx skills` integration may diverge per-platform in the future.
+    // Re-register `SkillsShRpcHandlers` (CLI copy of the Electron handler —
+    // `skills-sh-rpc.handlers.ts`). The Skills handler is intentionally NOT
+    // in the shared rpc-handlers library; both Electron and the CLI keep
+    // app-local copies because the upstream `npx skills` integration may
+    // diverge per-platform in the future.
     container.registerSingleton(SkillsShRpcHandlers);
     container.resolve(SkillsShRpcHandlers).register();
 
-    // TASK_2026_104 Batch B7: register `CliAgentRpcHandlers` — byte-for-byte
-    // parity copy of the Electron `AgentRpcHandlers`. Same 7 methods, same
-    // injection set, same dispatch bodies. Ships the agent surface for the
-    // CLI now that the deprecated `profile` command emits a deprecation shim.
-    // Both classes expose `static readonly METHODS` (locked tuple, deep-equal
-    // verified by `cli-agent-rpc.handlers.spec.ts`).
+    // Register `CliAgentRpcHandlers` — byte-for-byte parity copy of the
+    // Electron `AgentRpcHandlers`. Same 7 methods, same injection set, same
+    // dispatch bodies. Ships the agent surface for the CLI. Both classes
+    // expose `static readonly METHODS` (locked tuple, deep-equal verified by
+    // `cli-agent-rpc.handlers.spec.ts`).
     container.registerSingleton(CliAgentRpcHandlers);
     container.resolve(CliAgentRpcHandlers).register();
 

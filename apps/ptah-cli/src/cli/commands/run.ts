@@ -1,9 +1,8 @@
 /**
  * `ptah run` command — thin deprecation alias for `ptah session start --task`.
  *
- * TASK_2026_104 Sub-batch B10d. Replaces the Batch 2 27-line stub. The body
- * prints a single-line deprecation notice on stderr (so JSON-RPC stdout stays
- * clean) and delegates to `executeSessionStart` from `session.ts:B10c`.
+ * Prints a single-line deprecation notice on stderr (so JSON-RPC stdout stays
+ * clean) and delegates to `executeSessionStart` from `session.ts`.
  *
  * `ptah run` will be removed in the next release; callers should migrate to
  * `ptah session start --task <text>`.

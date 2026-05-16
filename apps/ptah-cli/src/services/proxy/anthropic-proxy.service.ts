@@ -3,8 +3,6 @@
  * Anthropic Messages API requests onto Ptah's `chat:start | chat:continue`
  * RPC + `chat:chunk | chat:complete | chat:error` push surface.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
- *
  * Routes:
  *   - `POST /v1/messages`       — Messages API. Streams via SSE when
  *                                  `stream: true`, otherwise returns a
@@ -168,7 +166,7 @@ export class AnthropicProxyService {
    *
    * Returns the bound coordinates plus a `tokenFingerprint` (sha256 of the
    * raw token, first 16 hex chars) so the caller can persist it into the
-   * proxy registry (TASK_2026_108 T3) WITHOUT ever exposing the raw token —
+   * proxy registry WITHOUT ever exposing the raw token —
    * the raw token stays inside this service and the on-disk
    * `<userDataPath>/proxy/<port>.token` file (mode 0o600).
    */
@@ -441,10 +439,10 @@ export class AnthropicProxyService {
       phase: 'start',
     });
 
-    // -- TASK_2026_108 T2: parse X-Ptah-Mcp-Servers header ---------------
-    // Q2=A locked: header is the ONLY signal. Malformed headers DO NOT
-    // produce 400; we degrade to `undefined` + emit `proxy.warning` so
-    // the chat path proceeds with the registry-built MCP map intact.
+    // -- Parse X-Ptah-Mcp-Servers header ---------------------------------
+    // Header is the ONLY signal. Malformed headers DO NOT produce 400; we
+    // degrade to `undefined` + emit `proxy.warning` so the chat path proceeds
+    // with the registry-built MCP map intact.
     const mcpHeaderParse = parseMcpOverrideHeader(
       req.headers['x-ptah-mcp-servers'],
     );
@@ -532,8 +530,8 @@ export class AnthropicProxyService {
       const result = await bridge.runTurn({
         tabId,
         rpcCall: async () => {
-          // TASK_2026_108 T2: mcpServersOverride is forwarded through the
-          // `chat:start` payload. When the header is absent / empty / invalid
+          // mcpServersOverride is forwarded through the `chat:start` payload.
+          // When the header is absent / empty / invalid
           // it stays `undefined`, which is identity-preserved at every layer
           // of the SDK chain (see SdkQueryOptionsBuilder.mergeMcpOverride).
           // Workspace MCP tools are also surfaced via the merged `tools[]`
@@ -786,10 +784,9 @@ function stringifyContent(content: unknown): string {
 /**
  * Result of parsing the `X-Ptah-Mcp-Servers` request header.
  *
- * Q2=A locked decision (TASK_2026_108 § 2 plan): the header is the ONLY
- * signal that drives `mcpServersOverride` — there is NO inference from
- * `tools[]`. Malformed/empty/absent headers all degrade to `undefined`
- * with an optional `proxy.warning`, never a 400 response.
+ * The header is the ONLY signal that drives `mcpServersOverride` — there is
+ * NO inference from `tools[]`. Malformed/empty/absent headers all degrade to
+ * `undefined` with an optional `proxy.warning`, never a 400 response.
  */
 export interface McpOverrideParseResult {
   /** `undefined` when header absent, empty, or invalid. */

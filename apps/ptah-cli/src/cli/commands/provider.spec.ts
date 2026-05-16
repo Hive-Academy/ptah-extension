@@ -1,8 +1,6 @@
 /**
  * Unit tests for `ptah provider` command dispatcher.
  *
- * TASK_2026_104 Batch 8d.
- *
  * Coverage:
  *   - status: emits provider.status, redacts secret-like fields unless --reveal
  *   - status with --reveal: leaves api keys verbatim

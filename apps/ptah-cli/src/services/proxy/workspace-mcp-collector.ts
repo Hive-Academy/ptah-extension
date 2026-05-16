@@ -2,8 +2,6 @@
  * `workspace-mcp-collector` — discovers workspace MCP servers + plugin skills
  * and projects them onto Anthropic-compatible tool definitions.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
- *
  * Two RPC dependencies:
  *   - `mcpDirectory:listInstalled` → `{ servers: InstalledMcpServer[] }`
  *   - `plugins:list-skills` (optional)

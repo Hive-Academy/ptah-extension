@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah config` command — TASK_2026_104 Sub-batch B5d.
+ * Unit tests for `ptah config` command.
  *
  * Coverage:
  *   - get / set / list / reset (file-backed via mock IWorkspaceProvider)

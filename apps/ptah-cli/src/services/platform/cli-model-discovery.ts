@@ -1,5 +1,5 @@
 /**
- * CLI Model Discovery Implementation (TASK_2025_263)
+ * CLI Model Discovery Implementation
  *
  * Implements IModelDiscovery for the CLI/TUI environment:
  * - getCopilotModels: Returns empty array (no VS Code LM API in CLI)

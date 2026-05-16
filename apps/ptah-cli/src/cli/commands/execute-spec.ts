@@ -1,15 +1,13 @@
 /**
  * `ptah execute-spec` command — execute a stored spec via the Team Leader.
  *
- * TASK_2026_104 Sub-batch B10d. Replaces the Batch 2 27-line stub.
- *
  * Resolves `<cwd>/.ptah/specs/<id>/{task-description,implementation-plan}.md`,
  * builds a Team Leader execution prompt that interpolates both files'
  * contents, and delegates to `executeSessionStart` from `session.ts:B10c`.
  *
  * Failure modes (all exit 1, `ptah_code: 'unknown'`):
  *   - missing `--id`
- *   - spec folder missing (TASK_DOES_NOT_EXIST)
+ *   - spec folder missing
  *   - either of the two required files missing
  */
 

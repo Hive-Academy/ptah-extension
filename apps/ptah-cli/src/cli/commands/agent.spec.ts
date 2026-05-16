@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah agent` command — TASK_2026_104 B7.
+ * Unit tests for `ptah agent` command.
  *
  * Coverage:
  *   - `packs list`     RPC → emits `agent.packs.list`

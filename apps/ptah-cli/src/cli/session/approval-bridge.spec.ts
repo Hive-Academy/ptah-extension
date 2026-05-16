@@ -1,7 +1,7 @@
 /**
- * Unit tests for `ApprovalBridge` — TASK_2026_104 Sub-batch B10b.
+ * Unit tests for `ApprovalBridge`.
  *
- * Covers (per spec § B10b):
+ * Covers:
  *   1. happy path — emit `permission:request` → bridge emits
  *      `permission.request` JSON-RPC notification → call `permission.response`
  *      RPC handler → `permissionHandler.handleResponse` invoked with the

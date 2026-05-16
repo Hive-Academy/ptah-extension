@@ -1,5 +1,5 @@
 /**
- * Cron Scheduler e2e (TASK_2026_HERMES Track 3).
+ * Cron Scheduler e2e.
  *
  * Surface under test: `cron:create`, `cron:runNow`, `cron:runs`, `cron:list`,
  * `cron:delete` RPC methods backed by `@ptah-extension/cron-scheduler`.

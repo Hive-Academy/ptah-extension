@@ -1,7 +1,7 @@
 /**
  * `ptah session` command — 10-sub-subcommand dispatcher.
  *
- * TASK_2026_104 Sub-batch B10c. Drives the chat session surface end-to-end:
+ * Drives the chat session surface end-to-end:
  *
  *   start [--profile <name>] [--task <text>] [--once]   chat:start (Full DI)
  *                                                        ChatBridge if --task
@@ -234,9 +234,9 @@ export async function execute(
     const message = error instanceof Error ? error.message : String(error);
     // Distinguish SDK-init failures from generic internal failures so JSON-RPC
     // clients see a deterministic `sdk_init_failed` code. The structured
-    // stderr breadcrumb (Fix 4 — cli-shift.md Phase 2 channel) was already
-    // emitted by `withEngine` for SDK-init; for internal_failure we emit it
-    // here so supervisors monitoring stderr don't have to parse stdout.
+    // stderr breadcrumb was already emitted by `withEngine` for SDK-init;
+    // for internal_failure we emit it here so supervisors monitoring stderr
+    // don't have to parse stdout.
     const isSdkInit = error instanceof SdkInitFailedError;
     const ptahCode: PtahErrorCode = isSdkInit
       ? 'sdk_init_failed'

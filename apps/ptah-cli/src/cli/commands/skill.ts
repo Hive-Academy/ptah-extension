@@ -1,8 +1,8 @@
 /**
  * `ptah skill` command — Skills.sh marketplace operations.
  *
- * TASK_2026_104 Sub-batch B6b. Backed by `SkillsShRpcHandlers` re-registered
- * inside the CLI app (`apps/ptah-cli/src/services/rpc/handlers/skills-sh-rpc.handlers.ts`)
+ * Backed by `SkillsShRpcHandlers` re-registered inside the CLI app
+ * (`apps/ptah-cli/src/services/rpc/handlers/skills-sh-rpc.handlers.ts`)
  * mirroring the Electron implementation verbatim. The `create` sub-subcommand
  * additionally hits the shared `harness:create-skill` RPC for AI-driven skill
  * creation from a wizard spec.

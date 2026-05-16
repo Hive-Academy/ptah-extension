@@ -2,19 +2,16 @@
 /**
  * Headless entry point for the `ptah` CLI binary.
  *
- * TASK_2026_104 Batch 2 — scaffold only. This file intentionally does NOT
- * bootstrap the DI container at module load. Each subcommand decides whether
- * (and when) to call `CliDIContainer.setup()` (typically via the `withEngine`
- * helper added in Batch 4 at `src/cli/bootstrap/with-engine.ts`); that wiring
- * lands in Batches 5-6.
+ * This file intentionally does NOT bootstrap the DI container at module load.
+ * Each subcommand decides whether (and when) to call `CliDIContainer.setup()`
+ * (typically via the `withEngine` helper at `src/cli/bootstrap/with-engine.ts`).
  *
  * The router (`src/cli/router.ts`) parses `--verbose` as part of
  * `GlobalOptions`. Each command receives the resolved globals object and is
  * expected to forward `globals.verbose` into `withEngine(globals, ...)` so
- * the DI container emits `debug.di.phase` notifications. No call sites exist
- * yet — Batch 4 only prepares the propagation surface.
+ * the DI container emits `debug.di.phase` notifications.
  *
- * Responsibilities for this batch:
+ * Responsibilities:
  *   1. Install SIGINT/SIGTERM handler stubs that exit with the conventional
  *      Unix codes (130 / 143).
  *   2. Build the commander router and dispatch via `parseAsync(process.argv)`.
@@ -72,7 +69,7 @@ function installSignalHandlers(): void {
 }
 
 /**
- * Stream B item #11 — schema version skew check.
+ * Schema version skew check.
  *
  * The host that spawned us (Electron, an A2A bridge, a CI driver) may set
  * `PTAH_HOST_SCHEMA_VERSION` to advertise the protocol version it speaks.

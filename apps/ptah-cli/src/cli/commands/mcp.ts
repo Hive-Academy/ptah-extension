@@ -2,9 +2,9 @@
  * `ptah mcp` command — MCP Server Directory operations (search / details /
  * install / uninstall / list / popular).
  *
- * TASK_2026_104 Sub-batch B6b. Backed by the **shared** `McpDirectoryRpcHandlers`
- * lifted in B6a (`libs/backend/rpc-handlers`) so VS Code, Electron, and the
- * CLI all dispatch identical RPC verbs.
+ * Backed by the **shared** `McpDirectoryRpcHandlers`
+ * (`libs/backend/rpc-handlers`) so VS Code, Electron, and the CLI all
+ * dispatch identical RPC verbs.
  *
  * Sub-commands (per task-description.md §3 `mcp *` table):
  *

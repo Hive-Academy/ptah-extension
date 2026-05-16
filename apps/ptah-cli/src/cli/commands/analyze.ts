@@ -1,8 +1,6 @@
 /**
  * `ptah analyze` command — workspace deep-analysis runner.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Top-level command (per task-description.md §3.1):
  *
  *   analyze [--model <m>] [--save] [--out <path>]

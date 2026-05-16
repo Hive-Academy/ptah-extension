@@ -105,8 +105,8 @@ export class InteractRpcClient {
   }
 
   /**
-   * Race `task.complete` vs `task.error` — useful for the Bug 1+4 spec which
-   * proves chat-bridge emits a terminal envelope on every settle path.
+   * Race `task.complete` vs `task.error` — useful for specs which prove
+   * chat-bridge emits a terminal envelope on every settle path.
    */
   awaitTaskTerminal(
     timeoutMs = 30_000,

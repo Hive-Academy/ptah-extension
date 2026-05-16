@@ -2,8 +2,6 @@
  * `anthropic-tool-merger` — merges caller-supplied Anthropic `tools[]` with
  * workspace MCP / plugin-skill tools collected via `WorkspaceMcpCollector`.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
- *
  * Precedence rule: **caller wins on collision**. The proxy is a transparent
  * extension of the caller's Anthropic request — if the caller declares a
  * tool with the same name as a workspace tool, we keep the caller's tool

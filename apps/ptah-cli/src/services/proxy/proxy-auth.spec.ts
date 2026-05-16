@@ -1,5 +1,5 @@
 /**
- * Unit tests for `proxy-auth` — TASK_2026_104 P2.
+ * Unit tests for `proxy-auth`.
  *
  * Covers:
  *   1. mintProxyToken — produces 64-char hex, distinct per call.

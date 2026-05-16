@@ -6,8 +6,6 @@
  *   - device code line is written when `userCode` is provided
  *   - device code line is omitted when `userCode` is absent
  *   - returns { opened: false } so the caller knows manual action is required
- *
- * TASK_2026_104 Batch 8c.
  */
 
 import { StderrOAuthUrlOpener } from './stderr-oauth-url-opener.js';
