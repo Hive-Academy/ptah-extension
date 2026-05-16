@@ -1,16 +1,9 @@
 /**
  * @ptah-extension/chat-ui — Reusable presentational chat components.
  *
- * TASK_2026_105 Wave G4: Extracted from `@ptah-extension/chat` to allow
- * other webview apps (electron, dashboard, canvas) to consume chat UI
- * primitives without pulling the full chat feature library.
- *
  * Atomic Design layout:
  *   - Atoms: smallest reusable building blocks
  *   - Molecules: composed UI pieces
- *
- * Note: Organisms and templates remain in `@ptah-extension/chat` since
- * they orchestrate stateful chat behavior.
  */
 
 // ============================================================================

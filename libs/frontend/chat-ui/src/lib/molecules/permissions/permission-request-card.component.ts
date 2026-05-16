@@ -70,7 +70,7 @@ import {
         <!-- Title -->
         <span class="font-semibold text-base-content/80">Permission</span>
 
-        <!-- Tool badge with icon - TASK_2025_100 QA Fix: Use DaisyUI badge classes for theme consistency -->
+        <!-- Tool badge with icon - Use DaisyUI badge classes for theme consistency -->
         <span
           [class]="
             'badge badge-xs font-mono px-1.5 gap-0.5 ' + getToolBadgeClass()
@@ -133,7 +133,7 @@ import {
           <lucide-angular [img]="XIcon" class="w-3 h-3" />
           Deny
         </button>
-        <!-- TASK_2025_102: Deny with Message popover - allows user to provide feedback -->
+        <!-- Deny with Message popover - allows user to provide feedback -->
         <ptah-deny-message-popover
           [disabled]="isDenyPopoverOpen()"
           (opened)="openDenyPopover()"
@@ -167,20 +167,20 @@ export class PermissionRequestCardComponent {
   // Timer state
   private readonly _currentTime = signal(Date.now());
 
-  // TASK_2025_102: Deny with message popover state
+  // Deny with message popover state
   private readonly _isDenyPopoverOpen = signal(false);
   readonly isDenyPopoverOpen = this._isDenyPopoverOpen.asReadonly();
 
   /**
    * Computed signal for countdown timer
    * Calculates remaining time from request timeout
-   * TASK_2025_215: timeoutAt === 0 means "no timeout — block indefinitely"
+   * timeoutAt === 0 means "no timeout — block indefinitely"
    */
   readonly remainingTime = computed(() => {
     const current = this._currentTime();
     const timeout = this.request().timeoutAt;
 
-    // No timeout: block indefinitely (TASK_2025_215)
+    // No timeout: block indefinitely
     if (timeout <= 0) {
       return 'No timeout';
     }
@@ -207,11 +207,11 @@ export class PermissionRequestCardComponent {
 
   /**
    * Check if time is running low (less than 1 minute)
-   * TASK_2025_215: timeoutAt === 0 means "no timeout" — never expiring soon
+   * timeoutAt === 0 means "no timeout" — never expiring soon
    */
   protected isExpiringSoon(): boolean {
     const timeout = this.request().timeoutAt;
-    if (timeout <= 0) return false; // No timeout — never expiring (TASK_2025_215)
+    if (timeout <= 0) return false; // No timeout — never expiring
     const remaining = timeout - this._currentTime();
     return remaining <= 60000; // Less than 1 minute
   }
@@ -221,7 +221,7 @@ export class PermissionRequestCardComponent {
   constructor() {
     // Start countdown timer on component initialization (only when timeout is set)
     effect((onCleanup) => {
-      // No timeout: skip interval entirely (TASK_2025_215)
+      // No timeout: skip interval entirely
       if (this.request().timeoutAt <= 0) {
         return;
       }
@@ -272,7 +272,6 @@ export class PermissionRequestCardComponent {
   /**
    * Get tool-specific color for border and badge
    * Uses oklch CSS variables for theme-aware styling
-   * TASK_2025_100 Batch 4: Migrated from hardcoded hex to oklch(var(--xxx)) format
    */
   protected getToolColor(): string {
     const toolName = this.request().toolName;
@@ -296,7 +295,6 @@ export class PermissionRequestCardComponent {
 
   /**
    * Get tool-specific DaisyUI badge class for consistent styling
-   * TASK_2025_100 QA Fix: Aligns with tool-icon.component.ts pattern
    * Uses DaisyUI badge classes for theme-aware styling instead of inline oklch
    */
   protected getToolBadgeClass(): string {
@@ -322,7 +320,7 @@ export class PermissionRequestCardComponent {
   /**
    * Format the description with markdown code styling
    * Extracts command/path from description and wraps in backticks
-   * TASK_2025_088 Batch 5 Task 5.2: Use type guards for type-safe access
+   * Uses type guards for type-safe access
    */
   protected getFormattedDescription(): string {
     const description = this.request().description;
@@ -415,7 +413,6 @@ export class PermissionRequestCardComponent {
 
   /**
    * Handle user response to permission request
-   * TASK_2025_102: Updated type to include 'deny_with_message'
    */
   protected respond(
     decision: 'allow' | 'deny' | 'always_allow' | 'deny_with_message',
@@ -436,7 +433,7 @@ export class PermissionRequestCardComponent {
   }
 
   // ============================================================================
-  // TASK_2025_102: Deny with Message Popover Methods
+  // Deny with Message Popover Methods
   // ============================================================================
 
   /**
@@ -455,7 +452,6 @@ export class PermissionRequestCardComponent {
 
   /**
    * Handle deny with message - called when user submits message from popover
-   * TASK_2025_102 Batch 3 Task 3.5
    *
    * This allows Claude to continue execution with the user's feedback,
    * unlike hard deny which stops execution.

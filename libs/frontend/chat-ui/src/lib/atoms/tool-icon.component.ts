@@ -44,7 +44,6 @@ export class ToolIconComponent {
 
   /**
    * Map tool name to lucide icon
-   * Extracted from tool-call-item.component.ts:303-320
    */
   protected getIcon(): typeof File {
     const name = this.toolName();
@@ -68,7 +67,6 @@ export class ToolIconComponent {
   /**
    * Map tool name to semantic color class
    * Uses DaisyUI semantic color classes for theme-aware styling
-   * TASK_2025_100 Batch 4: Migrated from Tailwind colors to DaisyUI semantic classes
    */
   protected getColorClass(): string {
     const name = this.toolName();

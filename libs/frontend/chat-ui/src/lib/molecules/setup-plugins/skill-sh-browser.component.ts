@@ -27,9 +27,6 @@ interface DisplaySkillEntry extends SkillShEntry {
 /**
  * SkillShBrowserComponent - Browse, search, install, and manage skills from skills.sh
  *
- * TASK_2025_204: Skills.sh browser for the setup-plugins section
- *
- * Complexity Level: 2 (Medium - RPC communication + search debounce + dual views)
  * Patterns: Signal-based state, DaisyUI compact styling, debounced search
  */
 @Component({

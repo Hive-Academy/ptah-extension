@@ -49,9 +49,6 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
 /**
  * PluginBrowserModalComponent - Modal dialog for browsing and configuring plugins
  *
- * TASK_2025_153: Phase 6 - Frontend Components
- *
- * Complexity Level: 2 (Medium - RPC communication + modal state + filtering)
  * Patterns: Signal-based state, DaisyUI modal, computed filtering, effect for open trigger
  *
  * Features:

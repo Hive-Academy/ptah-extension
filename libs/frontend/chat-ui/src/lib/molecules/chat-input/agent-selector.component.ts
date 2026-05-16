@@ -4,9 +4,9 @@
  * A standalone dropdown component for selecting Claude agents and custom agents.
  * Separated from @ trigger to provide cleaner UX - @ is now for files/folders only.
  *
- * TASK_2025_167: Extended to show custom agents alongside built-in agents.
- * Ptah CLI agents are fetched from PtahCliStateService and displayed in a
- * separate section with provider badges and a "clear" option.
+ * Shows custom agents alongside built-in agents. Ptah CLI agents are fetched
+ * from PtahCliStateService and displayed in a separate section with provider
+ * badges and a "clear" option.
  *
  * Pattern: Signal-based state from AgentDiscoveryFacade + PtahCliStateService
  * UI: NativeDropdownComponent from @ptah-extension/ui with Floating UI positioning

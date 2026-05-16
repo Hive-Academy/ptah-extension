@@ -47,7 +47,6 @@ export class ExpandableContentComponent {
 
   /**
    * Get human-readable content size
-   * Extracted from tool-call-item.component.ts:462-467
    */
   protected getContentSize(): string {
     const lines = this.content().split('\n').length;

@@ -1,11 +1,9 @@
 /**
  * DenyMessagePopoverComponent - Popover for deny-with-message input
  *
- * TASK_2025_102 Batch 3 Task 3.1: Provides inline text input for users to send
- * a message to Claude when denying a permission request, allowing execution to
- * continue with feedback.
+ * Provides inline text input for users to send a message to Claude when denying
+ * a permission request, allowing execution to continue with feedback.
  *
- * Complexity Level: 2 (Signal-based with focus management)
  * Patterns: NativePopoverComponent, signal inputs/outputs
  *
  * Accessibility:
@@ -144,7 +142,7 @@ export class DenyMessagePopoverComponent {
 
     this._isSubmitting.set(true);
 
-    // Use default message if empty (per TASK_2025_102 requirement)
+    // Use default message if empty
     const message =
       this.messageText.trim() || 'User denied without explanation';
     this.messageSent.emit(message);

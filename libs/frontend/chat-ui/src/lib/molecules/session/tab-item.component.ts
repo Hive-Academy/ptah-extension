@@ -11,11 +11,6 @@ import { TabState } from '@ptah-extension/chat-types';
 /**
  * TabItemComponent - Chrome-style individual tab
  *
- * TASK_2025_248: Restyled with rounded-t-lg corners, CSS class-based
- * active/inactive states (.tab-item-active, .tab-item-inactive),
- * and a smaller hover-reveal close button.
- *
- * Complexity Level: 1 (Simple component)
  * Patterns: Signal-based inputs/outputs, DaisyUI styling
  */
 @Component({

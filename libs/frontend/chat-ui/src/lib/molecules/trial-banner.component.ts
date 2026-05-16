@@ -12,8 +12,6 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 /**
  * TrialBannerComponent - Trial countdown banner for chat view
  *
- * TASK_2025_142: Requirement 1
- *
  * Displays trial days remaining with urgency-based styling:
  * - Info (> 3 days): Informational countdown
  * - Warning (3 days or less): Urgency indicator

@@ -330,7 +330,7 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    // TASK_2025_215: timeoutAt === 0 means "no timeout — block indefinitely"
+    // timeoutAt === 0 means "no timeout — block indefinitely"
     // Skip timer entirely when no timeout is set
     if (this.request().timeoutAt <= 0) {
       this.timeRemaining.set(-1); // Sentinel: no timeout

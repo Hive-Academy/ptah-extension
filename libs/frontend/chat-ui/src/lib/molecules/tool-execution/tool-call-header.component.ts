@@ -85,7 +85,7 @@ import {
         </span>
       }
 
-      <!-- Description (file path or generic) - HIDDEN during streaming to avoid redundancy (TASK_2025_102) -->
+      <!-- Description (file path or generic) - HIDDEN during streaming to avoid redundancy -->
       @if (node().status !== 'streaming') {
         @if (hasClickableFilePath()) {
           <ptah-file-path-link
@@ -102,7 +102,7 @@ import {
         }
       }
 
-      <!-- Parse Error Warning (TASK_2025_088 Batch 2 Task 2.3) -->
+      <!-- Parse Error Warning -->
       @if (hasParseError()) {
         <div
           class="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-warning/20 rounded text-warning"
@@ -197,7 +197,6 @@ export class ToolCallHeaderComponent {
 
   /**
    * Check if tool input has parse error
-   * TASK_2025_088 Batch 2 Task 2.3: Detect parse errors from safe parser
    */
   readonly hasParseError = computed(() => {
     const input = this.node().toolInput;
@@ -211,7 +210,6 @@ export class ToolCallHeaderComponent {
 
   /**
    * Get parse error message
-   * TASK_2025_088 Batch 2 Task 2.3: Extract error message for display
    */
   readonly parseError = computed(() => {
     const input = this.node().toolInput;
@@ -228,8 +226,6 @@ export class ToolCallHeaderComponent {
 
   /**
    * Check if tool has clickable file path
-   * Extracted from tool-call-item.component.ts:342-349
-   * TASK_2025_088 Batch 5 Task 5.2: Use type guards instead of bracket notation
    */
   protected hasClickableFilePath(): boolean {
     const toolInput = this.node().toolInput;
@@ -247,7 +243,6 @@ export class ToolCallHeaderComponent {
 
   /**
    * Get file path from tool input
-   * TASK_2025_088 Batch 5 Task 5.2: Type-safe access after type guard
    */
   protected getFilePath(): string {
     const toolInput = this.node().toolInput;
@@ -292,8 +287,6 @@ export class ToolCallHeaderComponent {
 
   /**
    * Get tool description for display
-   * Extracted from tool-call-item.component.ts:360-383
-   * TASK_2025_088 Batch 5 Task 5.2: Use type guards for type-safe access
    */
   protected getToolDescription(): string {
     const node = this.node();
@@ -335,8 +328,6 @@ export class ToolCallHeaderComponent {
 
   /**
    * Get full description for title attribute
-   * Extracted from tool-call-item.component.ts:385-403
-   * TASK_2025_088 Batch 5 Task 5.2: Use type guards for type-safe access
    */
   protected getFullDescription(): string {
     const toolInput = this.node().toolInput;
@@ -373,8 +364,6 @@ export class ToolCallHeaderComponent {
 
   /**
    * Get streaming description
-   * Extracted from tool-call-item.component.ts:666-701
-   * TASK_2025_088 Batch 5 Task 5.2: Use type guards for type-safe access
    */
   protected getStreamingDescription(): string {
     const toolName = this.node().toolName;

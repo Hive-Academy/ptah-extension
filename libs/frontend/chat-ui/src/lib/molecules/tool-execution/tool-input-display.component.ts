@@ -165,7 +165,6 @@ export class ToolInputDisplayComponent {
 
   /**
    * Check if tool has non-trivial input to display
-   * Extracted from tool-call-item.component.ts:405-416
    */
   protected hasNonTrivialInput(): boolean {
     const node = this.node();
@@ -198,7 +197,6 @@ export class ToolInputDisplayComponent {
 
   /**
    * Get all input parameters as key-value pairs
-   * Extracted from tool-call-item.component.ts:418-431
    */
   protected getInputParams(): InputParam[] {
     const node = this.node();
@@ -217,7 +215,6 @@ export class ToolInputDisplayComponent {
   /**
    * Check if a parameter should have expand/collapse functionality
    * Currently applies to Write tool's content parameter
-   * Extracted from tool-call-item.component.ts:437-449
    */
   protected shouldExpandParam(param: InputParam): boolean {
     const node = this.node();
@@ -235,7 +232,6 @@ export class ToolInputDisplayComponent {
   /**
    * Format parameter content for markdown rendering
    * Detects language from file_path if available (for Write tool)
-   * Extracted from tool-call-item.component.ts:473-501
    */
   protected getFormattedParamContent(param: InputParam): string {
     let content =

@@ -11,7 +11,7 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 /**
  * CommunityUpgradeBannerComponent - Banner for users downgraded to Community
  *
- * TASK_2025_143: Shows when user's trial ended and they're on Community plan
+ * Shows when user's trial ended and they're on Community plan.
  *
  * Displays:
  * - Message that trial has ended and user is on Community
@@ -19,12 +19,6 @@ import { ClaudeRpcService } from '@ptah-extension/core';
  * - Dismissible per session
  *
  * Shown when: isCommunity === true && reason === 'trial_ended'
- *
- * Complexity Level: 1 (Simple molecule with conditional display)
- *
- * SOLID Principles:
- * - Single Responsibility: Display upgrade prompt for downgraded users only
- * - Composition Over Inheritance: Uses signal inputs for data
  */
 @Component({
   selector: 'ptah-community-upgrade-banner',

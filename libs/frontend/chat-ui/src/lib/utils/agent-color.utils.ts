@@ -22,7 +22,6 @@ export function isThemeFallbackColor(c: OklchColor): boolean {
 
 /**
  * Built-in agent color map (structured oklch) for theme consistency.
- * Extracted from InlineAgentBubbleComponent for reuse in compact view.
  */
 const BUILTIN_AGENT_COLORS: Record<string, OklchColor> = {
   Explore: { l: 0.6, c: 0.18, h: 145 }, // Green

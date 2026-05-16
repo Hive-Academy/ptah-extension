@@ -11,7 +11,7 @@ import { ExecutionStatus } from '@ptah-extension/shared';
  * - pending → badge-ghost
  * - streaming → badge-info + loading spinner
  * - complete → badge-success
- * - interrupted → badge-warning (TASK_2025_098)
+ * - interrupted → badge-warning
  * - error → badge-error
  */
 @Component({

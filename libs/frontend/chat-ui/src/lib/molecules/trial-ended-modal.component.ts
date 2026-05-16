@@ -21,8 +21,6 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
 /**
  * TrialEndedModalComponent - Modal for trial/subscription expiration
  *
- * TASK_2025_142: Requirement 2
- *
  * Displays when license:getStatus returns reason: 'trial_ended' or 'expired'.
  * Redirects users to the website to manage their plan (upgrade or community).
  * Once they have a new license key from the website, they enter it in the extension.
@@ -162,7 +160,6 @@ export class TrialEndedModalComponent {
   protected readonly BotIcon = Bot;
   protected readonly ExternalLinkIcon = ExternalLink;
 
-  // TASK_2025_142: Use constant instead of hardcoded value
   protected readonly trialDurationDays = TRIAL_DURATION_DAYS;
 
   private readonly rpcService = inject(ClaudeRpcService);

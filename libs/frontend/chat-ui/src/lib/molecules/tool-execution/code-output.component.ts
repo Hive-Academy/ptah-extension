@@ -69,7 +69,7 @@ import {
 export class CodeOutputComponent {
   readonly node = input.required<ExecutionNode>();
 
-  // Language extension mapping (extracted from tool-call-item.component.ts:276-297)
+  // Language extension mapping
   private readonly languageMap: Record<string, string> = {
     '.ts': 'typescript',
     '.tsx': 'tsx',
@@ -95,7 +95,6 @@ export class CodeOutputComponent {
 
   /**
    * Computed formatted output
-   * Extracted from tool-call-item.component.ts:539-593
    */
   readonly formattedOutput = computed(() => {
     const node = this.node();
@@ -124,7 +123,6 @@ export class CodeOutputComponent {
 
   /**
    * Detect language from file extension or tool type
-   * Extracted from tool-call-item.component.ts:633-637
    */
   private detectLanguage(): string {
     const node = this.node();
@@ -187,7 +185,6 @@ export class CodeOutputComponent {
   /**
    * Strip <system-reminder> tags from content
    * Claude CLI adds these tags to tool results but they should not be displayed
-   * Extracted from tool-call-item.component.ts:507-512
    */
   private stripSystemReminders(content: string): string {
     // Remove <system-reminder>...</system-reminder> tags and their content
@@ -200,7 +197,6 @@ export class CodeOutputComponent {
    * Strip Claude CLI line number prefixes from Read tool output
    * Claude CLI formats Read output as "     N→content" where N is the line number
    * We strip these for cleaner display in the UI
-   * Extracted from tool-call-item.component.ts:519-530
    */
   private stripLineNumbers(content: string): string {
     // Match pattern: optional spaces, digits, arrow (→), then content
@@ -219,7 +215,6 @@ export class CodeOutputComponent {
    * Extract text content from MCP-style content blocks
    * MCP responses often come as: [{type: "text", text: "..."}]
    * This extracts just the text for cleaner display
-   * Extracted from tool-call-item.component.ts:600-631
    */
   private extractMCPContent(content: string): string {
     // Check if it looks like an MCP content array
@@ -256,7 +251,6 @@ export class CodeOutputComponent {
 
   /**
    * Get language from file extension
-   * Extracted from tool-call-item.component.ts:633-637
    */
   private getLanguageFromPath(filePath: string): string {
     const normalized = filePath.replace(/\\/g, '/');
