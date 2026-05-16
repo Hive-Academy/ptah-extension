@@ -38,7 +38,6 @@ function statusFilterToBackend(
 export class SkillSynthesisStateService {
   private readonly rpc = inject(SkillSynthesisRpcService);
 
-  // ── State signals ─────────────────────────────────────────────────────────
   public readonly candidates = signal<SkillSynthesisCandidateSummary[]>([]);
   public readonly statusFilter = signal<SkillStatusFilter>('all');
   public readonly selectedCandidateId = signal<string | null>(null);
@@ -48,7 +47,6 @@ export class SkillSynthesisStateService {
   public readonly loading = signal<boolean>(false);
   public readonly error = signal<string | null>(null);
 
-  // ── Computed views ────────────────────────────────────────────────────────
   public readonly selectedCandidate = computed(() => {
     const id = this.selectedCandidateId();
     if (!id) return null;

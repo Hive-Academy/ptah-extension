@@ -701,7 +701,6 @@ export class SkillSynthesisTabComponent implements OnInit {
     () => this.vscodeService.config()?.isElectron === true,
   );
 
-  // Re-export state signals for the template.
   public readonly candidates = this.state.candidates;
   public readonly invocations = this.state.invocations;
   public readonly stats = this.state.stats;
@@ -714,9 +713,7 @@ export class SkillSynthesisTabComponent implements OnInit {
   /**
    * Reactive form for the 17 skill-synthesis settings fields.
    * Uses FormBuilder so Angular CD properly tracks mutations and validation
-   * hooks are available per-field. Replaces the former `signal<SettingsDto>`
-   * anti-pattern where `[(ngModel)]` mutated the signal's object in place
-   * without triggering re-emission.
+   * hooks are available per-field.
    */
   public readonly settingsForm: FormGroup = this.fb.group({
     enabled: [true],
@@ -788,8 +785,6 @@ export class SkillSynthesisTabComponent implements OnInit {
       await this.state.loadSettings();
       const s = this.state.settings();
       if (s) {
-        // patchValue replaces all form controls with the loaded values;
-        // the FormGroup emits a new value so change detection fires correctly.
         this.settingsForm.patchValue(s);
       }
       this.settingsLoaded.set(true);

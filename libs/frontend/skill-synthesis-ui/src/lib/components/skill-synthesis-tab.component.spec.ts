@@ -147,11 +147,9 @@ describe('SkillSynthesisTabComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Ptah desktop app');
 
-    // No RPC init in placeholder mode.
     expect(stub.refreshCandidates).not.toHaveBeenCalled();
     expect(stub.loadStats).not.toHaveBeenCalled();
 
-    // Filter chips are not rendered in placeholder mode.
     const tabs = (fixture.nativeElement as HTMLElement).querySelectorAll(
       '[role="tab"]',
     );
