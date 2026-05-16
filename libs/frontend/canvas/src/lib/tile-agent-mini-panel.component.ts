@@ -6,8 +6,6 @@
  * Permission requests display inline Allow/Deny buttons.
  *
  * Max height 192px (max-h-48), scrollable when content overflows.
- *
- * TASK_2025_272 Batch 3
  */
 
 import {
@@ -129,7 +127,7 @@ export class TileAgentMiniPanelComponent {
   // ---- Icons ----
   readonly ShieldAlertIcon = ShieldAlert;
 
-  // ---- Permission handlers (mirrors agent-monitor-panel.component.ts pattern) ----
+  // ---- Permission handlers ----
 
   allowPermission(agentId: string, perm: AgentPermissionRequest): void {
     this.vscode.postMessage({

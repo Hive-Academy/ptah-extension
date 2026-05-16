@@ -42,11 +42,9 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
  * - Change event: (changeCB) — fires after drag/resize; nodes carry updated positions
  * - Imports: GridstackComponent + GridstackItemComponent from 'gridstack/dist/angular'
  *
- * TASK_2025_271: Simplified — toolbar removed, session management delegated to shared
- * sidebar in AppShellComponent. Signal bridge effects watch for session requests from
- * AppStateManager and route them to CanvasStore.
- *
- * TASK_2025_265 Batch 3 (original)
+ * Toolbar removed; session management delegated to shared sidebar in AppShellComponent.
+ * Signal bridge effects watch for session requests from AppStateManager and route them
+ * to CanvasStore.
  */
 @Component({
   selector: 'ptah-orchestra-canvas',

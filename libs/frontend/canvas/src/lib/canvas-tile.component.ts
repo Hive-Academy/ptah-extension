@@ -35,9 +35,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
  * 2. ChatViewComponent is rendered only when childInjector() is non-null (via @if guard),
  *    guaranteeing SESSION_CONTEXT is already provided before the component bootstraps.
  * 3. onTileClick() emits focusRequested so the parent calls canvasStore.focusTile()
- *    before any message is sent — keeps global activeTabId in sync (Risk 1 mitigation).
- *
- * TASK_2025_265 Batch 3
+ *    before any message is sent — keeps global activeTabId in sync.
  */
 @Component({
   selector: 'ptah-canvas-tile',

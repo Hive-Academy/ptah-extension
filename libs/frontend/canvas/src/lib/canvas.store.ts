@@ -15,8 +15,6 @@ export interface CanvasTile {
  * corresponds to a tab in TabManagerService. Tile positions are tracked here
  * for CSS Grid / Gridstack layout; focus state updates the global active tab
  * so message sending routes to the correct session.
- *
- * TASK_2025_265 Batch 2
  */
 @Injectable()
 export class CanvasStore {

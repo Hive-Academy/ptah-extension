@@ -6,8 +6,6 @@
  * the expanded mini-panel (managed by parent via viewChild access).
  *
  * Hidden when no agents are associated with the tile's session.
- *
- * TASK_2025_272 Batch 3
  */
 
 import {
