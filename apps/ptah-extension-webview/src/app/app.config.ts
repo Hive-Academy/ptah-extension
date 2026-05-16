@@ -45,8 +45,6 @@ import {
   SetupHubComponent,
 } from '@ptah-extension/harness-builder';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
-// Removed Material animations import - using pure VS Code design system
-// REMOVED: Angular Router imports - incompatible with VS Code webviews
 
 // Custom error handler for webview-specific issues
 class WebviewErrorHandler implements ErrorHandler {
@@ -132,30 +130,26 @@ export const appConfig: ApplicationConfig = {
     },
     // Setup hub component: breaks circular dependency between chat and harness-builder.
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
-    // TASK_2026_106 Phase 3: `provideStreamingControl()` removed. The
-    // STREAMING_CONTROL inversion was the source of the NG0200 cycle —
-    // token inversion + a useExisting impl that injected the consumer back
-    // formed the same runtime cycle the import inversion was meant to
-    // prevent. The router (`@ptah-extension/chat-routing/StreamRouter`)
-    // now owns cleanup, reacting to `TabManagerService.closedTab` via
-    // `effect()`. No DI registration needed — `StreamRouter` is
-    // `providedIn: 'root'` and self-wires through the chat-message-handler
-    // import chain.
+    // `provideStreamingControl()` removed. The STREAMING_CONTROL inversion
+    // was the source of the NG0200 cycle — token inversion + a useExisting
+    // impl that injected the consumer back formed the same runtime cycle the
+    // import inversion was meant to prevent. The router
+    // (`@ptah-extension/chat-routing/StreamRouter`) now owns cleanup,
+    // reacting to `TabManagerService.closedTab` via `effect()`. No DI
+    // registration needed — `StreamRouter` is `providedIn: 'root'` and
+    // self-wires through the chat-message-handler import chain.
     // ModelRefreshControl: inverted-dependency contract that lets
     // TabManagerService (in @ptah-extension/chat-state, type:data-access)
     // refresh the available-models list after createTab() without statically
     // importing ModelStateService from @ptah-extension/core (type:core),
     // which Nx module-boundary rules forbid for type:data-access libs.
-    // TASK_2026_105 Wave G2 Phase 2.
     ...provideModelRefreshControl(),
     // WizardInternalState: inverted-dependency contract that lets external
     // consumers read/write wizard signals without statically importing
     // SetupWizardStateService (which would re-form a cycle with the
     // in-process wizard helpers).
-    // TASK_2026_103 Wave F1.
     ...provideWizardInternalState(),
     // EditorInternalState: same pattern, applied to EditorService.
-    // TASK_2026_103 Wave F3.
     ...provideEditorInternalState(),
     // EditorService handles editor:tabContentReverted push events (Electron Monaco revert).
     { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
@@ -169,21 +163,19 @@ export const appConfig: ApplicationConfig = {
     },
     // WorkspaceIndexingService listens for `indexing:progress` push events
     // broadcast from IndexingControlService during active indexing runs.
-    // Required for AC #6 (live progress streaming) — TASK_2026_114.
+    // Required for live progress streaming.
     {
       provide: MESSAGE_HANDLERS,
       useExisting: WorkspaceIndexingService,
       multi: true,
     },
     // GatewayStateService listens for GATEWAY_STATUS_CHANGED push events (Electron-only)
-    // to update adapter running/error state without polling. Migration from 30s setInterval.
-    // TASK_2026_115.
+    // to update adapter running/error state without polling.
     {
       provide: MESSAGE_HANDLERS,
       useExisting: GatewayStateService,
       multi: true,
     },
-    // === TASK_2026_117_UPDATE_UX_BEGIN ===
     // UpdateBannerService listens for UPDATE_STATUS_CHANGED push events
     // (Electron-only) emitted by the main-process UpdateManager. Drives the
     // sticky top-bar update banner in the renderer.
@@ -192,7 +184,6 @@ export const appConfig: ApplicationConfig = {
       useExisting: UpdateBannerService,
       multi: true,
     },
-    // === TASK_2026_117_UPDATE_UX_END ===
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

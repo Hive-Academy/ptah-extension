@@ -16,7 +16,7 @@ declare global {
   }
 }
 
-// RPC hardening (Fix 2): the inline WEBVIEW_READY signal is posted from the
+// RPC hardening: the inline WEBVIEW_READY signal is posted from the
 // host-generated HTML before Angular bootstraps. By the time we reach here the
 // host's message pump is live, so we flip the RpcClient's ready gate so any
 // RPC call made during bootstrap / first render is allowed to send. The
