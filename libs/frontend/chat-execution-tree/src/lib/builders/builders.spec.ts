@@ -7,8 +7,6 @@
  * scenarios end-to-end. That structure exercises agent-node.fn,
  * message-node.fn, and tool-node.fn (incl. `tryBuildPlaceholderAgent`)
  * without mocking any of them.
- *
- * TASK_2026_105 Wave G1.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -499,9 +497,9 @@ describe('builder fns (integration)', () => {
       expect(placeholder.type).toBe('agent');
       expect(placeholder.status).toBe('streaming');
       expect(placeholder.agentType).toBe('reviewer');
-      // TASK_2026_TREE_STABILITY Fix 1/8: Placeholder + real agent share
-      // a stable `agent:${toolCallId}` id so Angular tracking reuses the same
-      // component instance across the placeholder → real handoff.
+      // Placeholder + real agent share a stable `agent:${toolCallId}` id so
+      // Angular tracking reuses the same component instance across the
+      // placeholder → real handoff.
       expect(placeholder.id).toBe(`agent:${taskToolCallId}`);
     });
 

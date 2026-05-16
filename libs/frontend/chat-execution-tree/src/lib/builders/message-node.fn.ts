@@ -1,5 +1,5 @@
 /**
- * Message-node pure builders — extracted from MessageNodeBuilderService.
+ * Message-node pure builders.
  *
  * Recurses into tools via `deps.collectTools`. No direct imports of
  * tool-node.fn / agent-node.fn — recursion is callback-driven through
@@ -21,14 +21,14 @@ export function buildMessageNode(
   state: StreamingState,
   depth = 0,
 ): ExecutionNode | null {
-  // Use pre-indexed events for O(1) lookup (TASK_2025_084 Batch 1 Task 1.2)
-  // TASK_2025_087: Defensive check — eventsByMessage might not be a Map if loaded from localStorage
+  // Use pre-indexed events for O(1) lookup. Defensive check — eventsByMessage
+  // might not be a Map if loaded from localStorage.
   const messageEvents =
     state.eventsByMessage instanceof Map
       ? state.eventsByMessage.get(messageId) || []
       : [];
 
-  // Sort by timestamp to handle out-of-order arrival (TASK_2025_084 Batch 2 Task 2.3)
+  // Sort by timestamp to handle out-of-order arrival.
   const sortedEvents = messageEvents.slice().sort((a, b) => {
     const timeA = a.timestamp || 0;
     const timeB = b.timestamp || 0;
@@ -60,7 +60,7 @@ export function buildMessageNode(
 }
 
 /**
- * TASK_2025_096: Find message_start event for a given messageId.
+ * Find message_start event for a given messageId.
  * Used to check if a message is nested (has parentToolUseId) before
  * deciding whether to render it as a root node.
  */

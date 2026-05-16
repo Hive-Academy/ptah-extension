@@ -1,7 +1,5 @@
 /**
  * AgentStatsService — per-agent stat aggregation coverage.
- *
- * TASK_2026_105 Wave G1.
  */
 
 import { TestBed } from '@angular/core/testing';

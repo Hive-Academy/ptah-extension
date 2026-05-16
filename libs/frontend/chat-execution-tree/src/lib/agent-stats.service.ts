@@ -1,8 +1,8 @@
 /**
  * AgentStatsService - Aggregates per-agent stats (model/tokens/cost/duration).
  *
- * Extracted from ExecutionTreeBuilderService (Wave C7f) — owns the
- * `agentStatsCache` Map and the `aggregateAgentStats()` event-scanning logic.
+ * Owns the `agentStatsCache` Map and the `aggregateAgentStats()`
+ * event-scanning logic.
  *
  * The cache lifetime is per-build: ExecutionTreeBuilderService.buildTree() calls
  * `resetPerBuildCache()` at the start of every cache-miss build cycle to avoid
@@ -43,8 +43,6 @@ export class AgentStatsService {
    * Aggregate model, token usage, cost, and duration from child message events.
    * Scans all message_complete events linked to this agent via parentToolUseId.
    * Results are cached per toolCallId within a single buildTree() cycle.
-   *
-   * TASK_2025_132: Populates agent nodes with aggregated stats from their child messages.
    *
    * @param toolCallId - The agent's parent tool call ID
    * @param state - Current streaming state
