@@ -60,8 +60,6 @@ export interface AggregateTotals {
  * 2. Calls `session:stats-batch` with session IDs to get real stats from JSONL files
  * 3. Merges metadata + stats into DashboardSessionEntry[]
  * 4. Exposes computed signals for displayed sessions, aggregates, and display toggle
- *
- * TASK_2025_206 v2: Replaces v1 service that depended on broken ChatStore metadata pipeline.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionAnalyticsStateService {
@@ -156,7 +154,7 @@ export class SessionAnalyticsStateService {
 
       if (!workspacePath) {
         this._loadError.set(
-          'No workspace detected. Open a folder to view analytics.'
+          'No workspace detected. Open a folder to view analytics.',
         );
         return;
       }
@@ -223,7 +221,7 @@ export class SessionAnalyticsStateService {
       this._allSessions.set(merged);
     } catch (err) {
       this._loadError.set(
-        err instanceof Error ? err.message : 'Failed to load dashboard data'
+        err instanceof Error ? err.message : 'Failed to load dashboard data',
       );
     } finally {
       this._isLoading.set(false);

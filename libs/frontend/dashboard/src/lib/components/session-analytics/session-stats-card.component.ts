@@ -13,8 +13,6 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
  * - bg-base-200/50 card with border-base-300
  * - 2x2 inner grid with color-coded mini stat cells
  * - DaisyUI badge for model display name
- *
- * TASK_2025_206 v2: Replaces the flat table row in SessionHistoryTableComponent
  */
 @Component({
   selector: 'ptah-session-stats-card',
@@ -37,18 +35,18 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
             {{ formatDate(session().lastActivityAt) }}
           </div>
           @if (session().status === 'error') {
-          <div class="text-[10px] text-warning flex items-center gap-1">
-            <span aria-hidden="true">&#9888;</span>
-            <span>Stats unavailable</span>
-          </div>
+            <div class="text-[10px] text-warning flex items-center gap-1">
+              <span aria-hidden="true">&#9888;</span>
+              <span>Stats unavailable</span>
+            </div>
           }
         </div>
         @if (session().model) {
-        <span
-          class="badge badge-sm border-purple-600/30 text-purple-400 bg-purple-600/10 whitespace-nowrap"
-        >
-          {{ session().modelDisplayName }}
-        </span>
+          <span
+            class="badge badge-sm border-purple-600/30 text-purple-400 bg-purple-600/10 whitespace-nowrap"
+          >
+            {{ session().modelDisplayName }}
+          </span>
         }
       </div>
 
@@ -118,38 +116,45 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
       </div>
 
       <!-- Footer: CLI agents + cache stats + subagent count -->
-      @if (session().cliAgents.length > 0 || session().tokens.cacheRead > 0 ||
-      session().tokens.cacheCreation > 0 || session().agentSessionCount > 0) {
-      <div
-        class="flex items-center flex-wrap gap-2 text-[10px] text-base-content/50 px-1"
-      >
-        @for (cli of session().cliAgents; track cli) {
-        <span class="badge badge-xs border-info/30 text-info bg-info/10">{{
-          cli
-        }}</span>
-        } @if (session().agentSessionCount > 0) {
-        <span class="text-info"
-          >{{ session().agentSessionCount }}
-          {{
-            session().agentSessionCount === 1 ? 'subagent' : 'subagents'
-          }}</span
+      @if (
+        session().cliAgents.length > 0 ||
+        session().tokens.cacheRead > 0 ||
+        session().tokens.cacheCreation > 0 ||
+        session().agentSessionCount > 0
+      ) {
+        <div
+          class="flex items-center flex-wrap gap-2 text-[10px] text-base-content/50 px-1"
         >
-        } @if (session().tokens.cacheRead > 0) {
-        <span
-          >Cache Read:
-          <span class="text-base-content/70 tabular-nums">{{
-            formatTokenCount(session().tokens.cacheRead)
-          }}</span></span
-        >
-        } @if (session().tokens.cacheCreation > 0) {
-        <span
-          >Cache Write:
-          <span class="text-base-content/70 tabular-nums">{{
-            formatTokenCount(session().tokens.cacheCreation)
-          }}</span></span
-        >
-        }
-      </div>
+          @for (cli of session().cliAgents; track cli) {
+            <span class="badge badge-xs border-info/30 text-info bg-info/10">{{
+              cli
+            }}</span>
+          }
+          @if (session().agentSessionCount > 0) {
+            <span class="text-info"
+              >{{ session().agentSessionCount }}
+              {{
+                session().agentSessionCount === 1 ? 'subagent' : 'subagents'
+              }}</span
+            >
+          }
+          @if (session().tokens.cacheRead > 0) {
+            <span
+              >Cache Read:
+              <span class="text-base-content/70 tabular-nums">{{
+                formatTokenCount(session().tokens.cacheRead)
+              }}</span></span
+            >
+          }
+          @if (session().tokens.cacheCreation > 0) {
+            <span
+              >Cache Write:
+              <span class="text-base-content/70 tabular-nums">{{
+                formatTokenCount(session().tokens.cacheCreation)
+              }}</span></span
+            >
+          }
+        </div>
       }
     </div>
   `,
