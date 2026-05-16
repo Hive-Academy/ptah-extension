@@ -1,17 +1,13 @@
 /**
- * ConversationRegistry — TASK_2026_106 Phase 1.
+ * ConversationRegistry.
  *
  * Single source of truth for the `ConversationId → ClaudeSessionId[]` relation.
  * A conversation is the user-perceived thread that survives compaction and
  * survives multi-tab fan-out (canvas grid mode).
  *
  * Pure data: this service knows nothing about tabs, streaming, or UI. It
- * exposes signals so consumers (the future StreamRouter, the chat shell,
- * tests) can read reactively without having to subscribe through other
- * services.
- *
- * Phase 1 ships this service in additive mode — no caller writes to it yet.
- * Phase 2 wires the StreamRouter; Phase 3 makes it authoritative.
+ * exposes signals so consumers (the StreamRouter, the chat shell, tests) can
+ * read reactively without having to subscribe through other services.
  */
 
 import { Injectable, computed, signal } from '@angular/core';
@@ -39,9 +35,9 @@ interface MutableRecord {
   compactionInFlight: boolean;
   lastCompactionAt: number | null;
   /**
-   * TASK_2026_109 C1 — single source of truth for compaction state.
+   * Single source of truth for compaction state.
    * `trigger` / `preTokens` / `startedAt` are populated when known
-   * (compaction_start event payload, Wave 2). `null` otherwise.
+   * (compaction_start event payload). `null` otherwise.
    */
   compactionTrigger: 'manual' | 'auto' | null;
   compactionPreTokens: number | null;
@@ -49,10 +45,10 @@ interface MutableRecord {
 }
 
 /**
- * TASK_2026_109 C1 — patch shape for `setCompactionState`. All fields except
- * `inFlight` are optional and additive; omitted fields keep their prior value
- * so callers can incrementally enrich state (e.g. start-event payload first,
- * then complete-event later).
+ * Patch shape for `setCompactionState`. All fields except `inFlight` are
+ * optional and additive; omitted fields keep their prior value so callers can
+ * incrementally enrich state (e.g. start-event payload first, then
+ * complete-event later).
  */
 export interface CompactionStatePatch {
   readonly inFlight: boolean;
@@ -62,10 +58,9 @@ export interface CompactionStatePatch {
 }
 
 /**
- * TASK_2026_109 C1 — extended compaction-state read shape returned by
- * `compactionStateFor`. Existing readers only consume `inFlight` /
- * `lastCompactionAt`; new readers (header freeze, instrumentation) can
- * additionally consume `trigger` / `preTokens` / `startedAt` when present.
+ * Extended compaction-state read shape returned by `compactionStateFor`.
+ * Readers may consume `inFlight` / `lastCompactionAt` and optionally
+ * `trigger` / `preTokens` / `startedAt` when present.
  */
 export interface CompactionStateView {
   readonly inFlight: boolean;
@@ -168,10 +163,10 @@ export class ConversationRegistry {
   }
 
   markCompactionStart(convId: ConversationId): void {
-    // Legacy strict path used by StreamRouter and tests: throws on unknown
-    // conversation. The new `setCompactionState` is the defensive write-
-    // through API used by lifecycle services that may race with router-
-    // driven (un)registration.
+    // Strict path used by StreamRouter and tests: throws on unknown
+    // conversation. `setCompactionState` is the defensive write-through API
+    // used by lifecycle services that may race with router-driven
+    // (un)registration.
     this.patch(convId, (r) => ({ ...r, compactionInFlight: true }));
   }
 
@@ -184,7 +179,7 @@ export class ConversationRegistry {
   }
 
   /**
-   * TASK_2026_109 C1 — single source of truth for compaction state.
+   * Single source of truth for compaction state.
    *
    * Idempotent. No-ops on unknown conversation id (defensive — close races
    * may fire setters after the conversation has already been removed). When
@@ -215,7 +210,7 @@ export class ConversationRegistry {
           compactionStartedAt: patch.startedAt ?? r.compactionStartedAt,
         };
       }
-      // Completing — stamp lastCompactionAt; keep start-payload fields so
+      // Completing: stamp lastCompactionAt; keep start-payload fields so
       // post-complete readers can still report what triggered the compaction
       // until the next start arrives and overwrites them.
       return {
@@ -227,8 +222,6 @@ export class ConversationRegistry {
   }
 
   /**
-   * TASK_2026_106 Phase 4c — compaction-on-conversation.
-   *
    * Returns the compaction state of the conversation, or `null` if the
    * conversation is unknown. Reads through the same internal `_byId` signal
    * as `getRecord`, so callers wrapping this in `computed()` get reactive
@@ -253,7 +246,7 @@ export class ConversationRegistry {
 
   /**
    * Remove a conversation. The router calls this once the last bound tab
-   * unbinds *and* the underlying SDK session(s) have been cleaned up.
+   * unbinds and the underlying SDK session(s) have been cleaned up.
    * No-op on unknown id (defensive — close races can fire twice).
    */
   remove(convId: ConversationId): void {

@@ -18,9 +18,6 @@ export default {
     'jest-preset-angular/build/serializers/ng-snapshot',
     'jest-preset-angular/build/serializers/html-comment',
   ],
-  // Wave-1 ratchet baseline (TASK_2026_105 G2 Phase 2). Targets the moved
-  // tab-manager + workspace-partition + confirmation-dialog surface. Will be
-  // ratcheted up as more services migrate into chat-state in later phases.
   coverageThreshold: {
     global: {
       statements: 60,

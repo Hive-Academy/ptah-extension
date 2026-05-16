@@ -1,20 +1,15 @@
 /**
- * TabManagerService — AbortController plumbing (TASK_2026_103 Wave E2)
+ * TabManagerService — AbortController plumbing.
  *
  * Focused tests for tab-close-during-stream cancellation. We exercise the
  * abort lifecycle directly against the service rather than the full chat
  * pipeline, so the suite uses lightweight mocks for the collaborators
  * (ConfirmationDialog, TabWorkspacePartition, MODEL_REFRESH_CONTROL).
  *
- * TASK_2026_105 Wave G2 Phase 2: ModelStateService dependency was inverted
- * to `MODEL_REFRESH_CONTROL` to keep `chat-state` (`type:data-access`) free
- * of `@ptah-extension/core` (`type:core`) per Nx module-boundary rules.
- *
- * TASK_2026_106 Phase 3: STREAMING_CONTROL token deleted. TabManager no
- * longer injects any streaming-side service — it emits `closedTab` events
- * and `StreamRouter` (in `@ptah-extension/chat-routing`) reacts. Specs that
- * used to mock `STREAMING_CONTROL` now omit it entirely; cleanup is the
- * router's responsibility and is exercised in `chat-routing` specs.
+ * TabManager does not inject any streaming-side service — it emits
+ * `closedTab` events and `StreamRouter` (in `@ptah-extension/chat-routing`)
+ * reacts. Cleanup is the router's responsibility and is exercised in
+ * `chat-routing` specs.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -125,7 +120,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
   });
 
   // ---------------------------------------------------------------------
-  // TASK_2026_109 — applyCompactionComplete (B1, B3)
+  // applyCompactionComplete
   // Asserts the patch produced by `applyCompactionComplete` clears the
   // live model stats / usage list and stamps the completion timestamp.
   // ---------------------------------------------------------------------

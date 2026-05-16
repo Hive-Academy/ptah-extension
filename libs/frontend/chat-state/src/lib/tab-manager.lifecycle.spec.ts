@@ -1,9 +1,9 @@
 /**
  * TabManagerService — tab lifecycle, lookup, computed signals coverage.
  *
- * TASK_2026_105 Wave G2 Phase 2. Complements `tab-manager.service.spec.ts`
- * (abort plumbing) and `tab-manager.intent-mutators.spec.ts` (intent
- * mutators) so that chat-state hits its post-extraction coverage threshold.
+ * Complements `tab-manager.service.spec.ts` (abort plumbing) and
+ * `tab-manager.intent-mutators.spec.ts` (intent mutators) so that chat-state
+ * hits its coverage threshold.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -32,7 +32,6 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
   beforeEach(() => {
     localStorage.clear();
     confirm = jest.fn().mockResolvedValue(true);
-    // TASK_2026_106 Phase 3: STREAMING_CONTROL provider removed.
     // Cleanup is owned by `StreamRouter` (in `@ptah-extension/chat-routing`),
     // which subscribes to `closedTab` via `effect()`. TabManager itself only
     // emits the event — assertions about cleanup live in chat-routing specs.
@@ -192,7 +191,6 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       const tabFromOtherWs = {
         id: 'bg-1',
         claudeSessionId: 'sess-bg',
-        // TASK_2026_106 Phase 6b — `placeholderSessionId` removed.
         name: 'bg',
         title: 'bg',
         order: 0,
@@ -210,10 +208,9 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
     });
   });
 
-  // TASK_2026_106 Phase 4a — multi-tab fan-out lookup. Reads
-  // `ConversationRegistry` + `TabSessionBinding` for the conversation that
-  // contains the session, with a legacy fallback to `findTabBySessionId`
-  // when no registry entry exists yet.
+  // Multi-tab fan-out lookup. Reads `ConversationRegistry` +
+  // `TabSessionBinding` for the conversation that contains the session,
+  // with a fallback to `findTabBySessionId` when no registry entry exists.
   describe('findTabsBySessionId (TASK_2026_106 Phase 4a)', () => {
     it('falls back to singular lookup wrapped in an array when no registry entry exists', () => {
       const id = service.openSessionTab('sess-legacy');
@@ -229,7 +226,7 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
 
     it('returns ALL tabs bound to the conversation containing the session', () => {
       // Bind two tabs to the same conversation via the chat-state registries
-      // directly (the StreamRouter normally drives these — Phase 4a only
+      // directly (the StreamRouter normally drives these — this spec only
       // requires that TabManager READ them).
       const registry = TestBed.inject(ConversationRegistry);
       const binding = TestBed.inject(TabSessionBinding);

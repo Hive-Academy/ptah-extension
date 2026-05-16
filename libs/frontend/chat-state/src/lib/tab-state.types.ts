@@ -1,10 +1,6 @@
 /**
  * Per-tab payload shapes used by TabManagerService intent mutators.
  *
- * Extracted from `tab-manager.service.ts` during TASK_2026_105 Wave G2 Phase 2
- * (chat-state lib extraction) so that consumer services in `@ptah-extension/chat`
- * can keep importing the payload types without re-importing the service module.
- *
  * These types live here (not in `@ptah-extension/chat-types`) because they are
  * specific to TabManagerService's mutator surface — they are not part of the
  * persisted/wire shape captured by `chat-types`.

@@ -1,9 +1,9 @@
 /**
  * TabWorkspacePartitionService — workspace-partitioned tab state coverage.
  *
- * TASK_2026_105 Wave G2 Phase 2. Exercises the API surface that
- * TabManagerService delegates to: workspace switching, cross-workspace
- * lookup via the reverse index, background updates, and removal cleanup.
+ * Exercises the API surface that TabManagerService delegates to: workspace
+ * switching, cross-workspace lookup via the reverse index, background
+ * updates, and removal cleanup.
  */
 
 import { TestBed } from '@angular/core/testing';

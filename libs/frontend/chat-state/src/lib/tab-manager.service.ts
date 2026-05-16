@@ -31,10 +31,8 @@ export type { LiveModelStatsPayload, PreloadedStatsPayload };
 /**
  * Payload emitted on the `closedTab` signal whenever a tab is closed.
  *
- * TASK_2026_106 Phase 3: replaces the STREAMING_CONTROL inversion. Instead of
- * TabManager calling into a streaming-control interface (which formed the DI
- * cycle), TabManager now emits a structured close event and the StreamRouter
- * (in `@ptah-extension/chat-routing`) reacts to it via `effect()`. The router
+ * TabManager emits a structured close event and the StreamRouter (in
+ * `@ptah-extension/chat-routing`) reacts to it via `effect()`. The router
  * owns the cleanup decision tree (cleanupSessionDeduplication, clearSessionAgents,
  * binding/registry teardown) so TabManager has zero knowledge of streaming.
  */
@@ -48,8 +46,7 @@ export interface ClosedTabEvent {
   /**
    * `close` — full teardown (router clears dedup state AND agent monitor cards).
    * `forceClose` — pop-out transfer; router clears dedup state only, leaves agents
-   * alive so the target panel can re-attach. Mirrors the legacy split between
-   * `closeTab` and `forceCloseTab`.
+   * alive so the target panel can re-attach.
    */
   readonly kind: 'close' | 'forceClose';
 }
@@ -69,13 +66,12 @@ export interface ClosedTabEvent {
  * - Readonly public signals for reactive consumption
  * - Computed signals for derived state
  * - _tabs signal always reflects the ACTIVE workspace's tabs (for UI binding)
- * - Workspace partitioning delegated to TabWorkspacePartitionService (TASK_2025_208 Batch 6)
+ * - Workspace partitioning delegated to TabWorkspacePartitionService
  *
- * TASK_2026_106 Phase 3: STREAMING_CONTROL removed. TabManager no longer
- * imports any streaming/agent contract. Instead, on close we emit a structured
- * `ClosedTabEvent` via the `closedTab` signal; the StreamRouter subscribes
- * via `effect()` and performs the per-session cleanup that used to live here.
- * Direction of dependency now flows TabManager → (nothing streaming-aware);
+ * TabManager does not import any streaming/agent contract. On close it emits a
+ * structured `ClosedTabEvent` via the `closedTab` signal; the StreamRouter
+ * subscribes via `effect()` and performs the per-session cleanup. The
+ * direction of dependency flows TabManager → (nothing streaming-aware);
  * the router is the only service that knows both sides of the routing relation.
  */
 @Injectable({ providedIn: 'root' })
@@ -87,7 +83,7 @@ export class TabManagerService {
   private readonly confirmationDialog = inject(ConfirmationDialogService);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
   /**
-   * TASK_2026_106 Phase 4a — multi-tab fan-out.
+   * Multi-tab fan-out support.
    *
    * `findTabsBySessionId` (the plural API below) reads `ConversationRegistry`
    * + `TabSessionBinding` to resolve every tab bound to the conversation
@@ -100,11 +96,10 @@ export class TabManagerService {
   private readonly tabSessionBinding = inject(TabSessionBinding);
   /**
    * MODEL_REFRESH_CONTROL — inverted-dependency contract for refreshing the
-   * available-models list after a new tab is created.
-   * TASK_2026_105 Wave G2 Phase 2: replaces a direct
-   * `inject(ModelStateService)` from `@ptah-extension/core` so that
-   * `chat-state` (tagged `type:data-access`) does not violate the Nx
-   * module-boundary rule that forbids `type:data-access → type:core`.
+   * available-models list after a new tab is created. `chat-state` (tagged
+   * `type:data-access`) cannot import `ModelStateService` directly from
+   * `@ptah-extension/core` per the Nx module-boundary rule that forbids
+   * `type:data-access → type:core`.
    */
   private readonly modelRefresh = inject(MODEL_REFRESH_CONTROL);
 
@@ -131,15 +126,14 @@ export class TabManagerService {
   readonly pendingSessionLoad = this._pendingSessionLoad.asReadonly();
 
   /**
-   * TASK_2026_106 Phase 3 — closedTab event signal.
+   * `closedTab` event signal.
    *
    * Emits a `ClosedTabEvent` whenever a tab is closed (via `closeTab` or
-   * `forceCloseTab`). Replaces the legacy `STREAMING_CONTROL` push from
-   * TabManager → streaming/agent code. The StreamRouter (in
-   * `@ptah-extension/chat-routing`) subscribes via `effect()` and performs
-   * the per-session cleanup that used to be inlined here, breaking the
-   * `TabManager → STREAMING_CONTROL → StreamingHandler/AgentMonitor → TabManager`
-   * NG0200 cycle.
+   * `forceCloseTab`). The StreamRouter (in `@ptah-extension/chat-routing`)
+   * subscribes via `effect()` and performs the per-session cleanup. This
+   * arrangement avoids the
+   * `TabManager → StreamingHandler/AgentMonitor → TabManager` NG0200 cycle
+   * that a direct push API would re-introduce.
    *
    * Held as `null` between events. Each new emission overwrites the previous
    * one — consumers must read it inside an `effect()` or computed reactor;
@@ -154,10 +148,10 @@ export class TabManagerService {
 
   /**
    * Per-tab AbortControllers for in-flight streaming RPCs.
-   * TASK_2026_103 Wave E2: keyed by tabId so closing a tab while its stream
-   * is still being generated can fire `abort()` and trigger backend stop
-   * via the `chat:abort` RPC (registered as an `abort` listener by the
-   * service that started the stream — typically `MessageSenderService`).
+   * Keyed by tabId so closing a tab while its stream is still being generated
+   * can fire `abort()` and trigger backend stop via the `chat:abort` RPC
+   * (registered as an `abort` listener by the service that started the
+   * stream — typically `MessageSenderService`).
    *
    * Lifecycle:
    * - created on streaming entry point via `createAbortController(tabId)`
@@ -170,16 +164,16 @@ export class TabManagerService {
    * Panel-aware localStorage key prefix for tab state persistence.
    * Sidebar uses empty panelId (workspace-only key).
    * Editor panels use 'ptah.panel.{uuid}' panelId (namespaced key).
-   * TASK_2025_117: Prevents localStorage collisions between multiple Angular instances.
+   * Prevents localStorage collisions between multiple Angular instances.
    *
-   * TASK_2025_208: The full storage key is now computed per-workspace via
+   * The full storage key is computed per-workspace via
    * TabWorkspacePartitionService. This field stores just the panel suffix.
    */
   private readonly _panelId: string | undefined;
 
   /**
-   * Legacy storage key for backward compatibility during migration.
-   * Only used for the one-time migration from global key to workspace-scoped key.
+   * Storage key used for legacy state migration (one-time read from the
+   * pre-workspace-scoped global key).
    */
   private readonly _legacyStorageKey: string;
 
@@ -327,10 +321,10 @@ export class TabManagerService {
    *
    * Returns null for tabs without sessions (new tabs).
    *
-   * TASK_2025_208: This method searches across ALL workspace tab sets
-   * to support background workspace streaming. When a tab is found in the
-   * active workspace, it returns directly from the signal. When found in a
-   * background workspace, it returns the tab from the partition service.
+   * Searches across ALL workspace tab sets to support background workspace
+   * streaming. When a tab is found in the active workspace, it returns
+   * directly from the signal. When found in a background workspace, it
+   * returns the tab from the partition service.
    *
    * @deprecated For content routing prefer `findTabsBySessionId` (plural) —
    *   returns all bound tabs. Retained for presence checks and cross-workspace
@@ -341,7 +335,7 @@ export class TabManagerService {
     const activeTab = this._tabs().find((t) => t.claudeSessionId === sessionId);
     if (activeTab) return activeTab;
 
-    // TASK_2025_208: Delegate cross-workspace search to partition service
+    // Delegate cross-workspace search to partition service.
     const result = this.workspacePartition.findTabBySessionIdAcrossWorkspaces(
       sessionId,
       this._tabs(),
@@ -350,33 +344,34 @@ export class TabManagerService {
   }
 
   /**
-   * TASK_2026_106 Phase 4a — multi-tab fan-out (plural).
+   * Multi-tab fan-out lookup (plural).
    *
    * Returns EVERY tab bound to the conversation that contains `sessionId`.
    * This is the canvas-grid scenario: two (or more) side-by-side tiles
    * showing the same SDK session both need each stream event written. The
-   * legacy singular `findTabBySessionId` returns one match arbitrarily —
-   * the others freeze.
+   * singular `findTabBySessionId` returns one match arbitrarily — the
+   * others freeze.
    *
    * Resolution order:
    *   1. Look up the conversation containing `sessionId` via
    *      `ConversationRegistry.findContainingSession`.
    *      - If unknown (e.g. tab not yet bound by `StreamRouter`), fall back
-   *        to wrapping the legacy singular result in a one-element array
-   *        so callers behave identically for not-yet-migrated tabs.
+   *        to wrapping the singular result in a one-element array so callers
+   *        behave identically for not-yet-bound tabs.
    *   2. Otherwise resolve `TabSessionBinding.tabsFor(convId)` to TabIds and
    *      map each to the matching `TabState` from `_tabs()`.
    *
-   * Returns a fresh readonly array (callers may iterate freely). The legacy
-   * `findTabBySessionId` is preserved unchanged for the many call sites that
-   * only need one tab (presence checks, single-tab UI actions).
+   * Returns a fresh readonly array (callers may iterate freely). The
+   * singular `findTabBySessionId` remains available for the many call sites
+   * that only need one tab (presence checks, single-tab UI actions).
    */
   findTabsBySessionId(sessionId: SessionId): readonly TabState[] {
     const convRecord =
       this.conversationRegistry.findContainingSession(sessionId);
     if (!convRecord) {
-      // Legacy fallback — tab existed before StreamRouter hydrated bindings,
-      // or was created in a path that doesn't touch the router yet.
+      // Fallback — tab is not bound (e.g. StreamRouter hasn't hydrated
+      // bindings yet, or the tab was created on a path that doesn't touch
+      // the router).
       const legacy = this.findTabBySessionId(sessionId);
       return legacy ? [legacy] : [];
     }
@@ -391,7 +386,7 @@ export class TabManagerService {
   /**
    * Find a tab by session ID with workspace context.
    * Returns both the tab and the workspace it belongs to.
-   * Essential for cross-workspace streaming routing (TASK_2025_208 Component 9).
+   * Essential for cross-workspace streaming routing.
    *
    * Delegates to TabWorkspacePartitionService for O(1) lookup via reverse index.
    */
@@ -409,7 +404,7 @@ export class TabManagerService {
   // ============================================================================
 
   constructor() {
-    // TASK_2025_117: Compute panel-aware localStorage key before loading state.
+    // Compute panel-aware localStorage key before loading state.
     // window.ptahConfig is injected by the extension host before Angular bootstraps.
     // Sidebar gets empty panelId (uses backward-compatible 'ptah.tabs' key).
     // Editor panels get unique panelId like 'ptah.panel.{uuid}' (namespaced key).
@@ -554,7 +549,6 @@ export class TabManagerService {
     const newTab: TabState = {
       id,
       claudeSessionId,
-      // TASK_2026_106 Phase 6b — `placeholderSessionId` field removed.
       name: title || claudeSessionId.substring(0, 50),
       title: title || claudeSessionId.substring(0, 50),
       order: this._tabs().length,
@@ -568,7 +562,7 @@ export class TabManagerService {
     this._tabs.update((tabs) => [...tabs, newTab]);
     this._activeTabId.set(id);
 
-    // TASK_2025_208 Fix 4: Populate reverse index for O(1) session lookup
+    // Populate reverse index for O(1) session lookup.
     if (this.workspacePartition.activeWorkspacePath) {
       this.workspacePartition.registerSessionForWorkspace(
         claudeSessionId,
@@ -593,7 +587,6 @@ export class TabManagerService {
     const newTab: TabState = {
       id,
       claudeSessionId: null, // Set by StreamingHandler on first streaming event
-      // TASK_2026_106 Phase 6b — `placeholderSessionId` field removed.
       name: sessionName,
       title: sessionName,
       order: this._tabs().length,
@@ -628,20 +621,19 @@ export class TabManagerService {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
-    // TASK_2026_103 Wave E2: forceCloseTab is used by the pop-out flow which
-    // TRANSFERS the session to another panel — do NOT abort the stream here,
-    // it must keep running so the target panel can re-attach. Just drop the
-    // controller so the source panel stops tracking it.
+    // forceCloseTab is used by the pop-out flow which TRANSFERS the session
+    // to another panel — do NOT abort the stream here, it must keep running
+    // so the target panel can re-attach. Just drop the controller so the
+    // source panel stops tracking it.
     this.clearAbortController(tabId);
 
     const tabIndex = tabs.findIndex((t) => t.id === tabId);
 
     // Skip agent cleanup -- agents will be restored in the target panel.
-    // TASK_2026_103 Wave B1 → TASK_2026_106 Phase 3: was a direct
-    // STREAMING_CONTROL push; now we emit a `forceClose` event and the
-    // StreamRouter performs `cleanupSessionDeduplication` only (no agent
-    // clear) because pop-out transfers the session to another panel.
-    // workspacePartition cleanup stays here — it's TabManager's own concern.
+    // Emit a `forceClose` event; the StreamRouter performs
+    // `cleanupSessionDeduplication` only (no agent clear) because pop-out
+    // transfers the session to another panel. workspacePartition cleanup
+    // stays here — it is TabManager's own concern.
     if (tab.claudeSessionId) {
       this.workspacePartition.unregisterSession(tab.claudeSessionId);
     }
@@ -697,19 +689,18 @@ export class TabManagerService {
       }
     }
 
-    // TASK_2026_103 Wave E2: abort any in-flight streaming RPC BEFORE tab
-    // state cleanup so the registered abort listener (in MessageSender) can
-    // still read tab.claudeSessionId and dispatch chat:abort to the backend.
-    // Otherwise the backend keeps generating tokens after the user closes
-    // the tab — burning LLM cost.
+    // Abort any in-flight streaming RPC BEFORE tab state cleanup so the
+    // registered abort listener (in MessageSender) can still read
+    // tab.claudeSessionId and dispatch chat:abort to the backend. Otherwise
+    // the backend keeps generating tokens after the user closes the tab —
+    // burning LLM cost.
     this.abortStreamingForTab(tabId);
 
-    // TASK_2025_090: Clean up deduplication state to prevent memory leaks.
-    // TASK_2026_106 Phase 3: STREAMING_CONTROL inversion removed. We emit
-    // a `close` event and the StreamRouter (which owns the routing graph)
-    // performs the per-session cleanup: cleanupSessionDeduplication +
-    // clearSessionAgents. workspacePartition cleanup stays here — it's
-    // TabManager's own concern, not streaming.
+    // Emit a `close` event so the StreamRouter (which owns the routing
+    // graph) performs per-session cleanup: cleanupSessionDeduplication +
+    // clearSessionAgents — preventing dedup-state memory leaks.
+    // workspacePartition cleanup stays here — it is TabManager's own
+    // concern, not streaming.
     if (tab.claudeSessionId) {
       this.workspacePartition.unregisterSession(tab.claudeSessionId);
     }
@@ -757,14 +748,14 @@ export class TabManagerService {
 
   /**
    * Internal mutator. PRIVATE — external callers must use the intent-named
-   * methods below (TASK_2026_105 Wave G2 Phase 1). Direct partial-state writes
-   * from outside this service prevented safe extraction of chat-state into
-   * its own lib because the public surface was an unconstrained escape hatch.
+   * methods below. Direct partial-state writes from outside this service are
+   * forbidden because they form an unconstrained escape hatch that breaks
+   * the chat-state boundary.
    *
-   * TASK_2025_208: workspace-aware. If the tab belongs to the active
-   * workspace, this updates the _tabs signal (triggering UI reactivity).
-   * If the tab belongs to a background workspace, delegates to
-   * TabWorkspacePartitionService.updateBackgroundTab().
+   * Workspace-aware: if the tab belongs to the active workspace, this
+   * updates the _tabs signal (triggering UI reactivity); if the tab belongs
+   * to a background workspace, it delegates to
+   * `TabWorkspacePartitionService.updateBackgroundTab()`.
    *
    * PERFORMANCE: shallow equality check skips signal updates when only
    * streamingState reference is set to itself (single-key fast path) —
@@ -801,7 +792,7 @@ export class TabManagerService {
           lastActivityAt: Date.now(),
         };
 
-        // TASK_2025_208 Fix 4: Populate reverse index when claudeSessionId is assigned
+        // Populate reverse index when claudeSessionId is assigned.
         if (
           updates.claudeSessionId &&
           this.workspacePartition.activeWorkspacePath
@@ -820,20 +811,20 @@ export class TabManagerService {
       return;
     }
 
-    // TASK_2025_208: Tab not in active workspace -- delegate to partition service
+    // Tab not in active workspace -- delegate to partition service.
     this.workspacePartition.updateBackgroundTab(tabId, updates);
   }
 
   // ============================================================================
-  // INTENT-NAMED MUTATORS (TASK_2026_105 Wave G2 Phase 1)
+  // INTENT-NAMED MUTATORS
   // ============================================================================
   //
-  // These replace the previous `updateTab(tabId, partial)` escape hatch. The
-  // generic API permitted unconstrained writes from any service and prevented
-  // safe extraction of chat-state into its own lib in Wave G2 Phase 2. Each
-  // method below maps 1:1 to a partial-keys mutation pattern observed in the
-  // chat-store services as of TASK_2026_105 inventory. New mutation patterns
-  // must add a new intent method here rather than reaching for a partial.
+  // These are the only allowed public mutation surface. The generic
+  // `updateTab(tabId, partial)` API is intentionally not exposed because it
+  // would permit unconstrained writes from any service and break the
+  // chat-state boundary. Each method below maps 1:1 to a mutation pattern
+  // used by the chat-store services. New mutation patterns must add a new
+  // intent method here rather than reaching for a partial.
   //
   // All methods are thin wrappers over `updateTabInternal` and preserve every
   // existing invariant (signal updates, shallow-equality fast path, workspace
@@ -908,12 +899,10 @@ export class TabManagerService {
     });
   }
 
-  // TASK_2026_106 Phase 6b — `adoptStreamingSession` removed. The
-  // StreamRouter now owns the "first event for a fresh tab seeds the
+  // The StreamRouter owns the "first event for a fresh tab seeds the
   // session" flow via `routeStreamEvent` + `ConversationRegistry.
   // appendSession`. Callers that need to attach a session id should use
-  // `attachSession` (above) and `markStreaming` (above) — same effect,
-  // narrower contract.
+  // `attachSession` (above) and `markStreaming` (above).
 
   // ----- Streaming state lifecycle -----
 
@@ -991,15 +980,15 @@ export class TabManagerService {
    * Finalize a streaming turn: install the finalized messages array, drop
    * the streaming state, transition to `loaded`, and clear currentMessageId.
    *
-   * TASK_2026_TREE_STABILITY Fix 7/8: Split into TWO writes (microtask gap)
-   * instead of one atomic write. The previous single-write committed the
-   * finalized messages AND nulled streamingState in the same change-detection
-   * cycle, which forced both transitions (streaming-bubble → finalized-message
-   * + tree disappearance) to land simultaneously and produced a visible
-   * flicker. By committing the finalized messages first (and keeping
-   * streamingState briefly), Angular paints the finalized DOM with the
-   * streaming-tree id reused (track msg.id in chat-view's @for); the second
-   * microtask write then drops streamingState — no more cascade in one frame.
+   * Split into TWO writes (microtask gap) instead of one atomic write. A
+   * single write that commits the finalized messages AND nulls streamingState
+   * in the same change-detection cycle forces both transitions
+   * (streaming-bubble → finalized-message + tree disappearance) to land
+   * simultaneously and produces a visible flicker. By committing the
+   * finalized messages first (and keeping streamingState briefly), Angular
+   * paints the finalized DOM with the streaming-tree id reused (track msg.id
+   * in chat-view's @for); the second microtask write then drops
+   * streamingState — no more cascade in one frame.
    *
    * The id-collision risk is handled in chat-view's `streamingMessages()`
    * computed: it filters out any tree whose id is in `finalizedMessageIds`,
@@ -1178,8 +1167,8 @@ export class TabManagerService {
       messages: [],
       preloadedStats: payload.preloadedStats,
       compactionCount: payload.compactionCount,
-      // TASK_2026_109 B3 — stamp completion time so late SESSION_STATS events
-      // produced for the last pre-compaction turn can be filtered by the
+      // Stamp completion time so late SESSION_STATS events produced for the
+      // last pre-compaction turn can be filtered by the
       // SessionStatsAggregator (see grace-window heuristic there).
       lastCompactionAt: Date.now(),
       status: 'loaded',
@@ -1240,13 +1229,13 @@ export class TabManagerService {
     stats: PreloadedStatsPayload,
     sessionModel: string | null,
   ): void {
-    // TASK_2026_109_FOLLOWUP N6 — synthesize a best-effort `liveModelStats`
-    // snapshot from the loaded session metadata. Without this, the header's
-    // model + context badge stays empty until the next live SESSION_STATS
-    // arrives — which on a paused-and-resumed session might never happen
-    // until the user sends a new message. Populating contextWindow from the
-    // shared `getModelContextWindow` lookup gives the header a non-null
-    // shape immediately so the model name renders. `contextUsed` and
+    // Synthesize a best-effort `liveModelStats` snapshot from the loaded
+    // session metadata. Without this the header's model + context badge
+    // stays empty until the next live SESSION_STATS arrives — which on a
+    // paused-and-resumed session might never happen until the user sends a
+    // new message. Populating contextWindow from the shared
+    // `getModelContextWindow` lookup gives the header a non-null shape
+    // immediately so the model name renders. `contextUsed` and
     // `contextPercent` start at 0 because the on-disk stats payload has no
     // per-turn breakdown; the next live SESSION_STATS replaces this stub
     // with real per-turn values.
@@ -1585,9 +1574,9 @@ export class TabManagerService {
    * Mark a tab as idle (hides spinner in tab bar).
    * This is VISUAL ONLY - does not block any actions or affect state.
    *
-   * TASK_2026_103 Wave E2: also drops the AbortController for this tab
-   * (without aborting it — the stream finished naturally) so the Map does
-   * not grow unbounded across the lifetime of a tab.
+   * Also drops the AbortController for this tab (without aborting it — the
+   * stream finished naturally) so the Map does not grow unbounded across the
+   * lifetime of a tab.
    */
   markTabIdle(tabId: string): void {
     this._streamingTabIds.update((set) => {
@@ -1599,7 +1588,7 @@ export class TabManagerService {
   }
 
   // ============================================================================
-  // ABORT CONTROLLER LIFECYCLE (TASK_2026_103 Wave E2)
+  // ABORT CONTROLLER LIFECYCLE
   // ============================================================================
   //
   // Streaming RPCs (chat:start, chat:continue) accept an AbortSignal so that
@@ -1620,8 +1609,8 @@ export class TabManagerService {
 
   /**
    * Create a fresh AbortController for the given tab and return its signal.
-   * Replaces any existing controller for the tab (the previous controller
-   * is aborted defensively to release any stale listeners).
+   * If a controller already exists for the tab it is aborted defensively to
+   * release any stale listeners before the new controller is installed.
    */
   createAbortController(tabId: string): AbortSignal {
     const existing = this.abortControllers.get(tabId);

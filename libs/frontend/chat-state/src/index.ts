@@ -1,22 +1,12 @@
 /**
  * @ptah-extension/chat-state — Per-tab chat state model and TabManagerService.
  *
- * TASK_2026_105 Wave G2 Phase 2: Extracted from `@ptah-extension/chat` so
- * downstream apps (electron, dashboard, canvas) can consume tab state
- * without pulling the full chat feature library.
- *
  * Boundary: tagged `scope:webview` + `type:data-access`. Per Nx
  * `enforce-module-boundaries`, this lib can only depend on
  * `type:data-access` and `type:util` libs (currently
  * `@ptah-extension/chat-types` and `@ptah-extension/shared`). Cross-cutting
  * dependencies on `type:core` services are inverted via DI tokens
  * (`MODEL_REFRESH_CONTROL`).
- *
- * TASK_2026_106 Phase 3: `STREAMING_CONTROL` token removed. TabManager no
- * longer pushes to streaming code; instead it emits `ClosedTabEvent`s on
- * its `closedTab` signal and the `StreamRouter` (in
- * `@ptah-extension/chat-routing`) reacts via `effect()`. This deletes the
- * NG0200 cycle that motivated the inversion in the first place.
  */
 
 // ============================================================================
@@ -53,7 +43,7 @@ export type {
 } from './lib/tab-state.types';
 
 // ============================================================================
-// IDENTITY (TASK_2026_106 Phase 1)
+// IDENTITY
 // ============================================================================
 export {
   TabId,
@@ -64,7 +54,7 @@ export {
 } from './lib/identity/ids';
 
 // ============================================================================
-// ROUTING REGISTRIES (TASK_2026_106 Phase 1, additive — no callers yet)
+// ROUTING REGISTRIES
 // ============================================================================
 export {
   ConversationRegistry,

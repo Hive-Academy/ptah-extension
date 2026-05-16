@@ -2,19 +2,15 @@
  * ModelRefreshControl — Inverted-dependency contract for refreshing the
  * available-models list after `TabManagerService.createTab()`.
  *
- * TASK_2026_105 Wave G2 Phase 2: Mirrors the `STREAMING_CONTROL` pattern.
  * `chat-state` is tagged `type:data-access`, which per the Nx module-boundary
- * rules can only depend on `type:data-access` and `type:util`. The previous
- * direct import of `ModelStateService` from `@ptah-extension/core`
- * (`type:core`) is therefore forbidden. Owning a thin contract here lets the
- * concrete `ModelStateService` adapter live in `@ptah-extension/chat`
- * (`type:feature`, allowed to depend on `type:core`) and bind the token in
- * the application's composition root.
+ * rules can only depend on `type:data-access` and `type:util`. Owning a thin
+ * contract here lets the concrete `ModelStateService` adapter live in
+ * `@ptah-extension/chat` (`type:feature`, allowed to depend on `type:core`)
+ * and bind the token in the application's composition root.
  *
  * IMPORTANT: This module MUST NOT import `ModelStateService` or any other
  * service from `@ptah-extension/core`. Doing so re-introduces the boundary
- * violation. The concrete binding lives in
- * `libs/frontend/chat/src/lib/services/model-refresh-control.provider.ts`.
+ * violation.
  */
 
 import { InjectionToken } from '@angular/core';

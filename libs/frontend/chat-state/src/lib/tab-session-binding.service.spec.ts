@@ -143,7 +143,7 @@ describe('TabSessionBinding — TASK_2026_106 Phase 1', () => {
   });
 
   // ------------------------------------------------------------------
-  // TASK_2026_107 Phase 1 — surface bindings (parallel to tab bindings).
+  // Surface bindings (parallel to tab bindings).
   // ------------------------------------------------------------------
 
   describe('bindSurface()', () => {

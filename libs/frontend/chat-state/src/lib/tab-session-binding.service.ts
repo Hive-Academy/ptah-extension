@@ -1,9 +1,9 @@
 /**
- * TabSessionBinding — TASK_2026_106 Phase 1.
+ * TabSessionBinding.
  *
- * Single source of truth for the `TabId ↔ ConversationId` relation, plus
- * (TASK_2026_107 Phase 1) the parallel `SurfaceId ↔ ConversationId` relation
- * for non-tab consumers (wizard analysis phases, harness operations).
+ * Single source of truth for the `TabId ↔ ConversationId` relation, plus the
+ * parallel `SurfaceId ↔ ConversationId` relation for non-tab consumers
+ * (wizard analysis phases, harness operations).
  *
  *   - Forward edge (tab):     each tab is bound to *exactly one* conversation.
  *   - Reverse edge (tab):     each conversation can be bound to many tabs.
@@ -16,10 +16,8 @@
  * persistence) from accidentally enumerating wizard/harness surfaces.
  *
  * Pure data: this service knows nothing about streaming, the SDK, or the
- * tab manager. The future StreamRouter (Phase 2) is the only consumer that
- * combines this with `ConversationRegistry`.
- *
- * Phase 1 ships this service in additive mode — no caller writes to it yet.
+ * tab manager. The StreamRouter is the consumer that combines this with
+ * `ConversationRegistry`.
  */
 
 import { Injectable, computed, signal } from '@angular/core';
@@ -34,7 +32,7 @@ export class TabSessionBinding {
     ReadonlyMap<ConversationId, ReadonlySet<TabId>>
   >(new Map());
 
-  // TASK_2026_107 Phase 1 — parallel surface-keyed maps.
+  // Parallel surface-keyed maps.
   private readonly _bySurface = signal<ReadonlyMap<SurfaceId, ConversationId>>(
     new Map(),
   );
@@ -165,10 +163,9 @@ export class TabSessionBinding {
   }
 
   // ---------------------------------------------------------------------
-  // TASK_2026_107 Phase 1 — surface bindings (parallel, additive).
+  // Surface bindings (parallel).
   //
   // Mirrors bind/unbind/conversationFor/tabsFor exactly, keyed by SurfaceId.
-  // No caller wired in yet.
   // ---------------------------------------------------------------------
 
   /**

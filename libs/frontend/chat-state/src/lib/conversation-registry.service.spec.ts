@@ -133,9 +133,9 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
     });
   });
 
-  // TASK_2026_106 Phase 4c — compaction-on-conversation read API used by
-  // the chat view's `resolvedIsCompacting` signal so every tab bound to a
-  // compacting conversation sees the banner together.
+  // Compaction-on-conversation read API used by the chat view's
+  // `resolvedIsCompacting` signal so every tab bound to a compacting
+  // conversation sees the banner together.
   describe('compactionStateFor() (TASK_2026_106 Phase 4c)', () => {
     it('returns null for an unknown conversation id', () => {
       const orphan = ConversationId.create();

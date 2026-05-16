@@ -1,10 +1,10 @@
 /**
- * TabManagerService — intent-named mutator coverage (TASK_2026_105 Wave G2).
+ * TabManagerService — intent-named mutator coverage.
  *
- * Covers the most-frequently invoked mutators introduced in Phase 1 so that
- * the chat-state lib hits its coverage threshold post-extraction. These are
- * exercised end-to-end against `_tabs` / readonly signals to catch any
- * regression in the partial-write path through `updateTabInternal`.
+ * Covers the most-frequently invoked mutators so that the chat-state lib
+ * hits its coverage threshold. These are exercised end-to-end against
+ * `_tabs` / readonly signals to catch any regression in the partial-write
+ * path through `updateTabInternal`.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -45,8 +45,7 @@ describe('TabManagerService — intent-named mutators', () => {
 
   beforeEach(() => {
     const confirmMock = { confirm: jest.fn().mockResolvedValue(true) };
-    // TASK_2026_106 Phase 3: STREAMING_CONTROL provider removed; cleanup
-    // ownership moved to `StreamRouter` (see chat-routing specs).
+    // Cleanup ownership lives in `StreamRouter` (see chat-routing specs).
     partitionMock = {
       initialize: jest.fn(),
       activeWorkspacePath: null,
@@ -103,9 +102,8 @@ describe('TabManagerService — intent-named mutators', () => {
       );
     });
 
-    // TASK_2026_106 Phase 6b — `adoptStreamingSession` removed in favour
-    // of explicit `attachSession` + `markStreaming`. Verifies the new
-    // pairing has the same observable effect as the retired helper.
+    // Verify that the explicit `attachSession` + `markStreaming` pairing
+    // has the expected observable effect (no separate "adopt" helper).
     it('attachSession + markStreaming is the post-Phase-6b replacement for adoptStreamingSession', () => {
       const id = service.createTab('adopt-replacement');
       service.attachSession(id, SESS_XYZ);
@@ -346,10 +344,10 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.sessionModel).toBe('claude-3-5-sonnet');
     });
 
-    // TASK_2026_109_FOLLOWUP N6 — applyLoadedSessionStats also synthesizes
-    // a best-effort liveModelStats so the header renders the model name
-    // and context window immediately on resume, instead of staying empty
-    // until the first live SESSION_STATS arrives.
+    // `applyLoadedSessionStats` synthesizes a best-effort liveModelStats so
+    // the header renders the model name and context window immediately on
+    // resume, instead of staying empty until the first live SESSION_STATS
+    // arrives.
     it('N6 — synthesizes liveModelStats from sessionModel on session resume', () => {
       const id = service.createTab('resume');
       const stats = {

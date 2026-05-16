@@ -1,8 +1,7 @@
 /**
- * Branded identity types for the chat domain — TASK_2026_106 Phase 1.
+ * Branded identity types for the chat domain.
  *
- * Distinguishes the four identifiers that the legacy code conflated behind
- * a single `claudeSessionId`:
+ * Distinguishes the four identifiers used across the chat layer:
  *
  *   - TabId             — UI surface (a slot in navbar / canvas tile)
  *   - ClaudeSessionId   — backend SDK session (stable across compactions)
@@ -36,11 +35,10 @@ const UUID_REGEX =
  * Identifies a tab — a UI surface a user can open, close, or arrange in the
  * canvas grid. Lives only in the renderer; never round-trips through the SDK.
  *
- * TASK_2026_120 Phase B — `TabId` has been promoted to `@ptah-extension/shared`
- * so backend signatures can refer to the same brand (see `branded.types.ts`).
- * Re-exported here unchanged so all existing
- * `import { TabId } from '@ptah-extension/chat-state'` callers continue to
- * resolve `.create()`, `.validate()`, `.from()`, and `.safeParse()` against
+ * `TabId` is canonically defined in `@ptah-extension/shared` so backend
+ * signatures can refer to the same brand (see `branded.types.ts`). It is
+ * re-exported here so `import { TabId } from '@ptah-extension/chat-state'`
+ * resolves `.create()`, `.validate()`, `.from()`, and `.safeParse()` against
  * the canonical brand.
  */
 export type TabId = SharedTabId;
@@ -102,7 +100,7 @@ export const ConversationId = {
 /**
  * Identifies a background sub-agent spawned inside a session. Distinct from
  * `ClaudeSessionId` so the background-agent store can never collide with
- * the parent session's keys (the legacy bug Phase 5 retires).
+ * the parent session's keys.
  */
 export type BackgroundAgentId = string & {
   readonly __brand: 'BackgroundAgentId';
@@ -127,7 +125,7 @@ export const BackgroundAgentId = {
 };
 
 // ---------------------------------------------------------------------------
-// SurfaceId — TASK_2026_107 Phase 1
+// SurfaceId
 // ---------------------------------------------------------------------------
 
 /**
