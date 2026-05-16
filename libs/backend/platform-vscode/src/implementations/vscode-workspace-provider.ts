@@ -1,10 +1,10 @@
 /**
  * VscodeWorkspaceProvider — IWorkspaceProvider implementation using VS Code APIs.
  *
- * TASK_2025_247 Batch 3, Task 3.1: File-based settings routing.
- * Keys in FILE_BASED_SETTINGS_KEYS are transparently routed to
- * PtahFileSettingsManager (~/.ptah/settings.json) instead of VS Code config.
- * This keeps trademarked terms out of package.json contributes.configuration.
+ * File-based settings routing: keys in FILE_BASED_SETTINGS_KEYS are
+ * transparently routed to PtahFileSettingsManager (~/.ptah/settings.json)
+ * instead of VS Code config. This keeps trademarked terms out of
+ * package.json contributes.configuration.
  */
 
 import * as vscode from 'vscode';
@@ -26,7 +26,7 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
 
   /**
    * File-based settings manager for keys that cannot live in package.json.
-   * Exposed as public readonly so settings-migration.ts (Batch 4) can access it.
+   * Exposed as public readonly so settings-migration.ts can access it.
    */
   public readonly fileSettings: PtahFileSettingsManager;
 
@@ -87,8 +87,7 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
    * Not part of IWorkspaceProvider interface — available at runtime for
    * RPC handlers that need to write settings (e.g., webSearch:setConfig).
    *
-   * TASK_2025_235: Added for web search settings write-back.
-   * TASK_2025_247: File-based keys route to PtahFileSettingsManager and
+   * File-based keys route to PtahFileSettingsManager and
    * fire a synthetic config change event so watchers still work.
    */
   async setConfiguration(

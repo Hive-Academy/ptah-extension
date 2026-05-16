@@ -125,7 +125,7 @@ export function registerPlatformVscodeServices(
     useValue: new VscodeDiagnosticsProvider(),
   });
 
-  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/ (TASK_2025_248)
+  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
   });

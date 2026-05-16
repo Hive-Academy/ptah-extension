@@ -5,8 +5,6 @@
  * key "ptah.masterKey" as a base64-encoded string. SecretStorage is backed
  * by the OS keychain (macOS Keychain, Windows Credential Manager, Linux
  * libsecret) so the master key is never stored in plaintext on disk.
- *
- * WP-4A: VS Code master key provider.
  */
 
 import * as crypto from 'crypto';

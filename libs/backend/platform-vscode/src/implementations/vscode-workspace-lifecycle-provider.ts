@@ -19,8 +19,6 @@
  *  - Events: `onDidChangeWorkspaceFolders` is propagated from the VS Code event so
  *    observers receive it on both programmatic mutations and external changes.
  *    `setActiveFolder` fires the event directly (VS Code has no equivalent API).
- *
- * TASK_2026_118 Phase 5.
  */
 
 import * as vscode from 'vscode';

@@ -12,11 +12,6 @@
  *
  * The `context` parameter is required so that `context.secrets` (VS Code's
  * SecretStorage) can be wired into VscodeMasterKeyProvider.
- *
- * Called from WP-3C (app-level bootstrap). NOT called here.
- *
- * WP-2B: Platform adapter creation.
- * WP-4A: Master key provider + SecretsFileStore wiring.
  */
 
 import * as os from 'os';
@@ -115,7 +110,7 @@ export function registerVscodeSettings(
     secretsStore,
   );
 
-  // WP-5A: Enable cross-process reactivity so that if Electron or CLI writes
+  // Enable cross-process reactivity so that if Electron or CLI writes
   // to ~/.ptah/settings.json while this VS Code extension process is running,
   // file-based setting listeners receive the updated values.
   workspaceProvider.fileSettings.enableCrossProcessWatch();

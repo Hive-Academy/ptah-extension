@@ -20,8 +20,6 @@
  *
  * This derivation is stable across process restarts on the same machine so
  * secrets encrypted with the fallback key remain readable.
- *
- * WP-4A: CLI master key provider.
  */
 
 import * as crypto from 'crypto';

@@ -132,14 +132,14 @@ export function registerPlatformCliServices(
     useValue: new CliDiagnosticsProvider(),
   });
 
-  // 13. Content Download — downloads plugins/templates from GitHub to ~/.ptah/ (TASK_2025_248)
+  // 13. Content Download — downloads plugins/templates from GitHub to ~/.ptah/
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
   });
 
   // 14. HTTP Server Provider — platform-agnostic HTTP listener for the
-  // Anthropic-compatible proxy (TASK_2026_104 P2). Wraps `node:http` so the
-  // proxy service stays decoupled from Node primitives and unit-testable.
+  // Anthropic-compatible proxy. Wraps `node:http` so the proxy service
+  // stays decoupled from Node primitives and unit-testable.
   container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
     useValue: new CliHttpServerProvider(),
   });

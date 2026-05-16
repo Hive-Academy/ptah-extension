@@ -9,7 +9,7 @@
  * File-based settings routing: Keys in FILE_BASED_SETTINGS_KEYS are
  * transparently routed to PtahFileSettingsManager (~/.ptah/settings.json)
  * instead of the per-app config.json file. This matches the pattern used
- * by ElectronWorkspaceProvider (TASK_2025_247).
+ * by ElectronWorkspaceProvider.
  */
 
 import * as fs from 'fs';
@@ -162,8 +162,6 @@ export class CliWorkspaceProvider
   /**
    * Add a folder to the workspace. Deduplicates by resolved path.
    * Fires onDidChangeWorkspaceFolders event if the folder was actually added.
-   *
-   * TASK_2026_104 Sub-batch B5a
    */
   addFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
@@ -185,8 +183,6 @@ export class CliWorkspaceProvider
    * If the removed folder was the active folder, promotes the first remaining
    * folder (or undefined if none remain).
    * Fires onDidChangeWorkspaceFolders event if the folder was actually removed.
-   *
-   * TASK_2026_104 Sub-batch B5a
    */
   removeFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
@@ -207,8 +203,6 @@ export class CliWorkspaceProvider
    * Set the active (primary) workspace folder.
    * The path must already exist in the folders array; no-ops for unknown paths.
    * Fires onDidChangeWorkspaceFolders event on success.
-   *
-   * TASK_2026_104 Sub-batch B5a
    */
   setActiveFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
@@ -224,8 +218,6 @@ export class CliWorkspaceProvider
 
   /**
    * Get the currently active workspace folder.
-   *
-   * TASK_2026_104 Sub-batch B5a
    */
   getActiveFolder(): string | undefined {
     return this.activeFolder;

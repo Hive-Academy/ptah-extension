@@ -6,7 +6,7 @@
  * QuickPick returns the first item; InputBox returns empty string.
  * withProgress runs the task directly without progress display.
  *
- * These stubs will be upgraded to TUI-based interaction in Batch 6
+ * These stubs will be upgraded to TUI-based interaction
  * via callback registration (setQuickPickHandler, setInputBoxHandler).
  */
 
@@ -133,13 +133,13 @@ export class CliUserInteraction implements IUserInteraction {
     items: QuickPickItem[],
     _options?: QuickPickOptions,
   ): Promise<QuickPickItem | undefined> {
-    // v1 stub: return first item (will be upgraded to TUI in Batch 6)
+    // v1 stub: return first item (will be upgraded to TUI)
     return items.length > 0 ? items[0] : undefined;
   }
 
   async showInputBox(_options?: InputBoxOptions): Promise<string | undefined> {
-    // v1 stub: return undefined (equivalent to "cancelled") until the TUI in
-    // Batch 6 wires a real prompt. Returning '' would masquerade as a valid
+    // v1 stub: return undefined (equivalent to "cancelled") until the TUI
+    // wires a real prompt. Returning '' would masquerade as a valid
     // user input and break callers that branch on undefined = cancellation.
     return undefined;
   }
@@ -159,7 +159,7 @@ export class CliUserInteraction implements IUserInteraction {
 
     const progress: IProgress = {
       report: () => {
-        // No-op in CLI v1 — progress display will be added with TUI in Batch 6
+        // No-op in CLI v1 — progress display will be added with TUI
       },
     };
 

@@ -139,9 +139,9 @@ describe('CliUserInteraction — CLI-specific behaviour', () => {
   });
 
   it('showInputBox returns undefined as the v1 stub contract', async () => {
-    // v1 returns `undefined` (cancelled) until the Batch 6 TUI wires a real
-    // prompt. Returning `''` previously masqueraded as a valid input and
-    // broke the shared `runUserInteractionContract` assertion set.
+    // v1 returns `undefined` (cancelled) until the TUI wires a real
+    // prompt. Returning `''` would masquerade as a valid input and
+    // break the shared `runUserInteractionContract` assertion set.
     await expect(
       provider.showInputBox({ prompt: 'name?' }),
     ).resolves.toBeUndefined();

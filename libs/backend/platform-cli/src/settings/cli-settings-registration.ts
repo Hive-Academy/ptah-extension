@@ -6,10 +6,7 @@
  * PLATFORM_TOKENS.WORKSPACE_PROVIDER) and BEFORE any library that resolves
  * settings repositories.
  *
- * Called from WP-3C (app-level bootstrap). NOT called here.
- *
- * WP-2B: Platform adapter creation.
- * WP-4A: Master key provider + SecretsFileStore wiring.
+ * Called from app-level bootstrap. NOT called here.
  */
 
 import * as os from 'os';
@@ -65,7 +62,7 @@ export function registerCliSettings(container: DependencyContainer): void {
   // IUserInteraction is resolved from the container (registered by
   // registerPlatformCliServices before this function runs) so that
   // notifyCorruption() shows a user-visible error instead of falling
-  // back to console.error. The TODO in CliMasterKeyProvider is now closed.
+  // back to console.error.
   const userInteraction = container.resolve<IUserInteraction>(
     PLATFORM_TOKENS.USER_INTERACTION,
   );
@@ -84,7 +81,7 @@ export function registerCliSettings(container: DependencyContainer): void {
     secretsStore,
   );
 
-  // WP-5A: Enable cross-process reactivity so that when another process
+  // Enable cross-process reactivity so that when another process
   // (e.g. Electron main) writes to ~/.ptah/settings.json, this CLI process
   // fires listeners for the changed keys.
   // persistent: false (set inside enableCrossProcessWatch) ensures the watcher

@@ -17,9 +17,6 @@
  * Secret operations are backed by SecretsFileStore (AES-256-GCM in
  * ~/.ptah/secrets.enc.json) with the master key from VscodeMasterKeyProvider
  * (which uses vscode.SecretStorage — OS keychain backed).
- *
- * WP-2B: Platform adapter creation.
- * WP-4A: Secret storage implementation.
  */
 
 import type {
@@ -155,12 +152,11 @@ export class VscodeSettingsAdapter implements ISettingsStore {
 
   /**
    * Subscribe to changes on a secret key.
-   * Phase 5: cross-process secret change notifications via vscode.SecretStorage.onDidChange.
    */
   watchSecret(_key: string, _cb: () => void): IDisposable {
     return {
       dispose: () => {
-        /* Phase 5: vscode.SecretStorage.onDidChange integration */
+        /* vscode.SecretStorage.onDidChange integration */
       },
     };
   }

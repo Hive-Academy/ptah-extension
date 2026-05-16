@@ -1,7 +1,7 @@
 // Registration function (primary export)
 export { registerPlatformVscodeServices } from './registration';
 
-// Settings registration (WP-2B)
+// Settings registration
 export { registerVscodeSettings } from './settings/vscode-settings-registration';
 export {
   VscodeSettingsAdapter,

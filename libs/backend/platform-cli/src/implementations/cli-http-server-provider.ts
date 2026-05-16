@@ -1,7 +1,7 @@
 /**
  * CliHttpServerProvider — IHttpServerProvider implementation using `node:http`.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
+ * Anthropic-compatible HTTP proxy.
  *
  * Wraps Node's built-in `http.createServer` so the proxy service stays
  * test-mockable and platform-agnostic. No new npm dependencies — only the
