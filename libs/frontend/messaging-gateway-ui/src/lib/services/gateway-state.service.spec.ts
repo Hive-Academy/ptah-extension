@@ -1,5 +1,5 @@
 /**
- * GatewayStateService — MessageHandler migration tests (TASK_2026_115 Batch 9 — T9.2).
+ * GatewayStateService — MessageHandler migration tests.
  *
  * Locks four invariants introduced by the push-event migration:
  *
@@ -13,13 +13,13 @@
  *      the event is dropped (optimistic UI update already applied) and the token consumed.
  *
  *   4. The constructor does NOT call `setInterval` — the old polling fallback was
- *      intentionally removed in TASK_2026_115; any regression would re-introduce
- *      the workspace-loop bug.
+ *      intentionally removed; any regression would re-introduce the
+ *      workspace-loop bug.
  *
  * Mocking posture:
  *   - `GatewayRpcService` is fully mocked via `useValue` in `TestBed.configureTestingModule`.
  *     Its `status()` and `listBindings()` are mocked to return pending Promises so
- *     `initialize()` (called explicitly in T9.2 only if needed) never hits the wire.
+ *     `initialize()` (called explicitly only if needed) never hits the wire.
  *   - The service constructor does NOT call `initialize()` — it is a separate public
  *     method — so no async setup is needed for these tests.
  *   - `DestroyRef` is provided implicitly by TestBed's component/service context.
@@ -104,8 +104,6 @@ describe('GatewayStateService — MessageHandler migration', () => {
     TestBed.resetTestingModule();
   });
 
-  // ── T9.2 Test 1: MessageHandler contract ────────────────────────────────
-
   it('is registered as a MessageHandler via handledMessageTypes', () => {
     expect(service.handledMessageTypes).toContain(
       MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
@@ -113,8 +111,6 @@ describe('GatewayStateService — MessageHandler migration', () => {
     // Also verify the resolved string value to guard against key renames
     expect(service.handledMessageTypes).toContain('gateway:statusChanged');
   });
-
-  // ── T9.2 Test 2: applyStatus called on matching message ──────────────────
 
   it('calls applyStatus when GATEWAY_STATUS_CHANGED message arrives', () => {
     // Access the private applyStatus via cast — this is deliberate test introspection.
@@ -132,8 +128,6 @@ describe('GatewayStateService — MessageHandler migration', () => {
     // Signal state must reflect the pushed status
     expect(service.enabled()).toBe(true);
   });
-
-  // ── T9.2 Test 3: self-echo suppression ───────────────────────────────────
 
   it('drops self-echo when origin matches pending origin', () => {
     const applyStatusSpy = jest.spyOn(service as never, 'applyStatus');
@@ -161,8 +155,6 @@ describe('GatewayStateService — MessageHandler migration', () => {
     ).toBe(false);
   });
 
-  // ── T9.2 Test 4: no setInterval during initialization ────────────────────
-
   it('does NOT call setInterval during initialization', () => {
     // Clean up the service created in beforeEach, so this test gets a fresh instance
     TestBed.resetTestingModule();
@@ -184,15 +176,12 @@ describe('GatewayStateService — MessageHandler migration', () => {
     setIntervalSpy.mockRestore();
   });
 
-  // ── RED-1: Rapid-sequential-action race — Set<string> semantics ───────────
+  // Rapid-sequential-action race — Set<string> semantics.
   //
-  // Fix #2 replaced a single _pendingOriginRef with a Set<string> to handle
-  // rapid sequential platform actions (e.g. enable Telegram immediately followed
-  // by enable Discord before the first echo arrives). This test verifies that
-  // both tokens are independently honoured — i.e. both echoes are dropped and
-  // both tokens are consumed. The old single-ref implementation would pass the
-  // self-echo test above but fail here because the second add() would overwrite
-  // the first token.
+  // The Set<string> implementation handles rapid sequential platform actions
+  // (e.g. enable Telegram immediately followed by enable Discord before the
+  // first echo arrives). This test verifies that both tokens are independently
+  // honoured — i.e. both echoes are dropped and both tokens are consumed.
   it('drops both echoes when two platform actions fire before either echo arrives', () => {
     const applyStatusSpy = jest.spyOn(service as never, 'applyStatus');
 
@@ -232,8 +221,6 @@ describe('GatewayStateService — MessageHandler migration', () => {
     ).toBe(0);
   });
 
-  // ── YELLOW-1: setToken success-path clears _pendingOrigins ───────────────
-  //
   // setToken stamps an origin, calls rpc.start, then calls
   // _pendingOrigins.delete(origin) on the success path. This test verifies:
   //   1. _pendingOrigins is empty after setToken completes
@@ -270,11 +257,9 @@ describe('GatewayStateService — MessageHandler migration', () => {
     expect(applyStatusSpy).toHaveBeenCalledTimes(1);
   });
 
-  // ── YELLOW-3: Three concurrent platform origins dropped independently ─────
-  //
-  // Extends RED-1 to three simultaneous tokens — directly exercises the Set
-  // data structure's advantage over a single-origin-ref when all three platform
-  // toggle actions fire before any echo arrives.
+  // Three simultaneous tokens — directly exercises the Set data structure's
+  // advantage over a single-origin-ref when all three platform toggle actions
+  // fire before any echo arrives.
   it('drops three platform echoes independently when all three are pending simultaneously', () => {
     const applyStatusSpy = jest.spyOn(service as never, 'applyStatus');
 
@@ -309,12 +294,9 @@ describe('GatewayStateService — MessageHandler migration', () => {
     ).toBe(0);
   });
 
-  // ── GREEN-1: voiceDownload signal inertness after Fix #1 ─────────────────
-  //
-  // handleGatewayEvent (which fed voiceDownload) was deleted in TASK_2026_115
-  // because its source event was never bridged to the renderer. This test
-  // documents that the signal stays null regardless of GATEWAY_STATUS_CHANGED
-  // events arriving, locking the deliberate post-deletion inertness.
+  // voiceDownload signal stays null regardless of GATEWAY_STATUS_CHANGED
+  // events arriving, locking the deliberate inertness until a real push
+  // event is wired.
   it('voiceDownload signal remains null after GATEWAY_STATUS_CHANGED messages arrive', () => {
     service.handleMessage({
       type: MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
@@ -327,10 +309,8 @@ describe('GatewayStateService — MessageHandler migration', () => {
     expect(service.voiceDownload()).toBeNull();
   });
 
-  // ── GREEN-4: handleMessage with undefined payload (gateway) ───────────────
-  //
-  // gateway-state.service.ts:179 has `if (!payload) return;`. This test
-  // confirms the guard fires, preventing a crash, and applyStatus is never called.
+  // gateway-state.service.ts has `if (!payload) return;`. This test confirms
+  // the guard fires, preventing a crash, and applyStatus is never called.
   it('is a no-op when handleMessage receives a gateway:statusChanged message with no payload', () => {
     const applyStatusSpy = jest.spyOn(service as never, 'applyStatus');
 

@@ -87,7 +87,6 @@ export class GatewayStateService implements MessageHandler {
   private readonly rpc = inject(GatewayRpcService);
   private readonly destroyRef = inject(DestroyRef);
 
-  // ── Push-event routing (TASK_2026_115) ─────────────────────────────────
   /** Message types this service handles via MessageRouterService. */
   public readonly handledMessageTypes = [
     MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
@@ -99,7 +98,7 @@ export class GatewayStateService implements MessageHandler {
    * removes it via `delete()`. Using a `Set` (not a single ref) tolerates rapid
    * sequential platform actions — e.g. enable Telegram immediately followed by
    * enable Discord — without overwriting the first action's token before its
-   * echo arrives (TASK_2026_115 review S2). Orphaned tokens (echo never arrived
+   * echo arrives. Orphaned tokens (echo never arrived
    * because backend broadcast failed) are harmless: UUIDs do not collide with
    * future origins, and the entries are ~36 bytes each. NOT a signal — nothing
    * renders it.
@@ -120,16 +119,11 @@ export class GatewayStateService implements MessageHandler {
   /**
    * Voice-model download progress signal — currently inert.
    *
-   * Background (TASK_2026_115): the prior `subscribeEvents()` raw
-   * `window.addEventListener('message')` listener that fed this signal was
-   * deleted because backend `GatewayService.emit('event', ...)` (Node
-   * EventEmitter) was never bridged to the renderer IPC channel — the
-   * listener never fired. The signal + `dismissVoiceToast()` action +
-   * template binding in `messaging-gateway-tab.component.ts:110` are
+   * The signal + `dismissVoiceToast()` action + template binding are
    * preserved as the public API surface for when a real
-   * `MESSAGE_TYPES.GATEWAY_VOICE_DOWNLOAD_PROGRESS` push event is wired
-   * (follow-up — out of scope for this PR). Until then the signal stays
-   * `null`, the template `@if` block stays hidden.
+   * `MESSAGE_TYPES.GATEWAY_VOICE_DOWNLOAD_PROGRESS` push event is wired.
+   * Until then the signal stays `null` and the template `@if` block stays
+   * hidden.
    */
   public readonly voiceDownload = signal<VoiceModelDownloadProgress | null>(
     null,
@@ -159,7 +153,7 @@ export class GatewayStateService implements MessageHandler {
   /**
    * Boot the state service: one-time initial hydration of status + bindings.
    * Subsequent updates arrive via the MessageHandler `handleMessage` callback
-   * (GATEWAY_STATUS_CHANGED push events from the backend) — see TASK_2026_115.
+   * (GATEWAY_STATUS_CHANGED push events from the backend).
    */
   public async initialize(): Promise<void> {
     await Promise.all([this.refreshStatus(), this.listBindings()]);
@@ -430,20 +424,4 @@ export class GatewayStateService implements MessageHandler {
       slack: current.slack ?? message,
     }));
   }
-
-  // TASK_2026_115 follow-up — `handleGatewayEvent` (handled
-  // 'voice-model-download', 'voice-model-download-error', 'binding-requested'
-  // event kinds) was deleted here. Its sole caller — the raw
-  // `subscribeEvents()` `window.addEventListener('message')` listener for
-  // `'gateway:event'` — was confirmed dead code: backend
-  // `GatewayService.emit('event', ...)` is a Node `EventEmitter` call that
-  // was never bridged to the renderer IPC channel, so the listener never
-  // fired. Removing the polling fallback in this PR also removes the 30s
-  // safety net that previously surfaced new binding requests within ≤30s.
-  // Re-wiring requires new typed push events
-  // (`MESSAGE_TYPES.GATEWAY_BINDING_REQUESTED`,
-  // `MESSAGE_TYPES.GATEWAY_VOICE_DOWNLOAD_PROGRESS`) emitted from the
-  // backend mutation points and consumed via `MessageHandler` here. Until
-  // then, new bindings surface only on the next user action that triggers
-  // `listBindings()` / `refreshStatus()`.
 }
