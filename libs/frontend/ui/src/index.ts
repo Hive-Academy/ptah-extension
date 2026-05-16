@@ -6,14 +6,13 @@
  * DOMAINS:
  * - overlays: Floating UI elements (dropdown, popover, tooltip)
  * - selection: Selection UI components (option, autocomplete, select, combobox)
- * - native: CDK-free components using Floating UI (TASK_2025_092)
+ * - native: CDK-free components using Floating UI
  *
  * EXPORTS:
  * - Domain barrel exports for tree-shaking support
  * - Shared overlay utilities (positions, types)
  * - Native components (CDK-free, VS Code webview compatible)
  *
- * MIGRATION NOTE (TASK_2025_092):
  * The 'native' module provides CDK-free alternatives to the CDK-based
  * overlay and selection components. These use Floating UI for positioning
  * and signal-based keyboard navigation, avoiding VS Code webview sandboxing

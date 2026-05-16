@@ -7,7 +7,6 @@ import { Directive, ElementRef, inject } from '@angular/core';
  * Provides ElementRef reference for AutocompleteComponent integration.
  *
  * Pattern: Netanel Basal directive-based autocomplete
- * Reference: implementation-plan.md:742-771, task-description.md:906-919
  *
  * @example
  * <input type="text" autocompleteInput placeholder="Type to search..." />
