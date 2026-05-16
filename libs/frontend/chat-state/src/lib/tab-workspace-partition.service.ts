@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { TabState } from '@ptah-extension/chat-types';
+import { TabId } from './identity/ids';
 
 /**
  * Internal type for a workspace's tab set stored in the workspace tab map.
@@ -493,16 +494,33 @@ export class TabWorkspacePartitionService {
         return null;
       }
 
-      // Sanitize loaded tabs (clear transient streaming state)
-      const sanitizedTabs = state.tabs.map((tab: TabState) => ({
-        ...tab,
-        streamingState: null,
-        status: tab.status === 'streaming' ? 'loaded' : tab.status,
-      }));
+      // Sanitize loaded tabs (clear transient streaming state) and
+      // re-mint legacy `tab_<timestamp>_<random>` ids that pre-date the
+      // UUID v4 tab-id format. The backend permission path now calls
+      // `SessionId.from(tabId)` / `TabId.from(tabId)` which throw on
+      // anything else (v0.2.32 regression).
+      const idRemap = new Map<string, string>();
+      const sanitizedTabs = state.tabs.map((tab: TabState) => {
+        const migratedId = TabId.validate(tab.id) ? tab.id : TabId.create();
+        if (migratedId !== tab.id) {
+          idRemap.set(tab.id, migratedId);
+        }
+        return {
+          ...tab,
+          id: migratedId,
+          streamingState: null,
+          status: tab.status === 'streaming' ? 'loaded' : tab.status,
+        };
+      });
+
+      const remappedActiveId =
+        typeof state.activeTabId === 'string' && idRemap.has(state.activeTabId)
+          ? (idRemap.get(state.activeTabId) ?? null)
+          : (state.activeTabId ?? null);
 
       return {
         tabs: sanitizedTabs,
-        activeTabId: state.activeTabId,
+        activeTabId: remappedActiveId,
       };
     } catch {
       return null;

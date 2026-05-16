@@ -1551,6 +1551,11 @@ export class TabManagerService {
       }
 
       if (state.tabs && Array.isArray(state.tabs)) {
+        // Re-mint any persisted tab whose id is not a valid UUID v4
+        // (v0.2.32 and earlier minted `tab_<timestamp>_<random>` strings
+        // that fail backend UUID validation). Build an id-remap so we
+        // can rewrite activeTabId in the same pass.
+        const idRemap = new Map<string, string>();
         // TASK_2025_087: Clear streamingState when loading from localStorage
         // Maps (events, eventsByMessage, etc.) don't serialize to JSON properly
         // and become plain objects, causing "get is not a function" errors
@@ -1564,8 +1569,13 @@ export class TabManagerService {
             placeholderSessionId?: unknown;
           };
           void _drop;
+          const migratedId = TabId.validate(rest.id) ? rest.id : TabId.create();
+          if (migratedId !== rest.id) {
+            idRemap.set(rest.id, migratedId);
+          }
           return {
             ...rest,
+            id: migratedId,
             streamingState: null,
             // Backend sessions don't survive app restarts — clear the ID so
             // the frontend starts a fresh session instead of attempting resume.
@@ -1581,7 +1591,12 @@ export class TabManagerService {
           };
         });
         this._tabs.set(sanitizedTabs);
-        this._activeTabId.set(state.activeTabId);
+        const remappedActiveId =
+          typeof state.activeTabId === 'string' &&
+          idRemap.has(state.activeTabId)
+            ? (idRemap.get(state.activeTabId) ?? null)
+            : (state.activeTabId ?? null);
+        this._activeTabId.set(remappedActiveId);
       }
     } catch (error) {
       console.warn('[TabManager] Failed to load tab state:', error);
@@ -1713,9 +1728,15 @@ export class TabManagerService {
   // ============================================================================
 
   /**
-   * Generate unique tab ID
+   * Generate unique tab ID.
+   *
+   * Returns a UUID v4 minted via the canonical `TabId.create()` factory.
+   * The backend permission/routing path (sdk-query-options-builder)
+   * calls `SessionId.from(tabId)` / `TabId.from(tabId)` which throw on
+   * non-UUID input — see the v0.2.32 regression where the legacy
+   * `tab_<timestamp>_<random>` format crashed every `chat:start`.
    */
   private generateTabId(): string {
-    return `tab_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return TabId.create();
   }
 }

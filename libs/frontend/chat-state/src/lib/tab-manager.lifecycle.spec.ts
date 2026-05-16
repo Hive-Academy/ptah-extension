@@ -346,6 +346,51 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       jest.useRealTimers();
     });
 
+    it('createTab mints a UUID-v4 tab id (v0.2.32 regression)', () => {
+      // The backend permission path now calls `SessionId.from(tabId)` and
+      // `TabId.from(tabId)`, both of which throw on non-UUID input. The
+      // legacy `tab_<timestamp>_<random>` generator crashed every
+      // `chat:start` until this was fixed — guard against regression.
+      const id = service.createTab('uuid-check');
+      expect(TabId.validate(id)).toBe(true);
+      expect(id.startsWith('tab_')).toBe(false);
+    });
+
+    it('loadTabState re-mints legacy tab_* ids and remaps activeTabId', () => {
+      // v0.2.32 and earlier persisted ids like `tab_1778939573732_w43e75q`.
+      // These crash the backend on chat:start; the load path must migrate
+      // them to UUID v4 in-place and keep activeTabId pointing at the
+      // re-minted id.
+      const legacyId = 'tab_1778939573732_w43e75q';
+      localStorage.setItem(
+        'ptah.tabs',
+        JSON.stringify({
+          version: 1,
+          activeTabId: legacyId,
+          tabs: [
+            {
+              id: legacyId,
+              claudeSessionId: null,
+              name: 'legacy',
+              title: 'legacy',
+              order: 0,
+              status: 'loaded',
+              isDirty: false,
+              lastActivityAt: 0,
+              messages: [],
+              streamingState: null,
+            },
+          ],
+        }),
+      );
+      service.loadTabState();
+      const tab = service.tabs()[0];
+      expect(tab).toBeDefined();
+      expect(tab?.id).not.toBe(legacyId);
+      expect(TabId.validate(tab?.id ?? '')).toBe(true);
+      expect(service.activeTabId()).toBe(tab?.id);
+    });
+
     it('loadTabState restores persisted tabs and clears streamingState', () => {
       // TASK_2026_106 Phase 6b — `placeholderSessionId` was removed from
       // `TabState`. Persisted state from old releases that still carries

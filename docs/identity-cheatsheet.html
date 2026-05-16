@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ptah Identity Cheatsheet — TabId &amp; SessionId end-to-end</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c2330;
+    --border: #2a3340;
+    --text: #e6edf3;
+    --muted: #9aa6b2;
+    --accent: #58a6ff;
+    --accent-2: #7ee787;
+    --warn: #f0883e;
+    --bad: #ff7b72;
+    --good: #56d364;
+    --tab: #b392f0;
+    --session: #79c0ff;
+    --conv: #ffa657;
+    --surface: #d2a8ff;
+    --code-bg: #0a0d12;
+    --shadow: 0 1px 0 rgba(255,255,255,.03), 0 4px 24px rgba(0,0,0,.4);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 260px minmax(0,1fr);
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  /* Sidebar */
+  aside {
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--panel);
+  }
+  aside h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--muted);
+    letter-spacing: .08em;
+    margin: 16px 0 6px;
+  }
+  aside h2:first-child { margin-top: 0; }
+  aside a {
+    display: block;
+    padding: 4px 10px;
+    color: var(--text);
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  aside a:hover { background: var(--panel-2); color: var(--accent); }
+  aside .brand {
+    font-weight: 600;
+    margin-bottom: 18px;
+    font-size: 15px;
+    color: var(--accent-2);
+  }
+  /* Main */
+  main { padding: 32px 40px; min-width: 0; }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 6px;
+    background: linear-gradient(90deg, var(--tab), var(--session));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .subtitle { color: var(--muted); margin-bottom: 36px; }
+  h2 {
+    font-size: 20px;
+    margin: 40px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: var(--accent); }
+  p { margin: 6px 0 10px; }
+  code, pre, .mono {
+    font-family: "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #f0d8b8;
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: var(--shadow);
+  }
+  pre code { background: transparent; padding: 0; border: 0; color: var(--text); }
+  /* Brand color in inline code */
+  .tab    { color: var(--tab); }
+  .session{ color: var(--session); }
+  .conv   { color: var(--conv); }
+  .surface{ color: var(--surface); }
+  .kw { color: #ff7b72; }
+  .str { color: #a5d6ff; }
+  .num { color: #79c0ff; }
+  .cmt { color: #768390; font-style: italic; }
+  /* Cards */
+  .grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .card h4 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    border: 1px solid currentColor;
+  }
+  .pill.tab     { color: var(--tab); }
+  .pill.session { color: var(--session); }
+  .pill.conv    { color: var(--conv); }
+  .pill.surface { color: var(--surface); }
+  .pill.bg      { color: #f778ba; }
+  .pill.msg     { color: #f0883e; }
+  .pill.corr    { color: #56d364; }
+  /* File ref */
+  .file {
+    display: inline-block;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--accent);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+  }
+  /* Flow */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .step:last-child { border-bottom: 0; }
+  .step .num-circle {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--tab));
+    display: grid; place-items: center;
+    font-weight: 700;
+    color: #0a0d12;
+  }
+  .step h4 { margin: 4px 0 6px; font-size: 15px; }
+  .step .body { color: var(--muted); font-size: 14px; }
+  .step .body strong { color: var(--text); font-weight: 600; }
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--panel-2);
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: .04em;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td.bad { color: var(--bad); }
+  td.good { color: var(--good); }
+  td.warn { color: var(--warn); }
+  /* Callouts */
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(88,166,255,.05);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 14px 0;
+  }
+  .callout.warn { border-color: var(--warn); background: rgba(240,136,62,.06); }
+  .callout.bad  { border-color: var(--bad);  background: rgba(255,123,114,.06); }
+  .callout.good { border-color: var(--good); background: rgba(86,211,100,.06); }
+  .callout strong { color: var(--text); }
+  .callout .label {
+    display: inline-block;
+    text-transform: uppercase;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .callout.warn .label { color: var(--warn); }
+  .callout.bad  .label { color: var(--bad); }
+  .callout.good .label { color: var(--good); }
+  /* Lifecycle diagram */
+  .lifecycle {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    overflow-x: auto;
+  }
+  .lifecycle pre { background: transparent; border: 0; padding: 0; box-shadow: none; }
+  /* Small */
+  small.note { color: var(--muted); font-size: 12px; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
+  /* Responsive */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+    main { padding: 24px 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <aside>
+    <div class="brand">Ptah · Identity Cheatsheet</div>
+    <h2>Identity</h2>
+    <a href="#types">Brand types</a>
+    <a href="#minting">Minting sites</a>
+    <h2>End-to-end</h2>
+    <a href="#lifecycle">Lifecycle diagram</a>
+    <a href="#chat-start">chat:start flow</a>
+    <a href="#sdk-init">SDK system init</a>
+    <a href="#id-resolved">session:id-resolved</a>
+    <a href="#routing">Stream routing</a>
+    <a href="#permissions">Permissions &amp; questions</a>
+    <a href="#compaction">Compaction</a>
+    <a href="#resume">Resume / fork / rewind</a>
+    <h2>Reference</h2>
+    <a href="#registry">SessionRegistry (backend)</a>
+    <a href="#binding">TabSessionBinding (frontend)</a>
+    <a href="#persistence">Persistence</a>
+    <a href="#bombs">Known minting bombs</a>
+    <a href="#files">File map</a>
+  </aside>
+
+  <main>
+    <h1>TabId &amp; SessionId — End-to-end</h1>
+    <p class="subtitle">How identifiers flow from the renderer through the JSON-RPC wire into the Claude SDK and back. Includes every file you need to read, in the order you should read them.</p>
+
+    <!-- ====================== TYPES ====================== -->
+    <h2 id="types">1. Brand types</h2>
+    <p>All identifiers are <strong>branded strings</strong> defined in two places:</p>
+    <ul>
+      <li><span class="file">libs/shared/src/lib/types/branded.types.ts</span> — cross-platform brands shared by frontend + backend</li>
+      <li><span class="file">libs/frontend/chat-state/src/lib/identity/ids.ts</span> — frontend-only brands + re-export of shared <code class="tab">TabId</code></li>
+    </ul>
+
+    <div class="grid">
+      <div class="card">
+        <h4><span class="pill tab">TabId</span></h4>
+        <p>UI surface (tile in navbar/canvas). Lives only in the renderer. <strong>Never round-trips through the SDK.</strong> Used as the <em>routing key</em> between renderer ↔ backend until the real SDK UUID is known.</p>
+        <p><small class="note">Format: UUID v4. Minted by <code>TabId.create()</code>.</small></p>
+      </div>
+      <div class="card">
+        <h4><span class="pill session">SessionId</span></h4>
+        <p>The SDK's UUID, emitted by the Claude SDK in the <code>system: 'init'</code> message. Canonical session identifier everywhere. <strong>Never mint a Ptah-side SessionId</strong> — only the SDK does.</p>
+        <p><small class="note">Format: UUID v4. Brand re-exported on the frontend as <code class="session">ClaudeSessionId</code>.</small></p>
+      </div>
+      <div class="card">
+        <h4><span class="pill conv">ConversationId</span></h4>
+        <p>User-perceived thread that survives compaction <em>and</em> multi-tab fan-out (canvas grid mode). One conversation contains an ordered list of <code class="session">ClaudeSessionId</code>s.</p>
+        <p><small class="note">Frontend-only. Minted by <code>ConversationId.create()</code>.</small></p>
+      </div>
+      <div class="card">
+        <h4><span class="pill surface">SurfaceId</span></h4>
+        <p>Sibling to <code class="tab">TabId</code> for non-tab streaming consumers — wizard analysis phases, harness builder operations. Disjoint key space so tab enumeration never accidentally picks up wizard/harness state.</p>
+      </div>
+      <div class="card">
+        <h4><span class="pill bg">BackgroundAgentId</span></h4>
+        <p>Sub-agent spawned inside a session. Distinct brand so the background-agent store can never collide with parent-session keys.</p>
+      </div>
+      <div class="card">
+        <h4><span class="pill msg">MessageId</span> · <span class="pill corr">CorrelationId</span></h4>
+        <p>Per-message identifiers used for streaming chunk reassembly and RPC request/response correlation. Same UUID v4 invariant.</p>
+      </div>
+    </div>
+
+    <h3>Smart-constructor contract</h3>
+    <pre><code><span class="cmt">// libs/shared/src/lib/types/branded.types.ts</span>
+<span class="kw">export const</span> TabId = {
+  create():    TabId      <span class="cmt">// fresh uuidv4() as TabId</span>
+  validate(s): s is TabId <span class="cmt">// /^[0-9a-f]{8}-...$/i.test(s)</span>
+  from(s):     TabId      <span class="cmt">// throws TypeError on invalid UUID</span>
+  safeParse(s):TabId|null <span class="cmt">// null on invalid UUID</span>
+}
+<span class="cmt">// Same shape for SessionId, MessageId, CorrelationId, JobId, RunId.</span></code></pre>
+
+    <div class="callout warn">
+      <span class="label">⚠ Invariant</span>
+      <strong><code>.from()</code> THROWS on non-UUID input.</strong> Any code path that mints non-UUID values and feeds them into a <code>.from()</code> validator will crash. This is the v0.2.32 regression class — see <a href="#bombs">Known minting bombs</a>.
+    </div>
+
+    <!-- ====================== MINTING ====================== -->
+    <h2 id="minting">2. Where IDs are minted</h2>
+    <table>
+      <thead>
+        <tr><th>Id</th><th>Minted by</th><th>File</th><th>Trigger</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="pill tab">TabId</span></td>
+          <td><code>TabManagerService.generateTabId()</code></td>
+          <td><span class="file">libs/frontend/chat-state/src/lib/tab-manager.service.ts:1718</span></td>
+          <td>User opens a new tab (UI), or canvas/wizard pop-out adopts one.</td>
+        </tr>
+        <tr>
+          <td><span class="pill session">SessionId</span></td>
+          <td>Claude Agent SDK</td>
+          <td><span class="file">@anthropic-ai/claude-agent-sdk</span> (external)</td>
+          <td>SDK emits <code>{ type:'system', subtype:'init', session_id }</code> on first chunk.</td>
+        </tr>
+        <tr>
+          <td><span class="pill conv">ConversationId</span></td>
+          <td><code>ConversationRegistry</code> (lazy)</td>
+          <td><span class="file">libs/frontend/chat-state/src/lib/conversation-registry.service.ts</span></td>
+          <td>StreamRouter creates one when binding a tab to its first SDK session.</td>
+        </tr>
+        <tr>
+          <td><span class="pill surface">SurfaceId</span></td>
+          <td>Wizard phase / harness builder</td>
+          <td><span class="file">libs/frontend/setup-wizard</span>, <span class="file">libs/frontend/harness-builder</span></td>
+          <td>Wizard starts a phase, harness builder starts an operation.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ====================== LIFECYCLE ====================== -->
+    <h2 id="lifecycle">3. Lifecycle diagram</h2>
+    <div class="lifecycle">
+<pre>┌─────────────────── Renderer (Angular) ────────────────────┐    ┌────────────── Extension host / Electron / CLI ──────────────┐
+│                                                            │    │                                                              │
+│  TabManagerService                                          │    │  ChatRpcHandlers ──▶ ChatSessionService                     │
+│    .createTab() ──▶ <span style="color:#b392f0">TabId.create()</span>  ──┐                  │    │     │                                                        │
+│                                                  │                  │    │     ▼                                                        │
+│                                                  │                  │    │  SdkAgentAdapter.startChatSession({ tabId })                │
+│  ChatStore.startSession(prompt)                  │  chat:start      │    │     │                                                        │
+│    .sendRpc('chat:start',                        ▼  (RPC over IPC)  │    │     │ const trackingId = tabId as SessionId                │
+│       { tabId, prompt, options }) ────────────────────────────────▶ │    │     ▼                                                        │
+│                                                                     │    │  SessionLifecycleManager.executeQuery({ sessionId:trackingId })│
+│                                                                     │    │     │                                                        │
+│                                                                     │    │     ▼  SessionRegistry.register(<span style="color:#b392f0">tabId</span>, config, abort)     │
+│                                                                     │    │        ┌────────────────────────────────┐                  │
+│                                                                     │    │        │ byTabId:        Map&lt;TabId, Rec&gt; │ key=<span style="color:#b392f0">tabId</span>        │
+│                                                                     │    │        │ bySessionId:    Map&lt;SId,  Rec&gt; │ (empty)         │
+│                                                                     │    │        └────────────────────────────────┘                  │
+│                                                                     │    │     │                                                        │
+│                                                                     │    │     ▼  query() ──▶ SDK ──▶ first chunk = system 'init'       │
+│                                                                     │    │              { session_id: <span style="color:#79c0ff">"e1b2..."</span> }                    │
+│                                                                     │    │     │                                                        │
+│                                                                     │    │     ▼  SessionRegistry.bindRealSessionId(<span style="color:#b392f0">tabId</span>, <span style="color:#79c0ff">"e1b2..."</span>)  │
+│                                                                     │    │        ┌────────────────────────────────┐                  │
+│                                                                     │    │        │ byTabId:    {<span style="color:#b392f0">tabId</span>     → Rec}      │                  │
+│                                                                     │    │        │ bySessionId:{<span style="color:#79c0ff">e1b2...</span>   → Rec} (same)         │                  │
+│                                                                     │    │        └────────────────────────────────┘                  │
+│                                                                     │    │     │                                                        │
+│  ChatMessageHandler.handleSessionIdResolved ◀──────────────────────── │    │     ▼  emit { type:'session:id-resolved',                    │
+│    { tabId, realSessionId }                                            │    │              tabId, realSessionId } via webviewManager     │
+│      ▼                                                              │    │                                                              │
+│  TabManagerService.setClaudeSessionId(<span style="color:#b392f0">tabId</span>, <span style="color:#79c0ff">realSessionId</span>)         │    │                                                              │
+│      ▼                                                              │    │                                                              │
+│  TabSessionBinding.bind(<span style="color:#b392f0">tabId</span>, <span style="color:#ffa657">convId</span>)                          │    │                                                              │
+│  ConversationRegistry.appendSession(<span style="color:#ffa657">convId</span>, <span style="color:#79c0ff">realSessionId</span>)      │    │                                                              │
+│      ▼                                                              │    │                                                              │
+│  StreamRouter routes incoming events by <span style="color:#79c0ff">sessionId</span> ▶ <span style="color:#ffa657">convId</span> ▶ tabs │    │                                                              │
+└─────────────────────────────────────────────────────────────────────┘    └──────────────────────────────────────────────────────────────┘</pre>
+    </div>
+
+    <!-- ====================== CHAT:START ====================== -->
+    <h2 id="chat-start">4. <code>chat:start</code> flow (step-by-step)</h2>
+
+    <div class="flow">
+      <div class="step">
+        <div class="num-circle">1</div>
+        <div>
+          <h4>User opens a tab → <code class="tab">TabId.create()</code></h4>
+          <div class="body">
+            <span class="file">libs/frontend/chat-state/src/lib/tab-manager.service.ts:1718</span> — <code>generateTabId()</code> calls <code>TabId.create()</code> which returns a fresh UUID v4. The new <code>TabState</code> object's <code>id</code> field carries that brand. Persisted via debounced <code>saveTabState()</code> to <code>localStorage['ptah.tabs']</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num-circle">2</div>
+        <div>
+          <h4>Frontend builds the RPC envelope</h4>
+          <div class="body">
+            <span class="file">libs/frontend/chat/src/lib/services/chat-store/conversation.service.ts</span> + <span class="file">.../message-sender.service.ts</span> call <code>VSCodeService.sendRpc('chat:start', { tabId, prompt, options, workspacePath?, ptahCliId? })</code>.<br>
+            RPC transport: <span class="file">libs/frontend/core/src/lib/services/rpc-call.util.ts</span> attaches a <code class="corr">CorrelationId</code> and posts via <code>window.postMessage</code> (VS Code webview) or <code>ipcRenderer</code> (Electron) or stdio (CLI).
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num-circle">3</div>
+        <div>
+          <h4>Backend dispatches via <code>RpcHandler</code></h4>
+          <div class="body">
+            <span class="file">libs/backend/vscode-core/src/messaging/rpc-handler.ts</span> validates the method name against <code>ALLOWED_METHOD_PREFIXES</code> and routes to the registered handler. <code>chat:start</code> ➜ <code>ChatRpcHandlers</code>.<br>
+            <span class="file">libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.handlers.ts:185-189</span> wires the method to <code>ChatSessionService.startSession(params)</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num-circle">4</div>
+        <div>
+          <h4><code>ChatSessionService.startSession</code> validates workspace + license, then calls SDK</h4>
+          <div class="body">
+            <span class="file">libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:115</span> — resolves workspace path, checks <code>isAuthorizedWorkspace</code>, runs slash-command interception, fetches license tier &amp; MCP state, then calls<br>
+            <code>sdkAdapter.startChatSession({ tabId, workspaceId, model, prompt, files, images, ... })</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num-circle">5</div>
+        <div>
+          <h4><code>SdkAgentAdapter.startChatSession</code> registers in the dual-index registry</h4>
+          <div class="body">
+            <span class="file">libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:839</span> — <code class="mono">const trackingId = tabId as SessionId</code>.<br>
+            Passes <code>trackingId</code> as the session key to <code>SessionLifecycleManager.executeQuery</code>. The <code>SessionRegistry</code> registers the record under <code>byTabId.get(tabId)</code>; <code>bySessionId</code> is still empty.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num-circle">6</div>
+        <div>
+          <h4>SDK <code>query()</code> spawns subprocess → first chunk is <code>system 'init'</code></h4>
+          <div class="body">
+            <span class="file">libs/backend/agent-sdk/src/lib/wiring/sdk-callbacks.ts</span> +<br>
+            <span class="file">libs/backend/agent-sdk/src/lib/stream-processing/...</span> consume the SDK iterable. <code>SdkMessageTransformer</code> sees <code>{ type:'system', subtype:'init', session_id }</code> and triggers the <em>session-id-resolved</em> path.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num-circle">7</div>
+        <div>
+          <h4>Backend binds + broadcasts <code>session:id-resolved</code></h4>
+          <div class="body">
+            <code>SessionRegistry.bindRealSessionId(tabId, realSessionId)</code> at <span class="file">libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts:121</span> adds the second index entry (same record object, two keys).<br>
+            <code>sessionIdResolvedCallback</code> fires (set by <code>RpcMethodRegistrationService</code>) → <code>WebviewManager.broadcastMessage('session:id-resolved', { tabId, realSessionId })</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num-circle">8</div>
+        <div>
+          <h4>Frontend receives + binds tab → conversation</h4>
+          <div class="body">
+            <span class="file">libs/frontend/chat/src/lib/services/chat-message-handler.service.ts:251</span> — <code>handleSessionIdResolved({ tabId, realSessionId })</code>.<br>
+            Updates <code>TabState.claudeSessionId</code>, <code>TabSessionBinding.bind(tabId, convId)</code>, <code>ConversationRegistry.appendSession(convId, realSessionId)</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num-circle">9</div>
+        <div>
+          <h4>Subsequent stream chunks routed by <code>SessionId</code></h4>
+          <div class="body">
+            All later events carry <code>session_id</code> on the wire. <code>StreamRouter</code> (<span class="file">libs/frontend/chat-routing/src/lib/stream-router.service.ts</span>) resolves <code class="session">sessionId</code> → <code class="conv">convId</code> via <code>ConversationRegistry</code>, then fan-outs to all bound <code class="tab">TabId</code>s via <code>TabSessionBinding.tabsFor(convId)</code>.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================== SDK INIT ====================== -->
+    <h2 id="sdk-init">5. SDK system <code>init</code> message — the only time SessionId is created</h2>
+    <p>The Claude Agent SDK is the <strong>sole authority</strong> for <code class="session">SessionId</code>. Ptah never mints one. The system 'init' message looks like:</p>
+    <pre><code>{
+  type: <span class="str">'system'</span>,
+  subtype: <span class="str">'init'</span>,
+  session_id: <span class="str">"e1b2c3d4-..."</span>,   <span class="cmt">// ← canonical SessionId</span>
+  cwd: <span class="str">"D:/projects/foo"</span>,
+  model: <span class="str">"claude-sonnet-4-6"</span>,
+  permissionMode: <span class="str">"acceptEdits"</span>,
+  tools: [...], mcp_servers: [...], slash_commands: [...]
+}</code></pre>
+    <p>This is consumed by <code>SdkMessageTransformer</code> at <span class="file">libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts</span>, which:</p>
+    <ol>
+      <li>Casts <code>msg.session_id as SessionId</code> (wire-boundary cast — safe by SDK contract).</li>
+      <li>Notifies <code>SessionLifecycleManager</code> to call <code>SessionRegistry.bindRealSessionId(tabId, sessionId)</code>.</li>
+      <li>Emits a <code>FlatStreamEventUnion</code> carrying both <code>tabId</code> and <code>sessionId</code>.</li>
+    </ol>
+
+    <!-- ====================== ID RESOLVED ====================== -->
+    <h2 id="id-resolved">6. <code>session:id-resolved</code> — the binding broadcast</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>File</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td>Constant</td><td><span class="file">libs/shared/src/lib/types/messages/message-constants.ts:161</span></td><td><code>SESSION_ID_RESOLVED: 'session:id-resolved'</code></td></tr>
+        <tr><td>Producer</td><td><span class="file">libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:1109</span></td><td><code>setSessionIdResolvedCallback()</code> hook called from <code>RpcMethodRegistrationService</code></td></tr>
+        <tr><td>Producer wire</td><td><span class="file">libs/backend/agent-sdk/src/lib/wiring/sdk-callbacks.ts</span></td><td>Composes the actual <code>{ tabId, realSessionId }</code> payload</td></tr>
+        <tr><td>Consumer</td><td><span class="file">libs/frontend/chat/src/lib/services/chat-message-handler.service.ts:251</span></td><td><code>handleSessionIdResolved()</code> — updates TabState + binding + registry</td></tr>
+        <tr><td>Route effects</td><td><span class="file">libs/frontend/chat-routing/src/lib/stream-router.service.ts</span></td><td>Refreshes any stale permission/question prompts whose <code>sessionId</code> rotated</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ====================== ROUTING ====================== -->
+    <h2 id="routing">7. Stream routing — how an event finds its tab</h2>
+    <div class="callout">
+      <span class="label">Mental model</span>
+      Backend speaks <strong>sessionId</strong> on the wire. Frontend speaks <strong>tabId</strong> in the UI. The router is the only place those two meet.
+    </div>
+    <pre><code><span class="cmt">// libs/frontend/chat-routing/src/lib/stream-router.service.ts</span>
+
+routeStreamEvent(event):
+  sessionId = event.sessionId as ClaudeSessionId        <span class="cmt">// wire boundary</span>
+  convId    = ConversationRegistry.findBySession(sessionId)
+  tabs      = TabSessionBinding.tabsFor(convId)         <span class="cmt">// 1..N tabs</span>
+  for tab of tabs:
+    StreamingHandler.append(tab, event)                 <span class="cmt">// fan-out</span></code></pre>
+    <p>Permission prompts and AskUserQuestion requests carry <strong>both</strong> <code class="tab">tabId</code> and <code class="session">sessionId</code> on the wire (Zod-refined to UUID on receive). The router prefers <code>tabId</code> first, falls back to <code>sessionId → convId → tabs</code>.</p>
+
+    <!-- ====================== PERMISSIONS ====================== -->
+    <h2 id="permissions">8. Permissions &amp; AskUserQuestion routing</h2>
+    <p>Permission requests originate in the SDK's <code>canUseTool</code> callback. Ptah's bridge:</p>
+    <table>
+      <thead><tr><th>Step</th><th>File</th><th>What happens</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><span class="file">libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:581</span></td>
+          <td>Builds the <code>canUseTool</code> callback. Calls <code>permissionHandler.createCallback(<br>&nbsp;&nbsp;sessionId?: SessionId,&nbsp;cliAgentResolver?,&nbsp;tabId?: TabId)</code>.<br>The first arg is the "routing key" — usually <code>tabId</code> cast to SessionId (intentional dual-index, see <a href="#registry">§ SessionRegistry</a>).</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><span class="file">libs/backend/agent-sdk/src/lib/sdk-permission-handler.ts:402</span></td>
+          <td>Stamps both <code>sessionId</code> (real or routing-placeholder) AND <code>tabId</code> on the emitted <code>PermissionRequest</code>. CLI paths leave <code>tabId</code> undefined.</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td><span class="file">libs/shared/src/lib/types/permission.types.ts</span></td>
+          <td>Zod schema validates both fields via <code>.refine(v =&gt; UUID_REGEX.test(v))</code>.</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td><span class="file">libs/frontend/chat-routing/src/lib/stream-router.service.ts:509</span></td>
+          <td><code>routePermissionPrompt</code>: prefers <code>tabId</code>; falls back to <code>tabsForSession(sessionId)</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ====================== COMPACTION ====================== -->
+    <h2 id="compaction">9. Compaction — why ConversationId exists</h2>
+    <p>When the SDK auto-compacts, it may emit a <code>compact_boundary</code> message carrying a <em>new</em> <code>session_id</code>. Without <code class="conv">ConversationId</code> the tab would lose its thread. The flow:</p>
+    <ol>
+      <li><code>SdkMessageTransformer</code> sees <code>compact_boundary</code>, emits a <code>compaction_start</code> FlatEvent.</li>
+      <li><code>ConversationRegistry.setCompactionState(convId, { inFlight: true })</code>.</li>
+      <li>Next system <code>init</code> brings the new <code class="session">SessionId</code>; backend calls <code>bindRealSessionId(tabId, newSessionId)</code> — the SAME tab record now has TWO bySessionId entries.</li>
+      <li>Frontend appends the new sessionId to <code>ConversationRecord.sessions[]</code>; <code>TabState.claudeSessionId</code> updates to the head session.</li>
+      <li><code>compaction_complete</code> clears the inFlight flag.</li>
+    </ol>
+    <p><small class="note">Files: <span class="file">libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts</span></small></p>
+
+    <!-- ====================== RESUME ====================== -->
+    <h2 id="resume">10. Resume, fork, rewind — operations on existing sessions</h2>
+    <table>
+      <thead><tr><th>RPC</th><th>Input</th><th>Backend file</th></tr></thead>
+      <tbody>
+        <tr><td><code>chat:resume</code></td><td><code>{ sessionId }</code> (real UUID) — reads JSONL history only</td><td><span class="file">libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:426</span></td></tr>
+        <tr><td><code>chat:continue</code></td><td><code>{ tabId, sessionId, prompt }</code> — auto-resumes inactive sessions</td><td><span class="file">chat-session.service.ts</span> + <code>autoResumeIfInactive</code></td></tr>
+        <tr><td><code>session:forkSession</code></td><td><code>{ sessionId, atMessageId }</code> — returns new SessionId</td><td><span class="file">libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:1288</span></td></tr>
+        <tr><td><code>session:rewindFiles</code></td><td><code>{ sessionId, toMessageId }</code> — file-system rollback</td><td><span class="file">libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:1450</span></td></tr>
+        <tr><td><code>chat:abort</code></td><td><code>{ tabId | sessionId }</code> — aborts via <code>registry.find()</code></td><td><span class="file">chat-session.service.ts</span></td></tr>
+      </tbody>
+    </table>
+    <p>All these use <code>SessionRegistry.find(idOrTabId)</code> — they accept <strong>either</strong> tabId or real sessionId because of the dual-index design.</p>
+
+    <!-- ====================== REGISTRY ====================== -->
+    <h2 id="registry">11. <code>SessionRegistry</code> — the backend dual-index</h2>
+    <p><span class="file">libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts</span></p>
+    <pre><code><span class="cmt">// Both maps point at the SAME SessionRecord object.</span>
+<span class="cmt">// Mutations via either lookup are immediately visible from the other.</span>
+<span class="kw">class</span> SessionRegistry {
+  <span class="kw">private</span> byTabId     = <span class="kw">new</span> Map&lt;<span class="tab">string</span>, SessionRecord&gt;()
+  <span class="kw">private</span> bySessionId = <span class="kw">new</span> Map&lt;<span class="session">string</span>, SessionRecord&gt;()
+
+  register(tabId, config, abortCtl): SessionRecord       <span class="cmt">// inserts into byTabId only</span>
+  bindRealSessionId(tabId, realSessionId): void          <span class="cmt">// adds bySessionId entry, no rekey</span>
+  find(idOrTabId): SessionRecord | <span class="kw">undefined</span>           <span class="cmt">// checks both, O(1)</span>
+  remove(rec): void                                      <span class="cmt">// deletes from both indexes</span>
+  setSessionQuery(sessionId, query): void
+  getActiveSessionIds(): SessionId[]                     <span class="cmt">// most-recent-first</span>
+  markActive(tabId): void
+  clearAll(): void
+}</code></pre>
+    <div class="callout good">
+      <span class="label">Design property</span>
+      <strong>No rekey, no scanning, no shifting-key semantics.</strong> Callers stop caring whether they hold a <code class="tab">tabId</code> or a <code class="session">sessionId</code> — <code>find()</code> resolves both.<br>
+      Introduced by <em>TASK_2026_118</em>, replacing the legacy <code>tabIdToRealId</code> side-map + <code>findByTabOrRealId</code> reverse-scan helpers.
+    </div>
+
+    <h3>SessionRecord fields</h3>
+    <pre><code><span class="kw">interface</span> SessionRecord {
+  <span class="kw">readonly</span> tabId:       <span class="tab">string</span>           <span class="cmt">// immutable, assigned at register()</span>
+           realSessionId: <span class="session">string</span> | <span class="kw">null</span>    <span class="cmt">// null until bindRealSessionId — set ONCE</span>
+           query:         Query  | <span class="kw">null</span>    <span class="cmt">// SDK Query handle</span>
+  <span class="kw">readonly</span> config:         AISessionConfig
+  <span class="kw">readonly</span> abortController:AbortController
+           messageQueue:  SDKUserMessage[]
+           resolveNext:   (() =&gt; <span class="kw">void</span>) | <span class="kw">null</span>
+           currentModel:  <span class="str">string</span>
+}</code></pre>
+
+    <!-- ====================== BINDING ====================== -->
+    <h2 id="binding">12. <code>TabSessionBinding</code> + <code>ConversationRegistry</code> — the frontend dual-index</h2>
+    <p><span class="file">libs/frontend/chat-state/src/lib/tab-session-binding.service.ts</span> &middot; <span class="file">.../conversation-registry.service.ts</span></p>
+    <pre><code>TabSessionBinding:
+  <span class="tab">TabId</span>     ──▶ <span class="conv">ConversationId</span>   <span class="cmt">// _byTab</span>
+  <span class="conv">ConversationId</span> ──▶ Set&lt;<span class="tab">TabId</span>&gt;  <span class="cmt">// _byConversation (reverse)</span>
+  <span class="surface">SurfaceId</span> ──▶ <span class="conv">ConversationId</span>   <span class="cmt">// _bySurface (disjoint key space)</span>
+
+ConversationRegistry:
+  <span class="conv">ConversationId</span> ──▶ {
+    sessions: <span class="session">ClaudeSessionId</span>[],   <span class="cmt">// oldest-first, head = current SDK session</span>
+    compactionInFlight: <span class="kw">boolean</span>,
+    lastCompactionAt: <span class="kw">number</span> | <span class="kw">null</span>,
+    ...
+  }</code></pre>
+    <p>The two services are deliberately split: <strong>TabSessionBinding</strong> owns the <code>TabId ↔ ConversationId</code> edge; <strong>ConversationRegistry</strong> owns the <code>ConversationId → SessionId[]</code> list. <code>StreamRouter</code> is the only consumer that composes them.</p>
+
+    <!-- ====================== PERSISTENCE ====================== -->
+    <h2 id="persistence">13. Persistence model</h2>
+    <table>
+      <thead><tr><th>What</th><th>Where</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Tab state (UI)</td>
+          <td><code>localStorage['ptah.tabs.{workspace}']</code></td>
+          <td>Debounced save by <code>TabManagerService._doSaveTabState()</code>. Workspace-partitioned by <code>TabWorkspacePartitionService</code>. <code>claudeSessionId</code> cleared on load (backend sessions don't survive restart).</td>
+        </tr>
+        <tr>
+          <td>Session metadata</td>
+          <td><code>SessionMetadataStore</code> (in-memory + persisted via SQLite)</td>
+          <td>Name, timestamps, cost, model — UI metadata only. <span class="file">libs/backend/agent-sdk/src/lib/session-metadata-store.ts</span></td>
+        </tr>
+        <tr>
+          <td>Message history</td>
+          <td><code>~/.claude/projects/{sessionId}.jsonl</code></td>
+          <td><strong>Owned by the Claude SDK.</strong> Ptah never writes here. Read via <code>JsonlReaderService</code>.</td>
+        </tr>
+        <tr>
+          <td>CLI session pointers</td>
+          <td><code>~/.ptah/cli-sessions.json</code></td>
+          <td>CLI commands resolve user-supplied <code>sessionId</code> against persisted records before passing to SDK.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ====================== BOMBS ====================== -->
+    <h2 id="bombs">14. Known minting bombs (audit gaps)</h2>
+    <div class="callout bad">
+      <span class="label">Regression class</span>
+      Any production code that mints a non-UUID string and feeds it into <code>SessionId.from()</code>, <code>TabId.from()</code>, or a Zod <code>.refine(UUID_REGEX)</code> schema will throw. The audit in <span class="file">docs/identity-audit.md</span> classifies these but does not remediate them.
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Site</th><th>Format</th><th>Severity</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><span class="file">libs/frontend/chat-state/src/lib/tab-manager.service.ts:1718</span><br><small>generateTabId()</small></td>
+          <td><code>tab_&lt;timestamp&gt;_&lt;rand&gt;</code></td>
+          <td class="bad">FIXED (use <code>TabId.create()</code>)</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><span class="file">libs/backend/agent-sdk/src/lib/ptah-cli/helpers/ptah-cli-stream-loop.service.ts:68,192</span></td>
+          <td><code>'' as SessionId</code></td>
+          <td class="warn">Empty sentinel — overwritten on system init</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td><span class="file">libs/backend/rpc-handlers/src/lib/harness/streaming/harness-stream-broadcaster.service.ts:91</span></td>
+          <td><code>harness-${operationId}</code></td>
+          <td class="warn">Synthetic; needs own brand (<code>HarnessStreamId</code>)</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td><span class="file">libs/backend/agent-generation/src/lib/services/wizard/multi-phase-analysis.service.ts:562</span></td>
+          <td><code>wizard-${phaseId}</code></td>
+          <td class="warn">Reaches StreamRouter — Zod-refined to UUID</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td><span class="file">libs/backend/agent-generation/src/lib/services/content-generation.service.ts:447</span></td>
+          <td><code>gen-${agentId}</code></td>
+          <td class="warn">Internal scope, lower risk</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td><span class="file">libs/frontend/chat/src/lib/services/chat-store/conversation.service.ts:318</span></td>
+          <td><code>'' as SessionId</code></td>
+          <td class="warn">Sentinel in <code>ExecutionChatMessage</code></td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td><span class="file">libs/frontend/chat/src/lib/services/message-sender.service.ts:407</span></td>
+          <td><code>'' as SessionId</code></td>
+          <td class="warn">Same sentinel pattern</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Recommended remediation order</h3>
+    <ol>
+      <li>Narrow <code>TabState.id</code> to <code class="tab">TabId</code> and <code>TabState.claudeSessionId</code> to <code class="session">SessionId | null</code>. Eliminates ~15 questionable casts at once.</li>
+      <li>Replace <code>'' as SessionId</code> sentinels with <code>SessionId | null</code> + explicit null handling.</li>
+      <li>Introduce <code>HarnessStreamId</code> and <code>WizardPhaseId</code> brands for the synthetic IDs; stop routing them through <code>SessionId</code>-typed APIs.</li>
+      <li>Add an ESLint rule forbidding <code>as &lt;BrandType&gt;</code> outside <code>branded.types.ts</code> / <code>ids.ts</code> / test files.</li>
+    </ol>
+
+    <!-- ====================== FILE MAP ====================== -->
+    <h2 id="files">15. Full file map (read in this order)</h2>
+    <h3>Brand definitions</h3>
+    <ol>
+      <li><span class="file">libs/shared/src/lib/types/branded.types.ts</span> — <code>TabId</code>, <code>SessionId</code>, <code>MessageId</code>, <code>CorrelationId</code>, <code>JobId</code>, <code>RunId</code></li>
+      <li><span class="file">libs/frontend/chat-state/src/lib/identity/ids.ts</span> — <code>ConversationId</code>, <code>BackgroundAgentId</code>, <code>SurfaceId</code>; re-exports <code>TabId</code></li>
+    </ol>
+
+    <h3>Frontend — tab lifecycle</h3>
+    <ol>
+      <li><span class="file">libs/frontend/chat-state/src/lib/tab-manager.service.ts</span> — minting, lifecycle, persistence</li>
+      <li><span class="file">libs/frontend/chat-state/src/lib/tab-workspace-partition.service.ts</span> — multi-workspace partitioning</li>
+      <li><span class="file">libs/frontend/chat-state/src/lib/tab-session-binding.service.ts</span> — TabId ↔ ConversationId</li>
+      <li><span class="file">libs/frontend/chat-state/src/lib/conversation-registry.service.ts</span> — ConversationId → SessionId[] + compaction state</li>
+    </ol>
+
+    <h3>Frontend — RPC + streaming</h3>
+    <ol>
+      <li><span class="file">libs/frontend/core/src/lib/services/rpc-call.util.ts</span> — RPC transport (postMessage / IPC / stdio)</li>
+      <li><span class="file">libs/frontend/chat/src/lib/services/message-sender.service.ts</span> — builds chat:start/continue payloads</li>
+      <li><span class="file">libs/frontend/chat/src/lib/services/chat-message-handler.service.ts</span> — handles <code>session:id-resolved</code>, permission, question messages</li>
+      <li><span class="file">libs/frontend/chat-routing/src/lib/stream-router.service.ts</span> — routes by sessionId → convId → tabs</li>
+      <li><span class="file">libs/frontend/chat-streaming/src/lib/session-manager.service.ts</span> — draft vs confirmed sessionId state</li>
+    </ol>
+
+    <h3>Backend — RPC + session</h3>
+    <ol>
+      <li><span class="file">libs/backend/vscode-core/src/messaging/rpc-handler.ts</span> — ALLOWED_METHOD_PREFIXES + dispatch</li>
+      <li><span class="file">libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.handlers.ts</span> — chat:start, chat:continue, chat:resume, chat:abort</li>
+      <li><span class="file">libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts</span> — workspace + license gating, calls SDK adapter</li>
+      <li><span class="file">libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts</span> — session:load, rename, delete, fork, rewindFiles</li>
+    </ol>
+
+    <h3>Backend — SDK adapter</h3>
+    <ol>
+      <li><span class="file">libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts</span> — startChatSession, continueSession, forkSession, rewindFiles</li>
+      <li><span class="file">libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts</span> — dual-index byTabId/bySessionId</li>
+      <li><span class="file">libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts</span> — executeQuery, streaming pump</li>
+      <li><span class="file">libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts</span> — canUseTool + hooks construction</li>
+      <li><span class="file">libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts</span> — SDK message → FlatStreamEventUnion, handles system init</li>
+      <li><span class="file">libs/backend/agent-sdk/src/lib/sdk-permission-handler.ts</span> — emits PermissionRequest + AskUserQuestionRequest</li>
+      <li><span class="file">libs/backend/agent-sdk/src/lib/wiring/sdk-callbacks.ts</span> — composes the session:id-resolved callback</li>
+    </ol>
+
+    <h3>Wire contracts</h3>
+    <ol>
+      <li><span class="file">libs/shared/src/lib/types/messages/message-constants.ts</span> — MESSAGE_TYPES enum (SESSION_ID_RESOLVED, CHAT_COMPLETE, ...)</li>
+      <li><span class="file">libs/shared/src/lib/types/permission.types.ts</span> — Zod-refined PermissionRequest + AskUserQuestionRequest</li>
+      <li><span class="file">libs/shared/src/lib/types/ai-provider.types.ts</span> — AISessionConfig, FlatStreamEventUnion</li>
+      <li><span class="file">libs/shared/src/lib/types/rpc.types.ts</span> — RpcMethodName union (compile-time)</li>
+    </ol>
+
+    <hr>
+    <p><small class="note">Generated 2026-05-16 · branch <code>code-purshing</code> · based on commits up to <code>ed7a989e</code> (TASK_2026_118 + TASK_2026_120) plus the v0.2.32 hotfix to <code>generateTabId()</code>.</small></p>
+  </main>
+</div>
+</body>
+</html>
