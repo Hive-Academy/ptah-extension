@@ -1,9 +1,5 @@
 /**
- * RPC Module Index
- *
- * Exports the RPC registration service and all handler classes.
- *
- * TASK_2025_074: Modular RPC handler architecture
+ * RPC Module Index — exports the RPC registration service and all handler classes.
  */
 
 export { RpcMethodRegistrationService } from './rpc-method-registration.service';

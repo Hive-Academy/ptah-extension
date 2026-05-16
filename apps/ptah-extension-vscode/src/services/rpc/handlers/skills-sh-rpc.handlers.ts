@@ -8,8 +8,6 @@
  * - skillsSh:uninstall - Remove a skill
  * - skillsSh:getPopular - Get popular skills (cached)
  * - skillsSh:detectRecommended - Detect workspace technologies and recommend skills
- *
- * TASK_2025_204: Skills.sh Marketplace Integration
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -231,8 +229,6 @@ const SAFE_SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 
 /**
  * RPC handlers for Skills.sh marketplace operations.
- *
- * TASK_2025_204: Skills.sh Marketplace Integration
  *
  * Provides skill discovery, installation, and workspace-aware recommendations
  * via the `npx skills` CLI and local filesystem scanning.

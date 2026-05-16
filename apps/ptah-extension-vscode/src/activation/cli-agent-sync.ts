@@ -1,5 +1,4 @@
-// Step 7.1.7 CLI Agent Sync on Activation (TASK_2025_268).
-// Extracted from wire-runtime.ts. Distributes existing .claude/agents/*.md to
+// CLI Agent Sync on activation: distributes existing .claude/agents/*.md to
 // all installed CLI targets. Ensures agents are present after fresh install
 // without re-running the wizard. Pro/trial_pro-only fire-and-forget dispatcher.
 // Caller is responsible for the tier gate and workspace-root presence.

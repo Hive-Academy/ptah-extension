@@ -8,10 +8,8 @@
  *   - `wireSdkCallbacks` (@ptah-extension/agent-sdk)
  *   - `wireAgentEventListeners` (@ptah-extension/agent-sdk)
  *
- * TASK_2025_051: SDK-only migration.
- * TASK_2025_074: First decomposition (~1500 → ~150 lines orchestrator).
- * TASK_2025_291 Wave C4b: shared-handler fan-out + SDK / agent-event wiring
- * moved to platform-agnostic helpers.
+ * Shared-handler fan-out + SDK / agent-event wiring live in platform-agnostic
+ * helpers so this orchestrator stays thin.
  */
 
 import { injectable, inject, DependencyContainer, container } from 'tsyringe';
@@ -43,9 +41,9 @@ import { parseWorktreeList } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
 
-// Tier 3 handlers (VS Code-specific, local to this app).
-// `McpDirectoryRpcHandlers` was lifted to shared in TASK_2026_104 Batch 6a and
-// is now registered via `registerAllRpcHandlers()` — no manual register() call.
+// VS Code-specific handlers (local to this app).
+// `McpDirectoryRpcHandlers` lives in the shared rpc-handlers library and is
+// registered via `registerAllRpcHandlers()` — no manual register() call.
 import {
   ChatRpcHandlers,
   FileRpcHandlers,
@@ -170,8 +168,8 @@ export class RpcMethodRegistrationService {
     this.commandHandlers.register();
     this.agentHandlers.register();
     this.skillsShHandlers.register();
-    // McpDirectoryRpcHandlers is registered via `registerAllRpcHandlers` above
-    // (TASK_2026_104 Batch 6a — lifted to shared `rpc-handlers` library).
+    // McpDirectoryRpcHandlers is registered via `registerAllRpcHandlers`
+    // above (lives in the shared `rpc-handlers` library).
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -225,10 +223,10 @@ export class RpcMethodRegistrationService {
       },
     });
 
-    // S4: broadcast session:metadataChanged push events to webviews so
-    // sidebars refresh on create/update/delete/fork without imperative
-    // loadSessions() calls scattered across the frontend. Disposer is
-    // intentionally ignored — extension lifetime === process lifetime.
+    // Broadcast session:metadataChanged push events to webviews so sidebars
+    // refresh on create/update/delete/fork without imperative loadSessions()
+    // calls scattered across the frontend. Disposer is intentionally ignored
+    // — extension lifetime === process lifetime.
     wireSessionMetadataEvents(this.container, {
       logger: this.logger,
       platform: 'vscode',

@@ -1,6 +1,5 @@
-// Step 7.1.6 CLI Skill Sync helper (TASK_2025_160).
-// Extracted from wire-runtime.ts. Syncs Ptah plugin skills to installed CLI
-// agent directories (Copilot, Gemini). Pro/trial_pro-only fire-and-forget.
+// CLI Skill Sync helper: syncs Ptah plugin skills to installed CLI agent
+// directories (Copilot, Gemini). Pro/trial_pro-only fire-and-forget.
 // Caller is responsible for the tier gate.
 // Mirrors the Electron sibling (apps/ptah-electron/src/activation/cli-skill-sync.ts).
 

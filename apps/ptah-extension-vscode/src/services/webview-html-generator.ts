@@ -13,7 +13,7 @@ export interface WebviewHtmlOptions {
   initialView?: string;
   /** Whether the user has a valid license (default: true for licensed activation) */
   isLicensed?: boolean;
-  /** Unique panel identifier for multi-webview support (TASK_2025_117) */
+  /** Unique panel identifier for multi-webview support. */
   panelId?: string;
 }
 
@@ -123,7 +123,7 @@ export class WebviewHtmlGenerator {
       'context-tree',
       'settings',
       'setup-wizard',
-      'welcome', // TASK_2025_126: Welcome view for unlicensed users
+      'welcome',
     ];
 
     if (initialView && !VALID_VIEWS.includes(initialView)) {

@@ -8,7 +8,7 @@ import { LicenseCommands } from '../commands/license-commands';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 
 /**
- * Register only license-related commands when extension is blocked (TASK_2025_121 Batch 3)
+ * Register only license-related commands when extension is blocked.
  *
  * When license is invalid, only these commands are available:
  * - ptah.enterLicenseKey: Enter license key
@@ -51,10 +51,9 @@ export function registerLicenseOnlyCommands(
 }
 
 /**
- * Handle license blocking flow with embedded welcome page (TASK_2025_126)
- *
- * TASK_2025_126: Replaces the modal popup with an embedded welcome page
- * inside the extension webview. This provides a better UX for unlicensed users.
+ * Handle license blocking flow with an embedded welcome page inside the
+ * extension webview, providing a better UX for unlicensed users than a
+ * blocking modal popup.
  *
  * Flow:
  * 1. Register minimal license commands (ptah.enterLicenseKey, ptah.openPricing)
@@ -74,7 +73,7 @@ export async function handleLicenseBlocking(
   // Register minimal commands for license management
   registerLicenseOnlyCommands(context, licenseService);
 
-  // TASK_2025_126: Show webview with welcome view instead of modal
+  // Show webview with welcome view instead of modal.
 
   const htmlGenerator = new WebviewHtmlGenerator(context);
 
@@ -128,15 +127,14 @@ export async function handleLicenseBlocking(
           const { method, params, correlationId } = message.payload || {};
 
           if (method === 'license:getStatus') {
-            // Return license status for context-aware welcome messaging
-            // TASK_2025_128: Renamed isBasic to isCommunity for freemium model
+            // Return license status for context-aware welcome messaging.
             const response = {
               success: true,
               data: {
                 valid: false,
                 tier: status.tier || 'expired',
                 isPremium: false,
-                isCommunity: false, // RENAMED from isBasic
+                isCommunity: false,
                 daysRemaining: null,
                 trialActive: false,
                 trialDaysRemaining: null,
@@ -270,7 +268,7 @@ export async function handleLicenseBlocking(
               });
             }
           } else if (method === 'settings:import') {
-            // Inline settings import for unlicensed users (TASK_2025_210)
+            // Inline settings import for unlicensed users.
             // Full SettingsImportService requires DI container which isn't set up yet.
             // Handle file dialog + secret storage directly via VS Code APIs.
             try {

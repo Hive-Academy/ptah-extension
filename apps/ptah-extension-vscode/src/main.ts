@@ -152,7 +152,7 @@ export async function deactivate(): Promise<void> {
   // The MCP config must persist so that resumed Claude sessions can find
   // the permission-prompt-tool. The port gets updated on next activation.
 
-  // TASK_2025_201: Remove workspace skill junctions
+  // Remove workspace skill junctions.
   try {
     const skillJunction = DIContainer.resolve<SkillJunctionService>(
       SDK_TOKENS.SDK_SKILL_JUNCTION,
@@ -162,7 +162,7 @@ export async function deactivate(): Promise<void> {
     // Junction service may not be initialized yet - safe to ignore
   }
 
-  // TASK_2025_167: Dispose all Ptah CLI adapters before clearing the container
+  // Dispose all Ptah CLI adapters before clearing the container.
   try {
     const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
       SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,

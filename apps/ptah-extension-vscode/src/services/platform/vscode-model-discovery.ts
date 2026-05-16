@@ -1,5 +1,5 @@
 /**
- * VS Code Model Discovery Implementation (TASK_2025_203)
+ * VS Code Model Discovery Implementation.
  *
  * Implements IModelDiscovery using VS Code Language Model API:
  * - getCopilotModels: vscode.lm.selectChatModels({ vendor: 'copilot' })

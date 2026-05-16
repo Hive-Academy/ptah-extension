@@ -2,13 +2,11 @@
  * Centralized Dependency Injection Container (Thin Orchestrator)
  *
  * RESPONSIBILITY: Orchestrate service registration across all libraries.
- * Each phase now lives in its own file (`phase-0-platform.ts`, `phase-1-infra.ts`,
+ * Each phase lives in its own file (`phase-0-platform.ts`, `phase-1-infra.ts`,
  * `phase-2-libraries.ts`, `phase-3-handlers.ts`, `phase-4-app.ts`) — this file
  * only wires them together.
  *
- * TASK_2025_291 Wave C1 Step 2a: Split a 628-line container into phase modules.
- *
- * Public API preserved: `setupMinimal`, `setup`, `getContainer`, `resolve`,
+ * Public API: `setupMinimal`, `setup`, `getContainer`, `resolve`,
  * `isRegistered`, `clear`, and the `export { container }` re-export.
  */
 
@@ -27,9 +25,9 @@ import { registerPhase4App } from './phase-4-app';
 
 export class DIContainer {
   /**
-   * Minimal DI setup for license verification (TASK_2025_121 Batch 3).
-   * Called BEFORE the full license check so that license status can be read
-   * without initializing the rest of the extension.
+   * Minimal DI setup for license verification. Called BEFORE the full license
+   * check so that license status can be read without initializing the rest of
+   * the extension.
    */
   static setupMinimal(context: vscode.ExtensionContext): DependencyContainer {
     registerPhase0Platform(container, context);
@@ -41,9 +39,9 @@ export class DIContainer {
    * Full setup for licensed-user activation. Safe to call after `setupMinimal`
    * — every phase uses `isRegistered` guards internally.
    *
-   * Phase order matches the original container (Phase 1.6 handlers before
-   * Phase 2 libraries). All handler registrations are lazy factories, so
-   * registering handlers before their library dependencies is safe.
+   * Handler phase runs before library phase. All handler registrations are
+   * lazy factories, so registering handlers before their library dependencies
+   * is safe.
    */
   static setup(context: vscode.ExtensionContext): DependencyContainer {
     const { logger } = registerPhase0Platform(container, context);

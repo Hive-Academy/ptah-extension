@@ -17,14 +17,10 @@ import { syncCliSkillsOnActivation } from './cli-skill-sync';
 import { syncCliAgentsOnActivation } from './cli-agent-sync';
 
 /**
- * Phase 3 of VS Code activation (TASK_2025_291 Wave C1).
- *
- * Covers:
- * - PtahExtension controller construction + initialize() + registerAll()
- * - Step 12: License-reactive MCP server start (replaces static tier snapshot)
- * - Step 13: License reactivity binder (license:verified / license:expired)
- *            + background revalidation interval
- * - First-time welcome message
+ * Final activation stage: constructs the PtahExtension controller, wires
+ * the license reactivity binder (license:verified / license:expired ->
+ * MCP server + CLI sync lifecycle), schedules background revalidation,
+ * and shows the first-time welcome message.
  *
  * @returns The constructed PtahExtension so the caller can assign it to the
  *   module-level `ptahExtension` variable used by `deactivate()`.
@@ -55,15 +51,14 @@ export async function registerPostInit(
   // directly with the SDK via mcpServers option in SdkAgentAdapter.
 
   // ========================================
-  // STEP 12 + 13: LICENSE REACTIVITY BINDER
+  // LICENSE REACTIVITY BINDER
   // ========================================
-  // Replaces the static startupLicenseTier snapshot gating of Steps 12 and 13.
   // The binder:
   //   - Performs an initial dispatch based on current license state
   //   - Subscribes to license:verified → starts MCP, CLI syncs, invalidates FGS cache
   //   - Subscribes to license:expired  → stops MCP, cleans up CLI, invalidates FGS cache
-  // This fixes the race where a user activates a license mid-session and
-  // premium subsystems were never started (they read a stale community tier).
+  // Fixes the race where a user activates a license mid-session and premium
+  // subsystems were never started (they would otherwise read a stale community tier).
   try {
     const container = DIContainer.getContainer();
 

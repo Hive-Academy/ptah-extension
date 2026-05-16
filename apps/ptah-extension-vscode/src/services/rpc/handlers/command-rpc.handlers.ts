@@ -1,10 +1,5 @@
 /**
- * Command RPC Handlers
- *
- * Handles command-related RPC methods: command:execute
- *
- * TASK_2025_126: Allows webview to execute VS Code commands
- * TASK_2025_129 Batch 3: Added specific whitelisted commands beyond ptah.* prefix
+ * Command RPC Handlers — handles `command:execute`.
  *
  * Security:
  * - Commands with the ptah.* prefix are allowed from webview
@@ -23,10 +18,8 @@ import type {
 import * as vscode from 'vscode';
 
 /**
- * RPC handlers for command operations
- *
- * TASK_2025_126: Enables webview to execute VS Code commands
- * TASK_2025_129 Batch 3: Extended whitelist to include workbench.action.reloadWindow
+ * RPC handlers for command operations — enables webview to execute VS Code
+ * commands.
  *
  * Allowed commands:
  * - ptah.* prefix: All extension-specific commands (e.g., ptah.enterLicenseKey, ptah.openPricing)
@@ -74,9 +67,8 @@ export class CommandRpcHandlers {
 
         this.logger.debug('RPC: command:execute called', { command });
 
-        // SECURITY: Only allow whitelisted commands from webview
-        // This prevents arbitrary VS Code command execution
-        // TASK_2025_129 Batch 3: Added workbench.action.reloadWindow for auth reload
+        // SECURITY: Only allow whitelisted commands from webview to prevent
+        // arbitrary VS Code command execution.
         const ALLOWED_COMMAND_PREFIXES = ['ptah.'];
         const ALLOWED_EXACT_COMMANDS = [
           'workbench.action.reloadWindow',

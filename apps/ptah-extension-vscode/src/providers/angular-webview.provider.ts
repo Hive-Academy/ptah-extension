@@ -6,8 +6,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
-// SessionManager, InteractiveSessionManager DELETED in TASK_2025_023 purge
-// Sessions now handled by ClaudeProcess via CLI --session-id flag
+// Sessions are handled by ClaudeProcess via the CLI --session-id flag.
 import {
   type WebviewMessage,
   type WorkspaceChangedPayload,
@@ -19,21 +18,18 @@ import { WebviewHtmlGenerator } from '../services/webview-html-generator';
  * Workspace information interface
  */
 /**
- * Unified Angular Webview Provider - REFACTORED with Service Extraction
+ * Unified Angular Webview Provider.
  *
  * Responsibilities (SOLID Single Responsibility):
  * 1. Webview lifecycle management (create/resolve/dispose)
  * 2. Message routing (webview ↔ extension via EventBus)
  * 3. Development hot reload (file watching)
  *
- * Extracted Services (Priority 2):
+ * Helper services:
  * - WebviewEventQueue: Event queueing before webview ready
  * - WebviewInitialDataBuilder: Type-safe initial data construction
  *
  * ARCHITECTURE: Webview → EventBus → MessageHandlerService → Orchestration Services
- */
-/**
- * Maximum queue size constant removed - now in WebviewEventQueue
  */
 
 @injectable()
@@ -49,13 +45,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    // SessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
     private readonly eventQueue: WebviewEventQueue,
     @inject(TOKENS.WEBVIEW_MESSAGE_HANDLER)
-    private readonly messageHandler: WebviewMessageHandlerService, // InteractiveSessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions // RpcHandler REMOVED - message handling delegated to WebviewMessageHandlerService
+    private readonly messageHandler: WebviewMessageHandlerService,
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
@@ -75,9 +70,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this.webviewManager.registerWebviewView('ptah.main', webviewView);
     this.logger.info('Webview registered with WebviewManager as "ptah.main"');
 
-    // InteractiveSessionManager DELETED in TASK_2025_023
-    // Sessions now handled by ClaudeProcess via CLI --session-id flag
-
     // Configure webview for Angular app
     // NOTE: context.extensionUri already points to dist/apps/ptah-extension-vscode
     webviewView.webview.options = {
@@ -94,8 +86,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this.htmlGenerator.buildWorkspaceInfo(),
     );
 
-    // TASK_2025_019 Phase 1: Setup RPC message listener using shared service
-    // Uses WebviewMessageHandlerService for unified message handling (RPC, permissions, etc.)
+    // Set up RPC message listener via WebviewMessageHandlerService for
+    // unified message handling (RPC, permissions, etc.).
     this.messageHandler.setupMessageListener(
       {
         webviewId: 'ptah.main',
@@ -122,9 +114,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Create a full-screen Angular SPA panel
-   * Uses shared WebviewMessageHandlerService for unified message handling
-   * TASK_2025_117: Supports multiple independent panels with unique IDs
+   * Create a full-screen Angular SPA panel. Uses shared
+   * WebviewMessageHandlerService for unified message handling. Supports
+   * multiple independent panels with unique IDs.
    */
   public async createPanel(options?: {
     initialSessionId?: string;
@@ -244,8 +236,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Get count of active editor panels
-   * TASK_2025_117: Useful for monitoring and UI decisions
+   * Get count of active editor panels.
    */
   public get panelCount(): number {
     return this._panels.size;
@@ -261,9 +252,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Mark webview as ready and flush queued events
-   * Called after webview HTML loaded and Angular app initialized
-   * FIX-002: Ensures all queued events are delivered after initialization
+   * Mark webview as ready and flush queued events. Called after the webview
+   * HTML loaded and the Angular app initialized so all queued events are
+   * delivered after initialization.
    */
   private markWebviewReady(): void {
     this.eventQueue.markReady();
@@ -288,9 +279,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Send message directly to sidebar webview (bypasses readiness check)
+   * Send message directly to sidebar webview (bypasses readiness check).
    * Internal method used by postMessage and flushEventQueue for SIDEBAR only.
-   * TASK_2025_117: Panel event queues flush directly via their own closure in createPanel().
+   * Panel event queues flush directly via their own closure in createPanel().
    */
   private postMessageDirect(message: WebviewMessage): void {
     if (this._view?.webview) {
@@ -355,8 +346,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Reload webview content (for hot reload during development)
-   * TASK_2025_117: Iterates all panels and sidebar for reload
+   * Reload webview content (for hot reload during development).
+   * Iterates all panels and sidebar for reload.
    */
   private async reloadWebview(): Promise<void> {
     let reloadedCount = 0;
@@ -401,13 +392,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     // NOTE: Hot-reload works by replacing webview.html entirely, no need for refresh signal
   }
 
-  // NOTE: handleWebviewMessage() REMOVED - All message handling now unified via
-  // WebviewMessageHandlerService.setupMessageListener() in resolveWebviewView() and createPanel()
-  // This eliminates ~160 lines of duplicate RPC, permission, and ready-signal handling code.
+  // All message handling is unified via
+  // WebviewMessageHandlerService.setupMessageListener() in resolveWebviewView()
+  // and createPanel().
 
   /**
-   * Dispose of resources
-   * TASK_2025_117: Also disposes all per-panel event queues
+   * Dispose of resources. Also disposes all per-panel event queues.
    */
   dispose(): void {
     this.logger.info('Disposing Angular Webview Provider...');

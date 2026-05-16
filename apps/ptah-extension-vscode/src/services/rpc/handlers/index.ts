@@ -1,15 +1,9 @@
 /**
- * RPC Handlers Index
- *
- * Exports all RPC handler classes for DI registration.
- *
- * TASK_2025_074: Modular RPC handler architecture
- * TASK_2025_203: Tier 1+2 handlers moved to @ptah-extension/rpc-handlers library
+ * RPC Handlers Index — exports all RPC handler classes for DI registration.
  */
 
-// Shared handlers (TASK_2025_203: re-exported from @ptah-extension/rpc-handlers)
+// Shared handlers re-exported from @ptah-extension/rpc-handlers.
 export {
-  // Tier 1
   SessionRpcHandlers,
   ContextRpcHandlers,
   AutocompleteRpcHandlers,
@@ -17,26 +11,21 @@ export {
   LlmRpcHandlers,
   PluginRpcHandlers,
   PtahCliRpcHandlers,
-  // Tier 2 (Batch 3)
   ChatRpcHandlers,
   ConfigRpcHandlers,
   SetupRpcHandlers,
   LicenseRpcHandlers,
   WizardGenerationRpcHandlers,
-  // Tier 2 (Batch 4)
   AuthRpcHandlers,
   EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,
   ProviderRpcHandlers,
-  // Tier 2 (TASK_2025_235 - web search settings)
   WebSearchRpcHandlers,
-  // Harness Setup Builder
   HarnessRpcHandlers,
-  // MCP Server Directory (TASK_2026_104 Batch 6a — lifted to shared)
   McpDirectoryRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
-// Tier 3 handlers (VS Code-specific, stay local)
+// VS Code-specific handlers (stay local).
 export { FileRpcHandlers } from './file-rpc.handlers';
 export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';

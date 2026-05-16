@@ -5,8 +5,6 @@
  * - agent:getConfig - Get agent orchestration configuration + CLI detection results
  * - agent:setConfig - Update agent orchestration VS Code settings
  * - agent:detectClis - Re-detect installed CLI agents (invalidates cache)
- *
- * TASK_2025_157: Agent Orchestration Settings UI
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -42,8 +40,6 @@ import * as os from 'os';
 /**
  * RPC handlers for agent orchestration operations.
  *
- * TASK_2025_157: Agent Orchestration Settings UI
- *
  * Exposes agent orchestration config to the frontend for:
  * - Displaying detected CLI agents (Gemini, Codex)
  * - Configuring default CLI, max concurrent agents, timeout
@@ -76,12 +72,12 @@ export class AgentRpcHandlers {
     this.registerSetConfig();
     this.registerDetectClis();
     this.registerListCliModels();
-    this.registerPermissionResponse(); // TASK_2025_162
+    this.registerPermissionResponse();
     this.registerAgentStop();
-    this.registerResumeCliSession(); // TASK_2025_173
+    this.registerResumeCliSession();
 
-    // Initialize Copilot auto-approve from saved config (default: true)
-    // TASK_2025_247: Read via IWorkspaceProvider so file-based keys route to ~/.ptah/settings.json
+    // Initialize Copilot auto-approve from saved config (default: true).
+    // Read via IWorkspaceProvider so file-based keys route to ~/.ptah/settings.json.
     const copilotAutoApprove =
       this.workspaceProvider.getConfiguration<boolean>(
         'ptah',
@@ -112,11 +108,9 @@ export class AgentRpcHandlers {
   /**
    * agent:getConfig - Get agent orchestration configuration
    *
-   * Reads settings via IWorkspaceProvider and combines with CLI detection results.
-   * Uses cached detection results (fast after first call).
-   *
-   * TASK_2025_247: Refactored from direct vscode.workspace.getConfiguration()
-   * to use IWorkspaceProvider so file-based keys route to ~/.ptah/settings.json.
+   * Reads settings via IWorkspaceProvider and combines with CLI detection
+   * results. Uses cached detection results (fast after first call). Uses
+   * IWorkspaceProvider so file-based keys route to ~/.ptah/settings.json.
    */
   private registerGetConfig(): void {
     this.rpcHandler.registerMethod<void, AgentOrchestrationConfig>(
@@ -298,12 +292,11 @@ export class AgentRpcHandlers {
   /**
    * Perform configuration updates for all provided params.
    *
-   * TASK_2025_247: Refactored from direct vscode.workspace.getConfiguration()
-   * to use IWorkspaceProvider.setConfiguration() so file-based keys (codexModel,
+   * Uses IWorkspaceProvider.setConfiguration() so file-based keys (codexModel,
    * copilotModel, etc.) route to ~/.ptah/settings.json via PtahFileSettingsManager.
-   * Non-file-based keys (preferredAgentOrder, maxConcurrentAgents, etc.) continue
-   * to write to VS Code settings via the same IWorkspaceProvider (which delegates
-   * to vscode.workspace.getConfiguration for non-file-based keys).
+   * Non-file-based keys (preferredAgentOrder, maxConcurrentAgents, etc.) write
+   * to VS Code settings via the same IWorkspaceProvider (which delegates to
+   * vscode.workspace.getConfiguration for non-file-based keys).
    */
   private async doApplyConfigUpdates(
     params: AgentSetConfigParams,
@@ -587,9 +580,8 @@ export class AgentRpcHandlers {
    * 2. CopilotPermissionBridge (Copilot SDK permissions) - via CLI adapter
    *
    * Both handlers silently ignore unknown requestIds, so trying both is safe.
-   *
-   * TASK_2025_162: Copilot SDK Integration
-   * TASK_2025_255: Extended to also route to SdkPermissionHandler for Ptah CLI agents
+   * Routes to SdkPermissionHandler for Ptah CLI agents and to
+   * CopilotPermissionBridge for Copilot SDK permissions.
    */
   private registerPermissionResponse(): void {
     this.rpcHandler.registerMethod<
@@ -605,7 +597,7 @@ export class AgentRpcHandlers {
         let handled = false;
 
         // Try SdkPermissionHandler first (handles Ptah CLI agent permissions)
-        // Uses lazy container resolution (same pattern as webview-message-handler.service.ts:464)
+        // using lazy container resolution.
         if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
           const permissionHandler = container.resolve<ISdkPermissionHandler>(
             SDK_TOKENS.SDK_PERMISSION_HANDLER,
@@ -703,8 +695,6 @@ export class AgentRpcHandlers {
    * For Ptah CLI: routes through PtahCliRegistry.spawnAgent() with
    * resumeSessionId, since ptah-cli is an in-process SDK adapter, not a
    * real CLI binary.
-   *
-   * TASK_2025_173: CLI agent session resume-on-click
    */
   private registerResumeCliSession(): void {
     this.rpcHandler.registerMethod<
@@ -861,7 +851,7 @@ export class AgentRpcHandlers {
       },
     );
 
-    // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
+    // Wire agentId so CLI permission requests route to agent monitor panel.
     spawnResult.setAgentId(result.agentId);
 
     return result;

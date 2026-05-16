@@ -12,10 +12,10 @@ import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 import type { LicenseCommands } from '../commands/license-commands';
 
 /**
- * Main extension class for Ptah
+ * Main extension class for Ptah.
  *
- * TASK_2025_023: Simplified after purge - no more "legacy" services or backward compatibility layers.
- * All services resolved from DI container. Extension only coordinates webview registration.
+ * All services resolved from the DI container; this class only coordinates
+ * webview registration.
  */
 export class PtahExtension implements vscode.Disposable {
   private static _instance: PtahExtension;
@@ -82,7 +82,7 @@ export class PtahExtension implements vscode.Disposable {
    * Register all components - called after initialization
    */
   async registerAll(): Promise<void> {
-    // Register license commands (TASK_2025_075 Batch 6)
+    // Register license commands.
     const licenseCommands = DIContainer.resolve<LicenseCommands>(
       TOKENS.LICENSE_COMMANDS,
     );
@@ -118,8 +118,8 @@ export class PtahExtension implements vscode.Disposable {
     );
     this.disposables.push(disposable);
 
-    // TASK_2025_117: Register command to open editor panel
-    // This command is declared in package.json and triggered from webview header button
+    // Register command to open editor panel.
+    // This command is declared in package.json and triggered from webview header button.
     const provider = this.angularWebviewProvider;
     const logger = this.logger;
     const panelCommand = vscode.commands.registerCommand(

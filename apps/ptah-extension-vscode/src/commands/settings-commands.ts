@@ -6,7 +6,7 @@
  * - Ptah: Export Settings
  * - Ptah: Import Settings
  *
- * TASK_2025_210 Batch 2: VS Code export/import commands for cross-platform settings portability.
+ * Provides cross-platform settings portability for VS Code.
  *
  * Security:
  * - Export warns users that secrets will be stored in PLAINTEXT
@@ -40,7 +40,7 @@ export class SettingsCommands {
   constructor(
     private readonly exportService: SettingsExportService,
     private readonly importService: SettingsImportService,
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {}
 
   /**
@@ -55,11 +55,11 @@ export class SettingsCommands {
   registerCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
       vscode.commands.registerCommand('ptah.exportSettings', () =>
-        this.exportSettings()
+        this.exportSettings(),
       ),
       vscode.commands.registerCommand('ptah.importSettings', () =>
-        this.importSettings()
-      )
+        this.importSettings(),
+      ),
     );
   }
 
@@ -80,7 +80,7 @@ export class SettingsCommands {
       'This will export your API keys and tokens in PLAINTEXT to a JSON file. ' +
         'Only use this file on trusted devices and delete it after importing. Continue?',
       { modal: true },
-      'Export Settings'
+      'Export Settings',
     );
 
     if (proceed !== 'Export Settings') {
@@ -96,7 +96,7 @@ export class SettingsCommands {
         error: error instanceof Error ? error.message : String(error),
       });
       vscode.window.showErrorMessage(
-        'Failed to collect settings. Check the output log for details.'
+        'Failed to collect settings. Check the output log for details.',
       );
       return;
     }
@@ -124,7 +124,7 @@ export class SettingsCommands {
       vscode.window.showErrorMessage(
         `Failed to write export file: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return;
     }
@@ -136,7 +136,7 @@ export class SettingsCommands {
 
     vscode.window.showInformationMessage(
       `Settings exported successfully! ${totalCount} item(s) saved ` +
-        `(${secretCount} credential(s), ${configCount} config value(s)).`
+        `(${secretCount} credential(s), ${configCount} config value(s)).`,
     );
 
     this.logger.info('[SettingsCommands] Export complete', {
@@ -186,7 +186,7 @@ export class SettingsCommands {
       vscode.window.showErrorMessage(
         `Failed to read or parse import file: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return;
     }
@@ -202,7 +202,7 @@ export class SettingsCommands {
       vscode.window.showErrorMessage(
         `Failed to import settings: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return;
     }
@@ -232,11 +232,11 @@ export class SettingsCommands {
     if (result.errors.length > 0) {
       vscode.window.showWarningMessage(
         `Settings import completed with issues: ${summary}. ` +
-          `Errors: ${result.errors.join('; ')}`
+          `Errors: ${result.errors.join('; ')}`,
       );
     } else {
       vscode.window.showInformationMessage(
-        `Settings import complete: ${summary}.`
+        `Settings import complete: ${summary}.`,
       );
     }
 
@@ -246,7 +246,7 @@ export class SettingsCommands {
         'It contains plaintext API keys and tokens that should not be left on disk.',
       { modal: true },
       'Reload Window',
-      'OK'
+      'OK',
     );
 
     if (deleteWarning === 'Reload Window') {

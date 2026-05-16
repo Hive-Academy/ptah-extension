@@ -1,9 +1,6 @@
 /**
  * Phase 4 — App-level services (storage adapters, webview support, command handlers)
  *
- * Extracted from `container.ts` as part of TASK_2025_291 Wave C1, Step 2a.
- * Corresponds to the original file's Phase 3 / 4 / 5 blocks.
- *
  * These services are truly app-level:
  *   - Storage adapters wrap VS Code's `workspaceState` / `globalState` directly.
  *   - `WebviewHtmlGenerator` requires the `ExtensionContext` captured via closure
@@ -27,9 +24,7 @@ export function registerPhase4App(
   container: DependencyContainer,
   context: vscode.ExtensionContext,
 ): void {
-  // ========================================
-  // PHASE 3: Storage Adapters
-  // ========================================
+  // Storage Adapters.
   // Storage adapter over VS Code's workspaceState. The `get` wrapper resolves
   // the `undefined`-handling quirk of `workspaceState.get<T>(key)` which does
   // not respect the `defaultValue` parameter signature cleanly.
@@ -47,9 +42,7 @@ export function registerPhase4App(
   // Global state adapter (pricing cache uses globalState for cross-workspace persistence).
   container.register(TOKENS.GLOBAL_STATE, { useValue: context.globalState });
 
-  // ========================================
-  // PHASE 4: Webview Support Services
-  // ========================================
+  // Webview Support Services.
   container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
 
   // WebviewHtmlGenerator — used by AngularWebviewProvider and SetupWizardService.
@@ -65,8 +58,6 @@ export function registerPhase4App(
     AngularWebviewProvider,
   );
 
-  // ========================================
-  // PHASE 5: Command Handlers (TASK_2025_075)
-  // ========================================
+  // Command Handlers.
   container.registerSingleton(TOKENS.LICENSE_COMMANDS, LicenseCommands);
 }

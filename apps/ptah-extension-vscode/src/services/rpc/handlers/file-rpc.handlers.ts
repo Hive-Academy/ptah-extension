@@ -1,12 +1,8 @@
 /**
- * File RPC Handlers
+ * File RPC Handlers — handles file:open, file:pick, file:pick-images.
  *
- * Handles file-related RPC methods: file:open, file:pick, file:pick-images
- * Opens files in VS Code editor with optional line navigation.
- * Provides native file picker dialogs for attaching files and images.
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_262: Added file:pick and file:pick-images for attachment buttons
+ * Opens files in VS Code editor with optional line navigation. Provides
+ * native file picker dialogs for attaching files and images.
  */
 
 import { injectable, inject } from 'tsyringe';

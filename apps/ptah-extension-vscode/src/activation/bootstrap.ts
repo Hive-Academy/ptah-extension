@@ -24,33 +24,25 @@ export interface BootstrapResult {
 }
 
 /**
- * Phase 1 of VS Code activation (TASK_2025_291 Wave C1).
- *
- * Covers:
- * - Step 1: minimal DI setup for license check
- * - Step 1b: Sentry initialization
- * - Step 2: license verification (blocking — returns `{ blocked: true }` if invalid)
- * - Step 3: full DI setup for licensed users
- * - Step 4: logger resolution + RPC method registration + autocomplete discovery watchers
- * - Step 7: agent adapter initialization + SDK preload (fire-and-forget)
+ * Bootstraps the VS Code extension: minimal DI for the license gate,
+ * Sentry initialization, blocking license verification (returns
+ * `{ blocked: true }` when invalid), full DI setup for licensed users,
+ * RPC method registration, autocomplete discovery watchers, and
+ * fire-and-forget agent adapter initialization + SDK preload.
  */
 export async function bootstrapVscode(
   context: vscode.ExtensionContext,
 ): Promise<BootstrapResult> {
-  // STEP 0: Repair process.env.PATH on Linux/macOS when VS Code was
-  // launched from a GUI launcher (Activities, dock, Finder, Spotlight).
-  // GUI-launched processes do not source ~/.bashrc / ~/.zshrc, so npm
-  // global bin (~/.nvm/.../bin, ~/.npm-global/bin, …) is missing from
-  // PATH and CLI detection (Gemini, Codex, Copilot, Cursor) reports
-  // every CLI as "Not Found". Must run before DI/CLI registry creation.
-  // No-op on Windows.
+  // Repair process.env.PATH on Linux/macOS when VS Code was launched from a
+  // GUI launcher (Activities, dock, Finder, Spotlight). GUI-launched processes
+  // do not source ~/.bashrc / ~/.zshrc, so npm global bin
+  // (~/.nvm/.../bin, ~/.npm-global/bin, …) is missing from PATH and CLI
+  // detection (Gemini, Codex, Copilot, Cursor) reports every CLI as "Not
+  // Found". Must run before DI/CLI registry creation. No-op on Windows.
   fixPath();
 
-  // ========================================
-  // STEP 1: MINIMAL DI SETUP FOR LICENSE CHECK (TASK_2025_121)
-  // ========================================
-  // Initialize minimal DI container with only license-related services
-  // This allows license verification before full service initialization
+  // Initialize minimal DI container with only license-related services so
+  // license verification can run before full service initialization.
   DIContainer.setupMinimal(context);
 
   // Initialize Sentry — DSN is injected at build time via esbuild define.
@@ -71,19 +63,16 @@ export async function bootstrapVscode(
     });
   }
 
-  // ========================================
-  // STEP 2: LICENSE VERIFICATION (BLOCKING)
-  // ========================================
-  // CRITICAL: License verification MUST happen BEFORE full service init
-  // If license is invalid, block extension and show license UI
+  // License verification (blocking): must happen before full service init.
+  // If the license is invalid, block extension and show license UI.
   const licenseService = DIContainer.resolve<LicenseService>(
     TOKENS.LICENSE_SERVICE,
   );
   const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
 
-  // TASK_2025_128: Freemium model - Community tier has valid: true
-  // This check only blocks users with explicitly expired/revoked licenses (payment failures)
-  // Community users (no license key) have valid: true and bypass this block
+  // Freemium model: Community tier has valid: true. This check only blocks
+  // users with explicitly expired/revoked licenses (payment failures);
+  // community users (no license key) have valid: true and bypass this block.
   if (!licenseStatus.valid) {
     // BLOCK EXTENSION - Only for revoked/payment-failed licenses
     // Handle blocking flow (show UI, register minimal commands)
@@ -93,7 +82,7 @@ export async function bootstrapVscode(
     // `logger` is not yet resolved (full DI not set up), so we return a placeholder
     // resolved from the minimal container — the caller will not use it when blocked.
     return {
-      // Logger is available via minimal DI as well (registered in Phase 1 infra)
+      // Logger is available via minimal DI as well.
       logger: DIContainer.resolve<Logger>(TOKENS.LOGGER),
       licenseStatus,
       authInitialized: false,
@@ -103,21 +92,19 @@ export async function bootstrapVscode(
 
   // Community and Pro users both reach here
 
-  // ========================================
-  // STEP 3: FULL DI SETUP (Licensed users only)
-  // ========================================
+  // Full DI setup (licensed users only).
   DIContainer.setup(context);
 
   // ========================================
-  // STEP 3.05: UNIFIED SETTINGS REGISTRATION + MIGRATION (WP-3C, Batch 3)
+  // UNIFIED SETTINGS REGISTRATION + MIGRATION
   // ========================================
   // registerVscodeSettings wires SETTINGS_TOKENS (SETTINGS_STORE, all 9
   // repository tokens, MIGRATION_RUNNER) into the container.
   //
   // runMigrations() MUST run before any service resolves MODEL_SETTINGS or
   // REASONING_SETTINGS. Services are registered lazily (factory/singleton)
-  // and first resolved when agentAdapter.initialize() is called in Step 7,
-  // so running the migration here satisfies the R2 ordering constraint.
+  // and first resolved when agentAdapter.initialize() is called below, so
+  // running the migration here satisfies the ordering constraint.
   //
   // DIContainer.setup() is synchronous; bootstrapVscode() is async, so we
   // can safely await here without making the phase chain async.
@@ -150,9 +137,6 @@ export async function bootstrapVscode(
   // ships as a single cross-platform package and intentionally does not
   // carry the `better-sqlite3` / `sqlite-vec` native binaries.
 
-  // ========================================
-  // STEP 3.5: MIGRATE FILE-BASED SETTINGS (TASK_2025_247)
-
   // Get logger from DI container
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Activating Ptah extension (licensed user)...', {
@@ -160,15 +144,14 @@ export async function bootstrapVscode(
     valid: licenseStatus.valid,
   });
 
-  // Register RPC Methods (Phase 2 - TASK_2025_021)
-  // Extracted to RpcMethodRegistrationService for clean separation
+  // Register RPC Methods via RpcMethodRegistrationService.
   const rpcMethodRegistration = DIContainer.resolve(
     TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
   ) as { registerAll: () => void };
   rpcMethodRegistration.registerAll();
 
-  // Initialize autocomplete discovery watchers (TASK_2025_019 Phase 2)
-  // NOTE: MCP discovery service was planned but never implemented - only agent and command discovery exist
+  // Initialize autocomplete discovery watchers.
+  // NOTE: MCP discovery service was planned but never implemented — only agent and command discovery exist.
   const agentDiscovery = DIContainer.resolve(
     TOKENS.AGENT_DISCOVERY_SERVICE,
   ) as { initializeWatchers: () => void };
@@ -179,7 +162,7 @@ export async function bootstrapVscode(
   commandDiscovery.initializeWatchers();
   logger.info('Autocomplete discovery watchers initialized (2 services)');
 
-  // Step 7: Initialize agent adapter (SDK-only, resolves via TOKENS.AGENT_ADAPTER)
+  // Initialize agent adapter (SDK-only, resolves via TOKENS.AGENT_ADAPTER).
   const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
     initialize: () => Promise<boolean>;
     preloadSdk: () => Promise<void>;

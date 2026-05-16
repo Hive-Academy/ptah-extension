@@ -1,22 +1,20 @@
 /**
- * Wizard memory seed — VS Code graceful-degradation (TASK_2026_THOTH_WIZARD_SEED Batch 5 T5.2)
+ * Wizard memory seed — VS Code graceful-degradation.
  *
  * Verifies that `wizard:deep-analyze` completes successfully when
  * `PLATFORM_TOKENS.MEMORY_WRITER` is NOT registered in the container —
  * the current state of VS Code's `phase-2-libraries.ts`, which does not call
  * `registerMemoryCuratorServices`.
  *
- * The expected behaviour (plan §3.8 Resolution Guard):
+ * Expected behaviour:
  *  1. `resolveMemoryWriterOrNull()` catches the container throw and returns null.
  *  2. `seedWizardMemory` logs `[SetupWizard] Memory seeding skipped (store unavailable)`
  *     at `info` level.
  *  3. The RPC response is returned successfully — no exception bubbles.
  *
- * This test mirrors `setup-rpc.handlers.spec.ts` test #12 ("seed-skipped-no-writer")
- * but is placed in the VS Code application package to document that the graceful-
- * degradation contract is explicitly verified at the app boundary, not just in the
- * shared rpc-handlers library. The test uses the same mock harness established in
- * that library's spec file.
+ * This test documents that the graceful-degradation contract is explicitly
+ * verified at the VS Code app boundary, not just in the shared rpc-handlers
+ * library. It uses the same mock harness as the sibling spec in that library.
  *
  * Run: `nx test ptah-extension-vscode --testPathPattern=wizard-seed-noop`
  * Or:  `nx test ptah-extension-vscode`

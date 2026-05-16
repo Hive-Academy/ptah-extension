@@ -1,22 +1,18 @@
 /**
  * Phase 1 — Infrastructure (LicenseService, platform-abstraction impls, vscode-core)
  *
- * Extracted from `container.ts` as part of TASK_2025_291 Wave C1, Step 2a.
- *
  * Exports two entry points:
  *   - `registerPhase1InfraMinimal`: used by `DIContainer.setupMinimal` — registers
  *     only `TOKENS.LICENSE_SERVICE` (Phase 0 has already registered everything
  *     LicenseService needs: EXTENSION_CONTEXT, LOGGER, CONFIG_MANAGER, SENTRY).
  *   - `registerPhase1Infra`: used by `DIContainer.setup` — registers platform
- *     abstraction implementations (Phase 1.4.5), delegates the full vscode-core
- *     block to `registerVsCodeCoreServices` (Phase 1.5), and wires file-based
- *     settings into ConfigManager (Phase 1.5.0).
+ *     abstraction implementations, delegates the full vscode-core block to
+ *     `registerVsCodeCoreServices`, and wires file-based settings into
+ *     ConfigManager.
  *
- * NOTE: The original Phase 1.5.1 explicit `SUBAGENT_REGISTRY_SERVICE` registration
- * has been REMOVED. `registerVsCodeCoreServices` now delegates to the platform-
- * agnostic helper (`registerVsCodeCorePlatformAgnostic`), which guardedly
- * registers `SUBAGENT_REGISTRY_SERVICE` itself. Re-registering here would be a
- * redundant no-op.
+ * `registerVsCodeCoreServices` delegates to the platform-agnostic helper
+ * (`registerVsCodeCorePlatformAgnostic`), which guardedly registers
+ * `SUBAGENT_REGISTRY_SERVICE` itself — no explicit registration needed here.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -48,7 +44,7 @@ import {
  *
  * Prerequisite: `registerPhase0Platform` must have run first — LicenseService
  * depends on EXTENSION_CONTEXT, LOGGER, and CONFIG_MANAGER, all registered by
- * Phase 0.
+ * the platform phase.
  */
 export function registerPhase1InfraMinimal(
   container: DependencyContainer,
@@ -62,22 +58,20 @@ export function registerPhase1InfraMinimal(
  * Full infrastructure for the licensed-user activation path.
  *
  * Registers (in order):
- *   - Phase 1.4.5: PLATFORM_COMMANDS, PLATFORM_AUTH_PROVIDER, SAVE_DIALOG_PROVIDER, MODEL_DISCOVERY
- *   - Phase 1.5:   delegates to `registerVsCodeCoreServices` which registers
- *                  13 tokens including the platform-agnostic block (RPC_HANDLER,
- *                  MESSAGE_VALIDATOR, AGENT_SESSION_WATCHER_SERVICE,
- *                  SUBAGENT_REGISTRY_SERVICE, FEATURE_GATE_SERVICE, SENTRY_SERVICE,
- *                  LICENSE_SERVICE, AUTH_SECRETS_SERVICE).
- *   - Phase 1.5.0: wires file-based settings into ConfigManager (TASK_2025_253).
+ *   - Platform abstraction implementations: PLATFORM_COMMANDS,
+ *     PLATFORM_AUTH_PROVIDER, SAVE_DIALOG_PROVIDER, MODEL_DISCOVERY
+ *   - Delegates to `registerVsCodeCoreServices` which registers 13 tokens
+ *     including the platform-agnostic block (RPC_HANDLER, MESSAGE_VALIDATOR,
+ *     AGENT_SESSION_WATCHER_SERVICE, SUBAGENT_REGISTRY_SERVICE,
+ *     FEATURE_GATE_SERVICE, SENTRY_SERVICE, LICENSE_SERVICE, AUTH_SECRETS_SERVICE).
+ *   - Wires file-based settings into ConfigManager.
  */
 export function registerPhase1Infra(
   container: DependencyContainer,
   context: vscode.ExtensionContext,
   logger: Logger,
 ): void {
-  // ========================================
-  // PHASE 1.4.5: Platform Abstraction Implementations (TASK_2025_203)
-  // ========================================
+  // Platform Abstraction Implementations.
   // Must be registered BEFORE handler classes that depend on these tokens.
   container.registerSingleton(TOKENS.PLATFORM_COMMANDS, VsCodePlatformCommands);
   container.registerSingleton(
@@ -87,19 +81,14 @@ export function registerPhase1Infra(
   container.registerSingleton(TOKENS.SAVE_DIALOG_PROVIDER, VsCodeSaveDialog);
   container.registerSingleton(TOKENS.MODEL_DISCOVERY, VsCodeModelDiscovery);
 
-  // ========================================
-  // PHASE 1.5: Register remaining vscode-core infrastructure services
-  // ========================================
-  // Also registers the platform-agnostic block via
-  // `registerVsCodeCorePlatformAgnostic` (TASK_2025_291 Wave C1 Step 1).
+  // Register remaining vscode-core infrastructure services. Also registers
+  // the platform-agnostic block via `registerVsCodeCorePlatformAgnostic`.
   registerVsCodeCoreServices(container, context, logger);
 
-  // ========================================
-  // PHASE 1.5.0: Wire file-based settings into ConfigManager (TASK_2025_253)
-  // ========================================
-  // ConfigManager must route FILE_BASED_SETTINGS_KEYS to PtahFileSettingsManager
-  // (~/.ptah/settings.json) instead of VS Code workspace config. These keys were
-  // removed from package.json contributes.configuration (TASK_2025_247).
+  // Wire file-based settings into ConfigManager. ConfigManager must route
+  // FILE_BASED_SETTINGS_KEYS to PtahFileSettingsManager (~/.ptah/settings.json)
+  // instead of VS Code workspace config. These keys were removed from
+  // package.json contributes.configuration.
   const configManager = container.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
   const workspaceProvider = container.resolve(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
@@ -110,11 +99,7 @@ export function registerPhase1Infra(
     isFileBasedSettingKey,
   );
 
-  // ========================================
-  // PHASE 1.5.1: Subagent Registry Service — REMOVED
-  // ========================================
-  // Original Phase 1.5.1 registered TOKENS.SUBAGENT_REGISTRY_SERVICE here.
-  // As of Wave C1 Step 1, `registerVsCodeCoreServices` delegates to
-  // `registerVsCodeCorePlatformAgnostic`, which registers this token guardedly.
-  // The explicit registration has been removed to eliminate the duplicate.
+  // SUBAGENT_REGISTRY_SERVICE is registered guardedly by
+  // registerVsCodeCorePlatformAgnostic (invoked above), so no explicit
+  // registration is needed here.
 }
