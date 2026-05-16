@@ -1,4 +1,4 @@
-﻿/**
+/**
  * StreamingHandlerService - Flat Event Storage and Processing
  *
  * Refactored to delegate to child services for better maintainability:

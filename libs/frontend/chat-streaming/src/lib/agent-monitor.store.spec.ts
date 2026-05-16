@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AgentMonitorStore Tests â€” resolveParentSessionId & Session-Scoped Signals
  *
  * Tests the tab ID â†’ real UUID resolution and session-scoped filtering

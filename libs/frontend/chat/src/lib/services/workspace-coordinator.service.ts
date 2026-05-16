@@ -1,4 +1,4 @@
-﻿import { Injectable, inject, Injector } from '@angular/core';
+import { Injectable, inject, Injector } from '@angular/core';
 import {
   type IWorkspaceCoordinator,
   type ConfirmDialogOptions,

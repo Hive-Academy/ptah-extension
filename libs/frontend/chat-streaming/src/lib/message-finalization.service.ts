@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MessageFinalizationService - Finalize streaming messages to chat messages
  *
  * Extracted from StreamingHandlerService to handle:

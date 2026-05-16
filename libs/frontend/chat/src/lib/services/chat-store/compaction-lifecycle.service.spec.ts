@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CompactionLifecycleService specs â€” SDK session-compaction state machine.
  *
  * Coverage:

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ModelSelectorComponent - Elegant AI Model Selection Dropdown
  *
  * A standalone dropdown component for selecting Claude AI models.

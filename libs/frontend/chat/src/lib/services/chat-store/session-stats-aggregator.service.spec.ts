@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SessionStatsAggregatorService specs â€” SESSION_STATS aggregation.
  *
  * Coverage:

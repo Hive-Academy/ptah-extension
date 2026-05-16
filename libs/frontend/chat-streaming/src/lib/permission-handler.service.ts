@@ -1,4 +1,4 @@
-﻿/**
+/**
  * PermissionHandlerService - Permission & Question Request Management
  *
  * Extracted from ChatStore to handle permission-related operations:

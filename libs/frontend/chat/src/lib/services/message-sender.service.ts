@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MessageSenderService - Centralized Message Sending Logic (Mediator Pattern)
  *
  * Eliminates 3-level callback indirection by providing direct message sending API.

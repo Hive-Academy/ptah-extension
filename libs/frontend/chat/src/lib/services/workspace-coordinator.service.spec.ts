@@ -1,4 +1,4 @@
-﻿/**
+/**
  * WorkspaceCoordinatorService specs â€” orchestrates workspace switching across
  * TabManager, SessionLoader, ConfirmationDialog and lazy-loaded editor services.
  *

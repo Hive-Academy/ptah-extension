@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MessageSenderService specs â€” mediator that routes send/continue based on
  * whether the target tab already has a claudeSessionId.
  *

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * PermissionHandlerService specs â€” permission + question request lifecycle.
  *
  * Coverage:

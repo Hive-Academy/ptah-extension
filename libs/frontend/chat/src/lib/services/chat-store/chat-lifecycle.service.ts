@@ -1,4 +1,4 @@
-﻿import { Injectable, signal, inject } from '@angular/core';
+import { Injectable, signal, inject } from '@angular/core';
 import {
   ClaudeRpcService,
   AuthStateService,

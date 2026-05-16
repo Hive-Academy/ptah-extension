@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ConversationService - New Conversation and Send Logic
  *
  * Extracted from ChatStore to handle conversation-related operations:

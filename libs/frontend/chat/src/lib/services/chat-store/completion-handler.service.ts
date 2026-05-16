@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CompletionHandlerService - Chat Completion and Error Handling
  *
  * TASK_2025_101: This service is largely deprecated.

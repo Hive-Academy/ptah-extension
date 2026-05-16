@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MessageDispatchService specs â€” send-vs-queue routing + slash-command guard.
  *
  * Coverage:

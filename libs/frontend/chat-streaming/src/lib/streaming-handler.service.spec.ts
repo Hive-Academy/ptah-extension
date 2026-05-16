@@ -1,4 +1,4 @@
-﻿/**
+/**
  * StreamingHandlerService specs â€” flat-event ingest hot-path coverage.
  *
  * What is in scope:

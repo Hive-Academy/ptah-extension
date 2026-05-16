@@ -1,4 +1,4 @@
-﻿/**
+/**
  * BatchedUpdateService - RAF-based batched UI updates
  *
  * Extracted from StreamingHandlerService to handle:

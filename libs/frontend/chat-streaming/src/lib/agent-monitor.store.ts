@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Agent Monitor Store
  *
  * Signal-based store for real-time agent process monitoring.

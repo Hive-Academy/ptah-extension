@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SessionLoaderService - Session List Management and Session Switching
  *
  * Extracted from ChatStore to handle session-related operations:

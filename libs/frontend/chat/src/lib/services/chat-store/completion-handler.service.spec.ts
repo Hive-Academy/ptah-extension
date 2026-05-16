@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CompletionHandlerService specs â€” error routing from chat:error events.
  *
  * The service is largely deprecated (per its own docstring) and now only

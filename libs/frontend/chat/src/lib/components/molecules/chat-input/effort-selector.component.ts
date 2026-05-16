@@ -1,4 +1,4 @@
-﻿/**
+/**
  * EffortSelectorComponent - Reasoning Effort Level Dropdown
  *
  * A standalone dropdown for selecting Claude's reasoning effort level.

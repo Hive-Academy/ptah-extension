@@ -1,4 +1,4 @@
-﻿import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { calculateSessionCostSummary, SessionId } from '@ptah-extension/shared';
 import {
   ConversationRegistry,

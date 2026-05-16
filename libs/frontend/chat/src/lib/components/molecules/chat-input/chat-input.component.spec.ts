@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Unit tests for ChatInputComponent - Event handler logic
  *
  * Tests the @ trigger autocomplete race condition fix:

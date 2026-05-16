@@ -1,4 +1,4 @@
-﻿import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   ExecutionNode,

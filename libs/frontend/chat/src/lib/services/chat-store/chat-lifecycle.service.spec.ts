@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ChatLifecycleService specs â€” bootstrap, license retry, agent-summary routing,
  * session-ID resolution, chat-error handling.
  *

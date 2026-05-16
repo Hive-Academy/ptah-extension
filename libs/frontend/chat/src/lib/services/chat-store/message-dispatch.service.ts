@@ -1,4 +1,4 @@
-﻿import { Injectable, inject } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
