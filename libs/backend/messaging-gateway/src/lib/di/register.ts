@@ -3,11 +3,11 @@
  *
  * Mirrors the contract of `registerSdkServices` / `registerPersistenceSqliteServices`:
  * callers must already have:
- *   - `TOKENS.LOGGER` registered (vscode-core / electron container Phase 1).
+ *   - `TOKENS.LOGGER` registered.
  *   - `PLATFORM_TOKENS.WORKSPACE_PROVIDER` registered.
  *   - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` registered.
  *   - `GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT` registered (Electron host wires
- *     `ElectronSafeStorageVault` in `phase-3-storage.ts`).
+ *     `ElectronSafeStorageVault`).
  */
 import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';

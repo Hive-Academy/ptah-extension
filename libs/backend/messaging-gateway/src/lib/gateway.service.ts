@@ -180,7 +180,7 @@ export class GatewayService extends EventEmitter {
     }
   }
 
-  /** Inject grammy bot factory before start (used by adapter wiring tests). */
+  /** Inject grammy bot factory before start. */
   configureFactories(opts: {
     telegramBotFactory?: TelegramBotFactory;
     discordClientFactory?: DiscordClientFactory;
@@ -293,7 +293,7 @@ export class GatewayService extends EventEmitter {
    * The ITokenVault.encrypt() call produces a Vault cipher (application-layer
    * encryption). The resulting cipher is then stored via the GatewaySettings
    * secret handles, which apply AES-256-GCM envelope encryption on top
-   * (two-layer encryption — see WP-4A design doc for rationale).
+   * (two-layer encryption for defense-in-depth).
    */
   async setToken(args: {
     platform: GatewayPlatform;

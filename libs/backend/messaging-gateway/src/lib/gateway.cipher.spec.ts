@@ -1,5 +1,5 @@
 /**
- * Gateway cipher round-trip — behavioral test (Fix 1).
+ * Gateway cipher round-trip — behavioral test.
  *
  * Verifies that the full setToken → persist → decryptToken pipeline works
  * end-to-end using:

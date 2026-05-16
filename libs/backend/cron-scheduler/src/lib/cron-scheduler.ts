@@ -150,11 +150,9 @@ export class CronScheduler {
 
   create(input: Omit<CreateJobInput, 'nextRunAt'>): ScheduledJob {
     const tz = input.timezone ?? 'UTC';
-    // Validate by constructing a paused Cron — croner throws synchronously
-    // on invalid expr or unknown tz. We pass the error through verbatim.
-    const Cron = loadCron();
     // Construct a paused Cron — croner throws synchronously on invalid expr
     // or unknown tz. Let the error propagate verbatim (architecture §5.3).
+    const Cron = loadCron();
     const probe = new Cron(input.cronExpr, {
       timezone: tz,
       protect: false,

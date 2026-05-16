@@ -3,8 +3,7 @@
  *
  * Pre-conditions (caller responsibility):
  *  - `TOKENS.LOGGER` is registered (vscode-core).
- *  - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` is registered + opened+migrated
- *    (persistence-sqlite, Electron Phase 4.51).
+ *  - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` is registered + opened+migrated.
  *  - `SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE` is registered (agent-sdk).
  *  - `CRON_TOKENS.CRON_POWER_MONITOR` is registered as `useValue` or
  *    `useClass` by the host app — Electron registers `ElectronPowerMonitor`,
