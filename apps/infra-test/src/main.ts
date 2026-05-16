@@ -1,8 +1,6 @@
 /**
  * Infra Test - Trial Reminder Cron Test Client
  *
- * TASK_2025_143: Test script for manually triggering trial expiration workflow
- *
  * This script calls the license server's admin endpoint to trigger the actual
  * TrialReminderService cron job, ensuring we test the real implementation.
  *
@@ -101,12 +99,12 @@ async function main(): Promise<void> {
     console.error('❌ ERROR: ADMIN_SECRET is not set!');
     console.error('');
     console.error(
-      '   Set ADMIN_SECRET in your environment or use --secret=<value>'
+      '   Set ADMIN_SECRET in your environment or use --secret=<value>',
     );
     console.error('');
     console.error('   Example:');
     console.error(
-      '     ADMIN_SECRET=my-test-secret npx ts-node apps/infra-test/src/main.ts'
+      '     ADMIN_SECRET=my-test-secret npx ts-node apps/infra-test/src/main.ts',
     );
     console.error('');
     process.exit(1);
@@ -139,7 +137,7 @@ async function main(): Promise<void> {
       console.error('❌ Authentication failed!');
       console.error('');
       console.error(
-        '   Check that ADMIN_SECRET matches the license server configuration.'
+        '   Check that ADMIN_SECRET matches the license server configuration.',
       );
       console.error(`   Response: ${data.message || 'Unauthorized'}`);
       process.exit(1);
@@ -162,7 +160,7 @@ async function main(): Promise<void> {
       console.error('❌ Request failed!');
       console.error('');
       console.error(
-        `   Error: ${error instanceof Error ? error.message : String(error)}`
+        `   Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     process.exit(1);
@@ -176,7 +174,7 @@ async function main(): Promise<void> {
   console.log('  2. Verify database changes in Prisma Studio:');
   console.log('     npm run prisma:studio');
   console.log(
-    '  3. Check if downgraded users appear in extension with Community plan'
+    '  3. Check if downgraded users appear in extension with Community plan',
   );
   console.log('');
 }
