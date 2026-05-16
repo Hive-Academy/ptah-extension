@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Permission Bridge
  * permission hooks and the webview UI.
  *

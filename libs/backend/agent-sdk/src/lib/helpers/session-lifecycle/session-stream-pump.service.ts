@@ -11,7 +11,7 @@
  *     SDKUserMessage onto the registry-owned queue and wakes the iterator's
  *     parked `resolveNext` callback.
  *
- * Wave C7i extracts this from `SessionLifecycleManager` (originally lines
+ * Extracted from `SessionLifecycleManager` (originally lines
  * 632–706, 972–1008, 1063–1088). The async-iterator body is preserved
  * byte-identically — every `addEventListener('abort', ...)`, every
  * `removeEventListener`, every `resolve('message'|'aborted')` call sits at

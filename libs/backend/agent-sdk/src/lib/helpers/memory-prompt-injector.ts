@@ -3,8 +3,6 @@
  *
  * Called by SdkQueryOptionsBuilder at session start for premium users.
  * Always returns '' on error or 0 hits — never throws.
- *
- * TASK_2026_THOTH_MEMORY_READ
  */
 
 import { injectable, inject } from 'tsyringe';

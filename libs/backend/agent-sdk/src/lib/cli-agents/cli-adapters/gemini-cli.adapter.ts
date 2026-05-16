@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Gemini CLI Adapter
  *
  * Uses --output-format stream-json for structured JSONL event streaming.

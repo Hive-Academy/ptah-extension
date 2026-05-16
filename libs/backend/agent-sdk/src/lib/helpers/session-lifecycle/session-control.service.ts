@@ -1,9 +1,9 @@
-﻿/**
+/**
  * SessionControl — owner of the lifecycle-control methods that act on a
  * registered session's `query` handle: interrupt, end, dispose-all, set
  * permission level, set model.
  *
- * Wave C7i extracts these from `SessionLifecycleManager` (originally lines
+ * Extracted from `SessionLifecycleManager` (originally lines
  * 395–451, 462–556, 563–610, 1110–1149, 1162–1207). The cleanup-call order
  * inside `endSession` is spec-asserted (cleanupPendingPermissions →
  * markAllInterrupted → interrupt → abort → registry removal) and is
@@ -121,7 +121,7 @@ export class SessionControl {
     const registrySessionId = rec.realSessionId ?? rec.tabId;
     this.subagentRegistry.markAllInterrupted(registrySessionId);
 
-    // Capture workspaceRoot BEFORE registry removal (R6 mitigation).
+    // Capture workspaceRoot BEFORE registry removal.
     // rec.config.projectPath may be undefined for sessions that never set a workspace.
     const workspaceRoot = rec.config.projectPath ?? '';
 
@@ -165,7 +165,7 @@ export class SessionControl {
 
     this.logger.info(`[SessionLifecycle] Session ended: ${sessionId}`);
 
-    // TASK_2026_THOTH_SKILL_LIFECYCLE: notify session-end subscribers (e.g. skill synthesis).
+    // Notify session-end subscribers (e.g. skill synthesis).
     // workspaceRoot was captured BEFORE removeSession() to avoid registry tombstone lookups.
     if (workspaceRoot) {
       this.sessionEndRegistry.notifyAll({
@@ -187,12 +187,12 @@ export class SessionControl {
 
     this.permissionHandler.cleanupPendingPermissions();
 
-    // Snapshot all records BEFORE any clearAll() work to avoid stale-iterator bug
-    //: clearAll() empties byTabId, so a second
+    // Snapshot all records BEFORE any clearAll() work to avoid stale-iterator bug:
+    // clearAll() empties byTabId, so a second
     // entries() call after clearAll would yield nothing. Snapshot once, use everywhere.
     const records = Array.from(this.registry.entries()).map(([, rec]) => rec);
 
-    // TASK_2026_THOTH_SKILL_LIFECYCLE R6: capture session data BEFORE clearAll()
+    // Capture session data BEFORE clearAll()
     // so that workspaceRoot is available for session-end notifications.
     const endedSessions: Array<{ sessionId: string; workspaceRoot: string }> =
       [];
@@ -205,7 +205,7 @@ export class SessionControl {
       const registryId = rec.realSessionId ?? rec.tabId;
       this.subagentRegistry.markAllInterrupted(registryId);
 
-      // Capture workspace root BEFORE clearAll() removes the registry entries (R6 mitigation).
+      // Capture workspace root BEFORE clearAll() removes the registry entries.
       const root = rec.config.projectPath ?? '';
       if (root) {
         endedSessions.push({ sessionId: registryId, workspaceRoot: root });
@@ -237,7 +237,7 @@ export class SessionControl {
     this.registry.clearAll();
     this.logger.info('[SessionLifecycle] All sessions disposed');
 
-    // TASK_2026_THOTH_SKILL_LIFECYCLE: notify session-end subscribers for each disposed session.
+    // Notify session-end subscribers for each disposed session.
     // Fires AFTER clearAll() — session data was captured in endedSessions above.
     for (const ended of endedSessions) {
       this.sessionEndRegistry.notifyAll(ended);

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Enhanced Prompts State Store — workspace-keyed in-memory + globalState persistence.
  *
  * Extracted from `enhanced-prompts.service.ts` as .

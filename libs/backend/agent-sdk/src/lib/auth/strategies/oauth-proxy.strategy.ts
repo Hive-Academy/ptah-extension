@@ -1,5 +1,5 @@
 /**
- * OAuth Proxy Strategy - TASK_AUTH_REFACTOR Phase 2
+ * OAuth Proxy Strategy
  *
  * Handles authentication for OAuth-based providers that require a translation proxy:
  * - GitHub Copilot (VS Code GitHub OAuth + Copilot translation proxy)

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Session Replay Service
  *
  * Orchestrates the conversion of JSONL messages to FlatStreamEventUnion events.

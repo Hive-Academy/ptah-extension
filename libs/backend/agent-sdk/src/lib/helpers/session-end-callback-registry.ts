@@ -1,6 +1,5 @@
 /**
- * SessionEndCallbackRegistry — fan-out registry for session-end subscribers
- * (TASK_2026_THOTH_SKILL_LIFECYCLE).
+ * SessionEndCallbackRegistry — fan-out registry for session-end subscribers.
  *
  * Mirrors the shape of `CompactionCallbackRegistry` but targets the session-end
  * signal: fired by `SessionControl.endSession()` after the session is fully

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenAI Responses API Stream Translator
  *
  * Stateful streaming translator that converts OpenAI Responses API

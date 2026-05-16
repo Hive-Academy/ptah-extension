@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Prompt Designer Agent
  *
  * project-specific guidance to append to PTAH_CORE_SYSTEM_PROMPT.

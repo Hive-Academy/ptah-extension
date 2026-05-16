@@ -1,8 +1,8 @@
-﻿/**
+/**
  * SessionRegistry — sole owner of `byTabId`, `bySessionId`, and
  * `_lastActiveTabId` state for the session-lifecycle subsystem.
  *
- * Wave C7i extracts state ownership out of `SessionLifecycleManager` so that
+ * Extracted state ownership out of `SessionLifecycleManager` so that
  * the streaming pump, query executor, and lifecycle-control sub-services all
  * mutate state through this single registry. There is exactly ONE recompute
  * site for `_lastActiveTabId` (`recomputeLastActiveOnRemoval`) shared by both
@@ -116,7 +116,7 @@ export class SessionRegistry {
    * Empty/whitespace realSessionId is rejected: a malformed SDK init
    * message yielding a blank UUID would otherwise let `find('')` resolve
    * a live query, attaching arbitrary callers to whichever session is
-   * registered. Batch 10 Gap 1.
+   * registered.
    */
   bindRealSessionId(tabId: string, realSessionId: string): void {
     if (!realSessionId || realSessionId.trim().length === 0) {

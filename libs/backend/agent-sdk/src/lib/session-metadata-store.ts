@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Session Metadata Store
  *
  * Lightweight storage for session UI metadata ONLY.

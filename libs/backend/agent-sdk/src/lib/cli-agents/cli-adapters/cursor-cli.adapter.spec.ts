@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CursorCliAdapter Unit Tests
  *
  * Tests: detect() (must resolve cursor-agent, NOT cursor), buildCommand(),

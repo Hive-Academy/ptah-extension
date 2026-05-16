@@ -1,5 +1,5 @@
 /**
- * Local Proxy Strategy - TASK_AUTH_REFACTOR Phase 2
+ * Local Proxy Strategy
  *
  * Handles authentication for local providers that require a translation proxy:
  * - LM Studio (OpenAI-compatible local server + translation proxy)

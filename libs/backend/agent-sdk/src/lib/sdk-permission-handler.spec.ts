@@ -1,4 +1,4 @@
-﻿/**
+/**
  * sdk-permission-handler - unit specs.
  *
  * Tests lock in the use-case identity contracts for permission and question

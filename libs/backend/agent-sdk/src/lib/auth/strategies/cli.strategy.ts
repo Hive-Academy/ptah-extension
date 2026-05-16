@@ -1,5 +1,5 @@
 /**
- * CLI Strategy - TASK_AUTH_REFACTOR Phase 2
+ * CLI Strategy
  *
  * Handles authentication via Claude CLI's own credential store (~/.claude/).
  * When selected, NO API key env vars are set - the SDK reads credentials

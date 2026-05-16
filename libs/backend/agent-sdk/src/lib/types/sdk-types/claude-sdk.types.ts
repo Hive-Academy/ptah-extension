@@ -138,7 +138,7 @@ export type {
 
 // Re-export the canonical SDK result type names.
 // The legacy aliases SDKResultMessageSuccess / SDKResultMessageError have been
-// removed in Phase 0 — all consumers must use SDKResultSuccess / SDKResultError.
+// removed — all consumers must use SDKResultSuccess / SDKResultError.
 export type {
   SDKResultSuccess,
   SDKResultError,

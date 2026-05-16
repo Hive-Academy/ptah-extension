@@ -1,17 +1,17 @@
-﻿/**
+/**
  * Enhanced Prompts Module
  *
  * Intelligent prompt generation system that analyzes workspaces and
  * generates project-specific guidance for Claude.
  *
  * Module Structure:
- * - ptah-core-prompt.ts: Ptah's base system prompt (Batch 1)
- * - prompt-designer/: AI-powered prompt generation (Batch 2-3)
+ * - ptah-core-prompt.ts: Ptah's base system prompt
+ * - prompt-designer/: AI-powered prompt generation
  *   - prompt-designer-agent.ts: Main agent for generating guidance
  *   - prompt-designer.types.ts: Input/output type definitions
  *   - generation-prompts.ts: Prompt templates for LLM generation
  *   - response-parser.ts: Response parsing and validation
- *   - prompt-cache.service.ts: Smart caching with invalidation (Batch 3)
+ *   - prompt-cache.service.ts: Smart caching with invalidation
  *   - cache-invalidation.ts: File-based invalidation triggers
  */
 

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * TranslationProxyBase helpers — stateless HTTP/JSON utilities.
  *
  * Extracted from `translation-proxy-base.ts` as .

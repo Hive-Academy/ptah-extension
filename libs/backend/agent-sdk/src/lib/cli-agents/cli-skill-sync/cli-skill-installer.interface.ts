@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CLI Skill Installer Interface
  *
  * Each CLI target (Copilot, Gemini) has its own installer implementation

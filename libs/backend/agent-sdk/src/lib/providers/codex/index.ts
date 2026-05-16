@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex Provider Module - Barrel exports
  *
  */

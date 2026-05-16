@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Stream Transformer
  *
  * Transforms SDK message streams into FlatStreamEventUnion for UI rendering.

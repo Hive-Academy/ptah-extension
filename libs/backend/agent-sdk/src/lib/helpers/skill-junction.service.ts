@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Skill Junction Service
  *
  * Creates filesystem junctions from {workspace}/.claude/skills/{skillName}/
@@ -469,7 +469,7 @@ export class SkillJunctionService {
       }
 
       for (const entry of synthEntries) {
-        // R7: explicit guard — skip candidate staging area
+        // Explicit guard — skip candidate staging area
         if (entry === '_candidates') continue;
         if (disabledSkillIds.has(entry)) continue;
 
@@ -799,7 +799,7 @@ export class SkillJunctionService {
         if (normalizedTarget.startsWith(normalizedPluginsPath)) return true;
       }
 
-      // Check synthesized skills root (new — TASK_2026_THOTH_SKILL_LIFECYCLE)
+      // Check synthesized skills root
       if (this.synthesizedSkillsRoot !== null) {
         const normalizedSynthPath = this.normalizePath(
           this.synthesizedSkillsRoot,

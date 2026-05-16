@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex CLI Skill Installer
  * Copies Ptah plugin skills to ~/.agents/skills/ptah-{pluginId}/
  *

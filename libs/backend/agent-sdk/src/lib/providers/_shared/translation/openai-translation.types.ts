@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenAI Translation Types
  *
  * Protocol-level types for Anthropic <-> OpenAI translation.

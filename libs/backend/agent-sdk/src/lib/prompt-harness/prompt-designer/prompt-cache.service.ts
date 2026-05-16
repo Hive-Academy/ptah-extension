@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Prompt Cache Service
  *
  * with file-based invalidation and VS Code globalState persistence.

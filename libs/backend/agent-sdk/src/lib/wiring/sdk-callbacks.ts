@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SDK adapter callback wiring.
  *
  * Centralizes `setResultStatsCallback`, `setSessionIdResolvedCallback`,

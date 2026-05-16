@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Prompt Designer Types
  *
  * The Prompt Designer Agent analyzes workspaces and generates project-specific

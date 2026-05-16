@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CompactionHookHandler - Handles SDK PreCompact hooks and notifies via callback
  *
  * Connects SDK compaction lifecycle hooks to the UI notification system via callbacks.
@@ -86,10 +86,11 @@ export function isPreCompactHook(
 export class CompactionHookHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    // the latest cumulative pre-compaction token snapshot at PreCompact
-    // firing time. The tracker aggregates `message_start` + `message_delta`
-    // usage on the streaming wire (written by SdkMessageTransformer) and
-    // exposes a read-only `getCumulativeTokens(sessionId)` API.
+    // Inject the LiveUsageTracker so we can read the latest cumulative
+    // pre-compaction token snapshot at PreCompact firing time. The tracker
+    // aggregates `message_start` + `message_delta` usage on the streaming
+    // wire (written by SdkMessageTransformer) and exposes a read-only
+    // `getCumulativeTokens(sessionId)` API.
     //
     // Why a dedicated tracker instead of injecting the transformer:
     // injecting `SdkMessageTransformer` here closes a DI cycle
@@ -97,10 +98,10 @@ export class CompactionHookHandler {
     // → SdkMessageTransformer → SessionLifecycleManager) that crashes every
     // `withEngine`-driven CLI subcommand at construction time. Splitting the
     // session-token state into an orthogonal service breaks the cycle without
-    // weakening A1/A2 semantics.
+    // weakening the cumulative-usage semantics.
     @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
     private readonly usageTracker: LiveUsageTracker,
-    // TASK_2026_HERMES Track 1: fan-out registry for additional subscribers
+    // Fan-out registry for additional subscribers
     // (e.g. memory curator). Marked @optional so legacy paths that resolve
     // CompactionHookHandler directly without the registry registered (mostly
     // unit tests) keep working — the field will be undefined and the
@@ -192,8 +193,8 @@ export class CompactionHookHandler {
                   },
                 );
 
-                // TASK_2026_HERMES Track 1: also fan out to the registry, so
-                // memory-curator (and any future subscribers) receive the
+                // Also fan out to the registry, so memory-curator
+                // (and any future subscribers) receive the
                 // PreCompact event without the chat path having to know about
                 // them. Sample tokens once and reuse.
                 let preTokensSampled: number | null = null;

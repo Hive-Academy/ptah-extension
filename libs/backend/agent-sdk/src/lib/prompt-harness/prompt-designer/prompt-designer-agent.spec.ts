@@ -1,4 +1,4 @@
-﻿/**
+/**
  * PromptDesignerAgent Fallback Tracking Tests
  *
  * added (Task 1.5).

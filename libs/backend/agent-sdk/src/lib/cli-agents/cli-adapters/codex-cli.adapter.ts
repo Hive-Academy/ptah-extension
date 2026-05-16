@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex CLI Adapter
  *               toolCallId, reasoning→thinking, listModels
  *

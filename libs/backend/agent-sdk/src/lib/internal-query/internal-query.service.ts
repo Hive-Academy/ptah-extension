@@ -1,4 +1,4 @@
-﻿/**
+/**
  * InternalQueryService - One-shot SDK query execution for internal use
  *
  * Provides a clean interface for running autonomous Claude Agent SDK queries

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenRouterAuthService Tests
  *
  * OpenRouter's auth surface is intentionally thin:

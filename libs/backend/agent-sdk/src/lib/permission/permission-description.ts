@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Permission Description Helpers — pure functions.
  *
  * Extracted from `sdk-permission-handler.ts` as .

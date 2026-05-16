@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Translation Proxy Base Class
  *
  * Abstract base class for local HTTP proxy servers that translate between

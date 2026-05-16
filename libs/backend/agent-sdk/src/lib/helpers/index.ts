@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Helper Services - Extracted from SdkAgentAdapter for better maintainability
  *
  * These services encapsulate specific responsibilities:
@@ -42,9 +42,9 @@ export {
   type CompactionStartCallback,
   isPreCompactHook,
 } from './compaction-hook-handler';
-// Compaction callback registry (TASK_2026_HERMES Track 1)
+// Compaction callback registry
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
-// Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+// Session end callback registry
 export {
   SessionEndCallbackRegistry,
   type SessionEndCallback,
@@ -74,7 +74,7 @@ export {
   type QueryConfig,
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
-// Memory prompt injector (TASK_2026_THOTH_MEMORY_READ)
+// Memory prompt injector
 export { MemoryPromptInjector } from './memory-prompt-injector';
 // Curator LLM adapter (moved from memory-curator to break circular dependency)
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';

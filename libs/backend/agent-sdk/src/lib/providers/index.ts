@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Agent SDK Providers — umbrella barrel.
  *
  * Each provider sub-folder owns its own auth service, translation proxy,
@@ -23,5 +23,5 @@ export * from './copilot';
 export * from './local';
 export * from './openrouter';
 
-// DI registration helper (extracted from di/register.ts:407-487 in Wave C3).
+// DI registration helper (extracted from di/register.ts:407-487).
 export { registerProviders } from './register-providers';

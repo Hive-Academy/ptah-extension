@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CLI Agents Module - Barrel Exports
  *
  * library. CLI agents are external agent processes (Gemini, Codex, Copilot, Cursor)

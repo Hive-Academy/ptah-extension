@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Response Parser for Prompt Designer Agent
  *
  * with fallback handling for malformed output.

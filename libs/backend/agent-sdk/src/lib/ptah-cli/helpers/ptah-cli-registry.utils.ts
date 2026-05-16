@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ptah CLI Registry - Pure utility functions and constants
  *
  * No DI dependencies. Extracted from PtahCliRegistry for reuse

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Permission Tool Classifier — pure tool-category tables and classification helpers.
  *
  * Extracted from `sdk-permission-handler.ts` as .

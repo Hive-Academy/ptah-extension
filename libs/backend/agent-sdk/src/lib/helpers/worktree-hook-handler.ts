@@ -1,4 +1,4 @@
-﻿/**
+/**
  * WorktreeHookHandler - Handles SDK WorktreeCreate/WorktreeRemove hooks and notifies via callback
  *
  * Connects SDK worktree lifecycle hooks to the UI notification system via callbacks.

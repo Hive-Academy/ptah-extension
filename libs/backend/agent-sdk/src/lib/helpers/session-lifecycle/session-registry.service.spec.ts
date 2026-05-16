@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SessionRegistry — unit spec.
  *
  * Covers all 8 cases from implementation-plan.md §6a:

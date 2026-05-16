@@ -1,5 +1,5 @@
 /**
- * Authentication Manager - Thin Orchestrator (TASK_AUTH_REFACTOR Phase 2)
+ * Authentication Manager - Thin Orchestrator
  *
  * Replaced the ~1000-line god class with a strategy-based orchestrator.
  * All authentication logic lives in 5 strategy classes under auth/strategies/.

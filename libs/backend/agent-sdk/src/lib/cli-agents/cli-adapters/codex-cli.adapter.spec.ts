@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CodexCliAdapter Unit Tests
  *
  * Tests: runSdk(), detect(), handleStreamEvent(), dynamic import caching, abort/cancellation

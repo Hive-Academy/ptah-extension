@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Settings Import Service
  *
  * Platform-agnostic — uses ISecretStorage via PLATFORM_TOKENS for secret import.

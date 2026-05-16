@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Provider Module - Barrel exports
  *
  */

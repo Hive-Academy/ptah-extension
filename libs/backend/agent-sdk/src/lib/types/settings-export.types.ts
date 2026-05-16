@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Settings Export/Import Types
  *
  * The export schema is versioned for forward compatibility.

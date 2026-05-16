@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SdkMessageTransformer specs — compact_boundary handling.
  *
  * Coverage:

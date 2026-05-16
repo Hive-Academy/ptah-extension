@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex Translation Proxy
  *
  * Subclass of TranslationProxyBase that provides Codex-specific

@@ -1,5 +1,5 @@
 /**
- * Local Native Strategy - TASK_AUTH_REFACTOR Phase 2
+ * Local Native Strategy
  *
  * Handles authentication for local Anthropic-native providers:
  * - Ollama (local models, v0.14.0+ with native Anthropic Messages API)
@@ -167,8 +167,8 @@ export class LocalNativeStrategy implements IAuthStrategy {
     const providerName =
       providerId === 'ollama-cloud' ? 'Ollama Cloud' : 'Ollama';
 
-    // Step 5: For ollama-cloud, kick off a metadata refresh
-    // (TASK_OLLAMA_CLOUD_KEY). Reads the optional API key from SecretStorage
+    // Step 5: For ollama-cloud, kick off a metadata refresh.
+    // Reads the optional API key from SecretStorage
     // via IAuthSecretsService.getProviderKey('ollama-cloud') — same slot the
     // auth UI writes to via auth:saveSettings, so saving/replacing/clearing the
     // key in the settings panel automatically triggers a fresh metadata fetch
@@ -221,7 +221,7 @@ export class LocalNativeStrategy implements IAuthStrategy {
   async teardown(): Promise<void> {
     // Clear Ollama model discovery cache
     this.ollamaDiscovery.clearCache();
-    // Clear Ollama Cloud metadata cache (TASK_OLLAMA_CLOUD_KEY)
+    // Clear Ollama Cloud metadata cache
     this.cloudMetadata.clearCache();
   }
 

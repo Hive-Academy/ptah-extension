@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Prompt Designer Module
  *
  * This module provides:
@@ -11,7 +11,7 @@
 // Main agent
 export { PromptDesignerAgent } from './prompt-designer-agent';
 
-// Cache service (Batch 3)
+// Cache service
 export { PromptCacheService } from './prompt-cache.service';
 export type { PromptCacheConfig } from './prompt-cache.service';
 export { DEFAULT_CACHE_CONFIG } from './prompt-cache.service';
@@ -48,7 +48,7 @@ export {
   truncateToTokenBudget,
 } from './response-parser';
 
-// Cache invalidation utilities (Batch 3)
+// Cache invalidation utilities
 export {
   INVALIDATION_TRIGGER_FILES,
   INVALIDATION_IGNORE_PATTERNS,

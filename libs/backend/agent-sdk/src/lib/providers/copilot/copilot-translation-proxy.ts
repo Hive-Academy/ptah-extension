@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Translation Proxy
  *
  * Thin subclass of TranslationProxyBase that provides Copilot-specific

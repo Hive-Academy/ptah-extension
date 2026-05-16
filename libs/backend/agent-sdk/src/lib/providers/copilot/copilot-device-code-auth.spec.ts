@@ -1,4 +1,4 @@
-﻿/**
+/**
  * copilot-device-code-auth — unit specs.
  *
  * Covers the GitHub Device Code (RFC 8628) flow used by Copilot login when

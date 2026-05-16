@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot CLI Skill Installer
  *
  * Copilot CLI discovers skills from ~/.copilot/skills/{skillName}/SKILL.md

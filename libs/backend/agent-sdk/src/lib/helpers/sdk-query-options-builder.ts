@@ -387,7 +387,7 @@ export interface QueryOptionsInput {
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
   /**
-   * The user's initial message text for this turn (TASK_2026_THOTH_MEMORY_READ).
+   * The user's initial message text for this turn.
    * Used to drive a memory recall search so the top-K hits can be prepended to
    * the system prompt. Only used when `isPremium === true` and the string is
    * non-empty. Multi-turn sessions should pass the most recent user message.
@@ -397,7 +397,7 @@ export interface QueryOptionsInput {
 
 /**
  * SDK query options structure — directly aliased from the SDK's canonical
- * `Options` type. Phase 0 fix: the hand-rolled `SdkQueryOptions` interface
+ * `Options` type. The hand-rolled `SdkQueryOptions` interface previously
  * masked phantom fields like `forwardSubagentText` that the SDK silently
  * ignored. Using `Options` directly surfaces compile errors when we attempt
  * to set properties that do not exist in the SDK.
@@ -932,7 +932,7 @@ export class SdkQueryOptionsBuilder {
    * @param isPremium - Whether user has premium features enabled
    * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
    * @param mcpServerRunning - Whether MCP server is running
-   * @param initialUserQuery - First user message text for memory recall (TASK_2026_THOTH_MEMORY_READ)
+   * @param initialUserQuery - First user message text for memory recall
    * @param cwd - Workspace root for workspace-scoped memory recall
    * @returns System prompt configuration for SDK (always preset+append)
    */
@@ -962,7 +962,7 @@ export class SdkQueryOptionsBuilder {
       preset: sessionConfig?.preset,
     });
 
-    // Memory recall — premium only, requires user query (TASK_2026_THOTH_MEMORY_READ)
+    // Memory recall — premium only, requires user query
     let memoryBlock = '';
     if (isPremium && initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CLI Plugin Sync Service
  *
  * Top-level orchestrator for CLI skill sync. Called from:
@@ -308,7 +308,6 @@ export class CliPluginSyncService {
 
   /**
    * Sync synthesized skills from ~/.ptah/skills/ to installed CLI agent directories.
-   * TASK_2026_THOTH_SKILL_LIFECYCLE
    *
    * Strategy: pass path.join(os.homedir(), '.ptah') as a fake plugin path so the
    * installer scans ~/.ptah/skills/ for skill directories (installer reads pluginPath/skills/).
@@ -335,7 +334,7 @@ export class CliPluginSyncService {
 
     try {
       // Enumerate entries in the synthesized skills root to check it's non-empty
-      // and to explicitly filter _candidates (R7)
+      // and to explicitly filter _candidates.
       let entries: string[];
       try {
         entries = await readdir(synthesizedSkillsRoot);
@@ -348,7 +347,7 @@ export class CliPluginSyncService {
         return [];
       }
 
-      // R7: explicit exclusion of _candidates directory at the enumeration boundary.
+      // Explicit exclusion of _candidates directory at the enumeration boundary.
       // The installer also enforces this content-side via requireSkillMdAtRoot (defense in depth).
       const validEntries = entries.filter((e) => e !== '_candidates');
       if (validEntries.length === 0) {

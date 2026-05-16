@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Agent SDK Integration Library
  *
  * Official Claude Agent SDK wrapper providing IAIProvider implementation
@@ -124,13 +124,13 @@ export type {
 // AI-powered, project-specific prompt generation
 // ============================================================
 
-// Core prompt (Batch 1)
+// Core prompt
 export {
   PTAH_CORE_SYSTEM_PROMPT,
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
 } from './lib/prompt-harness';
 
-// Prompt Designer Agent (Batch 2)
+// Prompt Designer Agent
 // Intelligent prompt generation based on workspace analysis
 export {
   PromptDesignerAgent,
@@ -155,7 +155,7 @@ export type {
   CachedPromptDesign,
 } from './lib/prompt-harness';
 
-// Prompt Cache Service (Batch 3)
+// Prompt Cache Service
 // Smart caching with file-based invalidation
 export {
   PromptCacheService,
@@ -180,7 +180,7 @@ export type {
   CacheKeyComponents,
 } from './lib/prompt-harness';
 
-// Enhanced Prompts Service (Batch 4)
+// Enhanced Prompts Service
 // Orchestrates the Enhanced Prompts feature
 export {
   EnhancedPromptsService,
@@ -362,7 +362,7 @@ export type { IMcpServerInstaller } from './lib/helpers';
 export { PTAH_MCP_PORT, setPtahMcpPort } from './lib/constants';
 
 // ============================================================
-// Auth Strategy System (TASK_AUTH_REFACTOR)
+// Auth Strategy System
 // Clean auth abstraction replacing scattered if/else logic
 // ============================================================
 export { ModelResolver } from './lib/auth';
@@ -372,7 +372,7 @@ export type {
   AuthConfigureContext,
 } from './lib/auth';
 
-// Effective auth-route resolver (Stream B item #7) — pure function reused by
+// Effective auth-route resolver — pure function reused by
 // `ptah doctor` and the Electron / VS Code settings UIs.
 export {
   resolveEffectiveAuthRoute,

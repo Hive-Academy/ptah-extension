@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ptah CLI Spawn Options Service
  *
  * Injectable singleton that assembles premium feature options for spawnAgent().

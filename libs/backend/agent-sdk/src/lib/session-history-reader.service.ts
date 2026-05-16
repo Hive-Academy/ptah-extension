@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SessionHistoryReaderService - Facade for session history reading
  *
  * This service provides the public API for reading session history from Claude JSONL files

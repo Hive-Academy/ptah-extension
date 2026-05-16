@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SDK Message Factory - Creates SDK user messages with attachments
  *
  * Extracted from SdkAgentAdapter to eliminate code duplication.

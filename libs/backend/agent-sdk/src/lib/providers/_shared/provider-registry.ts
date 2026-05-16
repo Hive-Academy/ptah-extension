@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Anthropic-Compatible Provider Registry
  *
  * Registry of providers that implement the Anthropic API protocol,
@@ -113,7 +113,7 @@ export interface AnthropicProvider {
     readonly haiku: string;
   };
   /**
-   * Whether this provider supports an OPTIONAL API key (TASK_OLLAMA_CLOUD_KEY).
+   * Whether this provider supports an OPTIONAL API key.
    *
    * Distinct from `authType: 'apiKey'` (which means the key is REQUIRED for
    * inference and changes strategy routing). When `supportsOptionalApiKey` is

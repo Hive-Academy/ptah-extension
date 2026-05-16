@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Device Code Auth - GitHub Device Code Flow (RFC 8628)
  *
  * For Electron and other non-VS Code environments where the user

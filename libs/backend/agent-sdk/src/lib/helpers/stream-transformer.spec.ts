@@ -1,4 +1,4 @@
-﻿/**
+/**
  * StreamTransformer specs _FOLLOWUP coverage.
  *
  * Targets the per-turn context-fill bookkeeping that drives the frontend's

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * history-event-factory — unit specs.
  *
  * Covers `HistoryEventFactory`, the pure-function event constructors behind

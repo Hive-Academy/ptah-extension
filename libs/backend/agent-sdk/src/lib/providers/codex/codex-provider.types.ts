@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex Provider Types
  *
  * Codex-specific types for OpenAI Codex provider authentication

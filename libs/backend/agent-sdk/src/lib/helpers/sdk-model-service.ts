@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SDK Model Service - Fetches and caches supported models from SDK + Anthropic API
  *
  * Extracted from SdkAgentAdapter to separate model management concerns.

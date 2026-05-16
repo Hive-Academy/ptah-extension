@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenAI Responses API Request Translator
  *
  * Pure function module that translates Anthropic Messages API requests

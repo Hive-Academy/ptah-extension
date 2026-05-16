@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Shared Skill Sync Utilities
  *
  * Extracted from CopilotSkillInstaller and GeminiSkillInstaller

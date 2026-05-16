@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenAI Request Translator — unit specs.
  *
  * Surface under test:

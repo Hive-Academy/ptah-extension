@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Cache Invalidation for Prompt Designer
  *
  * invalidated based on workspace file changes.

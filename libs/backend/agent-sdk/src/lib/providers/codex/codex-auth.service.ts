@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex Authentication Service
  *
  * Reads and manages Codex authentication from ~/.codex/auth.json,

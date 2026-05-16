@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Enhanced Prompts Service
  *
  * This premium feature:

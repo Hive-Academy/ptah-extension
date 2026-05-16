@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SdkStreamProcessor — unit specs.
  *
  * Surface under test:

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SDK Module Loader - Loads and caches the bundled Claude Agent SDK query function
  *
  * The Claude Agent SDK is bundled into the extension via esbuild. The SDK's

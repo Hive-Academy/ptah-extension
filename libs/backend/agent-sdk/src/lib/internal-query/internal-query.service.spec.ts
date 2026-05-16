@@ -1,4 +1,4 @@
-﻿/**
+/**
  * InternalQueryService — unit specs.
  *
  * Surface under test:

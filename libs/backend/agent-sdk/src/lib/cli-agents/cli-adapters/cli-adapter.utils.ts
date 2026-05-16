@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Shared CLI Adapter Utilities
  *
  * Cross-platform foundation using:

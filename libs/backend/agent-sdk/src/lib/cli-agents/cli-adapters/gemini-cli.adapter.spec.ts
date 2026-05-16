@@ -1,4 +1,4 @@
-﻿/**
+/**
  * GeminiCliAdapter Unit Tests
  *
  * Tests: detect(), buildCommand(), runSdk() streaming with JSONL events,

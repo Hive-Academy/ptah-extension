@@ -1,4 +1,4 @@
-﻿/**
+/**
  * DI Token Registry - Agent SDK Tokens
  *
  * CONVENTION: All DI tokens MUST use Symbol.for('DescriptiveName')
@@ -54,7 +54,7 @@ export const SDK_TOKENS = {
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
   /**
-   * Compaction callback registry (TASK_2026_HERMES Track 1).
+   * Compaction callback registry.
    * Fan-out registry of additional `CompactionStartCallback` subscribers
    * (e.g. memory curator) invoked by `CompactionHookHandler` in addition
    * to the chat-path's captured closure.
@@ -135,7 +135,7 @@ export const SDK_TOKENS = {
   SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
   SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
 
-  /** Ollama Cloud metadata service — live tags + pricing (TASK_OLLAMA_CLOUD_KEY) */
+  /** Ollama Cloud metadata service — live tags + pricing */
   SDK_OLLAMA_CLOUD_METADATA: Symbol.for('SdkOllamaCloudMetadata'),
 
   /** Skill Junction Service */
@@ -145,7 +145,7 @@ export const SDK_TOKENS = {
   SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
   SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
 
-  /** Auth Strategy Services (TASK_AUTH_REFACTOR) */
+  /** Auth Strategy Services */
   SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
   SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),
   SDK_LOCAL_NATIVE_STRATEGY: Symbol.for('SdkLocalNativeStrategy'),
@@ -166,7 +166,6 @@ export const SDK_TOKENS = {
    * injection at session start. Registered as a singleton; depends on TOKENS.MEMORY_READER
    * (cross-layer alias resolved by memory-curator DI registration, with a no-op fallback
    * registered here for hosts where memory-curator is not loaded).
-   * TASK_2026_THOTH_MEMORY_READ
    */
   SDK_MEMORY_PROMPT_INJECTOR: Symbol.for('SdkMemoryPromptInjector'),
 
@@ -179,7 +178,7 @@ export const SDK_TOKENS = {
 
   /**
    * SubagentMessageDispatcher — bidirectional messaging + stop/interrupt for
-   * running subagents. Phase 2 addition.
+   * running subagents.
    */
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 } as const;

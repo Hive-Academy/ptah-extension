@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ollama Model Discovery Service
  *
  * Fetches models from Ollama's native /api/tags endpoint and enriches
@@ -379,9 +379,9 @@ export class OllamaModelDiscoveryService {
       supportsToolUse: meta.supportsToolUse,
     }));
 
-    // Step 1.5: When the user has configured an ollama.com API key
-    // (TASK_OLLAMA_CLOUD_KEY), fetch the live tag list from
-    // https://ollama.com/api/tags and overlay it on the static list. Live
+    // Step 1.5: When the user has configured an ollama.com API key, fetch
+    // the live tag list from https://ollama.com/api/tags and overlay it on
+    // the static list. Live
     // entries WIN on id overlap. The metadata service is resilient —
     // failures degrade to `[]` and never throw, so the static catalog still
     // ships. Note: ollama.com/api/tags returns only models the signed-in

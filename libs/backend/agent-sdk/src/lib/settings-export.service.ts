@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Settings Export Service
  *
  * Platform-agnostic — uses ISecretStorage and IWorkspaceProvider via PLATFORM_TOKENS

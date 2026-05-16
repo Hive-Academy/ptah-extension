@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ptah CLI Stream Loop - Per-stream message processing
  *
  * **Not injectable** — instantiated per spawnAgent() call because it holds

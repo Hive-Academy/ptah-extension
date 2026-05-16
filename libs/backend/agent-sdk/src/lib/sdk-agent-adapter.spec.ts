@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SdkAgentAdapter — unit specs.
  *
  * Surface under test:
@@ -528,16 +528,16 @@ describe('SdkAgentAdapter', () => {
       expect(h.adapter.getHealth().status).toBe('available');
     });
 
-    // WP-3T: two-level catalog fallback test.
+    // Two-level catalog fallback test.
     //
     // NOTE: SdkAgentAdapter.initialize() still reads/writes 'model.selected'
     // via ConfigManager (this.config.get/set) — it was NOT migrated to
-    // modelSettings.selectedModel in Batch 3 despite the task description
-    // claiming it was (lines 632, 635, 648).  The test below verifies the
-    // ACTUAL behaviour of the fallback path and explicitly documents the
-    // defect so Batch 4 can complete the migration.
+    // modelSettings.selectedModel despite earlier task descriptions claiming
+    // it was (lines 632, 635, 648).  The test below verifies the ACTUAL
+    // behaviour of the fallback path and explicitly documents the defect so
+    // a follow-up can complete the migration.
     //
-    // Expected Batch 3 behaviour: when the stored model is a valid full ID
+    // Expected behaviour: when the stored model is a valid full ID
     // it is left unchanged. When it is stale (not starting with 'claude-'
     // and not 'default'), resolveModelId() is called to migrate the tier name.
     // There is no getSupportedModels() catalog validation in initialize() —

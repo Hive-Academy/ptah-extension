@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Local Model Translation Proxy
  *
  * Translation proxy for local OpenAI-compatible model servers (LM Studio).

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CLI Skill Sync Module - Barrel Exports
  */
 

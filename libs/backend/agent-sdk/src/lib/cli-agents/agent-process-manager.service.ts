@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Agent Process Manager
  *
  * Responsibilities:

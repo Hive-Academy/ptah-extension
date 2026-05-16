@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Agent monitor + Copilot permission wiring.
  *
  * Shared across VS Code, Electron, TUI. Lazily resolves DI services so the

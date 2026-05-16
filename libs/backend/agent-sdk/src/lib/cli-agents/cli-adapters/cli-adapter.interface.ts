@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CLI Adapter Interface
  *
  * Adding a new CLI agent (e.g., Claude CLI, Aider) requires only:

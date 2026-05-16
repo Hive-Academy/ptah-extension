@@ -1,4 +1,4 @@
-﻿/**
+/**
  * History Types Module
  *
  * Centralized type definitions for session history processing services.

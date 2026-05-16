@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SdkMessageTransformer helper functions — stateless predicates.
  *
  * Extracted from `sdk-message-transformer.ts` as .

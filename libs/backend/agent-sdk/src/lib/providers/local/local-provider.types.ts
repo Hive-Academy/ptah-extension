@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Local Provider Types
  *
  * Types and constants for Ollama and LM Studio providers.

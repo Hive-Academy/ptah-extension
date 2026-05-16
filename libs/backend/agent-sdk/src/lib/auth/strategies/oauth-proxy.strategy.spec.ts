@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OAuthProxyStrategy — unit specs.
  *
  * The OAuth proxy strategy multiplexes two sub-providers:

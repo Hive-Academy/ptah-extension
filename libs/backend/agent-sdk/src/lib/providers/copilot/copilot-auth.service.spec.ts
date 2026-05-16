@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CopilotAuthService — unit specs.
  *
  * Covers the platform-agnostic Copilot authentication service. Security &

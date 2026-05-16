@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Permission Rule Store — owns the in-memory `permissionRules` map.
  *
  * Extracted from `sdk-permission-handler.ts` as .

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * PTAH_CORE_SYSTEM_PROMPT - Ptah's Extension-Specific System Prompt
  *
  * This prompt adapts and extends Anthropic's `claude_code` preset for the

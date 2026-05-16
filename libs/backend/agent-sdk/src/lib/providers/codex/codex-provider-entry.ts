@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex Provider Entry
  *
  * Static provider definition for OpenAI Codex.

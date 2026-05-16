@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CompactionHookHandler specs — PreCompact callback enrichment.
  *
  * Coverage:

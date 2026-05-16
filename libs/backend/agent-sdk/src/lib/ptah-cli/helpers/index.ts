@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ptah CLI Helpers - Barrel exports
  *
  * Services extracted from PtahCliRegistry for better maintainability

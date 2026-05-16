@@ -1,6 +1,5 @@
 /**
- * ModelResolver - Single source of truth for model ID resolution
- * TASK_AUTH_REFACTOR Phase 1 (definition), Phase 3 (migration of callsites)
+ * ModelResolver - Single source of truth for model ID resolution.
  *
  * Consolidates the 5 scattered model resolution paths:
  * 1. SdkModelService.resolveModelId()        → this.resolve()
@@ -9,8 +8,8 @@
  * 4. ConfigRpcHandlers.detectModelTier()      → this.detectTier()
  * 5. Circular guard in normalizeModels()      → built into resolve()
  *
- * Until Phase 3, the existing functions continue to work. This class is
- * the target that all callsites will eventually migrate to.
+ * The existing functions continue to work; this class is the target that
+ * all callsites will eventually migrate to.
  */
 
 import { injectable, inject } from 'tsyringe';

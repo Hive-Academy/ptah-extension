@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ptah CLI Config Persistence Service
  *
  * Injectable singleton responsible for loading, saving, and migrating

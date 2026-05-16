@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Gemini CLI Skill Installer
  *
  * Gemini CLI discovers skills from ~/.gemini/skills/{skillName}/SKILL.md

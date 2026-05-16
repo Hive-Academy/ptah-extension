@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CodexAuthService Tests
  *
  * Covers:

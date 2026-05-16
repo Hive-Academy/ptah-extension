@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SDK Permission Handler Service
  *
  * Bridges SDK's canUseTool callback to VS Code webview permission UI.

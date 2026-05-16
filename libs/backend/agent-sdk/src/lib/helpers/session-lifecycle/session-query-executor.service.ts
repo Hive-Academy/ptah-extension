@@ -1,7 +1,7 @@
-﻿/**
+/**
  * SessionQueryExecutor — owner of the SDK-query orchestration body.
  *
- * Wave C7i extracts `executeQuery` (originally lines 725–961, ~300 LOC) out of
+ * Extracted `executeQuery` (originally lines 725–961, ~300 LOC) out of
  * `SessionLifecycleManager` into this stateless coordinator. The executor:
  *   - creates the AbortController (the load-bearing identity preserved end-to-
  *     end through registration, queryFn options, and the returned result),
@@ -194,7 +194,7 @@ export class SessionQueryExecutor {
         // Identity-preserved when undefined or empty — see
         // SdkQueryOptionsBuilder.mergeMcpOverride.
         mcpServersOverride,
-        // Memory recall query for system prompt injection (TASK_2026_THOTH_MEMORY_READ).
+        // Memory recall query for system prompt injection.
         // Falls back gracefully when undefined or empty.
         initialUserQuery: initialUserQuery ?? initialPrompt?.content,
         onProviderError: (stderrChunk: string) => {

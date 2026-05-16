@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AgentProcessManager helpers — stateless pure utilities.
  *
  * Extracted from `agent-process-manager.service.ts` as .

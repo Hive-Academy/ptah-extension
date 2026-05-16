@@ -1,4 +1,4 @@
-﻿/**
+/**
  * History Module - Session History Processing Services
  *
  * This module provides services for reading and processing session history

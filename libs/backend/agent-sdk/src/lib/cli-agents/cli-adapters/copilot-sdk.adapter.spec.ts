@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CopilotSdkAdapter Unit Tests
  *
  * Tests: detect(), listModels() (static + dynamic), runSdk() session wiring
@@ -164,8 +164,8 @@ function createClient(): { ctl: FakeClientCtl; client: unknown } {
   return { ctl, client };
 }
 
-// TASK_2026_FIX_COPILOT_SPAWN: The CopilotSdkAdapter no longer wraps the
-// @github/copilot-sdk in-process SDK; it now spawns the @github/copilot CLI
+// The CopilotSdkAdapter no longer wraps the @github/copilot-sdk
+// in-process SDK; it now spawns the @github/copilot CLI
 // binary directly to avoid the SDK's broken `vscode-jsonrpc/node` ESM import
 // in headless contexts. The legacy SDK-based mocks below (CopilotClient,
 // fake sessions, useLoggedInUser fallback, etc.) no longer exercise the real

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Agent Correlation Service
  *
  * Correlates agent sessions to Task tool_uses using timestamp-based matching.

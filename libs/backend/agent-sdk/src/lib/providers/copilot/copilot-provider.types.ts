@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Provider Types
  *
  * Copilot-specific types only. OpenAI/Anthropic protocol types have been

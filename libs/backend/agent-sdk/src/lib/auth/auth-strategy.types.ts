@@ -1,5 +1,5 @@
 /**
- * Auth Strategy Interface - TASK_AUTH_REFACTOR Phase 2
+ * Auth Strategy Interface
  *
  * Every auth strategy implements this interface. The AuthManager delegates
  * to the appropriate strategy based on resolveStrategy().

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Unit specs for `SdkQueryOptionsBuilder.mergeMcpOverride` —
  *
  * Scope: only the private `mergeMcpOverride(base, override)` helper. The full

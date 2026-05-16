@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SessionLifecycleManager — unit specs.
  *
  * Surface under test:
@@ -1253,7 +1253,7 @@ describe('SessionLifecycleManager', () => {
       expect(fakeC.interrupt).toHaveBeenCalledTimes(1);
 
       // (c) sessionEndRegistry.notifyAll was called with workspace roots captured
-      // pre-clearAll (the snapshot-before-clear fix from Batch 3). Verify that
+      // pre-clearAll (the snapshot-before-clear fix). Verify that
       // all 3 workspace paths were delivered.
       const notifyArgs = ih.notifyAll.mock.calls.map(
         (call) => (call[0] as { workspaceRoot: string }).workspaceRoot,

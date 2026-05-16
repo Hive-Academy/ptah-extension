@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Session Importer Service
  *
  * Imports existing Claude sessions from ~/.claude/projects/

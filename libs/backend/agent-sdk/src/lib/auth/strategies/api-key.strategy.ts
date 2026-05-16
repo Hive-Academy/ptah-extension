@@ -1,5 +1,5 @@
 /**
- * API Key Strategy - TASK_AUTH_REFACTOR Phase 2
+ * API Key Strategy
  *
  * Handles authentication via direct API key for:
  * - Anthropic direct (ANTHROPIC_API_KEY from SecretStorage or env)

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Cursor CLI Skill Installer
  *
  * Cursor CLI discovers skills from ~/.cursor/skills/{skillName}/SKILL.md

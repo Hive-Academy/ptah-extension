@@ -1,5 +1,5 @@
 /**
- * Ollama Cloud Metadata Service - TASK_OLLAMA_CLOUD_KEY
+ * Ollama Cloud Metadata Service
  *
  * When the user configures an OPTIONAL ollama.com API key (stored in
  * VS Code SecretStorage under `ptah.auth.provider.ollama-cloud` via

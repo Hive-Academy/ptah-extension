@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ptah CLI Module - Barrel exports
  *
  */

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Plugin Loader Service - Manages plugin metadata and per-workspace plugin configuration
  *
  * Responsibilities:

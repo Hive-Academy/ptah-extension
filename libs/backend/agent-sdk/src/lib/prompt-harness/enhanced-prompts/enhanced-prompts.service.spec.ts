@@ -1,4 +1,4 @@
-﻿/**
+/**
  * EnhancedPromptsService Null-Return Tests
  *
  * of getEnhancedPromptContent() added (Task 1.6).

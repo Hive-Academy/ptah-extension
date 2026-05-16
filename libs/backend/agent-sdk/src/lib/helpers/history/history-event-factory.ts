@@ -1,4 +1,4 @@
-﻿/**
+/**
  * HistoryEventFactory - Creates FlatStreamEventUnion events for session history replay
  *
  * This service provides factory methods for creating all event types needed to

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * VS Code-Enhanced Copilot Auth Service
  *
  * Extends the platform-agnostic CopilotAuthService with VS Code's

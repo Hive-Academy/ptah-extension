@@ -1,4 +1,4 @@
-﻿/**
+/**
  * JSONL Reader Service
  *
  * Handles all JSONL file I/O operations for session history processing.

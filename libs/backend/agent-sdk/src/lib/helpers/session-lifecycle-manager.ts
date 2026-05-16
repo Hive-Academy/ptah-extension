@@ -271,7 +271,7 @@ export interface ExecuteQueryResult {
  */
 @injectable()
 export class SessionLifecycleManager {
-  // Wave C7i: state ownership consolidated in `SessionRegistry`. The facade
+  // State ownership consolidated in `SessionRegistry`. The facade
   // owns NO mutable session state; all reads/writes go through `_registry`.
   private readonly _registry: SessionRegistry;
   private readonly _streamPump: SessionStreamPump;

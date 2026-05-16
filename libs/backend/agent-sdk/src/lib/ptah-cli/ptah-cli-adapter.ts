@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ptah CLI Adapter - IAIProvider for Anthropic-compatible providers
  *
  * Implements IAIProvider for user-configured Ptah CLI instances that connect
@@ -880,7 +880,7 @@ export class PtahCliAdapter implements IAIProvider {
     }
 
     // Get compaction configuration for logging only (compactionControl was a phantom
-    // field not in SDK Options — removed in Phase 0. Hook-based approach is intact.)
+    // field not in SDK Options — removed. Hook-based approach is intact.)
     const compactionConfig = this.compactionConfigProvider?.getConfig();
 
     this.logger.info('[PtahCliAdapter] Building query options', {
@@ -935,7 +935,7 @@ export class PtahCliAdapter implements IAIProvider {
         },
         hooks,
         // NOTE: compactionControl is not in the SDK's Options type — it was a
-        // phantom field silently ignored by the SDK. Removed in Phase 0 fix.
+        // phantom field silently ignored by the SDK. Removed.
         thinking,
         effort,
         // Without this, the subprocess resolves to the build-time path

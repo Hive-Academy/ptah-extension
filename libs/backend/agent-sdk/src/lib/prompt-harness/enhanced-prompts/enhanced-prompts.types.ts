@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Enhanced Prompts Types
  *
  * Type definitions for the Enhanced Prompts feature.

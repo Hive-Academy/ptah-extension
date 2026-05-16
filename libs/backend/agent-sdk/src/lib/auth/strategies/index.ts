@@ -1,5 +1,5 @@
 /**
- * Auth Strategies Barrel Exports - TASK_AUTH_REFACTOR Phase 2
+ * Auth Strategies Barrel Exports
  */
 
 export { ApiKeyStrategy } from './api-key.strategy';

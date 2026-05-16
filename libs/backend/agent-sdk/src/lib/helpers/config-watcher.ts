@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Config Watcher - Handles automatic re-initialization on config changes
  *
  * Responsibilities:

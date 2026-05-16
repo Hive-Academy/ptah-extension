@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Authentication Service - Platform-Agnostic
  *
  * Handles GitHub OAuth login via file-based token reading or device code flow,

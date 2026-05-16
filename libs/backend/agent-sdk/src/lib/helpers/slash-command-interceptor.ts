@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Slash Command Interceptor - Detects and classifies slash commands in messages
  *
  * The Claude Agent SDK only parses slash commands from raw string prompts passed

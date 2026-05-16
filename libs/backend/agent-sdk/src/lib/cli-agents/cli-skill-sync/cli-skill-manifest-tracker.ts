@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CLI Skill Manifest Tracker
  *
  * Uses VS Code globalState (Memento) for persistence, similar to

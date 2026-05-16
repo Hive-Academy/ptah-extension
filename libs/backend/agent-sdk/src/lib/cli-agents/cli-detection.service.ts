@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CLI Detection Service
  *
  * Detects on first call and caches results.

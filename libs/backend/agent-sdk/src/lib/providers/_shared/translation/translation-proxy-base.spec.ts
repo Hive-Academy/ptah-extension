@@ -1,4 +1,4 @@
-﻿/**
+/**
  * TranslationProxyBase — unit specs.
  *
  * Surface under test:

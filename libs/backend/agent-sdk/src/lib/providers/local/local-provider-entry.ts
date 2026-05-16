@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Local Model Provider Entries
  *
  * Static provider definitions for Ollama (local + cloud) and LM Studio.
@@ -88,7 +88,7 @@ export const OLLAMA_PROVIDER_ENTRY: AnthropicProvider = {
  * - `authType: 'none'` -- inference auth still handled by `ollama signin`
  *   (stored locally). Strategy routing stays on `local-native`.
  * - `supportsOptionalApiKey: true` -- the user MAY paste an ollama.com API
- *   key to unlock metadata-only enhancements (TASK_OLLAMA_CLOUD_KEY):
+ *   key to unlock metadata-only enhancements:
  *     • Live cloud model list from ollama.com/api/tags (filters `:cloud`)
  *     • Per-request usage + pricing from ollama.com/api/usage, seeding
  *       DEFAULT_MODEL_PRICING so the stats panel shows real per-token costs.

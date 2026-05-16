@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Shared provider infrastructure.
  *
  * - provider-registry: the AnthropicProvider contract + ANTHROPIC_PROVIDERS

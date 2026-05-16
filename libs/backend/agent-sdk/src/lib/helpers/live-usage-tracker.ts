@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LiveUsageTracker — Per-session live cumulative token snapshot.
  *
  * Extracted from `SdkMessageTransformer` to break a

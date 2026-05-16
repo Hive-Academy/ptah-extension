@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AgentProcessManager Unit Tests - SDK Execution Path
  *
  * Tests: SDK spawn path, output streaming, stop/abort, timeout, steer rejection,
@@ -52,7 +52,7 @@ jest.mock('tsyringe', () => ({
 }));
 
 // Mock the Logger token + service classes that AgentProcessManager now
-// depends on after Wave C5 / C7a god-service split-up. The source file
+// depends on after the god-service split-up. The source file
 // constructor-injects LicenseService, SubagentRegistryService, and
 // SentryService alongside the original logger/cliDetection.
 jest.mock('@ptah-extension/vscode-core', () => ({
@@ -300,7 +300,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     setupVscodeConfig();
 
     // Instantiate manager directly (tsyringe decorators are mocked to no-ops).
-    // After Wave C5/C7a the constructor takes 6 deps: logger, cliDetection,
+    // The constructor takes 6 deps: logger, cliDetection,
     // licenseService, subagentRegistry, workspaceProvider, sentryService.
     const licenseService = createMockLicenseService();
     const subagentRegistry = createMockSubagentRegistry();

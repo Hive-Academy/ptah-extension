@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Enhanced Prompts Module
  *
  * This module provides the Enhanced Prompts premium feature which generates

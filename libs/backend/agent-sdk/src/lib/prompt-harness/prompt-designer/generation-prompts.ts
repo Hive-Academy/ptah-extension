@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Generation Prompts for Prompt Designer Agent
  *
  * to generate project-specific guidance.

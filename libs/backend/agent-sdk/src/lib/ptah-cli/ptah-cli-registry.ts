@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ptah CLI Registry - Manages lifecycle of PtahCliAdapter instances
  *
  * DI-injectable singleton that handles CRUD operations for Ptah CLI

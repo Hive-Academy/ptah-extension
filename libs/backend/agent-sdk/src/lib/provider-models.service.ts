@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Provider Models Service
  *
  * Fetches available models from any Anthropic-compatible provider and manages

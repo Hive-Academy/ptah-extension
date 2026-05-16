@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenAI Response Translator
  *
  * Stateful streaming translator that converts OpenAI Chat Completions

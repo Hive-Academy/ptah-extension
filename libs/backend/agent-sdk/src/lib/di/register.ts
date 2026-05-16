@@ -216,7 +216,7 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+  // Session end callback registry.
   // Must be registered BEFORE SessionControl (built inside SessionLifecycleManager facade)
   container.register(
     SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY,
@@ -261,7 +261,7 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // SubagentMessageDispatcher — Phase 2 bidirectional messaging + stop/interrupt.
+  // SubagentMessageDispatcher — bidirectional messaging + stop/interrupt.
   // Depends on Logger, SessionLifecycleManager, SubagentRegistryService.
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
@@ -277,7 +277,7 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Compaction callback registry (TASK_2026_HERMES Track 1)
+  // Compaction callback registry.
   // Must be registered BEFORE CompactionHookHandler which injects it.
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
@@ -331,9 +331,9 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Memory prompt injector (TASK_2026_THOTH_MEMORY_READ)
+  // Memory prompt injector.
   // Register a no-op fallback for hosts where memory-curator is not registered
-  // (e.g. VS Code pre-HERMES_FINISH landing SQLite support). This prevents the
+  // (e.g. VS Code hosts that do not load SQLite support). This prevents the
   // @inject(MEMORY_CONTRACT_TOKENS.MEMORY_READER) in MemoryPromptInjector from
   // throwing at construction time when the token is absent.
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
@@ -360,7 +360,7 @@ export function registerSdkServices(
   // Enhanced Prompts Services
   // ============================================================
 
-  // Prompt Designer Agent - generates project-specific guidance (Batch 2)
+  // Prompt Designer Agent - generates project-specific guidance
   // Note: Requires LlmService to be registered by consuming application
   container.register(
     SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT,
@@ -368,7 +368,7 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Prompt Cache Service - smart caching with file-based invalidation (Batch 3)
+  // Prompt Cache Service - smart caching with file-based invalidation
   // Note: Requires ExtensionContext and FileSystemManager to be registered
   container.register(
     SDK_TOKENS.SDK_PROMPT_CACHE_SERVICE,
@@ -376,7 +376,7 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Enhanced Prompts Service - orchestrates the Enhanced Prompts feature (Batch 4)
+  // Enhanced Prompts Service - orchestrates the Enhanced Prompts feature
   // Note: Requires PromptDesignerAgent, PromptCacheService, WorkspaceIntelligence
   container.register(
     SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
@@ -493,7 +493,7 @@ export function registerSdkServices(
   registerProviders(container);
 
   // ============================================================
-  // Auth Strategies (TASK_AUTH_REFACTOR Phase 2)
+  // Auth Strategies
   // 5 strategies extract auth logic from the AuthManager god class
   // Must be registered before AuthManager resolves (which depends on these)
   // ============================================================
@@ -529,7 +529,7 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // ModelResolver - Single source of truth for tier→model resolution (TASK_AUTH_REFACTOR)
+  // ModelResolver - Single source of truth for tier→model resolution
   // ============================================================
   container.register(
     SDK_TOKENS.SDK_MODEL_RESOLVER,

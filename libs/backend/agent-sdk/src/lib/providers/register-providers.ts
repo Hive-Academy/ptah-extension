@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Provider DI Registrations — consolidated.
  *
  * Previously: 4 copy-pasted blocks at di/register.ts:407-487.

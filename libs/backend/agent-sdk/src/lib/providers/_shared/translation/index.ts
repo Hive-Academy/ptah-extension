@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenAI Translation Module - Barrel Exports
  *
  * Shared Anthropic <-> OpenAI translation infrastructure used by

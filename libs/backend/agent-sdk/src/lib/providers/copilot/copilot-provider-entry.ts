@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Provider Entry
  *
  * Static provider definition for GitHub Copilot.

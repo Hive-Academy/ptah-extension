@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Compaction Configuration Provider - Provides SDK compaction configuration from VS Code settings
  *
  * Responsibilities:

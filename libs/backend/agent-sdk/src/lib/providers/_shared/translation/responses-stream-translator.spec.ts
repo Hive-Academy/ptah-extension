@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ResponsesStreamTranslator — unit specs.
  *
  * Surface under test:
