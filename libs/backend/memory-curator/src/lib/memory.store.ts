@@ -269,6 +269,7 @@ export class MemoryStore implements IMemoryLister {
       tier?: MemoryTier;
       limit?: number;
       offset?: number;
+      includeCodeIndex?: boolean;
     } = {},
   ): MemoryListResponse {
     const where: string[] = [];
@@ -280,6 +281,9 @@ export class MemoryStore implements IMemoryLister {
     if (filter.tier) {
       where.push('tier = @tier');
       params['tier'] = filter.tier;
+    }
+    if (!filter.includeCodeIndex) {
+      where.push("(subject IS NULL OR subject NOT LIKE 'code:%')");
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
     const limit = Math.max(1, Math.min(500, filter.limit ?? 100));
@@ -460,6 +464,47 @@ export class MemoryStore implements IMemoryLister {
     return result.changes;
   }
 
+  purgeJunkCodeSymbols(workspaceRoot?: string | null): number {
+    const junkSegments = [
+      '/.angular/',
+      '/.cache/',
+      '/.next/',
+      '/.nx/',
+      '/.output/',
+      '/.turbo/',
+      '/.vite/',
+      '/.vscode-test/',
+      '/build/',
+      '/coverage/',
+      '/dist/',
+      '/node_modules/',
+      '/out/',
+      '/target/',
+      '/tmp/',
+    ];
+    let totalDeleted = 0;
+    const sql =
+      workspaceRoot !== undefined && workspaceRoot !== null
+        ? `DELETE FROM memories WHERE subject LIKE 'code:%' AND subject LIKE ? ESCAPE '\\' AND workspace_root IS ?`
+        : `DELETE FROM memories WHERE subject LIKE 'code:%' AND subject LIKE ? ESCAPE '\\'`;
+    const stmt = this.connection.db.prepare(sql);
+    for (const segment of junkSegments) {
+      const escaped = segment
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_');
+      const result =
+        workspaceRoot !== undefined && workspaceRoot !== null
+          ? stmt.run(`%${escaped}%`, workspaceRoot)
+          : stmt.run(`%${escaped}%`);
+      totalDeleted += result.changes;
+    }
+    if (totalDeleted > 0) {
+      this.bumpWriteCounter(workspaceRoot ?? null);
+    }
+    return totalDeleted;
+  }
+
   recordHit(id: MemoryId): void {
     this.connection.db
       .prepare(
@@ -562,12 +607,20 @@ export class MemoryStore implements IMemoryLister {
 
   stats(workspaceRoot?: string | null): MemoryStatsResponse {
     const db = this.connection.db;
-    const where =
+    const baseWhere =
       workspaceRoot !== undefined ? 'WHERE workspace_root IS ?' : '';
     const args = workspaceRoot !== undefined ? [workspaceRoot] : [];
+
+    const curatedWhere = baseWhere
+      ? `${baseWhere} AND (subject IS NULL OR subject NOT LIKE 'code:%')`
+      : `WHERE (subject IS NULL OR subject NOT LIKE 'code:%')`;
+    const codeWhere = baseWhere
+      ? `${baseWhere} AND subject LIKE 'code:%'`
+      : `WHERE subject LIKE 'code:%'`;
+
     const tiers = db
       .prepare(
-        `SELECT tier, COUNT(*) AS n FROM memories ${where} GROUP BY tier`,
+        `SELECT tier, COUNT(*) AS n FROM memories ${curatedWhere} GROUP BY tier`,
       )
       .all(...args) as Array<{ tier: MemoryTier; n: number }>;
     const counts: Record<MemoryTier, number> = {
@@ -576,13 +629,20 @@ export class MemoryStore implements IMemoryLister {
       archival: 0,
     };
     for (const t of tiers) counts[t.tier] = t.n;
+
+    const codeRow = db
+      .prepare(`SELECT COUNT(*) AS n FROM memories ${codeWhere}`)
+      .get(...args) as { n: number } | undefined;
+
     const last = db
-      .prepare(`SELECT MAX(updated_at) AS m FROM memories ${where}`)
+      .prepare(`SELECT MAX(updated_at) AS m FROM memories ${curatedWhere}`)
       .get(...args) as { m: number | null } | undefined;
+
     return {
       core: counts.core,
       recall: counts.recall,
       archival: counts.archival,
+      codeIndex: codeRow?.n ?? 0,
       lastCuratedAt: last?.m ?? null,
     };
   }

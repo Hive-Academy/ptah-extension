@@ -71,7 +71,6 @@ export type {
 export { IndexingControlService } from './lib/control/indexing-control.service';
 export type {
   IndexingStatus,
-  BootStrategy,
   SymbolsCursor,
   IndexingProgressEvent,
   IndexingState,

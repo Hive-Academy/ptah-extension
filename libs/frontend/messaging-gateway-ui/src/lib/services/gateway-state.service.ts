@@ -411,7 +411,6 @@ export class GatewayStateService implements MessageHandler {
       [platform]: { state: 'error', lastError: message },
     }));
   }
-
   private recordGlobalError(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
     // Spread a global error across all platforms only if the error is

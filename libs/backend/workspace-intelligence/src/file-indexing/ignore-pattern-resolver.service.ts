@@ -338,36 +338,36 @@ export class IgnorePatternResolverService {
    * @returns Parsed ignore pattern or null if invalid
    */
   private parsePattern(raw: string, lineNumber: number): IgnorePattern | null {
-    // Remove trailing whitespace (as per Git spec)
-    let pattern = raw.trimEnd();
-
-    // Remove leading whitespace (preserve leading ! for negation)
-    pattern = pattern.trimStart();
-
-    // Empty pattern after trimming
+    let pattern = raw.trimEnd().trimStart();
     if (pattern === '') {
       return null;
     }
 
-    // Check for negation pattern
     const isNegation = pattern.startsWith('!');
     if (isNegation) {
       pattern = pattern.slice(1).trimStart();
     }
 
-    // Check for directory-only pattern (ends with /)
     const isDirectoryOnly = pattern.endsWith('/');
+    const isAnchored = pattern.startsWith('/');
 
-    // Normalize pattern:
-    // - Remove leading slash (treat as relative to base dir)
-    // - Keep trailing slash for directory patterns
-    if (pattern.startsWith('/')) {
+    if (isAnchored) {
       pattern = pattern.slice(1);
     }
+    if (isDirectoryOnly) {
+      pattern = pattern.slice(0, -1);
+    }
 
-    // Convert directory pattern to glob (add ** to match all files inside)
-    if (isDirectoryOnly && !pattern.includes('*')) {
-      pattern = `${pattern}**`;
+    const hasInternalSlash = pattern.includes('/');
+
+    if (!isAnchored && !hasInternalSlash) {
+      pattern = `**/${pattern}`;
+    }
+
+    if (isDirectoryOnly) {
+      pattern = `${pattern}/**`;
+    } else {
+      pattern = `{${pattern},${pattern}/**}`;
     }
 
     return {

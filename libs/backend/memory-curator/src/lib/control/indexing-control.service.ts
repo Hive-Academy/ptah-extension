@@ -1,20 +1,5 @@
 /**
  * IndexingControlService — user-controlled workspace indexing state machine.
- *
- * Responsibilities:
- *   - Persist indexing state per workspace fingerprint in the `indexing_state` SQLite table.
- *   - Evaluate boot strategy (first-time / skip / mark-stale-and-skip) from stored + current git HEAD.
- *   - Own the state machine (never-indexed | indexing | paused | indexed | stale | error).
- *   - Expose pause / resume / cancel with cooperative AbortController cancellation.
- *   - Broadcast progress events via WebviewManager.broadcastMessage().
- *   - Gate MemoryCuratorService on the memoryEnabled flag.
- *   - Hold the chokidar watcher reference so setPipelineEnabled('symbols', false) can stop it.
- *
- * LOGGING CONSTRAINT: evaluateBootStrategy() and the 'skip' path MUST NOT emit
- * logger.info or console.log — only logger.debug. This is AC #1 (keystone metric).
- *
- * IMPORT CONSTRAINT: This service must NOT import workspace-intelligence libs directly.
- * Indexer callables are passed at start() call time to avoid circular dependencies.
  */
 
 import { inject, injectable } from 'tsyringe';
@@ -35,14 +20,11 @@ import {
 import type {
   IndexingState,
   IndexingPipeline,
-  BootStrategy,
   SymbolsCursor,
   IndexingProgressEvent,
 } from '@ptah-extension/shared';
 
-// ---- Backend-only types (not exported via shared wire) ----
-
-export type { IndexingState, IndexingPipeline, BootStrategy, SymbolsCursor };
+export type { IndexingState, IndexingPipeline, SymbolsCursor };
 export type { IndexingProgressEvent };
 
 export interface IndexingStatus {
@@ -136,39 +118,6 @@ export class IndexingControlService {
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
   ) {}
-
-  // ---- Boot strategy evaluation -----------------------------------------------
-
-  /**
-   * Evaluate whether the workspace should be indexed on this boot.
-   *
-   * LOGGING: Only logger.debug — NO logger.info, NO console.log.
-   * This constraint is AC #1: zero log lines on 'skip' strategy boot.
-   */
-  async evaluateBootStrategy(workspaceRoot: string): Promise<BootStrategy> {
-    const { fp } = await deriveWorkspaceFingerprint(workspaceRoot, this.fs);
-    const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
-    const row = this.readRow(fp);
-
-    this.logger.debug('[indexing-control] evaluateBootStrategy', {
-      fp,
-      currentSha,
-      hasRow: Boolean(row),
-      storedSha: row?.git_head_sha ?? null,
-    });
-
-    if (!row) {
-      return 'auto-index-first-time';
-    }
-
-    // Stale detection: both SHAs must be non-null and different
-    if (row.git_head_sha && currentSha && row.git_head_sha !== currentSha) {
-      return 'mark-stale-and-skip';
-    }
-
-    // Non-git workspace (both null) → skip; matching SHA → skip
-    return 'skip';
-  }
 
   // ---- Status read -------------------------------------------------------
 
@@ -417,14 +366,6 @@ export class IndexingControlService {
     this.upsertRow(fp, { disclosure_acknowledged_at: Date.now() });
   }
 
-  /** Mark workspace as stale (called by RPC handler or wire-runtime after boot strategy eval). */
-  async markStale(workspaceRoot: string): Promise<void> {
-    const { fp } = await deriveWorkspaceFingerprint(workspaceRoot, this.fs);
-    const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
-    // Write the current (new) SHA so next boot can compare again
-    this.upsertRow(fp, { git_head_sha: currentSha, last_error: null });
-  }
-
   // ---- Watcher management ---------------------------------------------------
 
   /** Wire-runtime calls this after the chokidar watcher is created. */
@@ -441,19 +382,6 @@ export class IndexingControlService {
       const idx = this.progressListeners.indexOf(listener);
       if (idx !== -1) this.progressListeners.splice(idx, 1);
     };
-  }
-
-  // ---- First-launch helper ---------------------------------------------------
-
-  /**
-   * First-launch helper: starts both pipelines once with progress broadcast.
-   * Called by wire-runtime when evaluateBootStrategy returns 'auto-index-first-time'.
-   */
-  async startAutoIndex(
-    workspaceRoot: string,
-    deps: IndexingRunDeps,
-  ): Promise<void> {
-    await this.start(undefined, workspaceRoot, deps);
   }
 
   // ---- Private helpers -------------------------------------------------------

@@ -33,6 +33,8 @@ import type {
   MemoryPinResult,
   MemoryPurgeBySubjectPatternParams,
   MemoryPurgeBySubjectPatternResult,
+  MemoryPurgeJunkParams,
+  MemoryPurgeJunkResult,
   MemoryRebuildIndexParams,
   MemoryRebuildIndexResult,
   MemorySearchHitWire,
@@ -98,6 +100,7 @@ export class MemoryRpcHandlers {
     'memory:rebuildIndex',
     'memory:stats',
     'memory:purgeBySubjectPattern',
+    'memory:purgeJunk',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -311,8 +314,41 @@ export class MemoryRpcHandlers {
       },
     );
 
-    // Touch curator so DI graph fully resolves on registration. Curator is
-    // started by the host app at activation; this is just to ensure construction.
+    this.rpcHandler.registerMethod(
+      'memory:purgeJunk',
+      async (
+        params: MemoryPurgeJunkParams | undefined,
+      ): Promise<MemoryPurgeJunkResult> => {
+        const workspaceRoot = params?.workspaceRoot ?? undefined;
+        if (
+          workspaceRoot !== undefined &&
+          workspaceRoot !== null &&
+          !isAuthorizedWorkspace(workspaceRoot, this.workspaceProvider)
+        ) {
+          throw new RpcUserError(
+            'Workspace not authorized',
+            'UNAUTHORIZED_WORKSPACE',
+          );
+        }
+        try {
+          const deleted = this.store.purgeJunkCodeSymbols(workspaceRoot);
+          this.logger.info('[memory] purgeJunk complete', {
+            deleted,
+            workspaceRoot: workspaceRoot ?? null,
+          });
+          return { deleted };
+        } catch (err) {
+          this.logger.error('[memory] purgeJunk failed', {
+            error: String(err),
+          });
+          throw new RpcUserError(
+            'memory:purgeJunk failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
+      },
+    );
+
     void this.curator;
     this.logger.info('[memory] RPC handlers registered');
   }

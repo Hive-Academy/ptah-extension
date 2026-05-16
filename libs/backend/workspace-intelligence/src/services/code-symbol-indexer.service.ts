@@ -33,6 +33,18 @@ export interface CodeSymbolIndexerOptions {
    * Existing callers that omit this field are unaffected.
    */
   signal?: AbortSignal;
+  /**
+   * Optional progress callback fired at every batch boundary so the UI can
+   * surface incremental progress.
+   */
+  onProgress?: (progress: CodeSymbolIndexerProgress) => void;
+}
+
+export interface CodeSymbolIndexerProgress {
+  filesScanned: number;
+  totalFiles: number;
+  symbolsIndexed: number;
+  currentFile: string;
 }
 
 export interface IndexingStats {
@@ -179,7 +191,7 @@ export class CodeSymbolIndexer {
     let totalSymbols = 0;
     let totalErrors = 0;
 
-    // Process files in batches with setImmediate() yields between batches
+    let filesProcessed = 0;
     for (let i = 0; i < filteredPaths.length; i += batchSize) {
       const batch = filteredPaths.slice(i, i + batchSize);
 
@@ -187,13 +199,24 @@ export class CodeSymbolIndexer {
         const stats = await this._indexFile(filePath, workspaceRoot);
         totalSymbols += stats.symbolsIndexed;
         totalErrors += stats.errors;
+        filesProcessed++;
       }
 
-      // Yield between batches to avoid stalling the event loop
+      if (options?.onProgress) {
+        try {
+          options.onProgress({
+            filesScanned: filesProcessed,
+            totalFiles: filteredPaths.length,
+            symbolsIndexed: totalSymbols,
+            currentFile: batch[batch.length - 1] ?? '',
+          });
+        } catch {
+          // never let a listener throw poison the indexing loop
+        }
+      }
+
       if (i + batchSize < filteredPaths.length) {
         await yieldToEventLoop();
-        // Cooperative cancellation: check AFTER the yield so the current batch
-        // always completes with no partial writes before honoring the signal.
         if (options?.signal?.aborted) {
           this.logger.debug?.(
             '[CodeSymbolIndexer] Abort signal received at batch boundary — stopping early',

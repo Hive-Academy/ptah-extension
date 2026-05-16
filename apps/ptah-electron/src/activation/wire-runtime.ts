@@ -54,7 +54,6 @@ import {
 import type { IBackupService } from '@ptah-extension/persistence-sqlite';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { GatewayService } from '@ptah-extension/messaging-gateway';
-import type { BootStrategy } from '@ptah-extension/shared';
 
 export interface WireRuntimeOptions {
   container: DependencyContainer;
@@ -351,17 +350,6 @@ export async function wireRuntime(
       refs.skillSynthesis = null;
     }
 
-    // PHASE 4.53b: Code Symbol Indexer cold-start.
-    // Boot strategy evaluation gates whether the full workspace walk fires:
-    //   'auto-index-first-time' → run workspace walk + register chokidar watcher
-    //   'skip'                  → silent — only register chokidar watcher if symbolsEnabled
-    //   'mark-stale-and-skip'   → call markStale, do NOT auto-run — frontend shows banner
-    //
-    // AbortError (DOMException name 'AbortError') from CodeSymbolIndexer is treated as
-    // a clean pause, NOT an error. Any other error propagates to IndexingControlService
-    // which sets state to 'error'.
-    //
-    // LOGGING CONSTRAINT: zero console.log / logger.info about indexing on 'skip' strategy.
     try {
       if (
         refs.sqliteConnection !== null &&
@@ -372,17 +360,39 @@ export async function wireRuntime(
         const symbolIndexer =
           container.resolve<CodeSymbolIndexer>(CODE_SYMBOL_INDEXER);
 
-        // Build the callable deps object that IndexingControlService uses to
-        // invoke CodeSymbolIndexer without a direct import (avoids circular dep).
         const runDeps: IndexingRunDeps = {
           runSymbols: async (
             wsRoot: string,
             options?: { signal?: AbortSignal },
           ): Promise<void> => {
             try {
-              await symbolIndexer.indexWorkspace(wsRoot, options);
+              const startedAt = Date.now();
+              await symbolIndexer.indexWorkspace(wsRoot, {
+                ...(options?.signal ? { signal: options.signal } : {}),
+                onProgress: (p) => {
+                  const percent =
+                    p.totalFiles > 0
+                      ? Math.min(
+                          100,
+                          Math.round((p.filesScanned / p.totalFiles) * 100),
+                        )
+                      : 0;
+                  const webviewManager = container.resolve<{
+                    broadcastMessage: (
+                      type: string,
+                      payload: unknown,
+                    ) => Promise<void>;
+                  }>(TOKENS.WEBVIEW_MANAGER);
+                  void webviewManager.broadcastMessage('indexing:progress', {
+                    pipeline: 'symbols',
+                    percent,
+                    currentLabel: `${p.filesScanned}/${p.totalFiles} files`,
+                    elapsedMs: Date.now() - startedAt,
+                    totalKnown: true,
+                  });
+                },
+              });
             } catch (err: unknown) {
-              // AbortError is cooperative cancellation — treat as clean pause.
               if (
                 err instanceof DOMException ||
                 (err instanceof Error && err.name === 'AbortError')
@@ -394,261 +404,15 @@ export async function wireRuntime(
           },
         };
 
-        // Wire runDeps into the IndexingRpcHandlers so RPC calls (start/resume)
-        // get the same symbolIndexer reference.
         if (container.isRegistered(IndexingRpcHandlers)) {
           const indexingRpcHandlers =
             container.resolve<IndexingRpcHandlers>(IndexingRpcHandlers);
           indexingRpcHandlers.setRunDeps(runDeps);
         }
-
-        // Evaluate boot strategy and branch accordingly.
-        if (indexingControl) {
-          let bootStrategy: BootStrategy = 'skip';
-          try {
-            bootStrategy =
-              await indexingControl.evaluateBootStrategy(workspaceRoot);
-          } catch (strategyErr: unknown) {
-            console.warn(
-              '[Ptah Electron] evaluateBootStrategy failed (defaulting to skip):',
-              strategyErr instanceof Error
-                ? strategyErr.message
-                : String(strategyErr),
-            );
-          }
-
-          if (bootStrategy === 'auto-index-first-time') {
-            // === FIRST LAUNCH: Run full workspace walk + register watcher ===
-            // Defer workspace index 5 s to avoid competing with plugin load,
-            // MCP start, and window paint during the critical activation window.
-
-            // Check per-pipeline toggles even on first launch
-            let symbolsEnabled = true;
-            try {
-              const status = await indexingControl.getStatus(workspaceRoot);
-              symbolsEnabled = status.symbolsEnabled;
-            } catch {
-              // Non-fatal — default to enabled
-            }
-
-            if (symbolsEnabled) {
-              setTimeout(() => {
-                void indexingControl
-                  .startAutoIndex(workspaceRoot, runDeps)
-                  .catch((err: unknown) => {
-                    console.warn(
-                      '[Ptah Electron] startAutoIndex failed (non-fatal):',
-                      err instanceof Error ? err.message : String(err),
-                    );
-                  });
-              }, 5000);
-
-              // Incremental re-index on file change — registers immediately.
-              const chokidar = await import('chokidar');
-              const allowedExts = ['.ts', '.tsx', '.js', '.jsx'];
-              const reindexDebounce = new Map<
-                string,
-                ReturnType<typeof setTimeout>
-              >();
-              const symbolWatcher = chokidar.watch(
-                allowedExts.map((ext) => `${workspaceRoot}/**/*${ext}`),
-                { ignoreInitial: true, persistent: true },
-              );
-              symbolWatcher.on('change', (filePath: string) => {
-                const existingTimer = reindexDebounce.get(filePath);
-                if (existingTimer) clearTimeout(existingTimer);
-                reindexDebounce.set(
-                  filePath,
-                  setTimeout(() => {
-                    reindexDebounce.delete(filePath);
-                    void symbolIndexer
-                      .reindexFile(filePath, workspaceRoot)
-                      .catch((err: unknown) => {
-                        console.warn(
-                          '[Ptah Electron] reindexFile failed (non-fatal):',
-                          err instanceof Error ? err.message : String(err),
-                        );
-                      });
-                  }, 500),
-                );
-              });
-              symbolWatcher.on('error', (err: unknown) => {
-                console.warn(
-                  '[Ptah Electron] symbolWatcher error (non-fatal):',
-                  err instanceof Error ? err.message : String(err),
-                );
-              });
-              refs.symbolWatcher = symbolWatcher;
-              indexingControl.setSymbolWatcher(symbolWatcher);
-
-              // This log line intentionally lives INSIDE the auto-index-first-time
-              // branch only — keystone metric (AC #1) requires it never fires on skip.
-              console.log('[Ptah Electron] Code symbol indexer started');
-            }
-          } else if (bootStrategy === 'mark-stale-and-skip') {
-            // === STALE WORKSPACE: Record stale state, do NOT auto-run ===
-            // Frontend Settings panel will show the stale banner.
-            try {
-              await indexingControl.markStale(workspaceRoot);
-            } catch (markErr: unknown) {
-              console.warn(
-                '[Ptah Electron] markStale failed (non-fatal):',
-                markErr instanceof Error ? markErr.message : String(markErr),
-              );
-            }
-            // Register chokidar watcher for incremental re-indexing even in stale
-            // state so file saves are tracked while user decides to re-index.
-            let symbolsEnabled = true;
-            try {
-              const status = await indexingControl.getStatus(workspaceRoot);
-              symbolsEnabled = status.symbolsEnabled;
-            } catch {
-              // Non-fatal — default to enabled
-            }
-            if (symbolsEnabled) {
-              const chokidar = await import('chokidar');
-              const allowedExts = ['.ts', '.tsx', '.js', '.jsx'];
-              const reindexDebounce = new Map<
-                string,
-                ReturnType<typeof setTimeout>
-              >();
-              const symbolWatcher = chokidar.watch(
-                allowedExts.map((ext) => `${workspaceRoot}/**/*${ext}`),
-                { ignoreInitial: true, persistent: true },
-              );
-              symbolWatcher.on('change', (filePath: string) => {
-                const existingTimer = reindexDebounce.get(filePath);
-                if (existingTimer) clearTimeout(existingTimer);
-                reindexDebounce.set(
-                  filePath,
-                  setTimeout(() => {
-                    reindexDebounce.delete(filePath);
-                    void symbolIndexer
-                      .reindexFile(filePath, workspaceRoot)
-                      .catch((err: unknown) => {
-                        console.warn(
-                          '[Ptah Electron] reindexFile failed (non-fatal):',
-                          err instanceof Error ? err.message : String(err),
-                        );
-                      });
-                  }, 500),
-                );
-              });
-              symbolWatcher.on('error', (err: unknown) => {
-                console.warn(
-                  '[Ptah Electron] symbolWatcher error (non-fatal):',
-                  err instanceof Error ? err.message : String(err),
-                );
-              });
-              refs.symbolWatcher = symbolWatcher;
-              indexingControl.setSymbolWatcher(symbolWatcher);
-            }
-            // === 'skip' strategy: zero console.log / logger.info — AC #1 keystone ===
-          } else {
-            // bootStrategy === 'skip'
-            // Workspace is unchanged — do NOT run indexers. Only register the
-            // chokidar watcher for incremental file-save re-indexing if symbolsEnabled.
-            let symbolsEnabled = true;
-            try {
-              const status = await indexingControl.getStatus(workspaceRoot);
-              symbolsEnabled = status.symbolsEnabled;
-            } catch {
-              // Non-fatal — default to enabled
-            }
-            if (symbolsEnabled) {
-              const chokidar = await import('chokidar');
-              const allowedExts = ['.ts', '.tsx', '.js', '.jsx'];
-              const reindexDebounce = new Map<
-                string,
-                ReturnType<typeof setTimeout>
-              >();
-              const symbolWatcher = chokidar.watch(
-                allowedExts.map((ext) => `${workspaceRoot}/**/*${ext}`),
-                { ignoreInitial: true, persistent: true },
-              );
-              symbolWatcher.on('change', (filePath: string) => {
-                const existingTimer = reindexDebounce.get(filePath);
-                if (existingTimer) clearTimeout(existingTimer);
-                reindexDebounce.set(
-                  filePath,
-                  setTimeout(() => {
-                    reindexDebounce.delete(filePath);
-                    void symbolIndexer
-                      .reindexFile(filePath, workspaceRoot)
-                      .catch((err: unknown) => {
-                        console.warn(
-                          '[Ptah Electron] reindexFile failed (non-fatal):',
-                          err instanceof Error ? err.message : String(err),
-                        );
-                      });
-                  }, 500),
-                );
-              });
-              symbolWatcher.on('error', (err: unknown) => {
-                console.warn(
-                  '[Ptah Electron] symbolWatcher error (non-fatal):',
-                  err instanceof Error ? err.message : String(err),
-                );
-              });
-              refs.symbolWatcher = symbolWatcher;
-              indexingControl.setSymbolWatcher(symbolWatcher);
-            }
-          }
-        } else {
-          // IndexingControlService not available — fall back to legacy unconditional
-          // workspace walk for backwards compatibility (e.g. DI not yet fully migrated).
-          setTimeout(() => {
-            void symbolIndexer
-              .indexWorkspace(workspaceRoot)
-              .catch((err: unknown) => {
-                console.warn(
-                  '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
-                  err instanceof Error ? err.message : String(err),
-                );
-              });
-          }, 5000);
-
-          const chokidar = await import('chokidar');
-          const allowedExts = ['.ts', '.tsx', '.js', '.jsx'];
-          const reindexDebounce = new Map<
-            string,
-            ReturnType<typeof setTimeout>
-          >();
-          const symbolWatcher = chokidar.watch(
-            allowedExts.map((ext) => `${workspaceRoot}/**/*${ext}`),
-            { ignoreInitial: true, persistent: true },
-          );
-          symbolWatcher.on('change', (filePath: string) => {
-            const existingTimer = reindexDebounce.get(filePath);
-            if (existingTimer) clearTimeout(existingTimer);
-            reindexDebounce.set(
-              filePath,
-              setTimeout(() => {
-                reindexDebounce.delete(filePath);
-                void symbolIndexer
-                  .reindexFile(filePath, workspaceRoot)
-                  .catch((err: unknown) => {
-                    console.warn(
-                      '[Ptah Electron] reindexFile failed (non-fatal):',
-                      err instanceof Error ? err.message : String(err),
-                    );
-                  });
-              }, 500),
-            );
-          });
-          symbolWatcher.on('error', (err: unknown) => {
-            console.warn(
-              '[Ptah Electron] symbolWatcher error (non-fatal):',
-              err instanceof Error ? err.message : String(err),
-            );
-          });
-          refs.symbolWatcher = symbolWatcher;
-          console.log('[Ptah Electron] Code symbol indexer started');
-        }
       }
     } catch (error) {
       console.warn(
-        '[Ptah Electron] Code symbol indexer start skipped (non-fatal):',
+        '[Ptah Electron] Code symbol indexer wiring skipped (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }

@@ -1,11 +1,5 @@
 /**
  * IndexingControlService — unit tests
- *
- * Covers:
- *   - evaluateBootStrategy: all 4 outcomes (no-row, matching-SHA, different-SHA, null-SHA non-git)
- *   - State machine: never-indexed → indexing → indexed; pause; cancel; stale
- *   - Cursor: serialize on pause, restore fingerprint-check discard on resume
- *   - cancel: clears cursor, does NOT update git_head_sha or last_indexed_at
  */
 
 import 'reflect-metadata';
@@ -210,128 +204,6 @@ function buildService(
 }
 
 // ============================================================================
-// evaluateBootStrategy
-// ============================================================================
-
-describe('IndexingControlService.evaluateBootStrategy', () => {
-  it('returns auto-index-first-time when no row exists', async () => {
-    const fakeDb = makeFakeDb(); // empty map
-    const { service } = buildService(fakeDb, {
-      headContent: `${VALID_SHA_A}\n`,
-      hasGitConfig: true,
-    });
-
-    const strategy = await service.evaluateBootStrategy(ROOT);
-    expect(strategy).toBe('auto-index-first-time');
-  });
-
-  it('returns skip when stored SHA matches current SHA', async () => {
-    // DB returns a row for any FP with VALID_SHA_A stored.
-    // FS serves VALID_SHA_A as current HEAD → stored === current → skip.
-    const fakeDb: SqliteDatabase = {
-      ...makeFakeDb(),
-      prepare: jest.fn().mockImplementation(() => {
-        return {
-          run: jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
-          get: jest.fn().mockReturnValue({
-            workspace_fingerprint: 'any',
-            git_head_sha: VALID_SHA_A,
-            last_indexed_at: Date.now() - 10000,
-            symbols_enabled: 1,
-            memory_enabled: 1,
-            symbols_cursor: null,
-            disclosure_acknowledged_at: null,
-            last_dismissed_stale_sha: null,
-            last_error: null,
-          }),
-          all: jest.fn().mockReturnValue([]),
-          iterate: jest.fn().mockReturnValue([][Symbol.iterator]()),
-        };
-      }),
-    };
-
-    const { service } = buildService(fakeDb, {
-      headContent: `${VALID_SHA_A}\n`, // detached HEAD = VALID_SHA_A
-      hasGitConfig: false,
-    });
-
-    const strategy = await service.evaluateBootStrategy(ROOT);
-    expect(strategy).toBe('skip');
-  });
-
-  it('returns mark-stale-and-skip when stored SHA differs from current SHA', async () => {
-    const fakeDb: SqliteDatabase = {
-      ...makeFakeDb(),
-      prepare: jest.fn().mockReturnValue({
-        run: jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
-        get: jest.fn().mockReturnValue({
-          workspace_fingerprint: 'any',
-          git_head_sha: VALID_SHA_A, // stored: SHA_A
-          last_indexed_at: Date.now() - 10000,
-          symbols_enabled: 1,
-          memory_enabled: 1,
-          symbols_cursor: null,
-          disclosure_acknowledged_at: null,
-          last_dismissed_stale_sha: null,
-          last_error: null,
-        }),
-        all: jest.fn().mockReturnValue([]),
-        iterate: jest.fn().mockReturnValue([][Symbol.iterator]()),
-      }),
-    };
-
-    const { service } = buildService(fakeDb, {
-      headContent: `${VALID_SHA_B}\n`, // current: SHA_B → different → stale
-      hasGitConfig: false,
-    });
-
-    const strategy = await service.evaluateBootStrategy(ROOT);
-    expect(strategy).toBe('mark-stale-and-skip');
-  });
-
-  it('returns skip for non-git workspace where both SHAs are null', async () => {
-    const fakeDb: SqliteDatabase = {
-      ...makeFakeDb(),
-      prepare: jest.fn().mockReturnValue({
-        run: jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
-        get: jest.fn().mockReturnValue({
-          workspace_fingerprint: 'any',
-          git_head_sha: null, // stored: null (non-git)
-          last_indexed_at: Date.now() - 10000,
-          symbols_enabled: 1,
-          memory_enabled: 1,
-          symbols_cursor: null,
-          disclosure_acknowledged_at: null,
-          last_dismissed_stale_sha: null,
-          last_error: null,
-        }),
-        all: jest.fn().mockReturnValue([]),
-        iterate: jest.fn().mockReturnValue([][Symbol.iterator]()),
-      }),
-    };
-
-    // Non-git workspace: no .git/HEAD → deriveGitHeadSha returns null
-    const { service } = buildService(fakeDb, {
-      // headContent not set → ENOENT → deriveGitHeadSha returns null
-    });
-
-    const strategy = await service.evaluateBootStrategy(ROOT);
-    expect(strategy).toBe('skip');
-  });
-
-  it('does not call logger.info (only debug) — AC #1 constraint', async () => {
-    const fakeDb = makeFakeDb(); // no row
-    const { service, logger } = buildService(fakeDb, {
-      headContent: `${VALID_SHA_A}\n`,
-    });
-
-    await service.evaluateBootStrategy(ROOT);
-
-    expect(logger.info).not.toHaveBeenCalled();
-  });
-});
-
-// ============================================================================
 // State machine transitions
 // ============================================================================
 
@@ -345,7 +217,7 @@ describe('IndexingControlService state machine', () => {
     });
     const deps = makeRunDeps();
 
-    await service.startAutoIndex(ROOT, deps);
+    await service.start(undefined, ROOT, deps);
 
     expect(deps.runSymbols as jest.Mock).toHaveBeenCalledTimes(1);
   });
@@ -485,19 +357,6 @@ describe('IndexingControlService state machine', () => {
       expect.stringContaining('disclosure_acknowledged_at'),
     );
   });
-
-  it('markStale writes current git SHA to row', async () => {
-    const fakeDb = makeFakeDb();
-    const { service } = buildService(fakeDb, {
-      headContent: `${VALID_SHA_B}\n`,
-    });
-
-    await service.markStale(ROOT);
-
-    expect(fakeDb.prepare as jest.Mock).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE indexing_state'),
-    );
-  });
 });
 
 // ============================================================================
@@ -601,8 +460,6 @@ describe('IndexingControlService.onProgress', () => {
     const listener = jest.fn();
 
     const unsub = service.onProgress(listener);
-    // Manually emit via startAutoIndex is async; verify via direct call path
-    // by checking that unsub removes the listener
     unsub();
 
     // After unsub, listener should not be in the internal list

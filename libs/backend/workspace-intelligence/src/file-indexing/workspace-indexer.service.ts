@@ -355,7 +355,6 @@ export class WorkspaceIndexerService {
       ? `{${includePatterns.join(',')}}`
       : '**/*';
 
-    // Exclude common build/dependency directories by default
     const defaultExcludes: string[] = [
       '**/node_modules/**',
       '**/dist/**',
@@ -364,6 +363,18 @@ export class WorkspaceIndexerService {
       '**/out/**',
       '**/target/**',
       '**/.nx/**',
+      '**/.angular/**',
+      '**/.cache/**',
+      '**/.vite/**',
+      '**/.next/**',
+      '**/.turbo/**',
+      '**/.output/**',
+      '**/.vscode-test/**',
+      '**/coverage/**',
+      '**/tmp/**',
+      '**/*.min.js',
+      '**/*.min.css',
+      '**/*.map',
     ];
 
     const files = await this.fsProvider.findFiles(
