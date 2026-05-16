@@ -24,7 +24,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
+import { Result, MESSAGE_TYPES, WizardPhaseId } from '@ptah-extension/shared';
 import type {
   AnalysisPhase,
   AnalysisStreamPayload,
@@ -559,7 +559,7 @@ export class MultiPhaseAnalysisService {
     // Tracks mutable state (counters, active tool ID) across events within this phase.
     const convCtx = {
       messageId: `wizard-phase-${phaseId}`,
-      sessionId: `wizard-${phaseId}`,
+      sessionId: WizardPhaseId.fromPhase(phaseId),
       counter: 0,
       textBlockIndex: 0,
       thinkingBlockIndex: 0,

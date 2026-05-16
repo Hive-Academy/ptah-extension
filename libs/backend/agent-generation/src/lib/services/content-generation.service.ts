@@ -17,7 +17,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Result } from '@ptah-extension/shared';
+import { Result, WizardPhaseId } from '@ptah-extension/shared';
 import type {
   GenerationStreamPayload,
   FlatStreamEventUnion,
@@ -442,7 +442,7 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
     agentId?: string,
   ): Promise<unknown | null> {
     // Conversion context for FlatStreamEventUnion generation
-    const sessionId = `gen-${agentId || 'unknown'}`;
+    const sessionId = WizardPhaseId.fromAgent(agentId);
     const messageId = sessionId;
     let counter = 0;
     let textBlockIndex = 0;

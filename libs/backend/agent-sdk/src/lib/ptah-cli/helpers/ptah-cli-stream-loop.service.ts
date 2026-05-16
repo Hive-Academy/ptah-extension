@@ -10,8 +10,8 @@
 import type {
   CliOutputSegment,
   FlatStreamEventUnion,
-  SessionId,
 } from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SdkMessageTransformer } from '../../sdk-message-transformer';
 import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
@@ -64,7 +64,7 @@ export interface PtahCliStreamLoopConfig {
 export class PtahCliStreamLoop {
   private receivedTextDeltas = false;
   private receivedThinkingDeltas = false;
-  private effectiveSessionId = '' as SessionId;
+  private effectiveSessionId: SessionId | null = null;
   private readonly streamTransformer: SdkMessageTransformer;
   private readonly pendingToolArgs = new Map<
     number,
@@ -188,7 +188,12 @@ export class PtahCliStreamLoop {
 
           // ── system init ─────────────────────────────────
           if (isSystemInit(msg)) {
-            this.effectiveSessionId = (msg.session_id ?? '') as SessionId;
+            // Hard-fail on malformed SDK session_id (non-UUID): SessionId.from
+            // throws, surfacing the contract violation rather than silently
+            // routing events under an empty sentinel.
+            if (msg.session_id) {
+              this.effectiveSessionId = SessionId.from(msg.session_id);
+            }
             const model = msg.model ?? 'unknown';
             emitOutput(`[PtahCli] Session started (model: ${model})\n`);
             emitSegment({

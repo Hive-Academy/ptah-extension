@@ -28,6 +28,8 @@ import {
   AgentStatusEvent,
   AgentCompletedEvent,
   SessionId,
+  HarnessStreamId,
+  WizardPhaseId,
   calculateMessageCost,
   EventSource,
   AuthEnv,
@@ -253,12 +255,15 @@ export class SdkMessageTransformer {
    * - stream_event → various streaming events
    *
    * @param sdkMessage - SDK message to transform (uses structural typing to match SDK types)
-   * @param sessionId - Optional session ID for event correlation
+   * @param sessionId - Optional session ID for event correlation. Accepts the
+   *   real SDK SessionId (UUID v4) OR the synthetic harness/wizard brands —
+   *   harness streams and wizard phases mint non-UUID ids that flow through
+   *   the same transform but must never reach UUID-validating consumers.
    * @returns Array of FlatStreamEventUnion (flat events with relationship IDs)
    */
   transform(
     sdkMessage: SDKMessage,
-    sessionId?: SessionId,
+    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
     try {
       // Use type guards for discriminated union narrowing
@@ -482,7 +487,7 @@ export class SdkMessageTransformer {
    */
   private transformStreamEventToFlatEvents(
     sdkMessage: SDKPartialAssistantMessage,
-    sessionId?: SessionId,
+    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
     const { event, parent_tool_use_id } = sdkMessage;
 
@@ -918,7 +923,7 @@ export class SdkMessageTransformer {
    */
   private transformAssistantToFlatEvents(
     sdkMessage: SDKAssistantMessage,
-    sessionId?: SessionId,
+    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
 
@@ -1211,7 +1216,7 @@ export class SdkMessageTransformer {
    */
   private transformUserToFlatEvents(
     sdkMessage: SDKUserMessage,
-    sessionId?: SessionId,
+    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
 
@@ -1390,7 +1395,7 @@ export class SdkMessageTransformer {
    */
   private transformTaskStarted(
     msg: import('./types/sdk-types/claude-sdk.types').SDKTaskStartedMessage,
-    sessionId?: SessionId,
+    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
     const toolUseId = msg.tool_use_id;
 
@@ -1460,7 +1465,7 @@ export class SdkMessageTransformer {
    */
   private transformTaskProgress(
     msg: import('./types/sdk-types/claude-sdk.types').SDKTaskProgressMessage,
-    sessionId?: SessionId,
+    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
     const parentToolUseId =
       msg.tool_use_id ?? this.taskIdToParentToolUseId.get(msg.task_id);
@@ -1500,7 +1505,7 @@ export class SdkMessageTransformer {
    */
   private transformTaskUpdated(
     msg: import('./types/sdk-types/claude-sdk.types').SDKTaskUpdatedMessage,
-    sessionId?: SessionId,
+    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
     const parentToolUseId = this.taskIdToParentToolUseId.get(msg.task_id);
 
@@ -1544,7 +1549,7 @@ export class SdkMessageTransformer {
    */
   private transformTaskNotification(
     msg: import('./types/sdk-types/claude-sdk.types').SDKTaskNotificationMessage,
-    sessionId?: SessionId,
+    sessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
     const parentToolUseId =
       msg.tool_use_id ?? this.taskIdToParentToolUseId.get(msg.task_id);
