@@ -17,6 +17,7 @@ import 'reflect-metadata';
 import { container, DependencyContainer } from 'tsyringe';
 
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
 import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
@@ -32,6 +33,7 @@ export class ElectronDIContainer {
    * @returns Configured DependencyContainer
    */
   static setup(options: ElectronPlatformOptions): DependencyContainer {
+    container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
     const { logger } = registerPhase0Platform(container, options);
     registerPhase1Infra(container, options, logger);
     registerPhase2Libraries(container, logger);

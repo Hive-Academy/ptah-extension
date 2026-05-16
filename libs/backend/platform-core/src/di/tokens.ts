@@ -61,4 +61,7 @@ export const PLATFORM_TOKENS = {
 
   /** IMasterKeyProvider — platform-specific 32-byte AES-256 master key retrieval. */
   MASTER_KEY_PROVIDER: Symbol.for('PlatformMasterKeyProvider'),
+
+  /** DependencyContainer — tsyringe container instance, exposed under an explicit token so handlers can request it via @inject(PLATFORM_TOKENS.DI_CONTAINER) instead of the magic string 'DependencyContainer'. */
+  DI_CONTAINER: Symbol.for('PlatformDIContainer'),
 } as const;

@@ -14,6 +14,8 @@ import 'reflect-metadata';
 import { container, DependencyContainer } from 'tsyringe';
 import * as vscode from 'vscode';
 
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+
 import { registerPhase0Platform } from './phase-0-platform';
 import {
   registerPhase1Infra,
@@ -30,6 +32,9 @@ export class DIContainer {
    * the extension.
    */
   static setupMinimal(context: vscode.ExtensionContext): DependencyContainer {
+    if (!container.isRegistered(PLATFORM_TOKENS.DI_CONTAINER)) {
+      container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
+    }
     registerPhase0Platform(container, context);
     registerPhase1InfraMinimal(container);
     return container;
@@ -44,6 +49,9 @@ export class DIContainer {
    * is safe.
    */
   static setup(context: vscode.ExtensionContext): DependencyContainer {
+    if (!container.isRegistered(PLATFORM_TOKENS.DI_CONTAINER)) {
+      container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
+    }
     const { logger } = registerPhase0Platform(container, context);
     registerPhase1Infra(container, context, logger);
     registerPhase3Handlers(container, logger);
