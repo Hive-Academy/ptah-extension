@@ -1,5 +1,5 @@
 /**
- * MemoryRpcService — RPC roundtrip tests (TASK_2026_HERMES_FINISH Batch C1).
+ * MemoryRpcService — RPC roundtrip tests.
  *
  * Stubs `ClaudeRpcService.call` to verify each method:
  *   1. Targets the expected `memory:*` RPC name.

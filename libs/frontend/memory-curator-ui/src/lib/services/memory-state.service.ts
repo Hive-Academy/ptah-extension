@@ -23,6 +23,7 @@ export interface MemoryTierTotals {
   readonly core: number;
   readonly recall: number;
   readonly archival: number;
+  readonly codeIndex: number;
   readonly total: number;
 }
 
@@ -78,12 +79,17 @@ export class MemoryStateService {
     let core = 0;
     let recall = 0;
     let archival = 0;
+    let codeIndex = 0;
     for (const m of list) {
+      if (m.subject !== null && m.subject.startsWith('code:')) {
+        codeIndex++;
+        continue;
+      }
       if (m.tier === 'core') core++;
       else if (m.tier === 'recall') recall++;
       else if (m.tier === 'archival') archival++;
     }
-    return { core, recall, archival, total: list.length };
+    return { core, recall, archival, codeIndex, total: list.length };
   });
 
   // -- Mutators --

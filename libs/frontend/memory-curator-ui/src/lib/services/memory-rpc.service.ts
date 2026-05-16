@@ -6,6 +6,7 @@ import type {
   MemoryListResult,
   MemoryPinResult,
   MemoryPurgeBySubjectPatternResult,
+  MemoryPurgeJunkResult,
   MemoryRebuildIndexResult,
   MemorySearchResult,
   MemoryStatsResult,
@@ -198,5 +199,20 @@ export class MemoryRpcService {
       return result.data;
     }
     throw new Error(result.error || 'memory:purgeBySubjectPattern failed');
+  }
+
+  public async purgeJunk(
+    workspaceRoot?: string | null,
+  ): Promise<MemoryPurgeJunkResult> {
+    const result = await this.rpc.call(
+      'memory:purgeJunk',
+      { workspaceRoot: workspaceRoot ?? null },
+      { timeout: MEMORY_RPC_TIMEOUTS.SHORT_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'memory:purgeJunk failed');
   }
 }

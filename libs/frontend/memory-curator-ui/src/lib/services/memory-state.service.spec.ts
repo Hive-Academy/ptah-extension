@@ -1,5 +1,5 @@
 /**
- * MemoryStateService — scopeFilter behavior (TASK_2026_121 Batch A).
+ * MemoryStateService — scopeFilter behavior.
  *
  * Verifies:
  *  1. Default scope is `'workspace'`.
@@ -35,6 +35,7 @@ describe('MemoryStateService — scopeFilter', () => {
       core: 0,
       recall: 0,
       archival: 0,
+      codeIndex: 0,
       lastCuratedAt: null,
     });
 
@@ -98,7 +99,7 @@ describe('MemoryStateService — scopeFilter', () => {
 });
 
 // ---------------------------------------------------------------------------
-// MemoryStateService — search() scopeFilter wiring (TASK_2026_122)
+// MemoryStateService — search() scopeFilter wiring
 // ---------------------------------------------------------------------------
 
 describe('MemoryStateService — search() scopeFilter', () => {
@@ -131,6 +132,7 @@ describe('MemoryStateService — search() scopeFilter', () => {
               core: 0,
               recall: 0,
               archival: 0,
+              codeIndex: 0,
               lastCuratedAt: null,
             }),
           },
@@ -192,7 +194,7 @@ describe('MemoryStateService — search() scopeFilter', () => {
 });
 
 // ---------------------------------------------------------------------------
-// MemoryStateService — workspace-scope race guard (TASK_2026_122 follow-up A)
+// MemoryStateService — workspace-scope race guard
 //
 // When the user has scope set to 'workspace' but `appState.workspaceInfo()`
 // has not yet resolved (early-mount race), the RPC MUST NOT silently fall
@@ -222,6 +224,7 @@ describe('MemoryStateService — workspace-scope race guard', () => {
       core: 0,
       recall: 0,
       archival: 0,
+      codeIndex: 0,
       lastCuratedAt: null,
     });
 

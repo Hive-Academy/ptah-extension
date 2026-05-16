@@ -10,7 +10,10 @@ import {
 import { CommonModule } from '@angular/common';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
-import { WorkspaceIndexingComponent } from '@ptah-extension/workspace-indexing';
+import {
+  WorkspaceIndexingComponent,
+  WorkspaceIndexingService,
+} from '@ptah-extension/workspace-indexing';
 import type { MemoryWire } from '@ptah-extension/shared';
 
 import {
@@ -63,6 +66,134 @@ interface TierChip {
       </div>
     } @else {
       <div class="flex h-full w-full flex-col gap-4">
+        @let banner = indexingUiState();
+        @switch (banner.kind) {
+          @case ('never-indexed') {
+            <div
+              class="alert alert-info shadow-sm"
+              role="status"
+              data-testid="memory-banner-never-indexed"
+            >
+              <div class="flex flex-1 flex-col gap-1">
+                <span class="text-sm font-semibold">
+                  Your workspace isn't indexed yet
+                </span>
+                <span class="text-xs">
+                  Memory search and code navigation need a local index. Click
+                  <strong>Index now</strong> to build one. Files are read on
+                  your machine; nothing is uploaded.
+                </span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-sm btn-primary"
+                [disabled]="!hasWorkspace() || indexingBusy()"
+                (click)="onIndexNow()"
+                aria-label="Index workspace now"
+              >
+                @if (indexingBusy()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                }
+                Index now
+              </button>
+            </div>
+          }
+          @case ('indexing') {
+            <div
+              class="alert shadow-sm"
+              role="status"
+              data-testid="memory-banner-indexing"
+            >
+              <div class="flex flex-1 flex-col gap-1">
+                <span class="text-sm font-semibold">
+                  Indexing workspace… {{ banner.percent }}%
+                </span>
+                @if (banner.totalKnown) {
+                  <progress
+                    class="progress progress-primary w-full h-1.5"
+                    [value]="banner.percent"
+                    max="100"
+                  ></progress>
+                } @else {
+                  <progress
+                    class="progress progress-primary w-full h-1.5"
+                  ></progress>
+                }
+              </div>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost"
+                (click)="onCancelIndex()"
+                aria-label="Cancel indexing"
+              >
+                Cancel
+              </button>
+            </div>
+          }
+          @case ('paused') {
+            <div
+              class="alert alert-warning shadow-sm"
+              role="status"
+              data-testid="memory-banner-paused"
+            >
+              <span class="text-sm flex-1">
+                Indexing paused at {{ banner.percent }}%.
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm btn-primary"
+                (click)="onResumeIndex()"
+              >
+                Resume
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost"
+                (click)="onCancelIndex()"
+              >
+                Cancel
+              </button>
+            </div>
+          }
+          @case ('stale') {
+            <div
+              class="alert alert-warning shadow-sm"
+              role="status"
+              data-testid="memory-banner-stale"
+            >
+              <span class="text-sm flex-1">
+                Workspace changed since last index — re-index to keep memory
+                search accurate.
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm btn-primary"
+                (click)="onIndexNow()"
+              >
+                Re-index
+              </button>
+            </div>
+          }
+          @case ('error') {
+            <div
+              class="alert alert-error shadow-sm"
+              role="status"
+              data-testid="memory-banner-error"
+            >
+              <span class="text-sm flex-1">
+                Indexing failed: {{ banner.message }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm btn-primary"
+                (click)="onIndexNow()"
+              >
+                Try again
+              </button>
+            </div>
+          }
+        }
+
         <!-- Workspace scope toggle -->
         <div
           class="join mb-2"
@@ -120,17 +251,36 @@ interface TierChip {
               </button>
             }
           </div>
-          <button
-            type="button"
-            class="btn btn-sm btn-outline ml-auto"
-            [disabled]="loading()"
-            (click)="onRebuildIndex()"
-          >
-            @if (loading()) {
-              <span class="loading loading-spinner loading-xs"></span>
-            }
-            Rebuild index
-          </button>
+          <div class="flex gap-1 ml-auto">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              [disabled]="purgingJunk() || !hasWorkspace()"
+              [attr.title]="
+                !hasWorkspace()
+                  ? 'Open a workspace to clean its code-index junk.'
+                  : 'Remove indexed code symbols from build artifacts (.angular, node_modules, dist, etc.)'
+              "
+              (click)="onPurgeJunk()"
+              aria-label="Clean code-index junk"
+            >
+              @if (purgingJunk()) {
+                <span class="loading loading-spinner loading-xs"></span>
+              }
+              Clean junk
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              [disabled]="loading()"
+              (click)="onRebuildIndex()"
+            >
+              @if (loading()) {
+                <span class="loading loading-spinner loading-xs"></span>
+              }
+              Rebuild index
+            </button>
+          </div>
         </div>
 
         @if (error()) {
@@ -228,7 +378,7 @@ interface TierChip {
 
         <!-- Stats panel -->
         <section
-          class="grid grid-cols-2 gap-2 md:grid-cols-4"
+          class="grid grid-cols-2 gap-2 md:grid-cols-5"
           aria-label="Memory tier statistics"
         >
           <div class="rounded-lg bg-base-200 p-3">
@@ -247,6 +397,15 @@ interface TierChip {
             <div class="text-xs uppercase text-base-content/60">Archival</div>
             <div class="text-2xl font-semibold text-base-content">
               {{ statCounts().archival }}
+            </div>
+          </div>
+          <div
+            class="rounded-lg bg-base-200 p-3"
+            title="Indexed code symbols (functions, classes, methods) — shown separately from curated memory"
+          >
+            <div class="text-xs uppercase text-base-content/60">Code index</div>
+            <div class="text-2xl font-semibold text-base-content">
+              {{ statCounts().codeIndex }}
             </div>
           </div>
           <div class="rounded-lg bg-base-200 p-3">
@@ -339,10 +498,20 @@ interface TierChip {
           }
         </section>
 
-        <!-- Workspace indexing panel (moved from Settings → Workspace Indexing) -->
-        <div aria-label="Workspace indexing settings">
-          <ptah-workspace-indexing />
-        </div>
+        <details
+          class="rounded-md border border-base-300 bg-base-100"
+          [open]="advancedIndexingOpen()"
+          (toggle)="onAdvancedToggle($event)"
+        >
+          <summary
+            class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
+          >
+            Advanced indexing settings
+          </summary>
+          <div class="border-t border-base-300 p-2">
+            <ptah-workspace-indexing />
+          </div>
+        </details>
       </div>
     }
   `,
@@ -352,6 +521,17 @@ export class MemoryCuratorTabComponent implements OnInit {
   private readonly vscodeService = inject(VSCodeService);
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(MemoryRpcService);
+  private readonly indexingService = inject(WorkspaceIndexingService);
+
+  protected readonly indexingUiState = this.indexingService.uiState;
+  protected readonly indexingBusy = computed(() => {
+    const kind = this.indexingUiState().kind;
+    return kind === 'indexing' || kind === 'loading';
+  });
+  private readonly _advancedIndexingOpen = signal<boolean>(false);
+  protected readonly advancedIndexingOpen =
+    this._advancedIndexingOpen.asReadonly();
+  protected readonly purgingJunk = signal<boolean>(false);
 
   /** Whether the webview is running inside the Electron desktop app. */
   public readonly isElectron = computed(
@@ -407,6 +587,7 @@ export class MemoryCuratorTabComponent implements OnInit {
         core: remote.core,
         recall: remote.recall,
         archival: remote.archival,
+        codeIndex: remote.codeIndex,
       };
     }
     const totals = this.state.totalsByTier();
@@ -414,6 +595,7 @@ export class MemoryCuratorTabComponent implements OnInit {
       core: totals.core,
       recall: totals.recall,
       archival: totals.archival,
+      codeIndex: totals.codeIndex,
     };
   });
 
@@ -454,6 +636,64 @@ export class MemoryCuratorTabComponent implements OnInit {
     if (!this.isElectron()) return;
     void this.state.loadStats();
     void this.state.refresh();
+    const root = this.appState.workspaceInfo()?.path;
+    if (root) {
+      void this.indexingService.loadStatus(root).catch(() => undefined);
+    }
+  }
+
+  protected onAdvancedToggle(event: Event): void {
+    const target = event.target as HTMLDetailsElement | null;
+    if (target) {
+      this._advancedIndexingOpen.set(target.open);
+    }
+  }
+
+  protected onIndexNow(): void {
+    const root = this.appState.workspaceInfo()?.path;
+    if (!root) return;
+    void this.indexingService.start(root, false).catch(() => undefined);
+  }
+
+  protected onResumeIndex(): void {
+    const root = this.appState.workspaceInfo()?.path;
+    if (!root) return;
+    void this.indexingService.resume(root).catch(() => undefined);
+  }
+
+  protected onCancelIndex(): void {
+    const root = this.appState.workspaceInfo()?.path;
+    if (!root) return;
+    void this.indexingService.cancel(root).catch(() => undefined);
+  }
+
+  protected onPurgeJunk(): void {
+    if (this.purgingJunk()) return;
+    const root = this.appState.workspaceInfo()?.path ?? null;
+    if (!root) return;
+    const confirmed = window.confirm(
+      'Remove indexed code symbols from build artifacts (.angular, node_modules, dist, etc.) in this workspace? This cannot be undone.',
+    );
+    if (!confirmed) return;
+    this.purgingJunk.set(true);
+    void this.runPurgeJunk(root);
+  }
+
+  private async runPurgeJunk(workspaceRoot: string): Promise<void> {
+    try {
+      const result = await this.rpcService.purgeJunk(workspaceRoot);
+      this.purgeInfo.set(
+        `Removed ${result.deleted} junk code-index ${result.deleted === 1 ? 'entry' : 'entries'}.`,
+      );
+      await this.state.refresh();
+      await this.state.loadStats();
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'memory:purgeJunk failed';
+      this.purgeError.set(message);
+    } finally {
+      this.purgingJunk.set(false);
+    }
   }
 
   protected onSearchInput(event: Event): void {
