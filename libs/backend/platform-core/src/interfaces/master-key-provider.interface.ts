@@ -7,8 +7,6 @@
  *
  * The key is generated randomly on first call and stored in the platform's
  * secure storage. Subsequent calls return the cached / retrieved key.
- *
- * WP-4A: Master key provider port.
  */
 
 export interface IMasterKeyProvider {
