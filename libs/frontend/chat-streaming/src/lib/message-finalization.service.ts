@@ -40,7 +40,7 @@ export class MessageFinalizationService {
    * Uses per-tab currentMessageId for proper multi-tab streaming support.
    *
    * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
-   * @param isAborted - If true, marks nodes as 'interrupted' instead of 'complete' (TASK_2025_098)
+   * @param isAborted - If true, marks nodes as 'interrupted' instead of 'complete'
    */
   finalizeCurrentMessage(tabId?: string, isAborted = false): void {
     // PERFORMANCE: Flush any pending batched updates before finalization
@@ -57,26 +57,26 @@ export class MessageFinalizationService {
       : this.tabManager.activeTab();
 
     const streamingState = targetTab?.streamingState;
-    // TASK_2025_087 FIX: Read currentMessageId from streamingState, not targetTab
+    // Read currentMessageId from streamingState, not targetTab
     const messageId = streamingState?.currentMessageId;
 
     if (!streamingState || !messageId) return;
 
-    // Deep-copy state to prevent race condition (TASK_2025_084 Batch 1 Task 1.3)
+    // Deep-copy state to prevent race condition
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
-    // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
-    // TASK_2026_TREE_STABILITY Fix 2/8: Reuse the streaming cache key
-    // (`tab-${tabId}`) so the fingerprint check inside buildTree returns the
-    // memoized streaming tree when the underlying state hasn't changed since
-    // the last streaming build. The previous `finalize-${tabId}-${Date.now()}`
-    // salt forced a full rebuild on every finalize, producing fresh node
-    // references for an identical structure and triggering OnPush re-render
-    // cascades plus a perceptible "flicker" between streaming and finalized.
+    // Build final tree using ExecutionTreeBuilderService.
+    // Reuse the streaming cache key (`tab-${tabId}`) so the fingerprint check
+    // inside buildTree returns the memoized streaming tree when the underlying
+    // state hasn't changed since the last streaming build. The previous
+    // `finalize-${tabId}-${Date.now()}` salt forced a full rebuild on every
+    // finalize, producing fresh node references for an identical structure
+    // and triggering OnPush re-render cascades plus a perceptible "flicker"
+    // between streaming and finalized.
     const cacheKey = `tab-${targetTabId}`;
     let finalTree = this.treeBuilder.buildTree(stateCopy, cacheKey);
 
-    // TASK_2025_098 FIX: Mark all 'streaming' nodes as 'interrupted' when aborted
+    // Mark all 'streaming' nodes as 'interrupted' when aborted
     if (isAborted) {
       finalTree = finalTree.map((tree) =>
         this.markStreamingNodesAsInterrupted(tree),
@@ -208,14 +208,13 @@ export class MessageFinalizationService {
   }
 
   /**
-   * Finalize session history - builds messages for ALL messages in streaming state
+   * Finalize session history - builds messages for ALL messages in streaming state.
    *
-   * TASK_2025_092 FIX: Unlike finalizeCurrentMessage which only handles the
-   * current streaming message, this method processes ALL messages from session
-   * history replay.
+   * Unlike finalizeCurrentMessage which only handles the current streaming
+   * message, this method processes ALL messages from session history replay.
    *
-   * TASK_2025_103 FIX: Now accepts optional resumableSubagents array to mark
-   * agent nodes as 'interrupted' so the Resume button appears on loaded history.
+   * Accepts optional resumableSubagents array to mark agent nodes as
+   * 'interrupted' so the Resume button appears on loaded history.
    *
    * @param tabId - Tab ID to finalize
    * @param resumableSubagents - Optional array of resumable subagent records from backend
@@ -238,13 +237,13 @@ export class MessageFinalizationService {
     // Deep-copy state to prevent race conditions
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
-    // Build full tree for all messages
-    // TASK_2026_TREE_STABILITY Fix 2/8: Reuse the streaming cache key so an
-    // identical state fingerprint hits the memoized tree (no Date.now() salt).
+    // Build full tree for all messages.
+    // Reuse the streaming cache key so an identical state fingerprint hits
+    // the memoized tree (no Date.now() salt).
     const cacheKey = `tab-${tabId}`;
     let allTrees = this.treeBuilder.buildTree(stateCopy, cacheKey);
 
-    // TASK_2025_103 FIX: Mark resumable agent nodes as 'interrupted'
+    // Mark resumable agent nodes as 'interrupted'
     // so the Resume button appears when loading session from history
     if (resumableSubagents && resumableSubagents.length > 0) {
       const resumableToolCallIds = new Set(
@@ -274,7 +273,7 @@ export class MessageFinalizationService {
         continue;
       }
 
-      // TASK_2025_093 FIX: Skip nested agent messages
+      // Skip nested agent messages
       if (messageStartEvent.parentToolUseId) {
         continue;
       }
@@ -406,7 +405,7 @@ export class MessageFinalizationService {
   }
 
   /**
-   * TASK_2025_098 FIX: Recursively mark all 'streaming' nodes as 'interrupted'
+   * Recursively mark all 'streaming' nodes as 'interrupted'.
    * Used when user aborts/interrupts a streaming message.
    */
   private markStreamingNodesAsInterrupted(node: ExecutionNode): ExecutionNode {
@@ -535,7 +534,7 @@ export class MessageFinalizationService {
   }
 
   /**
-   * TASK_2025_213: Mark specific agent nodes as interrupted by their toolCallIds.
+   * Mark specific agent nodes as interrupted by their toolCallIds.
    *
    * Used when a hard permission deny identifies the exact agent(s) that were denied.
    * More precise than markLastAgentAsInterrupted (which guesses the last one).
@@ -579,8 +578,8 @@ export class MessageFinalizationService {
   }
 
   /**
-   * TASK_2025_213: Recursively find and mark agent nodes whose toolCallId matches
-   * any in the provided set. Returns the same node reference if no change was needed.
+   * Recursively find and mark agent nodes whose toolCallId matches any in the
+   * provided set. Returns the same node reference if no change was needed.
    *
    * Unlike findAndMarkLastAgent (which stops at the first match), this marks ALL
    * matching agents â€” handling the case where multiple agents had permissions denied.
@@ -621,7 +620,7 @@ export class MessageFinalizationService {
   }
 
   /**
-   * TASK_2025_103 FIX: Recursively mark agent nodes with matching toolCallIds as 'interrupted'
+   * Recursively mark agent nodes with matching toolCallIds as 'interrupted'.
    *
    * When loading a session from history, the tree is rebuilt but the 'interrupted' status
    * is lost. This method uses the resumable subagent records from the backend registry

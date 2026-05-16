@@ -1,12 +1,12 @@
 /**
- * StreamingAccumulatorCore specs — TASK_2026_107 Phase 2.
+ * StreamingAccumulatorCore specs.
  *
  * What is in scope:
  *   - Every event-type case the original `processEventForTab` switch handled,
  *     parametrized so a single test asserts on a fresh `StreamingState`.
  *   - Dedup-source-replay scenarios (duplicate `message_start`, duplicate
  *     `tool_start` from `complete`/`history` source) — these are the exact
- *     cases wizard/harness rely on once Phase 3/4 cuts them over.
+ *     cases wizard/harness rely on.
  *   - `agent_start` raises `agentStartFlushNeeded`.
  *   - `compaction_complete` returns a `replacementState` and does NOT mutate
  *     the input state in place.
@@ -862,7 +862,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     });
   });
 
-  // ---- Idempotency under multi-surface fan-out (R7) ----------------------
+  // ---- Idempotency under multi-surface fan-out ----------------------
 
   describe('multi-surface fan-out idempotency (TASK_2026_106 Phase 4b parity)', () => {
     it('processing the same event twice against TWO independent state slots dedups conversation-level state once', () => {

@@ -1,6 +1,5 @@
 ﻿/**
- * StreamingHandlerService specs â€” flat-event ingest hot-path coverage for
- * TASK_2026_103 Wave T.
+ * StreamingHandlerService specs â€” flat-event ingest hot-path coverage.
  *
  * What is in scope:
  *   - `agent_start` â†’ SessionManager.registerAgent and event stored in state
@@ -236,16 +235,16 @@ describe('StreamingHandlerService', () => {
         (sid: string) =>
           tabsSignal().find((t) => t.claudeSessionId === sid) ?? null,
       ),
-      // TASK_2026_106 Phase 4b — fan-out lookup. Test default returns all
-      // tabs whose claudeSessionId matches; specific tests can override
-      // via mockImplementation to simulate canvas-grid scenarios.
+      // Fan-out lookup. Test default returns all tabs whose
+      // claudeSessionId matches; specific tests can override via
+      // mockImplementation to simulate canvas-grid scenarios.
       findTabsBySessionId: jest.fn((sid: string) =>
         tabsSignal().filter((t) => t.claudeSessionId === sid),
       ),
-      // TASK_2026_106 Phase 6b — `adoptStreamingSession` retired. The
-      // streaming handler now calls `attachSession` + `markStreaming`
-      // explicitly. The mocks below preserve the same observable effect
-      // (claudeSessionId set, status flipped to 'streaming').
+      // `adoptStreamingSession` retired. The streaming handler now calls
+      // `attachSession` + `markStreaming` explicitly. The mocks below
+      // preserve the same observable effect (claudeSessionId set, status
+      // flipped to 'streaming').
       attachSession: jest.fn((tabId: string, sessionId: string) => {
         tabsSignal.update((tabs) =>
           tabs.map((t) =>
@@ -581,9 +580,9 @@ describe('StreamingHandlerService', () => {
     });
   });
 
-  // TASK_2026_106 Phase 4b — multi-tab fan-out. When two tabs share a
-  // claudeSessionId (canvas-grid scenario), processStreamEvent must write
-  // streamingState to BOTH tabs' state, not just the primary.
+  // Multi-tab fan-out. When two tabs share a claudeSessionId (canvas-grid
+  // scenario), processStreamEvent must write streamingState to BOTH tabs'
+  // state, not just the primary.
   describe('multi-tab fan-out (TASK_2026_106 Phase 4b)', () => {
     it('processStreamEvent writes streaming state to every bound tab', () => {
       // Set up two tabs both bound to the same SDK session.

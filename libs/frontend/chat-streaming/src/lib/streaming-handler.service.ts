@@ -42,12 +42,11 @@ import {
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
-  // TASK_2026_106 Phase 3: TabManager is now eagerly injected. The lazy
-  // `Injector.get(TabManagerService)` band-aid is gone because the
-  // STREAMING_CONTROL inversion that caused the cycle has been removed.
-  // TabManager no longer reaches back into streaming/agent code, so the
-  // `StreamingHandler → TabManager` arrow is now a single-direction edge
-  // and DI bootstrap completes without NG0200.
+  // TabManager is eagerly injected — the lazy `Injector.get(TabManagerService)`
+  // band-aid is gone because the STREAMING_CONTROL inversion that caused the
+  // cycle has been removed. TabManager no longer reaches back into streaming/
+  // agent code, so the `StreamingHandler → TabManager` arrow is now a
+  // single-direction edge and DI bootstrap completes without NG0200.
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
 
@@ -64,9 +63,9 @@ export class StreamingHandlerService {
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
-  // TASK_2026_107 Phase 2 — the event-type switch lives in the core. The
-  // wrapper retains the chat-shaped tab fan-out, queued-content surfacing,
-  // and batched-update scheduling.
+  // The event-type switch lives in the core. The wrapper retains the
+  // chat-shaped tab fan-out, queued-content surfacing, and batched-update
+  // scheduling.
   private readonly accumulatorCore = inject(StreamingAccumulatorCore);
 
   /**
@@ -110,7 +109,7 @@ export class StreamingHandlerService {
   } | null {
     try {
       // Resolve the primary target tab (and any additional bound tabs for
-      // multi-tab fan-out — TASK_2026_106 Phase 4b).
+      // multi-tab fan-out).
       let primaryTab: TabState | undefined;
 
       // Primary: Use tabId for direct routing
@@ -119,8 +118,8 @@ export class StreamingHandlerService {
       }
 
       // Fallback: Find target tab by event.sessionId.
-      // TASK_2026_120 Phase B — use the plural lookup so streaming updates
-      // fan out to all tabs bound to the conversation (canvas-grid scenario).
+      // Use the plural lookup so streaming updates fan out to all tabs
+      // bound to the conversation (canvas-grid scenario).
       // The plural method falls back to the legacy singular result when no
       // conversation binding exists yet, so the not-yet-migrated path stays
       // identical. The first bound tab is used as `primaryTab` to preserve
@@ -149,7 +148,7 @@ export class StreamingHandlerService {
         ) {
           const realSessionId = sessionId || event.sessionId;
 
-          // TASK_2026_106 Phase 6b — `adoptStreamingSession` retired.
+          // `adoptStreamingSession` retired.
           // Same effect, narrower contract: attach the session id, then
           // transition status to `streaming`. The StreamRouter (which
           // observes the upstream `routeStreamEvent` call) is responsible
@@ -177,7 +176,7 @@ export class StreamingHandlerService {
         return null;
       }
 
-      // TASK_2026_106 Phase 4b — multi-tab fan-out.
+      // Multi-tab fan-out.
       //
       // Once the primary tab has its claudeSessionId attached (via the
       // attachSession + markStreaming block above for fresh tabs, or via
@@ -227,8 +226,8 @@ export class StreamingHandlerService {
   /**
    * Process a single stream event against ONE target tab's streaming state.
    *
-   * TASK_2026_106 Phase 4b — extracted from `processStreamEvent` so the
-   * outer method can fan an incoming event out to every tab bound to the
+   * Extracted from `processStreamEvent` so the outer method can fan an
+   * incoming event out to every tab bound to the
    * same conversation (canvas-grid scenario). All per-tab side effects
    * (state writes, batched-update scheduling, tabManager state mutations)
    * happen here; the caller decides which tabs get visited and which return
@@ -253,9 +252,8 @@ export class StreamingHandlerService {
     let targetTab = initialTab;
 
     // If tab doesn't have claudeSessionId yet, set it and ensure streaming status.
-    // TASK_2026_106 Phase 6b — `adoptStreamingSession` retired in favour of
-    // narrower `attachSession` + `markStreaming` calls. Same observable
-    // effect; behavior unchanged.
+    // `adoptStreamingSession` retired in favour of narrower `attachSession`
+    // + `markStreaming` calls. Same observable effect; behavior unchanged.
     if (sessionId && !targetTab.claudeSessionId) {
       this.tabManager.attachSession(targetTab.id, sessionId);
       this.tabManager.markStreaming(targetTab.id);
@@ -277,7 +275,7 @@ export class StreamingHandlerService {
 
     const state = targetTab.streamingState as StreamingState;
 
-    // TASK_2026_107 Phase 2 — delegate the event-type switch to the core.
+    // Delegate the event-type switch to the core.
     // The wrapper handles the chat-shaped tail (queued-content surfacing on
     // `message_complete`, compaction-state replacement on
     // `compaction_complete`, batched-update scheduling, agent_start
@@ -288,9 +286,9 @@ export class StreamingHandlerService {
       batchedUpdate: this.batchedUpdate,
       backgroundAgentStore: this.backgroundAgentStore,
       agentMonitorStore: this.agentMonitorStore,
-      // TASK_2025_211 — chat reads `tab.messages` to detect resumed agents
-      // of the same agentType. Surfaces have no finalized messages; the
-      // hook is supplied by chat only.
+      // Chat reads `tab.messages` to detect resumed agents of the same
+      // agentType. Surfaces have no finalized messages; the hook is
+      // supplied by chat only.
       onAgentStart: (evt) => {
         if (evt.agentType) {
           this.detectAndMarkResumedAgent(evt.agentType, targetTab);
@@ -304,8 +302,8 @@ export class StreamingHandlerService {
     // chat wrapper can return its legacy { compactionSessionId, ... } shape
     // without re-implementing the switch.
     if (result.compactionStart) {
-      // TASK_2025_098: Unified compaction flow — caller consumes
-      // compactionSessionId to invoke handleCompactionStart on ChatStore.
+      // Unified compaction flow — caller consumes compactionSessionId
+      // to invoke handleCompactionStart on ChatStore.
       return { tabId: targetTab.id, compactionSessionId: event.sessionId };
     }
     if (result.compactionComplete && result.replacementState) {
@@ -355,7 +353,7 @@ export class StreamingHandlerService {
   }
 
   // (Pure event-type dispatch + per-event helpers moved to
-  // StreamingAccumulatorCore in TASK_2026_107 Phase 2.)
+  // StreamingAccumulatorCore.)
 
   /**
    * Finalize the current streaming message
@@ -370,7 +368,7 @@ export class StreamingHandlerService {
    * Delegates to MessageFinalizationService
    *
    * @param tabId - Tab ID to finalize
-   * @param resumableSubagents - Optional array of resumable subagent records from backend (TASK_2025_103)
+   * @param resumableSubagents - Optional array of resumable subagent records from backend
    */
   finalizeSessionHistory(
     tabId: string,
@@ -382,7 +380,7 @@ export class StreamingHandlerService {
   /**
    * Handle session stats update from backend
    *
-   * TASK_2025_101: SESSION_STATS is the authoritative signal that streaming has completed.
+   * SESSION_STATS is the authoritative signal that streaming has completed.
    */
   handleSessionStats(stats: {
     sessionId: string;
@@ -390,7 +388,7 @@ export class StreamingHandlerService {
     tokens: { input: number; output: number };
     duration: number;
   }): { tabId: string; queuedContent: string | null } | null {
-    // TASK_2026_106 Phase 4b — multi-tab fan-out.
+    // Multi-tab fan-out.
     //
     // Resolve every tab bound to the conversation containing this session.
     // Each tab carries its own streamingState and must be finalized
@@ -445,8 +443,8 @@ export class StreamingHandlerService {
       primaryTab.streamingState &&
       (primaryTab.status === 'streaming' || primaryTab.status === 'loaded')
     ) {
-      // TASK_2025_213: hard permission deny is per-session — consume ONCE
-      // and apply to each fanned-out tab.
+      // Hard permission deny is per-session — consume ONCE and apply to
+      // each fanned-out tab.
       const hardDenyToolUseIds =
         this.permissionHandler.consumeHardDenyToolUseIds();
       const queuedContent = primaryTab.queuedContent;
@@ -551,8 +549,8 @@ export class StreamingHandlerService {
   }
 
   /**
-   * TASK_2025_211: Check if there's a previously interrupted agent of the same
-   * agentType in the tab's finalized messages. If so, mark those SPECIFIC
+   * Check if there's a previously interrupted agent of the same agentType in
+   * the tab's finalized messages. If so, mark those SPECIFIC
    * agent node IDs as "resumed" in the AgentMonitorStore.
    *
    * Tracks by node ID (not agentType) to avoid false positives when multiple

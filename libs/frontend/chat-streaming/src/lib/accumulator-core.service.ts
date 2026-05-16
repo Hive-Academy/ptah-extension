@@ -1,20 +1,13 @@
 /**
- * StreamingAccumulatorCore — TASK_2026_107 Phase 2.
+ * StreamingAccumulatorCore — the pure-ish, tab-agnostic event-type switch
+ * extracted from `StreamingHandlerService.processEventForTab`. Mutates a
+ * `StreamingState` in place against a context bag of peer services (dedup,
+ * batched, agent stores, session manager). Knows NOTHING about tabs,
+ * surfaces, queued content, or `tabManager.*` — those concerns stay in the
+ * per-consumer wrapper (chat: `StreamingHandlerService`; surfaces:
+ * `StreamRouter.routeStreamEventForSurface`).
  *
- * The pure-ish, tab-agnostic event-type switch extracted from
- * `StreamingHandlerService.processEventForTab`. Mutates a `StreamingState`
- * in place against a context bag of peer services (dedup, batched, agent
- * stores, session manager). Knows NOTHING about tabs, surfaces, queued
- * content, or `tabManager.*` — those concerns stay in the per-consumer
- * wrapper (chat: `StreamingHandlerService`; surfaces: `StreamRouter
- * .routeStreamEventForSurface`).
- *
- * Phase 2 ships this in shadow mode: the chat path consumes it via the
- * slimmed `StreamingHandlerService.processEventForTab` wrapper, but no
- * surface caller invokes it yet.
- *
- * Behavioural contract preserved from the original 239-629 block of
- * `streaming-handler.service.ts` (TASK_2026_106 Phase 4b):
+ * Behavioural contract:
  *   - Conversation-level state (dedup keyed by sessionId, agent
  *     registration via SessionManager, BackgroundAgentStore writes) is
  *     idempotent under repeat calls. Calling for two tabs/surfaces bound
@@ -421,7 +414,7 @@ export class StreamingAccumulatorCore {
       }
 
       case 'agent_start': {
-        // TASK_2025_126_FIX: Use agentId for deduplication (stable across hook and complete)
+        // Use agentId for deduplication (stable across hook and complete).
         // Hook sends UUID-format toolCallId, complete sends toolu_* format - they don't match!
         // agentId (e.g., "adcecb2") is stable and present in both sources.
         const existingByAgentId = deduplication.replaceAgentStartByAgentId(
@@ -463,13 +456,13 @@ export class StreamingAccumulatorCore {
           isCollapsed: false,
         };
 
-        // TASK_2025_211 detect-and-mark-resumed lives in the wrapper (it
-        // reads `tab.messages` which surfaces don't have). Hand off via
-        // the optional onAgentStart hook.
+        // detect-and-mark-resumed lives in the wrapper (it reads
+        // `tab.messages` which surfaces don't have). Hand off via the
+        // optional onAgentStart hook.
         ctx.onAgentStart?.(event);
 
-        // Phase 3: capture per-subagent record keyed by parentToolUseId
-        // so the inline-agent-bubble can show progress/status updates and
+        // Capture per-subagent record keyed by parentToolUseId so the
+        // inline-agent-bubble can show progress/status updates and
         // dispatch send-message / stop RPCs.
         agentMonitorStore.onAgentStart(event);
 
@@ -529,8 +522,8 @@ export class StreamingAccumulatorCore {
       }
 
       case 'compaction_start': {
-        // TASK_2025_098: Unified compaction flow
-        // Compaction events flow through CHAT_CHUNK (same as all streaming events)
+        // Unified compaction flow.
+        // Compaction events flow through CHAT_CHUNK (same as all streaming events).
         // The wrapper translates `compactionStart: true` into the legacy
         // `{ compactionSessionId }` return shape. No state mutation.
         return {
@@ -577,8 +570,8 @@ export class StreamingAccumulatorCore {
         backgroundAgentStore.onStopped(event);
         return this.mutated(event.eventType);
 
-      // Phase 3: SDK task_* surface — drives per-subagent records
-      // keyed by parentToolUseId for the inline-agent-bubble UI.
+      // SDK task_* surface — drives per-subagent records keyed by
+      // parentToolUseId for the inline-agent-bubble UI.
       case 'agent_progress':
         agentMonitorStore.onAgentProgress(event);
         return this.mutated(event.eventType);

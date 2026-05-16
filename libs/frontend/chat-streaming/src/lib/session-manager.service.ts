@@ -125,7 +125,7 @@ export class SessionManager {
       this._status.set('streaming');
     }
 
-    // TASK_2025_264 P4: Dev-guard diagnostic log to reduce GC pressure in production
+    // Dev-guard diagnostic log to reduce GC pressure in production
     if (typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log('[SessionManager] Session ID confirmed:', {
         draftId: this._draftId(),
@@ -140,7 +140,7 @@ export class SessionManager {
    */
   failSession(): void {
     this._sessionState.set('failed');
-    // TASK_2025_264 P4: Dev-guard diagnostic log
+    // Dev-guard diagnostic log
     if (typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log('[SessionManager] Session marked as failed');
     }
@@ -223,7 +223,7 @@ export class SessionManager {
         .filter((chunk) => now - chunk.timestamp < PENDING_CHUNK_TTL_MS)
         .map((chunk) => chunk.summaryDelta);
 
-      // TASK_2025_264 P4: Dev-guard diagnostic log (fires on every agent chunk flush)
+      // Dev-guard diagnostic log (fires on every agent chunk flush)
       if (
         validDeltas.length > 0 &&
         typeof ngDevMode !== 'undefined' &&
@@ -256,7 +256,7 @@ export class SessionManager {
     });
     this._pendingAgentChunks.set(toolCallId, existing);
 
-    // TASK_2025_264 P4: Dev-guard diagnostic log (fires on every buffered chunk)
+    // Dev-guard diagnostic log (fires on every buffered chunk)
     if (typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log(
         `[SessionManager] Buffered chunk for pending agent:`,
@@ -272,7 +272,7 @@ export class SessionManager {
   getAgent(toolCallId: string): ExecutionNode | undefined {
     const node = this._agentNodeMap.get(toolCallId);
 
-    // TASK_2025_264 P4: Dev-guard diagnostic log (fires on every agent lookup miss)
+    // Dev-guard diagnostic log (fires on every agent lookup miss)
     if (!node && typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log('[SessionManager] getAgent() - NOT FOUND:', {
         toolCallId,

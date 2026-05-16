@@ -21,20 +21,20 @@ import type { StreamingState } from '@ptah-extension/chat-types';
 export class EventDeduplicationService {
   /**
    * Tracks processed messageIds per session to prevent duplicate message_start events.
-   * TASK_2025_085: SDK sends both streaming events AND complete messages - we must deduplicate.
+   * SDK sends both streaming events AND complete messages - we must deduplicate.
    * Map key = sessionId, value = Set of processed messageIds.
    */
   private processedMessageIds = new Map<string, Set<string>>();
 
   /**
    * Tracks processed toolCallIds per session to prevent duplicate tool_start events.
-   * TASK_2025_085: Prevents duplicate agent cards.
+   * Prevents duplicate agent cards.
    * Map key = sessionId, value = Set of processed toolCallIds.
    */
   private processedToolCallIds = new Map<string, Set<string>>();
 
   /**
-   * TASK_2025_095: Source priority for event deduplication.
+   * Source priority for event deduplication.
    * Higher priority sources should replace lower priority sources.
    * - 'history': Loaded from JSONL files (highest priority - definitive)
    * - 'hook': From SDK subagent hooks (medium-high priority - has agentId for summary lookup)
@@ -46,7 +46,7 @@ export class EventDeduplicationService {
       case 'history':
         return 4;
       case 'hook':
-        return 3; // TASK_2025_099: Hook events have agentId - preserve them
+        return 3; // Hook events have agentId - preserve them
       case 'complete':
         return 2;
       case 'stream':
@@ -57,7 +57,7 @@ export class EventDeduplicationService {
   }
 
   /**
-   * TASK_2025_095: Check if new event should replace existing event based on source priority.
+   * Check if new event should replace existing event based on source priority.
    * Returns true if new event has higher or equal priority.
    */
   shouldReplaceEvent(
@@ -71,11 +71,11 @@ export class EventDeduplicationService {
   }
 
   /**
-   * TASK_2025_095: Replace stream events with higher priority events for the same toolCallId.
+   * Replace stream events with higher priority events for the same toolCallId.
    * When a 'complete' or 'history' source event arrives, it should replace any existing
    * 'stream' source events for the same tool call.
    *
-   * TASK_2025_096: Extended to support agent_start events to prevent duplicate agents.
+   * Also supports agent_start events to prevent duplicate agents.
    *
    * @param state - The streaming state to update
    * @param toolCallId - The tool call ID to match
@@ -123,7 +123,7 @@ export class EventDeduplicationService {
   }
 
   /**
-   * TASK_2025_126_FIX: Deduplicate agent_start events by agentId (stable key).
+   * Deduplicate agent_start events by agentId (stable key).
    *
    * The hook and SDK complete message send agent_start events with DIFFERENT toolCallId formats:
    * - Hook: UUID format (e.g., "b4139c0d-...")
@@ -172,7 +172,7 @@ export class EventDeduplicationService {
       existingEvent as FlatStreamEventUnion & { source?: EventSource }
     ).source;
 
-    // TASK_2025_264 P4: Dev-guard diagnostic log to reduce GC pressure in production
+    // Dev-guard diagnostic log to reduce GC pressure in production
     if (typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log(
         '[EventDeduplication] Agent_start deduplication by agentId:',
@@ -197,7 +197,7 @@ export class EventDeduplicationService {
   }
 
   /**
-   * TASK_2025_096: Find existing message_start event for a given messageId.
+   * Find existing message_start event for a given messageId.
    * Used to check for duplicates before storing a new message_start event.
    *
    * @param state - The streaming state to search
@@ -241,7 +241,7 @@ export class EventDeduplicationService {
 
   /**
    * Check if a message was already processed and finalized.
-   * TASK_2025_085: Skip deltas for already-finalized messages.
+   * Skip deltas for already-finalized messages.
    */
   isMessageAlreadyFinalized(
     sessionId: string,
@@ -257,7 +257,7 @@ export class EventDeduplicationService {
 
   /**
    * Check if a tool was already processed and finalized.
-   * TASK_2025_085: Skip deltas for already-finalized tools.
+   * Skip deltas for already-finalized tools.
    */
   isToolAlreadyFinalized(
     sessionId: string,
@@ -296,7 +296,7 @@ export class EventDeduplicationService {
       const msgEvents = state.eventsByMessage.get(event.messageId) || [];
       const filtered = msgEvents.filter((e) => e.id !== existingMsgStart.id);
       state.eventsByMessage.set(event.messageId, filtered);
-      // TASK_2025_128 FIX: Return existingEvent so caller knows this is a REPLACEMENT,
+      // Return existingEvent so caller knows this is a REPLACEMENT,
       // not a first occurrence. Without this, caller pushes messageId to messageEventIds
       // again, causing the same message to appear 2-3 times in the UI.
       return { skip: false, existingEvent: existingMsgStart };
@@ -309,7 +309,6 @@ export class EventDeduplicationService {
   /**
    * Clean up deduplication state for a session.
    * MUST be called when closing/deleting a session to prevent memory leaks.
-   * TASK_2025_090: Integrated cleanup into tab close flow.
    *
    * @param sessionId - Session ID to clean up
    */

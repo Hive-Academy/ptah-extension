@@ -2,10 +2,10 @@
  * BackgroundAgentStore specs — signal store for background (run_in_background)
  * agents spawned via the Task tool.
  *
- * TASK_2026_106 Phase 5 — store is now keyed by `BackgroundAgentId` (the
- * SDK-issued `agentId`), not by `toolCallId`. The toolCallId stays on the
- * entry so the tree builder's `isBackgroundAgent(toolCallId)` lookup keeps
- * working (now O(n) over the bounded agent set).
+ * Store is keyed by `BackgroundAgentId` (the SDK-issued `agentId`), not by
+ * `toolCallId`. The toolCallId stays on the entry so the tree builder's
+ * `isBackgroundAgent(toolCallId)` lookup keeps working (now O(n) over the
+ * bounded agent set).
  *
  * Coverage:
  *   - onStarted: inserts a running entry and starts the 1s tick interval
@@ -16,11 +16,11 @@
  *   - onStopped: marks the entry stopped (with fallback insertion)
  *   - agentsForSession filters by sessionId
  *   - isBackgroundAgent lookup (by toolCallId, scans entries)
- *   - findByAgentId (Phase 5) — O(1) lookup by branded agentId
- *   - sessionForAgent (Phase 5) — parent-session lookup, null when missing
- *   - Map keyed by agentId (Phase 5) — same toolCallId across two agentIds
+ *   - findByAgentId — O(1) lookup by branded agentId
+ *   - sessionForAgent — parent-session lookup, null when missing
+ *   - Map keyed by agentId — same toolCallId across two agentIds
  *     keeps both entries
- *   - Fallback warning (Phase 5) — SDK-omits-agentId path warns once
+ *   - Fallback warning — SDK-omits-agentId path warns once
  *   - clearCompleted drops non-running entries
  *   - Computed signals: runningAgents, completedAgents, runningCount,
  *     totalCount, hasRunningAgents, backgroundToolCallIds

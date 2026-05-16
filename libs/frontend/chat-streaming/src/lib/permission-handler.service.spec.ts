@@ -587,7 +587,7 @@ describe('PermissionHandlerService', () => {
   });
 
   // ============================================================================
-  // TASK_2026_109_FOLLOWUP_QUESTIONS — Q9 duplicate-id guard + Q10 cancellation
+  // Follow-up questions — Q9 duplicate-id guard + Q10 cancellation
   // ============================================================================
 
   describe('TASK_2026_109_FOLLOWUP_QUESTIONS Q9 — duplicate-id guard', () => {

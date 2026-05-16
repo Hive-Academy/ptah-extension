@@ -4,7 +4,7 @@
  * Signal-based store for real-time agent process monitoring.
  * Tracks spawned agents, streams output, and manages the sidebar panel state.
  *
- * State shape (TASK_2026_103 wave E3):
+ * State shape:
  * Backing store is `signal<readonly MonitoredAgent[]>([])` plus a derived
  * `_byId` computed for O(1) lookups. Previously this was `signal<Map<...>>`
  * which forced every writer to clone the Map â€” and silently broke `computed()`
@@ -40,7 +40,7 @@ const MAX_EXPANDED_AGENTS = 2;
 /** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
 const MAX_STREAM_EVENTS = 2000;
 
-/** TASK_2025_264 P6: Maximum completed/failed agents retained in the store.
+/** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
  * 'interrupted' agents are always preserved. */
 const MAX_COMPLETED_AGENTS = 20;
@@ -86,7 +86,7 @@ export interface MonitoredAgent {
 }
 
 /**
- * Per-subagent record for SDK task_* events (Phase 3).
+ * Per-subagent record for SDK task_* events.
  *
  * Distinct from `MonitoredAgent` (CLI process). Keyed by `parentToolUseId`
  * (the Task tool_use ID), which is also the `toolCallId` on the
@@ -169,7 +169,7 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Buffer for permission requests that arrive before the agent spawn event.
    * Keyed by agentId. Replayed in onAgentSpawned() when the agent card is created.
-   * Prevents silent permission loss due to message ordering (TASK_2025_255).
+   * Prevents silent permission loss due to message ordering.
    */
   private _pendingPermissionBuffer = new Map<
     string,
@@ -177,14 +177,14 @@ export class AgentMonitorStore implements OnDestroy {
   >();
 
   /**
-   * TASK_2025_211: Tracks agent descriptions (tasks) that have been resumed.
+   * Tracks agent descriptions (tasks) that have been resumed.
    * Used by inline-agent-bubble to upgrade 'interrupted' â†’ 'resumed' visuals.
    * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
    */
   private readonly _resumedAgentKeys = signal<Set<string>>(new Set());
 
   /**
-   * TASK_2025_211: Tracks specific agent node IDs that have been resumed.
+   * Tracks specific agent node IDs that have been resumed.
    * When a new agent of the same type is spawned while an interrupted agent
    * of that type exists, the SPECIFIC interrupted agent's node ID is stored here.
    * This prevents false positives when multiple agents of the same type exist.
@@ -192,7 +192,7 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly _resumedAgentNodeIds = signal<Set<string>>(new Set());
 
   // ─────────────────────────────────────────────────────────────────────
-  // Phase 3: SDK task_* per-subagent records (keyed by parentToolUseId)
+  // SDK task_* per-subagent records (keyed by parentToolUseId)
   // ─────────────────────────────────────────────────────────────────────
 
   /**
@@ -375,7 +375,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * TASK_2025_211: Check if a specific interrupted agent has been resumed.
+   * Check if a specific interrupted agent has been resumed.
    * Two matching strategies:
    * 1. SDK subagents: matches by specific node ID (nodeId or toolCallId)
    * 2. CLI agents: matches by parentSessionId + task description
@@ -401,7 +401,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * TASK_2025_211: Mark specific agent node IDs as resumed.
+   * Mark specific agent node IDs as resumed.
    * Called by the streaming handler when a new agent_start arrives and
    * a specific interrupted agent of the same type is found.
    */
@@ -428,7 +428,7 @@ export class AgentMonitorStore implements OnDestroy {
       const oldCard = this.findReplacementCard(list, info);
 
       if (oldCard) {
-        // TASK_2025_211: Track this agent as resumed so inline bubbles can
+        // Track this agent as resumed so inline bubbles can
         // show 'Resumed' badge instead of 'Interrupted'.
         if (oldCard.parentSessionId && oldCard.task) {
           this._resumedAgentKeys.update((set) => {
@@ -486,7 +486,7 @@ export class AgentMonitorStore implements OnDestroy {
       return this.enforceMaxExpanded([...list, fresh]);
     });
 
-    // TASK_2025_255: Replay any buffered permission requests that arrived before spawn.
+    // Replay any buffered permission requests that arrived before spawn.
     const buffered = this._pendingPermissionBuffer.get(info.agentId);
     if (buffered && buffered.length > 0) {
       this._pendingPermissionBuffer.delete(info.agentId);
@@ -603,7 +603,7 @@ export class AgentMonitorStore implements OnDestroy {
         permissionQueue: [],
       };
 
-      // TASK_2025_264 P6: Evict oldest completed/failed agents beyond the limit.
+      // Evict oldest completed/failed agents beyond the limit.
       // NEVER evict 'running' or 'interrupted' agents.
       return this.evictOldCompletedAgents(next);
     });
@@ -612,7 +612,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * TASK_2025_264 P6: Evict the oldest completed/failed agents when count exceeds
+   * Evict the oldest completed/failed agents when count exceeds
    * MAX_COMPLETED_AGENTS. Preserves 'running' and 'interrupted' agents.
    * Returns a new array (does not mutate the input).
    */
@@ -653,7 +653,7 @@ export class AgentMonitorStore implements OnDestroy {
       if (foundIndex === -1) {
         // Agent not yet in store (spawn event hasn't arrived yet).
         // Buffer the request â€” it will be replayed in onAgentSpawned().
-        // TASK_2025_255: Prevents silent permission loss from message ordering.
+        // Prevents silent permission loss from message ordering.
         console.warn(
           '[AgentMonitorStore] Permission buffered â€” agent not yet spawned:',
           request.agentId,
@@ -805,7 +805,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * Load CLI sessions from a saved session's metadata (TASK_2025_168).
+   * Load CLI sessions from a saved session's metadata.
    * Converts CliSessionReference[] to MonitoredAgent[] and adds them to the store.
    * Called when loading/resuming a session that had CLI agents spawned.
    * Agents from other sessions are preserved â€” activeTabAgents handles display filtering.
@@ -937,7 +937,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // Phase 3: SDK task_* event reducers
+  // SDK task_* event reducers
   // ─────────────────────────────────────────────────────────────────────
 
   /**
@@ -1052,7 +1052,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // Phase 3: Bidirectional messaging actions
+  // Bidirectional messaging actions
   //
   // These dispatch RPC calls but never mutate per-record state optimistically.
   // The SDK's task_* events drive UI lifecycle. RPC errors land in

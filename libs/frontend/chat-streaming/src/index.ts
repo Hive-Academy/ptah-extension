@@ -1,8 +1,7 @@
 /**
  * @ptah-extension/chat-streaming — Streaming write-path bundle.
  *
- * TASK_2026_105 Wave G2 Phase 3: Extracted from `@ptah-extension/chat` to
- * isolate the SDK-event ingestion + execution-tree-builder + permission/agent
+ * Isolates the SDK-event ingestion + execution-tree-builder + permission/agent
  * monitoring stack from chat UI features. This bundle owns:
  *   - Streaming event ingest, deduplication, and batched UI updates
  *   - Message finalization (turn → ExecutionChatMessage)
@@ -33,9 +32,9 @@ export { EventDeduplicationService } from './lib/event-deduplication.service';
 export { BatchedUpdateService } from './lib/batched-update.service';
 export { PermissionHandlerService } from './lib/permission-handler.service';
 
-// TASK_2026_107 Phase 2 — extracted event-type switch core. Consumed
-// directly by `chat-routing`'s StreamRouter (surface routing) and
-// transitively by `StreamingHandlerService` (chat tab routing).
+// Extracted event-type switch core. Consumed directly by
+// `chat-routing`'s StreamRouter (surface routing) and transitively by
+// `StreamingHandlerService` (chat tab routing).
 export {
   StreamingAccumulatorCore,
   type AccumulatorContext,
