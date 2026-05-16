@@ -18,7 +18,7 @@ export class ElectronCommandRegistry implements ICommandRegistry {
 
   registerCommand(
     id: string,
-    handler: (...args: unknown[]) => unknown
+    handler: (...args: unknown[]) => unknown,
   ): IDisposable {
     this.commands.set(id, handler);
     return {
@@ -42,7 +42,6 @@ export class ElectronCommandRegistry implements ICommandRegistry {
 
   /**
    * Get all registered command IDs.
-   * Used by the application menu to build dynamic menu items.
    */
   getRegisteredCommands(): string[] {
     return Array.from(this.commands.keys());

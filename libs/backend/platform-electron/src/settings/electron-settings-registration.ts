@@ -5,11 +5,6 @@
  * Must be called AFTER registerPlatformElectronServices() (which registers
  * PLATFORM_TOKENS.WORKSPACE_PROVIDER) and BEFORE any library that resolves
  * settings repositories.
- *
- * Called from WP-3C (app-level bootstrap). NOT called here.
- *
- * WP-2B: Platform adapter creation.
- * WP-4A: Master key provider + SecretsFileStore wiring.
  */
 
 import * as os from 'os';
@@ -65,7 +60,7 @@ export function registerElectronSettings(container: DependencyContainer): void {
   // IUserInteraction is resolved from the container (registered by
   // registerPlatformElectronServices before this function runs) so that
   // notifyCorruption() shows a user-visible dialog instead of falling
-  // back to console.error. The TODO in ElectronMasterKeyProvider is now closed.
+  // back to console.error.
   const userInteraction = container.resolve<IUserInteraction>(
     PLATFORM_TOKENS.USER_INTERACTION,
   );
@@ -87,7 +82,7 @@ export function registerElectronSettings(container: DependencyContainer): void {
     secretsStore,
   );
 
-  // WP-5A: Enable cross-process reactivity so that a CLI sidecar (or any other
+  // Enable cross-process reactivity so that a CLI sidecar (or any other
   // process writing to ~/.ptah/settings.json) causes this Electron process to
   // fire its in-process listeners for the changed keys.
   // persistent: false (set inside enableCrossProcessWatch) ensures the watcher

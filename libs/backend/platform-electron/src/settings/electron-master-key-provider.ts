@@ -12,8 +12,6 @@
  * Import is lazy (import('electron')) because the electron module is only
  * available at runtime inside the Electron main process. Importing it at
  * module load time breaks jest tests and VS Code shim environments.
- *
- * WP-4A: Electron master key provider.
  */
 
 import { z } from 'zod';

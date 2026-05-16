@@ -2,7 +2,7 @@
 export { registerPlatformElectronServices } from './registration';
 export type { ElectronPlatformOptions } from './registration';
 
-// Settings registration (WP-2B)
+// Settings registration
 export { registerElectronSettings } from './settings/electron-settings-registration';
 export { FileSettingsStore } from './settings/file-settings-store';
 

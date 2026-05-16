@@ -203,7 +203,7 @@ describe('ElectronWorkspaceProvider — Electron-specific behaviour', () => {
   });
 
   // -------------------------------------------------------------------------
-  // TC-4 — Batch 1: persistConfig() uses atomic tmp-rename pattern
+  // TC-4: persistConfig() uses atomic tmp-rename pattern
   // -------------------------------------------------------------------------
   it('TC-4: persistConfig leaves no .tmp file behind and produces a valid config.json', async () => {
     // Behavioral verification of the atomic tmp-rename contract:
@@ -237,7 +237,7 @@ describe('ElectronWorkspaceProvider — Electron-specific behaviour', () => {
   it('TC-4b: source code audit — persistConfig implementation uses .tmp suffix and rename', async () => {
     // Static analysis: read the implementation source and verify the atomic
     // write pattern is present. This is a regression guard against reverting
-    // the Batch 1 atomic write addition.
+    // the atomic write addition.
     const fsNode = await import('fs');
     const nodePath = await import('path');
     const implPath = nodePath.default.resolve(

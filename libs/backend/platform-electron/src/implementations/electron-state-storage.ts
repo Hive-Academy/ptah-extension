@@ -1,7 +1,6 @@
 /**
  * ElectronStateStorage — IStateStorage implementation using JSON file with in-memory cache.
  *
- * Replaces vscode.Memento (globalState / workspaceState).
  * Thread-safe writes via atomic rename pattern (write to .tmp then rename).
  * Serializes concurrent writes via promise chain to prevent corruption.
  */

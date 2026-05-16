@@ -1,5 +1,5 @@
 /**
- * ElectronWorkspaceProvider FILE_BASED_SETTINGS_KEYS routing — behavioral test (Fix 3).
+ * ElectronWorkspaceProvider FILE_BASED_SETTINGS_KEYS routing — behavioral test.
  *
  * Verifies that keys in FILE_BASED_SETTINGS_KEYS (e.g. provider.apiKey.selectedModel)
  * are written to ~/.ptah/settings.json via PtahFileSettingsManager, while

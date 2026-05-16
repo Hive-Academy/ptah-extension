@@ -2,13 +2,9 @@
  * Platform-Electron Registration Helper
  *
  * Registers all Electron platform implementations against PLATFORM_TOKENS.
- * Called from apps/ptah-electron/src/di/container.ts BEFORE
- * any library registration functions.
  *
  * MUST be called after app.whenReady() (safeStorage requires it).
  * MUST be called before any library registerXxxServices() functions.
- *
- * Mirrors: libs/backend/platform-vscode/src/registration.ts
  */
 
 import * as path from 'path';
@@ -179,7 +175,7 @@ export function registerPlatformElectronServices(
     useValue: new ElectronDiagnosticsProvider(),
   });
 
-  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/ (TASK_2025_248)
+  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
   });
