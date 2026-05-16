@@ -1,5 +1,5 @@
 /**
- * StreamRouter specs — TASK_2026_106 Phase 3 (AUTHORITATIVE).
+ * StreamRouter specs.
  *
  * What is in scope:
  *   - onTabCreated mints conversation, optionally seeds with session, binds tab
@@ -9,15 +9,15 @@
  *   - onTabClosed unbinds; removes conversation only when no tab references it
  *   - compaction_start / compaction_complete update registry flags
  *   - Lookup helpers reflect current binding state
- *   - **Phase 3**: bootstrap migrates persisted `tab.claudeSessionId` values
+ *   - bootstrap migrates persisted `tab.claudeSessionId` values
  *     from `TabManagerService` into the registry/binding
- *   - **Phase 3**: `closedTab` signal effect performs router-owned cleanup —
+ *   - `closedTab` signal effect performs router-owned cleanup —
  *     `cleanupSessionDeduplication` always (when sessionId present), and
  *     `clearSessionAgents` only on `kind === 'close'`
  *
  * What is intentionally OUT of scope:
- *   - Multi-tab fan-out (Phase 4)
- *   - Permission prompt routing (Phase 6)
+ *   - Multi-tab fan-out
+ *   - Permission prompt routing
  *   - Tab content rendering (still flows through chat.store.processStreamEvent)
  */
 
@@ -117,9 +117,9 @@ function compactionComplete(
 }
 
 /**
- * Phase 3 mock harness for `TabManagerService`. The router only reads
- * `tabs()` (constructor migration) and `closedTab()` (effect cleanup), so
- * the mock exposes both as signals plus a `_emitClosedTab` test helper.
+ * Mock harness for `TabManagerService`. The router only reads `tabs()`
+ * (constructor migration) and `closedTab()` (effect cleanup), so the mock
+ * exposes both as signals plus a `_emitClosedTab` test helper.
  */
 function makeTabManagerMock(
   initialTabs: {
@@ -133,9 +133,9 @@ function makeTabManagerMock(
       { id: string; claudeSessionId: string | null; lastActivityAt?: number }[]
     >(initialTabs);
   const closedTabSignal = signal<ClosedTabEvent | null>(null);
-  // TASK_2026_109_FOLLOWUP_QUESTIONS Q2 — router reads activeTabId() as a
-  // last-resort fallback in pickMostRecentlyActiveTab. Default null (no
-  // active tab) — tests opt in via _setActiveTabId.
+  // Router reads activeTabId() as a last-resort fallback in
+  // pickMostRecentlyActiveTab. Default null (no active tab) — tests opt in
+  // via _setActiveTabId.
   const activeTabIdSignal = signal<string | null>(null);
   return {
     tabs: tabsSignal.asReadonly(),
@@ -154,10 +154,10 @@ function makeTabManagerMock(
 }
 
 /**
- * Phase 6a mock harness for `PermissionHandlerService`. The router only
- * touches `attachPromptTargets`, `targetTabsFor`, `cancelPrompt`, and
- * subscribes to `decisionPulse` via effect — so the mock exposes those
- * methods + a writable signal for decision broadcasts.
+ * Mock harness for `PermissionHandlerService`. The router only touches
+ * `attachPromptTargets`, `targetTabsFor`, `cancelPrompt`, and subscribes
+ * to `decisionPulse` via effect — so the mock exposes those methods plus
+ * a writable signal for decision broadcasts.
  */
 function makePermissionHandlerMock() {
   const targets = new Map<string, readonly string[]>();
@@ -168,9 +168,9 @@ function makePermissionHandlerMock() {
     promptId: string;
     decidingTabId: string | null;
   } | null>(null);
-  // TASK_2026_109_FOLLOWUP_QUESTIONS — question-side mock state. Mirrors the
-  // permission-side signature so the router can resolve / cancel /
-  // refresh question targets through the same indirection.
+  // Question-side mock state. Mirrors the permission-side signature so the
+  // router can resolve / cancel / refresh question targets through the
+  // same indirection.
   const questionTargets = new Map<string, readonly string[]>();
   const questionResponses: { id: string; answers: Record<string, string> }[] =
     [];
@@ -195,8 +195,8 @@ function makePermissionHandlerMock() {
       cancelled.push({ promptId, exceptTabId });
       targets.delete(promptId);
     }),
-    // TASK_2026_107 Phase 5 — defensive guard auto-deny path. Mirrors the
-    // real PermissionHandlerService.handlePermissionResponse contract: the
+    // Defensive guard auto-deny path. Mirrors the real
+    // PermissionHandlerService.handlePermissionResponse contract: the
     // router calls this when a prompt resolves to a surface-only conversation.
     handlePermissionResponse: jest.fn(
       (response: { id: string; decision: string; reason?: string }) => {
@@ -204,8 +204,7 @@ function makePermissionHandlerMock() {
         targets.delete(response.id);
       },
     ),
-    // TASK_2026_109_FOLLOWUP_QUESTIONS — question-side surface used by the
-    // router for Q2/Q6/Q7/Q10.
+    // Question-side surface used by the router.
     attachQuestionTargets: jest.fn(
       (questionId: string, tabIds: readonly string[]) => {
         if (tabIds.length === 0) return;
@@ -252,9 +251,9 @@ function makePermissionHandlerMock() {
   };
 }
 
-// TASK_2026_109_FOLLOWUP_QUESTIONS — minimal AskUserQuestionRequest factory.
-// Mirrors the shared/AskUserQuestionRequest shape but only fills the fields
-// the router reads (`id`, `sessionId`, `tabId`).
+// Minimal AskUserQuestionRequest factory. Mirrors the
+// shared/AskUserQuestionRequest shape but only fills the fields the router
+// reads (`id`, `sessionId`, `tabId`).
 function makeQuestion(overrides: {
   id: string;
   sessionId?: string;
@@ -288,8 +287,8 @@ function makePermissionRequest(
     description: 'Run a command',
     timeoutAt: 0,
     sessionId: SESSION_A as unknown as string,
-    // TASK_2026_120 Phase B — explicit default; per-test overrides may set
-    // this to a concrete tabId to exercise the tabId-first lookup path.
+    // Explicit default; per-test overrides may set this to a concrete
+    // tabId to exercise the tabId-first lookup path.
     tabId: undefined,
     ...overrides,
   } as PermissionRequest;
@@ -491,9 +490,9 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
     expect(record?.lastCompactionAt).not.toBeNull();
   });
 
-  // TASK_2026_106 Phase 4c — banner UI reads compaction state via the new
-  // `compactionStateFor(convId)` API, which the StreamRouter must drive
-  // through the same lifecycle events as the per-record flag.
+  // Banner UI reads compaction state via the `compactionStateFor(convId)`
+  // API, which the StreamRouter must drive through the same lifecycle
+  // events as the per-record flag.
   it('compactionStateFor reflects router-driven compaction lifecycle (TASK_2026_106 Phase 4c)', () => {
     const tab = newTabId();
     const conv = router.onTabCreated(tab, SESSION_A);
@@ -535,9 +534,7 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
     expect(binding.conversationFor(tab)).toBe(conv);
   });
 
-  // =============================================================================
-  // PHASE 6a — Permission prompt fan-out
-  // =============================================================================
+  // Permission prompt fan-out.
   //
   // Two-tab canvas-grid scenario: both tabs are bound to the same SDK session
   // (the same conversation). When a permission_required prompt arrives, the
@@ -651,9 +648,7 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
     });
   });
 
-  // =============================================================================
-  // TASK_2026_120 Phase B — tabId-first routing contract
-  // =============================================================================
+  // tabId-first routing contract.
 
   describe('routePermissionPrompt — TASK_2026_120 tabId-first routing', () => {
     it('UC1/UC2: tabId present and bound → resolves to originating tab, bypasses sessionId lookup', () => {
@@ -774,9 +769,7 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
     });
   });
 
-  // =============================================================================
-  // TASK_2026_109_FOLLOWUP_QUESTIONS — AskUserQuestion routing hardening
-  // =============================================================================
+  // AskUserQuestion routing hardening.
 
   describe('routeQuestionPrompt — Q2 stale-tabId fallback', () => {
     it('Q2: when question.tabId is stale (closed), targets fall back to most-recently-active bound tab', () => {
@@ -814,8 +807,8 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
         'q-stale',
         [tabB],
       );
-      // TASK_2026_120 Phase B — question routing must NOT call the permission
-      // tab attachment path. Cross-wire guard.
+      // Question routing must NOT call the permission tab attachment path.
+      // Cross-wire guard.
       expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
     });
 
@@ -1002,9 +995,7 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
   });
 });
 
-// =============================================================================
-// PHASE 3 — closedTab effect cleanup
-// =============================================================================
+// closedTab effect cleanup.
 
 describe('StreamRouter (authoritative — closedTab effect)', () => {
   let registry: ConversationRegistry;
@@ -1143,9 +1134,7 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
   });
 });
 
-// =============================================================================
-// PHASE 3 — bootstrap migration of persisted tabs
-// =============================================================================
+// Bootstrap migration of persisted tabs.
 
 describe('StreamRouter (authoritative — bootstrap migration)', () => {
   let registry: ConversationRegistry;
@@ -1219,9 +1208,7 @@ describe('StreamRouter (authoritative — bootstrap migration)', () => {
   });
 });
 
-// =============================================================================
-// PHASE 2 — Surface routing (TASK_2026_107)
-// =============================================================================
+// Surface routing.
 //
 // Sibling APIs to onTabCreated/onTabClosed/routeStreamEvent/tabsForSession,
 // keyed by SurfaceId. Coverage:
@@ -1234,9 +1221,9 @@ describe('StreamRouter (authoritative — bootstrap migration)', () => {
 //   - routeStreamEventForSurface mutates the surface adapter's state slot
 //   - routeStreamEventForSurface installs a fresh state on compaction_complete
 //   - surfacesForSession sibling lookup
-//   - routePermissionPrompt SIGNATURE UNCHANGED — this regression check
+//   - routePermissionPrompt signature unchanged — this regression check
 //     guards against accidental wizard/harness leakage into permission
-//     routing during Phase 2.
+//     routing.
 
 describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
   let router: StreamRouter;
@@ -1473,15 +1460,13 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
     });
 
     /**
-     * Asymmetry note (TASK_2026_107 Phase 2 unexpected discovery):
+     * Asymmetry note:
      * `StreamRouter.onTabClosed` (and its driver `handleTabClosed`) only
      * checks `binding.hasBoundTabs(convId)` — it is NOT surface-aware.
      * `StreamRouter.onSurfaceClosed`, by contrast, IS tab-aware. This is
-     * intentional for Phase 2: the chat-view path must remain unchanged
-     * (R1 regression risk). Production-wise, tabs and surfaces never
-     * co-exist on the same conversation, so the asymmetry is benign —
-     * but Phase 3+ should consider tightening `onTabClosed` to mirror
-     * `onSurfaceClosed` once wizard/harness ship.
+     * intentional: the chat-view path must remain unchanged.
+     * Production-wise, tabs and surfaces never co-exist on the same
+     * conversation, so the asymmetry is benign.
      */
     it('asymmetry — closing the tab when a surface still binds the same conversation drops the conversation (chat-view unchanged)', () => {
       const tab = newTabId();
@@ -1496,10 +1481,9 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       });
       TestBed.tick();
 
-      // Phase 2 reality: the tab-close path is surface-blind. The
-      // conversation IS dropped even though the surface still claims it.
-      // This documents the chat-view unchanged contract; Phase 3+ may
-      // tighten this once surfaces have a real consumer.
+      // The tab-close path is surface-blind. The conversation IS dropped
+      // even though the surface still claims it. This documents the
+      // chat-view unchanged contract.
       expect(registry.getRecord(conv)).toBeNull();
       expect(binding.conversationFor(tab)).toBeNull();
     });
@@ -1693,7 +1677,7 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
 
       expect(targets).toEqual([]);
       expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
-      // TASK_2026_107 Phase 5 — defensive guard kicks in here.
+      // Defensive guard kicks in here.
       expect(warnSpy).toHaveBeenCalledWith(
         'prompt.received.no-tab-surface-only',
         expect.objectContaining({
@@ -1705,7 +1689,7 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
     });
   });
 
-  // ---- TASK_2026_107 Phase 5 — defensive guard ---------------------------
+  // ---- Defensive guard ---------------------------------------------------
 
   describe('defensive guard — prompt for surface-only conversation', () => {
     it('emits prompt.received.no-tab-surface-only warning with full payload', () => {

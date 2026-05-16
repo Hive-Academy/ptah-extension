@@ -1,17 +1,17 @@
 /**
- * Surface-vs-Tab Parity Integration Test — TASK_2026_107 Phase 5.
+ * Surface-vs-Tab Parity Integration Test.
  *
- * Pins the Phase 2 extraction contract: an event sequence driven through
+ * Pins the extraction contract: an event sequence driven through
  * `StreamRouter.routeStreamEventForSurface` produces the same final
  * `StreamingState` shape as the canonical tab path
  * (`StreamingAccumulatorCore.process` invoked directly — the same path
- * `StreamingHandlerService.processEventForTab` takes after Phase 2).
+ * `StreamingHandlerService.processEventForTab` takes).
  *
- * If this test fails, the extraction in Phase 2 is broken — the surface
- * routing path has diverged from the canonical chat path. Do NOT skip
- * or weaken the assertions — fix the underlying issue.
+ * If this test fails, the surface routing path has diverged from the
+ * canonical chat path. Do NOT skip or weaken the assertions — fix the
+ * underlying issue.
  *
- * R7 (multi-surface fan-out): two surfaces bound to the same conversation
+ * Multi-surface fan-out: two surfaces bound to the same conversation
  * receive the same event; conversation-level state (dedup keyed by
  * sessionId) runs once, per-surface state runs N times. This is the
  * property that makes side-by-side canvas-style fan-out safe and the
@@ -229,9 +229,9 @@ function makePermissionHandlerMock() {
     promptId: string;
     decidingTabId: string | null;
   } | null>(null);
-  // TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — compaction_complete now reads
-  // questionRequests() from the router's refreshStaleQuestionTargets.
-  // Empty signal is sufficient — none of the parity events post questions.
+  // compaction_complete reads questionRequests() from the router's
+  // refreshStaleQuestionTargets. Empty signal is sufficient — none of the
+  // parity events post questions.
   const questionList = signal<unknown[]>([]);
   return {
     attachPromptTargets: jest.fn(),
@@ -313,8 +313,8 @@ describe('Surface-vs-Tab parity (TASK_2026_107 Phase 5)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: PermissionHandlerService, useValue: permissionHandler },
         { provide: StreamingHandlerService, useValue: streamingHandler },
-        // Phase 3: AgentMonitorStore now depends on ClaudeRpcService for
-        // subagent send-message / stop / interrupt RPCs.
+        // AgentMonitorStore depends on ClaudeRpcService for subagent
+        // send-message / stop / interrupt RPCs.
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
         {
           provide: VSCodeService,
@@ -366,8 +366,8 @@ describe('Surface-vs-Tab parity (TASK_2026_107 Phase 5)', () => {
   }
 
   // -------------------------------------------------------------------------
-  // Test 1 — Identical event sequence on independent sessions produces
-  // structurally identical state on both paths.
+  // Identical event sequence on independent sessions produces structurally
+  // identical state on both paths.
   //
   // The two paths must NOT share a session id — dedup is keyed by sessionId
   // and would suppress the second path's events. Independent sessions keep
@@ -375,7 +375,7 @@ describe('Surface-vs-Tab parity (TASK_2026_107 Phase 5)', () => {
   // -------------------------------------------------------------------------
   it('drives the same event sequence through both paths — structural state parity', () => {
     // Tab path: drive directly through the accumulator core (mirrors what
-    // StreamingHandlerService.processEventForTab does after Phase 2).
+    // StreamingHandlerService.processEventForTab does).
     const canonicalState = createEmptyStreamingState();
     const ctx = makeCtx();
     const tabSequence: FlatStreamEventUnion[] = [
@@ -443,8 +443,8 @@ describe('Surface-vs-Tab parity (TASK_2026_107 Phase 5)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 2 — compaction_complete swap produces the same fresh-empty state
-  // on both paths.
+  // compaction_complete swap produces the same fresh-empty state on both
+  // paths.
   // -------------------------------------------------------------------------
   it('compaction_complete on both paths produces a fresh-empty state with parity', () => {
     const canonicalState = createEmptyStreamingState();
@@ -493,7 +493,7 @@ describe('Surface-vs-Tab parity (TASK_2026_107 Phase 5)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // R7: multi-surface fan-out semantics.
+  // Multi-surface fan-out semantics.
   //
   // Two surfaces bound to the SAME conversation receive the SAME event
   // sequence. Conversation-level state (dedup keyed by sessionId, agent
@@ -594,9 +594,9 @@ describe('Surface-vs-Tab parity (TASK_2026_107 Phase 5)', () => {
       router.routeStreamEventForSurface(evt, s2.surfaceId);
 
       // BackgroundAgentStore.onStarted is itself idempotent on repeat
-      // agentId — it's safe to call twice. The point of R7 is that the
-      // store's eventual state (one entry for this agent) is correct
-      // regardless of how many surfaces saw the event.
+      // agentId — it's safe to call twice. The store's eventual state
+      // (one entry for this agent) is correct regardless of how many
+      // surfaces saw the event.
       expect(onStartedSpy).toHaveBeenCalled();
       // Sanity: the agent appears exactly once in the store, not twice.
       const agents = backgroundAgentStore.agentsForSession(SESSION_SHARED);

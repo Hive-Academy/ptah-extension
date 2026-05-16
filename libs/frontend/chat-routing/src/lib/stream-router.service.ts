@@ -1,30 +1,26 @@
 /**
- * StreamRouter — TASK_2026_106 Phase 3 (AUTHORITATIVE).
+ * StreamRouter — authoritative routing service.
  *
  * The single service that knows both sides of the routing relation:
  * `ConversationRegistry` (conversation ↔ session) on one side and
- * `TabSessionBinding` (tab ↔ conversation) on the other. Phase 3 cuts
- * the router over from shadow to authoritative mode:
+ * `TabSessionBinding` (tab ↔ conversation) on the other.
  *
  *   1. `routeStreamEvent` is the primary entry point — `ChatMessageHandler`
  *      calls it (no try/catch, no shadow-mode fallback).
  *   2. The router subscribes to `TabManagerService.closedTab` via `effect()`
- *      and performs the per-session cleanup that used to live inside
- *      `TabManager.closeTab` / `forceCloseTab` via the deleted
- *      `STREAMING_CONTROL` inversion. This removes the
- *      `TabManager → STREAMING_CONTROL → StreamingHandler/AgentMonitor →
- *      TabManager` NG0200 cycle.
+ *      and performs the per-session cleanup. This avoids a
+ *      `TabManager → StreamingHandler/AgentMonitor → TabManager` NG0200 cycle.
  *   3. On bootstrap (constructor), the router migrates persisted
  *      `tab.claudeSessionId` values from `TabManagerService` into the
  *      registry/binding. This ensures rehydrated tabs participate in
  *      routing without requiring an explicit `onTabCreated` call.
  *
- * Cleanup ownership (Phase 3):
+ * Cleanup ownership:
  *   - `close`       → cleanupSessionDeduplication + clearSessionAgents
- *                     (full teardown, mirrors legacy `closeTab`)
+ *                     (full teardown)
  *   - `forceClose`  → cleanupSessionDeduplication only
  *                     (pop-out transfer, agents stay alive for the target
- *                     panel — mirrors legacy `forceCloseTab`)
+ *                     panel)
  *
  * Both paths additionally unbind the tab from its conversation and remove
  * the conversation from the registry if no other tab still references it.
@@ -67,9 +63,9 @@ export class StreamRouter {
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly permissionHandler = inject(PermissionHandlerService);
-  // TASK_2026_107 Phase 2 — surface routing dependencies. The router
-  // assembles the AccumulatorContext directly here so the chat-streaming
-  // layer doesn't need to know about surfaces (one-way dependency:
+  // Surface routing dependencies. The router assembles the
+  // AccumulatorContext directly here so the chat-streaming layer doesn't
+  // need to know about surfaces (one-way dependency:
   // chat-routing → chat-streaming).
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   private readonly accumulatorCore = inject(StreamingAccumulatorCore);
@@ -84,17 +80,17 @@ export class StreamRouter {
     // Idempotent — `onTabCreated` no-ops when the tab is already bound.
     this.migratePersistedTabs();
 
-    // Authoritative cleanup hook. Replaces the old TabManager → STREAMING_CONTROL
-    // push. `tabManager.closedTab` is a signal that emits a `ClosedTabEvent`
-    // every time `closeTab`/`forceCloseTab` runs; the effect reacts and the
-    // router (which owns the routing graph) decides what to clean up.
+    // Authoritative cleanup hook. `tabManager.closedTab` is a signal that
+    // emits a `ClosedTabEvent` every time `closeTab`/`forceCloseTab` runs;
+    // the effect reacts and the router (which owns the routing graph)
+    // decides what to clean up.
     effect(() => {
       const evt = this.tabManager.closedTab();
       if (!evt) return;
       this.handleTabClosed(evt);
     });
 
-    // TASK_2026_106 Phase 6a — permission decision broadcast.
+    // Permission decision broadcast.
     //
     // PermissionHandler exposes a one-way `decisionPulse` signal that
     // bumps each time `handlePermissionResponse` resolves a prompt. The
@@ -152,9 +148,9 @@ export class StreamRouter {
    * Called when a tab is closed. Unbinds the tab. If no other tab references
    * the conversation, removes the conversation from the registry.
    *
-   * Phase 3: this method is preserved for explicit-call sites and tests.
-   * The runtime path now flows through the `closedTab` effect — see
-   * `handleTabClosed` below for the full cleanup sequence.
+   * This method is preserved for explicit-call sites and tests. The runtime
+   * path now flows through the `closedTab` effect — see `handleTabClosed`
+   * below for the full cleanup sequence.
    */
   onTabClosed(tabId: TabId): void {
     const convId = this.binding.conversationFor(tabId);
@@ -195,11 +191,10 @@ export class StreamRouter {
         this.binding.bind(originTabId, convId);
       } else if (convId && boundConv && boundConv !== convId) {
         // Tab is bound to a *different* conversation than the one
-        // containing this session. Phase 3 surfaces the divergence via the
+        // containing this session. We surface the divergence via the
         // returned convId; we deliberately leave the binding alone because
         // the legacy chat path (chat.store.processStreamEvent) is still the
-        // user-visible source of truth for content. Fan-out across multiple
-        // conversations is a Phase 6+ concern.
+        // user-visible source of truth for content.
       } else if (!convId && boundConv) {
         // Unknown session, but the tab already has a conversation —
         // append the session to that conversation.
@@ -225,9 +220,8 @@ export class StreamRouter {
   }
 
   /**
-   * Phase 3 alias retained for back-compat with any caller still using the
-   * shadow-mode name. Prefer `routeStreamEvent`. Will be removed once all
-   * call sites are confirmed migrated (Phase 4 sweep).
+   * Alias retained for back-compat with any caller still using the
+   * shadow-mode name. Prefer `routeStreamEvent`.
    *
    * @deprecated Use `routeStreamEvent` directly.
    */
@@ -238,14 +232,14 @@ export class StreamRouter {
     return this.routeStreamEvent(event, originTabId);
   }
 
-  /** Lookup helper used by Phase 3+ callers and tests. */
+  /** Lookup helper used by callers and tests. */
   conversationForTab(tabId: TabId): ConversationId | null {
     return this.binding.conversationFor(tabId);
   }
 
   /**
-   * Lookup helper used by Phase 3+ callers and tests. Returns every tab
-   * bound to any conversation that contains `sessionId`.
+   * Lookup helper. Returns every tab bound to any conversation that
+   * contains `sessionId`.
    */
   tabsForSession(sessionId: ClaudeSessionId): readonly TabId[] {
     const record = this.registry.findContainingSession(sessionId);
@@ -254,11 +248,10 @@ export class StreamRouter {
   }
 
   // =========================================================================
-  // TASK_2026_107 Phase 2 — Surface routing (additive, shadow mode).
+  // Surface routing.
   //
   // Sibling APIs to onTabCreated/onTabClosed/routeStreamEvent/tabsForSession,
-  // keyed by SurfaceId. Wizard (Phase 3) and harness (Phase 4) wire in later;
-  // chat is unaffected. Permission-prompt routing is intentionally NOT
+  // keyed by SurfaceId. Permission-prompt routing is intentionally NOT
   // extended — wizard/harness run in full-auto background mode.
   // =========================================================================
 
@@ -388,8 +381,7 @@ export class StreamRouter {
     const adapter = this.surfaceRegistry.getAdapter(surfaceId);
     if (!adapter) {
       // Caller registered a surface and then unregistered it before the
-      // stream drained. Drop silently — Phase 3/4 cleanup will route any
-      // residual events to the void.
+      // stream drained. Drop silently — residual events route to the void.
       return null;
     }
 
@@ -450,8 +442,8 @@ export class StreamRouter {
    * Lookup helper. Sibling of `tabsForSession`. Returns every surface
    * bound to any conversation that contains `sessionId`.
    *
-   * Used by the Phase 5 defensive guard in `PermissionHandlerService` to
-   * detect a "permission prompt arrived for a surface-only conversation"
+   * Used by the defensive guard in `PermissionHandlerService` to detect
+   * a "permission prompt arrived for a surface-only conversation"
    * regression in the SDK auto-allow policy.
    */
   surfacesForSession(sessionId: ClaudeSessionId): readonly SurfaceId[] {
@@ -461,7 +453,7 @@ export class StreamRouter {
   }
 
   /**
-   * TASK_2026_106 Phase 6a — permission prompt fan-out routing.
+   * Permission prompt fan-out routing.
    *
    * Resolves the prompt's `sessionId` to the conversation that contains
    * it, then returns every tab currently bound to that conversation.
@@ -479,13 +471,12 @@ export class StreamRouter {
    * prompt to PermissionHandler) is responsible for actually dispatching
    * the prompt; this method only computes routing metadata.
    *
-   * TASK_2026_107 Phase 5 — defensive guard.
-   *
-   * Wizard and harness surfaces run in full-auto background mode and must
-   * never receive permission prompts (auto-allow is enforced at the SDK
-   * layer). If a prompt arrives for a `sessionId` whose conversation is
-   * bound to surfaces ONLY (no tabs), this is an SDK regression — silent
-   * hangs on a surface-only flow are far worse than an explicit deny.
+   * Defensive guard: wizard and harness surfaces run in full-auto background
+   * mode and must never receive permission prompts (auto-allow is enforced
+   * at the SDK layer). If a prompt arrives for a `sessionId` whose
+   * conversation is bound to surfaces ONLY (no tabs), this is an SDK
+   * regression — silent hangs on a surface-only flow are far worse than
+   * an explicit deny.
    *
    * Action: emit a structured `prompt.received.no-tab-surface-only` warning
    * carrying `{ promptId, sessionId, conversationId, surfaceCount }`, then
@@ -495,15 +486,12 @@ export class StreamRouter {
    * signature is byte-unchanged.
    */
   routePermissionPrompt(prompt: PermissionRequest): readonly TabId[] {
-    // TASK_2026_120 Phase B — tabId-first routing.
-    //
     // Primary lookup: `prompt.tabId → conversationFor(tabId) → tabsFor(convId)`.
     // This resolves correctly even when the conversation registry has not yet
-    // seen the real SDK session UUID (resumed-session race — use case #2 in
-    // the use-case contract). The legacy `sessionId → tabsForSession` lookup
-    // is retained as a fallback for CLI paths that have no tab (use case #3),
-    // where it correctly returns `[]` and falls through to agent-monitor
-    // routing.
+    // seen the real SDK session UUID (resumed-session race). The legacy
+    // `sessionId → tabsForSession` lookup is retained as a fallback for CLI
+    // paths that have no tab, where it correctly returns `[]` and falls
+    // through to agent-monitor routing.
     let tabs: readonly TabId[] = [];
     if (prompt.tabId) {
       const tabId = TabId.safeParse(prompt.tabId);
@@ -581,15 +569,13 @@ export class StreamRouter {
    *     guard in `routePermissionPrompt`.
    */
   routeQuestionPrompt(question: AskUserQuestionRequest): readonly TabId[] {
-    // TASK_2026_120 Phase B — tabId-first routing (parity with
-    // `routePermissionPrompt`).
+    // tabId-first routing (parity with `routePermissionPrompt`).
     //
     // Primary lookup: `question.tabId → conversationFor(tabId) → tabsFor(convId)`.
     // Resolves correctly even when the conversation registry has not yet
-    // seen the real SDK session UUID (resumed-session race — use case #2).
-    // The legacy `sessionId → tabsForSession` lookup is retained as a
-    // fallback for CLI paths (use case #3) and for legacy payloads that
-    // never carried `tabId`.
+    // seen the real SDK session UUID (resumed-session race). The legacy
+    // `sessionId → tabsForSession` lookup is retained as a fallback for
+    // CLI paths and for legacy payloads that never carried `tabId`.
     let tabs: readonly TabId[] = [];
     if (question.tabId) {
       const tabId = TabId.safeParse(question.tabId);
@@ -606,7 +592,7 @@ export class StreamRouter {
     }
 
     if (tabs.length > 0) {
-      // Q2 narrowing applies regardless of how `tabs` was resolved — both
+      // Narrowing applies regardless of how `tabs` was resolved — both
       // paths produce the same "all tabs bound to the conversation" set.
       const targets = this.resolveQuestionTargets(question, tabs);
       this.permissionHandler.attachQuestionTargets(question.id, targets);
@@ -640,15 +626,14 @@ export class StreamRouter {
       }
     }
 
-    // TASK_2026_109_FOLLOWUP_QUESTIONS Q8 — surface-only auto-resolve race.
+    // Surface-only auto-resolve race.
     // No tabs bound and no surfaces: legacy "router didn't see binding yet"
-    // path. The previous code immediately auto-resolved with empty answers,
-    // which races with concurrent tile bootstrap (`onTabCreated` not yet
-    // fired) and produces a flash-then-disappear question card. Defer one
-    // microtask and re-check `tabsForSession` — if a tab arrived in the
-    // meantime, attach targets and SKIP the auto-resolve. This holds the
-    // legacy semantics (no surfaces == no auto-resolve) but fixes the
-    // observable flash.
+    // path. Immediate auto-resolve with empty answers races with concurrent
+    // tile bootstrap (`onTabCreated` not yet fired) and produces a
+    // flash-then-disappear question card. Defer one microtask and re-check
+    // `tabsForSession` — if a tab arrived in the meantime, attach targets
+    // and SKIP the auto-resolve. This holds the legacy semantics
+    // (no surfaces == no auto-resolve) but fixes the observable flash.
     queueMicrotask(() => {
       const tabsAfterTick = this.tabsForSession(sessionId);
       if (tabsAfterTick.length > 0) {
@@ -665,8 +650,8 @@ export class StreamRouter {
   }
 
   /**
-   * TASK_2026_109_FOLLOWUP_QUESTIONS Q2 — resolve the target tab list for an
-   * AskUserQuestion request given the live bound-tab set.
+   * Resolve the target tab list for an AskUserQuestion request given the
+   * live bound-tab set.
    *
    * Resolution ladder:
    *   1. `question.tabId` matches a bound tab → narrow to that tab (happy
@@ -698,10 +683,10 @@ export class StreamRouter {
   }
 
   /**
-   * TASK_2026_109_FOLLOWUP_QUESTIONS Q2 — pick the most-recently-active tab
-   * out of a bound-tab set, using `TabManagerService.tabs()[i].lastActivityAt`
-   * if available. Falls through to `activeTabId` (when it's in `tabs`),
-   * else the first tab in the set. Returns `null` only if `tabs` is empty.
+   * Pick the most-recently-active tab out of a bound-tab set, using
+   * `TabManagerService.tabs()[i].lastActivityAt` if available. Falls through
+   * to `activeTabId` (when it's in `tabs`), else the first tab in the set.
+   * Returns `null` only if `tabs` is empty.
    */
   private pickMostRecentlyActiveTab(tabs: readonly TabId[]): TabId | null {
     if (tabs.length === 0) return null;
@@ -732,9 +717,9 @@ export class StreamRouter {
   }
 
   /**
-   * TASK_2026_106 Phase 6a — fan a "prompt resolved" signal out to every
-   * other bound tab. Today the prompt list is global, so cancellation is
-   * a no-op once the deciding tab has already removed the entry from
+   * Fan a "prompt resolved" signal out to every other bound tab. Today the
+   * prompt list is global, so cancellation is a no-op once the deciding tab
+   * has already removed the entry from
    * `_permissionRequests` (PermissionHandler.handlePermissionResponse
    * already does that). This method is the architectural seam for the
    * future per-tab queue model — when prompts move into per-tab queues,
@@ -770,9 +755,9 @@ export class StreamRouter {
   }
 
   /**
-   * TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — fan a "question resolved" cancel
-   * out to every other bound tab. Mirrors `cancelPendingPromptOnOtherTabs`
-   * for permissions. Today the question list is global, so cancelling on
+   * Fan a "question resolved" cancel out to every other bound tab. Mirrors
+   * `cancelPendingPromptOnOtherTabs` for permissions. Today the question
+   * list is global, so cancelling on
    * "other tabs" is the same as removing from the queue entirely — the
    * deciding tab already removed the entry via `handleQuestionResponse`,
    * which is why this method does NOT call it again. The cancel call is
@@ -804,16 +789,16 @@ export class StreamRouter {
   /**
    * Compaction lifecycle is owned by the conversation, not the tab. The
    * router updates the registry flags so consumers observing the registry
-   * (Phase 4+ banner UI) can see them populated.
+   * (banner UI) can see them populated.
    */
   private handleLifecycleEvents(
     event: FlatStreamEventUnion,
     convId: ConversationId,
   ): void {
     if (event.eventType === 'compaction_start') {
-      // TASK_2026_109 C1 — persist trigger/preTokens/startedAt so consumers
-      // (header freeze, late-event filter) can read full compaction context
-      // from the registry without threading new params through call sites.
+      // Persist trigger/preTokens/startedAt so consumers (header freeze,
+      // late-event filter) can read full compaction context from the
+      // registry without threading new params through call sites.
       this.registry.setCompactionState(convId, {
         inFlight: true,
         trigger: event.trigger,
@@ -822,34 +807,34 @@ export class StreamRouter {
       });
     } else if (event.eventType === 'compaction_complete') {
       this.registry.setCompactionState(convId, { inFlight: false });
-      // TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — after a session id rotation
-      // completes, any in-flight question whose target tabs no longer bind
-      // to the same conversation as the question's current `sessionId` is
-      // stale. Re-resolve targets so the question card stays on a tab that
-      // is actually bound to the live conversation.
+      // After a session id rotation completes, any in-flight question whose
+      // target tabs no longer bind to the same conversation as the
+      // question's current `sessionId` is stale. Re-resolve targets so the
+      // question card stays on a tab that is actually bound to the live
+      // conversation.
       this.refreshStaleQuestionTargets(convId);
     }
   }
 
   /**
-   * TASK_2026_109_FOLLOWUP_QUESTIONS Q6 + Q7 — re-route any pending
-   * AskUserQuestion whose target tabs went stale after a session re-bind.
+   * Re-route any pending AskUserQuestion whose target tabs went stale after
+   * a session re-bind.
    *
-   * Q6 entry point: called by the chat-message-handler after
+   * Session-rebind entry point: called by the chat-message-handler after
    * `SESSION_ID_RESOLVED` triggers a tab → conversation re-bind. For each
    * pending question whose `sessionId` matches the resolved session AND
    * whose router-resolved targets are empty (router couldn't resolve a
    * conversation when the question first arrived), re-run target
    * resolution and call `attachQuestionTargets`.
    *
-   * Q7 entry point: called from `handleLifecycleEvents` on
-   * `compaction_complete`. Walks every pending question whose current
+   * Compaction-complete entry point: called from `handleLifecycleEvents`
+   * on `compaction_complete`. Walks every pending question whose current
    * `_questionTargetTabs` no longer binds to `convId` (the conversation
    * that just completed compaction) and re-resolves.
    *
    * Idempotent — re-resolving with the same target list is a harmless
-   * `attachQuestionTargets` overwrite. The Q9 collision guard further
-   * prevents stomping a fresh resolution with a duplicate.
+   * `attachQuestionTargets` overwrite. The collision guard further prevents
+   * stomping a fresh resolution with a duplicate.
    */
   refreshQuestionTargetsForSession(sessionId: ClaudeSessionId): void {
     const tabs = this.tabsForSession(sessionId);
@@ -861,20 +846,19 @@ export class StreamRouter {
       const existing = this.permissionHandler.questionTargetTabsFor(q.id);
       if (existing.length > 0) continue;
       const targets = this.resolveQuestionTargets(q, tabs);
-      // TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — explicit clear before
-      // re-attach. The Q9 collision guard refuses to overwrite an
-      // existing target list; the refresh path is the documented exception
-      // and must drop the stale targets first.
+      // Explicit clear before re-attach. The collision guard refuses to
+      // overwrite an existing target list; the refresh path is the
+      // documented exception and must drop the stale targets first.
       this.permissionHandler.clearQuestionTargets(q.id);
       this.permissionHandler.attachQuestionTargets(q.id, targets);
     }
   }
 
   /**
-   * TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — re-resolve targets for any
-   * pending question whose existing `_questionTargetTabs` no longer
-   * binds to the conversation the question's current `sessionId` resolves
-   * to. Used by `handleLifecycleEvents` on `compaction_complete`.
+   * Re-resolve targets for any pending question whose existing
+   * `_questionTargetTabs` no longer binds to the conversation the question's
+   * current `sessionId` resolves to. Used by `handleLifecycleEvents` on
+   * `compaction_complete`.
    */
   private refreshStaleQuestionTargets(convId: ConversationId): void {
     const pending = this.permissionHandler.questionRequests();
@@ -897,10 +881,9 @@ export class StreamRouter {
       if (!stale) continue;
 
       const targets = this.resolveQuestionTargets(q, tabs);
-      // TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — explicit clear before
-      // re-attach. The Q9 collision guard refuses to overwrite an
-      // existing target list; the refresh path is the documented exception
-      // and must drop the stale targets first.
+      // Explicit clear before re-attach. The collision guard refuses to
+      // overwrite an existing target list; the refresh path is the
+      // documented exception and must drop the stale targets first.
       this.permissionHandler.clearQuestionTargets(q.id);
       this.permissionHandler.attachQuestionTargets(q.id, targets);
     }
@@ -912,8 +895,7 @@ export class StreamRouter {
    * `TabSessionBinding` from each tab's `claudeSessionId`. Idempotent.
    *
    * Persistence stays working (per spec): we DO NOT mutate the tab — we
-   * only read its already-persisted `claudeSessionId`. Phase 6 will
-   * migrate readers off `tab.claudeSessionId` entirely.
+   * only read its already-persisted `claudeSessionId`.
    */
   private migratePersistedTabs(): void {
     const tabs = this.tabManager.tabs();
@@ -928,10 +910,7 @@ export class StreamRouter {
   }
 
   /**
-   * Reactive cleanup driven by `TabManagerService.closedTab`.
-   *
-   * Replaces the legacy direct-call path that ran inside `closeTab` /
-   * `forceCloseTab` via `STREAMING_CONTROL`. Performs:
+   * Reactive cleanup driven by `TabManagerService.closedTab`. Performs:
    *   - cleanupSessionDeduplication (always, when sessionId present)
    *   - clearSessionAgents (only on `kind === 'close'` — pop-out transfers
    *     keep agents alive in the target panel)

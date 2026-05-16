@@ -18,10 +18,7 @@ export default {
     'jest-preset-angular/build/serializers/ng-snapshot',
     'jest-preset-angular/build/serializers/html-comment',
   ],
-  // TASK_2026_106 Phase 2 baseline. The lib ships with one service in
-  // shadow mode, so its surface is small and easily covered. Threshold
-  // is set high deliberately to catch regressions early — Phase 3 will
-  // grow the surface area.
+  // Threshold is set high deliberately to catch regressions early.
   coverageThreshold: {
     global: {
       statements: 80,
