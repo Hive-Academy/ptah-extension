@@ -46,10 +46,11 @@
       <!-- =========================================================== -->
       @case ('never-indexed') {
         <div class="state-block" data-testid="state-never-indexed">
-          <h3 class="text-sm font-semibold mb-1">Set up workspace search</h3>
+          <h3 class="text-sm font-semibold mb-1">Workspace not indexed yet</h3>
           <p class="text-xs text-base-content/70 mb-3">
-            Ptah is preparing local search for this workspace. Files are read
-            on your machine and nothing is uploaded.
+            Click <strong>Index now</strong> to build a local search index for
+            this workspace. Files are read on your machine and nothing is
+            uploaded. Indexing runs only when you trigger it.
           </p>
 
           <div class="flex flex-wrap gap-2 mb-3">
@@ -69,15 +70,6 @@
             >
               Learn what gets indexed
             </button>
-          </div>
-
-          <!-- Privacy disclosure callout -->
-          <div
-            class="alert alert-info text-xs p-2 mb-2"
-            data-testid="callout-first-run"
-          >
-            First-time indexing runs automatically once. You can pause or
-            cancel at any time.
           </div>
 
           @if (showFirstRunDisclosure()) {
