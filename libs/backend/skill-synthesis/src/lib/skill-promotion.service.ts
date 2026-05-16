@@ -86,7 +86,7 @@ export class SkillPromotionService {
    * already-promoted candidates short-circuit with reason='already-promoted'.
    *
    * When InternalQueryService is available, the candidate body is polished via
-   * a one-shot LLM query before materialization (R5: skipped silently when
+   * a one-shot LLM query before materialization (skipped silently when
    * InternalQueryService is not registered in the container).
    */
   async evaluate(
@@ -189,7 +189,7 @@ export class SkillPromotionService {
     }
 
     // Optionally polish the candidate body with a one-shot LLM query before
-    // materializing — R5: silently skipped when InternalQueryService is absent.
+    // materializing — silently skipped when InternalQueryService is absent.
     let body = this.readCandidateBody(candidate);
     if (this.internalQuery) {
       body = await this.polishBody(body, candidate.name, candidate.description);
@@ -259,8 +259,6 @@ export class SkillPromotionService {
    * Use InternalQueryService to produce a polished SKILL.md body from a raw
    * draft. Non-fatal: on LLM failure, timeout, or output that fails the
    * structural sanity check, returns the input body unchanged.
-   *
-   * TASK_2026_THOTH_SKILL_LIFECYCLE — called at promotion time only.
    */
   private async polishBody(
     body: string,

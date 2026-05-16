@@ -1,8 +1,8 @@
 /**
- * SkillSynthesisService — top-level orchestrator (architecture §1.3, §6.5).
+ * SkillSynthesisService — top-level orchestrator.
  *
  * Lifecycle:
- *   - `start()` is invoked by Electron `wire-runtime.ts` Phase 4.53. It
+ *   - `start()` is invoked by Electron `wire-runtime.ts`. It
  *     ensures the underlying SQLite connection is open and migrations are
  *     applied. It subscribes to the session-end registry so that every
  *     completed session is automatically analyzed for skill candidates.
@@ -39,7 +39,7 @@ import type {
 
 /**
  * Cross-library token for the session-end callback registry.
- * R2 mitigation: use Symbol.for() directly instead of importing from
+ * Uses Symbol.for() directly instead of importing from
  * @ptah-extension/agent-sdk to avoid circular dependency.
  */
 const SESSION_END_CALLBACK_REGISTRY = Symbol.for(
@@ -99,7 +99,7 @@ export class SkillSynthesisService {
   ) {}
 
   /**
-   * Idempotent. Ensures DB is open + migrated. Caller (Phase 4.53) wraps in
+   * Idempotent. Ensures DB is open + migrated. Caller wraps in
    * try/catch so a failure here NEVER blocks app activation.
    */
   async start(): Promise<void> {

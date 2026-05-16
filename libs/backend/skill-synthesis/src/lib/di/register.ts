@@ -3,12 +3,12 @@
  *
  * Mirrors `registerPersistenceSqliteServices`. Pre-conditions:
  *  - `TOKENS.LOGGER` is registered.
- *  - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` is registered (Track 0).
+ *  - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` is registered.
  *  - `PLATFORM_TOKENS.WORKSPACE_PROVIDER` is registered.
  *  - `SDK_TOKENS.SDK_JSONL_READER` is registered (agent-sdk).
  *
  * Post-conditions: all four SKILL_SYNTHESIS_TOKENS resolve to singletons.
- * Track 1's `PERSISTENCE_TOKENS.EMBEDDER` is treated as optional — the
+ * `PERSISTENCE_TOKENS.EMBEDDER` is treated as optional — the
  * promotion service short-circuits dedup when it's missing.
  */
 import type { DependencyContainer } from 'tsyringe';

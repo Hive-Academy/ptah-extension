@@ -1,5 +1,5 @@
 /**
- * DI Token Registry — Skill Synthesis Tokens (Track 2).
+ * DI Token Registry — Skill Synthesis Tokens.
  *
  * Convention mirrors `libs/backend/agent-sdk/src/lib/di/tokens.ts`:
  *  - Always `Symbol.for('Name')` (globally interned).
