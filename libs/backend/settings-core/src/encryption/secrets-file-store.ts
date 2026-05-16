@@ -6,8 +6,6 @@
  *
  * This class is not an ISettingsStore — it is a pure I/O helper used by
  * the platform adapters' readSecret / writeSecret / deleteSecret methods.
- *
- * WP-4A: Encrypted secrets file abstraction.
  */
 
 import * as fs from 'fs';

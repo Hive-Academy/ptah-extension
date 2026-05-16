@@ -26,8 +26,6 @@
  * This is intentional defense-in-depth: even if secrets.enc.json is exfiltrated,
  * an attacker needs both the platform master key AND the Vault key to recover
  * the raw bot token.
- *
- * WP-4A: v3 migration.
  */
 
 import * as fsPromises from 'fs/promises';

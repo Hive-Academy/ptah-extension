@@ -20,19 +20,19 @@ export const SETTINGS_TOKENS = {
   /** CliSubagentSettings repository. */
   CLI_SUBAGENT_SETTINGS: Symbol.for('CliSubagentSettings'),
 
-  /** ProviderSettings repository (placeholder — Phase 3+). */
+  /** ProviderSettings repository. */
   PROVIDER_SETTINGS: Symbol.for('ProviderSettings'),
 
-  /** GatewaySettings repository (placeholder — Phase 3+). */
+  /** GatewaySettings repository. */
   GATEWAY_SETTINGS: Symbol.for('GatewaySettings'),
 
-  /** MemorySettings repository (placeholder — Phase 3+). */
+  /** MemorySettings repository. */
   MEMORY_SETTINGS: Symbol.for('MemorySettings'),
 
-  /** SkillSynthesisSettings repository (placeholder — Phase 3+). */
+  /** SkillSynthesisSettings repository. */
   SKILL_SYNTHESIS_SETTINGS: Symbol.for('SkillSynthesisSettings'),
 
-  /** CronSettings repository (placeholder — Phase 3+). */
+  /** CronSettings repository. */
   CRON_SETTINGS: Symbol.for('CronSettings'),
 
   /** MigrationRunner (ISettingsMigrator implementation). */

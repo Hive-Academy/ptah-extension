@@ -1,12 +1,12 @@
 /**
- * WP-2T Batch 2 validation — settings-core comprehensive test suite.
+ * settings-core comprehensive test suite.
  *
  * TC-1  through TC-14: settings-core lib internals.
  * TC-18: isolation guarantee (zero call sites outside the lib).
  *
  * TC-15 / TC-16 for PtahFileSettingsManager.watch() live in
  *   libs/backend/platform-core/src/file-settings-manager.spec.ts.
- * TC-17 for adapter Phase-4 sentinels lives in
+ * TC-17 for adapter sentinels lives in
  *   libs/backend/platform-electron/src/settings/file-settings-store.spec.ts.
  */
 
@@ -776,14 +776,14 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       .map((l) => l.trim())
       .filter(Boolean);
 
-    // Permitted: the lib itself, platform adapters (Batch 2), Batch 3 call-site
-    // migrations, WP-4A gateway migration, tsconfig path-alias declarations.
+    // Permitted: the lib itself, platform adapters, call-site
+    // migrations, gateway migration, tsconfig path-alias declarations.
     const permittedPatterns = [
       /libs[\\/]backend[\\/]settings-core[\\/]/,
       /libs[\\/]backend[\\/]platform-electron[\\/]src[\\/]settings[\\/]/,
       /libs[\\/]backend[\\/]platform-cli[\\/]src[\\/]settings[\\/]/,
       /libs[\\/]backend[\\/]platform-vscode[\\/]src[\\/]settings[\\/]/,
-      // Batch 3 (WP-3A/3B/3C): call sites migrated to modelSettings / reasoningSettings.
+      // Call sites migrated to modelSettings / reasoningSettings.
       /apps[\\/]ptah-cli[\\/]src[\\/]cli[\\/]bootstrap[\\/]/,
       /apps[\\/]ptah-electron[\\/]src[\\/]activation[\\/]/,
       /apps[\\/]ptah-extension-vscode[\\/]src[\\/]activation[\\/]/,
@@ -792,7 +792,7 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /libs[\\/]backend[\\/]agent-generation[\\/]/,
       /libs[\\/]backend[\\/]agent-sdk[\\/]/,
       /libs[\\/]backend[\\/]rpc-handlers[\\/]/,
-      // WP-4A: messaging-gateway uses GatewaySettings for secret token storage.
+      // messaging-gateway uses GatewaySettings for secret token storage.
       /libs[\\/]backend[\\/]messaging-gateway[\\/]/,
       // tsconfig files declare path aliases — not runtime consumers.
       /tsconfig(\.\w+)?\.json$/,
@@ -815,7 +815,7 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
 });
 
 // ---------------------------------------------------------------------------
-// TC-19 (WP-3T): Drift guard — KNOWN_PROVIDER_AUTH_KEYS ↔ FILE_BASED_SETTINGS_KEYS
+// TC-19: Drift guard — KNOWN_PROVIDER_AUTH_KEYS ↔ FILE_BASED_SETTINGS_KEYS
 //
 // Every entry in KNOWN_PROVIDER_AUTH_KEYS MUST produce exactly two entries in
 // FILE_BASED_SETTINGS_KEYS (`provider.<key>.selectedModel` and

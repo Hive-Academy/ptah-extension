@@ -9,13 +9,11 @@ import type { SecretHandle } from './secret-handle';
  * ISettingsStore secret methods (readSecret / writeSecret / deleteSecret).
  * The ISettingsStore adapter performs AES-256-GCM encryption transparently.
  *
- * Note on naming: the gateway service historically stored the vault cipher
- * (an application-layer-encrypted string) using these keys. After WP-4A the
- * adapter layer adds envelope encryption on top, so the values stored via
+ * Note on naming: the gateway service stores the vault cipher
+ * (an application-layer-encrypted string) using these keys. The adapter
+ * layer adds envelope encryption on top, so the values stored via
  * these handles are the vault ciphers (the caller is still responsible for
  * ITokenVault.encrypt/decrypt). Two-layer encryption is intentional.
- *
- * WP-4A: Secret handle expansion.
  */
 export class GatewaySettings extends BaseSettingsRepository {
   /** Encrypted Telegram bot token (vault cipher wrapped in AES-256-GCM envelope). */

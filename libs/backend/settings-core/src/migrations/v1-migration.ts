@@ -10,13 +10,6 @@
  * 2. No known production installations have a separate config.json file — this
  *    consolidation path is precautionary for any old development builds.
  *
- * TODO(WP-3 or dedicated migration WP): When platform adapters gain a
- * MigrationRunner factory that passes the resolved userData path alongside ptahDir,
- * implement the actual merge:
- *   1. Read {userData}/config.json.
- *   2. For each key, write to settings.json via PtahFileSettingsManager if not
- *      already present (settings.json wins on conflict).
- *   3. Delete config.json.
  */
 export async function runV1Migration(_ptahDir: string): Promise<void> {
   // No-op. See module doc for rationale.

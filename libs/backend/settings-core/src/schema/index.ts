@@ -20,7 +20,6 @@ import {
  * - Default value resolution
  *
  * Add new definitions to their domain schema file, then include them here.
- * Placeholder namespaces (memory, skillSynthesis, cron) will be populated in Phase 3+.
  */
 // Using unknown here is intentional — the array holds heterogeneous definitions.
 // Callers that need the typed version access the individual exports.
