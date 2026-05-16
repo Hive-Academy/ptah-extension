@@ -5,8 +5,6 @@
  * - editor:openFile - Read file content for Monaco editor
  * - editor:saveFile - Save file content from Monaco editor
  * - editor:getFileTree - Build recursive file tree from workspace root
- *
- * TASK_2025_203 Batch 5: Extracted from inline registrations
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';

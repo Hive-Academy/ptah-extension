@@ -1,7 +1,7 @@
 /**
  * VS Code API Shim for Electron
  *
- * TASK_2025_200 Batch 3: Provides empty stubs for the vscode module.
+ * Provides empty stubs for the vscode module.
  *
  * Some @ptah-extension/vscode-core modules (OutputManager, ErrorHandler,
  * ConfigManager, etc.) import 'vscode' at the module level. When the bundler

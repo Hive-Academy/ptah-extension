@@ -7,8 +7,6 @@
  *
  * Note: Terminal data flow (input/output/resize/exit) uses direct binary IPC
  * channels handled by IpcBridge + PtyManagerService, NOT JSON RPC.
- *
- * TASK_2025_227 Batch 4: Terminal integration backend
  */
 
 import { injectable, inject } from 'tsyringe';

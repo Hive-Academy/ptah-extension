@@ -7,13 +7,9 @@
  * Electron-specific handler fan-out and the `ELECTRON_EXCLUDED_METHODS`
  * verification list stay in this file.
  *
- * TASK_2025_203 Batch 5: original rewrite to class orchestrator.
- * TASK_2025_209: unified Chat / LLM handlers.
- * TASK_2025_291 Wave C6: dropped redundant Electron prefix.
- * TASK_2025_291 Wave C4b: shared fan-out + wiring moved to shared helpers.
- * TASK_2026_104 Batch 6a: `mcpDirectory:*` lifted to shared rpc-handlers;
- * `ELECTRON_EXCLUDED_METHODS` is now empty (Electron exposes the full RPC
- * surface from the shared registry).
+ * `mcpDirectory:*` is registered via the shared rpc-handlers library, so
+ * `ELECTRON_EXCLUDED_METHODS` is empty (Electron exposes the full RPC surface
+ * from the shared registry).
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -37,10 +33,9 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { ChatRpcHandlers } from '@ptah-extension/rpc-handlers';
 
-// Electron-specific handler classes (TASK_2025_291 Wave C6: Electron prefix dropped).
-// TASK_2026_104 Sub-batch B5b: GitRpcHandlers lifted to shared rpc-handlers.
-// TASK_2026_104 Sub-batch B5a: WorkspaceRpcHandlers lifted to shared
-// rpc-handlers (registered + dispatched via SHARED_HANDLERS).
+// Electron-specific handler classes.
+// GitRpcHandlers and WorkspaceRpcHandlers live in shared rpc-handlers
+// (registered + dispatched via SHARED_HANDLERS).
 import {
   EditorRpcHandlers,
   FileRpcHandlers,
@@ -56,10 +51,8 @@ import {
 /**
  * Methods omitted from Electron's RPC verification.
  *
- * TASK_2026_104 Batch 6a: `mcpDirectory:*` was previously excluded because
- * the handler lived in the VS Code app. The handler is now in the shared
- * `rpc-handlers` library and Electron registers it via Phase 4 — exclusion
- * removed.
+ * Empty: `mcpDirectory:*` now lives in the shared `rpc-handlers` library and
+ * Electron registers it via Phase 4.
  */
 const ELECTRON_EXCLUDED_METHODS: readonly string[] = [];
 
@@ -99,11 +92,11 @@ export class ElectronRpcMethodRegistrationService {
    * handlers register supplementary/override methods.
    */
   registerAll(): void {
-    // Wave C7d: wire the six extracted harness services BEFORE
+    // Wire the six extracted harness services BEFORE
     // `registerAllRpcHandlers` resolves `HarnessRpcHandlers`.
     registerHarnessServices(container);
 
-    // Wave C7e: wire the four extracted chat services BEFORE
+    // Wire the four extracted chat services BEFORE
     // `registerAllRpcHandlers` resolves `ChatRpcHandlers`.
     registerChatServices(container);
 

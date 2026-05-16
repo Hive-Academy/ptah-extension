@@ -1,7 +1,7 @@
 /**
  * Electron DI Container Orchestrator
  *
- * TASK_2025_291 Wave C1 Step 2b: Thin orchestrator delegating to phase files.
+ * Thin orchestrator delegating to phase files.
  *
  * Phase execution order (enforced by this orchestrator):
  *   Phase 0 — Platform abstraction + Logger (phase-0-platform.ts)

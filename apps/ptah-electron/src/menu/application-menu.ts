@@ -1,8 +1,6 @@
 /**
  * Application Menu for Ptah Electron
  *
- * TASK_2025_200 Batch 5, Task 5.1
- *
  * Creates a native application menu with standard File, Edit, View, Window,
  * and Help menus. Handles macOS-specific patterns (app name menu, Cmd+Q, etc.)
  * and Windows/Linux patterns (Alt+F4, no app-name menu).

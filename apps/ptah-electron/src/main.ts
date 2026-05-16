@@ -220,7 +220,7 @@ if (!gotLock) {
       );
     }
 
-    // 4.53. Stop cron scheduler (TASK_2026_HERMES Track 3).
+    // 4.53. Stop cron scheduler.
     // Stops croner timers and disposes the IPowerMonitor listener. Must run
     // BEFORE sqliteConnection.close() because in-flight job runs write to
     // SQLite (cron_runs table). Synchronous — croner.stop() is sync, and
@@ -235,7 +235,7 @@ if (!gotLock) {
       );
     }
 
-    // 4.55. Stop memory curator + close SQLite (TASK_2026_HERMES Track 1).
+    // 4.55. Stop memory curator + close SQLite.
     // Order: stop curator first (unsubscribes from PreCompact registry),
     // THEN close SQLite (so any in-flight write started by stop() finishes
     // before the connection goes away). Both are synchronous to fit in
@@ -258,7 +258,7 @@ if (!gotLock) {
       );
     }
 
-    // 4.6. Stop messaging gateway adapters (TASK_2026_HERMES Track 4).
+    // 4.6. Stop messaging gateway adapters.
     // Fire-and-forget: each adapter's stop() may await a graceful
     // disconnect (Telegram bot polling, Discord WebSocket close, Slack
     // Socket Mode close). will-quit is synchronous so we cannot await,
@@ -278,7 +278,7 @@ if (!gotLock) {
       );
     }
 
-    // 5. Dispose PtahCliRegistry CLI adapters (TASK_2025_243)
+    // 5. Dispose PtahCliRegistry CLI adapters
     try {
       const diContainer = ElectronDIContainer.getContainer();
       if (diContainer.isRegistered(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)) {

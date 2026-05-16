@@ -10,8 +10,6 @@
  *   - Mock 'fetch' globally to control fetchReleaseNotes() behaviour.
  *   - Use jest fake timers for the 4h interval and the 5s fetch timeout.
  *   - Instantiate UpdateManager directly (no DI container).
- *
- * TASK_2026_117: Batch 5, Task 5.1
  */
 
 import 'reflect-metadata';

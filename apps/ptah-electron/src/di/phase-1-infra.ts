@@ -1,8 +1,6 @@
 /**
  * Electron DI — Phase 1: Infrastructure services.
  *
- * TASK_2025_291 Wave C1 Step 2b: Split from the monolithic container.ts.
- *
  * Registers (in order):
  *   - Platform-agnostic vscode-core services via registerVsCodeCorePlatformAgnostic
  *     (Phase 1.0b: SENTRY_SERVICE, Phase 1.1: LICENSE_SERVICE, Phase 1.1b:
@@ -176,7 +174,7 @@ export function registerPhase1Infra(
   }
 
   // ========================================
-  // PHASE 1.6: WorkspaceAwareStateStorage + WorkspaceContextManager (TASK_2025_208)
+  // PHASE 1.6: WorkspaceAwareStateStorage + WorkspaceContextManager
   // ========================================
   // WorkspaceAwareStateStorage is a proxy implementing IStateStorage that
   // delegates to per-workspace ElectronStateStorage instances based on the
@@ -212,7 +210,7 @@ export function registerPhase1Infra(
   });
 
   // Create initial workspace context for the startup workspace folder (if provided).
-  // NOTE: createWorkspace/switchWorkspace are async (TASK_2025_208 Batch 5).
+  // NOTE: createWorkspace/switchWorkspace are async.
   // Container setup is synchronous, so we fire-and-forget with error logging.
   // The workspace will be available before any RPC calls arrive because
   // the IPC bridge + renderer are initialized later in main.ts.

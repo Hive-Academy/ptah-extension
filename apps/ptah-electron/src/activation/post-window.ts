@@ -2,8 +2,6 @@
 // Registers the startup config + clipboard IPC handlers BEFORE creating the
 // main window (preload uses sendSync during page load), then creates the
 // window, kicks off the auto-updater, and wires the license status watcher.
-//
-// Split from main.ts per TASK_2025_291 Wave C1 / design section B.3.3.
 
 import { BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
@@ -36,7 +34,7 @@ export interface PostWindowOptions {
   setMainWindow: (win: BrowserWindow) => void;
   getMainWindow: () => BrowserWindow | null;
   /**
-   * R4 warmup callback from wireRuntime. Called once after the main window
+   * Warmup callback from wireRuntime. Called once after the main window
    * fires `did-finish-load` so the 3s idle timer starts from window-ready,
    * not from bootHeavyServices completion. Optional — omit in tests.
    */
@@ -49,7 +47,6 @@ export interface PostWindowResult {
    * Periodic 4-hour update check interval handle. Cleared in main.ts will-quit
    * LIFO handler (position 2.5, after revalidationInterval, before git watcher).
    * Null when UpdateManager.start() bails early (dev mode or already started).
-   * TASK_2026_117
    */
   updateCheckInterval: ReturnType<typeof setInterval> | null;
   /**
@@ -159,7 +156,7 @@ export async function registerPostWindow(
   const rendererPath = path.join(__dirname, 'renderer', 'index.html');
   mainWindow.loadFile(rendererPath);
 
-  // PHASE 4.96: Schedule embedder warmup AFTER the renderer finishes loading (R4).
+  // PHASE 4.96: Schedule embedder warmup AFTER the renderer finishes loading.
   // Anchoring to did-finish-load ensures the 3s idle timer starts from window-ready,
   // not from bootHeavyServices completion, so ONNX model I/O does not compete with
   // the renderer's first paint. Fire-and-forget — warmup failure is non-fatal.
@@ -213,7 +210,7 @@ export async function registerPostWindow(
     );
     messagingGateway = null;
   }
-  // PHASE 6: Event-driven Auto-Updater (TASK_2026_117)
+  // PHASE 6: Event-driven Auto-Updater
   // Replaces the previous fire-and-forget checkForUpdatesAndNotify() call with an
   // event-driven UpdateManager that broadcasts UPDATE_STATUS_CHANGED to the renderer.
   // Dev-mode skip is handled inside UpdateManager.start() — no env gate needed here.
@@ -229,7 +226,7 @@ export async function registerPostWindow(
       error instanceof Error ? error.message : String(error),
     );
   }
-  // PHASE 7: License Status Watcher (TASK_2025_240)
+  // PHASE 7: License Status Watcher
   // The license:verified and license:expired subsystem lifecycle is now handled
   // by bindLicenseReactivity() in wire-runtime.ts (PHASE 4.60). Here we only
   // keep the 24-hour background revalidation timer and the soft notification

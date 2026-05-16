@@ -54,7 +54,7 @@ export class AgentRpcHandlers {
    * Method names registered against the global `RpcHandler`. Order matches
    * `register()` invocation order. Asserted in the CLI parity spec
    * (`apps/ptah-cli/src/services/rpc/handlers/cli-agent-rpc.handlers.spec.ts`)
-   * to keep CLI and Electron in lockstep — TASK_2026_104 Sub-batch B7.
+   * to keep CLI and Electron in lockstep.
    */
   static readonly METHODS = [
     'agent:getConfig',
@@ -384,8 +384,6 @@ export class AgentRpcHandlers {
    * 2. CopilotPermissionBridge (Copilot SDK permissions) - via CLI adapter
    *
    * Both handlers silently ignore unknown requestIds, so trying both is safe.
-   *
-   * TASK_2025_255: Extended to also route to SdkPermissionHandler for Ptah CLI agents
    */
   private registerPermissionResponse(): void {
     this.rpcHandler.registerMethod<
@@ -634,7 +632,7 @@ export class AgentRpcHandlers {
       },
     );
 
-    // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
+    // Wire agentId so CLI permission requests route to agent monitor panel
     spawnResult.setAgentId(result.agentId);
 
     return result;

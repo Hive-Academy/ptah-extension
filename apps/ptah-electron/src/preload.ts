@@ -71,7 +71,7 @@ contextBridge.exposeInMainWorld('ptahClipboard', {
   },
 });
 
-// Expose terminal binary IPC API (TASK_2025_227)
+// Expose terminal binary IPC API.
 // Terminal data uses direct IPC channels for low-latency, high-frequency data.
 // Only terminal:create and terminal:kill use JSON RPC -- data/resize/exit use binary IPC.
 contextBridge.exposeInMainWorld('ptahTerminal', {

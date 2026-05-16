@@ -1,8 +1,8 @@
 /**
  * ElectronSafeStorageVault — `ITokenVault` implementation for the Electron
- * host (TASK_2026_HERMES Track 4 — messaging gateway).
+ * host (messaging gateway).
  *
- * Strategy (architecture §7.4):
+ * Strategy:
  *   1. If `safeStorage.isEncryptionAvailable()` is true (macOS Keychain,
  *      Windows DPAPI, gnome-libsecret on Linux GNOME), use it. The blob is
  *      a `Buffer`; we base64-encode it so the cipher round-trips through

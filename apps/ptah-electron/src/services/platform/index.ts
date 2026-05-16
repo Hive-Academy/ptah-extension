@@ -1,5 +1,5 @@
 /**
- * Electron Platform Implementations (TASK_2025_203)
+ * Electron Platform Implementations
  *
  * Platform-specific implementations of the abstraction interfaces
  * defined in @ptah-extension/rpc-handlers.

@@ -9,8 +9,6 @@
  *
  * Uses resolveEnvironment() to pick dev vs production URLs,
  * matching the VS Code extension's behavior.
- *
- * TASK_2025_203 Batch 5: Extracted from inline registrations
  */
 
 import { injectable, inject } from 'tsyringe';

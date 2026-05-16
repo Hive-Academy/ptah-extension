@@ -5,8 +5,6 @@
  * Spawns node-pty instances, tracks them by session ID, and forwards
  * data/exit events via registered callbacks.
  *
- * TASK_2025_227 Batch 4: Terminal integration backend
- *
  * Design:
  * - Plain class (NOT @injectable) -- instantiated in DI container setup
  * - Session ID: crypto.randomUUID()

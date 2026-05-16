@@ -1,8 +1,6 @@
 /**
  * Electron DI — Phase 2: Library registrations.
  *
- * TASK_2025_291 Wave C1 Step 2b: Split from the monolithic container.ts.
- *
  * Registers (in order):
  *   - Phase 2.1: workspace-intelligence
  *   - Phase 2.2: agent-sdk + TOKENS.AGENT_ADAPTER factory
@@ -60,10 +58,10 @@ export function registerPhase2Libraries(
   // ========================================
   // PHASE 2.2: Agent SDK (Claude Agent SDK integration)
   // ========================================
-  // NOTE: registerVsCodeLmToolsServices is called in Phase 3 (TASK_2025_226 decoupled it from VS Code)
+  // NOTE: registerVsCodeLmToolsServices is called in Phase 3 (decoupled from VS Code)
   registerSdkServices(container, logger);
 
-  // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding, deep-agent removed TASK_2025_293)
+  // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding).
   // NOTE: tsyringe rejects Lifecycle.Singleton with factory providers. The factory
   // delegates to SDK_TOKENS.SDK_AGENT_ADAPTER which is already registered as a
   // singleton (useClass + Lifecycle.Singleton in registerSdkServices), so every
@@ -73,7 +71,7 @@ export function registerPhase2Libraries(
   });
 
   // ========================================
-  // PHASE 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs (TASK_2025_214)
+  // PHASE 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs
   // ========================================
   // These tokens are required by WizardWebviewLifecycleService which is registered
   // unconditionally inside registerAgentGenerationServices(). In Electron, the wizard
@@ -98,7 +96,7 @@ export function registerPhase2Libraries(
   registerAgentGenerationServices(container, logger);
 
   // ========================================
-  // PHASE 2.3.5: Override SETUP_WIZARD_SERVICE with Electron-specific implementation (TASK_2025_214)
+  // PHASE 2.3.5: Override SETUP_WIZARD_SERVICE with Electron-specific implementation
   // ========================================
   // ElectronSetupWizardService uses IPC navigation (broadcastMessage) instead of
   // VS Code webview panels. Registered AFTER registerAgentGenerationServices() so
@@ -116,16 +114,15 @@ export function registerPhase2Libraries(
   // reaches SdkPermissionHandler which requires TOKENS.WEBVIEW_MANAGER,
   // and that is only registered in main.ts after IPC bridge initialization.
 
-  // TASK_2025_291 Wave C5: CLI agent services (CliDetectionService,
-  // AgentProcessManager, CliPluginSyncService) are now registered by
-  // registerSdkServices (called earlier in Phase 2). The llm-abstraction
-  // library has been deleted.
+  // CLI agent services (CliDetectionService, AgentProcessManager,
+  // CliPluginSyncService) are registered by registerSdkServices (called
+  // earlier in Phase 2). The llm-abstraction library has been deleted.
 
   // ========================================
-  // PHASE 2.55: Persistence-SQLite + Memory Curator (TASK_2026_HERMES Track 1)
+  // PHASE 2.55: Persistence-SQLite + Memory Curator
   // ========================================
-  // Registers SqliteConnectionService (Track 0) and the memory curator
-  // services (MemoryStore, MemorySearchService, MemoryCuratorService,
+  // Registers SqliteConnectionService and the memory curator services
+  // (MemoryStore, MemorySearchService, MemoryCuratorService,
   // EmbedderWorkerClient bound to PERSISTENCE_TOKENS.EMBEDDER, etc.).
   //
   // SQLite DB path: ~/.ptah/state/ptah.sqlite (created by openAndMigrate).
@@ -171,24 +168,23 @@ export function registerPhase2Libraries(
   }
 
   // ========================================
-  // PHASE 2.6: Skill Synthesis (TASK_2026_HERMES Track 2)
+  // PHASE 2.6: Skill Synthesis
   // ========================================
   // Registers SkillSynthesisService, SkillPromotionService,
   // SkillInvocationTracker, SkillCandidateStore, SkillMdGenerator,
   // TrajectoryExtractor + symbol tokens. Depends on persistence-sqlite
-  // (Track 0) for SQLite + vec0 storage and on agent-sdk's JsonlReader
-  // for trajectory extraction; both are registered earlier in Phase 2.
+  // for SQLite + vec0 storage and on agent-sdk's JsonlReader for trajectory
+  // extraction; both are registered earlier in Phase 2.
   registerSkillSynthesisServices(container, logger);
 
   // ========================================
-  // PHASE 2.65: Cron Scheduler (TASK_2026_HERMES Track 3)
+  // PHASE 2.65: Cron Scheduler
   // ========================================
   // Registers CronScheduler, CronJobRunner, CatchupCoordinator, JobStore,
   // RunStore, HandlerRegistry. The CRON_POWER_MONITOR binding is registered
   // separately in Phase 3 (storage) using ElectronPowerMonitor. Depends on
-  // persistence-sqlite (Track 0) for SQLite job/run storage. Croner is
-  // lazy-required so the registration itself does not fail without the
-  // optional dependency.
+  // persistence-sqlite for SQLite job/run storage. Croner is lazy-required
+  // so the registration itself does not fail without the optional dependency.
   try {
     registerCronSchedulerServices(container, logger);
     logger.info('[Electron DI] Cron scheduler services registered (Track 3)');
@@ -202,15 +198,15 @@ export function registerPhase2Libraries(
   }
 
   // ========================================
-  // PHASE 2.7: Messaging Gateway (TASK_2026_HERMES Track 4)
+  // PHASE 2.7: Messaging Gateway
   // ========================================
   // Registers GatewayService, BindingStore, MessageStore, three adapters
   // (Telegram/Discord/Slack), voice pipeline (FfmpegDecoder, WhisperTranscriber).
   // The vault binding (GATEWAY_TOKEN_VAULT → ElectronSafeStorageVault) is wired
   // here as well so the service can be constructed even before Phase 3 runs.
-  // Depends on persistence-sqlite (Track 0) for binding/message storage —
+  // Depends on persistence-sqlite for binding/message storage —
   // SqliteConnectionService is resolved lazily on first inbound message, so
-  // the registration itself does not fail when Track 0 isn't yet wired.
+  // the registration itself does not fail when persistence isn't yet wired.
   try {
     container.register(GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT, {
       useClass: ElectronSafeStorageVault,

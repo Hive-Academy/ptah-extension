@@ -1,5 +1,5 @@
 /**
- * Electron Platform Commands Implementation (TASK_2025_203)
+ * Electron Platform Commands Implementation
  *
  * Stub/limited implementation for Electron:
  * - reloadWindow: Uses Electron app.relaunch() + app.exit()

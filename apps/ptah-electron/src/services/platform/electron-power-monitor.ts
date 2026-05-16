@@ -1,13 +1,13 @@
 /**
  * ElectronPowerMonitor — `IPowerMonitor` implementation for the Electron host
- * (TASK_2026_HERMES Track 3 — cron scheduler).
+ * (cron scheduler).
  *
  * Wraps `electron.powerMonitor.on('resume', ...)` / `'suspend'`. The cron
  * scheduler subscribes via this adapter so the `CatchupCoordinator` can
  * replay missed slots when the laptop wakes from sleep.
  *
- * The architecture (§7.3) requires `onResume` / `onSuspend` to return a
- * dispose closure rather than emitter-style `removeListener(cb)` so consumers
+ * `onResume` / `onSuspend` return a dispose closure rather than emitter-style
+ * `removeListener(cb)` so consumers
  * don't have to retain the original callback reference. We adopt the same
  * shape as the gateway's ElectronSafeStorageVault — a stateless implementation
  * that defers entirely to the Electron API and never throws.

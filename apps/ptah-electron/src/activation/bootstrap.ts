@@ -2,8 +2,6 @@
 // Parses CLI args, builds the DI container, verifies critical tokens,
 // restores persisted workspaces, performs license verification, and
 // initializes SDK auth.
-//
-// Split from main.ts per TASK_2025_291 Wave C1 / design section B.3.1.
 
 import {
   app,
@@ -68,7 +66,7 @@ export async function bootstrapElectron(
     console.log(`[Ptah Electron] Workspace path: ${initialFolders[0]}`);
   }
   // PHASE 2: Initialize DI Container
-  // Must be done BEFORE creating IPC bridge (Batch 4) so all services are available.
+  // Must be done BEFORE creating the IPC bridge so all services are available.
   // Must be done AFTER app.whenReady() because safeStorage requires it.
   const platformOptions: ElectronPlatformOptions = {
     appPath: app.getAppPath(),
@@ -82,7 +80,7 @@ export async function bootstrapElectron(
         safeStorage.decryptString(encrypted),
     },
     dialog: {
-      // TASK_2025_261: Electron's dialog.showMessageBox checks `instanceof BrowserWindow`.
+      // Electron's dialog.showMessageBox checks `instanceof BrowserWindow`.
       // Duck-typed objects from getWindow() fail this check and are re-interpreted
       // as options, silently dropping the actual message/buttons.
       // Use the passed window if it's a real BrowserWindow, otherwise fall back to mainWindow.
@@ -121,7 +119,7 @@ export async function bootstrapElectron(
 
   const container = ElectronDIContainer.setup(platformOptions);
 
-  // PHASE 2.05: Unified settings registration + migration (WP-3C, Batch 3).
+  // PHASE 2.05: Unified settings registration + migration.
   //
   // registerElectronSettings wires SETTINGS_TOKENS (SETTINGS_STORE, all 9
   // repository tokens, MIGRATION_RUNNER) into the container.
@@ -130,7 +128,7 @@ export async function bootstrapElectron(
   // REASONING_SETTINGS. Services are registered (Phase 2) but their singleton
   // instances are not constructed until first resolve — so running the
   // migration here (before agentAdapter.initialize() in Phase 3.6) satisfies
-  // the ordering constraint from R2.
+  // the ordering constraint.
   //
   // ElectronDIContainer.setup() is synchronous; bootstrapElectron() is async,
   // so we can safely await here without making the phase chain async.
@@ -211,7 +209,7 @@ export async function bootstrapElectron(
   // Mutable ref box — consumed by the onDidChangeWorkspaceFolders subscription
   // registered below. Assigned by the orchestrator after wireRuntime Phase 4.8.
   const gitWatcherRef: BootstrapResult['gitWatcherRef'] = { current: null };
-  // PHASE 2.5: Workspace Restoration (TASK_2025_208 Batch 2, Tasks 2.2 & 2.3)
+  // PHASE 2.5: Workspace Restoration
   // Restore persisted workspace list from global state storage, apply CLI arg
   // priority, and wire the onDidChangeWorkspaceFolders subscription (debounced
   // persistence + git-watcher switching via the mutable gitWatcherRef).
@@ -233,9 +231,8 @@ export async function bootstrapElectron(
   // Check license status before creating the window. If the license is invalid
   // (revoked or payment failed), the renderer will start on the welcome view
   // with isLicensed=false, blocking access to premium features.
-  // Mirrors the VS Code extension's handleLicenseBlocking() pattern (main.ts:85-306).
   //
-  // LicenseService is registered in container.ts Phase 1.1 and depends on
+  // LicenseService is registered in Phase 1.1 and depends on
   // EXTENSION_CONTEXT (shimmed), LOGGER, and CONFIG_MANAGER — all available.
   // Network timeout is 5s; offline grace period (7 days) prevents blocking
   // if the license server is unreachable.
@@ -272,9 +269,8 @@ export async function bootstrapElectron(
       error instanceof Error ? error.message : String(error),
     );
   }
-  // PHASE 3.6: SDK Authentication Initialization (TASK_2025_240)
+  // PHASE 3.6: SDK Authentication Initialization.
   // Initialize the SDK agent adapter so chat:start works.
-  // Mirrors VS Code extension Step 7 (main.ts:568-589).
   // Must happen AFTER Phase 3.5 (license check) and BEFORE Phase 4.5 (RPC registration).
   // AuthManager.configureAuthentication() reads API keys from AuthSecretsService.
   try {

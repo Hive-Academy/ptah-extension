@@ -1,5 +1,4 @@
 // Wire runtime: Phases 4 through 4.9 of Electron activation.
-// Split from main.ts per TASK_2025_291 Wave C1 / design section B.3.2.
 
 import type { DependencyContainer } from 'tsyringe';
 import type { BrowserWindow } from 'electron';
@@ -67,7 +66,7 @@ export interface WireRuntimeResult {
   resolvedStateStorage: IStateStorage | undefined;
   /**
    * Call this AFTER the main BrowserWindow fires `did-finish-load` to trigger
-   * the 3-second idle warmup of the embedder + cross-encoder models (R4).
+   * the 3-second idle warmup of the embedder + cross-encoder models.
    * The delay is intentionally anchored to window-ready so warmup I/O does not
    * overlap with the renderer's first render burst.
    * No-op when memory-curator was not started (null workspace or start failure).
@@ -81,31 +80,31 @@ export interface WireRuntimeResult {
     } | null;
     /**
      * SQLite connection service handle for orderly shutdown. Null when
-     * Track 0 (persistence-sqlite) registration failed — caller's LIFO
-     * will-quit chain must tolerate null.
+     * persistence-sqlite registration failed — caller's LIFO will-quit chain
+     * must tolerate null.
      */
     sqliteConnection: SqliteConnectionService | null;
     /**
      * Memory curator service handle for orderly shutdown. Null when
-     * Track 1 (memory-curator) registration or `start()` failed.
+     * memory-curator registration or `start()` failed.
      */
     memoryCurator: MemoryCuratorService | null;
     /**
      * Skill synthesis service handle for orderly shutdown. Null when
-     * Track 0 (persistence-sqlite) is unavailable or `start()` failed —
-     * caller still owns the LIFO will-quit chain and must tolerate null.
+     * persistence-sqlite is unavailable or `start()` failed — caller still
+     * owns the LIFO will-quit chain and must tolerate null.
      */
     skillSynthesis: SkillSynthesisService | null;
     /**
-     * Cron scheduler handle for orderly shutdown. Null when Track 0
-     * (persistence-sqlite) is unavailable, croner is missing, or `start()`
+     * Cron scheduler handle for orderly shutdown. Null when
+     * persistence-sqlite is unavailable, croner is missing, or `start()`
      * failed — caller's LIFO will-quit chain must tolerate null.
      */
     cronScheduler: CronScheduler | null;
     /**
      * Messaging gateway service handle for orderly shutdown. Null when
-     * Track 0 (persistence-sqlite) is unavailable or `gateway.enabled` is
-     * `false` — caller's LIFO will-quit chain must tolerate null.
+     * persistence-sqlite is unavailable or `gateway.enabled` is `false` —
+     * caller's LIFO will-quit chain must tolerate null.
      */
     messagingGateway: GatewayService | null;
     /**
@@ -144,7 +143,7 @@ export async function wireRuntime(
   // The IPC bridge connects ipcMain to the RpcHandler for renderer <-> main communication.
   // It must be initialized BEFORE loading the renderer so that IPC listeners are ready
   // when the Angular app boots and starts sending RPC calls.
-  // Resolve PtyManagerService for terminal binary IPC (TASK_2025_227)
+  // Resolve PtyManagerService for terminal binary IPC
   const ptyManager = container.resolve<PtyManagerService>(
     ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
   );
@@ -189,7 +188,7 @@ export async function wireRuntime(
       error instanceof Error ? error.message : String(error),
     );
   }
-  // PHASE 4.5: Register All RPC Methods (TASK_2025_203 Batch 5)
+  // PHASE 4.5: Register All RPC Methods
   // Now that WebviewManager is registered, register ALL RPC methods via the
   // class-based orchestrator. This replaces both setupRpcHandlers() and
   // registerExtendedRpcMethods() with a single unified registration.
@@ -224,7 +223,7 @@ export async function wireRuntime(
       '[Ptah Electron] Booting deferred backend services for workspace...',
     );
 
-    // PHASE 4.51: Open SQLite + run migrations (TASK_2026_HERMES Track 1).
+    // PHASE 4.51: Open SQLite + run migrations.
     // The connection is registered in Phase 2.55 but lazy-opened here so
     // `openAndMigrate()` failures (missing better-sqlite3 native build,
     // disk full, etc.) are non-fatal — memory curator simply stays disabled.
@@ -282,7 +281,7 @@ export async function wireRuntime(
       refs.sqliteConnection = null;
     }
 
-    // PHASE 4.52: Memory curator cold-start (TASK_2026_HERMES Track 1 / TASK_2026_114).
+    // PHASE 4.52: Memory curator cold-start.
     // The PreCompact subscription (memory extraction) starts when memoryEnabled = true,
     // regardless of boot strategy. IndexingControlService now gates the symbol walk.
     // Failure is non-fatal — search/list still work against whatever is in the store.
@@ -333,11 +332,11 @@ export async function wireRuntime(
       refs.memoryCurator = null;
     }
 
-    // PHASE 4.53: Skill Synthesis cold-start (TASK_2026_HERMES Track 2)
+    // PHASE 4.53: Skill Synthesis cold-start.
     // Resolve and start the skill synthesis service so the candidate store +
     // sqlite migrations are ready before the first chat session ends.
-    // Failure is non-fatal — Track 0 (persistence-sqlite) may not be available
-    // yet on every branch and we never want skill synthesis to block boot.
+    // Failure is non-fatal — persistence-sqlite may not be available yet on
+    // every branch and we never want skill synthesis to block boot.
     try {
       refs.skillSynthesis = container.resolve<SkillSynthesisService>(
         SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
@@ -352,7 +351,7 @@ export async function wireRuntime(
       refs.skillSynthesis = null;
     }
 
-    // PHASE 4.53b: Code Symbol Indexer cold-start (TASK_2026_THOTH_CODE_INDEX / TASK_2026_114).
+    // PHASE 4.53b: Code Symbol Indexer cold-start.
     // Boot strategy evaluation gates whether the full workspace walk fires:
     //   'auto-index-first-time' → run workspace walk + register chokidar watcher
     //   'skip'                  → silent — only register chokidar watcher if symbolsEnabled
@@ -362,8 +361,7 @@ export async function wireRuntime(
     // a clean pause, NOT an error. Any other error propagates to IndexingControlService
     // which sets state to 'error'.
     //
-    // LOGGING CONSTRAINT: zero console.log / logger.info about indexing on 'skip' strategy
-    // (AC #1 keystone metric).
+    // LOGGING CONSTRAINT: zero console.log / logger.info about indexing on 'skip' strategy.
     try {
       if (
         refs.sqliteConnection !== null &&
@@ -655,7 +653,7 @@ export async function wireRuntime(
       );
     }
 
-    // PHASE 4.54: Ensure plugin/template content from GitHub (TASK_2025_248)
+    // PHASE 4.54: Ensure plugin/template content from GitHub
     // Plugins and templates are no longer bundled in the app package.
     // ContentDownloadService downloads them to ~/.ptah/ on first launch and
     // keeps them up-to-date by comparing the manifest contentHash.
@@ -672,11 +670,11 @@ export async function wireRuntime(
       }
     });
 
-    // PHASE 4.55: Plugin Loader Initialization (TASK_2025_214)
+    // PHASE 4.55: Plugin Loader Initialization.
     // Must run AFTER Phase 4.5 (RPC registration) and BEFORE Phase 4.6 (session discovery).
     initPluginLoader(container, contentDownload.getPluginsPath());
 
-    // PHASE 4.56: Skill Junction Activation (TASK_2025_214)
+    // PHASE 4.56: Skill Junction Activation
     // Always call activate() even with zero plugins so the workspace change
     // subscription is registered for future plugin enablement.
     refs.skillJunctionRef = activateSkillJunctions(
@@ -687,9 +685,8 @@ export async function wireRuntime(
     // PHASE 4.565 + 4.566: CLI Skill Sync and CLI Agent Sync are now driven
     // reactively by the license:verified / license:expired events wired via
     // bindLicenseReactivity() below — no tier snapshot needed here.
-    // PHASE 4.57: Model Pricing Pre-fetch (TASK_2025_240)
+    // PHASE 4.57: Model Pricing Pre-fetch.
     // Pre-fetch model pricing from OpenRouter so cost calculations use live data.
-    // Mirrors VS Code extension Step 7.2 (main.ts:754-768).
     // Non-blocking, fire-and-forget. Falls back to bundled defaults if offline.
     try {
       const providerModels = container.resolve(
@@ -709,9 +706,8 @@ export async function wireRuntime(
       );
     }
 
-    // PHASE 4.58: Proactive CLI Detection (TASK_2025_240)
+    // PHASE 4.58: Proactive CLI Detection.
     // Detect installed CLI agents (Gemini, Codex) early so settings UI is instant.
-    // Mirrors VS Code extension Step 7.3 (main.ts:773-824).
     // Non-blocking, fire-and-forget.
     try {
       const cliDetection = container.resolve(TOKENS.CLI_DETECTION_SERVICE) as {
@@ -762,7 +758,7 @@ export async function wireRuntime(
     // license:verified / license:expired events wired via bindLicenseReactivity()
     // below — no tier snapshot needed here.
 
-    // PHASE 4.6: Session Auto-Discovery (TASK_2025_210)
+    // PHASE 4.6: Session Auto-Discovery
     // Import existing Claude sessions from ~/.claude/projects/ for the active
     // workspace. Uses workspaceRoot which covers both CLI arg AND persisted workspace restoration.
     // Non-fatal: failures are logged as warnings but do not block startup.
@@ -789,7 +785,7 @@ export async function wireRuntime(
       }
     }
 
-    // PHASE 4.8: Git File System Watcher (TASK_2025_240)
+    // PHASE 4.8: Git File System Watcher
     // Watch .git directory and workspace files for changes, push git status
     // updates to the renderer. Replaces frontend polling with event-driven push.
     // Only runs `git status` when something actually changes — zero wasted calls.
@@ -797,8 +793,8 @@ export async function wireRuntime(
       try {
         const { GitWatcherService } =
           await import('../services/git-watcher.service');
-        // TASK_2026_104 Sub-batch B5b: GitInfoService now lives in
-        // `@ptah-extension/vscode-core` and is registered under TOKENS.GIT_INFO_SERVICE.
+        // GitInfoService lives in `@ptah-extension/vscode-core` and is
+        // registered under TOKENS.GIT_INFO_SERVICE.
         const gitInfoSvc = container.resolve(
           TOKENS.GIT_INFO_SERVICE,
         ) as InstanceType<
@@ -824,13 +820,13 @@ export async function wireRuntime(
         );
       }
     }
-    // PHASE 4.94: Cron scheduler cold-start (TASK_2026_HERMES Track 3)
+    // PHASE 4.94: Cron scheduler cold-start.
     // Resolve and start the scheduler so persisted jobs re-arm and the
     // CatchupCoordinator runs its missed-run pass against `cron.catchupWindowMs`.
     // Settings are read from IWorkspaceProvider — defaults come from
     // FILE_BASED_SETTINGS_DEFAULTS (cron.enabled=true, maxConcurrentJobs=3,
     // catchupWindowMs=86_400_000). Failure is non-fatal: croner is lazy-required
-    // and Track 0 (persistence-sqlite) may be unavailable on some branches.
+    // and persistence-sqlite may be unavailable on some branches.
     try {
       if (
         refs.sqliteConnection !== null &&
@@ -876,7 +872,7 @@ export async function wireRuntime(
       refs.cronScheduler = null;
     }
 
-    // PHASE 4.95: Daily backup cron job registration (D7).
+    // PHASE 4.95: Daily backup cron job registration.
     // Registers the @ptah/daily-backup system job idempotently on every boot.
     // Uses JobStore.upsert so repeated boots update the schedule without
     // creating duplicate rows. The handler is wired into IHandlerRegistry so
@@ -969,7 +965,7 @@ export async function wireRuntime(
     }
 
     // PHASE 4.96 warmup is intentionally NOT fired here.
-    // It is anchored to the window's `did-finish-load` event (R4) so that
+    // It is anchored to the window's `did-finish-load` event so that
     // ONNX model loading I/O does not race with the renderer's first paint.
     // The `scheduleWarmup()` return value on WireRuntimeResult is the entry
     // point; post-window.ts calls it inside `mainWindow.webContents.once(
@@ -1057,7 +1053,7 @@ export async function wireRuntime(
   }
 
   /**
-   * PHASE 4.96: Pre-warm embedder + reranker (R4).
+   * PHASE 4.96: Pre-warm embedder + reranker.
    *
    * Called by post-window.ts AFTER mainWindow fires `did-finish-load` so
    * warmup I/O does not overlap with the renderer's first render burst.

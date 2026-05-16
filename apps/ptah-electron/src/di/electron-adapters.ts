@@ -1,9 +1,9 @@
 /**
  * Electron-compatible adapters for VS Code-specific services
  *
- * TASK_2025_200 Batch 3: These adapters replace vscode-core services that
- * import the 'vscode' module. They provide the same interface contract
- * expected by downstream consumers (Logger, RpcHandler, etc.).
+ * These adapters replace vscode-core services that import the 'vscode' module.
+ * They provide the same interface contract expected by downstream consumers
+ * (Logger, RpcHandler, etc.).
  *
  * Why these exist:
  * - OutputManager uses vscode.window.createOutputChannel -> replace with IOutputChannel wrapper

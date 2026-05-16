@@ -1,10 +1,10 @@
 /**
  * Electron Browser Capabilities
- * TASK_2025_244: CDP browser integration using Electron's native BrowserWindow
- * TASK_2025_254: Visible mode, screen recording, inactivity timer control
  *
- * Uses a dedicated BrowserWindow with webContents.debugger for CDP access.
- * Zero external dependencies — leverages Electron's built-in Chromium engine.
+ * CDP browser integration using Electron's native BrowserWindow with
+ * webContents.debugger. Zero external dependencies — leverages Electron's
+ * built-in Chromium engine. Supports visible mode, screen recording, and
+ * inactivity timer control.
  *
  * Session lifecycle: 5-min inactivity timeout (headless) / 15-min (visible),
  * 30-min max lifetime, auto-cleanup.
@@ -27,7 +27,7 @@ interface NetworkEntry {
 }
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (headless)
-const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TASK_2025_254)
+const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible)
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
 
@@ -48,7 +48,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   /** Concurrency guard — prevents duplicate session creation from parallel calls */
   private sessionPromise: Promise<void> | null = null;
 
-  /** Recording service (TASK_2025_254) */
+  /** Recording service */
   private recorder: ScreenRecorderService | null = null;
   /** Whether current session is headless — agent-controlled, default false (visible) */
   private _headless = false;
@@ -521,7 +521,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       }
     }
 
-    // TASK_2025_254: Handle screencast frames for recording
+    // Handle screencast frames for recording
     if (method === 'Page.screencastFrame') {
       const data = params.data as string;
       const sessionId = params.sessionId as number;
@@ -543,7 +543,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       clearTimeout(this.inactivityTimer);
     }
 
-    // TASK_2025_254: Use longer timeout for visible mode
+    // Use longer timeout for visible mode
     const timeout = this._headless
       ? INACTIVITY_TIMEOUT_MS
       : VISIBLE_INACTIVITY_TIMEOUT_MS;
@@ -554,7 +554,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async cleanup(): Promise<void> {
-    // TASK_2025_254: Stop recording if active (best-effort GIF save)
+    // Stop recording if active (best-effort GIF save)
     if (this.recorder?.isRecording()) {
       try {
         const recordingDir = this.getRecordingDir();
@@ -591,7 +591,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this._pendingOptions = {};
   }
 
-  // Recording methods (TASK_2025_254)
+  // Recording methods
 
   async startRecording(options?: {
     maxFrames?: number;

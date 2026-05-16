@@ -1,5 +1,5 @@
 /**
- * Wizard memory seed — Electron integration tests (TASK_2026_THOTH_WIZARD_SEED Batch 5 T5.1)
+ * Wizard memory seed — Electron integration tests
  *
  * Four scenarios that exercise the real SQLite store + real MemoryWriterAdapter
  * under a minimal tsyringe DI container, matching the registration that

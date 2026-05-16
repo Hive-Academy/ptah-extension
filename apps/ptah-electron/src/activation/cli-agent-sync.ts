@@ -1,6 +1,5 @@
-// Phase 4.566 CLI Agent Sync helper, extracted from wire-runtime.ts to keep
-// that file within its line budget. Pure fire-and-forget dispatcher — the
-// caller invokes syncCliAgentsOnActivation() and does not await it.
+// CLI Agent Sync helper. Pure fire-and-forget dispatcher — the caller
+// invokes syncCliAgentsOnActivation() and does not await it.
 
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -11,8 +10,7 @@ import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 /**
  * Distribute existing .claude/agents/*.md to all installed CLI targets.
  * Ensures agents are present after fresh install without re-running the wizard.
- * Mirrors VS Code extension Step 7.1.7. Pro/trial_pro-only, fire-and-forget.
- * Caller is responsible for the license-tier gate.
+ * Pro/trial_pro-only, fire-and-forget. Caller is responsible for the license-tier gate.
  */
 export function syncCliAgentsOnActivation(
   container: DependencyContainer,

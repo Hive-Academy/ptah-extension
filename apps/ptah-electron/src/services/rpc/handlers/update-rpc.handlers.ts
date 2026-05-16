@@ -7,8 +7,6 @@
  *
  * This handler is Electron-local and must NOT appear in
  * `libs/backend/rpc-handlers/` or the SHARED_HANDLERS list.
- *
- * TASK_2026_117: In-App Electron Auto-Update UX (VS Code-Style)
  */
 
 import { injectable, inject } from 'tsyringe';

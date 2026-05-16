@@ -4,8 +4,6 @@
  * Unit tests for UpdateCheckNowSchema and UpdateInstallNowSchema.
  * Both schemas accept empty objects. z.object({}) (without .strict())
  * strips unknown keys by default in Zod 3+.
- *
- * TASK_2026_117: Batch 5, Task 5.2
  */
 
 import {

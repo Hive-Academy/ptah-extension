@@ -1,8 +1,6 @@
 /**
  * Electron WebviewManager Adapter
  *
- * TASK_2025_200 Batch 4, Task 4.2
- *
  * Provides a WebviewManager-compatible interface for Electron that sends
  * messages to the renderer via the IpcBridge. This adapter is registered
  * as TOKENS.WEBVIEW_MANAGER in the DI container so that backend services

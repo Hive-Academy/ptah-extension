@@ -1,5 +1,4 @@
 // Phase 4.55 + 4.56 plugin loader + skill junction activation.
-// Extracted from wire-runtime.ts to fit the line budget.
 
 import * as os from 'os';
 import * as path from 'path';

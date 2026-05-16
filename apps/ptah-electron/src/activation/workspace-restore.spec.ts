@@ -72,8 +72,6 @@ function buildProvider(activeFolder: string | null | undefined) {
  * Builds a self-contained test harness for the origin-tagging tests.
  * Returns a fake workspace provider with `pendingOrigin` tracking and a
  * `triggerFoldersChange` helper, plus a mock webContents for send assertions.
- *
- * TASK_2026_115 §4.2 — backend origin-tagging tests.
  */
 function buildTestHarness() {
   const changeListeners: ChangeListener[] = [];
@@ -315,7 +313,7 @@ describe('WORKSPACE_CHANGED push-event origin-tagging', () => {
   // real ElectronWorkspaceProvider class.
   it('clears pendingOrigin when setActiveFolder is called with the same path (no-op guard)', () => {
     // Create a minimal fake that models the no-op guard behaviour from
-    // ElectronWorkspaceProvider.setActiveFolder (TASK_2026_115 §3.1):
+    // ElectronWorkspaceProvider.setActiveFolder:
     //   if (this.activeFolder === resolved) { this.pendingOrigin = null; return; }
     class FakeProvider {
       public pendingOrigin: string | null = null;

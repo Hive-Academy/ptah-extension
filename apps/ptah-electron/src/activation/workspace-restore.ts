@@ -165,7 +165,7 @@ export async function restoreWorkspaces(
     workspaceProviderForRestore.onDidChangeWorkspaceFolders(() => {
       // Read-and-clear the pending origin token stamped by registerSwitch()
       // before any async or debounce logic so it cannot be consumed by a
-      // later unrelated event (TASK_2026_115 §1.5).
+      // later unrelated event.
       const origin = workspaceProviderForRestore.pendingOrigin ?? null;
       workspaceProviderForRestore.pendingOrigin = null;
 

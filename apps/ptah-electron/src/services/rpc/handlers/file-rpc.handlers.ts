@@ -7,9 +7,6 @@
  * - file:save-dialog - Open native OS save dialog and write content
  * - file:pick - Open native file picker for attaching workspace files
  * - file:pick-images - Open native file picker for images, returns base64 data
- *
- * TASK_2025_203 Batch 5: Extracted from inline registrations
- * TASK_2025_262: Added file:pick and file:pick-images for attachment buttons
  */
 
 import { injectable, inject } from 'tsyringe';

@@ -1,8 +1,6 @@
 /**
  * Electron DI — Phase 3: Storage adapters + platform abstractions + vscode-lm-tools.
  *
- * TASK_2025_291 Wave C1 Step 2b: Split from the monolithic container.ts.
- *
  * Registers (in order):
  *   - Phase 3: TOKENS.STORAGE_SERVICE, TOKENS.GLOBAL_STATE adapters
  *   - Phase 3.5: TOKENS.PLATFORM_COMMANDS, PLATFORM_AUTH_PROVIDER, SAVE_DIALOG_PROVIDER,
@@ -69,7 +67,7 @@ export function registerPhase3Storage(
   container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
 
   // ========================================
-  // PHASE 3.5: Platform Abstraction Implementations (TASK_2025_203)
+  // PHASE 3.5: Platform Abstraction Implementations
   // ========================================
   // Must be registered BEFORE shared handler classes that depend on these tokens.
   // Each registration is individually wrapped to prevent a single failure from cascading.
@@ -131,7 +129,7 @@ export function registerPhase3Storage(
   );
 
   // ========================================
-  // PHASE 3.6: Cron Power Monitor (TASK_2026_HERMES Track 3)
+  // PHASE 3.6: Cron Power Monitor
   // ========================================
   // CronScheduler's CatchupCoordinator depends on IPowerMonitor to re-arm
   // jobs after the system resumes from sleep. ElectronPowerMonitor wraps
@@ -151,9 +149,9 @@ export function registerPhase3Storage(
   }
 
   // ========================================
-  // PHASE 4 prelude: Code Execution MCP + Browser Capabilities (TASK_2025_226, TASK_2025_244)
+  // PHASE 4 prelude: Code Execution MCP + Browser Capabilities
   // ========================================
-  // TASK_2025_226: Register the real vscode-lm-tools services instead of a stub.
+  // Register the real vscode-lm-tools services instead of a stub.
   // The library is now platform-agnostic:
   //   - WebviewManager is optional (auto-resolved via container.isRegistered)
   //   - IDE capabilities gracefully degrade (no VscodeIDECapabilities registered)
@@ -161,7 +159,7 @@ export function registerPhase3Storage(
   //   - approval_prompt auto-allows when WebviewManager is absent
   registerVsCodeLmToolsServices(container, logger);
 
-  // Phase 4.0.1: Browser capabilities (TASK_2025_244)
+  // Phase 4.0.1: Browser capabilities
   // Uses ChromeLauncherBrowserCapabilities (same as VS Code) to launch a real Chrome
   // instance via chrome-launcher + chrome-remote-interface for CDP automation.
   // This avoids the Electron BrowserWindow approach which confusingly opens

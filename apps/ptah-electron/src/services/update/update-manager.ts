@@ -11,7 +11,7 @@
  *   - `fetchReleaseNotes()` — GitHub Releases API fetch, main-process only,
  *     result embedded in `update-available` / `update-downloaded` payloads
  *
- * TASK_2026_117: In-App Electron Auto-Update UX (VS Code-Style)
+ * In-App Electron Auto-Update UX (VS Code-Style).
  */
 
 import { injectable, inject } from 'tsyringe';

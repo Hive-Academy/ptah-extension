@@ -1,8 +1,6 @@
 /**
  * Electron DI — Phase 4: RPC handler registrations.
  *
- * TASK_2025_291 Wave C1 Step 2b: Split from the monolithic container.ts.
- *
  * Registers:
  *   - Phase 4.1: 18 shared RPC handler classes (5 factory-based for lazy
  *                container/webview resolution, 13 singletons).
@@ -21,10 +19,9 @@ import {
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 
-// Shared RPC handler classes (TASK_2025_203 Batch 5: all shared handlers).
+// Shared RPC handler classes.
 // These are platform-agnostic handlers that can be used in both VS Code and Electron.
-// TASK_2025_209: LlmRpcHandlers now included (rewritten to be platform-agnostic).
-// TASK_2025_241: WebSearchRpcHandlers added (web search settings management).
+// LlmRpcHandlers is platform-agnostic; WebSearchRpcHandlers manages web search settings.
 import {
   SessionRpcHandlers,
   ChatRpcHandlers,
@@ -54,11 +51,7 @@ import {
   registerChatServices,
 } from '@ptah-extension/rpc-handlers';
 
-// Electron-specific RPC handler classes (TASK_2025_203 Batch 5).
-// TASK_2025_209: the Electron-prefixed LlmRpcHandlers and ChatExtendedRpcHandlers
-// were unified into the shared versions; electron-specific AgentRpcHandlers,
-// SkillsShRpcHandlers, and LayoutRpcHandlers were re-added.
-// TASK_2025_291 Wave C6: Electron prefix dropped from class and file names.
+// Electron-specific RPC handler classes.
 import {
   EditorRpcHandlers,
   FileRpcHandlers,
@@ -71,7 +64,7 @@ import {
   UpdateRpcHandlers,
 } from '../services/rpc/handlers';
 
-// TASK_2026_117: Auto-update manager + DI token.
+// Auto-update manager + DI token.
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
@@ -112,7 +105,7 @@ export function registerPhase4Handlers(
   registerChatServices(container);
 
   // ========================================
-  // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209, TASK_2025_241)
+  // PHASE 4.1: Shared RPC Handler Classes
   // ========================================
   container.registerSingleton(SessionRpcHandlers);
   container.registerSingleton(ChatRpcHandlers);
@@ -168,7 +161,7 @@ export function registerPhase4Handlers(
   });
   container.registerSingleton(QualityRpcHandlers);
   container.registerSingleton(ProviderRpcHandlers);
-  // TASK_2025_209: LlmRpcHandlers now platform-agnostic, uses DependencyContainer for lazy resolution.
+  // LlmRpcHandlers is platform-agnostic, uses DependencyContainer for lazy resolution.
   container.register(LlmRpcHandlers, {
     useFactory: (c) =>
       new LlmRpcHandlers(
@@ -178,37 +171,36 @@ export function registerPhase4Handlers(
         c.resolve(TOKENS.SENTRY_SERVICE),
       ),
   });
-  // TASK_2025_241: WebSearchRpcHandlers — web search settings management (API keys, config, testing).
+  // WebSearchRpcHandlers — web search settings management (API keys, config, testing).
   container.registerSingleton(WebSearchRpcHandlers);
 
   // Harness Setup Builder RPC handlers.
   container.registerSingleton(HarnessRpcHandlers);
 
-  // TASK_2026_104 Batch 6a: MCP Directory handlers lifted to shared library.
-  // Electron now exposes mcpDirectory:* (parity with VS Code).
+  // MCP Directory handlers live in the shared library so Electron exposes
+  // mcpDirectory:* at parity with VS Code.
   container.registerSingleton(McpDirectoryRpcHandlers);
 
-  // TASK_2026_104 Sub-batch B5b: GitInfoService + GitRpcHandlers lifted to
-  // shared libraries. The service registration must happen here (not inside the
-  // shared register helper) because each app owns its own logger instance.
-  // GitRpcHandlers is resolved automatically via SHARED_HANDLERS — no local
-  // registerSingleton call is needed.
+  // GitInfoService lives in shared libraries. The service registration must
+  // happen here (not inside the shared register helper) because each app owns
+  // its own logger instance. GitRpcHandlers is resolved automatically via
+  // SHARED_HANDLERS — no local registerSingleton call is needed.
   const gitInfoService = new GitInfoService(logger);
   container.register(TOKENS.GIT_INFO_SERVICE, {
     useValue: gitInfoService,
   });
   container.registerSingleton(GitRpcHandlers);
 
-  // TASK_2026_HERMES Track 1: Memory curator RPC handlers.
+  // Memory curator RPC handlers.
   container.registerSingleton(MemoryRpcHandlers);
 
-  // TASK_2026_HERMES Track 2: Skill synthesis RPC handlers.
+  // Skill synthesis RPC handlers.
   container.registerSingleton(SkillsSynthesisRpcHandlers);
 
-  // TASK_2026_HERMES Track 3: Cron scheduler RPC handlers.
+  // Cron scheduler RPC handlers.
   container.registerSingleton(CronRpcHandlers);
 
-  // TASK_2026_HERMES Track 4: Messaging gateway RPC handlers.
+  // Messaging gateway RPC handlers.
   container.registerSingleton(GatewayRpcHandlers);
 
   logger.info(
@@ -241,7 +233,7 @@ export function registerPhase4Handlers(
   );
 
   // ========================================
-  // PHASE 4.2: Electron-specific RPC Handler Classes (TASK_2025_203 Batch 5)
+  // PHASE 4.2: Electron-specific RPC Handler Classes
   // ========================================
   // EditorRpcHandlers requires container for lazy resolution.
   container.register(EditorRpcHandlers, {
@@ -256,9 +248,6 @@ export function registerPhase4Handlers(
       ),
   });
   container.registerSingleton(FileRpcHandlers);
-  // TASK_2025_209: the Electron-prefixed LlmRpcHandlers, ChatExtendedRpcHandlers,
-  // and AgentRpcHandlers were unified into the shared LlmRpcHandlers and
-  // ChatRpcHandlers (electron-specific AgentRpcHandlers was re-added below).
   // ConfigExtendedRpcHandlers requires container for lazy resolution.
   container.register(ConfigExtendedRpcHandlers, {
     useFactory: (c) =>
@@ -273,18 +262,17 @@ export function registerPhase4Handlers(
   container.registerSingleton(SkillsShRpcHandlers);
   container.registerSingleton(LayoutRpcHandlers);
 
-  // TASK_2026_104 Sub-batch B5b: GitInfoService + GitRpcHandlers were lifted
-  // to shared libraries. Service registration moved to Phase 4.1 above so the
-  // shared GitRpcHandlers (now in SHARED_HANDLERS) can resolve TOKENS.GIT_INFO_SERVICE.
+  // GitInfoService registration lives in Phase 4.1 above so the shared
+  // GitRpcHandlers (in SHARED_HANDLERS) can resolve TOKENS.GIT_INFO_SERVICE.
 
-  // PtyManagerService (TASK_2025_227): Terminal PTY session management.
+  // PtyManagerService: Terminal PTY session management.
   const ptyManagerService = new PtyManagerService(logger);
   container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
     useValue: ptyManagerService,
   });
   container.registerSingleton(TerminalRpcHandlers);
 
-  // TASK_2026_117: Register UpdateManager singleton (single 4h timer) and its RPC handlers.
+  // Register UpdateManager singleton (single 4h timer) and its RPC handlers.
   container.registerSingleton(UPDATE_MANAGER_TOKEN, UpdateManager);
   container.registerSingleton(UpdateRpcHandlers);
 

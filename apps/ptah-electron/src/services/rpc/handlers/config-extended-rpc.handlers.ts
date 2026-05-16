@@ -4,14 +4,10 @@
  * Initializes the permission handler from saved config at startup. The
  * `config:model-set`, `auth:setApiKey`, and `auth:getStatus` methods this
  * file used to register were lifted to the shared `rpc-handlers` library
- * (TASK_2026_107 Bug 6) so all hosts get the same implementation via
- * `registerAllRpcHandlers()`.
+ * so all hosts get the same implementation via `registerAllRpcHandlers()`.
  *
  * Kept here because the permission-handler bootstrap is Electron-specific
  * startup glue, not an RPC method — there is nowhere shared to put it.
- *
- * TASK_2025_203 Batch 5: Original extraction from inline registrations.
- * TASK_2026_107 Bug 6: Trimmed to permission-handler init only.
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';

@@ -1,4 +1,4 @@
-// Phase 4.565 CLI Skill Sync helper, extracted from wire-runtime.ts.
+// CLI Skill Sync helper.
 // Syncs Ptah plugin skills to installed CLI agent directories (Copilot, Gemini).
 // Pro/trial_pro-only fire-and-forget. Caller is responsible for the tier gate.
 
@@ -65,7 +65,7 @@ export function syncCliSkillsOnActivation(
     }
 
     // Fire-and-forget: sync synthesized skills from ~/.ptah/skills/ to CLI agent dirs.
-    // Non-blocking — never delays activation. TASK_2026_THOTH_SKILL_LIFECYCLE
+    // Non-blocking — never delays activation.
     const synthesizedRoot = path.join(os.homedir(), '.ptah', 'skills');
     cliPluginSync
       .syncSynthesizedSkillsOnActivation(synthesizedRoot)

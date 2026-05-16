@@ -1,8 +1,6 @@
 /**
  * Electron DI — Phase 0: Platform abstraction layer + Logger adapter.
  *
- * TASK_2025_291 Wave C1 Step 2b: Split from the monolithic container.ts.
- *
  * Registers:
  *   - All 10 PLATFORM_TOKENS via registerPlatformElectronServices
  *   - TOKENS.OUTPUT_MANAGER (ElectronOutputManagerAdapter)

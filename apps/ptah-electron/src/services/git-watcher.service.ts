@@ -26,8 +26,8 @@
  * detected via the workspace-root watcher and coalesced through
  * TREE_DEBOUNCE_MS before being pushed.
  *
- * TASK_2025_240: Replace git:info polling with event-driven push
- * Later expanded to drive generic workspace file watching as well.
+ * Replaces git:info polling with event-driven push, and also drives generic
+ * workspace file watching.
  */
 
 import * as fs from 'fs';

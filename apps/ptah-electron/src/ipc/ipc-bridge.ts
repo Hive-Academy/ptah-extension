@@ -1,8 +1,6 @@
 /**
  * IPC Bridge -- Connects the Angular renderer with the Electron main process.
  *
- * TASK_2025_200 Batch 4, Task 4.1
- *
  * Message Flow:
  *   Angular Renderer
  *     -> preload.ts (window.vscode.postMessage -> ipcRenderer.send('rpc'))
@@ -368,7 +366,7 @@ export class IpcBridge {
   }
 
   /**
-   * Setup terminal binary IPC handlers (TASK_2025_227).
+   * Setup terminal binary IPC handlers.
    *
    * Terminal data uses direct IPC channels for low-latency communication:
    * - terminal:data-in  (renderer -> main): Keyboard input forwarded to PTY
