@@ -67,7 +67,7 @@ export class ConversationService {
   }
 
   // ============================================================================
-  // CALLBACK PATTERN REMOVED (TASK_2025_054 Batch 3)
+  // CALLBACK PATTERN REMOVED
   // ============================================================================
 
   // NOTE: setSendMessageCallback() and _sendMessageCallback REMOVED
@@ -294,8 +294,8 @@ export class ConversationService {
       // Clear previous node maps to prevent stale references
       this.sessionManager.clearNodeMaps();
 
-      // Update tab with draft status (claudeSessionId stays null until SDK responds)
-      // TASK_2025_192: Auto-name session from first message content (not "New Chat")
+      // Update tab with draft status (claudeSessionId stays null until SDK responds).
+      // Auto-name session from first message content (not "New Chat").
       // Only auto-name if user hasn't already set a custom name (preserve user renames)
       const currentTab = this.tabManager.activeTab();
       const currentName = currentTab?.name;
@@ -325,15 +325,15 @@ export class ConversationService {
         userMessage,
       ]);
 
-      // Call RPC to start NEW chat - using tabId for correlation
-      // TASK_2025_170: Pass ptahCliId if a Ptah CLI agent is selected
+      // Call RPC to start NEW chat - using tabId for correlation.
+      // Pass ptahCliId if a Ptah CLI agent is selected.
       const ptahCliId = this.ptahCliState.selectedAgentId() ?? undefined;
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
         tabId: activeTabId, // Frontend correlation ID
-        name: autoName, // TASK_2025_192: Send message-derived name to backend
+        name: autoName, // Send message-derived name to backend
         workspacePath,
-        ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
+        ptahCliId, // Route to Ptah CLI agent adapter
         options: files ? { files } : undefined,
       });
 
@@ -445,7 +445,7 @@ export class ConversationService {
       // Update tab status
       this.tabManager.markResuming(targetTabId);
 
-      // TASK_2025_093 FIX: Finalize any existing streaming state before starting new turn.
+      // Finalize any existing streaming state before starting new turn.
       // This converts the streaming content into a proper message in tab.messages.
       // Without this, the streaming message would persist alongside new messages.
       if (targetTab?.streamingState) {
@@ -597,14 +597,14 @@ export class ConversationService {
 
       if (tab?.streamingState) {
         const streamingHandler = this.injector.get(StreamingHandlerService);
-        // TASK_2025_098 FIX: Pass isAborted=true to mark nodes as interrupted
+        // Pass isAborted=true to mark nodes as interrupted
         streamingHandler.finalizeCurrentMessage(activeTabId ?? undefined, true);
       } else {
         // No streaming state, just update status
         this.finalizeCurrentMessage();
       }
 
-      // TASK_2025_098 FIX: Clear visual streaming indicator
+      // Clear visual streaming indicator.
       // Previously, markTabIdle was only called in completion-handler (chat:complete).
       // On abort, the streaming indicator remained because this was never called.
       if (activeTabId) {
@@ -622,14 +622,14 @@ export class ConversationService {
   /**
    * Abort with confirmation dialog when sub-agents are running
    *
-   * TASK_2025_185: Shows a warning dialog if sub-agents are actively running,
-   * giving the user a chance to cancel the abort. If no agents are running
-   * or no session exists, aborts immediately without confirmation.
+   * Shows a warning dialog if sub-agents are actively running, giving the
+   * user a chance to cancel the abort. If no agents are running or no
+   * session exists, aborts immediately without confirmation.
    *
    * @returns true if aborted, false if user cancelled
    */
   async abortWithConfirmation(): Promise<boolean> {
-    // TASK_2025_185: Prevent concurrent invocations (same guard as abortCurrentMessage)
+    // Prevent concurrent invocations (same guard as abortCurrentMessage)
     if (this._isStopping()) {
       return false;
     }

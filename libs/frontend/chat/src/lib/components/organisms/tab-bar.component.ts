@@ -18,11 +18,9 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 /**
  * TabBarComponent - Chrome-style scrollable tab bar
  *
- * TASK_2025_248: Replaced simple overflow-x-auto container with
- * scroll-arrow buttons that appear when tabs overflow their container.
+ * Scroll-arrow buttons appear when tabs overflow their container.
  * Hidden native scrollbar, smooth scroll-by on arrow click.
  *
- * Complexity Level: 2 (Scroll detection + arrow rendering)
  * Patterns: Signal-based state, viewChild, afterNextRender
  */
 @Component({

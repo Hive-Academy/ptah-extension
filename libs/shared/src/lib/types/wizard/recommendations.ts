@@ -1,7 +1,7 @@
 /**
  * Setup Wizard agent recommendations + project analysis result.
  *
- * Extracted from setup-wizard.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
+ * Extracted from setup-wizard.types.ts — zero behavior change.
  */
 
 import type {
@@ -132,7 +132,7 @@ export interface ProjectAnalysisResult {
   codeConventions?: CodeConventions;
 
   // ========================================
-  // Quality Assessment Fields (TASK_2025_151)
+  // Quality Assessment Fields.
   // All fields optional for backward compatibility
   // ========================================
 

@@ -139,7 +139,7 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
             </div>
           }
 
-          <!-- User Profile (TASK_2025_129) -->
+          <!-- User Profile -->
           @if (userEmail()) {
             <div
               class="flex items-center gap-2 mb-2 py-1.5 px-2 bg-base-300/30 rounded"
@@ -172,7 +172,7 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
             </div>
           }
 
-          <!-- TASK_2025_142: Enhanced Trial Status Section -->
+          <!-- Enhanced Trial Status Section -->
           @if (showTrialInfo()) {
             <div
               class="border rounded-md p-2.5 mb-2"
@@ -237,7 +237,7 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
             </div>
           }
 
-          <!-- TASK_2025_142: Trial Expired Section -->
+          <!-- Trial Expired Section -->
           @if (
             licenseTier() === 'expired' && licenseReason() === 'trial_ended'
           ) {

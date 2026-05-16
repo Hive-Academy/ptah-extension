@@ -76,8 +76,6 @@ const TIER_CONFIGS: TierConfig[] = [
  * - Tool use warning for non-compatible models
  * - Reset to default button per tier
  * - Hides Refresh button for providers with static model lists
- *
- * TASK_2025_091 Phase 2 (OpenRouter), TASK_2025_132 (generalized to all providers)
  */
 @Component({
   selector: 'ptah-provider-model-selector',

@@ -47,10 +47,10 @@ interface ProviderOption {
  */
 const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
 
-/** Sentinel for local providers that don't need an API key (TASK_2025_282) */
+/** Sentinel for local providers that don't need an API key */
 const LOCAL_PROVIDER_SENTINEL = 'ollama';
 
-/** Provider IDs that use authType: 'none' â€” no API key required (TASK_2025_282) */
+/** Provider IDs that use authType: 'none' — no API key required */
 const LOCAL_PROVIDER_IDS = new Set(['ollama', 'ollama-cloud', 'lm-studio']);
 
 const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [

@@ -1,8 +1,6 @@
 <!--
   SettingsComponent - Compact VS Code Sidebar Design
 
-  TASK_2025_079: Conditional visibility based on auth and license status
-
   Visibility Rules:
   - Authentication: Always visible
   - Model Selection & Autopilot: Visible after auth configured
@@ -164,7 +162,7 @@
           </div>
           <ptah-auth-config />
 
-          <!-- Provider Model Mapping - shown when provider auth + key configured (TASK_2025_133) -->
+          <!-- Provider Model Mapping - shown when provider auth + key configured -->
           @if (showProviderModels()) {
             <div class="divider my-2 text-[10px] opacity-50">
               Provider Model Mapping

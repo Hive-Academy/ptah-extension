@@ -2,7 +2,7 @@
  * Update RPC Type Definitions
  *
  * Types for update:check-now and update:install-now RPC methods.
- * Electron auto-update UX — TASK_2026_117.
+ * Electron auto-update UX.
  */
 
 /** Parameters for update:check-now RPC method */

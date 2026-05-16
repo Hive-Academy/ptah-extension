@@ -1,6 +1,5 @@
 /**
- * Terminal RPC Type Definitions
- * TASK_2025_227 Phase 2: Terminal session management types
+ * Terminal RPC Type Definitions: terminal session management types.
  */
 
 /** Parameters for terminal:create RPC method */

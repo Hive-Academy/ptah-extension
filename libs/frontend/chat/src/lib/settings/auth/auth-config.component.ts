@@ -54,7 +54,7 @@ import type {
  * - Local form state (text input values, replace toggles) managed by component signals
  * - No duplicate state between component and service
  *
- * Critical Fixes (TASK_2025_133):
+ * Critical Fixes:
  * - Critical Issue #1: deleteProviderKey uses UI-selected provider ID (not persisted)
  * - Critical Issue #2: Single source of truth via AuthStateService
  * - Critical Issue #4: Provider switch calls checkProviderKeyStatus for correct badge
@@ -114,7 +114,7 @@ export class AuthConfigComponent implements OnInit {
    */
   readonly selectedProvider = this.authState.selectedProvider;
 
-  /** Whether the selected provider uses OAuth (e.g., GitHub Copilot, OpenAI Codex) (TASK_2025_191) */
+  /** Whether the selected provider uses OAuth (e.g., GitHub Copilot, OpenAI Codex) */
   readonly isOAuthProvider = computed(() => {
     const provider = this.selectedProvider();
     return provider?.authType === 'oauth';
@@ -143,7 +143,7 @@ export class AuthConfigComponent implements OnInit {
   });
 
   /**
-   * Whether the selected provider is a local model server (Ollama, LM Studio) (TASK_2025_265).
+   * Whether the selected provider is a local model server (Ollama, LM Studio).
    *
    * Excludes providers that opt into `supportsOptionalApiKey` (like Ollama
    * Cloud), so the API-key input branch can render for them instead of the
@@ -261,17 +261,17 @@ export class AuthConfigComponent implements OnInit {
     }
   });
 
-  /** Trigger Copilot OAuth login (TASK_2025_191) */
+  /** Trigger Copilot OAuth login */
   async copilotLogin(): Promise<void> {
     await this.authState.copilotLogin();
   }
 
-  /** Trigger Codex CLI login via terminal (TASK_2025_199) */
+  /** Trigger Codex CLI login via terminal */
   async codexLogin(): Promise<void> {
     await this.authState.codexLogin();
   }
 
-  /** Disconnect Copilot OAuth (TASK_2025_191) */
+  /** Disconnect Copilot OAuth */
   async copilotLogout(): Promise<void> {
     await this.authState.copilotLogout();
   }

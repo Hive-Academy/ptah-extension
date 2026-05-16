@@ -9,7 +9,7 @@
  *
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  *
- * TASK_2025_089 CLEANUP: Removed all message conversion logic.
+ * Cleanup note: all message conversion logic has been removed.
  * Session switching now uses SDK resume flow (chat:resume RPC), which streams
  * replayed events via chat:chunk. The existing ExecutionTreeBuilder handles
  * all message reconstruction.
@@ -81,7 +81,7 @@ export class SessionLoaderService {
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
   /**
-   * TASK_2025_264 P7f: Maximum workspace entries in sessionCache.
+   * Maximum workspace entries in sessionCache.
    * LRU eviction: oldest by Map insertion order, but never evict the currentWorkspacePath.
    */
   private static readonly MAX_CACHED_WORKSPACES = 10;
@@ -138,7 +138,7 @@ export class SessionLoaderService {
       }
     });
 
-    // TASK_2025_213: Check for resumable subagents on restored sessions.
+    // Check for resumable subagents on restored sessions.
     // When VS Code restores the webview from localStorage, TabManager restores
     // tabs + messages without calling switchSession() (no chat:resume fires).
     // This means the backend registry is empty and resumableSubagents is never
@@ -324,7 +324,7 @@ export class SessionLoaderService {
   }
 
   // ============================================================================
-  // SESSION REMOVAL (TASK_2025_086)
+  // SESSION REMOVAL
   // ============================================================================
 
   /**
@@ -398,7 +398,7 @@ export class SessionLoaderService {
     // Check cache for the target workspace
     const cached = this.sessionCache.get(normalizedNew);
     if (cached) {
-      // TASK_2025_264 P7f: LRU refresh â€” move entry to end of Map insertion order
+      // LRU refresh — move entry to end of Map insertion order
       this.sessionCache.delete(normalizedNew);
       this.sessionCache.set(normalizedNew, cached);
 
@@ -444,7 +444,7 @@ export class SessionLoaderService {
    * Snapshot current signal values into the cache for the given workspace path.
    * The path is normalized before use as a cache key.
    *
-   * TASK_2025_264 P7f: Enforces LRU eviction when cache exceeds MAX_CACHED_WORKSPACES.
+   * Enforces LRU eviction when cache exceeds MAX_CACHED_WORKSPACES.
    * The currentWorkspacePath is never evicted. On cache hit (re-insert), the entry
    * is moved to the end of Map insertion order (most recently used).
    */
@@ -526,8 +526,8 @@ export class SessionLoaderService {
   /**
    * Switch to a different session and load its history
    *
-   * TASK_2025_092 FIX: Now processes `events` array through StreamingHandler
-   * to build ExecutionNode tree with tool calls, thinking blocks, etc.
+   * Processes the `events` array through StreamingHandler to build an
+   * ExecutionNode tree with tool calls, thinking blocks, etc.
    *
    * The backend returns FlatStreamEventUnion[] which we process exactly
    * like live streaming events, building the same execution tree.
@@ -598,9 +598,9 @@ export class SessionLoaderService {
       const events = resumeResult.data?.events;
       const messages = resumeResult.data?.messages;
       const stats = resumeResult.data?.stats;
-      // TASK_2025_103 FIX: Get resumable subagents for marking interrupted agents
+      // Get resumable subagents for marking interrupted agents
       const resumableSubagents = resumeResult.data?.resumableSubagents;
-      // TASK_2025_168: Get CLI sessions for agent monitor display
+      // Get CLI sessions for agent monitor display
       const cliSessions = resumeResult.data?.cliSessions;
 
       // Store preloaded stats and session model for display (old sessions)
@@ -644,7 +644,7 @@ export class SessionLoaderService {
           }
         }
 
-        // TASK_2025_217: Populate modelUsageList from backend per-model breakdown.
+        // Populate modelUsageList from backend per-model breakdown.
         // This enables the per-model breakdown table in SessionStatsSummary for old sessions.
         if (stats.modelUsageList && stats.modelUsageList.length > 0) {
           const backendModelList = stats.modelUsageList;
@@ -658,7 +658,7 @@ export class SessionLoaderService {
         }
       }
 
-      // TASK_2025_092 FIX: Process events to build execution tree with tool calls
+      // Process events to build execution tree with tool calls
       if (resumeResult.success && events && events.length > 0) {
         // Process each event through StreamingHandler to build execution tree
         // This populates the streamingState with all events
@@ -670,8 +670,8 @@ export class SessionLoaderService {
           );
         }
 
-        // Finalize session history - builds messages for ALL messages in history
-        // TASK_2025_103 FIX: Pass resumableSubagents so interrupted agents are marked
+        // Finalize session history - builds messages for ALL messages in history.
+        // Pass resumableSubagents so interrupted agents are marked.
         this.streamingHandler.finalizeSessionHistory(
           activeTabId,
           resumableSubagents,
@@ -679,11 +679,11 @@ export class SessionLoaderService {
 
         this.sessionManager.setStatus('loaded');
 
-        // TASK_2025_213: Populate resumableSubagents signal for the banner UI
+        // Populate resumableSubagents signal for the banner UI
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
 
-        // TASK_2025_168: Load CLI sessions into agent monitor panel
+        // Load CLI sessions into agent monitor panel
         if (cliSessions && cliSessions.length > 0) {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
         }
@@ -703,11 +703,11 @@ export class SessionLoaderService {
         this.tabManager.applyResumedHistory(activeTabId, executionMessages);
         this.sessionManager.setStatus('loaded');
 
-        // TASK_2025_213: Set resumableSubagents from chat:resume response (empty for simple-message sessions)
+        // Set resumableSubagents from chat:resume response (empty for simple-message sessions)
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
 
-        // TASK_2025_168: Also load CLI sessions in fallback branch
+        // Also load CLI sessions in fallback branch
         if (cliSessions && cliSessions.length > 0) {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
         }
@@ -720,7 +720,7 @@ export class SessionLoaderService {
         this.tabManager.applyResumeFailure(activeTabId);
         this.sessionManager.setStatus('loaded');
 
-        // TASK_2025_213: No resumable subagents on error/empty session
+        // No resumable subagents on error/empty session
         this._resumableSubagents.set([]);
         this._resumableSubagentsSessionId = sessionId;
       }
@@ -769,7 +769,7 @@ export class SessionLoaderService {
   }
 
   // ============================================================================
-  // RESUMABLE SUBAGENTS (TASK_2025_213)
+  // RESUMABLE SUBAGENTS
   // ============================================================================
 
   /**
@@ -797,7 +797,7 @@ export class SessionLoaderService {
   }
 
   /**
-   * TASK_2025_213: Lightweight check for resumable subagents on a restored session.
+   * Lightweight check for resumable subagents on a restored session.
    * Calls chat:resume to populate the backend registry and extract resumableSubagents
    * without reloading the tab's messages (already cached from localStorage).
    */

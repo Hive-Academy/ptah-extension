@@ -6,7 +6,7 @@
  */
 
 // ============================================================
-// Provider Model RPC Types (TASK_2025_091 Phase 2, generalized TASK_2025_132)
+// Provider Model RPC Types
 // ============================================================
 
 /** Model tier for provider model mapping */
@@ -144,7 +144,7 @@ export type OpenRouterClearModelTierResult = ProviderClearModelTierResult;
 // LLM Provider RPC Types (SDK-only migration: vscode-lm only)
 // ============================================================
 
-/** LLM Provider names for API key management (TASK_2025_209: platform-agnostic) */
+/** LLM Provider names for API key management (platform-agnostic) */
 export type LlmProviderName =
   | 'anthropic'
   | 'openrouter'
@@ -181,11 +181,11 @@ export interface LlmProviderStatusResponse {
 export type LlmProviderAuthMode = 'apiKey' | 'oauth' | 'cli' | 'none';
 
 /**
- * Per-provider entry returned by `llm:getProviderStatus` (TASK_2026 CLI bug
- * batch — items #3 / #14). Surfaces the registry's full provider catalogue
- * (not just `anthropic` + `openrouter`) and includes the auth mode + per-
- * provider base-URL override status so the CLI `provider status --human`
- * table can render columns for every provider.
+ * Per-provider entry returned by `llm:getProviderStatus`. Surfaces the
+ * registry's full provider catalogue (not just `anthropic` + `openrouter`)
+ * and includes the auth mode + per-provider base-URL override status so
+ * the CLI `provider status --human` table can render columns for every
+ * provider.
  */
 export interface LlmGetProviderStatusEntry {
   /** Provider id (e.g. 'anthropic', 'openrouter', 'ollama'). */

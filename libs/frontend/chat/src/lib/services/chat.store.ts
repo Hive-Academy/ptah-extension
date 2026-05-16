@@ -42,11 +42,11 @@ import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
  * - SessionLoaderService â€” Session loading, pagination, switching
  * - ConversationService â€” New/continue conversation, message sending, abort
  * - PermissionHandlerService â€” Permission request management and correlation
- * - CompactionLifecycleService â€” SDK session-compaction state machine (Wave C7g)
- * - MessageDispatchService â€” Send/queue routing + slash-command guard (Wave C7g)
- * - SessionStatsAggregatorService â€” SESSION_STATS aggregation (Wave C7g)
- * - ChatLifecycleService â€” Bootstrap, license, agent-summary, ID resolution,
- *   error handling (Wave C7g)
+ * - CompactionLifecycleService — SDK session-compaction state machine
+ * - MessageDispatchService — Send/queue routing + slash-command guard
+ * - SessionStatsAggregatorService — SESSION_STATS aggregation
+ * - ChatLifecycleService — Bootstrap, license, agent-summary, ID resolution,
+ *   error handling
  */
 @Injectable({ providedIn: 'root' })
 export class ChatStore {

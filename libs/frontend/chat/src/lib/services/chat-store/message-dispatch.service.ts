@@ -10,7 +10,7 @@ import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 /**
  * MessageDispatchService - Send-or-queue routing + slash-command guard.
  *
- * Responsibilities (carved from ChatStore in Wave C7g):
+ * Responsibilities:
  * - sendOrQueueMessage: routes content to MessageSender or ConversationService.queueOrAppendMessage
  *   based on streaming state of the target tab; auto-denies in-flight permissions with the
  *   user's content as `deny_with_message` reason
@@ -42,17 +42,17 @@ export class MessageDispatchService {
 
   /**
    * Smart send or queue routing
-   * Delegates to MessageSenderService for streaming check, ConversationService for queue
-   * (TASK_2025_054 Batch 3 - eliminates callback indirection)
+   * Delegates to MessageSenderService for streaming check, ConversationService for queue.
    */
   async sendOrQueueMessage(
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
-    // TASK_2025_COMPACT_FIX: Block SDK-native slash commands for non-Anthropic providers.
-    // Commands like /compact, /context, /cost are handled internally by the Claude Agent SDK
-    // and require Claude-specific model behavior. Third-party providers don't support them
-    // and sending them causes the session to hang indefinitely.
+    // Block SDK-native slash commands for non-Anthropic providers.
+    // Commands like /compact, /context, /cost are handled internally by the
+    // Claude Agent SDK and require Claude-specific model behavior. Third-party
+    // providers don't support them and sending them causes the session to
+    // hang indefinitely.
     if (this.isBlockedSlashCommand(content)) {
       this.showBlockedCommandWarning(content, options?.tabId);
       return;
@@ -92,10 +92,10 @@ export class MessageDispatchService {
   /**
    * Send queued message without interrupting current execution (graceful re-steering)
    *
-   * TASK_2025_185: Replaces interruptAndSend. Instead of aborting the current
-   * execution (which kills running sub-agents), we simply send the queued message.
-   * The SDK handles message queueing natively - agents continue running while
-   * the new user message is processed in order.
+   * Replaces interruptAndSend. Instead of aborting the current execution
+   * (which kills running sub-agents), we simply send the queued message.
+   * The SDK handles message queueing natively - agents continue running
+   * while the new user message is processed in order.
    *
    * @param tabId - Tab to send the queued message for
    * @param content - Message content to send
@@ -109,12 +109,14 @@ export class MessageDispatchService {
       // Clear the queue and options before sending
       this.tabManager.clearQueuedContentAndOptions(tabId);
 
-      // TASK_2025_185: Call continueConversation directly instead of messageSender.send().
-      // messageSender.send() checks tab.status === 'loaded' which is false during streaming,
-      // causing it to incorrectly start a NEW conversation instead of continuing the existing one.
-      // Pass files from stored options (effort is set at session config level, not per-message for continue).
-      // Pass explicit tabId so the user message is added to the correct tab even if the user
-      // switched tabs before the queued message fires.
+      // Call continueConversation directly instead of messageSender.send().
+      // messageSender.send() checks tab.status === 'loaded' which is false
+      // during streaming, causing it to incorrectly start a NEW conversation
+      // instead of continuing the existing one. Pass files from stored
+      // options (effort is set at session config level, not per-message for
+      // continue). Pass explicit tabId so the user message is added to the
+      // correct tab even if the user switched tabs before the queued message
+      // fires.
       await this.conversation.continueConversation(
         content,
         queuedOptions?.files,

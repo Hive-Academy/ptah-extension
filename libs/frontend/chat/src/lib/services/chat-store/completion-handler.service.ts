@@ -1,7 +1,7 @@
 /**
  * CompletionHandlerService - Chat Completion and Error Handling
  *
- * TASK_2025_101: This service is largely deprecated.
+ * This service is largely deprecated.
  *
  * The chat:complete event is NO LONGER used to control streaming state because
  * it fires multiple times during tool execution (once per message_complete).
@@ -34,7 +34,7 @@ export class CompletionHandlerService {
   handleChatError(data: { sessionId: string; error: string }): void {
     console.error('[CompletionHandlerService] Chat error:', data);
 
-    // TASK_2026_106 Phase 4b — fan out to all tabs bound to this session.
+    // Fan out to all tabs bound to this session.
     // Canvas grid: when both tiles share a session, both must reset on error
     // or one tile remains stuck in `streaming` status forever.
     let targetTabs: readonly TabState[] = [];

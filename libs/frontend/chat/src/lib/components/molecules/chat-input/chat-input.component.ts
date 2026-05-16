@@ -256,7 +256,7 @@ interface PastedImage {
         <!-- Button Stack: Stop (streaming only) + Send -->
         <div class="flex flex-col gap-1 pb-1">
           <!-- Stop Button (above send during streaming) -->
-          <!-- TASK_2025_096 FIX: Use isActiveTabStreaming() which uses same signal as tab spinner -->
+          <!-- Use isActiveTabStreaming() which uses same signal as tab spinner -->
           @if (isActiveTabStreaming()) {
             <button
               class="btn btn-error btn-sm btn-square"
@@ -295,7 +295,7 @@ interface PastedImage {
         <div
           class="flex items-center gap-0.5 text-base-content/60 flex-shrink-0"
         >
-          <!-- Auth Method Badge (TASK_2025_129 Batch 3) -->
+          <!-- Auth Method Badge -->
           @if (authMethodLabel()) {
             <div
               class="badge badge-ghost badge-xs gap-1 opacity-70"
@@ -314,7 +314,7 @@ interface PastedImage {
           <!-- Agent Selector - dedicated button for built-in sub-agents -->
           <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
 
-          <!-- Effort Selector Component (TASK_2025_184) -->
+          <!-- Effort Selector Component -->
           <ptah-effort-selector (effortChanged)="onEffortChange($event)" />
 
           <!-- Autopilot Popover Component -->

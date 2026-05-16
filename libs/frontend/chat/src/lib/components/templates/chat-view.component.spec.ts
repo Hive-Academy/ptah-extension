@@ -1,5 +1,5 @@
 /**
- * ChatViewComponent — unit spec (TASK_2026_118 Batch 8, Task 8.4).
+ * ChatViewComponent — unit spec.
  *
  * Covers the resume-and-retry path in handleRewindError() (4 cases per §6d):
  *

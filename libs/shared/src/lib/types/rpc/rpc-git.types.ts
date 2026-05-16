@@ -1,6 +1,5 @@
 /**
- * Git RPC Type Definitions
- * TASK_2025_227 Phase 1: Git info and worktree types
+ * Git RPC Type Definitions: Git info and worktree types.
  */
 
 /** Single file's git status */
@@ -103,8 +102,6 @@ export interface GitRemoveWorktreeResult {
  * It does not go in RpcMethodRegistry or RPC_METHOD_NAMES. The backend posts it as
  * a webview message with type 'git:worktreeChanged', and the frontend listens for
  * it on the message event handler.
- *
- * TASK_2025_236
  */
 export interface GitWorktreeChangedNotification {
   /** Whether a worktree was created or removed */
@@ -116,7 +113,7 @@ export interface GitWorktreeChangedNotification {
 }
 
 // ============================================================================
-// Source Control RPC Types (TASK_2025_273)
+// Source Control RPC Types
 // ============================================================================
 
 /** Parameters for git:stage RPC method */
@@ -184,7 +181,7 @@ export interface GitShowFileResult {
 }
 
 // ============================================================================
-// Branch, Checkout, Stash, Tag, Remote, and Last-Commit RPC Types (TASK_2026_111)
+// Branch, Checkout, Stash, Tag, Remote, and Last-Commit RPC Types
 // ============================================================================
 
 /** Single branch reference returned by git:branches */

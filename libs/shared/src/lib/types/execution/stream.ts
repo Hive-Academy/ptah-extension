@@ -1,17 +1,17 @@
 /**
- * Flat streaming event types (TASK_2025_082) — foreground events.
+ * Flat streaming event types — foreground events.
  *
  * Replaces ExecutionNode during streaming. Events contain relationship IDs
  * instead of nested children.
  *
- * Extracted from execution-node.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
+ * Extracted from execution-node.types.ts — zero behavior change.
  */
 
 /**
- * EventSource - Indicates the origin of a streaming event
+ * EventSource - Indicates the origin of a streaming event.
  *
- * TASK_2025_095: Used to distinguish streaming preview events from
- * definitive complete message events for proper deduplication.
+ * Used to distinguish streaming preview events from definitive complete
+ * message events for proper deduplication.
  *
  * - 'stream': Real-time streaming delta from SDK stream_event
  * - 'complete': Definitive data from complete assistant/user messages
@@ -49,7 +49,7 @@ export type StreamEventType =
   | 'background_agent_progress'
   | 'background_agent_completed'
   | 'background_agent_stopped'
-  // Phase 1: SDK task_* event surface (subagent visibility)
+  // SDK task_* event surface (subagent visibility)
   | 'agent_progress'
   | 'agent_status'
   | 'agent_completed';
@@ -68,7 +68,7 @@ export interface FlatStreamEvent {
   /** Session ID this event belongs to */
   readonly sessionId: string;
   /**
-   * TASK_2025_095: Event source for deduplication and priority handling.
+   * Event source for deduplication and priority handling.
    * - 'stream': Real-time streaming delta (may be incomplete)
    * - 'complete': Definitive data from complete messages
    * - 'history': Reconstructed from session JSONL history
@@ -171,13 +171,12 @@ export interface AgentStartEvent extends FlatStreamEvent {
    * Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook.
    * Used as a stable key for summary content lookup since toolCallId differs
    * between hook (UUID format) and complete message (toolu_* format).
-   * @see TASK_2025_099 - Real-time subagent streaming
    */
   readonly agentId?: string;
   /**
-   * SDK task_id from SDKTaskStartedMessage (Phase 1 addition).
-   * Populated when the SDK emits task_started for this agent.
-   * Used by the dispatcher to route subagent:stop calls.
+   * SDK task_id from SDKTaskStartedMessage. Populated when the SDK emits
+   * task_started for this agent. Used by the dispatcher to route
+   * subagent:stop calls.
    */
   readonly taskId?: string;
 }
@@ -215,8 +214,7 @@ export interface SignatureDeltaEvent extends FlatStreamEvent {
 }
 
 /**
- * Compaction start event - notifies UI that context compaction is starting
- * TASK_2025_098: SDK Session Compaction
+ * Compaction start event - notifies UI that context compaction is starting.
  *
  * Emitted when the SDK detects the context window is approaching threshold
  * and begins automatic compaction (summarizing conversation history).
@@ -231,7 +229,7 @@ export interface CompactionStartEvent extends FlatStreamEvent {
    * cache_creation) sampled at PreCompact firing time. Used by the frontend
    * to freeze the pre-compaction header stats during the compaction window
    * and to pair this event with the eventual `compact_boundary` for
-   * duration / delta computation. (TASK_2026_109 A2)
+   * duration / delta computation.
    */
   readonly preTokens: number;
 }

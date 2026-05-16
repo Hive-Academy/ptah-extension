@@ -1,5 +1,5 @@
 /**
- * RPC types — Workspace Indexing Control (TASK_2026_114).
+ * RPC types — Workspace Indexing Control.
  *
  * 8 indexing.* methods: getStatus / start / pause / resume / cancel /
  * setPipelineEnabled / dismissStale / acknowledgeDisclosure.

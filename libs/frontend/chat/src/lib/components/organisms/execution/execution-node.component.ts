@@ -56,10 +56,10 @@ import type {
         <!-- Wrap each branch in fade-in keyframe so flipping between
              agent-summary and markdown cross-fades instead of popping. -->
         @if (isAgentSummaryContent()) {
-          <!-- TASK_2026_TREE_STABILITY Fix 5/8: animate.enter is gated to
-               !isFinalizing() so the fade wave doesn't stack on top of the
-               finalize layout settle. We swap to a class-driven keyframe so
-               the gate can flip dynamically (animate.enter is a static dir). -->
+          <!-- animate.enter is gated to !isFinalizing() so the fade wave
+               doesn't stack on top of the finalize layout settle. We swap to
+               a class-driven keyframe so the gate can flip dynamically
+               (animate.enter is a static dir). -->
           <div class="exec-text-branch" [class.exec-fade-in]="!isFinalizing()">
             <ptah-agent-summary [content]="node().content || ''" />
           </div>
@@ -68,9 +68,9 @@ import type {
             class="prose prose-sm prose-invert max-w-none my-2 exec-text-branch"
             [class.exec-fade-in]="!isFinalizing()"
           >
-            <!-- TASK_2026_TREE_STABILITY Fix 6/8: bind to renderedContent()
-                 so ngx-markdown only re-tokenizes when the underlying string
-                 differs by content (computed memoizes on string equality). -->
+            <!-- bind to renderedContent() so ngx-markdown only re-tokenizes
+                 when the underlying string differs by content (computed
+                 memoizes on string equality). -->
             <markdown [data]="renderedContent()" />
           </div>
         }
@@ -102,16 +102,15 @@ import type {
       }
       @case ('agent') {
         <!--
-      TASK_2026_103 wave B2: pass nodeTemplate so the bubble can render its
-      children recursively without importing ExecutionNodeComponent.
-      TASK_2026_TREE_STABILITY Fix 4/8: @defer removed. The defer block was
-      re-firing on every input identity change, causing a remount of the
-      agent bubble whenever the tree built a fresh node reference (which
-      Fix 3 mostly eliminates, but the defer trigger remained a remount
-      vector independently). InlineAgentBubbleComponent is already in the
-      imports array and the cycle was already broken via nodeTemplate, so a
-      direct render is safe and zoneless-stable. animate.enter is now gated
-      by isFinalizing() (Fix 5) to avoid fade waves during the finalize burst.
+      Pass nodeTemplate so the bubble can render its children recursively
+      without importing ExecutionNodeComponent. @defer was previously used
+      here but was removed because the defer block re-fired on every input
+      identity change, causing a remount of the agent bubble whenever the
+      tree built a fresh node reference. InlineAgentBubbleComponent is
+      already in the imports array and the import cycle is already broken
+      via nodeTemplate, so a direct render is safe and zoneless-stable.
+      animate.enter is gated by isFinalizing() to avoid fade waves during
+      the finalize burst.
     -->
         <div [class.exec-fade-in]="!isFinalizing()">
           <ptah-inline-agent-bubble
@@ -203,11 +202,11 @@ export class ExecutionNodeComponent {
   readonly isStreaming = input<boolean>(false);
 
   /**
-   * TASK_2026_TREE_STABILITY Fix 5/8: Whether the chat is currently in the
-   * streaming → finalized transition window. When true, animate.enter is
-   * suppressed via class binding so the cross-fade doesn't stack on top of
-   * the layout settle (which produced the visible "flicker"). Forwarded
-   * down through the recursive tree from chat-view.
+   * Whether the chat is currently in the streaming → finalized transition
+   * window. When true, animate.enter is suppressed via class binding so the
+   * cross-fade doesn't stack on top of the layout settle (which produced
+   * the visible "flicker"). Forwarded down through the recursive tree from
+   * chat-view.
    */
   readonly isFinalizing = input<boolean>(false);
 
@@ -225,19 +224,17 @@ export class ExecutionNodeComponent {
    */
   readonly permissionResponded = output<PermissionResponse>();
 
-  // TASK_2025_109: resumeRequested output removed - now uses context injection
-
   // Lucide icons
   readonly InfoIcon = Info;
 
   /**
-   * TASK_2026_TREE_STABILITY Fix 6/8: Memoize markdown rendering input.
-   * `<markdown [data]>` re-tokenizes whenever the bound expression returns
-   * a different reference. By caching the last seen string we guarantee
-   * identity stability when the content string is value-equal across
-   * rebuilds — eliminating one of the per-delta flicker sources during
-   * streaming. Stored on the instance so the same string reference is
-   * returned on every read with an unchanged value.
+   * Memoize markdown rendering input. `<markdown [data]>` re-tokenizes
+   * whenever the bound expression returns a different reference. By caching
+   * the last seen string we guarantee identity stability when the content
+   * string is value-equal across rebuilds — eliminating one of the
+   * per-delta flicker sources during streaming. Stored on the instance so
+   * the same string reference is returned on every read with an unchanged
+   * value.
    */
   private _lastRenderedContent = '';
   protected renderedContent = computed(() => {

@@ -40,7 +40,7 @@ export interface SessionLoadParams {
  *
  * NOTE: This is metadata-only validation. Actual conversation messages
  * are loaded via chat:resume, which triggers SDK to replay history.
- * The empty messages array is intentional - see TASK_2025_088.
+ * The empty messages array is intentional.
  */
 export interface SessionLoadResult {
   sessionId: SessionId;
@@ -50,7 +50,7 @@ export interface SessionLoadResult {
   agentSessions: [];
 }
 
-/** Parameters for session:delete RPC method (TASK_2025_086) */
+/** Parameters for session:delete RPC method */
 export interface SessionDeleteParams {
   /** Session ID to delete */
   sessionId: SessionId;
@@ -105,7 +105,7 @@ export interface SessionCliSessionsResult {
 }
 
 // ============================================================
-// Session Stats Batch RPC Types (TASK_2025_206 v2)
+// Session Stats Batch RPC Types
 // ============================================================
 
 /** Per-session stats returned from JSONL reading */

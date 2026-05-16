@@ -218,7 +218,7 @@ export class AppShellComponent {
   readonly sessionNamePopoverOpen = this._sessionNamePopoverOpen.asReadonly();
   readonly sessionNameInput = signal('');
 
-  // TASK_2025_192: Session search & filter state
+  // Session search & filter state
   private readonly _searchQuery = signal('');
   private readonly _dateFrom = signal('');
   private readonly _dateTo = signal('');
@@ -275,7 +275,7 @@ export class AppShellComponent {
     });
   });
 
-  // TASK_2025_142: License reason for trial ended modal
+  // License reason for trial ended modal
   readonly licenseReason = computed(
     () => this.chatStore.licenseStatus()?.reason,
   );
@@ -290,7 +290,7 @@ export class AppShellComponent {
     viewChild<ElementRef<HTMLInputElement>>('editSessionInput');
 
   /**
-   * TASK_2025_194: Flag to ensure auth redirect check runs only once.
+   * Flag to ensure auth redirect check runs only once.
    * Prevents re-triggering on subsequent signal changes.
    */
   private authCheckDone = false;
@@ -305,7 +305,7 @@ export class AppShellComponent {
       }
     });
 
-    // TASK_2025_194: Check auth status on initial load.
+    // Check auth status on initial load.
     // If user is licensed but has no auth configured, redirect to settings.
     // This handles the case where a user activates their license on the welcome
     // page and lands on chat view with no provider keys configured.
@@ -484,7 +484,7 @@ export class AppShellComponent {
   }
 
   /**
-   * Clear all session search/filter inputs (TASK_2025_192)
+   * Clear all session search/filter inputs
    */
   clearFilters(): void {
     this._searchQuery.set('');
@@ -494,13 +494,13 @@ export class AppShellComponent {
   }
 
   /**
-   * Toggle date filter visibility (TASK_2025_192)
+   * Toggle date filter visibility
    */
   toggleDateFilter(): void {
     this._dateFilterOpen.update((open) => !open);
   }
 
-  // TASK_2025_192: Setter methods for template ngModel bindings
+  // Setter methods for template ngModel bindings
   setSearchQuery(value: string): void {
     this._searchQuery.set(value);
   }
@@ -551,7 +551,7 @@ export class AppShellComponent {
   }
 
   /**
-   * Delete session from storage (TASK_2025_086)
+   * Delete session from storage.
    * Shows confirmation dialog before deleting
    */
   /**

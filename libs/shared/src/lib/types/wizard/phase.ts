@@ -1,7 +1,7 @@
 /**
  * Setup Wizard message types, analysis phases, and payload types.
  *
- * Extracted from setup-wizard.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
+ * Extracted from setup-wizard.types.ts — zero behavior change.
  */
 
 // ============================================================================
@@ -104,7 +104,6 @@ export interface AnalysisStreamPayload {
    * When present, the setup-wizard frontend accumulates these into a StreamingState
    * and renders via ExecutionTreeBuilderService + ExecutionNodeComponent.
    * Backward compatible: old payloads without this field still work.
-   * @see TASK_2025_229
    */
   flatEvent?: import('../execution').FlatStreamEventUnion;
 }

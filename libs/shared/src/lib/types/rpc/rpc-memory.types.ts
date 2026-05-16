@@ -1,5 +1,5 @@
 /**
- * RPC types — Memory Curator (TASK_2026_HERMES Track 1).
+ * RPC types — Memory Curator.
  *
  * 8 memory.* methods: list / search / get / pin / unpin / forget /
  * rebuildIndex / stats. Mirrors `@ptah-extension/memory-curator` domain

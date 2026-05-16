@@ -358,11 +358,11 @@ describe('SessionStatsAggregatorService', () => {
   });
 
   // ------------------------------------------------------------------
-  // TASK_2026_109_FOLLOWUP N2 — extend cumulative-fallback skip rule to
-  // non-compacted sessions when the cumulative sum exceeds contextWindow.
-  // Long sessions on third-party providers (OpenRouter, Moonshot, Ollama)
-  // never emit `lastTurnContextTokens`, so the cumulative input + output +
-  // cacheRead can climb past contextWindow and produce 1000%+ CTX badges.
+  // Extend cumulative-fallback skip rule to non-compacted sessions when
+  // the cumulative sum exceeds contextWindow. Long sessions on third-party
+  // providers (OpenRouter, Moonshot, Ollama) never emit
+  // `lastTurnContextTokens`, so the cumulative input + output + cacheRead
+  // can climb past contextWindow and produce 1000%+ CTX badges.
   // ------------------------------------------------------------------
   describe('N2 — skip cumulative-fallback when cumulative > contextWindow', () => {
     it('drops the live-stats update without compaction when cumulative exceeds the window', () => {
@@ -411,10 +411,10 @@ describe('SessionStatsAggregatorService', () => {
   });
 
   // ------------------------------------------------------------------
-  // TASK_2026_109_FOLLOWUP N5 — sticky primary model. Prefer the tab's
-  // sessionModel over the cost-based pickPrimaryModel when sessionModel is
-  // present in the modelUsage array. Stops Haiku-via-subagent bursts from
-  // visibly flipping the displayed primary model away from the user's pick.
+  // Sticky primary model. Prefer the tab's sessionModel over the cost-based
+  // pickPrimaryModel when sessionModel is present in the modelUsage array.
+  // Stops Haiku-via-subagent bursts from visibly flipping the displayed
+  // primary model away from the user's pick.
   // ------------------------------------------------------------------
   describe('N5 — sticky primary model by sessionModel', () => {
     it('prefers tab sessionModel over the higher-cost cost-based pick', () => {

@@ -154,15 +154,15 @@ export class ChatViewComponent {
   private readonly _appState = inject(AppStateManager);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
 
-  // TASK_2026_106 Phase 4c — compaction banner is now sourced from the
-  // ConversationRegistry so all tabs bound to a compacting conversation
-  // see the banner simultaneously (canvas-grid scenario). Falls back to
-  // legacy per-tab `isCompacting` flag for tabs not yet registered.
+  // Compaction banner is sourced from the ConversationRegistry so all tabs
+  // bound to a compacting conversation see the banner simultaneously
+  // (canvas-grid scenario). Falls back to legacy per-tab `isCompacting` flag
+  // for tabs not yet registered.
   private readonly _conversationRegistry = inject(ConversationRegistry);
   private readonly _tabSessionBinding = inject(TabSessionBinding);
   /**
-   * TASK_2026_109 B4 — read the one-tick auto-animate suppression flag set
-   * by `CompactionLifecycleService.handleCompactionComplete`. Combined with
+   * Read the one-tick auto-animate suppression flag set by
+   * `CompactionLifecycleService.handleCompactionComplete`. Combined with
    * `resolvedIsStreaming()` and `isFinalizingTransition()` in the
    * `[autoAnimateDisabled]` binding so the FLIP directive skips the
    * stale→empty diff that produced bubble overlap with sticky headers.
@@ -307,7 +307,7 @@ export class ChatViewComponent {
   private readonly messageContainerRef =
     viewChild<ElementRef<HTMLElement>>('messageContainer');
 
-  /** Signal-based viewChild for chat input (TASK_2025_174: prompt suggestion fill) */
+  /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
   private readonly chatInputRef = viewChild(ChatInputComponent);
 
   /**
@@ -347,9 +347,9 @@ export class ChatViewComponent {
    * auto-scroll during the dramatic DOM swap (streaming elements destroyed,
    * finalized elements created).
    *
-   * TASK_2026_TREE_STABILITY Fix 5/8: Promoted to a signal so it can flow
-   * reactively into <ptah-message-bubble> and onward to ExecutionNodeComponent
-   * + InlineAgentBubbleComponent — those use it to suppress fade keyframes
+   * Promoted to a signal so it can flow reactively into
+   * <ptah-message-bubble> and onward to ExecutionNodeComponent +
+   * InlineAgentBubbleComponent — those use it to suppress fade keyframes
    * during the finalize burst.
    */
   protected readonly isFinalizingTransition = signal(false);
@@ -363,7 +363,6 @@ export class ChatViewComponent {
   /**
    * Resolved session ID: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
    * Used by canvas tiles to scope streaming messages to their per-tile session.
-   * TASK_2025_265
    */
   readonly resolvedSessionId = computed(() => {
     const ctx = this._sessionContext;
@@ -383,7 +382,6 @@ export class ChatViewComponent {
 
   /**
    * Resolved messages: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
-   * TASK_2025_265
    */
   readonly resolvedMessages = computed(() => {
     const ctx = this._sessionContext;
@@ -399,7 +397,6 @@ export class ChatViewComponent {
 
   /**
    * Resolved streaming state: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
-   * TASK_2025_265
    */
   readonly resolvedIsStreaming = computed(() => {
     const ctx = this._sessionContext;
@@ -508,19 +505,18 @@ export class ChatViewComponent {
    * Resolved isCompacting: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
    * Prevents compaction banner from showing on ALL canvas tiles when only one session compacts.
    *
-   * TASK_2026_106 Phase 4c — sourced from `ConversationRegistry` via
-   * `TabSessionBinding`. Compaction is conversation-scoped, so every tab
-   * bound to the conversation sees the banner together (canvas-grid).
+   * Sourced from `ConversationRegistry` via `TabSessionBinding`. Compaction
+   * is conversation-scoped, so every tab bound to the conversation sees the
+   * banner together (canvas-grid).
    *
-   * TASK_2026_109 C1 — reads ONLY from the conversation registry. The
-   * previous fallback to `tab.isCompacting` / `chatStore.isCompacting()`
-   * created a second source of truth: when StreamRouter had not yet
-   * registered the conversation by `compaction_complete` time, the registry
-   * stayed `inFlight=true` while the tab cleared (or vice versa) and the
-   * banner stuck on the 120s safety timeout. The lifecycle service now
-   * writes through the registry on every transition, so unresolved
-   * conversations simply render no banner — which is the correct state
-   * for an unrouted tab.
+   * Reads ONLY from the conversation registry. The previous fallback to
+   * `tab.isCompacting` / `chatStore.isCompacting()` created a second source
+   * of truth: when StreamRouter had not yet registered the conversation by
+   * `compaction_complete` time, the registry stayed `inFlight=true` while
+   * the tab cleared (or vice versa) and the banner stuck on the 120s safety
+   * timeout. The lifecycle service now writes through the registry on every
+   * transition, so unresolved conversations simply render no banner — which
+   * is the correct state for an unrouted tab.
    */
   readonly resolvedIsCompacting = computed(() => {
     const tab = this.resolvedTab();
@@ -564,25 +560,25 @@ export class ChatViewComponent {
 
     const tabId = this.resolvedTabId(); // frontend UUID (e.g. "tab-abc123")
     const activeTabId = this._tabManager.activeTabId();
-    // TASK_2026_109_FOLLOWUP_QUESTIONS Q3 — main-panel suppression when
-    // canvas tiles are present. The main chat-view (no SESSION_CONTEXT)
-    // uses `activeTabId` as its `resolvedTabId`, which means the active
-    // tile's `tabId` matches step 1's `targets.includes(tabId)` — both
-    // the main panel AND the active tile would render the same question.
-    // When tiles exist (`layoutMode === 'grid'`), defer to the tile and
-    // suppress the main panel rendering entirely.
+    // Main-panel suppression when canvas tiles are present. The main
+    // chat-view (no SESSION_CONTEXT) uses `activeTabId` as its
+    // `resolvedTabId`, which means the active tile's `tabId` matches
+    // step 1's `targets.includes(tabId)` — both the main panel AND the
+    // active tile would render the same question. When tiles exist
+    // (`layoutMode === 'grid'`), defer to the tile and suppress the main
+    // panel rendering entirely.
     const isMainPanel = !this._sessionContext;
     const tilesPresent = this._appState.layoutMode() === 'grid';
     if (isMainPanel && tilesPresent) {
       return [];
     }
 
-    // TASK_2026_109_FOLLOWUP_QUESTIONS Q5 — strict active-tile narrowing.
-    // The previous `!this._sessionContext || ...` made the main panel
-    // ALWAYS qualify; combined with Q3 above the main panel is now
-    // already suppressed when tiles exist, so this can be the strict
-    // tab-id match. When there are no tiles, the main panel's
-    // `resolvedTabId()` IS `activeTabId` — same condition holds.
+    // Strict active-tile narrowing. The previous
+    // `!this._sessionContext || ...` made the main panel ALWAYS qualify;
+    // combined with the suppression above, the main panel is already
+    // suppressed when tiles exist, so this can be the strict tab-id match.
+    // When there are no tiles, the main panel's `resolvedTabId()` IS
+    // `activeTabId` — same condition holds.
     const isActiveTile = tabId !== null && tabId === activeTabId;
 
     return allQuestions.filter((q) => {
@@ -592,12 +588,12 @@ export class ChatViewComponent {
         return tabId !== null && targets.includes(tabId);
       }
 
-      // 2. TASK_2026_109_FOLLOWUP_QUESTIONS Q4 — strict tab-id-only legacy
-      //    match. The previous expression matched on `q.sessionId === sessionId`
-      //    too, which double-rendered when two tabs share a `resolvedSessionId`
-      //    (rewind/fork pointing at the same session) and the router didn't
-      //    attach targets in time. Tab-id equality is the only safe legacy
-      //    correlation now that the router owns conversation ↔ tab routing.
+      // 2. Strict tab-id-only legacy match. The previous expression matched
+      //    on `q.sessionId === sessionId` too, which double-rendered when
+      //    two tabs share a `resolvedSessionId` (rewind/fork pointing at the
+      //    same session) and the router didn't attach targets in time.
+      //    Tab-id equality is the only safe legacy correlation now that the
+      //    router owns conversation ↔ tab routing.
       const legacyMatch =
         tabId !== null && (q.tabId === tabId || q.sessionId === tabId);
       if (legacyMatch) return true;
@@ -634,8 +630,8 @@ export class ChatViewComponent {
   });
 
   /**
-   * TASK_2025_096 FIX: Computed signal that creates ExecutionChatMessages
-   * from ALL currentExecutionTrees (not just the first one).
+   * Computed signal that creates ExecutionChatMessages from ALL
+   * currentExecutionTrees (not just the first one).
    *
    * When Claude uses tools, the SDK sends multiple assistant messages in one turn:
    * - Message 1: Contains tool calls (e.g., Glob)
@@ -644,11 +640,11 @@ export class ChatViewComponent {
    * Previously, only the first tree was rendered, causing subsequent messages to be LOST!
    * Now we return ALL trees as messages so they can all be rendered.
    *
-   * TASK_2025_100 FIX: Include pendingStats from streamingState so stats display
-   * during/after streaming before finalization. Stats may arrive before finalization
-   * and should be shown immediately.
+   * Includes pendingStats from streamingState so stats display during/after
+   * streaming before finalization. Stats may arrive before finalization and
+   * should be shown immediately.
    *
-   * DEDUPLICATION FIX: Finalized messages use tree.id (event id) NOT messageId,
+   * DEDUPLICATION: Finalized messages use tree.id (event id) NOT messageId,
    * so we can properly match and filter out already-finalized trees.
    */
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
@@ -747,8 +743,8 @@ export class ChatViewComponent {
     // Reset auto-scroll when a new user message is sent.
     // This ensures the view scrolls to show the user's message even if
     // they had scrolled up to read earlier content before sending.
-    // TASK_2025_265 FIX 3: Use resolvedMessages() so canvas tiles track their own
-    // tab's messages rather than the global active-tab messages.
+    // Use resolvedMessages() so canvas tiles track their own tab's messages
+    // rather than the global active-tab messages.
     effect(() => {
       const messages = this.resolvedMessages();
       const count = messages.length;
@@ -874,7 +870,7 @@ export class ChatViewComponent {
   }
 
   /**
-   * Handle prompt selection from empty state - fill chat input (TASK_2025_174)
+   * Handle prompt selection from empty state - fill chat input.
    * Uses ChatInputComponent.restoreContentToInput which handles focus and auto-resize.
    */
   handlePromptSelected(promptText: string): void {
@@ -1295,10 +1291,11 @@ export class ChatViewComponent {
       this.scheduleScroll();
     });
 
-    // Watch for any DOM changes in the container subtree
-    // TASK_2025_264 P5: Removed characterData (fired on every text node change during
-    // streaming, causing excessive scroll callbacks). childList + subtree is sufficient
-    // because Angular's change detection adds new DOM elements for streaming content.
+    // Watch for any DOM changes in the container subtree.
+    // characterData is intentionally NOT observed — it fires on every text
+    // node change during streaming, causing excessive scroll callbacks.
+    // childList + subtree is sufficient because Angular's change detection
+    // adds new DOM elements for streaming content.
     this.observer.observe(container, {
       childList: true, // New nodes added/removed
       subtree: true, // Watch entire subtree (recursive components)

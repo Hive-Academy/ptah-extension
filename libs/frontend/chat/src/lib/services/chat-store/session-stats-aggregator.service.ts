@@ -18,7 +18,7 @@ import { MessageDispatchService } from './message-dispatch.service';
 /**
  * SessionStatsAggregatorService - Process SESSION_STATS events from the backend.
  *
- * Responsibilities (carved from ChatStore in Wave C7g):
+ * Responsibilities:
  * - Route incoming stats to the correct tab (with active-tab fallback)
  * - Process modelUsage array: pick primary model by highest cost,
  *   compute context-fill (lastTurnContextTokens preferred over cumulative)

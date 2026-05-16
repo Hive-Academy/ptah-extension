@@ -39,8 +39,8 @@ export interface WizardDeepAnalyzeParams {
 /**
  * Multi-phase analysis response from wizard:deep-analyze RPC method.
  *
- * TASK_2025_154: When multi-phase pipeline is used, the handler returns
- * the manifest + phase file contents (markdown) instead of a JSON blob.
+ * When the multi-phase pipeline is used, the handler returns the manifest
+ * + phase file contents (markdown) instead of a JSON blob.
  */
 export interface MultiPhaseAnalysisResponse {
   /** Discriminator: always true for multi-phase responses */
@@ -89,8 +89,8 @@ export type WizardRecommendAgentsParams = unknown; // DeepProjectAnalysis input
 /**
  * Response from wizard:recommend-agents RPC method
  *
- * TASK_2025_111: Agent recommendations based on project analysis
- * Returns array of AgentRecommendation (from setup-wizard.types.ts)
+ * Agent recommendations based on project analysis.
+ * Returns array of AgentRecommendation (from setup-wizard.types.ts).
  */
 export type WizardRecommendAgentsResponse = AgentRecommendation[];
 
@@ -100,7 +100,7 @@ export type WizardCancelAnalysisParams = Record<string, never>;
 /**
  * Response from wizard:cancel-analysis RPC method
  *
- * TASK_2025_145 SERIOUS-6: Cancellation RPC for agentic analysis
+ * Cancellation RPC for agentic analysis.
  */
 export interface WizardCancelAnalysisResponse {
   /** Whether cancellation was triggered (false if no analysis was running) */
@@ -108,7 +108,7 @@ export interface WizardCancelAnalysisResponse {
 }
 
 // ============================================================
-// Wizard Generation RPC Types (TASK_2025_148)
+// Wizard Generation RPC Types
 // ============================================================
 
 /** Parameters for wizard:submit-selection RPC method */
@@ -165,12 +165,12 @@ export interface WizardRetryItemResponse {
   error?: string;
 }
 
-// Multi-Phase Analysis RPC Types removed (TASK_2025_154 wiring):
+// Multi-Phase Analysis RPC Types removed:
 // wizard:start-multi-phase-analysis and wizard:cancel-multi-phase-analysis
 // are now integrated into wizard:deep-analyze and wizard:cancel-analysis.
 
 // ============================================================
-// Enhanced Prompts RPC Types (TASK_2025_137)
+// Enhanced Prompts RPC Types
 // ============================================================
 
 /**
@@ -312,7 +312,7 @@ export interface EnhancedPromptsRegenerateResponse {
 }
 
 // ============================================================
-// Agent Pack Browser RPC Types (TASK_2025_258)
+// Agent Pack Browser RPC Types
 // ============================================================
 
 /** A single agent entry within a pack (frontend-facing DTO) */

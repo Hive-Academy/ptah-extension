@@ -3,7 +3,7 @@
  * `MODEL_REFRESH_CONTROL` token (from `@ptah-extension/chat-state`) to its
  * concrete `ModelStateService` implementation (from `@ptah-extension/core`).
  *
- * TASK_2026_105 Wave G2 Phase 2. Mirrors `provideStreamingControl()`.
+ * Mirrors `provideStreamingControl()`.
  *
  * `chat-state` (tagged `type:data-access`) cannot import
  * `@ptah-extension/core` (`type:core`) per Nx module-boundary rules. This

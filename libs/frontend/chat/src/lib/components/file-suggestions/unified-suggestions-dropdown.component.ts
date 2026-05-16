@@ -29,7 +29,7 @@ export type { SuggestionItem } from './suggestion-option.component';
  * - Uses Floating UI for positioning (replaces CDK Overlay)
  * - Uses KeyboardNavigationService for signal-based navigation (replaces ActiveDescendantKeyManager)
  * - Options receive isActive as INPUT (not via Highlightable interface)
- * - Filter input INSIDE dropdown (Batch 13) - focus stays on filter input
+ * - Filter input INSIDE dropdown - focus stays on filter input
  * - Supports file and command types via discriminated union
  * - Agents handled by dedicated AgentSelectorComponent
  *

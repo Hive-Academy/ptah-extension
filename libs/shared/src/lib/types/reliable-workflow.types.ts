@@ -4,7 +4,7 @@
  * Type definitions for the generalized reliable generation pattern
  * extracted from Agent Generation's template + LLM + validation workflow.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
+ * Unified Project Intelligence with Code Quality Assessment.
  *
  * @packageDocumentation
  */

@@ -4,7 +4,7 @@
  * Type definitions for code quality assessment, anti-pattern detection,
  * and prescriptive guidance generation.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
+ * Unified Project Intelligence with Code Quality Assessment.
  *
  * @packageDocumentation
  */
@@ -38,19 +38,19 @@ export type AntiPatternType =
   | 'test-missing-spec'
   | 'test-no-assertions'
   | 'test-all-skipped'
-  // Angular anti-patterns (Phase E2 - TASK_2025_144)
+  // Angular anti-patterns
   | 'angular-improper-change-detection'
   | 'angular-subscription-leak'
   | 'angular-circular-dependency'
   | 'angular-large-component'
   | 'angular-missing-trackby'
-  // NestJS anti-patterns (Phase E2 - TASK_2025_144)
+  // NestJS anti-patterns
   | 'nestjs-missing-decorator'
   | 'nestjs-controller-logic'
   | 'nestjs-unsafe-repository'
   | 'nestjs-missing-guard'
   | 'nestjs-circular-module'
-  // React anti-patterns (Phase E2 - TASK_2025_144)
+  // React anti-patterns
   | 'react-missing-key'
   | 'react-direct-state-mutation'
   | 'react-useeffect-dependencies'
@@ -137,7 +137,7 @@ export interface QualityAssessment {
   analysisTimestamp: number;
   /** Duration of analysis in milliseconds */
   analysisDurationMs: number;
-  /** Statistics from incremental analysis (Phase F - TASK_2025_144) */
+  /** Statistics from incremental analysis */
   incrementalStats?: {
     /** Number of files retrieved from cache */
     cachedFiles: number;
@@ -224,7 +224,7 @@ export interface WorkspaceContext {
 }
 
 // ============================================
-// Quality History Types (Phase G - TASK_2025_144)
+// Quality History Types
 // ============================================
 
 /**

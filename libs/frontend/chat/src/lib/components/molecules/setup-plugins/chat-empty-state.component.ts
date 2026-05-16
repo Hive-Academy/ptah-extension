@@ -193,7 +193,7 @@ import { ChatStore } from '../../../services/chat.store';
             </div>
           </div>
 
-          <!-- Prompt Suggestions with tab-card layout (TASK_2025_174) -->
+          <!-- Prompt Suggestions with tab-card layout -->
           <ptah-prompt-suggestions
             (promptSelected)="promptSelected.emit($event)"
           />
@@ -286,7 +286,7 @@ import { ChatStore } from '../../../services/chat.store';
             </div>
           </div>
 
-          <!-- Prompt Suggestions (TASK_2025_174) -->
+          <!-- Prompt Suggestions -->
           <ptah-prompt-suggestions
             (promptSelected)="promptSelected.emit($event)"
           />
@@ -302,7 +302,7 @@ import { ChatStore } from '../../../services/chat.store';
       </div>
     </div>
 
-    <!-- Plugin Browser Modal (TASK_2025_153) -->
+    <!-- Plugin Browser Modal -->
     <ptah-plugin-browser-modal
       [isOpen]="isPluginBrowserOpen()"
       (closed)="closePluginBrowser()"
@@ -359,7 +359,7 @@ export class ChatEmptyStateComponent {
   @ViewChild(PluginStatusWidgetComponent)
   private pluginWidget?: PluginStatusWidgetComponent;
 
-  /** Emitted when user selects a prompt suggestion (TASK_2025_174) */
+  /** Emitted when user selects a prompt suggestion */
   readonly promptSelected = output<string>();
 
   /** Lucide icon references for template binding */
@@ -375,7 +375,7 @@ export class ChatEmptyStateComponent {
     () => this.chatStore.licenseStatus()?.isPremium ?? false,
   );
 
-  /** Whether the plugin browser modal is open (TASK_2025_153) */
+  /** Whether the plugin browser modal is open */
   protected readonly isPluginBrowserOpen = signal(false);
 
   /** Active tab: 'skills' or 'setup' */

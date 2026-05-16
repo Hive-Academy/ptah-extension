@@ -16,7 +16,6 @@
  * - Trailing spaces (ignored as per Git spec)
  *
  * @see https://git-scm.com/docs/gitignore - Git ignore pattern spec
- * @see .ptah/specs/TASK_PRV_005/implementation-plan.md - Phase 2 Step 2.5
  */
 
 import { injectable, inject } from 'tsyringe';

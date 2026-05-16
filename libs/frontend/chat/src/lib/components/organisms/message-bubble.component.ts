@@ -93,10 +93,9 @@ export class MessageBubbleComponent {
   readonly isStreaming = input<boolean>(false);
 
   /**
-   * TASK_2026_TREE_STABILITY Fix 5/8: True while the chat is in the
-   * streaming → finalized handoff window (~300ms). Forwarded down to
-   * ExecutionNodeComponent so it can suppress fade keyframes that would
-   * otherwise stack on top of the layout settle.
+   * True while the chat is in the streaming → finalized handoff window
+   * (~300ms). Forwarded down to ExecutionNodeComponent so it can suppress
+   * fade keyframes that would otherwise stack on top of the layout settle.
    */
   readonly isFinalizing = input<boolean>(false);
 
@@ -288,8 +287,6 @@ export class MessageBubbleComponent {
   protected toggleContinuationCollapse(): void {
     this.isContinuationCollapsed.update((v) => !v);
   }
-
-  // TASK_2025_109: onResumeRequested removed - now uses context injection
 
   protected formatTime(timestamp: number): string {
     const date = new Date(timestamp);

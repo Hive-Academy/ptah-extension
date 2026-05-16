@@ -1,5 +1,4 @@
 // libs/backend/workspace-intelligence/src/services/code-symbol-indexer.service.ts
-// TASK_2026_THOTH_CODE_INDEX
 
 import * as path from 'path';
 import picomatch from 'picomatch';

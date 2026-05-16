@@ -17,17 +17,14 @@ import { TabState } from '@ptah-extension/chat-types';
 /**
  * ChatLifecycleService - Cross-cutting reactive lifecycle work.
  *
- * Responsibilities (carved from ChatStore in Wave C7g):
+ * Responsibilities:
  * - bootstrap: kick off async initialization (loadSessions,
  *   restoreCliSessionsForActiveTab, loadAuthStatus, fetchLicenseStatus)
  *   after services are ready; flips ChatStore._servicesReady via callback
- * - License status fetch with 3-attempt linear backoff (TASK_2025_142)
+ * - License status fetch with 3-attempt linear backoff
  * - handleAgentSummaryChunk: route agent JSONL chunks to per-tab streaming state
- *   (TASK_2025_099, TASK_2025_102)
  * - handleSessionIdResolved: replace placeholder tab IDs with real SDK UUIDs
- *   (TASK_2025_095)
  * - handleChatError: 3-tier tab routing, abort-finalize-before-clear, full state reset
- *   (TASK_2025_092, TASK_2025_COMPACT_FIX)
  *
  * All log strings preserved with `[ChatStore]` prefix to maintain debug
  * continuity with consumers and existing log analysis tooling.
@@ -43,7 +40,7 @@ export class ChatLifecycleService {
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
 
-  // License status signal (TASK_2025_142)
+  // License status signal
   private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
     null,
   );
@@ -79,7 +76,7 @@ export class ChatLifecycleService {
         console.error('[ChatStore] Failed to load auth status:', err);
       });
 
-      // TASK_2025_142: Fetch license status for trial banners
+      // Fetch license status for trial banners
       this.fetchLicenseStatus().catch((err) => {
         console.error('[ChatStore] Failed to fetch license status:', err);
       });
@@ -93,9 +90,9 @@ export class ChatLifecycleService {
    * Fetch the current license status from the backend with retry logic
    * Called during initialization to populate license information for trial banners
    *
-   * TASK_2025_142: Added linear backoff retry (3 attempts) to handle
-   * transient network failures. Without retry, users see no trial banner
-   * for the entire session if the initial fetch fails.
+   * Linear backoff retry (3 attempts) to handle transient network failures.
+   * Without retry, users see no trial banner for the entire session if the
+   * initial fetch fails.
    *
    * @param retries - Number of retry attempts (default: 3)
    */
@@ -143,16 +140,17 @@ export class ChatLifecycleService {
    * stored in StreamingState.agentSummaryAccumulators for the tree builder
    * to read at render time.
    *
-   * TASK_2025_099 FIX: Store in StreamingState instead of sessionManager.
-   * The ExecutionTreeBuilderService reads from StreamingState, not sessionManager,
-   * so summary content must be stored in StreamingState for the UI to render it.
+   * Stores in StreamingState instead of sessionManager. The
+   * ExecutionTreeBuilderService reads from StreamingState, not
+   * sessionManager, so summary content must be stored in StreamingState for
+   * the UI to render it.
    *
-   * TASK_2025_099: Uses agentId (not toolUseId) as the lookup key because:
+   * Uses agentId (not toolUseId) as the lookup key because:
    * - Hook fires with UUID-format toolUseId (e.g., "b4139c0d-...")
    * - Complete message arrives with Anthropic format toolCallId (e.g., "toolu_012W...")
    * - These don't match, but agentId (e.g., "adcecb2") is stable across both
    *
-   * TASK_2025_102: Now also stores structured content blocks for proper interleaving.
+   * Also stores structured content blocks for proper interleaving.
    *
    * @param payload - Contains toolUseId, summaryDelta, agentId, and optionally contentBlocks
    */
@@ -171,7 +169,7 @@ export class ChatLifecycleService {
     const { toolUseId, summaryDelta, agentId, sessionId, contentBlocks } =
       payload;
 
-    // TASK_2026_106 Phase 4b — fan out to ALL tabs bound to this session.
+    // Fan out to ALL tabs bound to this session.
     // Canvas grid: every tile bound to the session needs its
     // streamingState.agentSummaryAccumulators updated, otherwise sub-agent
     // summaries appear on one tile and freeze on the others.
@@ -196,13 +194,13 @@ export class ChatLifecycleService {
       const state = tab.streamingState;
       if (!state) continue;
 
-      // TASK_2025_099: Use agentId as key for summary accumulation.
+      // Use agentId as key for summary accumulation.
       // This is stable across hook (UUID toolUseId) and complete (toolu_* toolCallId).
       const currentSummary = state.agentSummaryAccumulators.get(agentId) || '';
       const newSummary = currentSummary + summaryDelta;
       state.agentSummaryAccumulators.set(agentId, newSummary);
 
-      // TASK_2025_102: Also store structured content blocks for interleaving
+      // Also store structured content blocks for interleaving
       if (contentBlocks && contentBlocks.length > 0) {
         const currentBlocks = state.agentContentBlocksMap.get(agentId) || [];
         const newBlocks = [...currentBlocks, ...contentBlocks];
@@ -220,7 +218,7 @@ export class ChatLifecycleService {
    * Backend sends real SDK UUID after SDK returns it from system init message
    * Without this, tabs store placeholder IDs (msg_XXX) which SDK rejects on resume
    *
-   * TASK_2025_095: Now uses tabId for direct routing - no temp ID lookup needed.
+   * Uses tabId for direct routing - no temp ID lookup needed.
    *
    * Flow:
    * 1. User sends message â†’ backend creates stream with tabId
@@ -234,7 +232,7 @@ export class ChatLifecycleService {
   }): void {
     const { tabId, realSessionId } = data;
 
-    // TASK_2025_095: Find tab directly by tabId - no temp ID lookup needed
+    // Find tab directly by tabId - no temp ID lookup needed
     const targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
 
     if (targetTab) {
@@ -269,7 +267,7 @@ export class ChatLifecycleService {
    * Handle chat error signal from backend
    * Called when an error occurs during chat (CLI error, network error, etc.)
    *
-   * TASK_2025_092: Now routes by tabId (primary) instead of sessionId lookup
+   * Routes by tabId (primary) instead of sessionId lookup:
    * - tabId: Direct tab routing (preferred)
    * - sessionId: Real SDK UUID for reference and fallback
    *
@@ -280,14 +278,14 @@ export class ChatLifecycleService {
     sessionId?: string;
     error: string;
   }): void {
-    // TASK_2025_098: Clear compaction state on error to avoid stale notification
+    // Clear compaction state on error to avoid stale notification
     this.compactionLifecycle.clearCompactionState();
 
     console.error('[ChatStore] Chat error:', data);
 
-    // TASK_2025_092 / TASK_2026_106 Phase 4b: Route by tabId (primary, single
-    // tab — the originating call site already knows which tab errored), or
-    // fall back to sessionId lookup which fans out to ALL bound tabs.
+    // Route by tabId (primary, single tab — the originating call site
+    // already knows which tab errored), or fall back to sessionId lookup
+    // which fans out to ALL bound tabs.
     let targetTabs: readonly TabState[] = [];
 
     // Primary: Use tabId for direct routing
@@ -300,8 +298,8 @@ export class ChatLifecycleService {
     }
 
     // Fallback: Find by sessionId if tabId not available (legacy support).
-    // Phase 4b: fan out so canvas-grid tiles bound to the same session all
-    // get reset rather than only the first one returned by the legacy lookup.
+    // Fan out so canvas-grid tiles bound to the same session all get reset
+    // rather than only the first one returned by the legacy lookup.
     if (targetTabs.length === 0 && data.sessionId) {
       targetTabs = this.tabManager.findTabsBySessionId(
         SessionId.from(data.sessionId),
@@ -342,15 +340,15 @@ export class ChatLifecycleService {
     // the interrupted badge never shows. By finalizing here, we ensure
     // partial streaming content is preserved with 'interrupted' status.
     //
-    // Phase 4b: per-tab finalization — each bound tab has its own
+    // Per-tab finalization — each bound tab has its own
     // streamingState.currentMessageId, so finalize each independently.
     for (const tab of targetTabs) {
       if (tab.streamingState?.currentMessageId) {
         this.streamingHandler.finalizeCurrentMessage(tab.id, true);
       }
-      // Reset streaming state (including per-tab currentMessageId)
-      // TASK_2025_COMPACT_FIX: Also clear queued content and visual streaming indicator
-      // to prevent "Message queued" banner from persisting after slash command errors
+      // Reset streaming state (including per-tab currentMessageId).
+      // Also clear queued content and visual streaming indicator to prevent
+      // "Message queued" banner from persisting after slash command errors.
       this.tabManager.applyErrorReset(tab.id);
       this.tabManager.markTabIdle(tab.id);
     }

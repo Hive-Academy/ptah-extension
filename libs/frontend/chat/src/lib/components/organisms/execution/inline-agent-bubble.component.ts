@@ -25,12 +25,11 @@ import {
   Send,
   CheckCircle2,
   XCircle,
-  // TASK_2025_109: PlayCircle removed - Resume button no longer needed
 } from 'lucide-angular';
-// TASK_2026_103 wave B2: ExecutionNodeComponent import removed to break the
-// execution-node ↔ inline-agent-bubble file-import cycle. Recursive rendering
-// of children is now delegated to a TemplateRef supplied by the parent
-// (ExecutionNodeComponent) via `nodeTemplate` input + ngTemplateOutlet.
+// ExecutionNodeComponent import removed to break the execution-node ↔
+// inline-agent-bubble file-import cycle. Recursive rendering of children is
+// delegated to a TemplateRef supplied by the parent (ExecutionNodeComponent)
+// via `nodeTemplate` input + ngTemplateOutlet.
 import {
   TypingCursorComponent,
   CostBadgeComponent,
@@ -78,7 +77,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
     AutoAnimateDirective,
   ],
   template: `
-    <!-- TASK_2025_109: Enhanced styling for interrupted agents -->
+    <!-- Enhanced styling for interrupted agents -->
     <!-- Interrupted agents get warning border + tinted background to stand out -->
     <!-- Background agents get dashed border + info tint -->
     <div
@@ -163,7 +162,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             <span class="text-[9px]">Streaming</span>
           </span>
         } @else if (isResumed()) {
-          <!-- TASK_2025_211: Resumed indicator — agent was interrupted then continued -->
+          <!-- Resumed indicator — agent was interrupted then continued -->
           <span
             class="badge badge-sm badge-success gap-1 flex-shrink-0"
             title="This agent was resumed in a new session."
@@ -171,7 +170,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             <span class="text-[10px] font-medium">Resumed</span>
           </span>
         } @else if (isInterrupted()) {
-          <!-- TASK_2025_109: Enhanced interrupted indicator with auto-resume hint -->
+          <!-- Enhanced interrupted indicator with auto-resume hint -->
           <span
             class="badge badge-sm badge-warning gap-1 flex-shrink-0"
             title="This agent was interrupted. It will auto-resume when you send a message."
@@ -383,16 +382,16 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
             [auto-animate]
           >
-            <!-- TASK_2025_102 FIX: summaryContent is now rendered as a text child node
-             instead of a separate block. This ensures agent text is properly
-             interleaved with tool calls in chronological order. -->
+            <!-- summaryContent is rendered as a text child node instead of a
+             separate block. This ensures agent text is properly interleaved
+             with tool calls in chronological order. -->
             @if (hasChildren()) {
               <!--
-              TASK_2026_103 wave B2: recursive child rendering is delegated to
-              a parent-supplied TemplateRef to break the file-import cycle
-              between this component and ExecutionNodeComponent. The parent
-              (ExecutionNodeComponent itself) provides the template via the
-              nodeTemplate input; we just stamp it once per child.
+              Recursive child rendering is delegated to a parent-supplied
+              TemplateRef to break the file-import cycle between this component
+              and ExecutionNodeComponent. The parent (ExecutionNodeComponent
+              itself) provides the template via the nodeTemplate input; we just
+              stamp it once per child.
             -->
               @for (child of node().children; track child.id) {
                 <ng-container
@@ -437,13 +436,13 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
 
       <!-- Agent Stats Footer (shown when stats available and not streaming) -->
       @if (hasStats() && !isStreaming()) {
-        <!-- TASK_2026_TREE_STABILITY Fix 5/8: animate.enter/leave gated by
-             !isFinalizing() — applied as a conditional class so the cross-fade
-             doesn't run during the finalize burst (which already includes a
-             layout settle). animate.enter is a static directive, so we ALSO
-             keep the directive but add a class-based suppression via
-             prefers-reduced-motion-style override below: when [data-finalizing]
-             is set on the host, the keyframes are no-ops. -->
+        <!-- animate.enter/leave gated by !isFinalizing() — applied as a
+             conditional class so the cross-fade doesn't run during the
+             finalize burst (which already includes a layout settle).
+             animate.enter is a static directive, so we ALSO keep the directive
+             but add a class-based suppression via prefers-reduced-motion-style
+             override below: when [data-finalizing] is set on the host, the
+             keyframes are no-ops. -->
         <div
           class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
           [style.background-color]="footerBgColor()"
@@ -533,10 +532,9 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
         animation: agentFadeOut 180ms cubic-bezier(0.4, 0, 0.2, 1) both;
       }
 
-      /* TASK_2026_TREE_STABILITY Fix 5/8: Suppress fade keyframes while a
-         finalize transition is in flight — avoids cross-fade waves stacking
-         on top of the layout settle when the streaming bubble swaps over to
-         the finalized representation. */
+      /* Suppress fade keyframes while a finalize transition is in flight —
+         avoids cross-fade waves stacking on top of the layout settle when
+         the streaming bubble swaps over to the finalized representation. */
       :host ::ng-deep [data-finalizing] .agent-fade-in,
       :host ::ng-deep [data-finalizing] .agent-fade-out,
       :host ::ng-deep [data-finalizing].agent-fade-in,
@@ -591,8 +589,8 @@ export class InlineAgentBubbleComponent {
   >();
 
   /**
-   * TASK_2026_103 wave B2: parent-supplied template used to recursively render
-   * child execution nodes. Decoupling this template from a static import of
+   * Parent-supplied template used to recursively render child execution
+   * nodes. Decoupling this template from a static import of
    * ExecutionNodeComponent breaks the inline-agent-bubble ↔ execution-node
    * file-import cycle. The parent (ExecutionNodeComponent) passes an
    * `<ng-template let-child>` whose body invokes `<ptah-execution-node>`.
@@ -602,11 +600,10 @@ export class InlineAgentBubbleComponent {
   }> | null>(null);
 
   /**
-   * TASK_2026_TREE_STABILITY Fix 5/8: Whether the chat is currently in the
-   * streaming → finalized handoff window. Forwarded from chat-view through
-   * ExecutionNodeComponent. When true, fade keyframes are suppressed via a
-   * `[data-finalizing]` attribute so cross-fades don't stack on the layout
-   * settle.
+   * Whether the chat is currently in the streaming → finalized handoff
+   * window. Forwarded from chat-view through ExecutionNodeComponent. When
+   * true, fade keyframes are suppressed via a `[data-finalizing]` attribute
+   * so cross-fades don't stack on the layout settle.
    */
   readonly isFinalizing = input<boolean>(false);
 
@@ -616,11 +613,8 @@ export class InlineAgentBubbleComponent {
    */
   readonly permissionResponded = output<PermissionResponse>();
 
-  // TASK_2025_109: resumeRequested output removed - Resume button no longer needed
-  // Subagent resumption is now handled via context injection in chat:continue RPC.
-
   /**
-   * TASK_2025_096 FIX: ViewChild reference for auto-scroll container.
+   * ViewChild reference for auto-scroll container.
    * Uses signal-based viewChild (Angular 20+ pattern).
    */
   private readonly contentContainerRef =
@@ -636,12 +630,9 @@ export class InlineAgentBubbleComponent {
   readonly SendIcon = Send;
   readonly CheckIcon = CheckCircle2;
   readonly XIcon = XCircle;
-  // TASK_2025_109: PlayCircleIcon removed - Resume button no longer needed
 
   // Collapse state - expanded by default, auto-collapsed for background agents
   readonly isCollapsed = signal(false);
-
-  // TASK_2025_109: isResuming signal removed - Resume button no longer needed
 
   constructor() {
     // Auto-collapse background agents so they don't interfere with the
@@ -687,7 +678,7 @@ export class InlineAgentBubbleComponent {
   }
 
   /**
-   * TASK_2025_096 FIX: Scroll agent content container to bottom
+   * Scroll agent content container to bottom.
    */
   private scrollAgentContentToBottom(): void {
     const containerRef = this.contentContainerRef();
@@ -718,10 +709,11 @@ export class InlineAgentBubbleComponent {
       this.scheduleScroll();
     });
 
-    // Watch for any DOM changes in the container subtree
-    // TASK_2025_264 P5: Removed characterData (fired on every text node change during
-    // streaming, causing excessive scroll callbacks). childList + subtree is sufficient
-    // because Angular's change detection adds new DOM elements for streaming content.
+    // Watch for any DOM changes in the container subtree.
+    // characterData is intentionally NOT observed — it fires on every text
+    // node change during streaming, causing excessive scroll callbacks.
+    // childList + subtree is sufficient because Angular's change detection
+    // adds new DOM elements for streaming content.
     this.observer.observe(container, {
       childList: true, // New nodes added/removed
       subtree: true, // Watch entire subtree (recursive components)
@@ -773,10 +765,10 @@ export class InlineAgentBubbleComponent {
   // Computed: is agent streaming
   readonly isStreaming = computed(() => this.node().status === 'streaming');
 
-  // Computed: was agent interrupted (TASK_2025_098)
+  // Computed: was agent interrupted
   readonly isInterrupted = computed(() => this.node().status === 'interrupted');
 
-  // Computed: was agent resumed (TASK_2025_211 — interrupted then continued in new agent)
+  // Computed: was agent resumed (interrupted then continued in new agent)
   // Checks both the node's own status and the AgentMonitorStore's resume tracking.
   // Matches by specific node ID to avoid false positives with multiple agents of same type.
   readonly isResumed = computed(() => {
@@ -796,9 +788,6 @@ export class InlineAgentBubbleComponent {
 
   // Computed: is background agent
   readonly isBackground = computed(() => this.node().isBackground === true);
-
-  // TASK_2025_109: isResumable computed removed - Resume button no longer needed
-  // Subagent resumption is now handled via context injection in chat:continue RPC.
 
   // Structured agent color { l, c, h } — preferred internal representation.
   // Built-in Claude agents get fixed oklch values for theme consistency;
@@ -903,16 +892,12 @@ export class InlineAgentBubbleComponent {
     );
   });
 
-  // TASK_2025_102: Removed hasSummaryContent and summaryContent computed signals.
-  // summaryContent is now rendered as a text child node via ExecutionNodeComponent,
-  // so these signals are no longer needed in this component.
-
   protected toggleCollapse(): void {
     this.isCollapsed.update((v) => !v);
   }
 
   // ───────────────────────────────────────────────────────────────────
-  // Phase 3: subagent visibility + bidirectional messaging
+  // Subagent visibility + bidirectional messaging
   // ───────────────────────────────────────────────────────────────────
 
   /** parentToolUseId for the SDK task this bubble represents. */

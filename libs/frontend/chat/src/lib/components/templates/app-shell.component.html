@@ -1,14 +1,13 @@
 <!-- Global confirmation dialog (replaces window.confirm) -->
 <ptah-confirmation-dialog />
 
-<!-- TASK_2025_142: Trial ended modal (shows when trial_ended reason) -->
-<!-- TASK_2025_194: Only render when not on welcome view to prevent invisible overlay stealing focus -->
+<!-- Trial ended modal (shows when trial_ended reason); only rendered when not on welcome view to prevent invisible overlay stealing focus -->
 @if (currentView() !== 'welcome') {
   <ptah-trial-ended-modal [reason]="licenseReason()" />
 }
 
 <!--
-  Layout Architecture (TASK_2025_271):
+  Layout Architecture:
   - Standalone views (setup-wizard, settings, welcome, analytics) render ON TOP via @switch
   - Shared chrome (sidebar, header, agent panel) is ALWAYS rendered but hidden when standalone view is active
   - Canvas state persists across standalone view navigation (components are hidden, not destroyed)
@@ -110,7 +109,7 @@
       />
     </div>
 
-    <!-- TASK_2025_192: Session search & filter -->
+    <!-- Session search & filter -->
     <div class="px-1.5 pt-1.5 pb-0.5 flex flex-col gap-1">
       <!-- Search input -->
       <label
@@ -389,7 +388,7 @@
         </button>
 
         <!--
-          Thoth nav button + first-run hint (TASK_2026_HERMES_FINISH B6).
+          Thoth nav button + first-run hint.
           The tooltip uses an inline DaisyUI popover wrapper rather than a new
           shared primitive (no `<ptah-tooltip>` exists in libs/frontend/ui).
           It renders only while `!thothFirstRunDismissed()` and disappears

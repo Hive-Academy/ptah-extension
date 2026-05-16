@@ -188,8 +188,8 @@ export interface ChatResumeResult {
   success: boolean;
   sessionId?: SessionId;
   /**
-   * Complete history messages (for session resume/replay)
-   * TASK_2025_092: Returns complete messages directly instead of streaming events
+   * Complete history messages (for session resume/replay).
+   * Returns complete messages directly instead of streaming events.
    * @deprecated Use `events` instead - messages only contain text, not tool calls
    */
   messages?: {
@@ -199,9 +199,9 @@ export interface ChatResumeResult {
     timestamp: number;
   }[];
   /**
-   * Full streaming events for session history replay
-   * TASK_2025_092 FIX: Includes tool_start, tool_result, thinking, agent_start events
-   * Frontend processes these through StreamingHandler to build ExecutionNode tree
+   * Full streaming events for session history replay.
+   * Includes tool_start, tool_result, thinking, agent_start events.
+   * Frontend processes these through StreamingHandler to build ExecutionNode tree.
    */
   events?: FlatStreamEventUnion[];
   /**
@@ -229,13 +229,13 @@ export interface ChatResumeResult {
     }>;
   } | null;
   /**
-   * Resumable subagents for this session (TASK_2025_103 FIX)
+   * Resumable subagents for this session.
    * Frontend uses this to mark agent nodes as resumable when loading from history.
    * Populated from SubagentRegistryService.getResumableBySession().
    */
   resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
   /**
-   * CLI agent sessions linked to this parent session (TASK_2025_161/168)
+   * CLI agent sessions linked to this parent session.
    * Enables displaying and resuming CLI sessions (e.g., Gemini) when loading saved sessions.
    * Populated from SessionMetadataStore.cliSessions[].
    */

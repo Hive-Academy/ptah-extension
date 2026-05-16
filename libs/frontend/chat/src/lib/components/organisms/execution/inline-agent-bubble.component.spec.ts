@@ -1,8 +1,7 @@
 /**
- * InlineAgentBubbleComponent — Phase 3 spec coverage
+ * InlineAgentBubbleComponent — subagent visibility + bidirectional messaging spec coverage
  *
- * Focuses on the new subagent visibility + bidirectional messaging
- * behavior wired in Phase 3:
+ * Focuses on the new subagent visibility + bidirectional messaging behavior:
  *   - status badge selection by SubagentRecord.status (via canStop / record)
  *   - canStop() gating (running + taskId)
  *   - canSendMessage() gating (running)
