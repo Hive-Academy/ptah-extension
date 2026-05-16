@@ -15,7 +15,7 @@
  * - No circular dependencies (mediator pattern)
  * - Easy to test (mock dependencies)
  *
- * Extracted from ChatStore refactoring (TASK_2025_054) - Batch 3
+ * Extracted from ChatStore refactoring.
  */
 
 import { Injectable, inject } from '@angular/core';
@@ -61,11 +61,10 @@ export class MessageSenderService {
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
   private readonly ptahCliState = inject(PtahCliStateService);
-  // TASK_2026_106 Phase 6b — `placeholderSessionId` retired. The
-  // sessionId for a brand-new conversation is now sourced from the
-  // routing layer: if the tab is bound to a conversation that already
-  // has a head session, reuse it; otherwise mint a fresh id and let
-  // StreamRouter append it on the first event.
+  // `placeholderSessionId` retired. The sessionId for a brand-new
+  // conversation is sourced from the routing layer: if the tab is bound to
+  // a conversation that already has a head session, reuse it; otherwise mint
+  // a fresh id and let StreamRouter append it on the first event.
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly tabSessionBinding = inject(TabSessionBinding);
 
@@ -81,8 +80,8 @@ export class MessageSenderService {
   }
 
   /**
-   * TASK_2026_106 Phase 6b — sourcing helper for the session id used in
-   * `startNewConversation`. Replaces `tab.placeholderSessionId`.
+   * Sourcing helper for the session id used in `startNewConversation`.
+   * Replaces `tab.placeholderSessionId`.
    *
    * Resolves the active tab's bound conversation via `TabSessionBinding`,
    * then returns the head session id (last session in the conversation's
@@ -151,10 +150,10 @@ export class MessageSenderService {
    * `TabManagerService.closeTab(tabId)` when the user closes the tab while
    * streaming.
    *
-   * TASK_2026_103 Wave E2: this is the ONE place that knows BOTH the tabId
-   * (to look up the AbortController) AND the SessionId (required by the
-   * chat:abort RPC), so registering the listener here keeps TabManager
-   * free of any session-resolution logic.
+   * This is the ONE place that knows BOTH the tabId (to look up the
+   * AbortController) AND the SessionId (required by the chat:abort RPC),
+   * so registering the listener here keeps TabManager free of any
+   * session-resolution logic.
    *
    * Returns the signal so it can be threaded through to the streaming RPC.
    */
@@ -175,7 +174,7 @@ export class MessageSenderService {
         }
         // Fire-and-forget: the abort dispatch must not block tab close.
         this.claudeRpcService
-          .call('chat:abort', { sessionId: sessionId as SessionId })
+          .call('chat:abort', { sessionId })
           .catch((error) => {
             console.warn(
               '[MessageSender] chat:abort dispatch failed on tab close',
@@ -258,15 +257,10 @@ export class MessageSenderService {
       : this.tabManager.activeTab();
 
     const sessionId = targetTab?.claudeSessionId;
-    const hasExistingSession =
-      targetTab && sessionId && sessionId !== ('' as SessionId);
+    const hasExistingSession = targetTab && sessionId != null;
 
     if (hasExistingSession && sessionId) {
-      await this.continueConversation(
-        sanitized,
-        sessionId as SessionId,
-        options,
-      );
+      await this.continueConversation(sanitized, sessionId, options);
     } else {
       await this.startNewConversation(sanitized, options);
     }
@@ -368,7 +362,7 @@ export class MessageSenderService {
       const activeTab =
         this.tabManager.tabs().find((t) => t.id === activeTabId) ??
         this.tabManager.activeTab();
-      // TASK_2026_106 Phase 6b — replaces `activeTab?.placeholderSessionId`.
+      // Replaces `activeTab?.placeholderSessionId`.
       // Look up the routing layer: if the active tab is bound to a
       // conversation whose head session is known, reuse it (legacy
       // resume parity). Otherwise mint a fresh id; StreamRouter will
@@ -376,11 +370,11 @@ export class MessageSenderService {
       const sessionId =
         this.headSessionForTab(activeTab?.id) ?? this.generateId();
 
-      // Update tab with streaming status immediately
-      // TASK_2025_086: Changed from 'draft' to 'streaming' so UI shows content as it arrives
-      // Previously, isStreaming() returned false until session:id-resolved, hiding all streaming content
-      // TASK_2025_192: Auto-name session from first message content (not "New Chat")
-      // Only auto-name if user hasn't already set a custom name (preserve user renames)
+      // Update tab with streaming status immediately so UI shows content
+      // as it arrives. Previously, isStreaming() returned false until
+      // session:id-resolved, hiding all streaming content.
+      // Auto-name session from first message content (not "New Chat").
+      // Only auto-name if user hasn't already set a custom name (preserve user renames).
       const currentName = activeTab?.name;
       const hasUserName = currentName && currentName !== 'New Chat';
       const autoName = hasUserName
@@ -391,20 +385,20 @@ export class MessageSenderService {
       // Show streaming indicator (visual only - no side effects)
       this.tabManager.markTabStreaming(activeTabId);
 
-      // Update SessionManager state - use new state machine API
-      // TASK_2025_086: Use 'draft' state (session not yet confirmed by backend)
-      // The 'streaming' is a SessionStatus, not SessionState
+      // Update SessionManager state - use new state machine API.
+      // Use 'draft' state (session not yet confirmed by backend).
+      // The 'streaming' is a SessionStatus, not SessionState.
       this.sessionManager.setSessionId(sessionId); // Default to 'draft' state
       this.sessionManager.setStatus('streaming'); // Start streaming status so UI shows content
 
-      // Add user message immediately (with empty sessionId - will be updated when resolved)
+      // Add user message immediately (sessionId omitted until SDK resolves the real UUID)
       const userMessage = createExecutionChatMessage({
         id: this.generateId(),
         role: 'user',
         rawContent: content,
         files,
         ...(images && images.length > 0 ? { imageCount: images.length } : {}),
-        sessionId: '' as SessionId, // Will be updated when session:id-resolved arrives
+        // sessionId omitted: real Claude UUID arrives via SESSION_ID_RESOLVED
       });
 
       // Update tab with user message (reuse activeTab from above)
@@ -418,9 +412,9 @@ export class MessageSenderService {
       // Session ID will be initialized by StreamingHandler on first event
       // No tracking needed - removed PendingSessionManager
 
-      // Call RPC to start NEW chat
-      // TASK_2025_092: Use tabId for frontend correlation instead of placeholder sessionId
-      // TASK_2025_170: Pass ptahCliId if a Ptah CLI agent is selected
+      // Call RPC to start NEW chat.
+      // Use tabId for frontend correlation instead of placeholder sessionId.
+      // Pass ptahCliId if a Ptah CLI agent is selected.
       const ptahCliId = this.ptahCliState.selectedAgentId() ?? undefined;
       const effectiveModel =
         activeTab?.overrideModel ?? this.modelState.currentModel();
@@ -428,8 +422,8 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
-      // TASK_2026_103 Wave E2: register abort dispatch so closing the tab
-      // mid-stream cancels the backend work via chat:abort.
+      // Register abort dispatch so closing the tab mid-stream cancels the
+      // backend work via chat:abort.
       const abortSignal = this.wireAbortDispatch(activeTabId);
       const result = await this.claudeRpcService.call(
         'chat:start',
@@ -441,7 +435,7 @@ export class MessageSenderService {
           // IWorkspaceProvider.getWorkspaceRoot() — handles the bootstrap
           // race where Send is clicked before workspace restore completes.
           ...(workspacePath ? { workspacePath } : {}),
-          ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
+          ptahCliId, // Route to Ptah CLI agent adapter
           options: {
             model: effectiveModel,
             ...(files ? { files } : {}),
@@ -594,16 +588,16 @@ export class MessageSenderService {
         userMessage,
       ]);
 
-      // Call RPC to CONTINUE existing chat (uses --resume flag)
-      // TASK_2025_092: Include tabId for event routing
+      // Call RPC to CONTINUE existing chat (uses --resume flag).
+      // Include tabId for event routing.
       const effectiveModel =
         activeTab?.overrideModel ?? this.modelState.currentModel();
       const effectiveEffort = this.resolveEffort(
         effort,
         activeTab?.overrideEffort,
       );
-      // TASK_2026_103 Wave E2: register abort dispatch so closing the tab
-      // mid-stream cancels the backend work via chat:abort.
+      // Register abort dispatch so closing the tab mid-stream cancels the
+      // backend work via chat:abort.
       const abortSignal = this.wireAbortDispatch(activeTabId);
       const result = await this.claudeRpcService.call(
         'chat:continue',

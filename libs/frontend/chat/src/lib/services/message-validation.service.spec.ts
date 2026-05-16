@@ -10,7 +10,7 @@
  *
  * Also tests sanitization logic.
  *
- * Created in ChatStore refactoring (TASK_2025_054) - Batch 5
+ * Created in ChatStore refactoring.
  */
 
 import { TestBed } from '@angular/core/testing';

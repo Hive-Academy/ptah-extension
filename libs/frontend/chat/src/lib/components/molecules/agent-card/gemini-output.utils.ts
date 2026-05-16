@@ -10,7 +10,7 @@
  *   - "Duration: 2.3s" or "duration_ms: 2300"
  *   - "Total tokens: 1801"
  *
- * TASK_2025_177: Uses CliAgentStats as the unified stats type.
+ * Uses CliAgentStats as the unified stats type.
  */
 
 import type { CliAgentStats, StatsSegment } from './stats-bar.utils';
@@ -28,7 +28,7 @@ export type GeminiStats = CliAgentStats;
  * @returns Parsed CliAgentStats or null if no recognizable stats found
  */
 export function extractGeminiStats(
-  infoSegments: readonly StatsSegment[]
+  infoSegments: readonly StatsSegment[],
 ): CliAgentStats | null {
   if (infoSegments.length === 0) return null;
 
@@ -87,7 +87,7 @@ export function extractGeminiStats(
 
       // Duration: "Duration: 2.3s", "duration_ms: 2300", "Duration: 2300ms"
       const durationSecsMatch = trimmed.match(
-        /duration\s*:\s*(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?$/i
+        /duration\s*:\s*(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?$/i,
       );
       if (durationSecsMatch && durationMs === undefined) {
         durationMs = Math.round(parseFloat(durationSecsMatch[1]) * 1000);
@@ -95,7 +95,7 @@ export function extractGeminiStats(
       }
 
       const durationMsMatch = trimmed.match(
-        /duration(?:_ms)?\s*:\s*(\d+)\s*ms/i
+        /duration(?:_ms)?\s*:\s*(\d+)\s*ms/i,
       );
       if (durationMsMatch && durationMs === undefined) {
         durationMs = parseInt(durationMsMatch[1], 10);

@@ -1,7 +1,5 @@
 ﻿/**
  * ModelSelectorComponent - Elegant AI Model Selection Dropdown
- * TASK_2025_048: Migrate to CDK Overlay with keyboard navigation
- * TASK_2025_092: Migrate to Native components (Floating UI)
  *
  * A standalone dropdown component for selecting Claude AI models.
  * Features rich model metadata display with title, description, and recommended badge.

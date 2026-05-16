@@ -1,5 +1,5 @@
 /**
- * UpdateBannerService — TASK_2026_117
+ * UpdateBannerService
  *
  * Tracks the Electron auto-update lifecycle state for the in-app banner UX.
  *

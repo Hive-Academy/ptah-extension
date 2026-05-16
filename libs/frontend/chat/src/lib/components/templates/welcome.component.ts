@@ -47,7 +47,7 @@ interface FeatureHighlight {
  * - Provide pricing/trial actions (external URLs)
  * - Block navigation to other views (no escape hatch - UI design)
  *
- * TASK_2025_126: Replaces VS Code modal for unlicensed users
+ * Replaces VS Code modal for unlicensed users.
  */
 @Component({
   selector: 'ptah-auth-welcome',
@@ -174,8 +174,8 @@ export class WelcomeComponent implements OnInit {
 
       if (result.isSuccess() && result.data) {
         const data = result.data as LicenseGetStatusResponse;
-        // Extract reason field for context-aware messaging
-        // TASK_2025_126: reason field now included in LicenseGetStatusResponse
+        // Extract reason field for context-aware messaging.
+        // reason field is included in LicenseGetStatusResponse.
         this.licenseReason.set(data.reason ?? null);
       }
     } catch (error) {
@@ -246,9 +246,8 @@ export class WelcomeComponent implements OnInit {
   }
 
   /**
-   * Open pricing page in external browser
-   * Uses RPC to execute VS Code command from webview
-   * TASK_2025_126: Fixed to use command:execute RPC instead of raw postMessage
+   * Open pricing page in external browser.
+   * Uses command:execute RPC to execute VS Code command from webview.
    */
   async viewPricing(): Promise<void> {
     try {

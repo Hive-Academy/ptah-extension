@@ -15,7 +15,7 @@
  * - Prevents token waste (empty content, max length)
  * - Easy to extend (add new rules in one place)
  *
- * Created in ChatStore refactoring (TASK_2025_054) - Batch 5
+ * Created in ChatStore refactoring.
  */
 
 import { Injectable } from '@angular/core';

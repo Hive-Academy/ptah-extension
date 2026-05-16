@@ -524,9 +524,11 @@ export class ChatViewComponent {
    */
   readonly resolvedIsCompacting = computed(() => {
     const tab = this.resolvedTab();
-    const tabId = tab?.id ?? this._tabManager.activeTabId();
+    const rawTabId = tab?.id ?? this._tabManager.activeTabId();
+    if (!rawTabId) return false;
+    const tabId = TabId.safeParse(rawTabId);
     if (!tabId) return false;
-    const convId = this._tabSessionBinding.conversationFor(tabId as TabId);
+    const convId = this._tabSessionBinding.conversationFor(tabId);
     if (!convId) return false;
     return (
       this._conversationRegistry.compactionStateFor(convId)?.inFlight ?? false
@@ -971,7 +973,7 @@ export class ChatViewComponent {
 
     try {
       const result = await this._claudeRpc.forkSession(
-        sessionId as SessionId,
+        sessionId,
         messageId,
         undefined,
       );
@@ -1057,7 +1059,7 @@ export class ChatViewComponent {
     this._actionInFlight.set(new Set([...inFlight, messageId]));
 
     try {
-      await this.attemptRewind(sessionId as SessionId, messageId);
+      await this.attemptRewind(sessionId, messageId);
     } finally {
       const next = new Set(this._actionInFlight());
       next.delete(messageId);

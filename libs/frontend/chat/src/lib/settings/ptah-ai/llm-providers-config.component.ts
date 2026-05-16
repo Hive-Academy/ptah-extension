@@ -1,6 +1,5 @@
 /**
  * LlmProvidersConfigComponent - LLM Provider Configuration UI
- * TASK_2025_155 Batch 5, Task 5.2
  *
  * Displays configured LLM providers as cards with model selection
  * and default provider selection. Delegates all state management to
@@ -72,7 +71,7 @@ export class LlmProvidersConfigComponent implements OnInit {
    * All providers excluding vscode-lm (now handled by VscodeLmConfigComponent in Tab 2).
    */
   readonly filteredProviders = computed(() =>
-    this.llmState.providers().filter((p) => p.provider !== 'vscode-lm')
+    this.llmState.providers().filter((p) => p.provider !== 'vscode-lm'),
   );
 
   // --- Lucide icons ---
@@ -148,7 +147,7 @@ export class LlmProvidersConfigComponent implements OnInit {
     } catch (error) {
       console.error(
         '[LlmProvidersConfigComponent] Failed to initialize provider status:',
-        error
+        error,
       );
     }
   }
@@ -302,7 +301,7 @@ export class LlmProvidersConfigComponent implements OnInit {
    */
   public onProviderModelSelectEvent(
     provider: LlmProviderName,
-    event: Event
+    event: Event,
   ): void {
     const value = (event.target as HTMLSelectElement).value;
     this.onProviderModelSelect(provider, value);
@@ -310,7 +309,7 @@ export class LlmProvidersConfigComponent implements OnInit {
 
   async onProviderModelSelect(
     provider: LlmProviderName,
-    modelId: string
+    modelId: string,
   ): Promise<void> {
     if (!modelId || this.savingModel() === provider) {
       return;

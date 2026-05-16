@@ -1,7 +1,7 @@
 ﻿/**
  * Unit tests for ChatInputComponent - Event handler logic
  *
- * Tests the @ trigger autocomplete race condition fix (TASK_2025_163):
+ * Tests the @ trigger autocomplete race condition fix:
  * - handleAtActivated opens dropdown IMMEDIATELY (sets mode, query, shows suggestions)
  * - handleAtTriggered (debounced) does NOT overwrite _currentQuery
  * - handleQueryChanged updates _currentQuery immediately

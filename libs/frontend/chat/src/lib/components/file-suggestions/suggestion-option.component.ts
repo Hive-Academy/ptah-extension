@@ -25,7 +25,7 @@ export type SuggestionItem =
 /**
  * SuggestionOptionComponent - Single Option in Autocomplete Dropdown
  *
- * MIGRATION NOTE (TASK_2025_092 Batch 4):
+ * MIGRATION NOTE:
  * - Removed Highlightable interface (was causing signal dependency loops)
  * - Removed setActiveStyles/setInactiveStyles methods
  * - Active state now controlled via isActive INPUT signal from parent

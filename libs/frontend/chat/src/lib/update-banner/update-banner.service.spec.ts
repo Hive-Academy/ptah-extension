@@ -1,5 +1,5 @@
 /**
- * UpdateBannerService specs — TASK_2026_117
+ * UpdateBannerService specs
  *
  * Coverage (8 scenarios):
  *  1. handleMessage with update-available payload → state becomes available

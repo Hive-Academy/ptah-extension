@@ -18,6 +18,7 @@ import { Injectable, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '@ptah-extension/chat-streaming';
 import { TabState } from '@ptah-extension/chat-types';
+import { SessionId } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
 export class CompletionHandlerService {
@@ -39,7 +40,9 @@ export class CompletionHandlerService {
     let targetTabs: readonly TabState[] = [];
 
     if (data.sessionId) {
-      targetTabs = this.tabManager.findTabsBySessionId(data.sessionId);
+      targetTabs = this.tabManager.findTabsBySessionId(
+        SessionId.from(data.sessionId),
+      );
     }
 
     // Fall back to active tab if no matching tab found

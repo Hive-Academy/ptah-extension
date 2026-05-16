@@ -1,5 +1,5 @@
 /**
- * ChatMessageHandler specs — TASK_2026_120 Phase B.
+ * ChatMessageHandler specs.
  *
  * Validates the Zod safeParse guards added at the frontend receive point.
  * A malformed PermissionRequest or AskUserQuestionRequest payload MUST be

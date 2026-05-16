@@ -71,7 +71,7 @@ describe('SessionStatsAggregatorService', () => {
     tabs = [makeTab()];
     setLiveModelStatsAndUsageListMock = jest.fn();
     setPreloadedStatsMock = jest.fn();
-    // TASK_2026_106 Phase 4b — service now uses plural fan-out lookup.
+    // Service uses plural fan-out lookup.
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
     );
@@ -100,7 +100,7 @@ describe('SessionStatsAggregatorService', () => {
     const dispatchMock = {
       sendQueuedMessage: sendQueuedMock,
     } as unknown as MessageDispatchService;
-    // TASK_2026_109 C1 — `isLateAfterCompaction` now reads from
+    // `isLateAfterCompaction` reads from
     // ConversationRegistry / TabSessionBinding. Tests in this file create
     // tabs with no conversation binding so the fallback (per-tab
     // `lastCompactionAt`) drives the grace-window check; the registry is
@@ -138,10 +138,9 @@ describe('SessionStatsAggregatorService', () => {
     expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
   });
 
-  // TASK_2026_109_FOLLOWUP N7 — drop active-tab fallback. Was: fall back
-  // to activeTab when findTabsBySessionId returned empty. Now: warn and
-  // drop the event so foreign-session stats cannot pollute the active tab
-  // during a tab switch.
+  // Drop active-tab fallback. Was: fall back to activeTab when
+  // findTabsBySessionId returned empty. Now: warn and drop the event so
+  // foreign-session stats cannot pollute the active tab during a tab switch.
   it('N7 — drops the event without active-tab fallback when no tab is bound', () => {
     findTabsBySessionIdMock.mockReturnValue([]);
     service.handleSessionStats({ ...baseStats, sessionId: 'unknown' });
@@ -312,7 +311,7 @@ describe('SessionStatsAggregatorService', () => {
   });
 
   // ------------------------------------------------------------------
-  // TASK_2026_109 — late-event grace window + primary-model determinism.
+  // Late-event grace window + primary-model determinism.
   // ------------------------------------------------------------------
 
   describe('B3 — late SESSION_STATS dropped within grace window', () => {

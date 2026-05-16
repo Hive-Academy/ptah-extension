@@ -1,6 +1,7 @@
 /**
  * Stats Bar Utilities
- * TASK_2025_177: Shared stats formatting and extraction for CLI agent output components.
+ *
+ * Shared stats formatting and extraction for CLI agent output components.
  *
  * Provides:
  * - CliAgentStats interface (unified stats type for all CLI agents)
@@ -68,7 +69,7 @@ export function isUsageSegment(segment: StatsSegment): boolean {
  * Accumulates token counts across all matching segments (multi-turn support).
  */
 export function extractCodexStats(
-  infoSegments: readonly StatsSegment[]
+  infoSegments: readonly StatsSegment[],
 ): CliAgentStats | null {
   if (infoSegments.length === 0) return null;
 
@@ -103,7 +104,7 @@ export function extractCodexStats(
  * Model and duration use the latest match.
  */
 export function extractCopilotStats(
-  infoSegments: readonly StatsSegment[]
+  infoSegments: readonly StatsSegment[],
 ): CliAgentStats | null {
   if (infoSegments.length === 0) return null;
 

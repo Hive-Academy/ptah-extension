@@ -1,9 +1,7 @@
 /**
  * Chat Components - Barrel Export
  *
- * REBUILT for TASK_2025_023 - Revolutionary ExecutionNode architecture
- *
- * NEW: Atomic Design hierarchy with DaisyUI + Tailwind
+ * Atomic Design hierarchy with DaisyUI + Tailwind
  * - Atoms: MarkdownBlock, StatusBadge, TokenBadge, DurationBadge
  * - Molecules: ThinkingBlock, ToolCallItem, AgentSummary
  * - Organisms: ExecutionNode (recursive!), MessageBubble, InlineAgentBubble, AgentExecution
@@ -13,7 +11,7 @@
  * - FileTagComponent - Compact file chip with removal
  * - UnifiedSuggestionsDropdownComponent - @ and / autocomplete dropdown
  *
- * TASK_2026_105 wave G4: Most atoms and many molecules now live in
+ * Most atoms and many molecules now live in
  * @ptah-extension/chat-ui. Re-exports below are kept for backward
  * compatibility — prefer importing directly from @ptah-extension/chat-ui
  * in new code.

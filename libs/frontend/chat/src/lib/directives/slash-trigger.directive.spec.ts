@@ -1,7 +1,7 @@
 /**
  * Unit tests for SlashTriggerDirective
  *
- * Tests the / trigger autocomplete (same pattern as TASK_2025_163 fix):
+ * Tests the / trigger autocomplete:
  * - slashActivated fires IMMEDIATELY on inactive->active transition (no debounce)
  * - slashClosed fires IMMEDIATELY on active->inactive transition
  * - slashQueryChanged fires IMMEDIATELY on query change (no debounce)
@@ -60,7 +60,7 @@ class TestHostComponent {
 function simulateInput(
   textarea: HTMLTextAreaElement,
   value: string,
-  cursorPosition?: number
+  cursorPosition?: number,
 ): void {
   textarea.value = value;
   textarea.selectionStart = cursorPosition ?? value.length;

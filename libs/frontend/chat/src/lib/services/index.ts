@@ -5,20 +5,18 @@ export {
   type FileSuggestion,
 } from './file-picker.service';
 
-// ChatStore - Signal-based reactive store (TASK_2025_023)
+// ChatStore - Signal-based reactive store
 export { ChatStore } from './chat.store';
 
-// ExecutionTreeBuilderService - Builds ExecutionNode tree from flat streaming events
-// TASK_2025_090: Removed dead tree-builder.service.ts (ExecutionTreeBuilder was unused)
-// TASK_2026_105 Wave G2 Phase 3: moved to @ptah-extension/chat-streaming.
-// Re-exported here for backwards compatibility — new code should import
-// directly from '@ptah-extension/chat-streaming'.
+// ExecutionTreeBuilderService - Builds ExecutionNode tree from flat streaming events.
+// Moved to @ptah-extension/chat-streaming. Re-exported here for backwards
+// compatibility — new code should import directly from '@ptah-extension/chat-streaming'.
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 
-// TASK_2026_105 Wave G1: pure execution-tree helpers moved to
-// `@ptah-extension/chat-execution-tree`. Re-exported here for backwards
-// compatibility — new code should import directly from the new lib.
+// Pure execution-tree helpers moved to `@ptah-extension/chat-execution-tree`.
+// Re-exported here for backwards compatibility — new code should import
+// directly from the new lib.
 /** @deprecated Import from `@ptah-extension/chat-execution-tree` instead. */
 export {
   AgentStatsService,
@@ -27,16 +25,15 @@ export {
   type BackgroundAgentLookup,
 } from '@ptah-extension/chat-execution-tree';
 
-// SessionManager - Session lifecycle and node map management (TASK_2025_023 Phase 4)
-// TASK_2026_105 Wave G2 Phase 3: moved to @ptah-extension/chat-streaming.
-// Re-exported here for backwards compatibility — new code should import
-// directly from '@ptah-extension/chat-streaming'.
+// SessionManager - Session lifecycle and node map management.
+// Moved to @ptah-extension/chat-streaming. Re-exported here for backwards
+// compatibility — new code should import directly from '@ptah-extension/chat-streaming'.
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export { SessionManager } from '@ptah-extension/chat-streaming';
 
-// Chat types - Shared interfaces moved to @ptah-extension/chat-types lib (TASK_2026_103 Wave B3).
-// Re-exported here for backwards compatibility with existing barrel imports; new code should
-// import directly from '@ptah-extension/chat-types'.
+// Chat types - Shared interfaces moved to @ptah-extension/chat-types lib.
+// Re-exported here for backwards compatibility with existing barrel imports;
+// new code should import directly from '@ptah-extension/chat-types'.
 export {
   createEmptyStreamingState,
   type StreamingState,
@@ -47,20 +44,19 @@ export {
   type TabViewMode,
 } from '@ptah-extension/chat-types';
 
-// ConfirmationDialogService - Custom confirmation dialog for VS Code webview
-// TASK_2026_105 Wave G2 Phase 2: moved to @ptah-extension/chat-state.
-// Re-exported here for backwards compatibility — new code should import
-// directly from '@ptah-extension/chat-state'.
+// ConfirmationDialogService - Custom confirmation dialog for VS Code webview.
+// Moved to @ptah-extension/chat-state. Re-exported here for backwards
+// compatibility — new code should import directly from '@ptah-extension/chat-state'.
 /** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {
   ConfirmationDialogService,
   type ConfirmationDialogOptions,
 } from '@ptah-extension/chat-state';
 
-// MessageSenderService - Centralized message sending mediator (TASK_2025_054 Batch 3)
+// MessageSenderService - Centralized message sending mediator
 export { MessageSenderService } from './message-sender.service';
 
-// MessageValidationService - Centralized message validation (TASK_2025_054 Batch 5)
+// MessageValidationService - Centralized message validation
 export {
   MessageValidationService,
   type ValidationResult,
@@ -69,16 +65,16 @@ export {
 // ChatMessageHandler - Message routing handler for chat-related VS Code messages
 export { ChatMessageHandler } from './chat-message-handler.service';
 
-// AgentMonitorStore - Real-time agent process monitoring state
-// TASK_2026_105 Wave G2 Phase 3: moved to @ptah-extension/chat-streaming.
+// AgentMonitorStore - Real-time agent process monitoring state.
+// Moved to @ptah-extension/chat-streaming.
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export {
   AgentMonitorStore,
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
 
-// BackgroundAgentStore - Background agent monitoring state
-// TASK_2026_105 Wave G2 Phase 3: moved to @ptah-extension/chat-streaming.
+// BackgroundAgentStore - Background agent monitoring state.
+// Moved to @ptah-extension/chat-streaming.
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export {
   BackgroundAgentStore,
@@ -99,13 +95,12 @@ export {
   type ActionBannerState,
 } from './action-banner.service';
 
-// AgentMonitorTreeBuilderService - Builds ExecutionNode tree for agent monitor panel (TASK_2025_173)
+// AgentMonitorTreeBuilderService - Builds ExecutionNode tree for agent monitor panel
 export { AgentMonitorTreeBuilderService } from './agent-monitor-tree-builder.service';
 
-// TabManagerService - Multi-session tab state management with workspace partitioning (TASK_2025_208)
-// TASK_2026_105 Wave G2 Phase 2: moved to @ptah-extension/chat-state.
-// Re-exported here for backwards compatibility — new code should import
-// directly from '@ptah-extension/chat-state'.
+// TabManagerService - Multi-session tab state management with workspace partitioning.
+// Moved to @ptah-extension/chat-state. Re-exported here for backwards compatibility —
+// new code should import directly from '@ptah-extension/chat-state'.
 /** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {
   TabManagerService,
@@ -116,10 +111,9 @@ export {
 // WorkspaceCoordinatorService - Cross-library workspace coordination (breaks core→chat circular dep)
 export { WorkspaceCoordinatorService } from './workspace-coordinator.service';
 
-// TabWorkspacePartitionService - Workspace-partitioned tab state management (TASK_2025_208 Batch 6)
-// TASK_2026_105 Wave G2 Phase 2: moved to @ptah-extension/chat-state.
-// Re-exported here for backwards compatibility — new code should import
-// directly from '@ptah-extension/chat-state'.
+// TabWorkspacePartitionService - Workspace-partitioned tab state management.
+// Moved to @ptah-extension/chat-state. Re-exported here for backwards compatibility —
+// new code should import directly from '@ptah-extension/chat-state'.
 /** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {
   TabWorkspacePartitionService,
@@ -130,11 +124,11 @@ export {
 // SessionDisplayUtils - Shared session name/date formatting (extracted from AppShell + Canvas)
 export { SessionDisplayUtils } from './session-display-utils.service';
 
-// SESSION_CONTEXT — optional per-tile session override for canvas tiles (TASK_2025_265)
+// SESSION_CONTEXT — optional per-tile session override for canvas tiles
 export { SESSION_CONTEXT } from '../tokens/session-context.token';
 
-// TASK_2026_106 Phase 3: STREAMING_CONTROL token + StreamingControlImpl +
-// provideStreamingControl have been DELETED. The cycle they were inverting
+// STREAMING_CONTROL token + StreamingControlImpl + provideStreamingControl
+// have been DELETED. The cycle they were inverting
 // (TabManager → STREAMING_CONTROL → StreamingHandler/AgentMonitorStore →
 // TabManager) was a runtime cycle the inversion did not actually break;
 // it was the source of NG0200 in the webview. The router (in
@@ -144,5 +138,4 @@ export { SESSION_CONTEXT } from '../tokens/session-context.token';
 // ModelRefreshControl — inverted-dependency contract used by TabManagerService
 // to refresh the available-models list after createTab() without depending
 // on @ptah-extension/core (forbidden for type:data-access).
-// TASK_2026_105 Wave G2 Phase 2.
 export { provideModelRefreshControl } from './chat-store/model-refresh-control.provider';

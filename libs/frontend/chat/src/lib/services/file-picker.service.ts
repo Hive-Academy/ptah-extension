@@ -164,8 +164,8 @@ export class FilePickerService {
   ]);
 
   /**
-   * Fetch workspace files from backend via RPC
-   * TASK_2025_019 Phase 1: Populates _workspaceFiles signal for @ autocomplete
+   * Fetch workspace files from backend via RPC.
+   * Populates _workspaceFiles signal for @ autocomplete.
    */
   async fetchWorkspaceFiles(): Promise<void> {
     // Deduplicate: if a fetch is already in-flight, await it instead of returning empty

@@ -4,7 +4,7 @@ import {
   AuthStateService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { LicenseGetStatusResponse } from '@ptah-extension/shared';
+import { LicenseGetStatusResponse, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   SessionManager,
@@ -180,7 +180,9 @@ export class ChatLifecycleService {
     // are tracked independently. This means the same delta is appended to
     // each tab's accumulator, which is exactly what we want for per-tab
     // rendering parity.
-    const targetTabs = this.tabManager.findTabsBySessionId(sessionId);
+    const targetTabs = this.tabManager.findTabsBySessionId(
+      SessionId.from(sessionId),
+    );
     const tabsWithStreaming = targetTabs.filter((t) => t.streamingState);
     if (tabsWithStreaming.length === 0) {
       console.warn(
@@ -301,7 +303,9 @@ export class ChatLifecycleService {
     // Phase 4b: fan out so canvas-grid tiles bound to the same session all
     // get reset rather than only the first one returned by the legacy lookup.
     if (targetTabs.length === 0 && data.sessionId) {
-      targetTabs = this.tabManager.findTabsBySessionId(data.sessionId);
+      targetTabs = this.tabManager.findTabsBySessionId(
+        SessionId.from(data.sessionId),
+      );
     }
 
     // Last resort: Use active tab

@@ -1,5 +1,5 @@
 /**
- * UpdateBannerComponent — TASK_2026_117
+ * UpdateBannerComponent
  *
  * Sticky top-bar that surfaces the Electron auto-update lifecycle to the
  * user. Reads state from `UpdateBannerService` (signal-driven) and exposes

@@ -44,7 +44,7 @@ export type { SuggestionItem } from './suggestion-option.component';
  * - role="option" on each item (via SuggestionOptionComponent)
  * - aria-activedescendant points to currently focused option
  *
- * MIGRATION NOTE (TASK_2025_092 Batch 4):
+ * MIGRATION NOTE:
  * - Replaced CDK Overlay with Floating UI
  * - Replaced ActiveDescendantKeyManager with KeyboardNavigationService
  * - Options now receive isActive as input signal, not via setActiveStyles()

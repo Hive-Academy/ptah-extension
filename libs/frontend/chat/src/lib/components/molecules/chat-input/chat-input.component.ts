@@ -83,7 +83,7 @@ interface PastedImage {
  * - Disable during streaming
  * - Auto-resize textarea
  *
- * MIGRATION NOTE (TASK_2025_092 Batch 4):
+ * MIGRATION NOTE:
  * - Removed CdkOverlayOrigin - now using native ElementRef for overlay positioning
  * - UnifiedSuggestionsDropdownComponent uses Floating UI instead of CDK Overlay
  * - Overlay origin now passed as { elementRef } object instead of CdkOverlayOrigin
@@ -338,11 +338,11 @@ export class ChatInputComponent implements OnInit {
   readonly filePicker = inject(FilePickerService);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
-  // Auth method badge (TASK_2025_129 Batch 3)
+  // Auth method badge
   readonly authMethodLabel = signal<string | null>(null);
 
   /**
-   * TASK_2025_096 FIX: Use the same streaming indicator as tab spinner.
+   * Use the same streaming indicator as tab spinner.
    * Previously, stop button used `chatStore.isStreaming()` which checks `tab.status`,
    * while tab spinner used `tabManager.isTabStreaming()` which uses `_streamingTabIds`.
    * These two signals could diverge, causing stop button to not appear even when
@@ -451,7 +451,7 @@ export class ChatInputComponent implements OnInit {
   );
 
   /**
-   * Initialize auth method label fetch on component init (TASK_2025_129 Batch 3)
+   * Initialize auth method label fetch on component init.
    */
   ngOnInit(): void {
     this.fetchAuthMethodLabel();
@@ -925,7 +925,7 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * TASK_2025_184: Handle effort level change from EffortSelectorComponent.
+   * Handle effort level change from EffortSelectorComponent.
    * The EffortSelectorComponent now persists directly via EffortStateService,
    * so this handler is kept for any additional side-effects if needed.
    */
@@ -1159,8 +1159,8 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * Stop streaming (abort current response)
-   * TASK_2025_185: Uses abortWithConfirmation() to warn user about running sub-agents
+   * Stop streaming (abort current response).
+   * Uses abortWithConfirmation() to warn user about running sub-agents.
    */
   async handleStop(): Promise<void> {
     try {
@@ -1172,7 +1172,7 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * Fetch auth method label from backend for badge display (TASK_2025_129 Batch 3)
+   * Fetch auth method label from backend for badge display.
    */
   private async fetchAuthMethodLabel(): Promise<void> {
     try {

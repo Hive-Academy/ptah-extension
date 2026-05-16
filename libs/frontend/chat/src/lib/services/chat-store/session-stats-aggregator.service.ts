@@ -3,11 +3,14 @@ import {
   ConversationRegistry,
   TabManagerService,
   TabSessionBinding,
-  type TabId,
 } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
-import { pickPrimaryModel, type ModelUsageEntry } from '@ptah-extension/shared';
+import {
+  pickPrimaryModel,
+  SessionId,
+  type ModelUsageEntry,
+} from '@ptah-extension/shared';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
@@ -31,10 +34,10 @@ export class SessionStatsAggregatorService {
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
   private readonly messageDispatch = inject(MessageDispatchService);
   /**
-   * TASK_2026_109 C1 — `isLateAfterCompaction` now sources compaction
-   * status from the `ConversationRegistry` instead of the per-tab
-   * `isCompacting` flag, eliminating the dual-source-of-truth race that
-   * dropped or double-counted late SESSION_STATS events.
+   * `isLateAfterCompaction` sources compaction status from the
+   * `ConversationRegistry` instead of the per-tab `isCompacting` flag,
+   * eliminating the dual-source-of-truth race that dropped or double-counted
+   * late SESSION_STATS events.
    */
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly tabSessionBinding = inject(TabSessionBinding);
@@ -65,17 +68,17 @@ export class SessionStatsAggregatorService {
       lastTurnContextTokens?: number;
     }>;
   }): void {
-    // TASK_2026_106 Phase 4b — fan out to ALL tabs bound to this session.
+    // Fan out to ALL tabs bound to this session.
     // Canvas grid: every tile bound to the session needs its `liveModelStats`
     // and `preloadedStats` updated. Stats are accurate per-tab because
     // `setLiveModelStatsAndUsageList` and `setPreloadedStats` are idempotent
     // overwrites (not accumulators) — applying the same stats N times still
     // yields the correct final value.
     let targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
-      stats.sessionId,
+      SessionId.from(stats.sessionId),
     );
 
-    // TASK_2026_109 B3 — Reject late SESSION_STATS events that were emitted
+    // Reject late SESSION_STATS events that were emitted
     // for the last pre-compaction turn but arrive after `compaction_complete`.
     // Without this gate the event would (a) prematurely dismiss the banner via
     // `clearCompactionState` below, and (b) accumulate pre-compaction tokens
@@ -101,14 +104,14 @@ export class SessionStatsAggregatorService {
     }
     targetTabs = filteredTabs;
 
-    // TASK_2025_098: Clear compaction state when new message finishes
+    // Clear compaction state when new message finishes.
     // This indicates compaction (if any) has completed successfully.
     // Clear on every bound tab; legacy single-tab behavior is the loop-of-1.
     for (const t of targetTabs) {
       this.compactionLifecycle.clearCompactionState(t.id);
     }
     if (targetTabs.length === 0) {
-      // TASK_2026_109_FOLLOWUP N7 — drop the active-tab fallback. When tab
+      // Drop the active-tab fallback. When tab
       // switching during a stream, falling back to `activeTab()` would
       // pollute the foreground tab with another session's stats (wrong
       // model name, wrong context %, wrong cumulative cost) and trigger a
@@ -127,7 +130,7 @@ export class SessionStatsAggregatorService {
     }
     // Process modelUsage to update liveModelStats for context display
     if (stats.modelUsage && stats.modelUsage.length > 0) {
-      // TASK_2026_109 C3 — delegate primary-model selection to the shared
+      // Delegate primary-model selection to the shared
       // `pickPrimaryModel` helper so the live stream path and the history
       // reload path agree byte-for-byte. Without this, ties on `costUSD`
       // resolved differently across paths and the displayed model name
@@ -141,7 +144,7 @@ export class SessionStatsAggregatorService {
           cacheRead: m.cacheReadInputTokens,
         },
       }));
-      // TASK_2026_109_FOLLOWUP N5 — sticky primary model by sessionModel.
+      // Sticky primary model by sessionModel.
       // The cost-based `pickPrimaryModel` heuristic will flip to whichever
       // model billed the most tokens this turn — a Haiku subagent burst
       // can briefly out-cost the user's chosen Opus and the header model
@@ -167,7 +170,7 @@ export class SessionStatsAggregatorService {
       // conversation state. lastTurnContextTokens captures the last message_start's
       // input + cache_read, which IS the real context window fill level.
       //
-      // TASK_2026_109_FOLLOWUP — When `lastTurnContextTokens` is missing AND
+      // When `lastTurnContextTokens` is missing AND
       // any target tab has compacted at least once, the cumulative fallback
       // (input + cacheRead + output) over-counts pre-compaction tokens that
       // are no longer in the context window — producing the 1118%-style
@@ -181,7 +184,7 @@ export class SessionStatsAggregatorService {
           (t.lastCompactionAt ?? null) !== null || (t.compactionCount ?? 0) > 0,
       );
       const useCumulativeFallback = primaryModel.lastTurnContextTokens == null;
-      // TASK_2026_109_FOLLOWUP N2 — also skip when the cumulative fallback
+      // Also skip when the cumulative fallback
       // exceeds the model's contextWindow. This catches long sessions on
       // third-party providers (OpenRouter, Moonshot, Ollama) that never
       // emit `lastTurnContextTokens`: the cumulative sum across all turns
@@ -213,7 +216,7 @@ export class SessionStatsAggregatorService {
             ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
             : 0;
 
-        // TASK_2026_106 Phase 4b — fan out liveModelStats to every bound tab.
+        // Fan out liveModelStats to every bound tab.
         for (const t of targetTabs) {
           this.tabManager.setLiveModelStatsAndUsageList(
             t.id,
@@ -242,7 +245,7 @@ export class SessionStatsAggregatorService {
     // When a loaded historical session gets new messages, the preloadedStats
     // must be updated so the stats summary shows the combined totals.
     //
-    // TASK_2026_106 Phase 4b — fan out preloadedStats accumulation. Each tab
+    // Fan out preloadedStats accumulation. Each tab
     // tracks its own preloadedStats (carried from the SDK session it was
     // loaded from) so we accumulate per-tab. For bound canvas-grid tiles
     // sharing one session this WILL double-count if both tiles have a
@@ -277,9 +280,9 @@ export class SessionStatsAggregatorService {
       console.warn('[ChatStore] Failed to refresh sessions after stats:', err);
     });
 
-    // TASK_2025_101: Handle auto-send of queued content here to avoid circular dependency
-    // (StreamingHandler â†’ MessageSender â†’ SessionLoader â†’ StreamingHandler)
-    // TASK_2025_185: Use sendQueuedMessage for consistent error handling with queue restoration
+    // Handle auto-send of queued content here to avoid circular dependency
+    // (StreamingHandler → MessageSender → SessionLoader → StreamingHandler).
+    // Use sendQueuedMessage for consistent error handling with queue restoration.
     if (result && result.queuedContent && result.queuedContent.trim()) {
       this.messageDispatch.sendQueuedMessage(
         result.tabId,
@@ -292,7 +295,6 @@ export class SessionStatsAggregatorService {
    * Grace window (ms) after `compaction_complete` during which incoming
    * SESSION_STATS events are presumed to be late stragglers from the last
    * pre-compaction turn. 2s covers the worst-case in-flight RPC latency.
-   * @see TASK_2026_109 B3
    */
   private static readonly COMPACTION_GRACE_MS = 2000;
 
@@ -303,15 +305,15 @@ export class SessionStatsAggregatorService {
    * within the grace window. Tabs/conversations that have never compacted
    * return false.
    *
-   * TASK_2026_109 C1 — reads compaction state from `ConversationRegistry`
-   * via `TabSessionBinding`. The legacy path consulted `tab.isCompacting`
+   * Reads compaction state from `ConversationRegistry` via
+   * `TabSessionBinding`. The legacy path consulted `tab.isCompacting`
    * which could drift from the registry when StreamRouter and lifecycle
    * service raced. If the tab has no conversation binding yet we fall back
-   * to the locally-stamped `lastCompactionAt` (Wave 1) on the tab so the
-   * grace window still works for unbound, post-complete tail events.
+   * to the locally-stamped `lastCompactionAt` on the tab so the grace window
+   * still works for unbound, post-complete tail events.
    */
   private isLateAfterCompaction(tab: TabState): boolean {
-    const convId = this.tabSessionBinding.conversationFor(tab.id as TabId);
+    const convId = this.tabSessionBinding.conversationFor(tab.id);
     if (convId) {
       const state = this.conversationRegistry.compactionStateFor(convId);
       if (state) {
@@ -325,7 +327,7 @@ export class SessionStatsAggregatorService {
       }
     }
     // Tab without a conversation binding — fall back to the per-tab
-    // `lastCompactionAt` stamp (Wave 1) so the post-complete grace window
+    // `lastCompactionAt` stamp so the post-complete grace window
     // still suppresses tail events for tabs that predate router hydration.
     const lastAt = tab.lastCompactionAt ?? null;
     if (lastAt === null) return false;

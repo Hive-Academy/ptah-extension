@@ -42,12 +42,12 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly tabManager = inject(TabManagerService);
   private readonly messageSender = inject(MessageSenderService);
   /**
-   * TASK_2026_106 Phase 3 — authoritative StreamRouter.
+   * Authoritative StreamRouter.
    *
    * The router owns the routing graph (ConversationRegistry +
    * TabSessionBinding) and reacts to TabManager's `closedTab` signal to
-   * perform per-session cleanup. The shadow-mode try/catch is gone — a
-   * router defect now needs to surface, not be silently swallowed.
+   * perform per-session cleanup. A router defect needs to surface, not
+   * be silently swallowed.
    * `chat.store.processStreamEvent` continues to drive the user-visible
    * tree update (no behavior change for content rendering).
    */
@@ -59,7 +59,7 @@ export class ChatMessageHandler implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
-    // CHAT_COMPLETE intentionally not registered — SESSION_STATS is authoritative (TASK_2025_101)
+    // CHAT_COMPLETE intentionally not registered — SESSION_STATS is authoritative.
     // CHAT_COMPLETE fires per-turn (on message_complete), not at session end.
     // Handling it here would mark tabs idle mid-session during multi-turn tool-use.
     MESSAGE_TYPES.CHAT_ERROR,
@@ -158,9 +158,9 @@ export class ChatMessageHandler implements MessageHandler {
 
     this.chatStore.processStreamEvent(event, tabId, sessionId);
 
-    // TASK_2026_106 Phase 3 — authoritative routing. The router maintains
-    // ConversationRegistry/TabSessionBinding so other consumers (Phase 4+
-    // banner UI, fan-out) can resolve session→conversation→tab[] mapping
+    // Authoritative routing. The router maintains
+    // ConversationRegistry/TabSessionBinding so other consumers
+    // (banner UI, fan-out) can resolve session→conversation→tab[] mapping
     // from a single source. Errors are NOT swallowed — a router defect
     // needs to surface during testing.
     const originTabId = tabId ? TabId.safeParse(tabId) : null;
@@ -197,9 +197,8 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    // TASK_2026_120 Phase B — validate at the frontend receive point.
-    // A malformed payload must NOT crash the message-handler loop for other
-    // message types; log + early-return.
+    // Validate at the frontend receive point. A malformed payload must NOT
+    // crash the message-handler loop for other message types; log + early-return.
     const parsed = PermissionRequestSchema.safeParse(payload);
     if (!parsed.success) {
       console.warn(
@@ -214,7 +213,7 @@ export class ChatMessageHandler implements MessageHandler {
     // 1. Append to PermissionHandler queue first so the prompt is in
     //    `_permissionRequests` by the time the router tags target tabs.
     this.chatStore.handlePermissionRequest(prompt);
-    // 2. TASK_2026_106 Phase 6a — compute fan-out target tabs and stash
+    // 2. Compute fan-out target tabs and stash
     //    them on the PermissionHandler so cancel-on-decision can broadcast
     //    correctly. Router falls back to no-op when the prompt's session
     //    isn't yet in the registry — global visibility kicks in.
@@ -261,11 +260,11 @@ export class ChatMessageHandler implements MessageHandler {
         realSessionId: realSessionId as string,
       });
 
-      // TASK_2026_109_FOLLOWUP_QUESTIONS Q6 — re-route any pending questions
-      // whose stale tabId targets just got rebound to the real SDK session id.
-      // Without this, a question that arrived during the pending-session
-      // window stays pinned to the placeholder tabId and the chat-view filter
-      // silently drops it once the binding flips.
+      // Re-route any pending questions whose stale tabId targets just got
+      // rebound to the real SDK session id. Without this, a question that
+      // arrived during the pending-session window stays pinned to the
+      // placeholder tabId and the chat-view filter silently drops it once
+      // the binding flips.
       this.streamRouter.refreshQuestionTargetsForSession(
         realSessionId as ClaudeSessionId,
       );
@@ -292,9 +291,8 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    // TASK_2026_120 Phase B — validate at the frontend receive point.
-    // A malformed payload must NOT crash the message-handler loop for other
-    // message types; log + early-return.
+    // Validate at the frontend receive point. A malformed payload must NOT
+    // crash the message-handler loop for other message types; log + early-return.
     const parsed = AskUserQuestionRequestSchema.safeParse(payload);
     if (!parsed.success) {
       console.warn(

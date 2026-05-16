@@ -5,7 +5,7 @@
  * Injects AgentMonitorTreeBuilderService to convert flat CliOutputSegment[]
  * into an ExecutionNode tree, then renders each root node with ExecutionNodeComponent.
  *
- * TASK_2025_177: Added stats bar for token usage, model, cost, and duration display.
+ * Stats bar shows token usage, model, cost, and duration display.
  * Usage segments are filtered out of the tree so they only appear in the stats bar.
  *
  * This gives Copilot agents the same rich rendering as Ptah CLI:
@@ -51,37 +51,41 @@ import {
     >
       <!-- Stats bar (only shown when stats are available) -->
       @if (modelStats(); as stats) {
-      <div
-        class="flex items-center gap-3 px-2 py-1 bg-base-200/50 border-b border-base-content/5"
-      >
-        @if (stats.model) {
-        <span class="text-[9px] font-mono text-base-content/50">
-          {{ stats.model }}
-        </span>
-        } @if (stats.inputTokens !== undefined) {
-        <span class="text-[9px] font-mono text-info/70">
-          &#8593; {{ fmtTokens(stats.inputTokens) }}
-        </span>
-        } @if (stats.outputTokens !== undefined) {
-        <span class="text-[9px] font-mono text-accent/70">
-          &#8595; {{ fmtTokens(stats.outputTokens) }}
-        </span>
-        } @if (stats.cost) {
-        <span class="text-[9px] font-mono text-warning/70">
-          {{ stats.cost }}
-        </span>
-        } @if (stats.durationMs !== undefined) {
-        <span class="text-[9px] font-mono text-base-content/40 ml-auto">
-          {{ fmtDuration(stats.durationMs) }}
-        </span>
-        }
-      </div>
+        <div
+          class="flex items-center gap-3 px-2 py-1 bg-base-200/50 border-b border-base-content/5"
+        >
+          @if (stats.model) {
+            <span class="text-[9px] font-mono text-base-content/50">
+              {{ stats.model }}
+            </span>
+          }
+          @if (stats.inputTokens !== undefined) {
+            <span class="text-[9px] font-mono text-info/70">
+              &#8593; {{ fmtTokens(stats.inputTokens) }}
+            </span>
+          }
+          @if (stats.outputTokens !== undefined) {
+            <span class="text-[9px] font-mono text-accent/70">
+              &#8595; {{ fmtTokens(stats.outputTokens) }}
+            </span>
+          }
+          @if (stats.cost) {
+            <span class="text-[9px] font-mono text-warning/70">
+              {{ stats.cost }}
+            </span>
+          }
+          @if (stats.durationMs !== undefined) {
+            <span class="text-[9px] font-mono text-base-content/40 ml-auto">
+              {{ fmtDuration(stats.durationMs) }}
+            </span>
+          }
+        </div>
       }
 
       <!-- ExecutionNode tree rendering -->
       <div class="p-2 space-y-1">
         @for (node of executionNodes(); track node.id) {
-        <ptah-execution-node [node]="node" [isStreaming]="isStreaming()" />
+          <ptah-execution-node [node]="node" [isStreaming]="isStreaming()" />
         }
       </div>
     </div>
@@ -104,7 +108,7 @@ export class CopilotOutputComponent {
 
   /** Segments with usage info filtered out (usage is shown in stats bar, not tree) */
   private readonly treeSegments = computed(() =>
-    this.segments().filter((s) => !isUsageSegment(s))
+    this.segments().filter((s) => !isUsageSegment(s)),
   );
 
   /** Computed ExecutionNode tree from non-usage segments.
@@ -112,7 +116,7 @@ export class CopilotOutputComponent {
   readonly executionNodes = computed(() => {
     const tree = this.treeBuilder.buildTreeFromSegments(
       this.agentId(),
-      this.treeSegments()
+      this.treeSegments(),
     );
     if (!this.isStreaming()) {
       return this.treeBuilder.finalizeOrphanedTools(tree);

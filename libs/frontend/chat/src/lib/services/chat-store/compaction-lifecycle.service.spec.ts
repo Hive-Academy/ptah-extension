@@ -12,9 +12,9 @@
  *   - clearCompactionState(tabId) clears specified conversation + timeout
  *   - clearCompactionState(undefined) sweeps all in-flight conversations
  *
- * TASK_2026_109 C1 — `ConversationRegistry` is now the single source of
- * truth for compaction state. Per-tab `isCompacting` writes are gone; this
- * spec asserts registry writes via `setCompactionState` instead.
+ * `ConversationRegistry` is the single source of truth for compaction state.
+ * Per-tab `isCompacting` writes are gone; this spec asserts registry writes
+ * via `setCompactionState` instead.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -81,7 +81,7 @@ describe('CompactionLifecycleService', () => {
     tabs = [makeTab()];
     applyCompactionTimeoutResetMock = jest.fn();
     applyCompactionCompleteMock = jest.fn();
-    // TASK_2026_106 Phase 4b — service now uses plural fan-out lookup.
+    // Service uses plural fan-out lookup.
     findTabsBySessionIdMock = jest.fn((sessionId: string) =>
       tabs.filter((t) => t.claudeSessionId === sessionId),
     );
@@ -235,7 +235,7 @@ describe('CompactionLifecycleService', () => {
     });
 
     // -----------------------------------------------------------------
-    // TASK_2026_109 B2 / B4 / C1 — additional regression gates.
+    // Additional regression gates.
     // -----------------------------------------------------------------
 
     it('B2 — resets preloadedStats.tokens to zero {0,0,0,0} while preserving totalCost (lifetime cost)', () => {
@@ -326,10 +326,10 @@ describe('CompactionLifecycleService', () => {
         compactionSessionId: 'reload-sess',
       });
 
-      // TASK_2026_109_FOLLOWUP — inFlight is cleared in the
-      // `switchSession(...).finally(...)` settle handler, so we must drain
-      // the microtask queue before asserting. Both timer queues advance to
-      // ensure the finally handler in the fan-out path fires.
+      // inFlight is cleared in the `switchSession(...).finally(...)` settle
+      // handler, so we must drain the microtask queue before asserting. Both
+      // timer queues advance to ensure the finally handler in the fan-out
+      // path fires.
       jest.runAllTicks();
       await Promise.resolve();
       await Promise.resolve();
@@ -344,9 +344,9 @@ describe('CompactionLifecycleService', () => {
   });
 
   // -------------------------------------------------------------------
-  // TASK_2026_109 C1 — registry write-through is exercised on BOTH the
-  // start and complete halves of the lifecycle. The "start" assertion
-  // already covers `inFlight:true` above; this test pins the pair.
+  // Registry write-through is exercised on BOTH the start and complete
+  // halves of the lifecycle. The "start" assertion already covers
+  // `inFlight:true` above; this test pins the pair.
   // -------------------------------------------------------------------
   describe('C1 registry write-through (start + complete)', () => {
     it('writes inFlight=true on start and inFlight=false on complete for the same conversation id', async () => {
@@ -368,8 +368,8 @@ describe('CompactionLifecycleService', () => {
         tabId: 'tab-1',
         compactionSessionId: 'reload-sess',
       });
-      // TASK_2026_109_FOLLOWUP — inFlight clear is now async (settles after
-      // the switchSession reload promise). Drain microtasks before asserting.
+      // inFlight clear is async (settles after the switchSession reload
+      // promise). Drain microtasks before asserting.
       jest.runAllTicks();
       await Promise.resolve();
       await Promise.resolve();
@@ -380,7 +380,7 @@ describe('CompactionLifecycleService', () => {
   });
 
   // -------------------------------------------------------------------
-  // TASK_2026_109_FOLLOWUP N1 — symmetric fan-out on handleCompactionComplete.
+  // Symmetric fan-out on handleCompactionComplete.
   // Start fanned out to all session-bound tabs but Complete only reset the
   // originating tab; siblings kept stale messages + banners. The Complete
   // path now resolves all tabs bound to compactionSessionId and applies

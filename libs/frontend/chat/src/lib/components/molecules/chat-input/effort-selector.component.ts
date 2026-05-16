@@ -1,6 +1,5 @@
 ﻿/**
  * EffortSelectorComponent - Reasoning Effort Level Dropdown
- * TASK_2025_184: Reasoning Effort Configuration
  *
  * A standalone dropdown for selecting Claude's reasoning effort level.
  * Uses NativeDropdownComponent to match model-selector and agent-selector patterns.

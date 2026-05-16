@@ -89,8 +89,6 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
 /**
  * PtahCliConfigComponent - CRUD management for Ptah CLI agent instances
  *
- * TASK_2025_170: Renamed from CustomAgentConfigComponent
- *
  * Complexity Level: 2 (Medium - form with CRUD operations and service delegation)
  * Patterns: Signal-based state, composition, DaisyUI styling
  *
@@ -644,7 +642,7 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   // Toggle concurrency guard
   readonly isUpdating = signal(false);
 
-  // Copilot OAuth state (TASK_2025_186)
+  // Copilot OAuth state
   readonly copilotLoginStatus = signal<
     'idle' | 'logging-in' | 'connected' | 'error'
   >('idle');
@@ -679,7 +677,7 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       );
     }
 
-    // Local providers (Ollama, LM Studio) â€” no API key needed (TASK_2025_282)
+    // Local providers (Ollama, LM Studio) — no API key needed
     if (LOCAL_PROVIDER_IDS.has(this.newAgentProvider())) {
       return hasName && hasProvider;
     }
@@ -717,8 +715,8 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       );
       if (result.isSuccess()) {
         this.agents.set(result.data.agents);
-        // TASK_2025_170: Refresh PtahCliStateService so agent selector
-        // dropdown stays in sync with settings changes
+        // Refresh PtahCliStateService so agent selector dropdown stays
+        // in sync with settings changes.
         this.ptahCliState.refresh().catch(() => {
           // Non-critical: agent selector will refresh on next open
         });
@@ -821,7 +819,7 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   }
 
   // ============================================================================
-  // COPILOT AUTH (TASK_2025_186)
+  // COPILOT AUTH
   // ============================================================================
 
   /**

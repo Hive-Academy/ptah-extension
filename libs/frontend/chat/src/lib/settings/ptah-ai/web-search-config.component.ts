@@ -59,8 +59,6 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
  *
  * Cross-platform: works identically on VS Code and Electron.
  * API keys are never displayed in the UI.
- *
- * TASK_2025_235 Batch 3
  */
 @Component({
   selector: 'ptah-web-search-config',

@@ -532,7 +532,7 @@ export class SessionLoaderService {
    * The backend returns FlatStreamEventUnion[] which we process exactly
    * like live streaming events, building the same execution tree.
    */
-  async switchSession(sessionId: string): Promise<void> {
+  async switchSession(sessionId: SessionId): Promise<void> {
     // Guard: prevent duplicate loads of the same session
     if (this._inFlightSessions.has(sessionId)) {
       console.debug(
@@ -552,7 +552,7 @@ export class SessionLoaderService {
 
       // 1. Validate session exists (metadata only)
       const loadResult = await this.claudeRpcService.call('session:load', {
-        sessionId: sessionId as SessionId,
+        sessionId,
       });
 
       if (!loadResult.success) {
@@ -590,7 +590,7 @@ export class SessionLoaderService {
 
       // 6. Load history via RPC - returns events for execution tree
       const resumeResult = await this.claudeRpcService.call('chat:resume', {
-        sessionId: sessionId as SessionId,
+        sessionId,
         tabId: activeTabId,
         workspacePath,
       });
@@ -802,7 +802,7 @@ export class SessionLoaderService {
    * without reloading the tab's messages (already cached from localStorage).
    */
   private async refreshResumableSubagentsForSession(
-    sessionId: string,
+    sessionId: SessionId,
     tabId: string,
   ): Promise<void> {
     // Skip if switchSession is already loading this session
@@ -814,7 +814,7 @@ export class SessionLoaderService {
       this._inFlightSessions.add(sessionId);
       const workspacePath = this.vscodeService.config().workspaceRoot;
       const result = await this.claudeRpcService.call('chat:resume', {
-        sessionId: sessionId as SessionId,
+        sessionId,
         tabId,
         workspacePath,
       });

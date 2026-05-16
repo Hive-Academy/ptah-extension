@@ -111,7 +111,7 @@ export class ConversationService {
   /**
    * Get current session ID from active tab
    */
-  private currentSessionId(): string | null {
+  private currentSessionId(): SessionId | null {
     return this.tabManager.activeTab()?.claudeSessionId ?? null;
   }
 
@@ -309,13 +309,13 @@ export class ConversationService {
       // Update SessionManager state - no sessionId yet, just status
       this.sessionManager.setStatus('draft');
 
-      // Add user message immediately (sessionId empty until resolved)
+      // Add user message immediately (sessionId omitted until resolved by SDK)
       const userMessage = createExecutionChatMessage({
         id: this.generateMessageId(),
         role: 'user',
         rawContent: content,
         files,
-        sessionId: '' as SessionId, // Will be updated when real sessionId arrives
+        // sessionId omitted: real Claude UUID arrives via SESSION_ID_RESOLVED
       });
 
       // Update tab with user message
@@ -480,7 +480,7 @@ export class ConversationService {
       // Pass sessionModel so resumed sessions use the original model (not current config)
       const result = await this.claudeRpcService.call('chat:continue', {
         prompt: content,
-        sessionId: sessionId as SessionId,
+        sessionId,
         tabId: targetTabId, // For event routing
         workspacePath,
         model: targetTab?.sessionModel ?? undefined,
@@ -572,7 +572,7 @@ export class ConversationService {
         sessionId,
       );
       const result = await this.claudeRpcService.call('chat:abort', {
-        sessionId: sessionId as SessionId,
+        sessionId,
       });
 
       if (result.success) {
@@ -654,7 +654,7 @@ export class ConversationService {
 
       try {
         const result = await this.claudeRpcService.call('chat:running-agents', {
-          sessionId: sessionId as SessionId,
+          sessionId,
         });
         const agents = result.data?.agents ?? [];
         agentCount = agents.length;

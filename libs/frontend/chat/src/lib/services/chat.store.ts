@@ -63,8 +63,8 @@ export class ChatStore {
   private readonly messageDispatch = inject(MessageDispatchService);
   private readonly statsAggregator = inject(SessionStatsAggregatorService);
   private readonly lifecycle = inject(ChatLifecycleService);
-  // TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — fan-out cancel after the user
-  // answers a question. Mirrors the permission-decision broadcast wiring.
+  // Fan-out cancel after the user answers a question. Mirrors the
+  // permission-decision broadcast wiring.
   private readonly streamRouter = inject(StreamRouter);
 
   private readonly _servicesReady = signal(false);
@@ -87,13 +87,12 @@ export class ChatStore {
   readonly isStopping = this.conversation.isStopping;
   readonly queueRestoreContent = this.conversation.queueRestoreSignal;
   readonly permissionRequests = this.permissionHandler.permissionRequests;
-  // permissionRequestsByToolId - DELETED in TASK_2025_078 (use getPermissionForTool() method)
   readonly unmatchedPermissions = this.permissionHandler.unmatchedPermissions;
-  // TASK_2025_136: Question requests for AskUserQuestion tool
+  // Question requests for AskUserQuestion tool
   readonly questionRequests = this.permissionHandler.questionRequests;
   readonly resumableSubagents = this.sessionLoader.resumableSubagents;
   readonly licenseStatus = this.lifecycle.licenseStatus;
-  // Compaction state â€” per-tab via TabManagerService (TASK_2025_098)
+  // Compaction state — per-tab via TabManagerService
   readonly isCompacting = this.tabManager.activeTabIsCompacting;
 
   readonly activeTab = computed(() => this.tabManager.activeTab());
@@ -101,7 +100,7 @@ export class ChatStore {
   readonly messages = this.tabManager.activeTabMessages;
 
   /**
-   * TASK_2025_096 FIX: Return ALL root nodes, not just the first one.
+   * Return ALL root nodes, not just the first one.
    * When Claude uses tools, the SDK sends multiple assistant messages in one turn,
    * each potentially adding a new root node. Returning only rootNodes[0] caused
    * subsequent messages to be lost. Tab-specific cache key enables per-tab memoization.
@@ -188,7 +187,7 @@ export class ChatStore {
     return this.sessionLoader.loadMoreSessions();
   }
 
-  async switchSession(sessionId: string): Promise<void> {
+  async switchSession(sessionId: SessionId): Promise<void> {
     return this.sessionLoader.switchSession(sessionId);
   }
 
@@ -222,7 +221,7 @@ export class ChatStore {
     return this.conversation.continueConversation(content, files);
   }
 
-  // TASK_2025_213: Subagent resume signals/methods delegate to SessionLoader
+  // Subagent resume signals/methods delegate to SessionLoader
   clearResumableSubagents(): void {
     this.sessionLoader.clearResumableSubagents();
   }
@@ -231,15 +230,12 @@ export class ChatStore {
     this.sessionLoader.removeResumableSubagent(toolCallId);
   }
 
-  // TASK_2025_109: handleSubagentResume removed â€” uses context injection in
-  // chat:continue RPC. Users type "resume agent {agentId}" for natural resumption.
-
-  /** TASK_2025_142: License status fetch with retry. Delegates to ChatLifecycleService. */
+  /** License status fetch with retry. Delegates to ChatLifecycleService. */
   async fetchLicenseStatus(retries = 3): Promise<void> {
     return this.lifecycle.fetchLicenseStatus(retries);
   }
 
-  /** TASK_2025_098: Handle compaction start. Delegates to CompactionLifecycleService. */
+  /** Handle compaction start. Delegates to CompactionLifecycleService. */
   handleCompactionStart(sessionId: string): void {
     this.compaction.handleCompactionStart(sessionId);
   }
@@ -259,14 +255,14 @@ export class ChatStore {
   }
 
   /**
-   * TASK_2026_120 Phase B — plural sibling facade.
+   * Plural sibling facade.
    *
    * Returns every tab bound to the conversation containing `sessionId`. Use
    * this for content routing where the canvas-grid scenario can put multiple
    * tabs on the same conversation; the singular `findTabBySessionId` is
    * retained for presence checks.
    */
-  findTabsBySessionId(sessionId: string): readonly TabState[] {
+  findTabsBySessionId(sessionId: SessionId): readonly TabState[] {
     return this.tabManager.findTabsBySessionId(sessionId);
   }
 
@@ -274,7 +270,7 @@ export class ChatStore {
     return this.tabManager.activeTabId();
   }
 
-  clearCompactionStateForTab(tabId: string): void {
+  clearCompactionStateForTab(tabId: TabId): void {
     this.compaction.clearCompactionStateForTab(tabId);
   }
 
@@ -299,7 +295,7 @@ export class ChatStore {
   }
 
   /**
-   * TASK_2025_185: Abort with confirmation when sub-agents are running.
+   * Abort with confirmation when sub-agents are running.
    * @returns true if aborted, false if user cancelled
    */
   async abortWithConfirmation(): Promise<boolean> {
@@ -324,7 +320,7 @@ export class ChatStore {
    * - compactionSessionId (start) â†’ CompactionLifecycleService.handleCompactionStart
    * - queuedContent â†’ MessageDispatchService.sendQueuedMessage
    *
-   * TASK_2025_092: tabId routes the event; sessionId stores the real SDK UUID.
+   * tabId routes the event; sessionId stores the real SDK UUID.
    */
   processStreamEvent(
     event: FlatStreamEventUnion,
@@ -345,13 +341,13 @@ export class ChatStore {
       return;
     }
 
-    // TASK_2025_098: compaction start now flows through CHAT_CHUNK
+    // Compaction start flows through CHAT_CHUNK
     if (result && result.compactionSessionId) {
       this.handleCompactionStart(result.compactionSessionId);
       return;
     }
 
-    // TASK_2025_100 / TASK_2025_185: re-steering via queued content on message_complete
+    // Re-steering via queued content on message_complete
     if (result && result.queuedContent) {
       const queuedContent = result.queuedContent;
       const resultTabId = result.tabId;
@@ -391,16 +387,16 @@ export class ChatStore {
     this.permissionHandler.handlePermissionResponse(response);
   }
 
-  /** TASK_2025_136: AskUserQuestion request from backend. */
+  /** AskUserQuestion request from backend. */
   handleQuestionRequest(request: AskUserQuestionRequest): void {
     this.permissionHandler.handleQuestionRequest(request);
   }
 
-  /** TASK_2025_136: User answer to AskUserQuestion. */
+  /** User answer to AskUserQuestion. */
   handleQuestionResponse(response: AskUserQuestionResponse): void {
-    // TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — capture the deciding tab BEFORE
-    // dispatching so we can fan a "question resolved" cancel to every OTHER
-    // bound tab. Mirrors the permission-decision broadcast wiring.
+    // Capture the deciding tab BEFORE dispatching so we can fan a
+    // "question resolved" cancel to every OTHER bound tab. Mirrors the
+    // permission-decision broadcast wiring.
     const decidingTabIdRaw = this.tabManager.activeTabId() ?? null;
     const decidingTabId = decidingTabIdRaw
       ? (TabId.safeParse(decidingTabIdRaw) ?? null)
@@ -450,7 +446,7 @@ export class ChatStore {
   // ============================================================================
   // NOTE: handleChatComplete was removed â€” chat:complete is no longer used for
   // streaming state management. SESSION_STATS (from type=result) is the
-  // authoritative completion signal (TASK_2025_101).
+  // authoritative completion signal.
 
   /** Handle session stats update. Delegates to SessionStatsAggregatorService. */
   handleSessionStats(stats: {

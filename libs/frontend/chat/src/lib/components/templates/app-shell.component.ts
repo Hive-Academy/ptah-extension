@@ -598,13 +598,10 @@ export class AppShellComponent {
     this.cancelEditingSession();
 
     try {
-      const result = await this.rpcService.renameSession(
-        session.id as SessionId,
-        newName,
-      );
+      const result = await this.rpcService.renameSession(session.id, newName);
 
       if (result.isSuccess() && result.data?.success) {
-        this.chatStore.updateSessionName(session.id as SessionId, newName);
+        this.chatStore.updateSessionName(session.id, newName);
 
         // Update open tab name and title if this session has one
         const tab = this.tabManager.findTabBySessionId(session.id);
@@ -643,13 +640,11 @@ export class AppShellComponent {
     }
 
     try {
-      const result = await this.rpcService.deleteSession(
-        session.id as SessionId,
-      );
+      const result = await this.rpcService.deleteSession(session.id);
 
       if (result.isSuccess() && result.data?.success) {
         // Remove from local session list
-        this.chatStore.removeSessionFromList(session.id as SessionId);
+        this.chatStore.removeSessionFromList(session.id);
 
         // If this was the current session, clear it
         if (this.chatStore.currentSession()?.id === session.id) {

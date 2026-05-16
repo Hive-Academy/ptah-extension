@@ -122,7 +122,7 @@ describe('ChatLifecycleService', () => {
           : t,
       );
     });
-    // TASK_2026_106 Phase 4b — service uses plural fan-out lookup.
+    // Service uses plural fan-out lookup.
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
     );
