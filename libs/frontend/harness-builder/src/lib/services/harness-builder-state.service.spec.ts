@@ -18,11 +18,11 @@ describe('HarnessBuilderStateService', () => {
   >;
 
   beforeEach(() => {
-    // TASK_2026_107 Phase 4: HarnessBuilderStateService injects StreamRouter
-    // and StreamingSurfaceRegistry to route per-operation stream events
-    // through the canonical pipeline. Stub both with `jest.Mocked<Pick<...>>`
-    // (Phase 3 invariant #4) to avoid pulling in TabManagerService and the
-    // MODEL_REFRESH_CONTROL NullInjectorError cascade.
+    // HarnessBuilderStateService injects StreamRouter and
+    // StreamingSurfaceRegistry to route per-operation stream events through
+    // the canonical pipeline. Stub both with `jest.Mocked<Pick<...>>` to
+    // avoid pulling in TabManagerService and the MODEL_REFRESH_CONTROL
+    // NullInjectorError cascade.
     mockStreamRouter = {
       onSurfaceCreated: jest.fn(),
       onSurfaceClosed: jest.fn(),
@@ -61,12 +61,11 @@ describe('HarnessBuilderStateService', () => {
   });
 
   // ===========================================================================
-  // TASK_2026_107 Phase 4 — Surface routing.
+  // Surface routing.
   //
   // Verifies the per-operation SurfaceId lifecycle: lazy registration,
-  // idempotent re-mint, sibling lookup, teardown semantics. Mirrors the
-  // wizard's Phase 3 spec but adapted to harness's single-operation
-  // assumption (spec §6 R3).
+  // idempotent re-mint, sibling lookup, teardown semantics. Adapted to
+  // harness's single-operation assumption (spec §6 R3).
   // ===========================================================================
   describe('Operation Surface Routing (TASK_2026_107 Phase 4)', () => {
     it('registerOperationSurface mints a SurfaceId, binds via StreamRouter, and registers the adapter', () => {
@@ -136,9 +135,9 @@ describe('HarnessBuilderStateService', () => {
       expect(mockStreamRouter.onSurfaceClosed).toHaveBeenCalledTimes(1);
       expect(mockStreamRouter.onSurfaceClosed).toHaveBeenCalledWith(surfaceId);
       expect(service.surfaceForOperation('op-1')).toBeNull();
-      // Phase 2 discovery #1: the router's onSurfaceClosed handles
-      // surfaceRegistry.unregister internally — the harness MUST NOT call
-      // surfaceRegistry.unregister itself (would race residual events).
+      // The router's onSurfaceClosed handles surfaceRegistry.unregister
+      // internally — the harness MUST NOT call surfaceRegistry.unregister
+      // itself (would race residual events).
       expect(mockSurfaceRegistry.unregister).not.toHaveBeenCalled();
     });
 
@@ -352,7 +351,7 @@ describe('HarnessBuilderStateService', () => {
   // ===========================================================================
   // Pre-existing behaviour smoke tests (config, conversation messages,
   // intent analysis, loading state). Kept minimal — extensive coverage
-  // belongs in a dedicated suite outside the Phase 4 scope.
+  // belongs in a dedicated suite.
   // ===========================================================================
   describe('Conversation Messages', () => {
     it('addConversationMessage appends to the list', () => {

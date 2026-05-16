@@ -7,11 +7,11 @@ import { HarnessBuilderStateService } from './harness-builder-state.service';
 import { HarnessStreamingService } from './harness-streaming.service';
 
 /**
- * TASK_2026_107 Phase 4 — HarnessStreamingService now delegates flat-event
- * accumulation to the canonical StreamRouter via the surface façade exposed
- * on HarnessBuilderStateService. These tests verify the message-bridge
- * routing path: harness:flat-stream → state.routeOperationEvent (lazy-mint
- * + forward), harness:flat-stream-complete → state.unregisterOperationSurface.
+ * HarnessStreamingService delegates flat-event accumulation to the canonical
+ * StreamRouter via the surface façade exposed on HarnessBuilderStateService.
+ * These tests verify the message-bridge routing path: harness:flat-stream →
+ * state.routeOperationEvent (lazy-mint + forward), harness:flat-stream-complete
+ * → state.unregisterOperationSurface.
  */
 describe('HarnessStreamingService', () => {
   let service: HarnessStreamingService;
