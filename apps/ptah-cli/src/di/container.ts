@@ -67,6 +67,7 @@ import {
 
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type {
   EnhancedPromptsService,
@@ -764,7 +765,7 @@ export class CliDIContainer {
           new SetupRpcHandlers(
             c.resolve(TOKENS.LOGGER),
             c.resolve(TOKENS.RPC_HANDLER),
-            c.resolve(TOKENS.CONFIG_MANAGER),
+            c.resolve(SETTINGS_TOKENS.MODEL_SETTINGS),
             c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
             c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
             c,

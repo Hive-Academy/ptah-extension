@@ -137,23 +137,23 @@ if (!gotLock) {
     }
   });
 
-  // Clean up skill junctions and license revalidation on app quit (TASK_2025_214, TASK_2025_240).
+  // Clean up skill junctions and license revalidation on app quit.
   // deactivateSync() removes all managed junctions/symlinks and unsubscribes
   // from workspace folder changes. Must be synchronous (will-quit is sync).
-  // Disposal order preserved LIFO per design section E.5.
+  // Disposal order preserved LIFO.
   app.on('will-quit', () => {
     // 1. Flush any pending debounced workspace persistence synchronously.
     // Without this, removing a folder and quitting within the 500ms debounce
     // window would lose the change — the removed folder reappears on restart.
     flushWorkspacePersistence?.();
 
-    // 2. Clear license revalidation interval (TASK_2025_240)
+    // 2. Clear license revalidation interval
     if (revalidationInterval !== null) {
       clearInterval(revalidationInterval);
       revalidationInterval = null;
     }
 
-    // 2.5. Clear update check interval + dispose UpdateManager (TASK_2026_117)
+    // 2.5. Clear update check interval + dispose UpdateManager
     if (updateCheckInterval !== null) {
       clearInterval(updateCheckInterval);
       updateCheckInterval = null;
@@ -172,10 +172,10 @@ if (!gotLock) {
       );
     }
 
-    // 3. Stop git file system watcher (TASK_2025_240)
+    // 3. Stop git file system watcher
     gitWatcher?.stop();
 
-    // 3.1. Close code symbol chokidar watcher (TASK_2026_THOTH_CODE_INDEX)
+    // 3.1. Close code symbol chokidar watcher
     try {
       symbolWatcher?.close();
     } catch (error) {
@@ -205,7 +205,7 @@ if (!gotLock) {
       );
     }
 
-    // 4.5. Stop skill synthesis service (TASK_2026_HERMES Track 2).
+    // 4.5. Stop skill synthesis service.
     // Currently a no-op (the synthesis service holds no long-lived
     // resources of its own — the SQLite handle is owned by
     // persistence-sqlite and disposed by its own lifecycle), but we

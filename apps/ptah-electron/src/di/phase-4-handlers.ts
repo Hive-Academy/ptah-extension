@@ -19,6 +19,7 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 
 // Shared RPC handler classes (TASK_2025_203 Batch 5: all shared handlers).
 // These are platform-agnostic handlers that can be used in both VS Code and Electron.
@@ -125,7 +126,7 @@ export function registerPhase4Handlers(
       new SetupRpcHandlers(
         c.resolve(TOKENS.LOGGER),
         c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(TOKENS.CONFIG_MANAGER),
+        c.resolve(SETTINGS_TOKENS.MODEL_SETTINGS),
         c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
         c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
         c,
