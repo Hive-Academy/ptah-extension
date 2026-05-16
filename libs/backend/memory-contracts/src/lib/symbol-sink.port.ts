@@ -1,6 +1,3 @@
-// libs/backend/memory-contracts/src/lib/symbol-sink.port.ts
-// TASK_2026_THOTH_CODE_INDEX — Port interface for code symbol indexing
-
 export interface SymbolChunkInsert {
   /** Normalized: "code:<kind>:<absoluteFilePath>:<symbolName>" */
   readonly subject: string;

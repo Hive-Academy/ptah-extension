@@ -5,8 +5,6 @@
  * - Always `Symbol.for('Name')` (globally interned).
  * - Each description is globally unique across all token files (Ptah-prefixed).
  * - Frozen `as const` so consumer types narrow on the symbol values.
- *
- * Authoritative spec: TASK_2026_HERMES architecture.md §2.5.
  */
 export const GATEWAY_TOKENS = {
   /** GatewayService — top-level facade. */

@@ -9,7 +9,7 @@ Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
 /* Angular CDK Overlay Prebuilt Styles - MUST come before Tailwind directives */
 @import '@angular/cdk/overlay-prebuilt.css';
 
-/* xterm.js terminal styles - TASK_2025_227 terminal integration */
+/* xterm.js terminal styles */
 @import '@xterm/xterm/css/xterm.css';
 
 /* Gridstack drag-and-resize grid styles - required for Orchestra Canvas */
@@ -1375,7 +1375,7 @@ Adapts components for sidebar width constraints (200px - 600px)
 }
 
 /* ============================================================================
-RESPONSIVE ICON BUTTON LABELS - TASK_2025_248
+RESPONSIVE ICON BUTTON LABELS
 Hide button text labels in narrow containers, show in wide containers.
 Usage: <span class="icon-btn-label">Label</span> inside a .btn
 ============================================================================ */
@@ -1732,7 +1732,7 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
 }
 
 /* ============================================================================
-SIDEBAR SESSION LIST STYLES - TASK_2025_130
+SIDEBAR SESSION LIST STYLES
 ============================================================================ */
 
 /* Active session in sidebar */
@@ -1780,7 +1780,7 @@ aside:not(:hover) .sidebar-scroll::-webkit-scrollbar-thumb {
 }
 
 /* ============================================================================
-CHROME-STYLE TAB BAR - TASK_2025_248
+CHROME-STYLE TAB BAR
 Scrollable tab bar with arrow buttons, active/inactive visual treatment
 ============================================================================ */
 
@@ -1846,7 +1846,7 @@ Scrollable tab bar with arrow buttons, active/inactive visual treatment
 }
 
 /* ============================================================================
-GOLD ACCENT BUTTONS & VIEW PILLS - TASK_2025_248
+GOLD ACCENT BUTTONS & VIEW PILLS
 Session-related buttons use the brand gold, view pills get elegant styling
 ============================================================================ */
 

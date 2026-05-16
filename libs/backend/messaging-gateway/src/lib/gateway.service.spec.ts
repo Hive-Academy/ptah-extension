@@ -1,6 +1,5 @@
 /**
- * GatewayService.sendTest — unit tests for the "Send test" button RPC path
- * (TASK_2026_HERMES_FINISH Batch C1).
+ * GatewayService.sendTest — unit tests for the "Send test" button RPC path.
  *
  * Locks four contracts on the actual {@link GatewayService.sendTest} API:
  *
