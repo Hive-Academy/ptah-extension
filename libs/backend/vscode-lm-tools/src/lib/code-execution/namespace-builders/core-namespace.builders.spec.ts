@@ -1,5 +1,5 @@
 /**
- * Specs for core namespace builders (TASK_2026_100 P1.B4).
+ * Specs for core namespace builders.
  *
  * Covers the three builders that sit directly under `ptah.*`:
  *   - buildWorkspaceNamespace → ptah.workspace

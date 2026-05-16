@@ -7,8 +7,6 @@
  * This file is the ONLY place in the namespace-builders directory that
  * imports `vscode`. It encapsulates all VS Code-specific IDE integration
  * so that ide-namespace.builder.ts remains platform-agnostic.
- *
- * TASK_2025_226 - Batch 3: Extracted from ide-namespace.builder.ts
  */
 
 import * as vscode from 'vscode';
@@ -25,8 +23,6 @@ import type { IIDECapabilities } from './ide-namespace.builder';
 /**
  * Resolve a file path relative to workspace root if it's not absolute.
  * Handles relative paths like 'src/contexts/AuthContext.tsx' by prepending workspace root.
- *
- * Moved from ide-namespace.builder.ts during TASK_2025_226 decoupling.
  */
 function resolveFilePath(filePath: string): vscode.Uri {
   // Normalize path separators to forward slashes

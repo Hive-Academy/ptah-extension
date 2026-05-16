@@ -1,5 +1,5 @@
 /**
- * Specs for buildGitNamespace (TASK_2026_100 P1.B5).
+ * Specs for buildGitNamespace.
  *
  * ptah.git.worktree* commands shell out via cross-spawn. We mock the
  * cross-spawn module with a tiny EventEmitter-compatible child stub that lets

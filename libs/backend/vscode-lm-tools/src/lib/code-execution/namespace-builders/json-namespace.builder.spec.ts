@@ -1,5 +1,5 @@
 /**
- * Specs for buildJsonNamespace (TASK_2026_100 P1.B5).
+ * Specs for buildJsonNamespace.
  *
  * Covers the end-to-end validate() pipeline plus every exported pure repair
  * helper. Validate() integrates path resolution, IO, repair, parse, optional

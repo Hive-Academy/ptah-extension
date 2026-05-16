@@ -5,8 +5,6 @@
  *
  * Services resolved lazily via getter functions for graceful degradation when
  * SQLite / CodeSymbolIndexer is not registered.
- *
- * TASK_2026_THOTH_CODE_INDEX
  */
 
 import type {

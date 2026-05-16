@@ -19,10 +19,6 @@
  *
  * AST (code structure):
  * - ast: tree-sitter based code analysis
- *
- * TASK_2025_025: Expanded from 8 to 13 namespaces for better Claude discoverability
- * TASK_2025_240: Added json namespace (14 total)
- * TASK_2025_244: Added browser namespace (15 total)
  */
 
 import * as os from 'os';
@@ -76,25 +72,25 @@ import {
   buildDependencyNamespace,
   // AST namespace builder
   buildAstNamespace,
-  // IDE namespace builder (TASK_2025_039, decoupled TASK_2025_226)
+  // IDE namespace builder
   buildIDENamespace,
   type IIDECapabilities,
-  // Orchestration namespace builder (TASK_2025_111)
+  // Orchestration namespace builder
   buildOrchestrationNamespace,
-  // Agent namespace builder (TASK_2025_157)
+  // Agent namespace builder
   buildAgentNamespace,
-  // Git namespace builder (TASK_2025_236)
+  // Git namespace builder
   buildGitNamespace,
-  // JSON namespace builder (TASK_2025_240)
+  // JSON namespace builder
   buildJsonNamespace,
-  // Browser namespace builder (TASK_2025_244)
+  // Browser namespace builder
   buildBrowserNamespace,
   type IBrowserCapabilities,
-  // Skill namespace builder (TASK_2026_THOTH_SKILL_LIFECYCLE)
+  // Skill namespace builder
   buildSkillNamespace,
-  // Memory namespace builder (TASK_2026_THOTH_MEMORY_READ)
+  // Memory namespace builder
   buildMemoryNamespace,
-  // Code symbol indexer namespace builder (TASK_2026_THOTH_CODE_INDEX)
+  // Code symbol indexer namespace builder
   buildCodeNamespace,
 } from './namespace-builders';
 import {
@@ -183,7 +179,7 @@ const MEMORY_WRITER_TOKEN = Symbol.for('PlatformMemoryWriter');
 export const IDE_CAPABILITIES_TOKEN = Symbol.for('IDECapabilities');
 
 /**
- * DI token for browser capabilities (TASK_2025_244).
+ * DI token for browser capabilities.
  * In Electron, ElectronBrowserCapabilities is registered under this token.
  * In VS Code, ChromeLauncherBrowserCapabilities is registered under this token.
  * When not registered, buildBrowserNamespace() returns graceful degradation stubs.
@@ -230,7 +226,7 @@ export class PtahAPIBuilder {
     @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
 
-    // Context enrichment & dependency graph (TASK_2025_182)
+    // Context enrichment & dependency graph
     @inject(TOKENS.CONTEXT_ENRICHMENT_SERVICE)
     private readonly contextEnrichment: ContextEnrichmentService,
 
@@ -244,7 +240,7 @@ export class PtahAPIBuilder {
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
 
-    // Agent orchestration services (TASK_2025_157)
+    // Agent orchestration services
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,
 
@@ -347,7 +343,7 @@ export class PtahAPIBuilder {
         buildRelevanceNamespace(analysisDeps),
       ),
 
-      // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
+      // Dependencies namespace (import-based dependency graph)
       dependencies: this.buildNamespaceSafe('dependencies', () =>
         buildDependencyNamespace(analysisDeps),
       ),
@@ -355,19 +351,19 @@ export class PtahAPIBuilder {
       // AST namespace (code structure)
       ast: this.buildNamespaceSafe('ast', () => buildAstNamespace(astDeps)),
 
-      // IDE namespace (TASK_2025_039 - LSP, editor, actions, testing)
+      // IDE namespace (LSP, editor, actions, testing)
       // Resolved lazily: if IDE_CAPABILITIES_TOKEN is not registered (Electron/standalone),
       // buildIDENamespace receives undefined and returns graceful degradation stubs.
       ide: this.buildNamespaceSafe('ide', () =>
         buildIDENamespace(this.resolveIDECapabilities()),
       ),
 
-      // Orchestration namespace (TASK_2025_111 - workflow state management)
+      // Orchestration namespace (workflow state management)
       orchestration: this.buildNamespaceSafe('orchestration', () =>
         buildOrchestrationNamespace(orchestrationDeps),
       ),
 
-      // Agent orchestration namespace (TASK_2025_157, session linking TASK_2025_161)
+      // Agent orchestration namespace
       agent: this.buildNamespaceSafe('agent', () =>
         buildAgentNamespace({
           agentProcessManager: this.agentProcessManager,
@@ -542,7 +538,7 @@ export class PtahAPIBuilder {
         }),
       ),
 
-      // Git worktree namespace (TASK_2025_236)
+      // Git worktree namespace
       // Wires onWorktreeChanged callback to broadcast git:worktreeChanged
       // to the frontend when MCP tools create/remove worktrees.
       git: this.buildNamespaceSafe('git', () =>
@@ -552,7 +548,7 @@ export class PtahAPIBuilder {
         }),
       ),
 
-      // JSON validation namespace (TASK_2025_240)
+      // JSON validation namespace
       json: this.buildNamespaceSafe('json', () =>
         buildJsonNamespace({
           fileSystemProvider: this.fileSystemProvider,
@@ -560,7 +556,7 @@ export class PtahAPIBuilder {
         }),
       ),
 
-      // Browser automation namespace (TASK_2025_244)
+      // Browser automation namespace
       // Resolved lazily: if BROWSER_CAPABILITIES_TOKEN is not registered,
       // buildBrowserNamespace receives undefined capabilities and returns graceful degradation stubs.
       // Headless/viewport are agent-controlled via ptah_browser_navigate params (not settings).
@@ -577,14 +573,14 @@ export class PtahAPIBuilder {
         }),
       ),
 
-      // Promoted skills namespace (TASK_2026_THOTH_SKILL_LIFECYCLE - ptah.skill.list + ptah.skill.describe)
+      // Promoted skills namespace (ptah.skill.list + ptah.skill.describe)
       skill: this.buildNamespaceSafe('skill', () =>
         buildSkillNamespace({
           getSkillsRoot: () => path.join(os.homedir(), '.ptah', 'skills'),
         }),
       ),
 
-      // Web search namespace (TASK_2025_189, multi-provider TASK_2025_235)
+      // Web search namespace (multi-provider)
       webSearch: this.buildNamespaceSafe(
         'webSearch',
         () =>
@@ -595,7 +591,7 @@ export class PtahAPIBuilder {
           }),
       ),
 
-      // Memory namespace (TASK_2026_THOTH_MEMORY_READ)
+      // Memory namespace
       // Resolved lazily: if MEMORY_SEARCH_TOKEN / MEMORY_STORE_TOKEN / MEMORY_WRITER_TOKEN
       // are not registered (VS Code without SQLite support), the namespace returns graceful
       // error objects.
@@ -632,7 +628,7 @@ export class PtahAPIBuilder {
         }),
       ),
 
-      // Code symbol indexer namespace (TASK_2026_THOTH_CODE_INDEX)
+      // Code symbol indexer namespace
       // Resolved lazily: if CODE_SYMBOL_INDEXER_TOKEN or MEMORY_SEARCH_TOKEN are not registered
       // (SQLite unavailable), all methods return { error: "..." } graceful degradation objects.
       code: this.buildNamespaceSafe('code', () =>

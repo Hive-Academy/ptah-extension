@@ -1,5 +1,5 @@
 /**
- * register — DI registration specs (P1.B8, TASK_2026_100).
+ * register — DI registration specs.
  *
  * `registerVsCodeLmToolsServices` wires three singletons into a tsyringe
  * container:

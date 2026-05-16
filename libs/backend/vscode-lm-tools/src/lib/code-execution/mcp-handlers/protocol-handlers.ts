@@ -276,7 +276,7 @@ function handleToolsList(
         ]
       : []),
 
-    // === Harness builder namespace (TASK_2025_285) ===
+    // === Harness builder namespace ===
     ...(!disabled.has('harness')
       ? [
           buildHarnessSearchSkillsTool(),
@@ -485,7 +485,7 @@ async function handleIndividualTool(
         );
       }
 
-      // Agent orchestration tools (TASK_2025_157)
+      // Agent orchestration tools
       case 'ptah_agent_spawn': {
         const MAX_TASK_LENGTH = 100 * 1024; // 100KB
 
@@ -677,7 +677,7 @@ async function handleIndividualTool(
         );
       }
 
-      // Git worktree tools (TASK_2025_236)
+      // Git worktree tools
       case 'ptah_git_worktree_list': {
         const result = await ptahAPI.git.worktreeList();
         return createToolSuccessResponse(
@@ -761,7 +761,7 @@ async function handleIndividualTool(
         );
       }
 
-      // JSON validation tool (TASK_2025_240)
+      // JSON validation tool
       case 'ptah_json_validate': {
         const { file, schema } = args as {
           file: string;
@@ -796,7 +796,7 @@ async function handleIndividualTool(
         );
       }
 
-      // Browser automation tools (TASK_2025_244)
+      // Browser automation tools
       case 'ptah_browser_navigate': {
         const { url, waitForLoad, headless, viewport } = args as {
           url: string;
@@ -1063,7 +1063,7 @@ async function handleIndividualTool(
         );
       }
 
-      // Browser enhancement tools (TASK_2025_254)
+      // Browser enhancement tools
       case 'ptah_browser_record_start': {
         const { maxFrames, frameDelay } = args as {
           maxFrames?: number;
@@ -1089,7 +1089,7 @@ async function handleIndividualTool(
         );
       }
 
-      // Harness builder tools (TASK_2025_285)
+      // Harness builder tools
       case 'ptah_harness_search_skills': {
         if (!ptahAPI.harness) {
           return createToolSuccessResponse(

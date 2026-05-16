@@ -1,9 +1,9 @@
 /**
  * Agent Namespace Builder
- * TASK_2025_157: Async agent orchestration via CLI agents
  *
- * Provides spawn, status, read, steer, stop, list, waitFor methods
- * for managing headless CLI agents (Gemini, Codex) as background workers.
+ * Async agent orchestration via CLI agents. Provides spawn, status, read,
+ * steer, stop, list, waitFor methods for managing headless CLI agents
+ * (Gemini, Codex) as background workers.
  *
  * Pattern: libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/orchestration-namespace.builder.ts
  */
@@ -179,7 +179,7 @@ export function buildAgentNamespace(
           },
         );
 
-        // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
+        // Wire agentId so CLI permission requests route to agent monitor panel
         result.setAgentId(spawnResult.agentId);
 
         return spawnResult;

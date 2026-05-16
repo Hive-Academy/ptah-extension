@@ -1,5 +1,5 @@
 /**
- * Specs for buildHarnessNamespace (TASK_2026_100 P1.B5).
+ * Specs for buildHarnessNamespace.
  *
  * ptah.harness.* exposes four MCP-accessible methods used by the harness
  * builder agent. Tests cover:

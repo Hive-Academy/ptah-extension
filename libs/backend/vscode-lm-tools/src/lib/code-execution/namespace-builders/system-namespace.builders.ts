@@ -266,9 +266,6 @@ EXAMPLE:
   }`,
 };
 
-// buildAINamespace removed in TASK_2025_209 — ptah.ai namespace is obsolete,
-// replaced by CLI tools + MCP agent spawn (ptah.agent.*).
-
 /**
  * Strip comments from JSON string (supports single-line and multi-line comments)
  * Also handles trailing commas before closing braces.

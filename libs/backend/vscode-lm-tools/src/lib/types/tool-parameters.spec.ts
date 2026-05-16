@@ -1,5 +1,5 @@
 /**
- * tool-parameters — type shape specs (P1.B8, TASK_2026_100).
+ * tool-parameters — type shape specs.
  *
  * `tool-parameters.ts` declares six interfaces describing the LM tool
  * parameter contracts that VS Code passes to Ptah tools. There is no runtime
@@ -11,9 +11,9 @@
  * Strategy:
  *   1. Compile-time assertions via helper `expectType<T, U>()` that fail to
  *      compile if the inferred object shape drifts from the declared one.
- *   2. Runtime assertions that validate the pragmatic edge cases listed in
- *      the Phase 2 plan (empty strings, null-equivalent missing fields,
- *      deeply nested optional payloads).
+ *   2. Runtime assertions that validate the pragmatic edge cases (empty
+ *      strings, null-equivalent missing fields, deeply nested optional
+ *      payloads).
  */
 
 import type {

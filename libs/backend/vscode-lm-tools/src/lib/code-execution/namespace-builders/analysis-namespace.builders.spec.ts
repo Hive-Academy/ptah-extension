@@ -1,5 +1,5 @@
 /**
- * Specs for analysis-namespace.builders (TASK_2026_100 P1.B5).
+ * Specs for analysis-namespace.builders.
  *
  * Covers the four builders that sit under the analysis umbrella:
  *   - buildContextNamespace     → ptah.context

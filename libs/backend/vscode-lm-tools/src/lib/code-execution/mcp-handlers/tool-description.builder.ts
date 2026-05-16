@@ -248,7 +248,7 @@ export function buildCountTokensTool(): MCPToolDefinition {
 }
 
 // ========================================
-// Agent Orchestration MCP Tools (TASK_2025_157)
+// Agent Orchestration MCP Tools
 // ========================================
 
 /**
@@ -469,7 +469,7 @@ export function buildAgentStopTool(): MCPToolDefinition {
 }
 
 // ========================================
-// Web Search MCP Tool (TASK_2025_189)
+// Web Search MCP Tool
 // ========================================
 
 /**
@@ -508,7 +508,7 @@ export function buildWebSearchTool(): MCPToolDefinition {
 }
 
 // ========================================
-// Git Worktree MCP Tools (TASK_2025_236)
+// Git Worktree MCP Tools
 // ========================================
 
 /**
@@ -591,12 +591,12 @@ export function buildWorktreeRemoveTool(): MCPToolDefinition {
 }
 
 // ========================================
-// JSON Validation MCP Tool (TASK_2025_240)
+// JSON Validation MCP Tool
 // ========================================
 
 /**
  * Build the ptah_json_validate tool definition
- * Validate and repair JSON files written by AI agents (TASK_2025_240)
+ * Validate and repair JSON files written by AI agents
  */
 export function buildJsonValidateTool(): MCPToolDefinition {
   return {
@@ -630,7 +630,7 @@ export function buildJsonValidateTool(): MCPToolDefinition {
 }
 
 // ========================================
-// Browser Automation MCP Tools (TASK_2025_244)
+// Browser Automation MCP Tools
 // ========================================
 
 /**
@@ -896,7 +896,7 @@ export function buildBrowserStatusTool(): MCPToolDefinition {
 }
 
 // ========================================
-// Browser Enhancement MCP Tools (TASK_2025_254)
+// Browser Enhancement MCP Tools
 // ========================================
 
 /**
@@ -946,7 +946,7 @@ export function buildBrowserRecordStopTool(): MCPToolDefinition {
 }
 
 // ========================================
-// Harness Builder MCP Tools (TASK_2025_285)
+// Harness Builder MCP Tools
 // ========================================
 
 /**

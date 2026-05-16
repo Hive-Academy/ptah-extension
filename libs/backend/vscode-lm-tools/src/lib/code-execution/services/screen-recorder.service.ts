@@ -1,7 +1,7 @@
 /**
  * Screen Recorder Service
- * TASK_2025_254: CDP screencast frame capture and GIF assembly
  *
+ * CDP screencast frame capture and GIF assembly.
  * Manages an in-memory ring buffer of JPEG frames captured via
  * CDP Page.startScreencast, and assembles them into an animated GIF
  * using gifenc + jpeg-js.

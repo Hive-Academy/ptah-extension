@@ -6,8 +6,8 @@
  * When IIDECapabilities is absent (Electron/standalone), returns graceful degradation
  * stubs that return empty arrays, null, or false as appropriate.
  *
- * TASK_2025_039 - Phases 4-7: LSP, Editor, Actions, Testing
- * TASK_2025_226 - Batch 3: Decoupled from vscode import via IIDECapabilities interface
+ * Sub-namespaces: LSP, Editor, Actions, Testing.
+ * Decoupled from `vscode` import via the IIDECapabilities interface.
  */
 
 import type {

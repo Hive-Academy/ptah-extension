@@ -8,9 +8,8 @@
  * without SQLite support). Following the established pattern from
  * `agent-namespace.builder.ts` and `git-namespace.builder.ts`.
  *
- * TASK_2026_THOTH_MEMORY_READ
- * TASK_2026_122 (follow-up B): added workspace-scope option bag to ptah.memory.search
- * TASK_2026_122 (Critical Issue 1): Zod validation at MCP boundary for MemorySearchOptions
+ * Workspace-scope option bag is supported on ptah.memory.search.
+ * Zod validation is applied at the MCP boundary for MemorySearchOptions.
  */
 
 import { z } from 'zod';

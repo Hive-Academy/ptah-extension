@@ -653,11 +653,11 @@ export function formatAgentSteer(result: {
 }
 
 // ============================================================
-// Web Search Tools (TASK_2025_189)
+// Web Search Tools
 // ============================================================
 
 /**
- * Format ptah_web_search result (multi-provider, TASK_2025_235)
+ * Format ptah_web_search result (multi-provider)
  */
 export function formatWebSearch(result: {
   query: string;
@@ -703,7 +703,7 @@ export function formatWebSearch(result: {
 }
 
 // ============================================================
-// Git Worktree Tools (TASK_2025_236)
+// Git Worktree Tools
 // ============================================================
 
 /**
@@ -807,7 +807,7 @@ export function formatWorktreeRemove(result: {
 }
 
 // ============================================================
-// JSON Validation Tool (TASK_2025_240)
+// JSON Validation Tool
 // ============================================================
 
 /**
@@ -869,7 +869,7 @@ export function formatJsonValidate(result: {
 }
 
 // ============================================================
-// Browser Automation Tools (TASK_2025_244)
+// Browser Automation Tools
 // ============================================================
 
 /**
@@ -1122,7 +1122,7 @@ export function formatBrowserStatus(result: BrowserStatusResult): string {
       ? Math.round(result.autoCloseInMs / 60000)
       : 0;
 
-    // TASK_2025_254: Include headless and recording status
+    // Include headless and recording status
     let statusText =
       `**Connected:** Yes  \n**URL:** ${result.url ?? 'N/A'}  \n` +
       `**Title:** ${result.title ?? 'N/A'}  \n` +
@@ -1146,7 +1146,7 @@ export function formatBrowserStatus(result: BrowserStatusResult): string {
 }
 
 // ============================================================
-// Browser Enhancement Tools (TASK_2025_254)
+// Browser Enhancement Tools
 // ============================================================
 
 /**

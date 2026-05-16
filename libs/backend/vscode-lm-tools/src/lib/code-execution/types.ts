@@ -3,9 +3,6 @@
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
  * Supports 15 namespaces exposing VS Code extension capabilities to Claude CLI.
- *
- * TASK_2025_025: Expanded API surface for better Claude discoverability
- * TASK_2025_209: Removed AINamespace (ptah.ai) — obsolete, replaced by CLI tools + MCP agent spawn
  */
 
 import type {
@@ -33,8 +30,6 @@ import type { CodeNamespace } from './namespace-builders/code-namespace.builder'
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
  * Provides 15 namespaces for comprehensive workspace intelligence
- * TASK_2025_039: Enhanced with ide namespace for LSP and editor superpowers
- * TASK_2025_111: Added orchestration namespace for workflow state management
  */
 export interface PtahAPI {
   // Core namespaces
@@ -43,7 +38,7 @@ export interface PtahAPI {
   diagnostics: DiagnosticsNamespace;
   files: FilesNamespace;
 
-  // Extended namespaces (TASK_2025_025)
+  // Extended namespaces
   context: ContextNamespace;
   project: ProjectNamespace;
   relevance: RelevanceNamespace;
@@ -51,31 +46,31 @@ export interface PtahAPI {
   // AST analysis namespace
   ast: AstNamespace;
 
-  // IDE superpowers namespace (TASK_2025_039)
+  // IDE superpowers namespace
   ide: IDENamespace;
 
-  // Orchestration workflow state management (TASK_2025_111)
+  // Orchestration workflow state management
   orchestration: OrchestrationNamespace;
 
-  // Agent orchestration namespace (TASK_2025_157)
+  // Agent orchestration namespace
   agent: AgentNamespace;
 
-  // Git worktree operations namespace (TASK_2025_236)
+  // Git worktree operations namespace
   git: GitNamespace;
 
-  // JSON validation and repair namespace (TASK_2025_240)
+  // JSON validation and repair namespace
   json: JsonNamespace;
 
-  // Browser automation namespace (TASK_2025_244)
+  // Browser automation namespace
   browser: BrowserNamespace;
 
-  // Promoted skills namespace (TASK_2026_THOTH_SKILL_LIFECYCLE - ptah.skill.list + ptah.skill.describe)
+  // Promoted skills namespace (ptah.skill.list + ptah.skill.describe)
   skill: SkillNamespace;
 
-  // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
+  // Dependencies namespace (import-based dependency graph)
   dependencies: DependenciesNamespace;
 
-  // Web search namespace (TASK_2025_189, multi-provider TASK_2025_235)
+  // Web search namespace (multi-provider)
   webSearch?: {
     search(
       query: string,
@@ -90,13 +85,13 @@ export interface PtahAPI {
     }>;
   };
 
-  // Harness builder namespace (TASK_2025_285 - skill search, creation, MCP registry)
+  // Harness builder namespace (skill search, creation, MCP registry)
   harness?: HarnessNamespace;
 
-  // Memory namespace (TASK_2026_THOTH_MEMORY_READ - ptah.memory.search + ptah.memory.list)
+  // Memory namespace (ptah.memory.search + ptah.memory.list)
   memory?: MemoryNamespace;
 
-  // Code symbol indexer namespace (TASK_2026_THOTH_CODE_INDEX - ptah.code.searchSymbols + ptah.code.reindex)
+  // Code symbol indexer namespace (ptah.code.searchSymbols + ptah.code.reindex)
   code?: CodeNamespace;
 
   /**
@@ -208,9 +203,6 @@ export interface DiagnosticInfo {
   severity?: string;
 }
 
-// AINamespace removed in TASK_2025_209 — ptah.ai namespace is obsolete,
-// replaced by CLI tools + MCP agent spawn (ptah.agent.*).
-
 /**
  * File system capabilities
  * Delegates to FileSystemManager for file operations
@@ -241,7 +233,7 @@ export interface FilesNamespace {
 }
 
 // ========================================
-// Agent Namespace (TASK_2025_157)
+// Agent Namespace
 // ========================================
 
 /**
@@ -305,7 +297,7 @@ export interface AgentNamespace {
 }
 
 /**
- * Git worktree operations namespace (TASK_2025_236)
+ * Git worktree operations namespace
  * Provides list, add, and remove operations for git worktrees via CLI.
  */
 export interface GitNamespace {
@@ -344,11 +336,11 @@ export interface GitNamespace {
 }
 
 // ========================================
-// JSON Namespace (TASK_2025_240)
+// JSON Namespace
 // ========================================
 
 /**
- * JSON validation and repair namespace (TASK_2025_240)
+ * JSON validation and repair namespace
  * Validates JSON files written by AI agents, repairs common issues,
  * and overwrites with clean JSON.
  */
@@ -403,7 +395,7 @@ export interface JsonValidateResult {
 }
 
 // ========================================
-// Browser Namespace (TASK_2025_244)
+// Browser Namespace
 // ========================================
 
 /**
@@ -540,7 +532,7 @@ export interface BrowserStatusResult {
 }
 
 // ========================================
-// Browser Recording Types (TASK_2025_254)
+// Browser Recording Types
 // ========================================
 
 /**
@@ -572,7 +564,7 @@ export interface BrowserRecordStopResult {
 }
 
 /**
- * Browser automation namespace (TASK_2025_244)
+ * Browser automation namespace
  * Provides navigate, screenshot, evaluate, click, type, content read,
  * network monitoring, and session management for AI agent browser automation.
  */
@@ -675,7 +667,6 @@ export interface BrowserNamespace {
   /**
    * Start recording the browser session as a GIF.
    * Uses CDP Page.startScreencast to capture frames.
-   * (TASK_2025_254)
    *
    * @param params - Optional recording configuration
    * @returns Start result
@@ -687,7 +678,6 @@ export interface BrowserNamespace {
 
   /**
    * Stop recording and assemble captured frames into a GIF file.
-   * (TASK_2025_254)
    *
    * @returns Stop result with file path and recording stats
    */
@@ -814,8 +804,6 @@ export interface ExecuteCodeResult {
 /**
  * Parameters for approval_prompt MCP tool
  * Called by Claude CLI when permission is needed for tool execution
- *
- * @see TASK_2025_026 - MCP Permission Prompt Integration
  */
 export interface ApprovalPromptParams {
   /** Name of the tool requesting permission (e.g., "Bash", "Write", "Read") */
@@ -829,7 +817,7 @@ export interface ApprovalPromptParams {
 }
 
 // ========================================
-// New Namespaces (TASK_2025_025)
+// New Namespaces
 // ========================================
 
 /**
@@ -879,7 +867,7 @@ export interface ContextNamespace {
 
 /**
  * Dependencies namespace for import-based dependency graph analysis
- * TASK_2025_182: Exposes DependencyGraphService to agents
+ * Exposes DependencyGraphService to agents
  */
 export interface DependenciesNamespace {
   /**
@@ -1046,7 +1034,7 @@ export interface FileRelevanceResult {
 }
 
 // ========================================
-// AST Namespace (TASK_2025_0XX)
+// AST Namespace
 // ========================================
 
 /**
@@ -1239,7 +1227,7 @@ export interface AstNode {
 }
 
 // ========================================
-// IDE Namespace (TASK_2025_039)
+// IDE Namespace
 // ========================================
 
 /**
@@ -1262,7 +1250,7 @@ export interface IDENamespace {
 }
 
 // ========================================
-// LSP Namespace (TASK_2025_039)
+// LSP Namespace
 // ========================================
 
 /**
@@ -1337,7 +1325,7 @@ export interface LSPNamespace {
 }
 
 // ========================================
-// Editor Namespace (TASK_2025_039)
+// Editor Namespace
 // ========================================
 
 /**
@@ -1378,7 +1366,7 @@ export interface EditorNamespace {
 }
 
 // ========================================
-// Actions Namespace (TASK_2025_039)
+// Actions Namespace
 // ========================================
 
 /**
@@ -1435,7 +1423,7 @@ export interface ActionsNamespace {
 }
 
 // ========================================
-// Testing Namespace (TASK_2025_039)
+// Testing Namespace
 // ========================================
 
 /**
@@ -1471,7 +1459,7 @@ export interface TestingNamespace {
 }
 
 // ========================================
-// IDE Supporting Types (TASK_2025_039)
+// IDE Supporting Types
 // ========================================
 
 /**
@@ -1681,7 +1669,7 @@ export interface CoverageInfo {
 }
 
 // ========================================
-// Orchestration Namespace (TASK_2025_111)
+// Orchestration Namespace
 // ========================================
 
 /**
@@ -1729,10 +1717,10 @@ export interface OrchestrationCheckpoint {
 /**
  * Orchestration workflow state
  * Persists the complete state of an orchestration workflow for a task.
- * Stored in .ptah/specs/TASK_XXX/.orchestration-state.json
+ * Stored in .ptah/specs/{taskId}/.orchestration-state.json
  */
 export interface OrchestrationState {
-  /** Task identifier (e.g., "TASK_2025_111") */
+  /** Task identifier */
   taskId: string;
 
   /** Current workflow phase */
@@ -1792,7 +1780,7 @@ export interface OrchestrationNextAction {
 export interface OrchestrationNamespace {
   /**
    * Get the current orchestration state for a task
-   * @param taskId - Task identifier (e.g., "TASK_2025_111")
+   * @param taskId - Task identifier
    * @returns Current state or null if no state exists
    */
   getState: (taskId: string) => Promise<OrchestrationState | null>;

@@ -1,9 +1,6 @@
 /**
  * DI Registration for VS Code LM Tools
  *
- * TASK_2025_071: DI Registration Standardization
- * Created: 2025-12-14
- *
  * This file centralizes all service registrations for the vscode-lm-tools library.
  * Following the standardized registration pattern established in agent-sdk and agent-generation.
  *
@@ -50,12 +47,12 @@ import { PermissionPromptService } from '../permission/permission-prompt.service
  */
 export function registerVsCodeLmToolsServices(
   container: DependencyContainer,
-  logger: Logger
+  logger: Logger,
 ): void {
-  // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
+  // Dependency validation - fail fast if prerequisites missing
   if (!container.isRegistered(TOKENS.LOGGER)) {
     throw new Error(
-      '[VS Code LM Tools] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.'
+      '[VS Code LM Tools] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.',
     );
   }
 
@@ -63,7 +60,7 @@ export function registerVsCodeLmToolsServices(
   if (!container.isRegistered(TOKENS.CONTEXT_ORCHESTRATION_SERVICE)) {
     throw new Error(
       '[VS Code LM Tools] DEPENDENCY ERROR: workspace-intelligence services must be registered before vscode-lm-tools. ' +
-        'Ensure registerWorkspaceIntelligenceServices is called BEFORE registerVsCodeLmToolsServices in container.ts.'
+        'Ensure registerWorkspaceIntelligenceServices is called BEFORE registerVsCodeLmToolsServices in container.ts.',
     );
   }
 
@@ -73,10 +70,10 @@ export function registerVsCodeLmToolsServices(
   container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
   container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
 
-  // Permission Prompt Service (TASK_2025_026)
+  // Permission Prompt Service
   container.registerSingleton(
     TOKENS.PERMISSION_PROMPT_SERVICE,
-    PermissionPromptService
+    PermissionPromptService,
   );
 
   logger.info('[VS Code LM Tools] Services registered', {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Behavioral system prompt for Ptah MCP Server
  * Appended to AI agent context for premium+MCP users
  *

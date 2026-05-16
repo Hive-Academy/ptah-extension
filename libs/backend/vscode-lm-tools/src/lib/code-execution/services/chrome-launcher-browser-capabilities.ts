@@ -1,7 +1,7 @@
 /**
  * Chrome Launcher Browser Capabilities
- * TASK_2025_244: CDP browser integration using chrome-launcher + chrome-remote-interface
  *
+ * CDP browser integration using chrome-launcher + chrome-remote-interface.
  * Launches a Chrome instance with --remote-debugging-port and connects via CDP.
  * Used in VS Code (or any non-Electron platform) where Electron BrowserWindow is unavailable.
  *
@@ -41,7 +41,7 @@ interface NetworkEntry {
 }
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (headless)
-const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TASK_2025_254)
+const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible)
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
 
@@ -65,7 +65,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   /** Concurrency guard — prevents duplicate session creation from parallel calls */
   private sessionPromise: Promise<void> | null = null;
 
-  /** Recording service (TASK_2025_254) */
+  /** Recording service */
   private recorder: ScreenRecorderService | null = null;
   /** Whether the screencast frame listener has been registered on the current CDP client */
   private screencastListenerRegistered = false;
@@ -545,7 +545,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       clearTimeout(this.inactivityTimer);
     }
 
-    // TASK_2025_254: Use longer timeout for visible mode
+    // Use longer timeout for visible mode
     const timeout = this._headless
       ? INACTIVITY_TIMEOUT_MS
       : VISIBLE_INACTIVITY_TIMEOUT_MS;
@@ -556,7 +556,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async cleanup(): Promise<void> {
-    // TASK_2025_254: Stop recording if active (best-effort GIF save)
+    // Stop recording if active (best-effort GIF save)
     if (this.recorder?.isRecording()) {
       try {
         const recordingDir = this.getRecordingDir();
@@ -602,7 +602,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     this.pendingResponses.clear();
   }
 
-  // Recording methods (TASK_2025_254)
+  // Recording methods
 
   async startRecording(options?: {
     maxFrames?: number;

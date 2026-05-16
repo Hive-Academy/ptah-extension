@@ -1,6 +1,5 @@
 /**
  * Skill namespace builder — exposes `ptah.skill.list` and `ptah.skill.describe` as MCP tools.
- * TASK_2026_THOTH_SKILL_LIFECYCLE
  *
  * Provides read-only access to promoted skills in ~/.ptah/skills/.
  * Uses node:fs synchronous APIs to avoid async complications during

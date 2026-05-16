@@ -1,6 +1,5 @@
 /**
  * Ambient type declarations for gifenc (pure JS GIF encoder)
- * TASK_2025_254
  *
  * gifenc has no bundled TypeScript definitions. These minimal declarations
  * cover the API surface used by ScreenRecorderService.

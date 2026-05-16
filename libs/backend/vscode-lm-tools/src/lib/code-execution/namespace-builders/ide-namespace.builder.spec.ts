@@ -1,5 +1,5 @@
 /**
- * Specs for buildIDENamespace (TASK_2026_100 P1.B4).
+ * Specs for buildIDENamespace.
  *
  * Covers:
  *   - shape round-trip (lsp / editor / actions / testing)

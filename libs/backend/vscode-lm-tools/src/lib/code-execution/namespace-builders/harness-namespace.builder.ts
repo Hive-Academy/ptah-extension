@@ -1,7 +1,7 @@
 /**
  * Harness Namespace Builder
- * TASK_2025_285: Harness-specific MCP tools for the harness builder agent
  *
+ * Harness-specific MCP tools for the harness builder agent.
  * Provides 4 tools that the harness builder agent can use during its multi-turn
  * execution to search skills, create skills, search the MCP registry, and
  * list installed MCP servers.

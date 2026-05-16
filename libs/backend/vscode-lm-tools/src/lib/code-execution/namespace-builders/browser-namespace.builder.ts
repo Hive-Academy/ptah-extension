@@ -1,7 +1,7 @@
 /**
  * Browser Namespace Builder
- * TASK_2025_244: CDP browser integration for AI agent access
  *
+ * CDP browser integration for AI agent access.
  * Builds the browser namespace with navigate, screenshot, evaluate, click,
  * type, getContent, networkRequests, close, and status methods.
  *
@@ -120,7 +120,7 @@ export interface IBrowserCapabilities {
 
   isConnected(): boolean;
 
-  // Recording methods (TASK_2025_254)
+  // Recording methods
 
   /** Start recording browser session frames for GIF assembly */
   startRecording(options?: {

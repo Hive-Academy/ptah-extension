@@ -8,10 +8,8 @@
  * - Block indefinitely until user responds or session cleanup resolves
  * - Persist permission rules to workspace state
  *
- * TASK_2025_026: MCP Permission Prompt Integration
- * TASK_2025_215: Removed 5-minute setTimeout-based timeout. Permission requests
- * now block indefinitely until the user responds or cleanup resolves them
- * (matching Claude Code CLI behavior).
+ * Permission requests block indefinitely until the user responds or cleanup
+ * resolves them (matching Claude Code CLI behavior).
  */
 
 import { injectable, inject } from 'tsyringe';

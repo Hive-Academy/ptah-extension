@@ -1,7 +1,7 @@
 /**
  * JSON Namespace Builder
- * TASK_2025_240: JSON validation and repair MCP tool
  *
+ * JSON validation and repair MCP tool.
  * Provides a validate() method that reads a JSON file, extracts JSON from
  * raw agent output (markdown fences, prose), repairs common issues (trailing
  * commas, single quotes, unquoted keys, comments, unbalanced brackets),

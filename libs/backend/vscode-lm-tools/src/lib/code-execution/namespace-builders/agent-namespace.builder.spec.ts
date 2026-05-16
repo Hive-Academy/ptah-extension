@@ -1,5 +1,5 @@
 /**
- * Specs for buildAgentNamespace (TASK_2026_100 P1.B5).
+ * Specs for buildAgentNamespace.
  *
  * Covers the 7 methods exposed on ptah.agent.*:
  *   - spawn — ptah-cli routing, disabled-CLI guard, enrichment of spawn request

@@ -1,5 +1,5 @@
 /**
- * code-execution-mcp.service — unit specs (P1.B1, TASK_2026_100).
+ * code-execution-mcp.service — unit specs.
  *
  * `CodeExecutionMCP` is a thin orchestrator that wires HTTP server lifecycle
  * + MCP JSON-RPC dispatch together, delegating the actual work to helpers in

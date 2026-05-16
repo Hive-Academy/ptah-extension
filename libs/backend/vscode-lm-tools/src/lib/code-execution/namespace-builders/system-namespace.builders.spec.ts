@@ -1,5 +1,5 @@
 /**
- * Specs for system namespace builders (TASK_2026_100 P1.B4).
+ * Specs for system namespace builders.
  *
  * Covers buildFilesNamespace, buildHelpMethod, and the HELP_DOCS constant.
  *

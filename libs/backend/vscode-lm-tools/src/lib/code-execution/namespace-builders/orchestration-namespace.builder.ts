@@ -3,8 +3,6 @@
  *
  * Provides state management tools for orchestration workflows.
  * Enables workflow state persistence and continuation across sessions.
- *
- * TASK_2025_111: MCP-Powered Setup Wizard & Orchestration Skill Enhancements
  */
 
 import * as path from 'path';
@@ -73,7 +71,7 @@ const PHASE_CHECKPOINTS: Record<OrchestrationPhase, string | null> = {
 
 /**
  * Build orchestration namespace for state management
- * Persists workflow state to .ptah/specs/TASK_XXX/.orchestration-state.json
+ * Persists workflow state to .ptah/specs/{taskId}/.orchestration-state.json
  *
  * @param deps - Dependencies including workspace root
  * @returns OrchestrationNamespace with getState, setState, and getNextAction methods
