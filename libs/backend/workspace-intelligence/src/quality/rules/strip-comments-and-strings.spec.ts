@@ -9,8 +9,6 @@
  * - Preserve `${expr}` expressions inside template literals.
  * - Handle unterminated strings/comments without throwing or hanging.
  * - Distinguish regex literals from division via a documented heuristic.
- *
- * TASK_2025_291 Wave B (B3)
  */
 
 import { stripCommentsAndStrings } from './strip-comments-and-strings';

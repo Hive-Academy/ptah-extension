@@ -12,8 +12,6 @@
  * - Per-file anti-pattern result caching
  * - Cache hit/miss statistics tracking
  *
- * TASK_2025_144: Phase F - Performance Optimizations
- *
  * @packageDocumentation
  */
 
@@ -225,7 +223,7 @@ export class FileHashCacheService implements IFileHashCacheService {
     } else {
       this.logger.warn(
         'setCachedPatterns called for file without cached hash, creating entry',
-        { filePath }
+        { filePath },
       );
       this.evictIfNeeded();
       const now = Date.now();
@@ -301,7 +299,7 @@ export class FileHashCacheService implements IFileHashCacheService {
     // Find and remove the oldest entries (evict 10% to avoid frequent eviction)
     const evictionCount = Math.ceil(MAX_CACHE_SIZE * 0.1);
     const entries = Array.from(this.cache.entries()).sort(
-      ([, a], [, b]) => a.lastAccessTimestamp - b.lastAccessTimestamp
+      ([, a], [, b]) => a.lastAccessTimestamp - b.lastAccessTimestamp,
     );
 
     for (let i = 0; i < evictionCount && i < entries.length; i++) {

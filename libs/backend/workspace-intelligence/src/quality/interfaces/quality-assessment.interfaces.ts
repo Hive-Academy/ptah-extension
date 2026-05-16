@@ -5,8 +5,6 @@
  * These interfaces define the public API for quality analysis,
  * anti-pattern detection, project intelligence, and prescriptive guidance.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -117,9 +115,9 @@ export interface IAntiPatternDetectionService {
    * Runs all applicable rules for the file type and returns
    * detected anti-patterns with locations and suggestions.
    *
-   * TASK_2025_291 B2: now async because some rules (e.g. `functionTooLargeRule`)
-   * perform tree-sitter AST analysis. Sync rules are still fully supported —
-   * they are transparently awaited.
+   * Async because some rules (e.g. `functionTooLargeRule`) perform tree-sitter
+   * AST analysis. Sync rules are still fully supported — they are transparently
+   * awaited.
    *
    * @param content - File content to analyze
    * @param filePath - Relative file path (used for extension detection and location)
@@ -295,7 +293,7 @@ export interface IPrescriptiveGuidanceService {
 }
 
 // ============================================
-// File Hash Cache Service Interface (Phase F - TASK_2025_144)
+// File Hash Cache Service Interface
 // ============================================
 
 /**
@@ -402,7 +400,7 @@ export interface IFileHashCacheService {
 }
 
 // ============================================
-// Quality History Service Interface (Phase G - TASK_2025_144)
+// Quality History Service Interface
 // ============================================
 
 /**
@@ -445,7 +443,7 @@ export interface IQualityHistoryService {
 }
 
 // ============================================
-// Quality Export Service Interface (Phase G - TASK_2025_144)
+// Quality Export Service Interface
 // ============================================
 
 /**

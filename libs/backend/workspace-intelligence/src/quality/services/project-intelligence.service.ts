@@ -4,8 +4,6 @@
  * Unified facade service that combines workspace context detection with
  * code quality assessment to provide comprehensive project intelligence.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -125,7 +123,7 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
     @inject(TOKENS.CODE_QUALITY_ASSESSMENT_SERVICE)
     private readonly qualityAssessment: ICodeQualityAssessmentService,
     @inject(TOKENS.PRESCRIPTIVE_GUIDANCE_SERVICE)
-    private readonly guidanceService: IPrescriptiveGuidanceService
+    private readonly guidanceService: IPrescriptiveGuidanceService,
   ) {
     this.logger.debug('ProjectIntelligenceService initialized');
   }
@@ -178,15 +176,14 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
       const workspaceContext = await this.getWorkspaceContext(workspacePath);
 
       // Perform quality assessment
-      const qualityAssessment = await this.qualityAssessment.assessQuality(
-        workspacePath
-      );
+      const qualityAssessment =
+        await this.qualityAssessment.assessQuality(workspacePath);
 
       // Generate prescriptive guidance
       const prescriptiveGuidance = this.guidanceService.generateGuidance(
         qualityAssessment,
         workspaceContext,
-        DEFAULT_GUIDANCE_TOKEN_BUDGET
+        DEFAULT_GUIDANCE_TOKEN_BUDGET,
       );
 
       // Build unified intelligence
@@ -249,28 +246,25 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
 
     try {
       // Detect project type
-      const projectType = await this.projectDetector.detectProjectType(
-        workspacePath
-      );
+      const projectType =
+        await this.projectDetector.detectProjectType(workspacePath);
 
       // Detect framework based on project type
       const projectTypesMap = new Map<string, typeof projectType>();
       projectTypesMap.set(workspacePath, projectType);
-      const frameworksMap = await this.frameworkDetector.detectFrameworks(
-        projectTypesMap
-      );
+      const frameworksMap =
+        await this.frameworkDetector.detectFrameworks(projectTypesMap);
       const framework = frameworksMap.get(workspacePath);
 
       // Detect monorepo
-      const monorepoResult = await this.monorepoDetector.detectMonorepo(
-        workspacePath
-      );
+      const monorepoResult =
+        await this.monorepoDetector.detectMonorepo(workspacePath);
 
       // Analyze dependencies (requires project type)
       const dependencyResult =
         await this.dependencyAnalyzer.analyzeDependencies(
           workspacePath,
-          projectType
+          projectType,
         );
 
       // Detect languages from project type
@@ -280,7 +274,7 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
       const architecturePatterns = this.detectArchitecturePatterns(
         projectType,
         framework,
-        monorepoResult.isMonorepo
+        monorepoResult.isMonorepo,
       );
 
       const context: WorkspaceContext = {
@@ -414,7 +408,7 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
   private detectArchitecturePatterns(
     projectType: string,
     framework: string | undefined,
-    isMonorepo: boolean
+    isMonorepo: boolean,
   ): string[] {
     const patterns: string[] = [];
 
@@ -459,7 +453,7 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
    * @returns Minimal ProjectIntelligence
    */
   private createMinimalIntelligence(
-    _workspacePath: string
+    _workspacePath: string,
   ): ProjectIntelligence {
     const minimalContext = this.createMinimalContext();
     const minimalAssessment = this.createMinimalAssessment();

@@ -5,21 +5,13 @@
  * ignore matches that sit inside comments or string literals, thanks to the
  * `stripCommentsAndStrings` pre-processor wired into `rule-base.ts`.
  *
- * Before the B3 change:
- *  - `// TODO: fix the any` could falsely match `: any` when surrounded by
- *    loose whitespace.
- *  - `"pattern: any is banned"` in a string literal could falsely match too.
- *
- * After the B3 change:
  *  - Matches inside comments and strings are suppressed.
  *  - Reported line/column for real matches is unchanged.
  *  - Rules whose subject IS a comment (e.g. `@ts-ignore`) opt out via
  *    `matchInCommentsAndStrings: true`.
  *
- * Note: `rule.detect(...)` returns `MaybeAsync<AntiPatternMatch[]>` after
- * TASK_2025_291 B2, so every call is awaited via `Promise.resolve(...)`.
- *
- * TASK_2025_291 Wave B (B3)
+ * Note: `rule.detect(...)` returns `MaybeAsync<AntiPatternMatch[]>`, so every
+ * call is awaited via `Promise.resolve(...)`.
  */
 
 import type { AntiPatternMatch } from '@ptah-extension/shared';

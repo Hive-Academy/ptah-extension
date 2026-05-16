@@ -9,11 +9,9 @@
  * - Too many imports (>15 imports)
  * - Function too large (>50 lines) — AST-backed via tree-sitter
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- * TASK_2025_291 Wave B (B2): functionTooLargeRule migrated from brace-counting
- *   heuristic to tree-sitter AST queries. The old counter mis-fired on braces
- *   inside strings / template literals / regex literals and miscounted nested
- *   function bodies.
+ * functionTooLargeRule uses tree-sitter AST queries rather than brace-counting
+ * because brace counters mis-fire on braces inside strings / template literals
+ * / regex literals and miscount nested function bodies.
  *
  * @packageDocumentation
  */
@@ -28,7 +26,7 @@ import type { SupportedLanguage } from '../../ast/tree-sitter.config';
 import { EXTENSION_LANGUAGE_MAP } from '../../ast/tree-sitter.config';
 
 // ============================================
-// Module-Level Parser Configuration (TASK_2025_291 B2)
+// Module-Level Parser Configuration
 // ============================================
 
 /**
@@ -316,7 +314,7 @@ export const tooManyImportsRule: AntiPatternRule = createHeuristicRule({
  *
  * Threshold: >50 lines triggers detection.
  *
- * Detection approach (TASK_2025_291 B2): uses tree-sitter AST queries via
+ * Detection approach: uses tree-sitter AST queries via
  * {@link TreeSitterParserService.queryFunctions} to locate function, method
  * and arrow-function declarations. Function length is measured from the
  * declaration's start row to its end row (inclusive), which is robust to:

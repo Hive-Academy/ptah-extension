@@ -29,7 +29,7 @@ export type FileContextMode = 'full' | 'structural' | 'dependency';
 
 /**
  * Minimal interface for DependencyGraphService to avoid import dependency
- * on a service that may not be registered yet (created in Batch 3).
+ * on the concrete service.
  */
 interface DependencyGraphInterface {
   getDependencies(filePath: string, depth?: number): string[];
@@ -153,7 +153,7 @@ export interface ContextOptimizationStats {
 export class ContextSizeOptimizerService {
   /**
    * Optional DependencyGraphService reference.
-   * Not constructor-injected because it is registered in Batch 3 (after this service).
+   * Not constructor-injected because it is registered after this service.
    * When DependencyGraphService is available, it will be set via setDependencyGraph().
    */
   private dependencyGraph: DependencyGraphInterface | null = null;

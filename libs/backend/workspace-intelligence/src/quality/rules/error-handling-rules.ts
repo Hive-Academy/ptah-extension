@@ -8,8 +8,6 @@
  * - Empty catch blocks (swallowing errors)
  * - Console-only catch blocks (logging without proper handling)
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 

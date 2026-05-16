@@ -7,8 +7,6 @@
  * The RuleRegistry implements the AntiPatternRuleRegistry interface from shared,
  * enabling O(1) rule lookup by ID and efficient filtering by category/extension.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -372,7 +370,7 @@ export {
 
 export { noAssertionsRule, allSkippedRule } from './testing-rules';
 
-// Angular rules (TASK_2025_144 Phase E2)
+// Angular rules
 export {
   improperChangeDetectionRule,
   subscriptionLeakRule,
@@ -381,7 +379,7 @@ export {
   missingTrackByRule,
 } from './angular-rules';
 
-// NestJS rules (TASK_2025_144 Phase E2)
+// NestJS rules
 export {
   missingDecoratorRule,
   controllerLogicRule,
@@ -390,7 +388,7 @@ export {
   circularModuleRule,
 } from './nestjs-rules';
 
-// React rules (TASK_2025_144 Phase E2)
+// React rules
 export {
   missingKeyRule,
   directStateMutationRule,
@@ -410,5 +408,5 @@ export {
   type HeuristicRuleConfig,
 } from './rule-base';
 
-// Comment/string pre-processor (TASK_2025_291 B3)
+// Comment/string pre-processor
 export { stripCommentsAndStrings } from './strip-comments-and-strings';

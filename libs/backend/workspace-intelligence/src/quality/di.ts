@@ -1,9 +1,6 @@
 /**
  * Quality Services DI Registration
  *
- * TASK_2025_141 Batch 6: Register all quality assessment services in DI container.
- *
- * Pattern: Follow workspace-intelligence/src/di/register.ts for consistency.
  * Services use @injectable() decorators for auto-wiring.
  *
  * DEPENDENCY ORDER:
@@ -40,7 +37,7 @@ import { QualityExportService } from './services/quality-export.service';
  */
 export function registerQualityServices(
   container: DependencyContainer,
-  logger: Logger
+  logger: Logger,
 ): void {
   logger.info('[Quality Services] Registering quality assessment services...');
 
@@ -49,15 +46,15 @@ export function registerQualityServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.ANTI_PATTERN_DETECTION_SERVICE,
-    AntiPatternDetectionService
+    AntiPatternDetectionService,
   );
 
   // ============================================================
-  // Tier 1.5: File hash cache service (TASK_2025_144 Phase F)
+  // Tier 1.5: File hash cache service
   // ============================================================
   container.registerSingleton(
     TOKENS.FILE_HASH_CACHE_SERVICE,
-    FileHashCacheService
+    FileHashCacheService,
   );
 
   // ============================================================
@@ -65,7 +62,7 @@ export function registerQualityServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.CODE_QUALITY_ASSESSMENT_SERVICE,
-    CodeQualityAssessmentService
+    CodeQualityAssessmentService,
   );
 
   // ============================================================
@@ -73,7 +70,7 @@ export function registerQualityServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.PRESCRIPTIVE_GUIDANCE_SERVICE,
-    PrescriptiveGuidanceService
+    PrescriptiveGuidanceService,
   );
 
   // ============================================================
@@ -81,20 +78,20 @@ export function registerQualityServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.PROJECT_INTELLIGENCE_SERVICE,
-    ProjectIntelligenceService
+    ProjectIntelligenceService,
   );
 
   // ============================================================
-  // Tier 5: History and export services (TASK_2025_144 Phase G)
+  // Tier 5: History and export services
   // ============================================================
   container.registerSingleton(
     TOKENS.QUALITY_HISTORY_SERVICE,
-    QualityHistoryService
+    QualityHistoryService,
   );
 
   container.registerSingleton(
     TOKENS.QUALITY_EXPORT_SERVICE,
-    QualityExportService
+    QualityExportService,
   );
 
   logger.info('[Quality Services] Quality assessment services registered', {

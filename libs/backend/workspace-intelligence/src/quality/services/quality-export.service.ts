@@ -5,8 +5,6 @@
  * from ProjectIntelligence data. Handles proper formatting,
  * table generation, and CSV field escaping.
  *
- * TASK_2025_144: Phase G - Reporting and Visualization
- *
  * @packageDocumentation
  */
 
@@ -82,17 +80,17 @@ export class QualityExportService implements IQualityExportService {
     lines.push('# Code Quality Report');
     lines.push('');
     lines.push(
-      `**Generated**: ${new Date(intelligence.timestamp).toISOString()}`
+      `**Generated**: ${new Date(intelligence.timestamp).toISOString()}`,
     );
     lines.push(
       `**Project**: ${workspaceContext.projectType}${
         workspaceContext.framework ? ` (${workspaceContext.framework})` : ''
-      }`
+      }`,
     );
     lines.push(`**Score**: ${qualityAssessment.score}/100`);
     lines.push(`**Files Analyzed**: ${qualityAssessment.sampledFiles.length}`);
     lines.push(
-      `**Analysis Duration**: ${qualityAssessment.analysisDurationMs}ms`
+      `**Analysis Duration**: ${qualityAssessment.analysisDurationMs}ms`,
     );
     lines.push('');
 
@@ -162,7 +160,7 @@ export class QualityExportService implements IQualityExportService {
       lines.push(`- **Cached Files**: ${stats.cachedFiles}`);
       lines.push(`- **Fresh Files**: ${stats.freshFiles}`);
       lines.push(
-        `- **Cache Hit Rate**: ${(stats.cacheHitRate * 100).toFixed(1)}%`
+        `- **Cache Hit Rate**: ${(stats.cacheHitRate * 100).toFixed(1)}%`,
       );
       lines.push('');
     }
@@ -296,7 +294,7 @@ export class QualityExportService implements IQualityExportService {
       lines.push(
         `   - Example files: ${rec.exampleFiles
           .map((f) => `\`${f}\``)
-          .join(', ')}`
+          .join(', ')}`,
       );
     }
 

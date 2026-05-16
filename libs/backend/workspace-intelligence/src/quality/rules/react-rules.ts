@@ -11,8 +11,6 @@
  * - Large component files (>300 lines)
  * - Inline function props (unnecessary re-renders)
  *
- * TASK_2025_144: Phase E2 - Framework-Specific Anti-Pattern Rules
- *
  * @packageDocumentation
  */
 
@@ -68,7 +66,7 @@ export const missingKeyRule: AntiPatternRule = createHeuristicRule({
       // Extract a window of content after the arrow to check for JSX
       const afterArrow = content.substring(
         mapMatch.index + mapMatch[0].length,
-        Math.min(content.length, mapMatch.index + mapMatch[0].length + 500)
+        Math.min(content.length, mapMatch.index + mapMatch[0].length + 500),
       );
 
       // Check if the map body contains JSX (starts with < or has return with <)
@@ -290,7 +288,7 @@ export const largeComponentRule: AntiPatternRule = createHeuristicRule({
     // - React.FC / React.Component
     const hasReactComponent =
       /(?:function\s+[A-Z]|const\s+[A-Z]\w*\s*[:=]|class\s+\w+\s+extends\s+(?:React\.)?(?:Component|PureComponent)|React\.(?:FC|FunctionComponent))/.test(
-        content
+        content,
       );
 
     if (!hasReactComponent) {

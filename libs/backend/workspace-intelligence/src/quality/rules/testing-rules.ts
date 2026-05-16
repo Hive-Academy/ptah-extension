@@ -12,8 +12,6 @@
  * These rules only apply to test files identified by extension:
  * .spec.ts, .test.ts, .spec.js, .test.js
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 

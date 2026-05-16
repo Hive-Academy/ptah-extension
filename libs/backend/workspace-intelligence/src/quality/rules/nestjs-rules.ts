@@ -12,8 +12,6 @@
  * - Missing guards on mutation endpoints
  * - Circular module dependencies (forwardRef in imports)
  *
- * TASK_2025_144: Phase E2 - Framework-Specific Anti-Pattern Rules
- *
  * @packageDocumentation
  */
 
@@ -168,7 +166,7 @@ export const controllerLogicRule: AntiPatternRule = createHeuristicRule({
       // Find the next opening brace after the decorator (the method body)
       const afterDecorator = content.indexOf(
         '{',
-        decoratorMatch.index + decoratorMatch[0].length
+        decoratorMatch.index + decoratorMatch[0].length,
       );
       if (afterDecorator === -1) {
         continue;
@@ -306,7 +304,7 @@ export const missingGuardRule: AntiPatternRule = createHeuristicRule({
 
     const betweenDecoratorAndClass = content.substring(
       controllerIndex,
-      classIndex
+      classIndex,
     );
     const hasClassLevelGuard = /@UseGuards\s*\(/.test(betweenDecoratorAndClass);
 
@@ -326,7 +324,7 @@ export const missingGuardRule: AntiPatternRule = createHeuristicRule({
       const lookbackStart = Math.max(0, mutationMatch.index - 300);
       const beforeDecorator = content.substring(
         lookbackStart,
-        mutationMatch.index
+        mutationMatch.index,
       );
 
       // Check for @UseGuards in the decorator stack for this method
@@ -334,7 +332,7 @@ export const missingGuardRule: AntiPatternRule = createHeuristicRule({
       const lastBoundary = Math.max(
         beforeDecorator.lastIndexOf('\n\n'),
         beforeDecorator.lastIndexOf('}\n'),
-        beforeDecorator.lastIndexOf(';\n')
+        beforeDecorator.lastIndexOf(';\n'),
       );
 
       const decoratorStack =

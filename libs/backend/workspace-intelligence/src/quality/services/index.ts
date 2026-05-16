@@ -3,33 +3,31 @@
  *
  * Exports all quality assessment service implementations.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
 // ============================================
-// Core Services (Batch 4)
+// Core Services
 // ============================================
 
 export { AntiPatternDetectionService } from './anti-pattern-detection.service';
 export { CodeQualityAssessmentService } from './code-quality-assessment.service';
 
 // ============================================
-// Performance Optimization Services (TASK_2025_144 Phase F)
+// Performance Optimization Services
 // ============================================
 
 export { FileHashCacheService } from './file-hash-cache.service';
 
 // ============================================
-// Unified Intelligence Services (Batch 5)
+// Unified Intelligence Services
 // ============================================
 
 export { PrescriptiveGuidanceService } from './prescriptive-guidance.service';
 export { ProjectIntelligenceService } from './project-intelligence.service';
 
 // ============================================
-// History and Export Services (TASK_2025_144 Phase G)
+// History and Export Services
 // ============================================
 
 export { QualityHistoryService } from './quality-history.service';

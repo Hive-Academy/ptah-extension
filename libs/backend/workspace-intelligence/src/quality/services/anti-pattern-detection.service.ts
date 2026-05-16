@@ -4,8 +4,6 @@
  * Service for detecting anti-patterns in source code using a rule engine.
  * Provides pattern detection, aggregation, and quality scoring capabilities.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -156,7 +154,7 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
     // Run each applicable rule
     for (const rule of applicableRules) {
       try {
-        // TASK_2025_291 B2: rule.detect may return sync or Promise.
+        // rule.detect may return sync or Promise.
         // `await Promise.resolve(x)` handles both with no overhead for arrays.
         const matches = await Promise.resolve(rule.detect(content, filePath));
 
@@ -373,7 +371,7 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
   }
 
   // ============================================
-  // Async Detection Methods (Phase F - TASK_2025_144)
+  // Async Detection Methods
   // ============================================
 
   /**
@@ -418,8 +416,8 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
     }
 
     // Run all rules in parallel with fault isolation.
-    // TASK_2025_291 B2: rule.detect may now be async (returns Promise<AntiPatternMatch[]>)
-    // or sync. `Promise.resolve(rule.detect(...))` normalizes both cases.
+    // rule.detect may be async (returns Promise<AntiPatternMatch[]>) or sync.
+    // `Promise.resolve(rule.detect(...))` normalizes both cases.
     const results = await Promise.allSettled(
       applicableRules.map(async (rule) => ({
         rule,

@@ -3,8 +3,6 @@
  *
  * Tests the full quality assessment pipeline from file sampling
  * to prescriptive guidance generation with real fixtures.
- *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
  */
 
 import 'reflect-metadata';

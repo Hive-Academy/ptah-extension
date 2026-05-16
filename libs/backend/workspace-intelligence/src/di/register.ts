@@ -1,8 +1,6 @@
 /**
  * Workspace Intelligence DI Registration
- * TASK_2025_071 Batch 2C: Register all workspace-intelligence services in DI container
  *
- * Pattern: Follow agent-generation registration pattern for consistency.
  * Services use @injectable() decorators for auto-wiring.
  *
  * CRITICAL: Service registration order MUST follow dependency hierarchy.
@@ -52,10 +50,10 @@ import { ContextEnrichmentService } from '../context-analysis/context-enrichment
 import { AgentDiscoveryService } from '../autocomplete/agent-discovery.service';
 import { CommandDiscoveryService } from '../autocomplete/command-discovery.service';
 
-// Quality assessment services registration (TASK_2025_141)
+// Quality assessment services registration
 import { registerQualityServices } from '../quality/di';
 
-// Code symbol indexer (TASK_2026_THOTH_CODE_INDEX)
+// Code symbol indexer
 import { CodeSymbolIndexer } from '../services/code-symbol-indexer.service';
 
 /**
@@ -65,10 +63,10 @@ import { CodeSymbolIndexer } from '../services/code-symbol-indexer.service';
  */
 export const CODE_SYMBOL_INDEXER = Symbol.for('PtahCodeSymbolIndexer');
 
-// TASK_2025_291 Wave B (B2): AST-backed architecture rules need the
-// TreeSitterParserService. `configureArchitectureRules` is a module-level
-// setter called once during bootstrap (see Tier 6 below) to wire the
-// already-registered singleton into the rule module.
+// AST-backed architecture rules need the TreeSitterParserService.
+// `configureArchitectureRules` is a module-level setter called once during
+// bootstrap (see Tier 6 below) to wire the already-registered singleton
+// into the rule module.
 import { configureArchitectureRules } from '../quality/rules/architecture-rules';
 
 /**
@@ -82,7 +80,7 @@ import { configureArchitectureRules } from '../quality/rules/architecture-rules'
  * Tier 5: Context services - 4 services
  * Tier 6: AST Analysis Services - 2 services
  * Tier 7: Autocomplete discovery services - 2 services
- * Tier 8: Quality assessment services (TASK_2025_141) - 4 services
+ * Tier 8: Quality assessment services - 4 services
  *
  * @param container - TSyringe DI container
  * @param logger - Logger instance
@@ -91,7 +89,7 @@ export function registerWorkspaceIntelligenceServices(
   container: DependencyContainer,
   logger: Logger,
 ): void {
-  // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
+  // Dependency validation - fail fast if prerequisites missing
   if (!container.isRegistered(TOKENS.LOGGER)) {
     throw new Error(
       '[Workspace Intelligence] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.',
@@ -195,10 +193,10 @@ export function registerWorkspaceIntelligenceServices(
     DependencyGraphService,
   );
 
-  // TASK_2025_291 B2: wire the tree-sitter parser into the module-level
-  // architecture-rules shim so `functionTooLargeRule` can perform AST-backed
-  // function-size analysis. Done here because the parser singleton is
-  // registered immediately above and the rule module needs it before
+  // Wire the tree-sitter parser into the module-level architecture-rules
+  // shim so `functionTooLargeRule` can perform AST-backed function-size
+  // analysis. Done here because the parser singleton is registered
+  // immediately above and the rule module needs it before
   // `registerQualityServices` wires the detection pipeline.
   configureArchitectureRules(
     container.resolve<TreeSitterParserService>(
@@ -228,13 +226,13 @@ export function registerWorkspaceIntelligenceServices(
   );
 
   // ============================================================
-  // Tier 8: Quality assessment services (TASK_2025_141)
+  // Tier 8: Quality assessment services
   // Depends on: Tier 1-5 services (file system, indexing, relevance scoring)
   // ============================================================
   registerQualityServices(container, logger);
 
   // ============================================================
-  // Tier 9: Code Symbol Indexer (TASK_2026_THOTH_CODE_INDEX)
+  // Tier 9: Code Symbol Indexer
   // Depends on: AstAnalysisService (Tier 6), WorkspaceIndexerService (Tier 3),
   // IFileSystemProvider (platform), SYMBOL_SINK (memory-contracts token — wired
   // by memory-curator registration, which runs before this in the host app)

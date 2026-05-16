@@ -1,13 +1,11 @@
 /**
- * Unit Tests for Performance Optimization Features (Phase F)
+ * Unit Tests for Performance Optimization Features
  *
  * Tests for:
  * - FileHashCacheService: hash computation, cache hit/miss, TTL expiry, LRU eviction, stats
  * - Async detection: parallel execution, fault isolation
  * - Adaptive sampling: correct sizes for different project scales
  * - Framework priority patterns: correct patterns per framework
- *
- * TASK_2025_144: Phase F - Performance Optimizations
  */
 
 import 'reflect-metadata';

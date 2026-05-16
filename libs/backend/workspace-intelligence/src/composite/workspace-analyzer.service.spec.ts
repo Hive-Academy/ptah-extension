@@ -22,7 +22,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
   let mockWorkspaceService: jest.Mocked<WorkspaceService>;
   let mockContextService: jest.Mocked<ContextService>;
   let mockIndexer: jest.Mocked<WorkspaceIndexerService>;
-  // TASK_2026_100: Suite is .skip'd pending rewrite for analyzeSource() API.
+  // Suite is .skip'd pending rewrite for analyzeSource() API.
   // Mocks typed as `any` to avoid TS drift noise until tests are re-authored.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mockTreeSitterParser: any;

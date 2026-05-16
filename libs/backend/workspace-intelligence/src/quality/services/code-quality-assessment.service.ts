@@ -4,8 +4,6 @@
  * Service for assessing code quality through intelligent file sampling
  * and anti-pattern detection. Orchestrates the quality assessment pipeline.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -151,7 +149,7 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
    * @param fileSystem - Service for file content reading
    * @param relevanceScorer - Service for file relevance scoring
    * @param antiPatternDetector - Service for pattern detection
-   * @param fileHashCache - Service for file content hash caching (Phase F - TASK_2025_144)
+   * @param fileHashCache - Service for file content hash caching
    */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -223,9 +221,9 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       return this.createNeutralAssessment(startTime);
     }
 
-    // Detect anti-patterns across sampled files
-    // TASK_2025_291 B2: detectPatternsInFiles is now async because some rules
-    // (e.g. `functionTooLargeRule`) rely on tree-sitter AST analysis.
+    // Detect anti-patterns across sampled files.
+    // detectPatternsInFiles is async because some rules (e.g. `functionTooLargeRule`)
+    // rely on tree-sitter AST analysis.
     const antiPatterns =
       await this.antiPatternDetector.detectPatternsInFiles(sampledFiles);
 
@@ -355,7 +353,7 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
   }
 
   // ============================================
-  // Incremental Analysis (Phase F - TASK_2025_144)
+  // Incremental Analysis
   // ============================================
 
   /**
@@ -443,7 +441,7 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
             file.path,
           );
         } else {
-          // TASK_2025_291 B2: detectPatterns is now async.
+          // detectPatterns is async.
           filePatterns = await this.antiPatternDetector.detectPatterns(
             file.content,
             file.path,

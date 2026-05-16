@@ -5,8 +5,6 @@
  * These utilities abstract the common patterns for regex-based and
  * heuristic-based rule definitions.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -57,8 +55,6 @@ export interface RegexRuleConfig {
    * detectors for `@ts-ignore`, `@ts-nocheck`, or `TODO:` markers. Without
    * this flag, such rules would never match because the pre-processor blanks
    * their target content.
-   *
-   * TASK_2025_291 Wave B (B3)
    */
   matchInCommentsAndStrings?: boolean;
 }
@@ -87,10 +83,9 @@ export interface HeuristicRuleConfig {
    * May return synchronously (e.g. regex/structural scans) or asynchronously
    * (e.g. AST-backed analyses using tree-sitter). Consumers of the produced
    * `AntiPatternRule.detect` must `await Promise.resolve(...)` the result.
-   *
-   * TASK_2025_291 Wave B (B2): widened from `AntiPatternMatch[]` to
-   * `MaybeAsync<AntiPatternMatch[]>` so rules like `functionTooLargeRule`
-   * can call into the async `TreeSitterParserService`.
+   * The signature widens from `AntiPatternMatch[]` to `MaybeAsync<AntiPatternMatch[]>`
+   * so rules like `functionTooLargeRule` can call into the async
+   * `TreeSitterParserService`.
    *
    * @param content - File content to analyze
    * @param filePath - Relative file path
@@ -144,8 +139,8 @@ export function createRegexRule(config: RegexRuleConfig): AntiPatternRule {
 
     detect: (content: string, filePath: string): AntiPatternMatch[] => {
       const matches: AntiPatternMatch[] = [];
-      // TASK_2025_291 B3: Strip comment/string contents before matching so
-      // rules don't mis-fire on e.g. `// TODO: fix any` or `"console.log(x)"`.
+      // Strip comment/string contents before matching so rules don't mis-fire
+      // on e.g. `// TODO: fix any` or `"console.log(x)"`.
       // The stripper preserves line count and per-line column positions, so
       // offsets computed against the stripped text are valid in the original
       // source — line/column in reported matches still point to the right

@@ -11,8 +11,6 @@
  * - Large components (>500 lines)
  * - Missing trackBy in *ngFor / track in @for
  *
- * TASK_2025_144: Phase E2 - Framework-Specific Anti-Pattern Rules
- *
  * @packageDocumentation
  */
 
@@ -122,7 +120,7 @@ export const improperChangeDetectionRule: AntiPatternRule = createHeuristicRule(
     suggestionTemplate:
       'Use `ChangeDetectionStrategy.OnPush` to improve rendering performance. ' +
       'Avoid manual `detectChanges()` calls -- use signals or the async pipe instead.',
-  }
+  },
 );
 
 /**
@@ -174,7 +172,7 @@ export const subscriptionLeakRule: AntiPatternRule = createHeuristicRule({
     // Check for cleanup patterns
     const hasCleanupPattern =
       /takeUntilDestroyed|takeUntil\s*\(|\.unsubscribe\s*\(|DestroyRef|ngOnDestroy/.test(
-        content
+        content,
       );
 
     if (hasCleanupPattern) {

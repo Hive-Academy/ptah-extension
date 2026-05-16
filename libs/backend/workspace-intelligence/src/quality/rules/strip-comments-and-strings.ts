@@ -8,8 +8,6 @@
  * or strings, while reported line/column offsets still map correctly back to
  * the original source.
  *
- * TASK_2025_291 Wave B (B3): Pre-processing step for the quality-rules pipeline.
- *
  * @packageDocumentation
  */
 

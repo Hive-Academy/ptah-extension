@@ -9,8 +9,6 @@
  * Maximum entries: 100
  * Entry ordering: Newest first
  *
- * TASK_2025_144: Phase G - Reporting and Visualization
- *
  * @packageDocumentation
  */
 
@@ -76,7 +74,7 @@ export class QualityHistoryService implements IQualityHistoryService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
-    private readonly globalState: IStateStorage
+    private readonly globalState: IStateStorage,
   ) {
     this.logger.debug('QualityHistoryService initialized');
   }
@@ -173,7 +171,7 @@ export class QualityHistoryService implements IQualityHistoryService {
    * @returns Compact history entry
    */
   private createHistoryEntry(
-    assessment: QualityAssessment
+    assessment: QualityAssessment,
   ): QualityHistoryEntry {
     // Build category counts from anti-patterns
     const categoryCounts: Record<string, number> = {};

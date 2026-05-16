@@ -4,8 +4,6 @@
  * Generates prioritized, actionable recommendations from quality assessment results.
  * Transforms anti-patterns into prescriptive guidance with token budget management.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -117,9 +115,7 @@ interface PatternGroup {
  * ```
  */
 @injectable()
-export class PrescriptiveGuidanceService
-  implements IPrescriptiveGuidanceService
-{
+export class PrescriptiveGuidanceService implements IPrescriptiveGuidanceService {
   /**
    * Creates a new PrescriptiveGuidanceService.
    *
@@ -155,7 +151,7 @@ export class PrescriptiveGuidanceService
   generateGuidance(
     assessment: QualityAssessment,
     context: WorkspaceContext,
-    tokenBudget: number = DEFAULT_TOKEN_BUDGET
+    tokenBudget: number = DEFAULT_TOKEN_BUDGET,
   ): PrescriptiveGuidance {
     this.logger.debug('Generating prescriptive guidance', {
       antiPatternCount: assessment.antiPatterns.length,
@@ -211,7 +207,7 @@ export class PrescriptiveGuidanceService
    */
   private generateCleanCodebaseGuidance(
     assessment: QualityAssessment,
-    context: WorkspaceContext
+    context: WorkspaceContext,
   ): PrescriptiveGuidance {
     const advancedRecommendations: Recommendation[] = [];
 
@@ -228,7 +224,7 @@ export class PrescriptiveGuidanceService
     // Add testing recommendations if no test patterns detected
     if (
       !assessment.sampledFiles.some(
-        (f) => f.includes('.spec.') || f.includes('.test.')
+        (f) => f.includes('.spec.') || f.includes('.test.'),
       )
     ) {
       advancedRecommendations.push({
@@ -266,7 +262,7 @@ export class PrescriptiveGuidanceService
    * @returns Sorted array of pattern groups (highest priority first)
    */
   private groupAndPrioritizePatterns(
-    antiPatterns: AntiPattern[]
+    antiPatterns: AntiPattern[],
   ): PatternGroup[] {
     const groupMap = new Map<string, PatternGroup>();
 
@@ -382,7 +378,7 @@ export class PrescriptiveGuidanceService
    */
   private buildIssueDescription(
     group: PatternGroup,
-    firstPattern: AntiPattern
+    firstPattern: AntiPattern,
   ): string {
     const occurrences = group.totalFrequency;
     const fileCount = new Set(group.patterns.map((p) => p.location.file)).size;
@@ -408,7 +404,7 @@ export class PrescriptiveGuidanceService
    */
   private applyTokenBudget(
     recommendations: Recommendation[],
-    tokenBudget: number
+    tokenBudget: number,
   ): {
     recommendations: Recommendation[];
     wasTruncated: boolean;
@@ -420,13 +416,13 @@ export class PrescriptiveGuidanceService
     // Calculate how many recommendations fit
     const maxRecommendations = Math.max(
       1, // Always include at least one recommendation
-      Math.floor(availableForRecommendations / TOKENS_PER_RECOMMENDATION)
+      Math.floor(availableForRecommendations / TOKENS_PER_RECOMMENDATION),
     );
 
     const wasTruncated = recommendations.length > maxRecommendations;
     const truncatedRecommendations = recommendations.slice(
       0,
-      maxRecommendations
+      maxRecommendations,
     );
 
     // Estimate total tokens
@@ -456,7 +452,7 @@ export class PrescriptiveGuidanceService
    */
   private generateSummary(
     recommendations: Recommendation[],
-    qualityScore: number
+    qualityScore: number,
   ): string {
     if (recommendations.length === 0) {
       return `Code quality score: ${qualityScore}/100. No significant issues detected.`;
@@ -496,7 +492,7 @@ export class PrescriptiveGuidanceService
    */
   private estimateTokens(
     summary: string,
-    recommendations: Recommendation[]
+    recommendations: Recommendation[],
   ): number {
     // Rough estimation: ~4 characters per token
     const summaryTokens = Math.ceil(summary.length / 4);

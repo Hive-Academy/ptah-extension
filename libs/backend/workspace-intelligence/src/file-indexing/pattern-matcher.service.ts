@@ -8,7 +8,6 @@
  * - Batch file matching with boolean logic
  *
  * @see https://github.com/micromatch/picomatch - 7.2x faster than minimatch
- * @see .ptah/specs/TASK_PRV_005/research-report.md - Research Finding 5
  */
 
 import { injectable } from 'tsyringe';

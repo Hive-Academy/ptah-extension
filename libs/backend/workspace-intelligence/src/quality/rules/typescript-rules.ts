@@ -9,8 +9,6 @@
  * - @ts-ignore and @ts-nocheck comments
  * - Non-null assertion operator overuse
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
