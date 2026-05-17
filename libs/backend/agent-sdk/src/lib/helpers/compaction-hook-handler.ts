@@ -51,6 +51,7 @@ export type CompactionStartCallback = (data: {
   trigger: 'manual' | 'auto';
   timestamp: number;
   preTokens: number;
+  cwd?: string | null;
 }) => void;
 
 /**
@@ -128,6 +129,7 @@ export class CompactionHookHandler {
    */
   createHooks(
     sessionId: string,
+    cwd: string | null,
     onCompactionStart?: CompactionStartCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     // Capture callback in closure for use in hook
@@ -212,6 +214,7 @@ export class CompactionHookHandler {
                     trigger,
                     timestamp: Date.now(),
                     preTokens: ensurePreTokens(),
+                    cwd,
                   });
                 }
 
@@ -224,9 +227,10 @@ export class CompactionHookHandler {
 
                   const compactionData = {
                     sessionId,
-                    trigger, // Use validated trigger variable
+                    trigger,
                     timestamp: Date.now(),
                     preTokens,
+                    cwd,
                   };
 
                   this.logger.debug(

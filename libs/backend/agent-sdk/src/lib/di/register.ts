@@ -19,6 +19,7 @@ import {
   type IMemoryReader,
 } from '@ptah-extension/memory-contracts';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
+import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { CliPluginSyncService } from '../cli-agents/cli-skill-sync/cli-plugin-sync.service';
@@ -319,6 +320,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_MESSAGE_FACTORY,
     { useClass: SdkMessageFactory },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER,
+    { useClass: SdkTranscriptReaderAdapter },
     { lifecycle: Lifecycle.Singleton },
   );
 

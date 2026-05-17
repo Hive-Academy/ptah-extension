@@ -145,8 +145,7 @@ export class PtahCliSpawnOptions {
         Object.assign(hooks, subagentHooks);
       }
       if (this.compactionHookHandler) {
-        // No onCompactionStart callback for headless agents
-        const compactionHooks = this.compactionHookHandler.createHooks('');
+        const compactionHooks = this.compactionHookHandler.createHooks('', cwd);
         Object.assign(hooks, compactionHooks);
       }
     }

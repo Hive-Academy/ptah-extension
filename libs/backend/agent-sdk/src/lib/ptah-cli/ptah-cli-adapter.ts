@@ -873,6 +873,7 @@ export class PtahCliAdapter implements IAIProvider {
       if (this.compactionHookHandler) {
         const compactionHooks = this.compactionHookHandler.createHooks(
           sessionId ?? '',
+          cwd,
           onCompactionStart,
         );
         Object.assign(hooks, compactionHooks);

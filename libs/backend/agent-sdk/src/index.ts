@@ -40,6 +40,8 @@ export {
   SessionHistoryReaderService,
   MESSAGE_ID_NOT_FOUND_PHRASE,
 } from './lib/session-history-reader.service';
+
+export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter';
 // Re-exposed for skill-synthesis which injects JsonlReaderService
 // directly to read raw JSONL turns for trajectory extraction.
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';

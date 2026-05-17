@@ -1134,6 +1134,7 @@ export class SdkQueryOptionsBuilder {
     // in hook input.
     const compactionHooks = this.compactionHookHandler.createHooks(
       sessionId ?? '',
+      cwd,
       onCompactionStart,
     );
 

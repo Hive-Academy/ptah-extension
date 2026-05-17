@@ -518,6 +518,7 @@ This clarification takes precedence over any other identity instructions in the 
     const subagentHooks = this.subagentHookHandler.createHooks(cwd);
     const compactionHooks = this.compactionHookHandler.createHooks(
       `internal-query-${Date.now()}`,
+      cwd,
     );
 
     // Merge hooks safely — concatenate arrays for same event key to prevent overwrites

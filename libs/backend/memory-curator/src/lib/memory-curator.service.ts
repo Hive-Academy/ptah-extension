@@ -16,6 +16,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
   type ICompactionCallbackRegistry,
+  type ITranscriptReader,
 } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
@@ -45,6 +46,8 @@ export class MemoryCuratorService {
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
     @inject(MEMORY_TOKENS.MEMORY_SALIENCE_SCORER)
     private readonly scorer: SalienceScorer,
+    @inject(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER)
+    private readonly transcriptReader: ITranscriptReader,
     @inject(MEMORY_TOKENS.CURATOR_LLM) private readonly llm: ICuratorLLM,
   ) {}
 
@@ -52,8 +55,34 @@ export class MemoryCuratorService {
   start(): void {
     if (this.disposer) return;
     this.disposer = this.registry.register((data) => {
-      // Fire-and-forget — never block the SDK callback path.
-      this.running = this.curate({ sessionId: data.sessionId }).catch((err) => {
+      this.running = (async () => {
+        const cwd =
+          typeof data.cwd === 'string' && data.cwd.length > 0 ? data.cwd : null;
+        let transcript = '';
+        if (cwd) {
+          try {
+            transcript = await this.transcriptReader.read(data.sessionId, cwd);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.warn('[memory-curator] transcript read failed', {
+              sessionId: data.sessionId,
+              error: message,
+            });
+          }
+        }
+        if (!transcript) {
+          this.logger.warn(
+            '[memory-curator] PreCompact transcript unavailable — falling back to placeholder',
+            { sessionId: data.sessionId, hasCwd: !!cwd },
+          );
+          return this.curate({ sessionId: data.sessionId });
+        }
+        return this.curate({
+          sessionId: data.sessionId,
+          workspaceRoot: cwd,
+          transcript,
+        });
+      })().catch((err) => {
         this.logger.error(
           '[memory-curator] curate() failed',
           err instanceof Error ? err : new Error(String(err)),
