@@ -305,7 +305,7 @@ interface TierChip {
               id="memory-purge-pattern"
               type="text"
               class="input input-sm input-bordered w-full"
-              placeholder="e.g. node_modules  (substring)  or  code:function:%  (like)"
+              placeholder="e.g. preferences  (substring)  or  alice@%  (like)"
               [value]="purgePattern()"
               (input)="onPurgePatternInput($event)"
               [disabled]="purging()"
