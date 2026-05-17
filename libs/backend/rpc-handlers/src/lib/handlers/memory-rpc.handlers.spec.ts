@@ -65,8 +65,23 @@ function makeMemoryStore() {
     rebuildIndex: jest
       .fn()
       .mockResolvedValue({ rebuiltFts: true, rebuiltVec: true }),
-    stats: jest.fn().mockReturnValue({ total: 0, byTier: {} }),
+    stats: jest.fn().mockReturnValue({
+      core: 0,
+      recall: 0,
+      archival: 0,
+      lastCuratedAt: null,
+    }),
     purgeBySubjectPattern: jest.fn().mockReturnValue(0),
+  };
+}
+
+function makeCodeSymbolStore() {
+  return {
+    count: jest.fn().mockReturnValue(0),
+    purgeJunk: jest.fn().mockReturnValue(0),
+    deleteByFile: jest.fn().mockReturnValue(0),
+    insertBatch: jest.fn().mockResolvedValue(undefined),
+    purgeWorkspace: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -88,6 +103,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
   const store = makeMemoryStore();
+  const codeSymbols = makeCodeSymbolStore();
   const search = makeMemorySearch();
   const curator = makeMemoryCurator();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
@@ -98,6 +114,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   child.registerInstance(TOKENS.LOGGER, logger);
   child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
   child.registerInstance(MEMORY_TOKENS.MEMORY_STORE, store);
+  child.registerInstance(MEMORY_TOKENS.CODE_SYMBOL_STORE, codeSymbols);
   child.registerInstance(MEMORY_TOKENS.MEMORY_SEARCH, search);
   child.registerInstance(MEMORY_TOKENS.MEMORY_CURATOR, curator);
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
@@ -106,7 +123,15 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   const handlers = child.resolve(MemoryRpcHandlers);
   handlers.register();
 
-  return { handlers, rpcHandler, store, search, logger, workspaceProvider };
+  return {
+    handlers,
+    rpcHandler,
+    store,
+    codeSymbols,
+    search,
+    logger,
+    workspaceProvider,
+  };
 }
 
 // ---------------------------------------------------------------------------

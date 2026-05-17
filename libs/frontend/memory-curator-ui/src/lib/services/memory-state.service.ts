@@ -76,19 +76,16 @@ export class MemoryStateService {
   /** Per-tier totals derived from the loaded entries. */
   public readonly totalsByTier = computed<MemoryTierTotals>(() => {
     const list = this._entries();
+    const stats = this._stats();
     let core = 0;
     let recall = 0;
     let archival = 0;
-    let codeIndex = 0;
     for (const m of list) {
-      if (m.subject !== null && m.subject.startsWith('code:')) {
-        codeIndex++;
-        continue;
-      }
       if (m.tier === 'core') core++;
       else if (m.tier === 'recall') recall++;
       else if (m.tier === 'archival') archival++;
     }
+    const codeIndex = stats?.codeIndex ?? 0;
     return { core, recall, archival, codeIndex, total: list.length };
   });
 

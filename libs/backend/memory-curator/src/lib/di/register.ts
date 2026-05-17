@@ -31,6 +31,7 @@ import { MemoryDecayJob } from '../memory-decay.job';
 import { MemoryCuratorService } from '../memory-curator.service';
 import { MemoryWriterAdapter } from '../memory-writer.adapter';
 import { MemoryStoreSymbolSink } from '../symbol-sink.adapter';
+import { CodeSymbolStore } from '../code-symbol.store';
 import { IndexingControlService } from '../control/indexing-control.service';
 
 export function registerMemoryCuratorServices(
@@ -57,6 +58,12 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.MEMORY_STORE,
     { useClass: MemoryStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    MEMORY_TOKENS.CODE_SYMBOL_STORE,
+    { useClass: CodeSymbolStore },
     { lifecycle: Lifecycle.Singleton },
   );
 

@@ -25,6 +25,8 @@ export { memoryId, chunkId } from './lib/memory.types';
 
 // Services
 export { MemoryStore } from './lib/memory.store';
+export { CodeSymbolStore } from './lib/code-symbol.store';
+export type { CodeSymbolInsert } from './lib/code-symbol.store';
 export { MemorySearchService } from './lib/memory-search.service';
 export { SalienceScorer } from './lib/salience-scorer';
 export type { ScoreInputs } from './lib/salience-scorer';

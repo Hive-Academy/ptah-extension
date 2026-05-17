@@ -10,6 +10,7 @@ import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   MEMORY_TOKENS,
   memoryId,
+  type CodeSymbolStore,
   type Memory,
   type MemoryChunk,
   type MemoryCuratorService,
@@ -107,6 +108,8 @@ export class MemoryRpcHandlers {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
+    @inject(MEMORY_TOKENS.CODE_SYMBOL_STORE)
+    private readonly codeSymbols: CodeSymbolStore,
     @inject(MEMORY_TOKENS.MEMORY_SEARCH)
     private readonly search: MemorySearchService,
     @inject(MEMORY_TOKENS.MEMORY_CURATOR)
@@ -246,7 +249,16 @@ export class MemoryRpcHandlers {
       async (
         params: MemoryStatsParams | undefined,
       ): Promise<MemoryStatsResult> => {
-        return this.store.stats(params?.workspaceRoot ?? undefined);
+        const workspaceRoot = params?.workspaceRoot ?? undefined;
+        const curated = this.store.stats(workspaceRoot);
+        const codeIndex = this.codeSymbols.count(workspaceRoot);
+        return {
+          core: curated.core,
+          recall: curated.recall,
+          archival: curated.archival,
+          codeIndex,
+          lastCuratedAt: curated.lastCuratedAt,
+        };
       },
     );
 
@@ -331,7 +343,7 @@ export class MemoryRpcHandlers {
           );
         }
         try {
-          const deleted = this.store.purgeJunkCodeSymbols(workspaceRoot);
+          const deleted = this.codeSymbols.purgeJunk(workspaceRoot);
           this.logger.info('[memory] purgeJunk complete', {
             deleted,
             workspaceRoot: workspaceRoot ?? null,

@@ -109,6 +109,5 @@ export interface MemoryStatsResponse {
   readonly core: number;
   readonly recall: number;
   readonly archival: number;
-  readonly codeIndex: number;
   readonly lastCuratedAt: number | null;
 }
