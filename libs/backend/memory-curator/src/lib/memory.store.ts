@@ -318,7 +318,7 @@ export class MemoryStore implements IMemoryLister {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (workspaceRoot) {
-      conditions.push('(workspace_root IS NULL OR workspace_root = ?)');
+      conditions.push('workspace_root IS ?');
       params.push(workspaceRoot);
     }
     if (tier) {
