@@ -181,6 +181,14 @@ export interface ChatResumeParams {
    * Required for the resume-and-retry rewind path.
    */
   activate?: boolean;
+  /**
+   * When set, the SDK replays the transcript only up to (and including) this
+   * user-message UUID and truncates the on-disk JSONL accordingly. Used by the
+   * rewind flow to revert the conversation to an earlier point. Requires
+   * `activate: true`; if the session is already active the backend ends the
+   * current Query and restarts it with the truncation applied.
+   */
+  resumeSessionAt?: string;
 }
 
 /** Response from chat:resume RPC method */

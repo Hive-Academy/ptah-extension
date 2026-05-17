@@ -1096,8 +1096,16 @@ export class ChatViewComponent {
     const ins = dryData.insertions ?? 0;
     const del = dryData.deletions ?? 0;
 
-    const fileList =
-      files.length === 0
+    // The SDK keeps file checkpoints in-memory per Query process. When a
+    // session has been force-closed and resumed, the new Query has no
+    // checkpoint state for messages from the prior process — it returns
+    // canRewind:true with zero file changes. Detect that case so the user
+    // isn't told "rewind succeeded" when only the transcript got truncated.
+    const checkpointsLost = files.length === 0 && ins === 0 && del === 0;
+
+    const fileList = checkpointsLost
+      ? 'No file changes can be reverted — checkpoints were lost when the session was previously closed. The conversation will still be truncated to this point.'
+      : files.length === 0
         ? 'No files will be modified.'
         : files
             .slice(0, 10)
@@ -1105,9 +1113,13 @@ export class ChatViewComponent {
             .join('\n') +
           (files.length > 10 ? `\n…and ${files.length - 10} more` : '');
 
+    const header = checkpointsLost
+      ? 'The conversation will be truncated to this message.'
+      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). The conversation will also be truncated to this message.`;
+
     const confirmed = await this._confirmDialog.confirm({
-      title: 'Rewind file changes?',
-      message: `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed):\n\n${fileList}`,
+      title: 'Rewind to this message?',
+      message: `${header}\n\n${fileList}`,
       confirmLabel: 'Rewind',
       cancelLabel: 'Cancel',
       confirmStyle: 'warning',
@@ -1128,39 +1140,71 @@ export class ChatViewComponent {
         messageId,
         retryCount,
       );
-    } else if (!commit.data.canRewind) {
+      return;
+    }
+    if (!commit.data.canRewind) {
       this.showActionError(
         commit.data.error ?? 'Rewind failed without an error message.',
       );
-    } else {
-      // M3 — refresh any open editor tabs/diffs so they reflect the
-      // reverted on-disk content. Failures are non-fatal: the rewind itself
-      // succeeded, so we still show success but note the editor refresh
-      // failure rather than swallowing it silently.
-      let editorRefreshFailed = false;
-      const filesChanged = commit.data.filesChanged ?? [];
-      if (filesChanged.length > 0) {
-        try {
-          const revert = await this._claudeRpc.call('editor:revertFiles', {
-            files: filesChanged,
-          });
-          if (!revert.isSuccess()) {
-            editorRefreshFailed = true;
-          }
-        } catch {
+      return;
+    }
+
+    let editorRefreshFailed = false;
+    const filesChanged = commit.data.filesChanged ?? [];
+    if (filesChanged.length > 0) {
+      try {
+        const revert = await this._claudeRpc.call('editor:revertFiles', {
+          files: filesChanged,
+        });
+        if (!revert.isSuccess()) {
           editorRefreshFailed = true;
         }
+      } catch {
+        editorRefreshFailed = true;
       }
-
-      const changedCount = filesChanged.length;
-      const baseMsg =
-        changedCount === 0
-          ? 'Rewind complete — no files changed.'
-          : `Rewind complete — ${changedCount} file(s) reverted.`;
-      this.showActionInfo(
-        editorRefreshFailed ? `${baseMsg} (editor refresh failed)` : baseMsg,
-      );
     }
+
+    // Truncate the on-disk JSONL transcript and restart the SDK Query at
+    // messageId. Without this, the chat history above the rewind point
+    // stays put on disk and resurfaces on the next session load.
+    const tabId = this.resolvedTabId();
+    const workspacePath = this.vscodeService.config().workspaceRoot;
+    let truncateFailed = false;
+    if (tabId) {
+      const truncated = await this._claudeRpc.call('chat:resume', {
+        sessionId,
+        tabId,
+        workspacePath,
+        activate: true,
+        resumeSessionAt: messageId,
+      });
+      if (!truncated.isSuccess() || truncated.data.success === false) {
+        truncateFailed = true;
+      } else {
+        // Reload the chat view from the truncated JSONL so the messages
+        // above the rewind point disappear from the UI.
+        try {
+          await this.chatStore.switchSession(sessionId);
+        } catch {
+          truncateFailed = true;
+        }
+      }
+    } else {
+      truncateFailed = true;
+    }
+
+    const changedCount = filesChanged.length;
+    const baseMsg =
+      changedCount === 0
+        ? 'Rewind complete — conversation truncated; no files changed.'
+        : `Rewind complete — ${changedCount} file(s) reverted, conversation truncated.`;
+    const suffix = [
+      editorRefreshFailed ? 'editor refresh failed' : null,
+      truncateFailed ? 'transcript truncation failed' : null,
+    ]
+      .filter((s): s is string => s !== null)
+      .join(', ');
+    this.showActionInfo(suffix ? `${baseMsg} (${suffix})` : baseMsg);
   }
 
   private async handleRewindError(

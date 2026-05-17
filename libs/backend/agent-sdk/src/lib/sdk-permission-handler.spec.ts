@@ -91,6 +91,9 @@ function makeHandler(): {
     subagentRegistry as unknown as ConstructorParameters<
       typeof SdkPermissionHandler
     >[1],
+    webviewManager as unknown as ConstructorParameters<
+      typeof SdkPermissionHandler
+    >[2],
   );
 
   return { handler, logger, sent };
@@ -229,6 +232,137 @@ describe('SdkPermissionHandler - createCallback use-case contracts', () => {
     const payload = broadcast!.payload as unknown as PermissionRequestPayload;
     expect(payload.tabId).toBeUndefined();
     expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+
+    ac.abort();
+    await pending;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// webviewManager.sendMessage invocation contract — guards against regression
+// of the lazy-getter auto-resolve bypass on dangerous/MCP/AskUserQuestion paths
+// ---------------------------------------------------------------------------
+
+describe('webviewManager.sendMessage is invoked for request paths that previously had auto-resolve fallbacks', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('requestUserPermission path: invokes webviewManager.sendMessage with PERMISSION_REQUEST and a populated payload', async () => {
+    const { handler, sent } = makeHandler();
+
+    const SESSION_ID = '11111111-2222-4333-8444-555555555555';
+    const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const callback = handler.createCallback(
+      asSessionId(SESSION_ID),
+      undefined,
+      asTabId(TAB_ID),
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-request-path',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    expect(broadcast!.viewType).toBe('ptah.main');
+    const payload = broadcast!.payload as unknown as PermissionRequestPayload;
+    expect(payload.toolName).toBe('Bash');
+    expect(typeof payload.id).toBe('string');
+    expect(payload.tabId).toBe(TAB_ID);
+    expect(payload.sessionId).toBe(SESSION_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('sendCliAgentPermissionRequest path: invokes webviewManager.sendMessage with AGENT_MONITOR_PERMISSION_REQUEST when a cliAgentResolver returns an id', async () => {
+    const { handler, sent } = makeHandler();
+
+    const SESSION_ID = '11111111-2222-4333-8444-555555555555';
+    const callback = handler.createCallback(
+      asSessionId(SESSION_ID),
+      () => 'agent-id-123',
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-cli-agent-path',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    expect(broadcast!.viewType).toBe('ptah.main');
+    const payload = broadcast!.payload as unknown as {
+      requestId: string;
+      agentId: string;
+      toolName: string;
+    };
+    expect(payload.agentId).toBe('agent-id-123');
+    expect(payload.toolName).toBe('Bash');
+    expect(typeof payload.requestId).toBe('string');
+
+    ac.abort();
+    await pending;
+  });
+
+  it('handleAskUserQuestion path: invokes webviewManager.sendMessage with ASK_USER_QUESTION_REQUEST and a populated questions payload', async () => {
+    const { handler, sent } = makeHandler();
+
+    const SESSION_ID = '11111111-2222-4333-8444-555555555555';
+    const callback = handler.createCallback(asSessionId(SESSION_ID));
+
+    const ac = new AbortController();
+    const pending = callback(
+      'AskUserQuestion',
+      {
+        questions: [
+          {
+            question: 'Continue?',
+            header: 'Confirm',
+            options: [
+              { label: 'Yes', description: 'go' },
+              { label: 'No', description: 'stop' },
+            ],
+          },
+        ],
+      },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-ask-user-question-path',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    expect(broadcast!.viewType).toBe('ptah.main');
+    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
+    expect(payload.toolName).toBe('AskUserQuestion');
+    expect(payload.questions).toHaveLength(1);
 
     ac.abort();
     await pending;

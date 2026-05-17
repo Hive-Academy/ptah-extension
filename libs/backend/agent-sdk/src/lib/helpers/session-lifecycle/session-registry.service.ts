@@ -90,10 +90,11 @@ export class SessionRegistry {
     tabId: string,
     config: AISessionConfig,
     abortController: AbortController,
+    realSessionId?: string,
   ): SessionRecord {
     const rec: SessionRecord = {
       tabId,
-      realSessionId: null,
+      realSessionId: realSessionId ?? null,
       query: null,
       config,
       abortController,
@@ -102,6 +103,9 @@ export class SessionRegistry {
       currentModel: config.model || '',
     };
     this.byTabId.set(tabId, rec);
+    if (realSessionId && realSessionId !== tabId) {
+      this.bySessionId.set(realSessionId, rec);
+    }
     this._lastActiveTabId = tabId;
     return rec;
   }
@@ -129,6 +133,12 @@ export class SessionRegistry {
     if (!rec) {
       this.logger.warn(
         `[SessionRegistry] bindRealSessionId: no record for tabId ${tabId}`,
+      );
+      return;
+    }
+    if (rec.realSessionId === realSessionId) {
+      this.logger.debug(
+        `[SessionLifecycle] bindRealSessionId: realSessionId already bound for tabId ${tabId} (idempotent)`,
       );
       return;
     }
@@ -175,7 +185,7 @@ export class SessionRegistry {
    * bySessionId once bound), so the mutation is visible from either lookup.
    */
   setSessionQuery(sessionId: SessionId, query: Query): void {
-    const rec = this.byTabId.get(sessionId as string);
+    const rec = this.find(sessionId as string);
     if (!rec) {
       this.logger.error(
         `[SessionLifecycle] Cannot set query - session not found: ${sessionId}`,

@@ -534,9 +534,15 @@ export class ChatSessionService {
       // start an SDK Query — that is the correct default for normal session loads.
       // The resume-and-retry rewind path sets activate:true to ensure
       // rewindFiles finds a live Query in SessionLifecycleManager.
+      //
+      // resumeSessionAt forces the activation path even when the session is
+      // already active — the adapter ends the existing Query and restarts
+      // with the truncation option applied. Without this bypass, the SDK
+      // would silently reuse the in-flight Query and ignore the truncation.
       let activated = false;
+      const wantsTruncation = typeof params.resumeSessionAt === 'string';
       if (params.activate === true && params.tabId) {
-        if (!this.sdkAdapter.isSessionActive(sessionId)) {
+        if (wantsTruncation || !this.sdkAdapter.isSessionActive(sessionId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,
@@ -547,6 +553,7 @@ export class ChatSessionService {
               tabId: params.tabId,
               workspacePath: resolvedWorkspacePath,
             } as ChatContinueParams,
+            params.resumeSessionAt,
           );
           if ('justResumed' in activateResult) {
             activated =
@@ -687,8 +694,13 @@ export class ChatSessionService {
     workspacePath: string,
     prompt: string,
     params: ChatContinueParams,
+    resumeSessionAt?: string,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
-    if (this.sdkAdapter.isSessionActive(sessionId)) {
+    // When resumeSessionAt is set, fall through to resumeSession even if the
+    // session is currently active — the adapter ends + restarts with the new
+    // truncation option. Returning justResumed:false here would leave the
+    // transcript untouched.
+    if (!resumeSessionAt && this.sdkAdapter.isSessionActive(sessionId)) {
       return { justResumed: false };
     }
 
@@ -738,6 +750,7 @@ export class ChatSessionService {
         thinking: params.thinking,
         effort: params.effort,
         prompt,
+        resumeSessionAt,
       });
       this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);

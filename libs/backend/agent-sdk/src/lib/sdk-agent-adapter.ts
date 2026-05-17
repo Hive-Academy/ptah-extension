@@ -976,6 +976,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * `startChatSession.config.includePartialMessages` for semantics.
        */
       includePartialMessages?: boolean;
+      /**
+       * Truncate the transcript to (and including) this user-message UUID
+       * on resume. Maps to SDK Options.resumeSessionAt. When the session is
+       * already active, the existing Query is ended first so executeQuery
+       * starts a fresh Query with the truncation applied — reusing the
+       * existing Query would silently ignore this option.
+       */
+      resumeSessionAt?: string;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -987,17 +995,25 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // Check if session already active AND fully initialized (has query)
     const existingSession = this.sessionLifecycle.find(sessionId as string);
     if (existingSession && existingSession.query) {
-      this.logger.info(
-        `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
-      );
-      return this.streamTransformer.transform({
-        sdkQuery: existingSession.query,
-        sessionId,
-        initialModel: existingSession.currentModel,
-        onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
-        onResultStats: this.resultStatsCallback || undefined,
-        tabId: config?.tabId,
-      });
+      if (config?.resumeSessionAt) {
+        this.logger.info(
+          `[SdkAgentAdapter] Ending active session ${sessionId} to restart with resumeSessionAt`,
+          { resumeSessionAt: config.resumeSessionAt },
+        );
+        await this.sessionLifecycle.endSession(sessionId);
+      } else {
+        this.logger.info(
+          `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
+        );
+        return this.streamTransformer.transform({
+          sdkQuery: existingSession.query,
+          sessionId,
+          initialModel: existingSession.currentModel,
+          onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+          onResultStats: this.resultStatsCallback || undefined,
+          tabId: config?.tabId,
+        });
+      }
     }
 
     // Extract isPremium, mcpServerRunning, enhancedPromptsContent, and pluginPaths from config
@@ -1017,6 +1033,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         sessionConfig: config,
         resumeSessionId: sessionId as string,
+        resumeSessionAt: config?.resumeSessionAt,
         onCompactionStart: this.compactionStartCallback || undefined,
         onWorktreeCreated: this.worktreeCreatedCallback || undefined,
         onWorktreeRemoved: this.worktreeRemovedCallback || undefined,

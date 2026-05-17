@@ -10,6 +10,7 @@
  * Pure functions; no DI, no state. Library-internal.
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import {
   isBashToolInput,
   isEditToolInput,
@@ -185,9 +186,6 @@ export function sanitizeToolInput(
   return sanitized;
 }
 
-/**
- * Generate unique request ID
- */
 export function generateRequestId(): string {
-  return `perm_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return uuidv4();
 }

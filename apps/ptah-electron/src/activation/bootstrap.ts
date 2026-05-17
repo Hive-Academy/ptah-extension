@@ -25,6 +25,10 @@ import {
 import { fixPath } from '@ptah-extension/agent-sdk';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
+import { IpcBridge } from '../ipc/ipc-bridge';
+import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
+import { ELECTRON_TOKENS } from '../di/electron-tokens';
+import type { PtyManagerService } from '../services/pty-manager.service';
 
 export interface BootstrapResult {
   container: DependencyContainer;
@@ -269,6 +273,56 @@ export async function bootstrapElectron(
       error instanceof Error ? error.message : String(error),
     );
   }
+  // PHASE 3.55: IPC Bridge + WebviewManager registration.
+  let ptyManager: PtyManagerService | undefined;
+  try {
+    ptyManager = container.resolve<PtyManagerService>(
+      ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
+    );
+  } catch (error: unknown) {
+    console.warn(
+      '[Ptah Electron] PtyManagerService resolve failed (continuing without pty):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  const ipcBridge = new IpcBridge(
+    container,
+    () => {
+      const win = getMainWindow();
+      if (!win) return null;
+      return {
+        webContents: {
+          send: (channel: string, ...args: unknown[]) =>
+            win.webContents.send(channel, ...args),
+        },
+      };
+    },
+    ptyManager,
+  );
+
+  try {
+    ipcBridge.initialize();
+  } catch (error: unknown) {
+    console.warn(
+      '[Ptah Electron] IpcBridge initialize failed (continuing):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  const webviewManagerAdapter = new ElectronWebviewManagerAdapter(ipcBridge);
+  try {
+    container.register(TOKENS.WEBVIEW_MANAGER, {
+      useValue: webviewManagerAdapter,
+    });
+  } catch (error: unknown) {
+    console.error(
+      '[Ptah Electron] Failed to register WEBVIEW_MANAGER:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+
   // PHASE 3.6: SDK Authentication Initialization.
   // Initialize the SDK agent adapter so chat:start works.
   // Must happen AFTER Phase 3.5 (license check) and BEFORE Phase 4.5 (RPC registration).

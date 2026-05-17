@@ -69,6 +69,7 @@ export const ChatResumeParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
+    resumeSessionAt: z.string().datetime().optional(),
   })
   .passthrough();
 

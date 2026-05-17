@@ -16,12 +16,8 @@ import {
 } from '@ptah-extension/agent-sdk';
 import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
-import { IpcBridge } from '../ipc/ipc-bridge';
-import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
 import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
 import { createApplicationMenu } from '../menu/application-menu';
-import { ELECTRON_TOKENS } from '../di/electron-tokens';
-import type { PtyManagerService } from '../services/pty-manager.service';
 import { syncCliAgentsOnActivation } from './cli-agent-sync';
 import { syncCliSkillsOnActivation } from './cli-skill-sync';
 import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
@@ -138,37 +134,6 @@ export async function wireRuntime(
   };
 
   let resolvedStateStorage: IStateStorage | undefined;
-  // PHASE 4: Setup IPC Bridge + WebviewManager
-  // The IPC bridge connects ipcMain to the RpcHandler for renderer <-> main communication.
-  // It must be initialized BEFORE loading the renderer so that IPC listeners are ready
-  // when the Angular app boots and starts sending RPC calls.
-  // Resolve PtyManagerService for terminal binary IPC
-  const ptyManager = container.resolve<PtyManagerService>(
-    ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
-  );
-
-  const ipcBridge = new IpcBridge(
-    container,
-    () => {
-      const win = getMainWindow();
-      if (!win) return null;
-      return {
-        webContents: {
-          send: (channel: string, ...args: unknown[]) =>
-            win.webContents.send(channel, ...args),
-        },
-      };
-    },
-    ptyManager,
-  );
-  ipcBridge.initialize();
-
-  // Register WebviewManager adapter so that backend services (AgentSessionWatcherService,
-  // RpcMethodRegistrationService, etc.) can push events to the renderer via IPC.
-  const webviewManagerAdapter = new ElectronWebviewManagerAdapter(ipcBridge);
-  container.register(TOKENS.WEBVIEW_MANAGER, {
-    useValue: webviewManagerAdapter,
-  });
   // PHASE 4.45: Wire multi-phase analysis reader into EnhancedPromptsService
   // Deferred from container.ts Phase 2.4 because the dependency chain
   // (EnhancedPromptsService → SdkPermissionHandler → WebviewManager)

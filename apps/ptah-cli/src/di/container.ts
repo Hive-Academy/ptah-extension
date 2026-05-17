@@ -223,6 +223,7 @@ export class CliDIContainer {
     // can stream out from the very first phase. Subscribers attach via the
     // `CliBootstrapResult.pushAdapter` reference returned at the end.
     const pushAdapter = new CliWebviewManagerAdapter();
+    container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
 
     /**
      * Phase boundary helpers — emit `debug.di.phase` notifications when
@@ -711,17 +712,6 @@ export class CliDIContainer {
     // resolving every RPC handler class.
     if (bootstrapMode === 'full') {
       const phase4Start = phaseStart('4');
-
-      // ========================================
-      // PHASE 4.0: WebviewManager registration
-      // ========================================
-      // Adapter is instantiated in Phase 0a (so verbose phase events can flow);
-      // Phase 4.0 only registers the token binding so RPC handlers find it.
-      container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
-
-      logger.info(
-        '[CLI DI] CliWebviewManagerAdapter registered as WEBVIEW_MANAGER',
-      );
 
       // ========================================
       // PHASE 4.0.5: vscode-lm-tools services

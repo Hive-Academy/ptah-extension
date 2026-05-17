@@ -101,14 +101,17 @@ export class SessionQueryExecutor {
       },
     );
 
-    // Step 1: Create abort controller
     const abortController = new AbortController();
 
-    // Step 2: Register session and capture the record for direct use below
+    const registerKey = sessionConfig?.tabId ?? (sessionId as string);
+    const knownRealSessionId = resumeSessionId
+      ? (sessionId as string)
+      : undefined;
     const rec = this.registry.register(
-      sessionId as string,
+      registerKey,
       sessionConfig || {},
       abortController,
+      knownRealSessionId,
     );
 
     // Step 3: Determine if initial prompt is a slash command

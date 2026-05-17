@@ -23,7 +23,8 @@
  * coordinator with an unchanged public surface.
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { v4 as uuidv4 } from 'uuid';
+import { injectable, inject } from 'tsyringe';
 import {
   Logger,
   TOKENS,
@@ -160,27 +161,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
   private emitterInitialized = false;
 
-  /**
-   * WebviewManager is optional: resolved lazily via container.isRegistered() to
-   * avoid DI crash in Electron.
-   */
-  private _webviewManager: WebviewManager | undefined;
-  private _webviewManagerResolved = false;
-
-  private get webviewManager(): WebviewManager | undefined {
-    if (!this._webviewManagerResolved) {
-      this._webviewManagerResolved = true;
-      this._webviewManager = container.isRegistered(TOKENS.WEBVIEW_MANAGER)
-        ? container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER)
-        : undefined;
-    }
-    return this._webviewManager;
-  }
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager,
   ) {
     this.ruleStore = new PermissionRuleStore(this.logger);
     this.initializePermissionEmitter();
@@ -227,24 +213,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       payloadToolUseId: payload.toolUseId,
       payloadAgentToolCallId: payload.agentToolCallId,
     });
-
-    if (!this.webviewManager) {
-      this.logger.warn(
-        `[SdkPermissionHandler] No WebviewManager available (Electron) — auto-resolving permission request`,
-        { requestId: payload.id, toolName: payload.toolName },
-      );
-      const pending = this.pendingRequests.get(payload.id);
-      if (pending) {
-        this.pendingRequests.delete(payload.id);
-        this.pendingRequestContext.delete(payload.id);
-        pending.resolve({
-          id: payload.id,
-          decision: 'allow',
-          reason: 'Auto-approved: no webview UI available (Electron)',
-        });
-      }
-      return;
-    }
 
     this.webviewManager
       .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_REQUEST, payload)
@@ -299,24 +267,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     payload: PermissionRequest,
     agentId: string,
   ): void {
-    if (!this.webviewManager) {
-      this.logger.warn(
-        `[SdkPermissionHandler] No WebviewManager available (Electron) — auto-resolving CLI agent permission`,
-        { requestId: payload.id, toolName: payload.toolName, agentId },
-      );
-      const pending = this.pendingRequests.get(payload.id);
-      if (pending) {
-        this.pendingRequests.delete(payload.id);
-        this.pendingRequestContext.delete(payload.id);
-        pending.resolve({
-          id: payload.id,
-          decision: 'allow',
-          reason: 'Auto-approved: no webview UI available (Electron)',
-        });
-      }
-      return;
-    }
-
     let toolArgs: string;
     try {
       toolArgs = JSON.stringify(payload.toolInput);
@@ -433,7 +383,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         if (toolName === 'EnterPlanMode') {
           this.logger.info(`[SdkPermissionHandler] Agent entered plan mode`);
           this.webviewManager
-            ?.sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+            .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
               active: true,
             })
             .catch((error) => {
@@ -782,7 +732,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       !neverAutoApproveTools.includes(requestContext.toolName)
     ) {
       const rule: PermissionRule = {
-        id: `rule_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        id: uuidv4(),
         pattern: requestContext.toolName,
         toolName: requestContext.toolName,
         action: 'allow',
@@ -816,7 +766,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         autoResolvedIds.push(pendingId);
 
         this.webviewManager
-          ?.sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
+          .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
             id: pendingId,
             toolName,
           })
@@ -906,17 +856,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       questionCount: input.questions.length,
       toolUseId,
     });
-
-    if (!this.webviewManager) {
-      this.logger.warn(
-        `[SdkPermissionHandler] No WebviewManager available (Electron) — cannot prompt AskUserQuestion`,
-        { requestId },
-      );
-      return {
-        behavior: 'deny' as const,
-        message: 'AskUserQuestion unavailable: no webview UI (Electron)',
-      };
-    }
 
     this.webviewManager
       .sendMessage(
@@ -1017,7 +956,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         '[SdkPermissionHandler] ExitPlanMode approved — SDK will clear context and begin execution',
       );
       this.webviewManager
-        ?.sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+        .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
           active: false,
         })
         .catch((error) => {
@@ -1091,7 +1030,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           // lands on the originating tab, mirroring the routing applied to
           // the original AskUserQuestion request.
           this.webviewManager
-            ?.sendMessage(
+            .sendMessage(
               'ptah.main',
               MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
               { id: requestId, answers, sessionId, tabId: resolvedTabId },
@@ -1236,7 +1175,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       }
 
       this.webviewManager
-        ?.sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP, {
+        .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP, {
           sessionId,
         })
         .catch((error) => {
@@ -1263,7 +1202,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     }
 
     this.webviewManager
-      ?.sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+      .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
         active: false,
       })
       .catch((error) => {
