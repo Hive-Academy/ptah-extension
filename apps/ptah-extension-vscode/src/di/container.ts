@@ -43,10 +43,6 @@ export class DIContainer {
   /**
    * Full setup for licensed-user activation. Safe to call after `setupMinimal`
    * — every phase uses `isRegistered` guards internally.
-   *
-   * Handler phase runs before library phase. All handler registrations are
-   * lazy factories, so registering handlers before their library dependencies
-   * is safe.
    */
   static setup(context: vscode.ExtensionContext): DependencyContainer {
     if (!container.isRegistered(PLATFORM_TOKENS.DI_CONTAINER)) {
@@ -54,8 +50,8 @@ export class DIContainer {
     }
     const { logger } = registerPhase0Platform(container, context);
     registerPhase1Infra(container, context, logger);
-    registerPhase3Handlers(container, logger);
     registerPhase2Libraries(container, logger);
+    registerPhase3Handlers(container, logger);
     registerPhase4App(container, context);
     return container;
   }
