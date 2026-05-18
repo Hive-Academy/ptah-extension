@@ -178,7 +178,7 @@ export class CliDIContainer {
    * @returns Configured container, transport, push adapter, and fire-and-forget handler
    */
   static setup(options: CliBootstrapOptions = {}): CliBootstrapResult {
-    const container = globalContainer;
+    const container = globalContainer.createChildContainer();
 
     container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
     const userDataPath =

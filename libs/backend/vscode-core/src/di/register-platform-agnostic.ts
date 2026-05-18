@@ -57,28 +57,20 @@ export function registerVsCodeCorePlatformAgnostic(
     TOKENS.MESSAGE_VALIDATOR,
     MessageValidatorService,
   );
-  if (!container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
-    container.registerSingleton(
-      TOKENS.SUBAGENT_REGISTRY_SERVICE,
-      SubagentRegistryService,
-    );
-  }
+  container.registerSingleton(
+    TOKENS.SUBAGENT_REGISTRY_SERVICE,
+    SubagentRegistryService,
+  );
 
   container.registerSingleton(TOKENS.FEATURE_GATE_SERVICE, FeatureGateService);
 
   if (includeLicensingAndAuth) {
-    if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) {
-      container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
-    }
-    if (!container.isRegistered(TOKENS.LICENSE_SERVICE)) {
-      container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
-    }
-    if (!container.isRegistered(TOKENS.AUTH_SECRETS_SERVICE)) {
-      container.registerSingleton(
-        TOKENS.AUTH_SECRETS_SERVICE,
-        AuthSecretsService,
-      );
-    }
+    container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
+    container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
+    container.registerSingleton(
+      TOKENS.AUTH_SECRETS_SERVICE,
+      AuthSecretsService,
+    );
   }
 
   logger.info('[VS Code Core] Platform-agnostic services registered', {

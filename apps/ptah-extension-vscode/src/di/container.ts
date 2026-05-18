@@ -26,50 +26,50 @@ import { registerPhase3Handlers } from './phase-3-handlers';
 import { registerPhase4App } from './phase-4-app';
 
 export class DIContainer {
-  /**
-   * Minimal DI setup for license verification. Called BEFORE the full license
-   * check so that license status can be read without initializing the rest of
-   * the extension.
-   */
-  static setupMinimal(context: vscode.ExtensionContext): DependencyContainer {
-    if (!container.isRegistered(PLATFORM_TOKENS.DI_CONTAINER)) {
-      container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
+  private static _root: DependencyContainer | undefined;
+
+  private static ensureRoot(): DependencyContainer {
+    if (!DIContainer._root) {
+      DIContainer._root = container.createChildContainer();
     }
-    registerPhase0Platform(container, context);
-    registerPhase1InfraMinimal(container);
-    return container;
+    return DIContainer._root;
   }
 
-  /**
-   * Full setup for licensed-user activation. Safe to call after `setupMinimal`
-   * — every phase uses `isRegistered` guards internally.
-   */
+  static setupMinimal(context: vscode.ExtensionContext): DependencyContainer {
+    const root = DIContainer.ensureRoot();
+    root.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: root });
+    registerPhase0Platform(root, context);
+    registerPhase1InfraMinimal(root);
+    return root;
+  }
+
   static setup(context: vscode.ExtensionContext): DependencyContainer {
-    if (!container.isRegistered(PLATFORM_TOKENS.DI_CONTAINER)) {
-      container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
+    const root = DIContainer.ensureRoot();
+    if (!root.isRegistered(PLATFORM_TOKENS.DI_CONTAINER)) {
+      root.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: root });
     }
-    const { logger } = registerPhase0Platform(container, context);
-    registerPhase1Infra(container, context, logger);
-    registerPhase2Libraries(container, logger);
-    registerPhase3Handlers(container, logger);
-    registerPhase4App(container, context);
-    return container;
+    const { logger } = registerPhase0Platform(root, context);
+    registerPhase1Infra(root, context, logger);
+    registerPhase2Libraries(root, logger);
+    registerPhase3Handlers(root, logger);
+    registerPhase4App(root, context);
+    return root;
   }
 
   static getContainer(): DependencyContainer {
-    return container;
+    return DIContainer.ensureRoot();
   }
 
   static resolve<T>(token: symbol): T {
-    return container.resolve<T>(token);
+    return DIContainer.ensureRoot().resolve<T>(token);
   }
 
   static isRegistered(token: symbol): boolean {
-    return container.isRegistered(token);
+    return DIContainer.ensureRoot().isRegistered(token);
   }
 
   static clear(): void {
-    container.clearInstances();
+    DIContainer.ensureRoot().clearInstances();
   }
 }
 export { container };
