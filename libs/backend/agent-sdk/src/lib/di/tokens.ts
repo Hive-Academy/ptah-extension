@@ -87,6 +87,9 @@ export const SDK_TOKENS = {
 
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 
+  SDK_WARM_QUERY_MANAGER: Symbol.for('SdkWarmQueryManager'),
+  SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
+
   // Mirrored auth + provider tokens — byte-identical Symbol.for descriptions
   // with AUTH_PROVIDERS_TOKENS so agent-sdk consumers can @inject() them
   // without a runtime dependency on @ptah-extension/auth-providers.

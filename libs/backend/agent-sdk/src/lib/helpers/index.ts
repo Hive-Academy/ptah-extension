@@ -118,3 +118,20 @@ export {
   type SkillJunctionActivateOptions,
   type SkillJunctionResult,
 } from './skill-junction.service';
+
+// Warm-query manager (extracted from sdk-agent-adapter)
+export {
+  SdkWarmQueryManager,
+  type WarmQueryHandle,
+  type WarmPrewarmFingerprint,
+} from './sdk-warm-query-manager';
+
+// Session fork/rewind service (extracted from sdk-agent-adapter)
+export {
+  SessionForkService,
+  type ForkSessionParams,
+  type RewindFilesParams,
+} from './session-fork.service';
+
+// Adapter callback registry (extracted from sdk-agent-adapter; plain TS, not @injectable)
+export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';

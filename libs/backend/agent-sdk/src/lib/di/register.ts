@@ -56,6 +56,9 @@ import {
   WorktreeHookHandler,
   // Slash command interceptor
   SlashCommandInterceptor,
+  // Warm-query manager + session fork service (Win 6c)
+  SdkWarmQueryManager,
+  SessionForkService,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
@@ -312,6 +315,18 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_WARM_QUERY_MANAGER,
+    { useClass: SdkWarmQueryManager },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_FORK_SERVICE,
+    { useClass: SessionForkService },
     { lifecycle: Lifecycle.Singleton },
   );
 
