@@ -20,7 +20,7 @@ import {
   type IAgentAdapter,
   type ResultStatsPayload,
 } from '@ptah-extension/shared';
-import type { AgentProcessManager } from '@ptah-extension/cli-agent-runtime';
+import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import {
   persistCliSessionReference,
   type SubagentRegistryLike,

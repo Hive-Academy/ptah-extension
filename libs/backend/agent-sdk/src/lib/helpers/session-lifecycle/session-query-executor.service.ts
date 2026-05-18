@@ -90,6 +90,7 @@ export class SessionQueryExecutor {
       includePartialMessages,
       mcpServersOverride,
       initialUserQuery,
+      authEnvOverride,
       warmQuery,
     } = config;
 
@@ -200,10 +201,14 @@ export class SessionQueryExecutor {
         // Memory recall query for system prompt injection.
         // Falls back gracefully when undefined or empty.
         initialUserQuery: initialUserQuery ?? initialPrompt?.content,
+        // Per-call AuthEnv override forwarded from ProviderProfile.
+        authEnvOverride,
         onProviderError: (stderrChunk: string) => {
           if (providerErrorAborted || abortController.signal.aborted) return;
           providerErrorAborted = true;
-          const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
+          const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
+          const baseUrl =
+            effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
           const model = sessionConfig?.model ?? 'unknown';
           const summary = stderrChunk.slice(0, 500);
           this.logger.error(

@@ -27,7 +27,7 @@ import {
 import {
   wireSdkCallbacks,
   wireAgentEventListeners,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import { CliAgentRpcHandlers } from './rpc/handlers/cli-agent-rpc.handlers.js';
 import { SkillsShRpcHandlers } from './rpc/handlers/skills-sh-rpc.handlers.js';
 

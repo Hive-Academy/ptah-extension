@@ -31,12 +31,12 @@ import {
   IndexingRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
+import { wireSessionMetadataEvents } from '@ptah-extension/agent-sdk';
 import {
   wireSdkCallbacks,
   wireAgentEventListeners,
-  wireSessionMetadataEvents,
   type WorktreeCreatedData,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import { parseWorktreeList } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';

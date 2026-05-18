@@ -30,7 +30,7 @@ import {
   wireSdkCallbacks,
   wireAgentEventListeners,
   type WorktreeCreatedData,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import { ChatRpcHandlers } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific handler classes.

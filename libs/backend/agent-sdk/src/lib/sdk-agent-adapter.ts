@@ -35,6 +35,7 @@ import {
   SessionId,
   FlatStreamEventUnion,
   type McpHttpServerOverride,
+  type ProviderProfile,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -104,6 +105,20 @@ export interface WarmPrewarmFingerprint {
   pathToClaudeCodeExecutable: string | null;
   /** MCP servers map baked at startup — `null` when none were passed. */
   mcpServers: Record<string, unknown> | null;
+  /**
+   * Base URL baked into startup()'s AuthEnv — `null` when the warm subprocess
+   * was started against the default DI-singleton AuthEnv. Sessions that pass
+   * a ProviderProfile populate this with the profile's baseUrl; a mismatch
+   * here means the warm subprocess is talking to a different provider than
+   * the upcoming session needs.
+   */
+  baseUrl?: string | null;
+  /**
+   * Stable digest of the AuthEnv (auth tokens + tier env vars). `null` when
+   * no override was applied at prewarm time. Computed via {@link hashAuthEnv}
+   * so the same AuthEnv shape produces an identical fingerprint string.
+   */
+  authEnvHash?: string | null;
 }
 
 /**
@@ -402,6 +417,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (bakedMcp !== requiredMcp) {
       return 'mcpServers map differs';
     }
+    const bakedBase = baked.baseUrl ?? null;
+    const requiredBase = required.baseUrl ?? null;
+    if (bakedBase !== requiredBase) {
+      return `baseUrl differs (warm=${bakedBase ?? 'null'}, required=${requiredBase ?? 'null'})`;
+    }
+    const bakedHash = baked.authEnvHash ?? null;
+    const requiredHash = required.authEnvHash ?? null;
+    if (bakedHash !== requiredHash) {
+      return 'authEnv fingerprint differs';
+    }
     return null;
   }
 
@@ -490,6 +515,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
           activeMcpServers && Object.keys(activeMcpServers).length > 0
             ? activeMcpServers
             : null,
+        baseUrl: null,
+        authEnvHash: null,
       };
 
       const elapsed = (performance.now() - startTime).toFixed(2);
@@ -819,6 +846,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * non-proxy callers leave this `undefined` and the merge is a no-op.
        */
       mcpServersOverride?: Record<string, McpHttpServerOverride>;
+      /**
+       * Optional ProviderProfile sourced from PtahCliRegistry. When provided,
+       * the profile's authEnv, model, baseUrl, and cliJsPath override the
+       * DI-singleton defaults for this session — enabling third-party
+       * Anthropic-compatible providers (Moonshot, Z.AI, OpenRouter) through
+       * the unified SdkAgentAdapter path.
+       */
+      providerProfile?: ProviderProfile;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -835,12 +870,18 @@ export class SdkAgentAdapter implements IAgentAdapter {
       pluginPaths,
       includePartialMessages,
       mcpServersOverride,
+      providerProfile,
     } = config;
     const trackingId = tabId as SessionId;
+    const effectiveCliJsPath = providerProfile?.cliJsPath ?? this.cliJsPath;
+    const effectiveAuthEnv = providerProfile?.authEnv;
+    const sessionConfigWithProfileModel: typeof config = providerProfile
+      ? { ...config, model: providerProfile.model }
+      : config;
 
     this.logger.info(
       `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`,
-      { isPremium, mcpServerRunning },
+      { isPremium, mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
     // Try to consume the warm subprocess held by
@@ -856,17 +897,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // non-fork, non-slash-command sessions before actually using the
     // handle, and falls back to a normal `query()` (closing the handle)
     // for any session shape it can't safely serve.
-    const warmHandle = mcpServersOverride
-      ? null // Caller-side MCP override means baked MCP fingerprint can't match.
-      : this.consumeWarmQuery({
-          pathToClaudeCodeExecutable: this.cliJsPath,
-          mcpServers: null,
-        });
+    const warmHandle =
+      mcpServersOverride || providerProfile
+        ? null // ProviderProfile or MCP override invalidate the warm fingerprint.
+        : this.consumeWarmQuery({
+            pathToClaudeCodeExecutable: this.cliJsPath,
+            mcpServers: null,
+            baseUrl: null,
+            authEnvHash: null,
+          });
 
     const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
-        sessionConfig: config,
+        sessionConfig: sessionConfigWithProfileModel,
         initialPrompt: config.prompt
           ? {
               content: config.prompt,
@@ -883,10 +927,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
-        pathToClaudeCodeExecutable: this.cliJsPath || undefined,
+        pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
         includePartialMessages,
         // Forward caller-supplied MCP HTTP overrides
         mcpServersOverride,
+        // Per-call AuthEnv override from ProviderProfile (when supplied).
+        authEnvOverride: effectiveAuthEnv,
         // Hand the warm subprocess (if usable) to the executor for the very
         // first SDK call of this session.
         warmQuery: warmHandle ?? undefined,
@@ -984,6 +1030,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * existing Query would silently ignore this option.
        */
       resumeSessionAt?: string;
+      /**
+       * Optional ProviderProfile sourced from PtahCliRegistry. When provided,
+       * the profile's authEnv, model, baseUrl, and cliJsPath override the
+       * DI-singleton defaults for this resumed session.
+       */
+      providerProfile?: ProviderProfile;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -1022,16 +1074,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const enhancedPromptsContent = config?.enhancedPromptsContent;
     const pluginPaths = config?.pluginPaths;
     const includePartialMessages = config?.includePartialMessages;
+    const providerProfile = config?.providerProfile;
+    const effectiveCliJsPath = providerProfile?.cliJsPath ?? this.cliJsPath;
+    const effectiveAuthEnv = providerProfile?.authEnv;
+    const sessionConfigWithProfileModel = providerProfile
+      ? { ...config, model: providerProfile.model }
+      : config;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
       isPremium,
       mcpServerRunning,
+      providerId: providerProfile?.providerId,
     });
 
     const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeQuery({
         sessionId,
-        sessionConfig: config,
+        sessionConfig: sessionConfigWithProfileModel,
         resumeSessionId: sessionId as string,
         resumeSessionAt: config?.resumeSessionAt,
         onCompactionStart: this.compactionStartCallback || undefined,
@@ -1041,8 +1100,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
-        pathToClaudeCodeExecutable: this.cliJsPath || undefined,
+        pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
         includePartialMessages,
+        authEnvOverride: effectiveAuthEnv,
       });
 
     // For resumed sessions, just update lastActiveAt (metadata already exists)

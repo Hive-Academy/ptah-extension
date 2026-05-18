@@ -379,23 +379,9 @@ export {
 
 // ============================================================
 // RPC Wiring helpers
-// Shared SDK callback + agent event wiring reused by VS Code,
-// Electron, and TUI RPC registration services.
+// Session metadata event broadcasting (sdk-callbacks + agent-events
+// moved to @ptah-extension/cli-agent-runtime).
 // ============================================================
-export {
-  wireSdkCallbacks,
-  type WireSdkCallbacksOptions,
-  type WireSdkCallbacksContext,
-  type SdkCallbackPlatform,
-  type WorktreeCreatedData,
-} from './lib/wiring/sdk-callbacks';
-export {
-  wireAgentEventListeners,
-  persistCliSessionReference,
-  type WireAgentEventListenersOptions,
-  type WireAgentEventListenersContext,
-  type AgentEventPlatform,
-} from './lib/wiring/agent-events';
 export {
   wireSessionMetadataEvents,
   type WireSessionMetadataEventsContext,

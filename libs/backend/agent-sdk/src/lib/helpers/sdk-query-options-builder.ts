@@ -393,6 +393,14 @@ export interface QueryOptionsInput {
    * non-empty. Multi-turn sessions should pass the most recent user message.
    */
   initialUserQuery?: string;
+  /**
+   * Per-call AuthEnv override (sourced from a ProviderProfile). When provided,
+   * the builder uses these values instead of the DI-singleton AuthEnv for
+   * base URL, auth tokens, tier env vars, and provider-identity prompt
+   * resolution. Reserved for the Ptah CLI unified-adapter path where the
+   * profile carries third-party provider auth.
+   */
+  authEnvOverride?: AuthEnv;
 }
 
 /**
@@ -490,7 +498,10 @@ export class SdkQueryOptionsBuilder {
       includePartialMessages,
       mcpServersOverride,
       initialUserQuery,
+      authEnvOverride,
     } = input;
+
+    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
 
     // Model is required - SDK sets default in config at startup
     if (!sessionConfig?.model) {
@@ -514,15 +525,17 @@ export class SdkQueryOptionsBuilder {
     const cwd = sessionConfig.projectPath;
 
     // Log resolved model and tier env vars for debugging (reads from AuthEnv)
-    const envSonnet = this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
-    const envOpus = this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default';
-    const envHaiku = this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default';
+    const envSonnet =
+      effectiveAuthEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
+    const envOpus = effectiveAuthEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default';
+    const envHaiku =
+      effectiveAuthEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default';
     this.logger.info(`[SdkQueryOptionsBuilder] SDK call with model: ${model}`, {
       model,
       envSonnet,
       envOpus,
       envHaiku,
-      baseUrl: this.authEnv.ANTHROPIC_BASE_URL || 'default',
+      baseUrl: effectiveAuthEnv.ANTHROPIC_BASE_URL || 'default',
     });
 
     // Validate that non-Anthropic providers have ANTHROPIC_BASE_URL configured.
@@ -531,7 +544,7 @@ export class SdkQueryOptionsBuilder {
     // placeholder (e.g., OLLAMA_AUTH_TOKEN_PLACEHOLDER), which Anthropic's API
     // drops without responding — causing the UI to hang forever. Surface the
     // misconfiguration immediately so the user sees a clear, actionable error.
-    this.validateBaseUrlForProvider();
+    this.validateBaseUrlForProvider(effectiveAuthEnv);
 
     // Pre-flight model existence check (cache-only, never blocks the query path
     // with a fresh fetch). Only runs when models are already cached from a
@@ -539,7 +552,7 @@ export class SdkQueryOptionsBuilder {
     // Catches provider-reported "model not found" failures (e.g. kimi-k2.6 /
     // devstral on Moonshot) before the SDK starts the subprocess, so the UI
     // gets a typed ModelNotAvailableError rather than a raw SDK error result.
-    await this.validateModelAvailability(model);
+    await this.validateModelAvailability(model, effectiveAuthEnv);
 
     // Warn when main model is non-Claude but tier env vars still point to Claude.
     // This means subagents will silently use Claude models at higher premium rates.
@@ -564,6 +577,7 @@ export class SdkQueryOptionsBuilder {
       mcpServerRunning,
       initialUserQuery,
       cwd,
+      effectiveAuthEnv,
     );
 
     // `routingId` is the first arg to `createCallback` (treated as the real SDK
@@ -672,7 +686,7 @@ export class SdkQueryOptionsBuilder {
         // contain auth from a previous `claude login` that overrides ANTHROPIC_BASE_URL
         // and routes requests to api.anthropic.com instead of our local endpoint.
         settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
-          this.authEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
+          effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
         )
           ? ['project', 'local']
           : ['user', 'project', 'local'],
@@ -689,11 +703,11 @@ export class SdkQueryOptionsBuilder {
         // relying on provider registry detection, which misses unknown providers.
         env: {
           ...process.env,
-          ...buildTierEnvDefaults(this.authEnv),
-          ...this.authEnv,
+          ...buildTierEnvDefaults(effectiveAuthEnv),
+          ...effectiveAuthEnv,
           NO_PROXY: '127.0.0.1,localhost',
           ...(() => {
-            const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+            const baseUrl = effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim();
             return baseUrl &&
               !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
               ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
@@ -745,7 +759,7 @@ export class SdkQueryOptionsBuilder {
         // The SDK doesn't auto-enable this beta like the CLI does — we must
         // pass it explicitly. Only for first-party (api.anthropic.com);
         // third-party providers don't support this beta header.
-        betas: this.buildBetas(),
+        betas: this.buildBetas(effectiveAuthEnv),
         // File checkpointing — defaults ON so Query.rewindFiles() works.
         // Callers can opt out by passing enableFileCheckpointing: false.
         enableFileCheckpointing: enableFileCheckpointing ?? true,
@@ -814,9 +828,10 @@ export class SdkQueryOptionsBuilder {
    *
    * Throw here so the error surfaces to the UI with clear remediation.
    */
-  private validateBaseUrlForProvider(): void {
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
-    const authToken = this.authEnv.ANTHROPIC_AUTH_TOKEN;
+  private validateBaseUrlForProvider(authEnvOverride?: AuthEnv): void {
+    const env: AuthEnv = authEnvOverride ?? this.authEnv;
+    const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
+    const authToken = env.ANTHROPIC_AUTH_TOKEN;
 
     if (baseUrl) {
       // Base URL is set — SDK will route there, no hang risk.
@@ -858,10 +873,12 @@ export class SdkQueryOptionsBuilder {
    */
   private async validateModelAvailability(
     resolvedModel: string,
+    authEnvOverride?: AuthEnv,
   ): Promise<void> {
     // Only validate for third-party providers — Anthropic's list is authoritative
     // and may include models added after the cache was last populated.
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+    const env: AuthEnv = authEnvOverride ?? this.authEnv;
+    const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
     const isDirectAnthropic =
       !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
     if (isDirectAnthropic) {
@@ -924,8 +941,9 @@ export class SdkQueryOptionsBuilder {
    *
    * @returns Array of beta strings, or undefined if no betas should be sent
    */
-  private buildBetas(): SdkBeta[] | undefined {
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+  private buildBetas(authEnvOverride?: AuthEnv): SdkBeta[] | undefined {
+    const env: AuthEnv = authEnvOverride ?? this.authEnv;
+    const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
 
     // Only enable for direct Anthropic connections (no base URL, or explicitly api.anthropic.com)
     const isFirstParty =
@@ -969,8 +987,10 @@ export class SdkQueryOptionsBuilder {
     mcpServerRunning = true,
     initialUserQuery?: string,
     cwd?: string,
+    authEnvOverride?: AuthEnv,
   ): Promise<SdkQueryOptions['systemPrompt']> {
-    const activeProviderId = getActiveProviderId(this.authEnv);
+    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
+    const activeProviderId = getActiveProviderId(effectiveAuthEnv);
 
     if (activeProviderId) {
       this.logger.info(
@@ -980,7 +1000,7 @@ export class SdkQueryOptionsBuilder {
 
     const result = assembleSystemPrompt({
       providerId: activeProviderId,
-      authEnv: this.authEnv,
+      authEnv: effectiveAuthEnv,
       userSystemPrompt: sessionConfig?.systemPrompt,
       isPremium,
       mcpServerRunning,

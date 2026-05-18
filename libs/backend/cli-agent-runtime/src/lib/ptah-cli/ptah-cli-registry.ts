@@ -23,6 +23,7 @@ import {
   type PtahCliState,
   type CliOutputSegment,
   type FlatStreamEventUnion,
+  type ProviderProfile,
   createEmptyAuthEnv,
   SessionId,
 } from '@ptah-extension/shared';
@@ -368,6 +369,60 @@ export class PtahCliRegistry {
     );
 
     return adapter;
+  }
+
+  /**
+   * Resolve a ProviderProfile for a Ptah CLI agent.
+   *
+   * Returns the value-type description of the agent's auth env, model, base
+   * URL, and cli.js path — consumed by `SdkAgentAdapter.startChatSession()`
+   * via the `providerProfile` parameter so third-party providers reuse the
+   * unified interactive-chat code path instead of a parallel adapter.
+   */
+  async getProfile(id: string): Promise<ProviderProfile | undefined> {
+    await this.configPersistence.ensureMigrated();
+    const configs = this.configPersistence.loadConfigs();
+    const agentConfig = configs.find((c) => c.id === id);
+    if (!agentConfig) {
+      this.logger.warn(`[PtahCliRegistry] getProfile: config not found: ${id}`);
+      return undefined;
+    }
+
+    const provider = getAnthropicProvider(agentConfig.providerId);
+    if (!provider) {
+      this.logger.warn(
+        `[PtahCliRegistry] getProfile: unknown provider: ${agentConfig.providerId}`,
+      );
+      return undefined;
+    }
+
+    const isLocalProvider = provider.authType === 'none';
+    const apiKey = isLocalProvider
+      ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
+      : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
+    if (!apiKey) {
+      this.logger.warn(`[PtahCliRegistry] getProfile: no API key for: ${id}`);
+      return undefined;
+    }
+
+    seedStaticModelPricing(agentConfig.providerId);
+
+    const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
+    const tier: ModelTier = 'sonnet';
+    const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
+    const resolvedModel =
+      agentConfig.selectedModel?.trim() ||
+      effectiveTiers?.[tier] ||
+      TIER_TO_MODEL_ID[tier];
+    const cliJsPath = (await this.moduleLoader.getCliJsPath()) ?? undefined;
+
+    return {
+      providerId: agentConfig.providerId,
+      authEnv,
+      model: resolvedModel,
+      baseUrl: provider.baseUrl,
+      cliJsPath,
+    };
   }
 
   /**

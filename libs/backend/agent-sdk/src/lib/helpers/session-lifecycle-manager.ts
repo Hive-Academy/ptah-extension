@@ -189,6 +189,12 @@ export interface ExecuteQueryConfig {
    */
   initialUserQuery?: string;
   /**
+   * Per-call AuthEnv override (from a ProviderProfile). Forwarded verbatim to
+   * the options builder so third-party-provider sessions use the profile's
+   * auth env instead of the DI-singleton AuthEnv.
+   */
+  authEnvOverride?: AuthEnv;
+  /**
    * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
    * provided, the executor uses `warm.query(prompt)` for the very first
    * query of this session instead of the standard `queryFn(...)` call —
