@@ -134,21 +134,15 @@ export class AuthController {
    */
   private validateReturnUrl(returnUrl: string | undefined): string | null {
     if (!returnUrl) return null;
-
-    // Must start with / and not be protocol-relative (//)
     if (!returnUrl.startsWith('/') || returnUrl.startsWith('//')) {
       this.logger.warn(`Rejected invalid returnUrl: ${returnUrl}`);
       return null;
     }
-
-    // Check against whitelist of allowed paths
     const pathOnly = returnUrl.split('?')[0]; // Remove query params for comparison
     if (!this.ALLOWED_RETURN_PATHS.includes(pathOnly)) {
       this.logger.warn(`Rejected non-whitelisted returnUrl: ${returnUrl}`);
       return null;
     }
-
-    // Final safety check: ensure constructed URL stays on same origin
     try {
       const constructed = new URL(returnUrl, this.frontendUrl);
       const frontendOrigin = new URL(this.frontendUrl).origin;
@@ -206,11 +200,7 @@ export class AuthController {
    */
   @Get('login')
   async login(@Res() res: Response): Promise<void> {
-    // Generate authorization URL with PKCE parameters
     const { url, state } = await this.authService.getAuthorizationUrl();
-
-    // Set state in HTTP-only cookie for CSRF validation in callback
-    // This cookie will be compared against the state parameter in the callback URL
     res.cookie(WORKOS_STATE_COOKIE, state, {
       httpOnly: true, // Prevents JavaScript access (XSS protection)
       secure: this.isProduction, // HTTPS only in production
@@ -222,8 +212,6 @@ export class AuthController {
     this.logger.debug(
       `Login initiated, state cookie set: ${state.substring(0, 8)}...`,
     );
-
-    // Redirect to WorkOS AuthKit with PKCE parameters
     res.redirect(url);
   }
 
@@ -257,14 +245,11 @@ export class AuthController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    // Step 1: Validate authorization code exists
     if (!code) {
       this.logger.warn('Callback received without authorization code');
       res.status(400).json({ error: 'Authorization code is required' });
       return;
     }
-
-    // Step 2: Validate state parameter exists
     if (!state) {
       this.logger.warn('Callback received without state parameter');
       res.status(401).json({
@@ -273,8 +258,6 @@ export class AuthController {
       });
       return;
     }
-
-    // Step 3: Retrieve state from cookie and validate match
     const storedState = req.cookies?.[WORKOS_STATE_COOKIE];
 
     if (!storedState) {
@@ -303,8 +286,6 @@ export class AuthController {
       });
       return;
     }
-
-    // Step 4: Clear state cookie (single-use, prevents replay)
     res.clearCookie(WORKOS_STATE_COOKIE, {
       httpOnly: true,
       secure: this.isProduction,
@@ -317,23 +298,15 @@ export class AuthController {
     );
 
     try {
-      // Step 5: Exchange code for tokens with PKCE verification
-      // The service will validate state against server-side storage
-      // and use the stored code_verifier for the token exchange
-      // Also returns returnUrl and plan if they were stored with the OAuth state
       const {
         token,
         user: authUser,
         returnUrl,
         plan,
       } = await this.authService.authenticateWithCode(code, state);
-
-      // Step 5.1: Auto-generate trial license for OAuth signups (non-blocking)
       if (authUser?.email) {
         this.autoGenerateTrialIfNeeded(authUser.email);
       }
-
-      // Step 6: Set JWT in HTTP-only cookie for session management
       res.cookie('ptah_auth', token, {
         httpOnly: true, // Prevents JavaScript access (XSS protection)
         secure: this.isProduction, // HTTPS only in production
@@ -341,8 +314,6 @@ export class AuthController {
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         path: '/', // Available to all routes
       });
-
-      // Step 7: Validate returnUrl and plan again (defense in depth)
       const validatedReturnUrl = this.validateReturnUrl(returnUrl ?? undefined);
       const validatedPlan = this.validatePlanKey(plan ?? undefined);
 
@@ -351,12 +322,7 @@ export class AuthController {
           validatedReturnUrl ? ` returnUrl=${validatedReturnUrl}` : ''
         }${validatedPlan ? ` plan=${validatedPlan}` : ''}`,
       );
-
-      // Step 8: Redirect to frontend application (with validated returnUrl and plan)
-      // Always include auth_hint=1 to signal frontend to set localStorage hint
-      // This syncs frontend auth state with backend HTTP-only cookie
       if (validatedReturnUrl) {
-        // Build redirect URL with returnUrl path and optional autoCheckout param
         const redirectUrl = new URL(validatedReturnUrl, this.frontendUrl);
         redirectUrl.searchParams.set('auth_hint', '1');
         if (validatedPlan) {
@@ -364,7 +330,6 @@ export class AuthController {
         }
         res.redirect(redirectUrl.toString());
       } else {
-        // Default: redirect to frontend root with auth hint
         res.redirect(`${this.frontendUrl}?auth_hint=1`);
       }
     } catch (error: unknown) {
@@ -389,7 +354,6 @@ export class AuthController {
    */
   @Post('logout')
   logout(@Res() res: Response): void {
-    // Clear unified authentication cookie
     res.clearCookie('ptah_auth', {
       httpOnly: true,
       secure: this.isProduction,
@@ -457,36 +421,24 @@ export class AuthController {
     @Body() body: MagicLinkDto,
   ): Promise<{ success: boolean; message: string }> {
     const { email, returnUrl, plan } = body;
-
-    // Validate returnUrl and plan to prevent security issues
     const validatedReturnUrl = this.validateReturnUrl(returnUrl);
     const validatedPlan = this.validatePlanKey(plan);
-
-    // Step 1: Check if user exists in database
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
-
-    // Step 2: Only send email if user exists (but always return success)
     if (user) {
       try {
-        // Step 2a: Create magic link token with optional returnUrl/plan
         const magicLink = await this.magicLinkService.createMagicLink(email, {
           returnUrl: validatedReturnUrl ?? undefined,
           plan: validatedPlan ?? undefined,
         });
-
-        // Step 2b: Send email with magic link
         await this.emailService.sendMagicLink({ email, magicLink });
       } catch (error) {
-        // Log error but still return success (graceful degradation)
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error';
         console.error(`Failed to send magic link to ${email}: ${errorMessage}`);
       }
     }
-
-    // Step 3: Always return success to prevent email enumeration
     return {
       success: true,
       message: 'Check your email for login link',
@@ -523,7 +475,6 @@ export class AuthController {
     @Query('token') token: string,
     @Res() res: Response,
   ): Promise<void> {
-    // Debug: Log the received token
     this.logger.debug(
       `Magic link verification requested. Token received: ${
         token
@@ -541,39 +492,27 @@ export class AuthController {
       res.redirect(`${this.frontendUrl}/login?error=token_missing`);
       return;
     }
-
-    // Step 1: Validate and consume token (now includes returnUrl/plan)
     const result = await this.magicLinkService.validateAndConsume(token);
 
     if (!result.valid) {
-      // Step 1a: Token invalid - redirect to login with error
       res.redirect(`${this.frontendUrl}/login?error=${result.error}`);
       return;
     }
-
-    // Step 2: Token valid - find user in database
     const user = await this.prisma.user.findUnique({
       where: { email: result.email },
     });
 
     if (!user) {
-      // User was deleted between magic link creation and verification
       res.redirect(`${this.frontendUrl}/login?error=user_not_found`);
       return;
     }
 
     this.autoGenerateTrialIfNeeded(result.email as string);
-
-    // Step 3: Generate JWT token using public method
     const jwtPayload = {
       sub: user.id,
       email: user.email,
     };
     const jwtToken = this.authService.generateJwtToken(jwtPayload);
-
-    // Step 4: Set HTTP-only cookie with JWT for unified authentication
-    // All auth methods use the same 'ptah_auth' cookie
-    // This is validated by JwtAuthGuard for all protected endpoints
     res.cookie('ptah_auth', jwtToken, {
       httpOnly: true, // Prevents JavaScript access (XSS protection)
       secure: this.isProduction, // HTTPS only in production
@@ -581,16 +520,10 @@ export class AuthController {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/', // Available to all routes
     });
-
-    // Step 5: Validate returnUrl and plan again (defense in depth)
     const validatedReturnUrl = this.validateReturnUrl(
       result.returnUrl ?? undefined,
     );
     const validatedPlan = this.validatePlanKey(result.plan ?? undefined);
-
-    // Step 6: Redirect to returnUrl with autoCheckout or default to profile
-    // Always include auth_hint=1 to signal frontend to set localStorage hint
-    // This syncs frontend auth state with backend HTTP-only cookie
     if (validatedReturnUrl) {
       const redirectUrl = new URL(validatedReturnUrl, this.frontendUrl);
       redirectUrl.searchParams.set('auth_hint', '1');
@@ -646,12 +579,6 @@ export class AuthController {
     return { ticket };
   }
 
-  // ============================================
-  // CUSTOM FRONTEND AUTH ENDPOINTS
-  // These endpoints support full frontend control
-  // without using WorkOS AuthKit hosted UI
-  // ============================================
-
   /**
    * Email/Password Login
    *
@@ -684,8 +611,6 @@ export class AuthController {
       email,
       password,
     );
-
-    // Set JWT in HTTP-only cookie
     res.cookie('ptah_auth', token, {
       httpOnly: true,
       secure: this.isProduction,
@@ -738,15 +663,11 @@ export class AuthController {
       firstName,
       lastName,
     );
-
-    // Auto-generate trial license (non-blocking)
     this.autoGenerateTrialIfNeeded(email);
 
     this.logger.log(
       `User signup initiated for: ${email} (pending verification)`,
     );
-
-    // Return pending verification status - no cookie yet
     res.json({
       success: true,
       pendingVerification: result.pendingVerification,
@@ -790,11 +711,7 @@ export class AuthController {
       userId,
       code,
     );
-
-    // Auto-generate trial license if user doesn't have one (non-blocking)
     this.autoGenerateTrialIfNeeded(user.email);
-
-    // Set JWT in HTTP-only cookie
     res.cookie('ptah_auth', token, {
       httpOnly: true,
       secure: this.isProduction,
@@ -896,20 +813,14 @@ export class AuthController {
           },
         },
       });
-
-      // If user has an active license, skip trial generation
       if (user?.licenses && user.licenses.length > 0) {
         this.logger.debug(
           `User ${email} already has active license, skipping trial`,
         );
         return;
       }
-
-      // Create trial license
       const { licenseKey, expiresAt } =
         await this.licenseService.createTrialLicense({ email });
-
-      // Email the license key
       await this.emailService.sendLicenseKey({
         email,
         licenseKey,
@@ -923,7 +834,6 @@ export class AuthController {
       this.logger.error(
         `Failed to auto-generate trial for ${email}: ${message}`,
       );
-      // Non-blocking: auth flow continues regardless
     }
   }
 
@@ -934,7 +844,6 @@ export class AuthController {
     @Query('plan') plan: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    // Validate provider
     const validProviders: OAuthProvider[] = ['github', 'google'];
     if (!validProviders.includes(provider as OAuthProvider)) {
       throw new BadRequestException(
@@ -943,19 +852,13 @@ export class AuthController {
         )}`,
       );
     }
-
-    // Validate returnUrl and plan to prevent security issues
     const validatedReturnUrl = this.validateReturnUrl(returnUrl);
     const validatedPlan = this.validatePlanKey(plan);
-
-    // Generate authorization URL for the specific provider (with validated params)
     const { url, state } = await this.authService.getOAuthAuthorizationUrl(
       provider as OAuthProvider,
       validatedReturnUrl ?? undefined,
       validatedPlan ?? undefined,
     );
-
-    // Set state in HTTP-only cookie for CSRF validation in callback
     res.cookie(WORKOS_STATE_COOKIE, state, {
       httpOnly: true,
       secure: this.isProduction,
@@ -972,8 +875,6 @@ export class AuthController {
         validatedPlan ? ` plan=${validatedPlan}` : ''
       }`,
     );
-
-    // Redirect directly to OAuth provider
     res.redirect(url);
   }
 }

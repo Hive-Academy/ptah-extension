@@ -168,23 +168,16 @@ export class PromptCacheService {
     dependencyHash: string,
   ): Promise<PromptDesignerOutput | null> {
     const cacheKey = this.buildCacheKey(workspacePath, dependencyHash);
-
-    // Check in-memory cache first
     const memoryEntry = this.inMemoryCache.get(cacheKey);
     if (memoryEntry && !this.isExpired(memoryEntry.cachedAt)) {
       this.logger.debug('PromptCacheService: Memory cache hit', { cacheKey });
-      // LRU touch: delete and re-insert to move to end (most recently used)
       this.inMemoryCache.delete(cacheKey);
       this.inMemoryCache.set(cacheKey, memoryEntry);
       return memoryEntry.output;
     }
-
-    // Check persisted cache
     const persisted = await this.loadFromStorage(cacheKey);
     if (persisted && !this.isExpired(persisted.cachedAt)) {
       this.logger.debug('PromptCacheService: Storage cache hit', { cacheKey });
-
-      // Promote to in-memory cache (enforce LRU limit)
       this.ensureCapacity();
       this.inMemoryCache.set(cacheKey, {
         output: persisted.output,
@@ -196,8 +189,6 @@ export class PromptCacheService {
 
       return persisted.output;
     }
-
-    // Check for stale cache with grace period
     if (persisted && this.isInGracePeriod(persisted.cachedAt)) {
       this.logger.info(
         'PromptCacheService: Using stale cache in grace period',
@@ -227,11 +218,7 @@ export class PromptCacheService {
   ): Promise<void> {
     const cacheKey = this.buildCacheKey(workspacePath, dependencyHash);
     const cachedAt = Date.now();
-
-    // Enforce capacity before inserting
     this.ensureCapacity();
-
-    // Store in memory
     this.inMemoryCache.set(cacheKey, {
       output,
       cacheKey,
@@ -239,8 +226,6 @@ export class PromptCacheService {
       workspacePath,
       dependencyHash,
     });
-
-    // Persist to storage
     await this.saveToStorage(cacheKey, {
       output,
       inputHash: dependencyHash,
@@ -252,8 +237,6 @@ export class PromptCacheService {
       cacheKey,
       totalTokens: output.totalTokens,
     });
-
-    // Initialize file watcher if enabled
     if (this.config.enableFileWatching && !this.watcherInitialized) {
       this.initializeFileWatcher(workspacePath);
     }
@@ -269,7 +252,6 @@ export class PromptCacheService {
     workspacePath: string,
     reason: InvalidationReason = 'manual',
   ): Promise<void> {
-    // Find and remove matching entries from memory
     const keysToRemove: string[] = [];
     for (const [key, entry] of this.inMemoryCache) {
       if (entry.workspacePath === workspacePath) {
@@ -278,8 +260,6 @@ export class PromptCacheService {
     }
 
     keysToRemove.forEach((key) => this.inMemoryCache.delete(key));
-
-    // Remove from persistent storage
     await this.removeFromStorage(workspacePath);
 
     this.logger.info('PromptCacheService: Cache invalidated', {
@@ -287,8 +267,6 @@ export class PromptCacheService {
       reason,
       entriesRemoved: keysToRemove.length,
     });
-
-    // Notify callbacks
     const event = createInvalidationEvent(reason, workspacePath);
     this.notifyInvalidation(event);
   }
@@ -327,8 +305,6 @@ export class PromptCacheService {
    */
   async clearAll(): Promise<void> {
     this.inMemoryCache.clear();
-
-    // Clear persisted data
     await this.context.globalState.update(STORAGE_KEY_PREFIX, undefined);
 
     this.logger.info('PromptCacheService: All caches cleared');
@@ -448,10 +424,7 @@ export class PromptCacheService {
     const existingData = this.context.globalState.get<PersistedCacheData>(
       STORAGE_KEY_PREFIX,
     ) || { entries: {}, version: CACHE_CONFIG_VERSION };
-
-    // Ensure version matches
     if (existingData.version !== CACHE_CONFIG_VERSION) {
-      // Clear old version data
       existingData.entries = {};
       existingData.version = CACHE_CONFIG_VERSION;
     }
@@ -471,8 +444,6 @@ export class PromptCacheService {
     if (!data) {
       return;
     }
-
-    // Remove entries matching workspace path
     const workspaceHash = computeHash(workspacePath);
     const keysToRemove = Object.keys(data.entries).filter((key) =>
       key.includes(workspaceHash),
@@ -492,16 +463,12 @@ export class PromptCacheService {
     }
 
     try {
-      // Create watcher for all trigger patterns
-      // Note: VS Code file watchers support glob patterns
       const watcher = this.fileManager.createWatcher({
         id: CACHE_WATCHER_ID,
         pattern: `${workspacePath}/**/{package.json,tsconfig.json,angular.json,nx.json,.eslintrc.*}`,
         ignoreCreateEvents: false,
         ignoreDeleteEvents: false,
       });
-
-      // Handle file changes
       const handleChange = (uri: { fsPath: string }) => {
         if (isInvalidationTrigger(uri.fsPath)) {
           const reason = getInvalidationReason(uri.fsPath);

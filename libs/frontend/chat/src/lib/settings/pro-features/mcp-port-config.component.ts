@@ -212,7 +212,6 @@ export class McpPortConfigComponent implements OnInit {
         }
       }
     } catch {
-      // Use default if load fails
     }
   }
 

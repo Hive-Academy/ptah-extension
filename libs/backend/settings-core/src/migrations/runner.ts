@@ -39,9 +39,6 @@ export class MigrationRunner implements ISettingsMigrator {
       }
 
       await this.migrations[i](this.ptahDir);
-
-      // Write sentinel synchronously so it survives a crash between the async
-      // migration completing and the file being created.
       fs.writeFileSync(sentinel, new Date().toISOString(), 'utf8');
     }
   }

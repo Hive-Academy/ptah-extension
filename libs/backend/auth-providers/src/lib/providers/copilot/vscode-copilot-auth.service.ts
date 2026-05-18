@@ -43,7 +43,6 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
    */
   override async login(): Promise<boolean> {
     try {
-      // Try VS Code native auth first (best UX - seamless OAuth dialog)
       this.logger.info(
         '[VscodeCopilotAuth] Trying VS Code native GitHub auth...',
       );
@@ -60,8 +59,6 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
         `[VscodeCopilotAuth] VS Code native auth failed, falling back to base: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-
-    // Fallback to base class (file + device code flow)
     return super.login();
   }
 
@@ -74,7 +71,6 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
    * authenticated through VS Code's GitHub auth provider.
    */
   override async tryRestoreAuth(): Promise<boolean> {
-    // Try VS Code native auth silently first (no prompt, createIfNone=false)
     try {
       const session = await this.getVscodeGitHubSession(false);
       if (session) {
@@ -89,8 +85,6 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
         `[VscodeCopilotAuth] Silent VS Code session check failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-
-    // Fallback to base class (file-based token)
     return super.tryRestoreAuth();
   }
 
@@ -102,11 +96,8 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
    * vscode.authentication.getSession(false) without prompting the user.
    */
   protected override async doRefreshToken(): Promise<boolean> {
-    // Try base class refresh first (cached token + file)
     const baseResult = await super.doRefreshToken();
     if (baseResult) return true;
-
-    // VS Code-specific: try getting a fresh GitHub session silently (no prompt)
     try {
       const session = await this.getVscodeGitHubSession(false);
       if (session) {
@@ -116,7 +107,6 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
         return this.exchangeToken(session.accessToken);
       }
     } catch {
-      // VS Code auth unavailable during refresh
     }
 
     this.authState = null;
@@ -144,7 +134,6 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
   private async getVscodeGitHubSession(
     createIfNone: boolean,
   ): Promise<vscode.AuthenticationSession | undefined> {
-    // Try 'copilot' scope first
     try {
       const session = await vscode.authentication.getSession(
         'github',
@@ -153,10 +142,7 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
       );
       if (session) return session;
     } catch {
-      // Fall through to read:user
     }
-
-    // Fallback to 'read:user' scope
     try {
       return await vscode.authentication.getSession('github', ['read:user'], {
         createIfNone,

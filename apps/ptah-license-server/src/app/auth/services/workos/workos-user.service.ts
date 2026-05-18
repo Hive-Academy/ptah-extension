@@ -236,10 +236,6 @@ export class WorkosUserService {
     });
   }
 
-  // ============================================
-  // PRIVATE ERROR HANDLING
-  // ============================================
-
   private ensureClientId(): void {
     if (!this.clientId) {
       throw new BadRequestException('WorkOS client ID not configured');
@@ -258,20 +254,13 @@ export class WorkosUserService {
     const errorMessage = this.extractErrorMessage(error);
 
     this.logger.warn(`Auth failed for ${email}: ${errorMessage}`);
-
-    // Check for email verification required
-    // WorkOS error codes: 'email_verification_required', 'unverified_email'
-    // WorkOS messages: "Email ownership must be verified before authentication"
     if (this.isEmailVerificationRequired(workosError, errorMessage)) {
-      // Look up user to get their ID
       const user = await this.findUserByEmail(email);
 
       if (user && !user.emailVerified) {
-        // Send new verification email
         try {
           await this.sendVerificationEmail(user.id);
         } catch {
-          // Log but don't fail - user might still have previous code
         }
 
         return {
@@ -292,7 +281,6 @@ export class WorkosUserService {
     error: WorkOSError | null,
     message: string,
   ): boolean {
-    // Check error code first (most reliable)
     if (error?.code) {
       const verificationCodes = [
         'email_verification_required',
@@ -303,8 +291,6 @@ export class WorkosUserService {
         return true;
       }
     }
-
-    // Check nested errors
     if (error?.errors) {
       for (const e of error.errors) {
         if (e.code && e.code.toLowerCase().includes('verif')) {
@@ -312,8 +298,6 @@ export class WorkosUserService {
         }
       }
     }
-
-    // Fallback: check message (less reliable, but necessary)
     const verificationPhrases = [
       'email ownership must be verified',
       'email must be verified',
@@ -333,15 +317,11 @@ export class WorkosUserService {
     const errorMessage = this.extractErrorMessage(error);
 
     this.logger.error(`User creation failed: ${errorMessage}`);
-
-    // Check for duplicate email
     if (this.isDuplicateEmailError(workosError, errorMessage)) {
       throw new ConflictException(
         'A user with this email already exists. Please sign in instead.',
       );
     }
-
-    // Check for password strength
     if (this.isPasswordStrengthError(workosError, errorMessage)) {
       throw new BadRequestException(
         'Password does not meet strength requirements.',

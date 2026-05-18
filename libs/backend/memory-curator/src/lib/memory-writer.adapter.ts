@@ -51,11 +51,7 @@ export class MemoryWriterAdapter implements IMemoryWriter {
   ) {}
 
   async upsert(req: MemoryWriteRequest): Promise<MemoryWriteResult> {
-    // NOTE: plan §3.5 reference code uses a single space separator.
     const newHash = sha256Hex(`${req.subject} ${req.content}`);
-
-    // Tier-scoped scan (≤500 rows). No workspace filter — we want
-    // fingerprint-based identity which survives moves/renames.
     const candidates = this.store.list({ tier: req.tier, limit: 500 }).memories;
     const matches = candidates.filter((m) => {
       if (m.subject !== req.subject) return false;

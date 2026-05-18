@@ -781,7 +781,6 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   private async loadSettings(): Promise<void> {
     try {
-      // Route through the state service so the shared `settings` signal is populated.
       await this.state.loadSettings();
       const s = this.state.settings();
       if (s) {
@@ -796,7 +795,6 @@ export class SkillSynthesisTabComponent implements OnInit {
   protected async onSaveSettings(): Promise<void> {
     if (!this.settingsForm.valid) return;
     try {
-      // Cast is safe: the form controls mirror SkillSynthesisSettingsDto exactly.
       const sf = this.settingsForm.value as SkillSynthesisSettingsDto;
       await this.rpc.updateSettings(sf);
       this.showToast('Settings saved.', 'success');

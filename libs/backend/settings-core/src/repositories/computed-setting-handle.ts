@@ -56,13 +56,10 @@ export class ComputedSettingHandle<T> implements SettingHandle<T> {
   }
 
   watch(cb: (value: T) => void): IDisposable {
-    // Track the currently subscribed key so we can re-subscribe when auth changes.
     let currentKey = this.resolveKey();
     let innerSub: IDisposable = this.store.watchGlobal(currentKey, () => {
       cb(this.get());
     });
-
-    // Re-subscribe when auth method or provider id changes.
     const resubscribe = () => {
       const newKey = this.resolveKey();
       if (newKey !== currentKey) {
@@ -72,7 +69,6 @@ export class ComputedSettingHandle<T> implements SettingHandle<T> {
           cb(this.get());
         });
       }
-      // Always fire — the auth change itself means the effective value changed.
       cb(this.get());
     };
 
@@ -84,8 +80,6 @@ export class ComputedSettingHandle<T> implements SettingHandle<T> {
       this.anthropicProviderIdKey,
       resubscribe,
     );
-
-    // Fire immediately with the current value.
     cb(this.get());
 
     return {

@@ -118,14 +118,9 @@ export class FileSystemManager {
     const startTime = Date.now();
 
     try {
-      // Pre-operation validation and tracking
       await this.validateFileOperation(uri, 'read');
-
-      // Perform read operation
       const content = await vscode.workspace.fs.readFile(uri);
       const duration = Date.now() - startTime;
-
-      // Update metrics
       this.updateOperationMetrics('read', true, content.byteLength, duration);
 
       return content;
@@ -147,14 +142,9 @@ export class FileSystemManager {
     const startTime = Date.now();
 
     try {
-      // Pre-operation validation
       await this.validateFileOperation(uri, 'write');
-
-      // Perform write operation with configured options
       await vscode.workspace.fs.writeFile(uri, content);
       const duration = Date.now() - startTime;
-
-      // Update metrics
       this.updateOperationMetrics('write', true, content.byteLength, duration);
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -177,21 +167,14 @@ export class FileSystemManager {
     const startTime = Date.now();
 
     try {
-      // Pre-operation validation and stat for size tracking
       const stat = await this.stat(uri);
       await this.validateFileOperation(uri, 'delete');
-
-      // Configure delete options
       const deleteOptions = {
         recursive: true, // Enable recursive deletion for directories
         useTrash: false, // Direct deletion for consistency
       };
-
-      // Perform delete operation
       await vscode.workspace.fs.delete(uri, deleteOptions);
       const duration = Date.now() - startTime;
-
-      // Update metrics
       this.updateOperationMetrics('delete', true, stat.size, duration);
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -216,21 +199,14 @@ export class FileSystemManager {
     const startTime = Date.now();
 
     try {
-      // Pre-operation validation
       const sourceStat = await this.stat(source);
       await this.validateFileOperation(source, 'copy');
       await this.validateFileOperation(target, 'copy');
-
-      // Configure copy options
       const copyOptions = {
         overwrite: options.overwrite ?? false,
       };
-
-      // Perform copy operation
       await vscode.workspace.fs.copy(source, target, copyOptions);
       const duration = Date.now() - startTime;
-
-      // Update metrics
       this.updateOperationMetrics('copy', true, sourceStat.size, duration);
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -255,21 +231,14 @@ export class FileSystemManager {
     const startTime = Date.now();
 
     try {
-      // Pre-operation validation
       const sourceStat = await this.stat(source);
       await this.validateFileOperation(source, 'move');
       await this.validateFileOperation(target, 'move');
-
-      // Configure rename options
       const renameOptions = {
         overwrite: options.overwrite ?? false,
       };
-
-      // Perform move operation (rename in VS Code API)
       await vscode.workspace.fs.rename(source, target, renameOptions);
       const duration = Date.now() - startTime;
-
-      // Update metrics
       this.updateOperationMetrics('move', true, sourceStat.size, duration);
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -293,8 +262,6 @@ export class FileSystemManager {
 
       const stat = await vscode.workspace.fs.stat(uri);
       const duration = Date.now() - startTime;
-
-      // Update metrics
       this.updateOperationMetrics('stat', true, 0, duration);
 
       return stat;
@@ -324,11 +291,7 @@ export class FileSystemManager {
 
       const entries = await vscode.workspace.fs.readDirectory(uri);
       const duration = Date.now() - startTime;
-
-      // Apply filtering if specified
       const filteredEntries = this.filterDirectoryEntries(entries, options);
-
-      // Update metrics
       this.updateOperationMetrics(
         'readdir',
         true,
@@ -353,22 +316,15 @@ export class FileSystemManager {
    */
   createWatcher(config: FileWatcherConfig): vscode.FileSystemWatcher {
     if (this.activeWatchers.has(config.id)) {
-      // Return existing watcher
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.activeWatchers.get(config.id)!;
     }
-
-    // eslint-disable-next-line no-useless-catch
     try {
-      // Create watcher with configuration
       const watcher = vscode.workspace.createFileSystemWatcher(
         config.pattern,
         config.ignoreCreateEvents,
         config.ignoreChangeEvents,
         config.ignoreDeleteEvents,
       );
-
-      // Set up event handlers with event bus integration
       watcher.onDidCreate((uri) => {
         this.handleWatcherEvent(config.id, 'created', uri);
       });
@@ -380,11 +336,7 @@ export class FileSystemManager {
       watcher.onDidDelete((uri) => {
         this.handleWatcherEvent(config.id, 'deleted', uri);
       });
-
-      // Store watcher reference
       this.activeWatchers.set(config.id, watcher);
-
-      // Add to extension subscriptions for proper cleanup
       this.context.subscriptions.push(watcher);
 
       return watcher;
@@ -450,7 +402,6 @@ export class FileSystemManager {
       this.activeWatchers.clear();
       this.operationMetrics.clear();
     } catch {
-      // Silently handle disposal errors
     }
   }
 
@@ -488,14 +439,10 @@ export class FileSystemManager {
     uri: vscode.Uri,
     operation: FileOperationType,
   ): Promise<void> {
-    // Basic URI validation
     if (!uri || !uri.scheme) {
       throw new Error(`Invalid URI for ${operation} operation`);
     }
-
-    // For now, basic validation - can be extended with more sophisticated checks
     if (uri.scheme !== 'file' && uri.scheme !== 'untitled') {
-      // Allow operations on supported schemes
     }
   }
 
@@ -515,18 +462,12 @@ export class FileSystemManager {
     options: FileOperationOptions,
   ): Array<[string, vscode.FileType]> {
     let filtered = entries;
-
-    // Filter hidden files if specified
     if (!options.includeHidden) {
       filtered = filtered.filter(([name]) => !name.startsWith('.'));
     }
-
-    // Apply exclude patterns if specified
     if (options.exclude && options.exclude.length > 0) {
       filtered = filtered.filter(([name]) => {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         return !options.exclude!.some((pattern) => {
-          // Simple pattern matching - can be enhanced with glob patterns
           return name.includes(pattern);
         });
       });
@@ -543,7 +484,6 @@ export class FileSystemManager {
     _eventType: 'created' | 'changed' | 'deleted',
     _uri: vscode.Uri,
   ): void {
-    // Handle file watcher events - params reserved for future implementation
     void _watcherId;
     void _eventType;
     void _uri;
@@ -561,8 +501,6 @@ export class FileSystemManager {
   ): void {
     const errorMessage = error instanceof Error ? error.message : String(error);
     this.categorizeFileSystemError(errorMessage);
-
-    // Update metrics
     this.updateOperationMetrics(operation, false, 0, duration);
   }
 
@@ -628,8 +566,6 @@ export class FileSystemManager {
     } else {
       metrics.failedOperations++;
     }
-
-    // Update average response time
     const totalDuration =
       metrics.averageResponseTime * (metrics.totalOperations - 1) + duration;
     metrics.averageResponseTime = totalDuration / metrics.totalOperations;

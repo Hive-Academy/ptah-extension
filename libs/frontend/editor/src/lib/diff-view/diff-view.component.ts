@@ -104,9 +104,6 @@ export class DiffViewComponent implements OnDestroy {
       this.createEditor(monacoApi);
       return;
     }
-    // Monaco not loaded yet — poll briefly (should be rare).
-    // The interval handle is stored so it can be cleared from ngOnDestroy()
-    // if the component is torn down before Monaco loads.
     let attempts = 0;
     this.monacoWaitInterval = setInterval(() => {
       attempts++;
@@ -164,10 +161,6 @@ export class DiffViewComponent implements OnDestroy {
         this.editor?.layout();
       });
       this.resizeObserver.observe(container);
-
-      // Watch for theme changes on <body> and re-apply Monaco theme.
-      // Note: Monaco.editor.setTheme is global — all diff editors will share
-      // the theme, which is acceptable since concurrent diff tabs are rare.
       if (typeof document !== 'undefined') {
         this.themeObserver = new MutationObserver(() => {
           monacoApi.editor.setTheme(this.detectMonacoTheme());

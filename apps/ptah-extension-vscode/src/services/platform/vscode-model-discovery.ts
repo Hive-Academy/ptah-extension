@@ -32,8 +32,6 @@ export class VsCodeModelDiscovery implements IModelDiscovery {
   > {
     try {
       const models = await vscode.lm.selectChatModels();
-      // Return all non-copilot models as potential Codex models
-      // The caller will filter further against known Codex model IDs
       return models.map((m) => ({
         id: m.family,
         name: m.family,

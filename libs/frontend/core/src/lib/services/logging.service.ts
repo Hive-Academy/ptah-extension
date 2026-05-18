@@ -63,9 +63,6 @@ export interface LoggingConfig {
  * - Debug mode: All logs including DEBUG
  */
 const DEFAULT_LOG_CONFIG: LoggingConfig = {
-  // Use INFO for development (info, warnings, and errors)
-  // Set to DEBUG via window.PTAH_DEBUG_LOGGING = true for troubleshooting
-  // Set to WARN for production (only warnings and errors)
   level: LogLevel.INFO,
   enableConsole: true,
   maxHistorySize: 1000,
@@ -75,7 +72,6 @@ const DEFAULT_LOG_CONFIG: LoggingConfig = {
   providedIn: 'root',
 })
 export class LoggingService {
-  // Signal-based log level for reactive updates
   private readonly _currentLevel = signal<LogLevel>(DEFAULT_LOG_CONFIG.level);
   readonly currentLevel = this._currentLevel.asReadonly();
 
@@ -98,8 +94,6 @@ export class LoggingService {
       PTAH_LOG_LEVEL?: string;
       PTAH_DEBUG_LOGGING?: boolean;
     };
-
-    // Check for debug mode flag
     if (win.PTAH_DEBUG_LOGGING === true) {
       this._currentLevel.set(LogLevel.DEBUG);
       console.info(
@@ -107,8 +101,6 @@ export class LoggingService {
       );
       return;
     }
-
-    // Check for explicit log level
     if (win.PTAH_LOG_LEVEL) {
       const levelName = win.PTAH_LOG_LEVEL.toUpperCase();
       const level = LogLevel[levelName as keyof typeof LogLevel];
@@ -241,7 +233,6 @@ export class LoggingService {
     message: string,
     data?: unknown,
   ): void {
-    // Filter based on current log level
     if (level < this._currentLevel()) {
       return;
     }
@@ -253,14 +244,10 @@ export class LoggingService {
       message,
       data,
     };
-
-    // Add to history with size limit
     this.logHistory.push(entry);
     if (this.logHistory.length > this.maxHistorySize) {
       this.logHistory.shift();
     }
-
-    // Console output in development
     this.logToConsole(entry);
   }
 
@@ -268,7 +255,6 @@ export class LoggingService {
    * Output log entry to browser console
    */
   private logToConsole(entry: LogEntry): void {
-    // Skip console output if disabled
     if (!this.consoleEnabled) {
       return;
     }

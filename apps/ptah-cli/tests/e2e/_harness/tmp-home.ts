@@ -32,7 +32,6 @@ export async function createTmpHome(prefix = 'ptah-e2e-'): Promise<TmpHome> {
 
   const resolveSafe = (rel: string): string => {
     const target = path.resolve(homePath, rel);
-    // Defence-in-depth: refuse traversal outside the tmp root.
     if (!target.startsWith(homePath)) {
       throw new Error(
         `TmpHome.write/read: '${rel}' resolves outside the tmp root (${homePath})`,
@@ -59,13 +58,9 @@ export async function createTmpHome(prefix = 'ptah-e2e-'): Promise<TmpHome> {
       }
     },
     async cleanup(): Promise<void> {
-      // Belt-and-suspenders: only ever rm -rf paths that live under the OS
-      // temp directory. A bug in `path` resolution that bubbles `homePath`
-      // up to `/` should never destroy a developer's home.
       const realTmp = await fsp.realpath(os.tmpdir()).catch(() => os.tmpdir());
       const realTarget = await fsp.realpath(homePath).catch(() => homePath);
       if (!realTarget.startsWith(realTmp)) {
-        // Skip cleanup rather than risking destruction.
         return;
       }
       await fsp.rm(homePath, {

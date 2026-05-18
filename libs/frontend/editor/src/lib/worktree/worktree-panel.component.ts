@@ -252,24 +252,18 @@ export class WorktreePanelComponent {
   protected readonly worktreeService = inject(WorktreeService);
   private readonly editorService = inject(EditorService);
   private readonly layoutService = inject(ElectronLayoutService);
-
-  // Icons
   protected readonly GitBranchIcon = GitBranch;
   protected readonly GitForkIcon = GitFork;
   protected readonly FolderOpenIcon = FolderOpen;
   protected readonly PlusIcon = Plus;
   protected readonly TrashIcon = Trash2;
   protected readonly RefreshIcon = RotateCw;
-
-  // Add form state
   protected readonly showAddForm = signal(false);
   protected readonly newBranch = signal('');
   protected readonly newPath = signal('');
   protected readonly newCreateBranch = signal(false);
   protected readonly isAdding = signal(false);
   protected readonly addError = signal('');
-
-  // Remove state
   protected readonly removeTarget = signal<GitWorktreeInfo | null>(null);
   protected readonly isRemoving = signal(false);
   protected readonly removeError = signal('');
@@ -294,8 +288,6 @@ export class WorktreePanelComponent {
   protected onRefresh(): void {
     void this.worktreeService.loadWorktrees();
   }
-
-  // Add worktree
   protected async onAddWorktree(): Promise<void> {
     const branch = this.newBranch().trim();
     if (!branch) return;
@@ -324,8 +316,6 @@ export class WorktreePanelComponent {
     this.newCreateBranch.set(false);
     this.addError.set('');
   }
-
-  // Remove worktree
   protected onRemoveClick(event: MouseEvent, wt: GitWorktreeInfo): void {
     event.stopPropagation();
     this.removeTarget.set(wt);

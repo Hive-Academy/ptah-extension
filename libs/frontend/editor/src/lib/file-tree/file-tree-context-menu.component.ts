@@ -111,8 +111,6 @@ export class FileTreeContextMenuComponent {
     node: FileTreeNode | null;
   }>();
   readonly closed = output<void>();
-
-  // Adjusted positions to prevent overflow
   readonly adjustedX = signal(0);
   readonly adjustedY = signal(0);
 

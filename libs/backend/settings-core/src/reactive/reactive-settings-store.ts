@@ -25,7 +25,6 @@ export class ReactiveSettingsStore implements ISettingsStore {
 
   constructor(backend: ISettingsStore) {
     this.backend = backend;
-    // Avoid Node's default MaxListenersExceededWarning in large apps.
     this.globalEmitter.setMaxListeners(100);
     this.secretEmitter.setMaxListeners(100);
   }
@@ -35,7 +34,6 @@ export class ReactiveSettingsStore implements ISettingsStore {
       return this.globalCache.get(key) as T | undefined;
     }
     const value = this.backend.readGlobal<T>(key);
-    // Cache even undefined so we don't repeatedly hit the backend for missing keys.
     this.globalCache.set(key, value);
     return value;
   }

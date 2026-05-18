@@ -138,8 +138,6 @@ export class VscodeLmConfigComponent implements OnInit {
 
   /** Emitted when the VS Code LM model selection changes (so parent can refresh agent detection) */
   readonly modelChanged = output<void>();
-
-  // Lucide icons
   readonly CheckIcon = Check;
   readonly StarIcon = Star;
   readonly CpuIcon = Cpu;

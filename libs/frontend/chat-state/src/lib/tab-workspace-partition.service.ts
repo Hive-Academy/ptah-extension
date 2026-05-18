@@ -48,10 +48,6 @@ export interface TabLookupResult {
  */
 @Injectable({ providedIn: 'root' })
 export class TabWorkspacePartitionService {
-  // ============================================================================
-  // WORKSPACE STATE
-  // ============================================================================
-
   /**
    * Map of workspace path to tab set. Contains ALL workspace tab sets,
    * including background workspaces. The active workspace's tab set is
@@ -99,10 +95,6 @@ export class TabWorkspacePartitionService {
     this._panelId = panelId;
   }
 
-  // ============================================================================
-  // PUBLIC API
-  // ============================================================================
-
   /**
    * Get the currently active workspace path.
    */
@@ -132,42 +124,29 @@ export class TabWorkspacePartitionService {
     currentTabs: TabState[],
     currentActiveTabId: string | null,
   ): { tabs: TabState[]; activeTabId: string | null } | null {
-    // No-op if switching to already-active workspace
     if (this._activeWorkspacePath === workspacePath) return null;
-
-    // Step 1: Save current workspace's tab state to the map
     if (this._activeWorkspacePath) {
       this._workspaceTabSets.set(this._activeWorkspacePath, {
         tabs: currentTabs,
         activeTabId: currentActiveTabId,
       });
     }
-
-    // Step 2: Load target workspace's tab state
     this._activeWorkspacePath = workspacePath;
     const targetTabSet = this._workspaceTabSets.get(workspacePath);
 
     if (targetTabSet) {
-      // Workspace has in-memory state -- return it.
-      // Populate reverse index for loaded tabs.
       this._populateSessionIndex(workspacePath, targetTabSet.tabs);
       return { tabs: targetTabSet.tabs, activeTabId: targetTabSet.activeTabId };
     }
-
-    // No in-memory state -- try loading from localStorage
     const loaded = this._loadWorkspaceTabsFromStorage(workspacePath);
     if (loaded) {
-      // Store in map for future fast access
       this._workspaceTabSets.set(workspacePath, {
         tabs: loaded.tabs,
         activeTabId: loaded.activeTabId,
       });
-      // Populate reverse index for loaded tabs.
       this._populateSessionIndex(workspacePath, loaded.tabs);
       return { tabs: loaded.tabs, activeTabId: loaded.activeTabId };
     }
-
-    // Brand new workspace -- empty tab set
     this._workspaceTabSets.set(workspacePath, {
       tabs: [],
       activeTabId: null,
@@ -211,10 +190,8 @@ export class TabWorkspacePartitionService {
     sessionId: string,
     activeTabs?: TabState[],
   ): TabLookupResult | null {
-    // O(1) fast path: check reverse index first
     const indexedWsPath = this._sessionToWorkspace.get(sessionId);
     if (indexedWsPath) {
-      // Verify the tab still exists in the indexed workspace
       if (indexedWsPath === this._activeWorkspacePath && activeTabs) {
         const tab = activeTabs.find((t) => t.claudeSessionId === sessionId);
         if (tab) {
@@ -229,11 +206,8 @@ export class TabWorkspacePartitionService {
           }
         }
       }
-      // Index was stale, remove it
       this._sessionToWorkspace.delete(sessionId);
     }
-
-    // Fallback: linear scan (handles cases where index wasn't populated)
     if (this._activeWorkspacePath) {
       const tabs =
         activeTabs ??
@@ -241,7 +215,6 @@ export class TabWorkspacePartitionService {
         [];
       const activeTab = tabs.find((t) => t.claudeSessionId === sessionId);
       if (activeTab) {
-        // Populate index for future lookups
         this._sessionToWorkspace.set(sessionId, this._activeWorkspacePath);
         return { tab: activeTab, workspacePath: this._activeWorkspacePath };
       }
@@ -251,7 +224,6 @@ export class TabWorkspacePartitionService {
       if (wsPath === this._activeWorkspacePath) continue;
       const found = tabSet.tabs.find((t) => t.claudeSessionId === sessionId);
       if (found) {
-        // Populate index for future lookups
         this._sessionToWorkspace.set(sessionId, wsPath);
         return { tab: found, workspacePath: wsPath };
       }
@@ -275,8 +247,6 @@ export class TabWorkspacePartitionService {
       const bgTabIndex = tabSet.tabs.findIndex((t) => t.id === tabId);
       if (bgTabIndex !== -1) {
         const existingTab = tabSet.tabs[bgTabIndex];
-
-        // PERFORMANCE: Skip update if streamingState reference is identical
         if (
           updates.streamingState !== undefined &&
           updates.streamingState === existingTab.streamingState &&
@@ -284,15 +254,11 @@ export class TabWorkspacePartitionService {
         ) {
           return true; // No-op but tab was found
         }
-
-        // Update the tab in the background workspace's tab set (no signal update)
         const updatedTab = {
           ...existingTab,
           ...updates,
           lastActivityAt: Date.now(),
         };
-
-        // Populate reverse index when claudeSessionId is assigned.
         if (updates.claudeSessionId) {
           this._sessionToWorkspace.set(updates.claudeSessionId, wsPath);
         }
@@ -300,8 +266,6 @@ export class TabWorkspacePartitionService {
         const newTabs = [...tabSet.tabs];
         newTabs[bgTabIndex] = updatedTab;
         tabSet.tabs = newTabs;
-
-        // Debounce background workspace saves.
         this._debouncedBackgroundSave(wsPath, tabSet);
         return true;
       }
@@ -319,7 +283,6 @@ export class TabWorkspacePartitionService {
    * @returns true if the removed workspace was the active one
    */
   removeWorkspaceState(workspacePath: string): boolean {
-    // Clean up session reverse index entries for this workspace.
     const tabSet = this._workspaceTabSets.get(workspacePath);
     if (tabSet) {
       for (const tab of tabSet.tabs) {
@@ -330,26 +293,16 @@ export class TabWorkspacePartitionService {
     }
 
     this._workspaceTabSets.delete(workspacePath);
-
-    // Clean up any pending background save timer.
     const pendingTimer = this._backgroundSaveTimers.get(workspacePath);
     if (pendingTimer) {
       clearTimeout(pendingTimer);
       this._backgroundSaveTimers.delete(workspacePath);
     }
-
-    // Clean up backend encoded path cache
     this._backendEncodedPaths.delete(workspacePath);
-
-    // Clean up localStorage
     const storageKey = this._getWorkspaceStorageKey(workspacePath);
     try {
       localStorage.removeItem(storageKey);
-    } catch {
-      // Ignore localStorage errors during cleanup
-    }
-
-    // Check if the removed workspace was active
+    } catch {}
     const wasActive = this._activeWorkspacePath === workspacePath;
     if (wasActive) {
       this._activeWorkspacePath = null;
@@ -410,10 +363,6 @@ export class TabWorkspacePartitionService {
     }
   }
 
-  // ============================================================================
-  // WORKSPACE PERSISTENCE HELPERS
-  // ============================================================================
-
   /**
    * Encode a workspace path for use in localStorage keys.
    *
@@ -425,14 +374,10 @@ export class TabWorkspacePartitionService {
    * that is used instead to ensure frontend/backend key consistency.
    */
   private _encodeWorkspacePath(workspacePath: string): string {
-    // Prefer backend-provided encoding for consistency
     const backendEncoded = this._backendEncodedPaths.get(workspacePath);
     if (backendEncoded) {
       return backendEncoded;
     }
-
-    // Browser-safe encoding: encodeURIComponent handles all Unicode,
-    // then replace % with _ for filesystem/localStorage-safe keys
     return encodeURIComponent(workspacePath).replace(/%/g, '_');
   }
 
@@ -512,13 +457,10 @@ export class TabWorkspacePartitionService {
     workspacePath: string,
     tabSet: WorkspaceTabSet,
   ): void {
-    // Cancel any pending save for this workspace
     const existingTimer = this._backgroundSaveTimers.get(workspacePath);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
-
-    // Schedule debounced save
     const timer = setTimeout(() => {
       this._backgroundSaveTimers.delete(workspacePath);
       this._saveWorkspaceTabsToStorage(workspacePath, tabSet);

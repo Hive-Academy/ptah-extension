@@ -1,10 +1,4 @@
-// CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
-
-// Install process-level safety nets BEFORE anything else can throw.
-// Without these, an unhandled background rejection (e.g. from a fire-and-forget
-// Promise inside openAndMigrate, agent SDK preload, or a now-async decryptToken
-// caller) kills the extension host with exit code 7 and we lose the error.
 try {
   process.on('unhandledRejection', (reason: unknown) => {
     try {
@@ -73,11 +67,6 @@ export async function activate(
 
     boot.logger.info('Ptah extension activated successfully');
   } catch (error) {
-    // CRASH-PROOF CATCH: every step is independently try/wrapped so that a
-    // bad error object (Proxy, throwing getter, circular structure) cannot
-    // re-throw and trigger Node exit code 7 ("Internal Exception Handler
-    // Run-Time Failure"). Each step must still attempt to surface a message
-    // so users see something instead of a silent host crash.
     let safeMessage = 'Unknown error';
     let safeStack = '';
     try {
@@ -97,7 +86,6 @@ export async function activate(
     try {
       console.error('===== PTAH ACTIVATION FAILED =====');
     } catch {
-      // ignore — even console.error can throw if IPC is torn down
     }
     try {
       console.error('[Activate] message:', safeMessage);
@@ -125,7 +113,6 @@ export async function activate(
         error instanceof Error ? error : new Error(safeMessage),
       );
     } catch {
-      // Logger may not be registered yet — already logged via console above
     }
     try {
       const sentry = DIContainer.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
@@ -134,7 +121,6 @@ export async function activate(
         { errorSource: 'activate' },
       );
     } catch {
-      // Sentry may not be initialized yet — ignore
     }
     try {
       vscode.window.showErrorMessage(`Ptah activation failed: ${safeMessage}`);
@@ -147,42 +133,29 @@ export async function activate(
 export async function deactivate(): Promise<void> {
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Deactivating Ptah extension');
-
-  // NOTE: We intentionally do NOT remove ptah from .mcp.json on deactivation.
-  // The MCP config must persist so that resumed Claude sessions can find
-  // the permission-prompt-tool. The port gets updated on next activation.
-
-  // Remove workspace skill junctions.
   try {
     const skillJunction = DIContainer.resolve<SkillJunctionService>(
       SDK_TOKENS.SDK_SKILL_JUNCTION,
     );
     skillJunction.deactivateSync();
   } catch {
-    // Junction service may not be initialized yet - safe to ignore
   }
-
-  // Dispose all Ptah CLI adapters before clearing the container.
   try {
     const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
       CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
     );
     ptahCliRegistry.disposeAll();
   } catch {
-    // Registry may not be initialized yet - safe to ignore
   }
 
   ptahExtension?.dispose();
   ptahExtension = undefined;
-
-  // Flush pending Sentry events before the process exits
   try {
     const sentryService = DIContainer.resolve<SentryService>(
       TOKENS.SENTRY_SERVICE,
     );
     await sentryService.flush(2000);
   } catch {
-    // Ignore — extension is shutting down
   }
 
   DIContainer.clear();

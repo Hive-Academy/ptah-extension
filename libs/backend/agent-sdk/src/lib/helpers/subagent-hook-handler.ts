@@ -86,11 +86,7 @@ export class SubagentHookHandler {
     workspacePath: string,
     parentSessionId?: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // FIX: Capture parentSessionId in closure instead of storing on instance
-    // This prevents concurrent session corruption (multiple sessions would overwrite)
     const capturedParentSessionId = parentSessionId;
-
-    // DIAGNOSTIC: Log hook creation
     this.logger.info('[SubagentHookHandler] Creating hooks for workspace', {
       workspacePath,
       parentSessionId: capturedParentSessionId,
@@ -105,7 +101,6 @@ export class SubagentHookHandler {
               toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
-              // DIAGNOSTIC: Log that the hook was actually invoked by SDK
               this.logger.info(
                 '[SubagentHookHandler] >>> SubagentStart HOOK INVOKED <<<',
                 {
@@ -115,8 +110,6 @@ export class SubagentHookHandler {
                   parentSessionId: capturedParentSessionId,
                 },
               );
-
-              // Use type guard instead of type assertion for type safety
               if (!isSubagentStartHook(input)) {
                 this.logger.warn(
                   '[SubagentHookHandler] Unexpected hook input type for SubagentStart',
@@ -127,7 +120,6 @@ export class SubagentHookHandler {
                 );
                 return { continue: true };
               }
-              // FIX: Pass capturedParentSessionId from closure
               return this.handleSubagentStart(
                 input,
                 toolUseId,
@@ -146,7 +138,6 @@ export class SubagentHookHandler {
               toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
-              // DIAGNOSTIC: Log that the hook was actually invoked by SDK
               this.logger.info(
                 '[SubagentHookHandler] >>> SubagentStop HOOK INVOKED <<<',
                 {
@@ -155,8 +146,6 @@ export class SubagentHookHandler {
                   sessionId: input.session_id,
                 },
               );
-
-              // Use type guard instead of type assertion for type safety
               if (!isSubagentStopHook(input)) {
                 this.logger.warn(
                   '[SubagentHookHandler] Unexpected hook input type for SubagentStop',
@@ -203,16 +192,6 @@ export class SubagentHookHandler {
         workspacePath,
         parentSessionId,
       });
-
-      // Subagent visibility flows via `agentProgressSummaries: true` Option +
-      // task_* system messages handled by SdkMessageTransformer. No file
-      // watching is started here.
-
-      // Register subagent with registry for resumption tracking.
-      // Only register if we have both toolUseId and parentSessionId.
-      // NOTE: input.session_id from the hook IS the parent session ID, not the subagent's own.
-      // The subagent's own session ID is not exposed by the SDK hook.
-      // For resumption, we use agentId (short hex) with the Task tool's resume parameter.
       if (toolUseId && parentSessionId) {
         this.subagentRegistry.register({
           toolCallId: toolUseId,
@@ -249,14 +228,11 @@ export class SubagentHookHandler {
         },
       );
     } catch (error) {
-      // CRITICAL: Never throw from hooks - it would break SDK
       this.logger.error(
         '[SubagentHookHandler] Error in SubagentStart hook',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-
-    // Always return continue: true to not block SDK
     return { continue: true };
   }
 
@@ -286,15 +262,6 @@ export class SubagentHookHandler {
         stopHookActive: input.stop_hook_active,
         toolUseId,
       });
-
-      // setToolUseId on the watcher is a no-op (watcher is a stub). Subagent
-      // visibility routes through the SDK's task_* event stream via
-      // `agentProgressSummaries: true` Option.
-
-      // Resolve the registry record using toolUseId first, then agentId fallback.
-      // The SDK may provide different toolUseId formats between SubagentStart (UUID)
-      // and SubagentStop (toolu_* format), causing registry.get(toolUseId) to miss.
-      // The agentId (short hex, e.g., "a329b32") is stable across both hooks.
       let resolvedToolCallId = toolUseId ?? undefined;
       let record = resolvedToolCallId
         ? this.subagentRegistry.get(resolvedToolCallId)
@@ -323,8 +290,6 @@ export class SubagentHookHandler {
       const isBackground = record?.isBackground === true;
 
       if (isBackground && resolvedToolCallId) {
-        // Background agent completed - emit completion event via watcher
-        // and mark as background_completed in registry
         this.logger.info(
           '[SubagentHookHandler] Background subagent completed',
           {
@@ -333,18 +298,11 @@ export class SubagentHookHandler {
             agentType: record?.agentType,
           },
         );
-
-        // Watcher event emission and stopWatching are no-ops; background
-        // completion is observed solely via SubagentRegistryService transitions.
-
-        // Mark as background_completed (deletes from registry)
         this.subagentRegistry.update(resolvedToolCallId, {
           status: 'background_completed',
           completedAt: Date.now(),
         });
       } else {
-        // Foreground agent - normal completion flow.
-        // Mark subagent as completed in registry.
         if (resolvedToolCallId) {
           this.subagentRegistry.update(resolvedToolCallId, {
             status: 'completed',
@@ -370,14 +328,11 @@ export class SubagentHookHandler {
         },
       );
     } catch (error) {
-      // CRITICAL: Never throw from hooks - it would break SDK
       this.logger.error(
         '[SubagentHookHandler] Error in SubagentStop hook',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-
-    // Always return continue: true to not block SDK
     return { continue: true };
   }
 

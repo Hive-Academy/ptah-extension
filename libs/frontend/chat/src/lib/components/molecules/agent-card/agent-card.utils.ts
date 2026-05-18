@@ -56,17 +56,13 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
-
-    // [stderr] lines mixed into stdout (from CLI adapter stderr forwarding)
     if (/^\[stderr\]/i.test(trimmed)) {
       flushText();
-      // Accumulate consecutive [stderr] lines
       let stderrContent = trimmed.replace(/^\[stderr\]\s*/i, '');
       while (i + 1 < lines.length && /^\[stderr\]/i.test(lines[i + 1].trim())) {
         i++;
         stderrContent += '\n' + lines[i].trim().replace(/^\[stderr\]\s*/i, '');
       }
-      // Classify: error keywords → error, otherwise muted info
       const isError = STDERR_ERROR_KEYWORDS.test(stderrContent);
       segments.push({
         type: isError ? 'error' : 'stderr-info',
@@ -74,8 +70,6 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
       });
       continue;
     }
-
-    // Heading patterns: "● Plan", "• Key Principles", "## Section"
     if (/^[●•]\s+\S/.test(trimmed) || /^#{1,3}\s+\S/.test(trimmed)) {
       flushText();
       segments.push({
@@ -84,12 +78,9 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
       });
       continue;
     }
-
-    // Tool call: "Tool: <name> <args>"
     const toolMatch = trimmed.match(/^Tool:\s+(\w[\w_.-]*)\s*(.*)?$/);
     if (toolMatch) {
       flushText();
-      // Collect tool content (indented lines or until next segment)
       let toolContent = '';
       while (i + 1 < lines.length && !isSegmentBoundary(lines[i + 1])) {
         i++;
@@ -103,8 +94,6 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
       });
       continue;
     }
-
-    // Tool result (error): "▶ Tool result (error)"
     if (/^[►▶]?\s*Tool result\s*\(error\)/i.test(trimmed)) {
       flushText();
       let resultContent = '';
@@ -118,8 +107,6 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
       });
       continue;
     }
-
-    // Tool result: "► Tool result" or "Tool result"
     if (/^[►▶]?\s*Tool result/i.test(trimmed)) {
       flushText();
       let resultContent = '';
@@ -133,8 +120,6 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
       });
       continue;
     }
-
-    // Reading/Searching actions shown as tool calls
     const actionMatch = trimmed.match(
       /^(Reading|Searching|Writing|Creating|Executing)\s+(.+)$/,
     );
@@ -148,8 +133,6 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
       });
       continue;
     }
-
-    // Error patterns
     if (
       /^(Error|ERROR|✗|✘|Permission denied|FAILED)/i.test(trimmed) ||
       /^X\s+/.test(trimmed)
@@ -158,8 +141,6 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
       segments.push({ type: 'error', content: trimmed });
       continue;
     }
-
-    // Regular text — accumulate
     currentText += (currentText ? '\n' : '') + line;
   }
 
@@ -175,25 +156,14 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
 function isStderrInfoLine(line: string): boolean {
   const t = line.trim();
   if (!t) return true;
-
-  // First pass: if the line contains obvious error keywords, it's an error —
-  // regardless of any prefix like [stderr].
   if (STDERR_ERROR_KEYWORDS.test(t)) return false;
-
-  // Model / provider info
   if (/^\[?(Model|Provider|model|provider)[:\]]/i.test(t)) return true;
-  // Mode messages (YOLO, auto-accept, etc.)
   if (/yolo mode|auto.?accept|headless/i.test(t)) return true;
-  // Cache / loading info
   if (/loaded cached|loading|initializ/i.test(t)) return true;
-  // Usage stats (tokens, cost, input, output)
   if (/tokens?[\s:]/i.test(t) || /\bcost\b/i.test(t)) return true;
   if (/input[:\s]+\d|output[:\s]+\d/i.test(t)) return true;
-  // Stderr prefix markers from CLI wrappers (only if no error keywords above)
   if (/^\[stderr\]/i.test(t)) return true;
-  // Timing / duration info
   if (/\d+(\.\d+)?\s*(ms|sec|seconds|s)\b/i.test(t)) return true;
-  // Version info
   if (/^v?\d+\.\d+/i.test(t)) return true;
   return false;
 }

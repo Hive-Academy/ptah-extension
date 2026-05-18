@@ -69,8 +69,6 @@ const INDEXING_PROGRESS_MESSAGE_TYPE = 'indexing:progress';
 export class WorkspaceIndexingService implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
 
-  // --- Signals --------------------------------------------------------------
-
   private readonly _status = signal<IndexingStatusWire | null>(null);
   private readonly _progress = signal<IndexingProgressEvent | null>(null);
   private readonly _hasWorkspace = signal<boolean>(true);
@@ -111,8 +109,6 @@ export class WorkspaceIndexingService implements MessageHandler {
         return { kind: 'paused', percent: p?.percent ?? 0 };
       }
       case 'indexed': {
-        // Treat as indexed when stored SHA matches current SHA, or when
-        // either is null (non-git fallback path or fingerprint-only match).
         const isNonGit =
           status.gitHeadSha === null && status.currentGitHeadSha === null;
         return {
@@ -122,8 +118,6 @@ export class WorkspaceIndexingService implements MessageHandler {
         };
       }
       case 'stale': {
-        // Hide the stale banner once the user has dismissed for the current
-        // SHA — render as `indexed` until the SHA changes again.
         const dismissedForCurrent =
           status.lastDismissedStaleSha !== null &&
           status.currentGitHeadSha !== null &&
@@ -152,8 +146,6 @@ export class WorkspaceIndexingService implements MessageHandler {
     }
   });
 
-  // --- MessageHandler implementation (push events) -------------------------
-
   readonly handledMessageTypes = [INDEXING_PROGRESS_MESSAGE_TYPE] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -162,8 +154,6 @@ export class WorkspaceIndexingService implements MessageHandler {
     if (!payload) return;
     this._progress.set(payload);
   }
-
-  // --- Workspace gating -----------------------------------------------------
 
   /**
    * Components call this when the workspace root changes. Passing `null`
@@ -176,8 +166,6 @@ export class WorkspaceIndexingService implements MessageHandler {
       this._progress.set(null);
     }
   }
-
-  // --- RPC delegations ------------------------------------------------------
 
   /** Fetch the current backend status for `workspaceRoot`. */
   async loadStatus(workspaceRoot: string): Promise<void> {
@@ -194,7 +182,6 @@ export class WorkspaceIndexingService implements MessageHandler {
       force,
     });
     if (result.isSuccess()) {
-      // Optimistic refresh; backend will continue to push progress events.
       await this.loadStatus(workspaceRoot);
     }
   }
@@ -232,7 +219,6 @@ export class WorkspaceIndexingService implements MessageHandler {
       enabled,
     });
     if (result.isSuccess()) {
-      // Refresh full status — backend reflects toggle plus any cancellation.
       await this.loadStatus(workspaceRoot);
     }
   }

@@ -43,13 +43,9 @@ export function writeJsonConfig(
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-
-  // Backup existing file
   if (fs.existsSync(filePath)) {
     fs.copyFileSync(filePath, filePath + '.bak');
   }
-
-  // Write atomically via temp file + rename
   const tmpPath = filePath + '.tmp';
   fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
   fs.renameSync(tmpPath, filePath);
@@ -134,8 +130,6 @@ export function jsonToConfig(raw: Record<string, unknown>): McpServerConfig {
       env,
     };
   }
-
-  // Default to http
   return {
     type: 'http',
     url: (raw['url'] as string) ?? '',

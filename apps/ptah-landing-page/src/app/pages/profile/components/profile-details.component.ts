@@ -408,7 +408,6 @@ export class ProfileDetailsComponent {
         this.copiedToClipboard.set(true);
         setTimeout(() => this.copiedToClipboard.set(false), 2000);
       } catch {
-        // Clipboard API may fail in insecure contexts or when permission is denied
         console.error('[Profile] Failed to copy license key to clipboard');
       }
     }
@@ -431,16 +430,10 @@ export class ProfileDetailsComponent {
   public hasPaddleSubscription(): boolean {
     const licenseData = this.license();
     if (!licenseData?.subscription) return false;
-
-    // Community plan users have no real Paddle subscription
     if (licenseData.plan === 'community') return false;
-
-    // Trial users have subscription.status = 'trialing' but no real Paddle customer
     const isTrialing =
       licenseData.subscription.status === 'trialing' ||
       licenseData.plan?.startsWith('trial_');
-
-    // Expired subscriptions have no Paddle portal access
     const isExpired = licenseData.subscription.status === 'expired';
 
     return !isTrialing && !isExpired;
@@ -451,11 +444,8 @@ export class ProfileDetailsComponent {
    * This can be true when local data differs from Paddle data
    */
   public requiresSync(): boolean {
-    // Show sync button only if user has a real Paddle subscription
     return this.hasPaddleSubscription();
   }
-
-  // Animation configs
   public readonly alertConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.5,
@@ -497,7 +487,6 @@ export class ProfileDetailsComponent {
   }
 
   public getSubscriptionStatusClass(): string {
-    // Trial ended = error badge
     if (this.isTrialEnded()) return 'badge-error';
 
     const status = this.license()?.subscription?.status;

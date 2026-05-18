@@ -143,8 +143,6 @@ export class EnhancedPromptsRpcHandlers {
             error: 'Workspace path is required',
           };
         }
-
-        // Resolve relative paths to actual workspace folder path
         const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.debug('RPC: enhancedPrompts:getStatus called', {
@@ -211,16 +209,12 @@ export class EnhancedPromptsRpcHandlers {
             error: 'Workspace path is required',
           };
         }
-
-        // Resolve relative paths (e.g. '.') to actual workspace folder path
         const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.info('RPC: enhancedPrompts:runWizard started', {
           workspacePath,
           rawPath: rawPath !== workspacePath ? rawPath : undefined,
         });
-
-        // Verify premium license with timeout to prevent hanging
         const licenseStatus = await this.verifyLicenseWithTimeout();
         if (!licenseStatus) {
           return {
@@ -240,8 +234,6 @@ export class EnhancedPromptsRpcHandlers {
               'Enhanced Prompts is a premium feature. Please upgrade to Pro.',
           };
         }
-
-        // Pass full wizard analysis data directly to enhanced prompts
         let preComputedInput: PromptDesignerInput | undefined;
         if (params.analysisData) {
           preComputedInput = {
@@ -273,9 +265,6 @@ export class EnhancedPromptsRpcHandlers {
                   .sort((a, b) => b.percentage - a.percentage)
                   .map((l) => l.language)
               : params.analysisData.languages,
-            // Quality data flows from agentic analysis via analysisData.
-            // When quality data is present, pass it through to avoid re-running
-            // the separate ProjectIntelligenceService quality assessment pipeline.
             includeQualityGuidance:
               params.analysisData.qualityScore !== undefined,
             ...(params.analysisData.qualityScore !== undefined && {
@@ -337,18 +326,12 @@ export class EnhancedPromptsRpcHandlers {
             },
           );
         }
-
-        // Create stream event broadcaster for enhanced prompts pipeline
         const onStreamEvent = this.createEnhanceStreamBroadcaster();
-
-        // Resolve MCP status for SDK config (pass frontend model override)
         const sdkConfig = this.resolveSdkConfig(
           isPremium,
           onStreamEvent,
           params.model,
         );
-
-        // Run the wizard (pass analysisDir for multi-phase enrichment)
         const result = await this.enhancedPromptsService.runWizard(
           workspacePath,
           params.config,
@@ -478,16 +461,12 @@ export class EnhancedPromptsRpcHandlers {
             error: 'Workspace path is required',
           };
         }
-
-        // Resolve relative paths to actual workspace folder path
         const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.info('RPC: enhancedPrompts:regenerate started', {
           workspacePath,
           force: params.force,
         });
-
-        // Verify premium license with timeout to prevent hanging
         const licenseStatus = await this.verifyLicenseWithTimeout();
         if (!licenseStatus) {
           return {
@@ -507,14 +486,8 @@ export class EnhancedPromptsRpcHandlers {
               'Enhanced Prompts is a premium feature. Please upgrade to Pro.',
           };
         }
-
-        // Create stream event broadcaster for enhanced prompts regeneration
         const onStreamEvent = this.createEnhanceStreamBroadcaster();
-
-        // Resolve MCP status for SDK config
         const sdkConfig = this.resolveSdkConfig(isPremium, onStreamEvent);
-
-        // Regenerate
         const result = await this.enhancedPromptsService.regenerate(
           workspacePath,
           {
@@ -738,7 +711,6 @@ export class EnhancedPromptsRpcHandlers {
             });
           });
       } catch {
-        // Swallow synchronous errors to avoid crashing enhance pipeline
       }
     };
   }
@@ -770,8 +742,6 @@ export class EnhancedPromptsRpcHandlers {
     } catch {
       this.logger.debug('Could not resolve CodeExecutionMCP for SDK config');
     }
-
-    // Resolve plugin paths for premium users
     let pluginPaths: string[] | undefined;
     if (isPremium) {
       try {

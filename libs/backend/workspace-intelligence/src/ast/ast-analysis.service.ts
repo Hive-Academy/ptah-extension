@@ -21,28 +21,19 @@ import { LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
  * These correspond to tree-sitter grammar node types.
  */
 const AST_NODE_TYPES = {
-  // Function declarations
   FUNCTION_DECLARATION: 'function_declaration',
   FUNCTION_EXPRESSION: 'function_expression',
   ARROW_FUNCTION: 'arrow_function',
   METHOD_DEFINITION: 'method_definition',
   GENERATOR_FUNCTION: 'generator_function_declaration',
-
-  // Class declarations
   CLASS_DECLARATION: 'class_declaration',
   CLASS_EXPRESSION: 'class_expression',
-
-  // Import statements
   IMPORT_STATEMENT: 'import_statement',
   IMPORT_CLAUSE: 'import_clause',
   NAMED_IMPORTS: 'named_imports',
   IMPORT_SPECIFIER: 'import_specifier',
-
-  // Export statements
   EXPORT_STATEMENT: 'export_statement',
   EXPORT_CLAUSE: 'export_clause',
-
-  // Identifiers and parameters
   IDENTIFIER: 'identifier',
   FORMAL_PARAMETERS: 'formal_parameters',
   REQUIRED_PARAMETER: 'required_parameter',
@@ -50,12 +41,8 @@ const AST_NODE_TYPES = {
   REST_PATTERN: 'rest_pattern',
   PROPERTY_IDENTIFIER: 'property_identifier',
   TYPE_IDENTIFIER: 'type_identifier',
-
-  // String types
   STRING: 'string',
   STRING_FRAGMENT: 'string_fragment',
-
-  // Variable declarations (for exported arrow functions)
   VARIABLE_DECLARATION: 'variable_declaration',
   VARIABLE_DECLARATOR: 'variable_declarator',
   LEXICAL_DECLARATION: 'lexical_declaration',
@@ -95,8 +82,6 @@ export class AstAnalysisService {
     );
 
     try {
-      // Build the query entries for this language, filtering out any undefined
-      // query strings (e.g. a language with no exportQuery).
       const langQueries = LANGUAGE_QUERIES_MAP[language];
       const queryEntries = [
         { key: 'functions', queryString: langQueries.functionQuery },
@@ -106,8 +91,6 @@ export class AstAnalysisService {
       ].filter(
         (e): e is { key: string; queryString: string } => !!e.queryString,
       );
-
-      // Single call — one WASM parse regardless of query count.
       const multiResult = await this.parserService.queryMulti(
         content,
         language,
@@ -131,9 +114,6 @@ export class AstAnalysisService {
           new Error('queryMulti returned null value unexpectedly'),
         );
       }
-
-      // Pass each result set through the existing extract* private methods.
-      // map.get() returns undefined for filtered-out queries; ?? [] is the safe fallback.
       const functions: FunctionInfo[] = this.extractFunctionsFromMatches(
         map.get('functions') ?? [],
       );
@@ -192,26 +172,19 @@ export class AstAnalysisService {
       const functions: FunctionInfo[] = [];
       const classes: ClassInfo[] = [];
       const imports: ImportInfo[] = [];
-
-      // Traverse the AST and extract insights
       this.traverseAst(astData, (node, parent) => {
-        // Extract functions
         if (this.isFunctionNode(node)) {
           const funcInfo = this.extractFunctionInfo(node, parent);
           if (funcInfo) {
             functions.push(funcInfo);
           }
         }
-
-        // Extract classes
         if (this.isClassNode(node)) {
           const classInfo = this.extractClassInfo(node);
           if (classInfo) {
             classes.push(classInfo);
           }
         }
-
-        // Extract imports
         if (node.type === AST_NODE_TYPES.IMPORT_STATEMENT) {
           const importInfo = this.extractImportInfo(node);
           if (importInfo) {
@@ -243,8 +216,6 @@ export class AstAnalysisService {
     }
   }
 
-  // --- Query Result Extraction Methods ---
-
   /**
    * Extracts FunctionInfo from query matches.
    */
@@ -257,14 +228,10 @@ export class AstAnalysisService {
       for (const capture of match.captures) {
         captures.set(capture.name, capture);
       }
-
-      // Determine function type and extract name
       let name: string | undefined;
       let params: string[] = [];
       let startLine = 0;
       let endLine = 0;
-
-      // Check different capture patterns
       const nameCapture =
         captures.get('function.name') ||
         captures.get('generator.name') ||
@@ -370,7 +337,6 @@ export class AstAnalysisService {
 
       const sourceCapture = captures.get('import.source');
       if (sourceCapture) {
-        // Remove quotes from source
         let source = sourceCapture.text;
         if (
           (source.startsWith('"') && source.endsWith('"')) ||
@@ -378,8 +344,6 @@ export class AstAnalysisService {
         ) {
           source = source.slice(1, -1);
         }
-
-        // Check for default, named, or namespace imports
         const defaultCapture = captures.get('import.default');
         const namedCapture = captures.get('import.named');
         const namespaceCapture = captures.get('import.namespace');
@@ -399,8 +363,6 @@ export class AstAnalysisService {
           importedSymbols.push(`* as ${namespaceCapture.text}`);
           isNamespace = true;
         }
-
-        // Use source + symbols as key to avoid duplicates
         const key = `${source}:${importedSymbols.join(',')}`;
         if (!seen.has(key)) {
           seen.add(key);
@@ -430,8 +392,6 @@ export class AstAnalysisService {
       for (const capture of match.captures) {
         captures.set(capture.name, capture);
       }
-
-      // Check different export patterns
       const isDefault = captures.has('export.is_default');
       const funcName = captures.get('export.func_name');
       const className = captures.get('export.class_name');
@@ -487,16 +447,12 @@ export class AstAnalysisService {
    * E.g., "(a, b, c)" -> ["a", "b", "c"]
    */
   private extractParamsFromText(paramsText: string): string[] {
-    // Remove parentheses and split by comma
     const inner = paramsText.slice(1, -1).trim();
     if (!inner) return [];
-
-    // Simple extraction - just get identifiers before any type annotations or defaults
     return inner
       .split(',')
       .map((param) => {
         const trimmed = param.trim();
-        // Handle rest parameters
         if (trimmed.startsWith('...')) {
           const name = trimmed
             .slice(3)
@@ -504,7 +460,6 @@ export class AstAnalysisService {
             .trim();
           return `...${name}`;
         }
-        // Get identifier before any : or = or ?
         return trimmed.split(/[:\s=?]/)[0].trim();
       })
       .filter(Boolean);
@@ -559,8 +514,6 @@ export class AstAnalysisService {
     parent: GenericAstNode | null,
   ): FunctionInfo | null {
     let name = '<anonymous>';
-
-    // For function declarations, the name is a direct child
     if (
       node.type === AST_NODE_TYPES.FUNCTION_DECLARATION ||
       node.type === AST_NODE_TYPES.GENERATOR_FUNCTION
@@ -570,8 +523,6 @@ export class AstAnalysisService {
         name = nameNode.text;
       }
     }
-
-    // For method definitions, get the property name
     if (node.type === AST_NODE_TYPES.METHOD_DEFINITION) {
       const nameNode =
         this.findChildByType(node, AST_NODE_TYPES.PROPERTY_IDENTIFIER) ||
@@ -580,8 +531,6 @@ export class AstAnalysisService {
         name = nameNode.text;
       }
     }
-
-    // For arrow functions assigned to variables, get the variable name
     if (node.type === AST_NODE_TYPES.ARROW_FUNCTION && parent) {
       if (parent.type === AST_NODE_TYPES.VARIABLE_DECLARATOR) {
         const nameNode = this.findChildByType(
@@ -593,16 +542,10 @@ export class AstAnalysisService {
         }
       }
     }
-
-    // Extract parameters
     const parameters = this.extractParameters(node);
-
-    // Skip anonymous functions unless they have parameters (to reduce noise)
     if (name === '<anonymous>' && parameters.length === 0) {
       return null;
     }
-
-    // Check for async modifier (look for 'async' keyword in text)
     const isAsync = node.text.trimStart().startsWith('async');
 
     return {
@@ -634,18 +577,15 @@ export class AstAnalysisService {
         child.type === AST_NODE_TYPES.REQUIRED_PARAMETER ||
         child.type === AST_NODE_TYPES.OPTIONAL_PARAMETER
       ) {
-        // For simple identifiers, use the text directly
         if (child.type === AST_NODE_TYPES.IDENTIFIER) {
           parameters.push(child.text);
         } else {
-          // For required/optional parameters, find the identifier within
           const idNode = this.findChildByType(child, AST_NODE_TYPES.IDENTIFIER);
           if (idNode) {
             parameters.push(idNode.text);
           }
         }
       } else if (child.type === AST_NODE_TYPES.REST_PATTERN) {
-        // Rest parameters: ...args
         const idNode = this.findChildByType(child, AST_NODE_TYPES.IDENTIFIER);
         if (idNode) {
           parameters.push(`...${idNode.text}`);
@@ -669,13 +609,9 @@ export class AstAnalysisService {
     if (nameNode) {
       name = nameNode.text;
     }
-
-    // Skip anonymous classes
     if (name === '<anonymous>') {
       return null;
     }
-
-    // Extract methods from class body
     const methods: FunctionInfo[] = [];
     const classBody = this.findChildByType(node, 'class_body');
     if (classBody) {
@@ -701,23 +637,17 @@ export class AstAnalysisService {
    * Extracts import information from an import statement node.
    */
   private extractImportInfo(node: GenericAstNode): ImportInfo | null {
-    // Find the source string (the module path)
     const sourceNode = this.findChildByType(node, AST_NODE_TYPES.STRING);
     if (!sourceNode) {
       return null;
     }
-
-    // Extract the string content (remove quotes)
     let source = sourceNode.text;
-    // The text includes quotes, so we need to strip them
     if (
       (source.startsWith('"') && source.endsWith('"')) ||
       (source.startsWith("'") && source.endsWith("'"))
     ) {
       source = source.slice(1, -1);
     }
-
-    // Extract imported symbols
     const importedSymbols: string[] = [];
     let isDefault = false;
     let isNamespace = false;
@@ -728,12 +658,10 @@ export class AstAnalysisService {
     );
     if (importClause) {
       for (const child of importClause.children) {
-        // Default import: import X from 'module'
         if (child.type === AST_NODE_TYPES.IDENTIFIER) {
           importedSymbols.push(child.text);
           isDefault = true;
         }
-        // Namespace import: import * as X from 'module'
         if (child.type === 'namespace_import') {
           const nameNode = this.findChildByType(
             child,
@@ -744,7 +672,6 @@ export class AstAnalysisService {
             isNamespace = true;
           }
         }
-        // Named imports: import { A, B } from 'module'
         if (child.type === AST_NODE_TYPES.NAMED_IMPORTS) {
           for (const specifier of child.children) {
             if (specifier.type === AST_NODE_TYPES.IMPORT_SPECIFIER) {

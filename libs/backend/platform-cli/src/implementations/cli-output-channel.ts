@@ -22,7 +22,6 @@ export class CliOutputChannel implements IOutputChannel {
   constructor(name: string, logDir: string) {
     this.name = name;
     const logPath = path.join(logDir, `${name}.log`);
-    // Ensure log directory exists
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
     this.logStream = fs.createWriteStream(logPath, { flags: 'a' });
   }
@@ -31,8 +30,6 @@ export class CliOutputChannel implements IOutputChannel {
     if (this.isDisposed) return;
     const line = `[${new Date().toISOString()}] ${message}\n`;
     this.logStream.write(line);
-    // Console output is handled by the CLI logger adapter when verbose is true.
-    // Writing here too causes every log line to appear twice.
   }
 
   append(message: string): void {
@@ -42,14 +39,12 @@ export class CliOutputChannel implements IOutputChannel {
 
   clear(): void {
     if (this.isDisposed) return;
-    // Close current stream and reopen with 'w' flag to truncate
     const logPath = this.logStream.path as string;
     this.logStream.end();
     this.logStream = fs.createWriteStream(logPath, { flags: 'w' });
   }
 
   show(): void {
-    // In CLI, "show" logs the file path so the user can find it.
     console.log(
       `[${this.name}] Output channel shown (log file: ${this.logStream.path})`,
     );

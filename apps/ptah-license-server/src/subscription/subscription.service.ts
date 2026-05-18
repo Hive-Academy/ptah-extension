@@ -62,8 +62,6 @@ export class SubscriptionService {
    */
   async getStatus(userId: string): Promise<SubscriptionStatusResponseDto> {
     this.logger.debug(`Getting subscription status for user: ${userId}`);
-
-    // Step 1: Find user with subscription
     const userData = await this.dbService.findUserWithSubscription(userId);
 
     if (!userData) {
@@ -72,29 +70,19 @@ export class SubscriptionService {
     }
 
     const localSubscription = userData.subscription;
-
-    // Step 2: Skip Paddle API for internal trial subscriptions
-    // Trial subscriptions use synthetic IDs (trial_customer_*, auto_trial_pro)
-    // that are not real Paddle resources - querying Paddle with them causes 400 errors.
     if (this.isInternalTrial(localSubscription)) {
       this.logger.debug(
         `Skipping Paddle API for internal trial user: ${userId}`,
       );
       const result = this.buildStatusFromLocal(localSubscription);
-      // Internal trials are self-contained - no Paddle sync needed
       result.requiresSync = false;
       return result;
     }
-
-    // Step 3: Query Paddle - use stored customerId if available (saves 1 API call)
-    // Otherwise fall back to email lookup
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
           localSubscription.paddleCustomerId,
         )
       : await this.paddleSync.findSubscriptionByEmail(userData.email);
-
-    // Step 3: Handle Paddle result
     if (paddleResult.status === 'found') {
       return this.buildStatusFromPaddle(
         paddleResult.data,
@@ -107,10 +95,7 @@ export class SubscriptionService {
       this.logger.warn(
         `Paddle API error for user ${userId}: ${paddleResult.reason}`,
       );
-      // Fall through to local data
     }
-
-    // Step 4: Paddle unavailable or no subscription - fall back to local
     return this.buildStatusFromLocal(localSubscription);
   }
 
@@ -126,8 +111,6 @@ export class SubscriptionService {
     );
 
     const status = await this.getStatus(userId);
-
-    // No existing subscription - can checkout
     if (!status.hasSubscription || !status.subscription) {
       return {
         canCheckout: true,
@@ -139,10 +122,6 @@ export class SubscriptionService {
     const subscription = status.subscription;
     const currentPeriodEnd = new Date(subscription.currentPeriodEnd);
     const now = new Date();
-
-    // Active (paying) subscription - cannot checkout (prevent duplicates)
-    // Note: Trialing users CAN checkout - trials are API-managed, not Paddle subscriptions,
-    // so there's no portal to manage them. Allow trial users to subscribe directly.
     if (subscription.status === 'active') {
       return {
         canCheckout: false,
@@ -153,8 +132,6 @@ export class SubscriptionService {
         message: `You already have an active ${subscription.plan} subscription. Please manage it through the customer portal.`,
       };
     }
-
-    // Past due - cannot checkout
     if (subscription.status === 'past_due') {
       return {
         canCheckout: false,
@@ -166,8 +143,6 @@ export class SubscriptionService {
           'Your subscription has a payment issue. Please update your payment method in the customer portal.',
       };
     }
-
-    // Canceled but period not ended
     if (subscription.status === 'canceled' && currentPeriodEnd > now) {
       return {
         canCheckout: false,
@@ -180,8 +155,6 @@ export class SubscriptionService {
         } subscription is canceled but still active until ${currentPeriodEnd.toLocaleDateString()}. You can reactivate it in the customer portal.`,
       };
     }
-
-    // Paused - direct to portal
     if (subscription.status === 'paused') {
       return {
         canCheckout: false,
@@ -192,8 +165,6 @@ export class SubscriptionService {
           'Your subscription is paused. Please resume it in the customer portal.',
       };
     }
-
-    // All other cases - can checkout
     return {
       canCheckout: true,
       reason: 'none',
@@ -209,8 +180,6 @@ export class SubscriptionService {
     email: string,
   ): Promise<ReconcileResponseDto> {
     this.logger.log(`Starting reconciliation for user: ${userId}`);
-
-    // Step 1: Get user and local data
     const userData =
       await this.dbService.findUserWithSubscriptionAndLicense(userId);
 
@@ -231,9 +200,6 @@ export class SubscriptionService {
     const localLicense = userData.license;
     const statusBefore = localSubscription?.status || 'none';
     const planBefore = localLicense?.plan;
-
-    // Skip reconciliation for internal trial subscriptions
-    // Internal trials use synthetic Paddle IDs that would cause 400 errors
     if (this.isInternalTrial(localSubscription)) {
       this.logger.debug(
         `Skipping reconcile for internal trial user: ${userId}`,
@@ -250,9 +216,6 @@ export class SubscriptionService {
         },
       };
     }
-
-    // Step 2: Query Paddle - use stored customerId if available (saves 1 API call)
-    // Otherwise fall back to email lookup
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
           localSubscription.paddleCustomerId,
@@ -299,8 +262,6 @@ export class SubscriptionService {
         errors: ['No subscription found in Paddle for this email'],
       };
     }
-
-    // Step 3: Paddle has subscription - sync it
     const paddleData = paddleResult.data;
     const newPlan = this.mapPriceIdToPlan(paddleData.priceId);
     const newStatus = paddleData.status;
@@ -313,10 +274,7 @@ export class SubscriptionService {
 
     let subscriptionUpdated = false;
     let licenseUpdated = false;
-
-    // Step 4: Create or update local records
     if (!localSubscription) {
-      // CREATE: Paddle has subscription but local doesn't
       this.logger.log(
         `Creating local records from Paddle subscription ${paddleData.id}`,
       );
@@ -342,7 +300,6 @@ export class SubscriptionService {
       subscriptionUpdated = true;
       licenseUpdated = true;
     } else {
-      // UPDATE: Both exist - sync local to match Paddle
       const needsSubUpdate =
         localSubscription.status !== newStatus ||
         localSubscription.priceId !== paddleData.priceId ||
@@ -379,8 +336,6 @@ export class SubscriptionService {
         }
       }
     }
-
-    // Step 5: Emit events asynchronously (don't block response)
     if (subscriptionUpdated || licenseUpdated) {
       this.emitReconciliationEvents(
         userData.email.toLowerCase(),
@@ -433,8 +388,6 @@ export class SubscriptionService {
         message: 'No Paddle customer record found for this user.',
       };
     }
-
-    // Internal trials have no Paddle portal - synthetic IDs would cause API errors
     if (this.isInternalTrial(subscription)) {
       return {
         error: 'no_customer_record',
@@ -488,10 +441,6 @@ export class SubscriptionService {
       paddleCustomerId: user.paddleCustomerId || undefined,
     };
   }
-
-  // ===========================================================================
-  // Private Helper Methods
-  // ===========================================================================
 
   /**
    * Build status response from Paddle data
@@ -604,7 +553,6 @@ export class SubscriptionService {
       statusAfter: string;
     },
   ): void {
-    // License updated event
     this.eventEmitter.emit(
       SUBSCRIPTION_EVENTS.LICENSE_UPDATED,
       new LicenseUpdatedEvent(
@@ -618,8 +566,6 @@ export class SubscriptionService {
         expiresAt.toISOString(),
       ),
     );
-
-    // Status changed event
     this.eventEmitter.emit(
       SUBSCRIPTION_EVENTS.STATUS_CHANGED,
       new SubscriptionStatusChangedEvent(
@@ -628,8 +574,6 @@ export class SubscriptionService {
         plan,
       ),
     );
-
-    // Reconciliation completed event (for audit)
     this.eventEmitter.emit(
       SUBSCRIPTION_EVENTS.RECONCILIATION_COMPLETED,
       new ReconciliationCompletedEvent(email, userId, subscriptionId, changes),
@@ -660,8 +604,6 @@ export class SubscriptionService {
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) return 'expired';
-
-    // Internal trial price ID (not a real Paddle price)
     if (priceId === 'auto_trial_pro') return 'pro';
 
     const proMonthlyPriceId = this.configService.get<string>(

@@ -71,16 +71,10 @@ export class HarnessFsService {
     const skillMdPath = path.join(skillDir, 'SKILL.md');
 
     await fs.mkdir(skillDir, { recursive: true });
-
-    // Escape values for YAML frontmatter: quote strings and escape
-    // inner double-quotes and newlines to prevent malformed YAML
     const escapedName = params.name.replace(/"/g, '\\"');
     const escapedDesc = params.description
       .replace(/"/g, '\\"')
       .replace(/\n/g, '\\n');
-
-    // Sanitize tool names before embedding in YAML to prevent injection
-    // via newlines or special characters in a tool name string.
     const safeToolName = (t: string) => t.replace(/[^\w:/.\\-]/g, '');
     const toolsSection =
       params.allowedTools && params.allowedTools.length > 0
@@ -122,8 +116,6 @@ export class HarnessFsService {
       description?: string;
       enabled: boolean;
     }> = [];
-
-    // Always include built-in Ptah MCP server
     servers.push({
       name: 'ptah-mcp',
       url: 'http://localhost:0', // Port assigned dynamically at runtime
@@ -133,10 +125,6 @@ export class HarnessFsService {
     });
 
     const wsRoot = this.workspaceContext.requireWorkspaceRoot();
-
-    // Read .vscode/mcp.json — async-only, handle ENOENT in catch to avoid
-    // blocking the event loop with existsSync and the TOCTOU race it creates.
-    // Only extract server names — never forward env/args/credentials.
     const vscodeMcpPath = path.join(wsRoot, '.vscode', 'mcp.json');
     try {
       const raw = await fs.readFile(vscodeMcpPath, 'utf-8');
@@ -160,8 +148,6 @@ export class HarnessFsService {
         );
       }
     }
-
-    // Read .mcp.json from workspace root — same pattern.
     const rootMcpPath = path.join(wsRoot, '.mcp.json');
     try {
       const raw = await fs.readFile(rootMcpPath, 'utf-8');

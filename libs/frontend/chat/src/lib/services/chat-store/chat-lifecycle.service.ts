@@ -39,8 +39,6 @@ export class ChatLifecycleService {
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
-
-  // License status signal
   private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
     null,
   );
@@ -53,36 +51,23 @@ export class ChatLifecycleService {
   async bootstrap(setServicesReady: () => void): Promise<void> {
     try {
       setServicesReady();
-
-      // Only auto-load sessions if a workspace is already available at bootstrap.
-      // When no workspace is open (fresh Electron launch, welcome screen), skip
-      // these calls — sessions are loaded via SessionLoaderService.switchWorkspace()
-      // once the user selects a folder.
       const workspaceRoot = this.vscodeService.config().workspaceRoot;
       if (workspaceRoot) {
         this.sessionLoader.loadSessions().catch((err) => {
           console.error('[ChatStore] Failed to auto-load sessions:', err);
         });
-
-        // Restore CLI agent sessions for the active tab (restored from localStorage)
-        // so the agent monitor panel shows agents from the previous session.
         this.sessionLoader.restoreCliSessionsForActiveTab().catch((err) => {
           console.warn('[ChatStore] Failed to restore CLI sessions:', err);
         });
       }
-
-      // Load auth state so persistedAuthMethod() is populated for slash command checks
       this.authState.loadAuthStatus().catch((err) => {
         console.error('[ChatStore] Failed to load auth status:', err);
       });
-
-      // Fetch license status for trial banners
       this.fetchLicenseStatus().catch((err) => {
         console.error('[ChatStore] Failed to fetch license status:', err);
       });
     } catch (error) {
       console.error('[ChatStore] Failed to initialize services:', error);
-      // Services remain null, servicesReady stays false
     }
   }
 
@@ -108,7 +93,6 @@ export class ChatLifecycleService {
           this._licenseStatus.set(result.data);
           return;
         } else {
-          // RPC returned failure result
           if (attempt === retries) {
             console.error(
               '[ChatStore] Failed to fetch license status after retries:',
@@ -125,7 +109,6 @@ export class ChatLifecycleService {
           );
           this._licenseStatus.set(null);
         } else {
-          // Linear backoff: 1s, 2s, 3s...
           await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
         }
       }
@@ -168,16 +151,6 @@ export class ChatLifecycleService {
   }): void {
     const { toolUseId, summaryDelta, agentId, sessionId, contentBlocks } =
       payload;
-
-    // Fan out to ALL tabs bound to this session.
-    // Canvas grid: every tile bound to the session needs its
-    // streamingState.agentSummaryAccumulators updated, otherwise sub-agent
-    // summaries appear on one tile and freeze on the others.
-    //
-    // Per-tab streamingState is a separate object per tab — so accumulators
-    // are tracked independently. This means the same delta is appended to
-    // each tab's accumulator, which is exactly what we want for per-tab
-    // rendering parity.
     const targetTabs = this.tabManager.findTabsBySessionId(
       SessionId.from(sessionId),
     );
@@ -193,22 +166,14 @@ export class ChatLifecycleService {
     for (const tab of tabsWithStreaming) {
       const state = tab.streamingState;
       if (!state) continue;
-
-      // Use agentId as key for summary accumulation.
-      // This is stable across hook (UUID toolUseId) and complete (toolu_* toolCallId).
       const currentSummary = state.agentSummaryAccumulators.get(agentId) || '';
       const newSummary = currentSummary + summaryDelta;
       state.agentSummaryAccumulators.set(agentId, newSummary);
-
-      // Also store structured content blocks for interleaving
       if (contentBlocks && contentBlocks.length > 0) {
         const currentBlocks = state.agentContentBlocksMap.get(agentId) || [];
         const newBlocks = [...currentBlocks, ...contentBlocks];
         state.agentContentBlocksMap.set(agentId, newBlocks);
       }
-
-      // Trigger tab update to invalidate tree cache and re-render
-      // Create shallow copy to trigger signal change detection
       this.tabManager.setStreamingState(tab.id, { ...state });
     }
   }
@@ -231,15 +196,11 @@ export class ChatLifecycleService {
     realSessionId: string;
   }): void {
     const { tabId, realSessionId } = data;
-
-    // Find tab directly by tabId - no temp ID lookup needed
     const targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
 
     if (targetTab) {
-      // Update the tab with the real session ID
       this.tabManager.attachSession(targetTab.id, realSessionId);
     } else {
-      // Fallback: Check active tab if it's streaming without a real session ID
       const activeTab = this.tabManager.activeTab();
       if (
         activeTab &&
@@ -253,8 +214,6 @@ export class ChatLifecycleService {
         });
       }
     }
-
-    // Refresh sidebar session list now that metadata has been created on the backend
     this.sessionLoader.loadSessions().catch((err) => {
       console.warn(
         '[ChatStore] Failed to refresh sessions after ID resolved:',
@@ -278,17 +237,10 @@ export class ChatLifecycleService {
     sessionId?: string;
     error: string;
   }): void {
-    // Clear compaction state on error to avoid stale notification
     this.compactionLifecycle.clearCompactionState();
 
     console.error('[ChatStore] Chat error:', data);
-
-    // Route by tabId (primary, single tab — the originating call site
-    // already knows which tab errored), or fall back to sessionId lookup
-    // which fans out to ALL bound tabs.
     let targetTabs: readonly TabState[] = [];
-
-    // Primary: Use tabId for direct routing
     if (data.tabId) {
       const directTab =
         this.tabManager.tabs().find((t) => t.id === data.tabId) ?? null;
@@ -296,21 +248,13 @@ export class ChatLifecycleService {
         targetTabs = [directTab];
       }
     }
-
-    // Fallback: Find by sessionId if tabId not available (legacy support).
-    // Fan out so canvas-grid tiles bound to the same session all get reset
-    // rather than only the first one returned by the legacy lookup.
     if (targetTabs.length === 0 && data.sessionId) {
       targetTabs = this.tabManager.findTabsBySessionId(
         SessionId.from(data.sessionId),
       );
     }
-
-    // Last resort: Use active tab
     if (targetTabs.length === 0) {
       const activeTab = this.tabManager.activeTab();
-
-      // Warn if session ID doesn't match active tab
       if (
         data.sessionId &&
         activeTab?.claudeSessionId &&
@@ -332,32 +276,14 @@ export class ChatLifecycleService {
       console.warn('[ChatStore] No target tab for chat error');
       return;
     }
-
-    // BUG FIX: Finalize streaming content BEFORE clearing state.
-    // When abort triggers, handleChatError fires via streaming error callback
-    // BEFORE abortCurrentMessage() can call finalizeCurrentMessage(tabId, true).
-    // If we clear currentMessageId first, finalization returns early and
-    // the interrupted badge never shows. By finalizing here, we ensure
-    // partial streaming content is preserved with 'interrupted' status.
-    //
-    // Per-tab finalization — each bound tab has its own
-    // streamingState.currentMessageId, so finalize each independently.
     for (const tab of targetTabs) {
       if (tab.streamingState?.currentMessageId) {
         this.streamingHandler.finalizeCurrentMessage(tab.id, true);
       }
-      // Reset streaming state (including per-tab currentMessageId).
-      // Also clear queued content and visual streaming indicator to prevent
-      // "Message queued" banner from persisting after slash command errors.
       this.tabManager.applyErrorReset(tab.id);
       this.tabManager.markTabIdle(tab.id);
     }
-
-    // Session status is global to the SDK session — set once.
     this.sessionManager.setStatus('loaded');
-
-    // Safety net: refresh sidebar in case session metadata was created before the error.
-    // If the session exists on disk, it will now appear; if not, this is a harmless no-op.
     this.sessionLoader.loadSessions().catch((err) => {
       console.warn('[ChatStore] Failed to refresh sessions after error:', err);
     });

@@ -253,18 +253,12 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
 })
 export class WebSearchConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
-
-  // Lucide icons
   readonly GlobeIcon = Globe;
   readonly KeyIcon = Key;
   readonly CheckCircleIcon = CheckCircle;
   readonly XCircleIcon = XCircle;
   readonly FlaskConicalIcon = FlaskConical;
-
-  // Provider options for the dropdown
   readonly providerOptions = PROVIDER_OPTIONS;
-
-  // State signals
   readonly selectedProvider = signal<'tavily' | 'serper' | 'exa'>('tavily');
   readonly apiKeyConfigured = signal(false);
   readonly apiKeyInput = signal('');
@@ -327,7 +321,6 @@ export class WebSearchConfigComponent implements OnInit {
         this.apiKeyConfigured.set(result.data.configured);
       }
     } catch {
-      // Non-fatal: status badge will show "Not configured"
     }
   }
 
@@ -342,11 +335,7 @@ export class WebSearchConfigComponent implements OnInit {
     this.selectedProvider.set(value);
     this.testResult.set(null);
     this.apiKeyInput.set('');
-
-    // Save provider config
     await this.saveConfig({ provider: value });
-
-    // Reload API key status for the new provider
     await this.loadApiKeyStatus();
   }
 

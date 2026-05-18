@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Authentication Manager - Thin Orchestrator
  *
  * Replaced the ~1000-line god class with a strategy-based orchestrator.
@@ -109,7 +109,6 @@ export class AuthManager implements IAuthEnvProvider {
    * 5. Log env summary (boolean presence, no secrets)
    */
   async configureAuthentication(rawAuthMethod: string): Promise<AuthResult> {
-    // Concurrency guard: if a configuration is already in progress, await it
     if (this.configInProgress) {
       this.logger.debug(
         '[AuthManager] configureAuthentication already in progress, awaiting existing call',
@@ -131,9 +130,6 @@ export class AuthManager implements IAuthEnvProvider {
   private async doConfigureAuthentication(
     rawAuthMethod: string,
   ): Promise<AuthResult> {
-    // Step 1: Normalize any persisted spelling (legacy or new) to the canonical
-    // LegacyAuthMethod triad via the shared helper. Centralizes mapping for
-    // 'claude-cli', 'oauth', 'openrouter', etc.
     const authMethod = normalizeAuthMethod(rawAuthMethod);
 
     if (rawAuthMethod !== authMethod) {
@@ -143,21 +139,13 @@ export class AuthManager implements IAuthEnvProvider {
     }
 
     this.logger.debug(`[AuthManager] Configuring auth method: ${authMethod}`);
-
-    // Capture env snapshot before clean slate wipe (strategies may need fallback values)
-    // ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL support headless third-party flows
-    // (e.g. openclaw bridge) that pre-set env vars instead of populating SecretStorage.
     const envSnapshot = {
       ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'],
       ANTHROPIC_AUTH_TOKEN: process.env['ANTHROPIC_AUTH_TOKEN'],
       ANTHROPIC_BASE_URL: process.env['ANTHROPIC_BASE_URL'],
     };
-
-    // Step 2: Clean slate - clear ALL auth and tier env vars
     this.clearAllAuthEnvVars();
     this.providerModels.clearAllTierEnvVars();
-
-    // Step 3: Teardown previous active strategy
     if (this.activeStrategy) {
       try {
         await this.activeStrategy.teardown();
@@ -170,16 +158,12 @@ export class AuthManager implements IAuthEnvProvider {
       }
       this.activeStrategy = null;
     }
-
-    // Step 4: Resolve provider ID and strategy type
     const { providerId, strategyType } =
       this.resolveProviderAndStrategy(authMethod);
 
     this.logger.debug(
       `[AuthManager] Resolved strategy: ${strategyType} (provider: ${providerId})`,
     );
-
-    // Step 5: Get strategy from registry
     const strategy = this.strategyRegistry.get(strategyType);
     if (!strategy) {
       this.logger.error(
@@ -192,20 +176,14 @@ export class AuthManager implements IAuthEnvProvider {
         errorMessage: `Internal error: no strategy for auth type '${strategyType}'`,
       };
     }
-
-    // Step 6: Delegate to strategy
     const result = await strategy.configure({
       providerId,
       authEnv: this.authEnv,
       envSnapshot,
     });
-
-    // Track active strategy for future teardown
     if (result.configured) {
       this.activeStrategy = strategy;
     }
-
-    // Step 7: Log result
     if (result.configured) {
       this.logger.info(
         `[AuthManager] Authentication configured: ${result.details.join(', ')}`,
@@ -238,8 +216,6 @@ export class AuthManager implements IAuthEnvProvider {
   clearAuthentication(): void {
     this.clearAllAuthEnvVars();
     this.providerModels.clearAllTierEnvVars();
-
-    // Teardown active strategy (fire-and-forget with proper error logging)
     if (this.activeStrategy) {
       const strategyName = this.activeStrategy.name;
       this.activeStrategy.teardown().catch((err) => {
@@ -281,8 +257,6 @@ export class AuthManager implements IAuthEnvProvider {
         strategyType: resolveStrategy('apiKey'),
       };
     }
-
-    // authMethod === 'thirdParty' â€” determine from configured provider
     const providerId = this.config.getWithDefault<string>(
       'anthropicProviderId',
       DEFAULT_PROVIDER_ID,

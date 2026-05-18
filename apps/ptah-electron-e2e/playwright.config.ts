@@ -17,8 +17,6 @@ const isCI = !!process.env['CI'];
 export default defineConfig({
   testDir: './src/specs',
   testMatch: ['**/*.spec.ts'],
-  // Electron apps own global state (DI container, window manager, file handles)
-  // -- a single worker keeps tests deterministic.
   workers: 1,
   fullyParallel: false,
   forbidOnly: isCI,

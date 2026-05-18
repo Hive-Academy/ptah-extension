@@ -420,8 +420,6 @@ export class LicenseStatusCardComponent {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly chatStore = inject(ChatStore);
   private readonly confirmationDialog = inject(ConfirmationDialogService);
-
-  // Lucide icons
   readonly SparklesIcon = Sparkles;
   readonly ShieldIcon = Shield;
   readonly ClockIcon = Clock;
@@ -434,15 +432,11 @@ export class LicenseStatusCardComponent {
   readonly CloseIcon = X;
   readonly CheckIcon = Check;
   readonly LoaderIcon = Loader2;
-
-  // License key input state
   readonly showLicenseInput = signal(false);
   readonly licenseKeyInput = signal('');
   readonly licenseKeyError = signal('');
   readonly licenseKeySuccess = signal('');
   readonly isSubmittingKey = signal(false);
-
-  // License status computed signals (derived from ChatStore)
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false,
   );
@@ -581,8 +575,6 @@ export class LicenseStatusCardComponent {
     }
     return '?';
   });
-
-  // Action methods
   async openSignup(): Promise<void> {
     await this.rpcService.call('command:execute', {
       command: 'ptah.openSignup',
@@ -606,8 +598,6 @@ export class LicenseStatusCardComponent {
   async submitLicenseKey(): Promise<void> {
     const key = this.licenseKeyInput().trim();
     if (!key) return;
-
-    // Client-side format validation
     if (!/^ptah_lic_[a-f0-9]{64}$/.test(key)) {
       this.licenseKeyError.set(
         'Invalid format. Key must start with "ptah_lic_" followed by 64 hex characters.',

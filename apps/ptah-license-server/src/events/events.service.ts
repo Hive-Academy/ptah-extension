@@ -37,8 +37,6 @@ interface InternalEvent {
 export class EventsService {
   private readonly logger = new Logger(EventsService.name);
   private readonly eventSubject = new Subject<InternalEvent>();
-
-  // Track connected clients for logging/monitoring
   private connectedClients = new Map<string, number>();
 
   constructor() {
@@ -55,9 +53,7 @@ export class EventsService {
     this.trackClientConnection(email);
 
     return this.eventSubject.pipe(
-      // Filter events for this specific user
       filter((internal) => internal.targetEmail === email),
-      // Transform to SSE MessageEvent format
       map((internal) => {
         const eventData = JSON.stringify(internal.event);
         return {

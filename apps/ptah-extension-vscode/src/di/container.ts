@@ -72,6 +72,4 @@ export class DIContainer {
     container.clearInstances();
   }
 }
-
-// Re-export container for backward compatibility.
 export { container };

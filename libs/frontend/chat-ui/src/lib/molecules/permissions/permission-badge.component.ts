@@ -89,7 +89,6 @@ import { LucideAngularModule, AlertTriangle, X } from 'lucide-angular';
   `,
 })
 export class PermissionBadgeComponent {
-  // Lucide icon references
   protected readonly AlertTriangleIcon = AlertTriangle;
   protected readonly XIcon = X;
 
@@ -115,7 +114,6 @@ export class PermissionBadgeComponent {
    */
   protected onPermissionResponse(response: PermissionResponse): void {
     this.responded.emit(response);
-    // Auto-close if this was the last permission
     if (this.permissions().length <= 1) {
       this.isExpanded.set(false);
     }

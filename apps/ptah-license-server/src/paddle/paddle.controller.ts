@@ -88,22 +88,16 @@ export class PaddleController {
     @Headers('paddle-signature') signature: string,
     @Req() req: RequestWithRawBody,
   ): Promise<WebhookResponse> {
-    // Step 1: Validate request has raw body for signature verification
     if (!req.rawBody) {
       this.logger.error('Raw body not available - check middleware config');
       throw new BadRequestException(
         'Webhook processing error - raw body not available',
       );
     }
-
-    // Step 2: Validate signature header exists
     if (!signature) {
       this.logger.warn('Missing paddle-signature header');
       throw new UnauthorizedException('Missing webhook signature');
     }
-
-    // Step 3: Delegate to webhook service for SDK-based processing
-    // The service handles signature verification, event routing, and business logic
     return this.webhookService.processWebhook(req.rawBody, signature);
   }
 }

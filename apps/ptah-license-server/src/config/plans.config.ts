@@ -86,9 +86,6 @@ export function calculateExpirationDate(plan: PlanName): Date | null {
   if (config.expiresAfterDays === null) {
     return null; // All plans are subscription-based
   }
-
-  // Note: This code path is unreachable with current plan configuration
-  // Kept for potential future time-limited plans
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.expiresAfterDays);
   return expiresAt;

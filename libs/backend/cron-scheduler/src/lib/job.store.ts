@@ -219,7 +219,6 @@ export class JobStore implements IJobStore {
       name: input.name,
     });
     return {
-      // System job IDs are arbitrary strings; cast to JobId brand directly.
       id: input.id as unknown as JobId,
       name: input.name,
       cronExpr: input.cronExpr,
@@ -237,8 +236,6 @@ export class JobStore implements IJobStore {
 
 function mapRow(row: ScheduledJobRow): ScheduledJob {
   return {
-    // Cast without ULID validation — system jobs (@ptah/*) have non-ULID IDs
-    // stored via `upsert()`. The DB is authoritative.
     id: row.id as unknown as JobId,
     name: row.name,
     cronExpr: row.cron_expr,

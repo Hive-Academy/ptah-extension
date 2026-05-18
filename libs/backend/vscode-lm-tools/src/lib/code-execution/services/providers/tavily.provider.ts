@@ -53,8 +53,6 @@ export class TavilySearchProvider implements IWebSearchProvider {
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-
-      // Detect common error patterns for better user messaging
       if (
         message.includes('401') ||
         message.toLowerCase().includes('unauthorized') ||

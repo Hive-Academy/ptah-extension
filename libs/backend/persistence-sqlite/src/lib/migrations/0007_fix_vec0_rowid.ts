@@ -1,6 +1,3 @@
-// SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
-// Enforced by ESLint (no-template-curly-in-migration) + Semgrep
-// (sql-injection-in-migration). Adding interpolation = SQL injection by design.
 export const sql = `
 -- Fix vec0 tables: remove the explicit \`rowid INTEGER PRIMARY KEY\` partition
 -- key definition from 0002_memory and 0003_skills.

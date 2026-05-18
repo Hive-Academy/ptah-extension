@@ -33,25 +33,18 @@ export interface PtahFixtures {
 }
 
 export const test = base.extend<PtahFixtures>({
-  // eslint-disable-next-line no-empty-pattern
   electronApp: async ({}, use) => {
     const app = await launchPtah();
     try {
       await use(app);
     } finally {
       await app.close().catch(() => {
-        // Already closed -- ignore.
       });
     }
   },
 
   mainProcessOutput: async ({ electronApp }, use) => {
     const lines: string[] = [];
-
-    // launchPtah already attaches data listeners that write to process.stderr
-    // for visibility in CI. Here we attach additional listeners that accumulate
-    // lines into the array for in-test assertions. The two listener sets are
-    // independent and both fire on the same data events.
     const onStdout = (chunk: Buffer) => {
       lines.push(...chunk.toString('utf8').split('\n').filter(Boolean));
     };

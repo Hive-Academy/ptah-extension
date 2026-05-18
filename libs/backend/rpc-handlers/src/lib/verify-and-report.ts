@@ -119,6 +119,5 @@ function reportDriftToSentry(
       extra: { missingMethods: Array.from(missingMethods), platform },
     });
   } catch {
-    // Never let Sentry reporting break activation.
   }
 }

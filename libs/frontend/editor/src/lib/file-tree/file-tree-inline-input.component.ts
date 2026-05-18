@@ -55,7 +55,6 @@ export class FileTreeInlineInputComponent {
 
       const value = this.initialValue();
       if (value) {
-        // Select filename portion (before last dot) for rename
         const dotIndex = value.lastIndexOf('.');
         if (dotIndex > 0) {
           input.setSelectionRange(0, dotIndex);
@@ -87,7 +86,6 @@ export class FileTreeInlineInputComponent {
   }
 
   protected onBlur(): void {
-    // Short delay to allow click events on buttons to fire first
     setTimeout(() => {
       if (this.hasSubmitted) return;
       const input = this.inputRef()?.nativeElement;

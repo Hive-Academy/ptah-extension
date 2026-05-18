@@ -75,12 +75,9 @@ export class ClaudeCliDetector {
     }
 
     try {
-      // Check for WSL-specific files/environment variables
       if (process.env['WSL_DISTRO_NAME'] || process.env['WSL_INTEROP']) {
         return true;
       }
-
-      // Check /proc/version for Microsoft/WSL
       if (fs.existsSync('/proc/version')) {
         const version = fs.readFileSync('/proc/version', 'utf8').toLowerCase();
         return version.includes('microsoft') || version.includes('wsl');
@@ -101,10 +98,6 @@ export class ClaudeCliDetector {
     }
 
     try {
-      // Priority order: config → which/where (full paths) → npm → common paths → system PATH
-      // PHASE 2 FIX: Moved detectWithWhichWhere() to priority #2 (after config)
-      // This ensures we get full paths (e.g., C:\...\npm\claude.cmd) instead of bare commands
-      // Full paths avoid ENOENT errors and don't require shell resolution
       const strategies = [
         () => this.detectFromConfig(),
         () => this.detectWithWhichWhere(), // ← MOVED UP (was priority #6)
@@ -121,7 +114,6 @@ export class ClaudeCliDetector {
       for (const strategy of strategies) {
         const installation = await strategy();
         if (installation && (await this.verifyInstallation(installation))) {
-          // Resolve wrapper to cli.js for direct execution (bypasses Windows buffering)
           const resolved = await this.pathResolver.resolve(installation.path);
           if (resolved) {
             this.cachedInstallation = {
@@ -131,8 +123,6 @@ export class ClaudeCliDetector {
             };
             return this.cachedInstallation;
           }
-
-          // Fallback: use original path if resolution fails
           this.cachedInstallation = installation;
           return installation;
         }
@@ -374,18 +364,13 @@ export class ClaudeCliDetector {
           .split('\n')
           .map((p) => p.trim())
           .filter((p) => p);
-
-        // Return FIRST valid path found (usually the primary installation)
         for (const claudePath of paths) {
           if (fs.existsSync(claudePath)) {
-            // CRITICAL: Return the FULL PATH, not just 'claude'
-            // This enables direct spawning without shell resolution
             return { path: claudePath, source: 'which-where' };
           }
         }
       }
     } catch {
-      // Silently fail (which/where command not available or claude not found)
     }
 
     return null;
@@ -400,7 +385,6 @@ export class ClaudeCliDetector {
     }
 
     try {
-      // Try to execute 'which claude' in WSL
       const result = await this.executeCommand('wsl', ['which', 'claude'], {
         timeout: 5000,
       });
@@ -417,7 +401,6 @@ export class ClaudeCliDetector {
         }
       }
     } catch {
-      // WSL not available or claude not found
     }
 
     return null;

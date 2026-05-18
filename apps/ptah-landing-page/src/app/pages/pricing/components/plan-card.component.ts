@@ -229,14 +229,8 @@ export class PlanCardComponent {
    */
   protected isButtonDisabled(): boolean {
     const p = this.plan();
-
-    // Always disable if loading
     if (this.isLoading()) return true;
-
-    // Only validate for checkout actions
     if (p.ctaAction !== 'checkout') return false;
-
-    // Check for placeholder patterns using shared utility
     return isPriceIdPlaceholder(p.priceId);
   }
 }

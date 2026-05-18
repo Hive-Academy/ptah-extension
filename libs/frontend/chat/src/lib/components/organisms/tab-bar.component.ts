@@ -101,11 +101,9 @@ export class TabBarComponent {
   private wheelHandler: ((e: WheelEvent) => void) | null = null;
 
   constructor() {
-    // Re-check scroll state when tabs change and scroll active tab into view
     effect(() => {
       this.tabs(); // track dependency
       const activeId = this.activeTabId();
-      // Clear previous timer to prevent stale callbacks on rapid switching
       if (this.scrollTimerId) clearTimeout(this.scrollTimerId);
       this.scrollTimerId = setTimeout(() => {
         this.scrollActiveTabIntoView(activeId);
@@ -113,8 +111,6 @@ export class TabBarComponent {
         this.scrollTimerId = null;
       }, 0);
     });
-
-    // Setup non-passive wheel listener and ResizeObserver after first render
     afterNextRender(
       () => {
         this.setupWheelListener();

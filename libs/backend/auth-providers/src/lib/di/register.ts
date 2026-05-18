@@ -19,26 +19,16 @@ export function registerAuthProvidersServices(
   logger: Logger,
 ): void {
   logger.info('[auth-providers] Registering auth + provider services...');
-
-  // Shared mutable AuthEnv singleton — must be registered before AuthManager,
-  // ProviderModelsService, ModelResolver, and any strategy that injects it.
   container.registerInstance(
     AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
     createEmptyAuthEnv(),
   );
-
-  // Provider models service — depends on Logger, ConfigManager, AuthEnv.
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS,
     { useClass: ProviderModelsService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Provider services (Copilot, Codex, OpenRouter, Ollama, LM Studio).
-  // Must register before AuthManager (strategies depend on these tokens).
   registerProviders(container);
-
-  // Auth strategies — must register before AuthManager resolves.
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_API_KEY_STRATEGY,
     { useClass: ApiKeyStrategy },
@@ -64,15 +54,11 @@ export function registerAuthProvidersServices(
     { useClass: CliStrategy },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // ModelResolver — single source of truth for tier→model resolution.
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER,
     { useClass: ModelResolver },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // AuthManager — thin orchestrator depending on every strategy + ProviderModels.
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER,
     { useClass: AuthManager },

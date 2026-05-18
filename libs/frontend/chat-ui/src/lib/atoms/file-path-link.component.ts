@@ -60,7 +60,6 @@ export class FilePathLinkComponent {
   protected getShortPath(): string {
     const path = this.fullPath();
     if (!path) return '';
-    // Show just the filename or last 2 path segments
     const parts = path.replace(/\\/g, '/').split('/');
     if (parts.length <= 2) return path;
     return '.../' + parts.slice(-2).join('/');

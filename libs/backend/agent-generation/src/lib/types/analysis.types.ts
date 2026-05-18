@@ -13,16 +13,11 @@ import {
   Framework,
   MonorepoType,
 } from '@ptah-extension/workspace-intelligence';
-
-// Import quality assessment types for DeepProjectAnalysis extension
 import type {
   QualityAssessment,
   QualityGap,
   PrescriptiveGuidance,
 } from '@ptah-extension/shared';
-
-// Re-export shared types for backward compatibility
-// Consumers can import from either location
 export type {
   ArchitecturePattern,
   ArchitecturePatternName,
@@ -45,8 +40,6 @@ export type {
   GenerationCompletePayload,
   WizardErrorPayload,
 } from '@ptah-extension/shared';
-
-// Import shared types for use in DeepProjectAnalysis
 import type {
   ArchitecturePattern,
   KeyFileLocations,
@@ -189,11 +182,6 @@ export interface DeepProjectAnalysis {
    * Low coverage increases relevance of senior-tester agent.
    */
   testCoverage: TestCoverageEstimate;
-
-  // ========================================
-  // Quality Assessment Fields
-  // All fields optional for backward compatibility
-  // ========================================
 
   /**
    * Overall code quality score (0-100).

@@ -156,33 +156,24 @@ async function handleHttpRequest(
   res: http.ServerResponse,
   onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>,
 ): Promise<void> {
-  // CORS headers for localhost
   res.setHeader('Access-Control-Allow-Origin', 'http://localhost');
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
     return;
   }
-
-  // Handle health check (supports both /health and / root probe)
   if (req.method === 'GET' && (req.url === '/health' || req.url === '/')) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
     return;
   }
-
-  // Only accept POST requests for MCP protocol
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Method not allowed' }));
     return;
   }
-
-  // Parse request body with size limit
   let body = '';
   let bodySize = 0;
 
@@ -210,11 +201,6 @@ async function handleHttpRequest(
 
     try {
       const parsed = JSON.parse(body) as Record<string, unknown>;
-
-      // JSON-RPC 2.0 notifications have no "id" field.
-      // MCP clients (e.g. Gemini CLI) send "notifications/initialized" after
-      // the initialize handshake. Per spec, notifications require no response,
-      // but HTTP always needs one — return 204 No Content.
       if (!('id' in parsed) || parsed['id'] === undefined) {
         res.writeHead(204);
         res.end();
@@ -222,8 +208,6 @@ async function handleHttpRequest(
       }
 
       const mcpRequest = parsed as unknown as MCPRequest;
-
-      // Stamp caller session ID from URL path onto the request
       const callerSessionId = extractCallerSessionId(req.url);
       if (callerSessionId) {
         mcpRequest._callerSessionId = callerSessionId;

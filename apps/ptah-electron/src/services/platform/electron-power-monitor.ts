@@ -21,7 +21,6 @@ export class ElectronPowerMonitor implements IPowerMonitor {
       try {
         cb();
       } catch {
-        // Listener errors must never crash powerMonitor — the caller logs.
       }
     };
     powerMonitor.on('resume', listener);
@@ -32,7 +31,6 @@ export class ElectronPowerMonitor implements IPowerMonitor {
       try {
         powerMonitor.off('resume', listener);
       } catch {
-        // electron in tests may not expose `off`; safe to ignore.
       }
     };
   }
@@ -42,7 +40,6 @@ export class ElectronPowerMonitor implements IPowerMonitor {
       try {
         cb();
       } catch {
-        // Listener errors must never crash powerMonitor — the caller logs.
       }
     };
     powerMonitor.on('suspend', listener);
@@ -53,7 +50,6 @@ export class ElectronPowerMonitor implements IPowerMonitor {
       try {
         powerMonitor.off('suspend', listener);
       } catch {
-        // ignore.
       }
     };
   }

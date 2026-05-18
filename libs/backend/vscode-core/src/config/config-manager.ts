@@ -56,7 +56,6 @@ export class ConfigManager {
   private fileBasedKeyPredicate: ((key: string) => boolean) | null = null;
 
   constructor() {
-    // Setup configuration change listener
     this.configListener = vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(this.configNamespace)) {
         this.handleConfigurationChange(event);
@@ -148,7 +147,6 @@ export class ConfigManager {
    * @throws Error if validation fails
    */
   getTyped<T>(key: string, schema: z.ZodSchema<T>): T {
-    // Route file-based settings to PtahFileSettingsManager (~/.ptah/settings.json)
     if (this.isFileBased(key)) {
       if (!this.fileStore) {
         throw new Error(
@@ -215,7 +213,6 @@ export class ConfigManager {
     value: T,
     options?: ConfigUpdateOptions,
   ): Promise<void> {
-    // Route file-based settings to PtahFileSettingsManager (~/.ptah/settings.json)
     if (this.isFileBased(key)) {
       if (!this.fileStore) {
         throw new Error(
@@ -223,7 +220,6 @@ export class ConfigManager {
         );
       }
       await this.fileStore.set(key, value);
-      // Manually notify watchers since VS Code won't fire a change event
       const watcher = this.watchers.get(key);
       if (watcher) {
         watcher.callback(value);
@@ -233,12 +229,7 @@ export class ConfigManager {
 
     const target = options?.target || vscode.ConfigurationTarget.Workspace;
     const config = vscode.workspace.getConfiguration(this.configNamespace);
-
-    // Update configuration
     await config.update(key, value, target);
-
-    // Note: Configuration change notifications are automatically handled
-    // by VS Code's configuration change events and our watchers
   }
 
   /**
@@ -257,10 +248,7 @@ export class ConfigManager {
     schema: z.ZodSchema<T>,
     options?: ConfigUpdateOptions,
   ): Promise<void> {
-    // Validate value
     const validatedValue = schema.parse(value);
-
-    // Set configuration
     await this.set(key, validatedValue, options);
   }
 
@@ -273,7 +261,6 @@ export class ConfigManager {
    * @returns Disposable to stop watching
    */
   watch(key: string, callback: (value: unknown) => void): vscode.Disposable {
-    // Create watcher
     const disposable = new vscode.Disposable(() => {
       this.watchers.delete(key);
     });
@@ -285,8 +272,6 @@ export class ConfigManager {
     };
 
     this.watchers.set(key, watcher);
-
-    // Call callback immediately with current value
     const currentValue = this.get(key);
     callback(currentValue);
 
@@ -312,7 +297,6 @@ export class ConfigManager {
         const validatedValue = schema.parse(value);
         callback(validatedValue);
       } catch (error) {
-        // Log validation error but don't throw
         console.error(`Config validation failed for ${key}:`, error);
       }
     });
@@ -368,13 +352,10 @@ export class ConfigManager {
    * Cleans up watchers and event listeners
    */
   dispose(): void {
-    // Dispose all watchers
     for (const watcher of this.watchers.values()) {
       watcher.disposable.dispose();
     }
     this.watchers.clear();
-
-    // Dispose configuration listener
     this.configListener.dispose();
   }
 
@@ -387,7 +368,6 @@ export class ConfigManager {
   private handleConfigurationChange(
     event: vscode.ConfigurationChangeEvent,
   ): void {
-    // Notify watchers for affected keys
     for (const [key, watcher] of this.watchers.entries()) {
       const fullKey = `${this.configNamespace}.${key}`;
       if (event.affectsConfiguration(fullKey)) {

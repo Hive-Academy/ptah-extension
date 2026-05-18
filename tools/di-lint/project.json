@@ -1,0 +1,29 @@
+{
+  "name": "di-lint",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/di-lint",
+  "projectType": "application",
+  "tags": ["type:tool"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "{projectRoot}/check-injects.ts",
+        "{workspaceRoot}/libs/**/src/**/*.ts",
+        "{workspaceRoot}/apps/**/src/**/*.ts"
+      ],
+      "options": {
+        "command": "npx ts-node --transpile-only tools/di-lint/check-injects.ts",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "self-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ts-node --transpile-only tools/di-lint/check-injects.ts --self-test",
+        "cwd": "{workspaceRoot}"
+      }
+    }
+  }
+}

@@ -49,14 +49,11 @@ export function registerVsCodeLmToolsServices(
   container: DependencyContainer,
   logger: Logger,
 ): void {
-  // Dependency validation - fail fast if prerequisites missing
   if (!container.isRegistered(TOKENS.LOGGER)) {
     throw new Error(
       '[VS Code LM Tools] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.',
     );
   }
-
-  // CodeExecutionMCP depends on workspace-intelligence's ContextOrchestrationService
   if (!container.isRegistered(TOKENS.CONTEXT_ORCHESTRATION_SERVICE)) {
     throw new Error(
       '[VS Code LM Tools] DEPENDENCY ERROR: workspace-intelligence services must be registered before vscode-lm-tools. ' +
@@ -65,12 +62,8 @@ export function registerVsCodeLmToolsServices(
   }
 
   logger.info('[VS Code LM Tools] Registering services...');
-
-  // Code Execution MCP services (expose workspace-intelligence to Claude CLI)
   container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
   container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
-
-  // Permission Prompt Service
   container.registerSingleton(
     TOKENS.PERMISSION_PROMPT_SERVICE,
     PermissionPromptService,

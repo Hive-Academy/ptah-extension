@@ -17,8 +17,6 @@ import type {
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-
-// Import token symbols directly (avoids circular dependency with vscode-core)
 const LOGGER = Symbol.for('Logger');
 const CONFIG_MANAGER = Symbol.for('ConfigManager');
 
@@ -36,7 +34,6 @@ interface ILogger {
  * ConfigManager interface (avoids circular dependency with vscode-core)
  */
 interface IConfigManager {
-  // Minimal interface, not used yet but required for DI
   get(key: string): unknown;
 }
 
@@ -105,8 +102,6 @@ export class ContextService {
   private excludedFiles: Set<string> = new Set();
   private readonly MAX_TOKENS = 200000;
   private readonly CHARS_PER_TOKEN = 4; // Rough estimate
-
-  // Enhanced file search capabilities
   private fileCache = new Map<string, FileCacheEntry>();
   private allFilesCache: FileSearchResult[] = [];
   private allFilesCacheTimestamp = 0;
@@ -114,8 +109,6 @@ export class ContextService {
     lastQuery: '',
     pendingResolvers: [],
   };
-
-  // Performance constants
   private readonly DEBOUNCE_MS = 300;
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
   private readonly ALL_FILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
@@ -146,14 +139,10 @@ export class ContextService {
     if (this.includedFiles.has(filePath)) {
       return; // Already included
     }
-
-    // Validate file path
     if (!filePath || filePath.trim() === '' || filePath === 'tasks') {
       this.logger.warn(`Invalid file path provided: ${filePath}`);
       return;
     }
-
-    // Check if file exists and is readable
     try {
       await fs.promises.access(filePath, fs.constants.R_OK);
     } catch {
@@ -245,7 +234,6 @@ export class ContextService {
     const currentTokens = this.getTokenEstimate();
 
     if (currentTokens > this.MAX_TOKENS * 0.8) {
-      // Suggest excluding large files
       const largeFiles = this.findLargeFiles();
       if (largeFiles.length > 0) {
         suggestions.push({
@@ -256,8 +244,6 @@ export class ContextService {
           files: largeFiles,
         });
       }
-
-      // Suggest excluding test files
       const testFiles = this.findTestFiles();
       if (testFiles.length > 0) {
         suggestions.push({
@@ -268,8 +254,6 @@ export class ContextService {
           files: testFiles,
         });
       }
-
-      // Suggest excluding build artifacts
       const buildFiles = this.findBuildFiles();
       if (buildFiles.length > 0) {
         suggestions.push({
@@ -302,7 +286,6 @@ export class ContextService {
    * Refresh context by removing non-existent files
    */
   async refreshContext(): Promise<void> {
-    // Remove files that no longer exist
     const filesToRemove: string[] = [];
 
     for (const filePath of this.includedFiles) {
@@ -328,9 +311,6 @@ export class ContextService {
    * Update file content (for future use)
    */
   async updateFileContent(filePath: string, _content: string): Promise<void> {
-    // This method is called when a file's content changes
-    // For now, we just log it. In the future, we might want to
-    // update token estimates or trigger re-analysis
     this.logger.info(`File content updated: ${filePath}`);
   }
 
@@ -387,8 +367,6 @@ export class ContextService {
       this.logger.warn(`Unknown project template: ${projectType}`);
       return;
     }
-
-    // Clear current context
     this.includedFiles.clear();
     this.excludedFiles.clear();
 
@@ -396,8 +374,6 @@ export class ContextService {
     if (!workspaceRoot) {
       return;
     }
-
-    // Apply include patterns using IFileSystemProvider.findFiles
     for (const pattern of template.include) {
       const files = await this.fsProvider.findFiles(
         pattern,
@@ -409,8 +385,6 @@ export class ContextService {
         this.includedFiles.add(file);
       }
     }
-
-    // Apply exclude patterns
     for (const pattern of template.exclude) {
       const files = await this.fsProvider.findFiles(
         pattern,
@@ -442,32 +416,22 @@ export class ContextService {
    */
   async searchFiles(options: FileSearchOptions): Promise<FileSearchResult[]> {
     const cacheKey = this.generateCacheKey(options);
-
-    // Check cache first for 60% API call reduction
     const cached = this.getFromCache(cacheKey);
     if (cached) {
       this.logger.debug(`File search cache hit for query: ${options.query}`);
       return cached;
     }
-
-    // Use debouncing to prevent excessive API calls
     return new Promise<FileSearchResult[]>((resolve, reject) => {
       this.addToDebounceQueue(resolve, reject);
-
-      // Clear existing timer
       if (this.debounceState.timerId) {
         clearTimeout(this.debounceState.timerId);
       }
 
       this.debounceState.lastQuery = options.query;
-
-      // Setup new debounced search
       this.debounceState.timerId = setTimeout(async () => {
         try {
           const results = await this.performFileSearch(options);
           this.cacheResults(cacheKey, results);
-
-          // Resolve all pending promises
           this.debounceState.pendingResolvers.forEach(({ resolve }) => {
             resolve(results);
           });
@@ -478,8 +442,6 @@ export class ContextService {
           );
         } catch (error) {
           this.logger.error('File search failed', error);
-
-          // Reject all pending promises
           const errorToReject =
             error instanceof Error ? error : new Error('File search failed');
           this.debounceState.pendingResolvers.forEach(({ reject }) => {
@@ -500,7 +462,6 @@ export class ContextService {
     offset = 0,
     limit = this.MAX_SEARCH_RESULTS,
   ): Promise<FileSearchResult[]> {
-    // Check if cached data is still fresh
     const now = Date.now();
     if (
       this.allFilesCache.length > 0 &&
@@ -521,8 +482,6 @@ export class ContextService {
       if (workspaceFolders.length === 0) {
         return [];
       }
-
-      // Find all files excluding common ignore patterns
       const excludePatterns = [
         '**/node_modules/**',
         '**/.git/**',
@@ -536,8 +495,6 @@ export class ContextService {
         '**/coverage/**',
         '**/.nyc_output/**',
       ];
-
-      // Search ALL workspace folders using findFiles
       const filePaths = await this.fsProvider.findFiles(
         '**/*',
         excludePatterns,
@@ -546,11 +503,7 @@ export class ContextService {
       );
 
       const results: FileSearchResult[] = [];
-      // Use first workspace folder as base for relative paths (for display)
       const primaryWorkspacePath = workspaceFolders[0];
-
-      // Process files — batch stat calls in parallel for performance
-      // Sequential stat calls on 2000+ files can take 10-30s and cause RPC timeouts
       const BATCH_SIZE = 50;
       for (let i = 0; i < filePaths.length; i += BATCH_SIZE) {
         const batch = filePaths.slice(i, i + BATCH_SIZE);
@@ -577,11 +530,8 @@ export class ContextService {
           if (result.status === 'fulfilled') {
             results.push(result.value);
           }
-          // Skip inaccessible files silently
         }
       }
-
-      // Also discover directories from ALL workspace folders
       for (const folder of workspaceFolders) {
         const directories = await this.discoverDirectories(
           folder,
@@ -590,11 +540,7 @@ export class ContextService {
         );
         results.push(...directories);
       }
-
-      // Sort by relevance (recently modified first)
       results.sort((a, b) => b.lastModified - a.lastModified);
-
-      // Cache the results
       this.allFilesCache = results;
       this.allFilesCacheTimestamp = now;
 
@@ -620,9 +566,6 @@ export class ContextService {
     maxDepth = 4,
   ): Promise<FileSearchResult[]> {
     const directories: FileSearchResult[] = [];
-    // Explicit excludes only — do NOT blanket-filter `name.startsWith('.')`,
-    // or user-visible dot-folders (`.ptah`, `.claude`, `.vscode`, `.github`)
-    // disappear from the @ file picker's directory suggestions.
     const excludeSet = new Set([
       'node_modules',
       '.git',
@@ -647,8 +590,6 @@ export class ContextService {
         const dirEntries = entries.filter(
           (e) => e.type === FileType.Directory && !excludeSet.has(e.name),
         );
-
-        // Batch stat calls for all directories at this level
         const statResults = await Promise.allSettled(
           dirEntries.map(async (entry) => {
             const subPath = path.join(dirPath, entry.name);
@@ -675,13 +616,10 @@ export class ContextService {
 
           subDirs.push(subPath);
         }
-
-        // Recurse into subdirectories
         for (const subDir of subDirs) {
           await processDirectory(subDir, depth + 1);
         }
       } catch (error) {
-        // Skip if directory listing fails
         this.sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'ContextService.discoverDirectories' },
@@ -725,7 +663,6 @@ export class ContextService {
     limit = 20,
   ): Promise<FileSearchResult[]> {
     if (!query || query.length < 2) {
-      // For short queries, return recently modified files
       const allFiles = await this.getAllFiles(true, 0, limit);
       return allFiles.slice(0, limit);
     }
@@ -736,17 +673,9 @@ export class ContextService {
       maxResults: limit * 2, // Get extra to filter
       sortBy: 'relevance',
     });
-
-    // `searchFiles` → `performFileSearch` → `findFiles({ onlyFiles: true })`,
-    // so directories never appear in the file-only branch. Pull matching
-    // directories from the all-files cache (populated by `getAllFiles` /
-    // `discoverDirectories`) and merge them into the result set so typing
-    // `@.ptah` surfaces the `.ptah` folder itself, not just files inside it.
     const directoryMatches = await this.searchDirectories(query, limit);
 
     const merged = [...directoryMatches, ...searchResults];
-
-    // Prioritize files already in context
     const prioritized = merged.sort((a, b) => {
       const aIncluded = this.isFileIncluded(a.path) ? 1 : 0;
       const bIncluded = this.isFileIncluded(b.path) ? 1 : 0;
@@ -769,7 +698,6 @@ export class ContextService {
       this.allFilesCache.length === 0 ||
       Date.now() - this.allFilesCacheTimestamp >= this.ALL_FILES_CACHE_TTL
     ) {
-      // Warm the cache; result is ignored — we read from `this.allFilesCache`.
       await this.getAllFiles(true, 0, this.MAX_SEARCH_RESULTS);
     }
 
@@ -814,7 +742,6 @@ export class ContextService {
     const disposables: IDisposable[] = [];
 
     if (autoInclude) {
-      // Include currently open files
       disposables.push(
         this.editorProvider.onDidChangeActiveEditor(async (event) => {
           if (event.filePath) {
@@ -822,11 +749,8 @@ export class ContextService {
           }
         }),
       );
-
-      // Include files when they are opened
       disposables.push(
         this.editorProvider.onDidOpenDocument(async (event) => {
-          // Only include file-scheme paths (skip untitled, etc.)
           if (event.filePath && !event.filePath.includes('://')) {
             await this.includeFile(event.filePath);
           }
@@ -842,13 +766,9 @@ export class ContextService {
    */
   dispose(): void {
     this.logger.info('Disposing Context Service...');
-
-    // Clear debounce timer
     if (this.debounceState.timerId) {
       clearTimeout(this.debounceState.timerId);
     }
-
-    // Clear all caches
     this.clearFileCache();
   }
 
@@ -867,7 +787,6 @@ export class ContextService {
           largeFiles.push(filePath);
         }
       } catch {
-        // Ignore errors for files that can't be read
       }
     }
 
@@ -922,7 +841,6 @@ export class ContextService {
         const content = fs.readFileSync(filePath, 'utf8');
         totalChars += content.length;
       } catch {
-        // Ignore errors
       }
     }
 
@@ -960,9 +878,6 @@ export class ContextService {
 
   private async saveToWorkspaceState(): Promise<void> {
     try {
-      // Configuration update is not supported via IWorkspaceProvider read-only getConfiguration.
-      // State persistence will be handled at the application layer.
-      // This is an intentional simplification for the platform abstraction.
       this.logger.debug('Context state save requested (handled by app layer)');
     } catch (error) {
       this.logger.error('Failed to save context state', error);
@@ -970,7 +885,6 @@ export class ContextService {
   }
 
   private async notifyContextChanged(): Promise<void> {
-    // This would trigger UI updates in providers
     try {
       await this.commandRegistry.executeCommand(
         'setContext',
@@ -978,7 +892,6 @@ export class ContextService {
         this.includedFiles.size,
       );
     } catch {
-      // Command may not be available in all contexts
     }
   }
 
@@ -996,8 +909,6 @@ export class ContextService {
       maxResults = 100,
       fileTypes = [],
     } = options;
-
-    // Build search pattern
     let searchPattern = `**/*${query}*`;
     if (fileTypes.length > 0) {
       const extensions = fileTypes.map((ext) =>
@@ -1005,8 +916,6 @@ export class ContextService {
       );
       searchPattern = `**/*${query}*.{${extensions.join(',')}}`;
     }
-
-    // Build exclude patterns
     const excludePatternList: string[] = ['**/node_modules/**'];
     if (!includeImages && fileTypes.length === 0) {
       const imageExts = [
@@ -1037,8 +946,6 @@ export class ContextService {
         const relativePath = path.relative(workspaceRoot, filePath);
         const fileName = path.basename(filePath);
         const fileType = this.detectFileType(fileName);
-
-        // Calculate relevance score
         const relevanceScore = this.calculateRelevanceScore(
           fileName,
           relativePath,
@@ -1056,11 +963,8 @@ export class ContextService {
           relevanceScore,
         });
       } catch {
-        // Skip inaccessible files
       }
     }
-
-    // Sort by relevance and recency
     results.sort((a, b) => {
       const scoreA = a.relevanceScore || 0;
       const scoreB = b.relevanceScore || 0;
@@ -1130,20 +1034,10 @@ export class ContextService {
     const queryLower = query.toLowerCase();
     const fileNameLower = fileName.toLowerCase();
     const pathLower = relativePath.toLowerCase();
-
-    // Exact filename match gets highest score
     if (fileNameLower === queryLower) score += 100;
-
-    // Filename starts with query
     if (fileNameLower.startsWith(queryLower)) score += 50;
-
-    // Filename contains query
     if (fileNameLower.includes(queryLower)) score += 20;
-
-    // Path contains query
     if (pathLower.includes(queryLower)) score += 10;
-
-    // Prefer shorter paths (closer to root)
     const pathDepth = relativePath.split(path.sep).length;
     score += Math.max(0, 10 - pathDepth);
 
@@ -1173,7 +1067,6 @@ export class ContextService {
   }
 
   private cacheResults(cacheKey: string, results: FileSearchResult[]): void {
-    // Implement LRU-like behavior
     if (this.fileCache.size >= this.MAX_CACHE_ENTRIES) {
       const firstKey = this.fileCache.keys().next().value;
       if (firstKey) {

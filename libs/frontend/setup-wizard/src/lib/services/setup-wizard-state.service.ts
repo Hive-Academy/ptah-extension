@@ -67,8 +67,6 @@ export interface WizardSurfaceFacade {
   unregisterAllPhaseSurfaces(): void;
   resetPhaseSurfaces(): void;
 }
-
-// Re-export shared types for backward compatibility with existing consumers
 export type {
   AgentCategory,
   AgentRecommendation,
@@ -78,11 +76,6 @@ export type {
   ProjectAnalysisResult,
   TestCoverageEstimate,
 } from '@ptah-extension/shared';
-
-// Wizard state types (12 declarations) extracted to a sibling file to keep
-// the coordinator under the 800-LOC ceiling. Re-exported here so that
-// existing consumer imports (`from '.../setup-wizard-state.service'`)
-// continue to resolve unchanged.
 export type {
   WizardStep,
   ProjectContext,
@@ -121,39 +114,13 @@ export type {
 })
 export class SetupWizardStateService {
   private readonly vscodeService = inject(VSCodeService);
-  // Surface routing dependencies. Wizard registers a SurfaceId per
-  // analysis/generation phase so its stream events flow through the
-  // canonical pipeline (dedup, batching, agent stores, session binding).
   private readonly streamRouter = inject(StreamRouter);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
 
   /** Per-coordinator-instance gate preventing duplicate listener registration. */
   private isMessageListenerRegistered = false;
-
-  // Surface registration state.
-  //
-  // Surfaces are minted lazily on first stream event for a given phaseKey
-  // (the wizard backend uses `event.messageId === wizard-phase-${currentPhase}`
-  // to discriminate phases). The Map below holds the SurfaceId for each
-  // active phaseKey; a sibling Map holds the live StreamingState reference
-  // each surface adapter exposes via getState().
-  //
-  // The accumulator-core mutates StreamingState in place. To trigger Angular
-  // signal reactivity for `phaseStreamingStates` consumers, we re-emit the
-  // signal with a freshly-built array after every routed event — see
-  // `nudgePhaseStreamingStates()`. The inner StreamingState objects are
-  // shared with `_phaseStateRefs` so consumers always read the latest data.
   private readonly _phaseSurfaces = new Map<string, SurfaceId>();
   private readonly _phaseStateRefs = new Map<string, StreamingState>();
-
-  // === Private Writable Signals ===
-  // All signals live on the coordinator so signal IDENTITY is preserved for
-  // `asReadonly()` consumers. Helpers mutate these via the shared
-  // `WizardInternalState` handle (see constructor). Public docs for each
-  // signal live alongside its `public readonly X = ...asReadonly()` projection
-  // below.
-
-  // Core flow
   private readonly currentStepSignal = signal<WizardStep>('welcome');
   private readonly projectContextSignal = signal<ProjectContext | null>(null);
   private readonly availableAgentsSignal = signal<AgentSelection[]>([]);
@@ -162,10 +129,6 @@ export class SetupWizardStateService {
   );
   private readonly scanProgressSignal = signal<ScanProgress | null>(null);
   private readonly analysisStreamSignal = signal<AnalysisStreamPayload[]>([]);
-  // Per-phase StreamingState entries keyed by phase messageId. Stored as an
-  // immutable list so Angular's reference-equality change detection always
-  // sees a new array on update; the byId computed below provides O(1)
-  // lookup for the rare consumer that needs it.
   private readonly phaseStreamingStatesSignal = signal<
     readonly PhaseStreamingEntry[]
   >([]);
@@ -183,8 +146,6 @@ export class SetupWizardStateService {
   private readonly analysisResultsSignal = signal<AnalysisResults | null>(null);
   private readonly completionDataSignal = signal<CompletionData | null>(null);
   private readonly errorStateSignal = signal<ErrorState | null>(null);
-
-  // Deep Analysis
   private readonly deepAnalysisSignal = signal<ProjectAnalysisResult | null>(
     null,
   );
@@ -195,8 +156,6 @@ export class SetupWizardStateService {
   private readonly selectedAgentsMapSignal = signal<Record<string, boolean>>(
     {},
   );
-
-  // Fallback Warning + Enhanced Prompts
   private readonly fallbackWarningSignal = signal<string | null>(null);
   private readonly enhancedPromptsStatusSignal =
     signal<EnhancedPromptsWizardStatus>('idle');
@@ -206,8 +165,6 @@ export class SetupWizardStateService {
   );
   private readonly enhancedPromptsSummarySignal =
     signal<EnhancedPromptsSummary | null>(null);
-
-  // Multi-Phase Analysis — 1-based phase counters.
   private readonly _currentPhaseNumber = signal<number | null>(null);
   private readonly _totalPhaseCount = signal<number | null>(null);
   private readonly _phaseStatuses = signal<
@@ -215,26 +172,14 @@ export class SetupWizardStateService {
   >([]);
   private readonly multiPhaseResultSignal =
     signal<MultiPhaseAnalysisResponse | null>(null);
-
-  // Saved Analysis History
   private readonly savedAnalysesSignal = signal<SavedAnalysisMetadata[]>([]);
   private readonly analysisLoadedFromHistorySignal = signal(false);
-
-  // Community Agent Pack
   private readonly communityPacksSignal = signal<AgentPackInfoDto[]>([]);
   private readonly communityPacksLoadingSignal = signal(false);
-  // agentInstallStatus key format: "{source}::{file}".
   private readonly agentInstallStatusSignal = signal<
     Record<string, 'idle' | 'installing' | 'installed' | 'error'>
   >({});
   private readonly expandedPackSourceSignal = signal<string | null>(null);
-
-  // === Public Readonly Projections ===
-  // One-line projections for each writable signal above. Per-field JSDoc is
-  // omitted to keep the coordinator under the LOC ceiling — field names +
-  // their declared types provide sufficient context.
-
-  // Core flow
   public readonly currentStep = this.currentStepSignal.asReadonly();
   public readonly projectContext = this.projectContextSignal.asReadonly();
   public readonly availableAgents = this.availableAgentsSignal.asReadonly();
@@ -252,15 +197,11 @@ export class SetupWizardStateService {
   public readonly analysisResults = this.analysisResultsSignal.asReadonly();
   public readonly completionData = this.completionDataSignal.asReadonly();
   public readonly errorState = this.errorStateSignal.asReadonly();
-
-  // Deep Analysis
   public readonly deepAnalysis = this.deepAnalysisSignal.asReadonly();
   public readonly recommendations = this.recommendationsSignal.asReadonly();
   public readonly skillGenerationProgress =
     this.skillGenerationProgressSignal.asReadonly();
   public readonly selectedAgentsMap = this.selectedAgentsMapSignal.asReadonly();
-
-  // Fallback Warning + Enhanced Prompts
   public readonly fallbackWarning = this.fallbackWarningSignal.asReadonly();
   public readonly enhancedPromptsStatus =
     this.enhancedPromptsStatusSignal.asReadonly();
@@ -270,13 +211,9 @@ export class SetupWizardStateService {
     this.enhancedPromptsDetectedStackSignal.asReadonly();
   public readonly enhancedPromptsSummary =
     this.enhancedPromptsSummarySignal.asReadonly();
-
-  // Saved Analysis History
   public readonly savedAnalyses = this.savedAnalysesSignal.asReadonly();
   public readonly analysisLoadedFromHistory =
     this.analysisLoadedFromHistorySignal.asReadonly();
-
-  // Community Agent Pack
   public readonly communityPacks = this.communityPacksSignal.asReadonly();
   public readonly communityPacksLoading =
     this.communityPacksLoadingSignal.asReadonly();
@@ -284,18 +221,10 @@ export class SetupWizardStateService {
     this.agentInstallStatusSignal.asReadonly();
   public readonly expandedPackSource =
     this.expandedPackSourceSignal.asReadonly();
-
-  // Multi-Phase Analysis
   public readonly currentPhaseNumber = this._currentPhaseNumber.asReadonly();
   public readonly totalPhaseCount = this._totalPhaseCount.asReadonly();
   public readonly phaseStatuses = this._phaseStatuses.asReadonly();
   public readonly multiPhaseResult = this.multiPhaseResultSignal.asReadonly();
-
-  // ============================================================================
-  // HELPER COMPOSITION
-  // ============================================================================
-
-  // Message-handling pipeline helpers
   private readonly phaseAnalysis: WizardPhaseAnalysis;
   private readonly phaseGeneration: WizardPhaseGeneration;
   private readonly messageDispatcher: WizardMessageDispatcher;
@@ -308,21 +237,12 @@ export class SetupWizardStateService {
    * cycle).
    */
   private internalState!: WizardInternalState;
-
-  // State-mutation surface helpers
   private readonly flowState: WizardFlowState;
   private readonly scanState: WizardScanState;
   private readonly analysisState: WizardAnalysisState;
   private readonly generationState: WizardGenerationState;
   private readonly communityPacksState: WizardCommunityPacksState;
-
-  // Derived (computed) signals — see ./setup-wizard/wizard-computeds.ts
   private readonly computeds: WizardComputeds;
-
-  // === Public Computed Signals (delegated to WizardComputeds) ===
-  // Signal IDENTITY is preserved: each delegate exposes the SAME `Signal`
-  // instance constructed inside the helper, so Angular's reactive root tracking
-  // sees a single signal across coordinator + helper.
   public readonly installedCommunityAgentCount: WizardComputeds['installedCommunityAgentCount'];
   public readonly isMultiPhaseAnalysis: WizardComputeds['isMultiPhaseAnalysis'];
   public readonly hasMultiPhaseResult: WizardComputeds['hasMultiPhaseResult'];
@@ -339,7 +259,6 @@ export class SetupWizardStateService {
 
   public constructor() {
     this.internalState = {
-      // Core flow
       projectContext: this.projectContextSignal,
       availableAgents: this.availableAgentsSignal,
       generationProgress: this.generationProgressSignal,
@@ -364,32 +283,22 @@ export class SetupWizardStateService {
           this.currentStepSignal.set('enhance');
         }
       },
-      // Wizard step
       currentStep: this.currentStepSignal,
-      // Deep analysis + recommendations + selection + history
       deepAnalysis: this.deepAnalysisSignal,
       recommendations: this.recommendationsSignal,
       selectedAgentsMap: this.selectedAgentsMapSignal,
       multiPhaseResult: this.multiPhaseResultSignal,
       savedAnalyses: this.savedAnalysesSignal,
       analysisLoadedFromHistory: this.analysisLoadedFromHistorySignal,
-      // Enhanced prompts
       enhancedPromptsStatus: this.enhancedPromptsStatusSignal,
       enhancedPromptsError: this.enhancedPromptsErrorSignal,
       enhancedPromptsDetectedStack: this.enhancedPromptsDetectedStackSignal,
       enhancedPromptsSummary: this.enhancedPromptsSummarySignal,
-      // Community packs
       communityPacks: this.communityPacksSignal,
       communityPacksLoading: this.communityPacksLoadingSignal,
       agentInstallStatus: this.agentInstallStatusSignal,
       expandedPackSource: this.expandedPackSourceSignal,
     };
-
-    // The helpers below route stream events through StreamRouter via the
-    // surface management methods on `this` (registerPhaseSurface /
-    // routePhaseEvent / resetPhaseSurfaces). The state service is passed
-    // as a thin façade so helpers stay loosely coupled to the wider
-    // coordinator surface.
     const surfaceFacade: WizardSurfaceFacade = {
       ensurePhaseSurface: (phaseKey): SurfaceId =>
         this.registerPhaseSurface(phaseKey),
@@ -429,8 +338,6 @@ export class SetupWizardStateService {
       },
       this.errorStateSignal,
     );
-
-    // State-mutation surface helpers
     this.flowState = new WizardFlowState(this.internalState);
     this.scanState = new WizardScanState(this.internalState);
     this.analysisState = new WizardAnalysisState(this.internalState);
@@ -438,8 +345,6 @@ export class SetupWizardStateService {
     this.communityPacksState = new WizardCommunityPacksState(
       this.internalState,
     );
-
-    // Derived signals — delegated 1:1 (same Signal instance)
     this.computeds = new WizardComputeds(this.internalState);
     this.installedCommunityAgentCount =
       this.computeds.installedCommunityAgentCount;
@@ -479,8 +384,6 @@ export class SetupWizardStateService {
     this.isMessageListenerRegistered = true;
   }
 
-  // === Prerequisite-Based Navigation (Persistent Analysis History) ===
-
   /**
    * Check if a step can be jumped to based on prerequisites.
    * Used by the wizard view stepper to enable forward-jumps
@@ -505,11 +408,6 @@ export class SetupWizardStateService {
         return false;
     }
   }
-
-  // === State Mutations (delegated to sub-helpers) ===
-  // Per-method JSDoc lives on the helper classes under ./setup-wizard/.
-  // Coordinator methods are thin 1-line passthroughs; method names + signatures
-  // are preserved byte-identical for the 11 component consumers.
 
   public setCurrentStep(step: WizardStep): void {
     this.flowState.setCurrentStep(step);
@@ -555,22 +453,13 @@ export class SetupWizardStateService {
     this.generationState.reset();
     this.communityPacksState.reset();
     this.phaseGeneration.resetPassState();
-
-    // Direct-set: signals whose owning helper has no reset() method.
     this.scanProgressSignal.set(null);
     this.analysisStreamSignal.set([]);
     this.phaseStreamingStatesSignal.set([]);
     this.generationStreamSignal.set([]);
     this.enhanceStreamSignal.set([]);
-
-    // Tear down all per-phase surface registrations when the wizard
-    // restarts. Each phase's SurfaceId is unbound from its conversation
-    // and removed from the surface adapter registry so the router doesn't
-    // fan stale events to a dead phase entry.
     this.resetPhaseSurfaces();
   }
-
-  // === Community Agent Pack State Mutations ===
 
   public setCommunityPacks(packs: AgentPackInfoDto[]): void {
     this.communityPacksState.setCommunityPacks(packs);
@@ -590,8 +479,6 @@ export class SetupWizardStateService {
   public toggleExpandedPack(source: string): void {
     this.communityPacksState.toggleExpandedPack(source);
   }
-
-  // === Deep Analysis State Mutations ===
 
   public setDeepAnalysis(analysis: ProjectAnalysisResult): void {
     this.analysisState.setDeepAnalysis(analysis);
@@ -617,8 +504,6 @@ export class SetupWizardStateService {
     this.analysisState.deselectAllAgents();
   }
 
-  // === Fallback Warning + Enhanced Prompts ===
-
   public setFallbackWarning(warning: string | null): void {
     this.scanState.setFallbackWarning(warning);
   }
@@ -641,8 +526,6 @@ export class SetupWizardStateService {
     this.scanState.setEnhancedPromptsSummary(summary);
   }
 
-  // === Multi-Phase Result + Saved Analysis History ===
-
   public setMultiPhaseResult(result: MultiPhaseAnalysisResponse): void {
     this.analysisState.setMultiPhaseResult(result);
   }
@@ -654,8 +537,6 @@ export class SetupWizardStateService {
   public loadSavedAnalysis(multiPhase: MultiPhaseAnalysisResponse): void {
     this.analysisState.loadSavedAnalysis(multiPhase);
   }
-
-  // === Skill Generation Progress ===
 
   public setSkillGenerationProgress(
     items: SkillGenerationProgressItem[],
@@ -674,18 +555,6 @@ export class SetupWizardStateService {
     this.generationState.retryGenerationItem(itemId);
   }
 
-  // ===========================================================================
-  // Surface routing.
-  //
-  // Wizard phases (analysis + generation) participate in the canonical chat
-  // streaming pipeline by registering a `SurfaceId` per `phaseKey`. The
-  // SurfaceId is bound to a fresh ConversationId via StreamRouter, and the
-  // accumulator-core mutates a per-phase `StreamingState` slot exposed via
-  // the surface adapter's `getState`/`setState`. After every routed event we
-  // re-emit `phaseStreamingStatesSignal` so consumers re-evaluate the tree
-  // builder against the mutated state.
-  // ===========================================================================
-
   /**
    * Mint (or return existing) SurfaceId for a phase. Idempotent — repeat
    * calls for the same `phaseKey` return the same SurfaceId. Synchronously
@@ -700,37 +569,21 @@ export class SetupWizardStateService {
 
     const surfaceId = SurfaceId.create();
     this._phaseSurfaces.set(phaseKey, surfaceId);
-
-    // Seed the per-phase StreamingState slot. The adapter exposes this same
-    // reference via getState() so the accumulator-core mutates it in place.
     const initialState = createEmptyStreamingState();
     this._phaseStateRefs.set(phaseKey, initialState);
-
-    // Bind to a fresh conversation BEFORE registering the adapter — order
-    // doesn't strictly matter (router methods are independent), but doing
-    // bind-first mirrors the chat path's onTabCreated → first event order.
     this.streamRouter.onSurfaceCreated(surfaceId);
     this.surfaceRegistry.register(
       surfaceId,
       () => {
-        // Always return the live ref. If a phase ever swaps its state object
-        // (compaction_complete), this getter will be replaced via setState
-        // below — but the Map entry tracks the latest reference for any
-        // subsequent getState() call.
         return (
           this._phaseStateRefs.get(phaseKey) ?? createEmptyStreamingState()
         );
       },
       (next) => {
-        // setState fires when the accumulator-core hands back a
-        // `replacementState` (currently only on compaction_complete).
         this._phaseStateRefs.set(phaseKey, next);
         this.nudgePhaseStreamingStates();
       },
     );
-
-    // Surface the new phase entry in the public `phaseStreamingStates`
-    // signal so consumers see the (initially empty) state immediately.
     this.nudgePhaseStreamingStates();
     return surfaceId;
   }
@@ -749,13 +602,8 @@ export class SetupWizardStateService {
   public unregisterPhaseSurface(phaseKey: string): void {
     const surfaceId = this._phaseSurfaces.get(phaseKey);
     if (!surfaceId) return;
-
-    // onSurfaceClosed handles surfaceRegistry.unregister internally;
-    // calling it ourselves first would race residual events into the void.
     this.streamRouter.onSurfaceClosed(surfaceId);
     this._phaseSurfaces.delete(phaseKey);
-    // _phaseStateRefs stays — the analysis-transcript reads completed-phase
-    // states from the signal until the wizard resets.
   }
 
   /** Lookup helper. Returns the SurfaceId for `phaseKey` or null. */
@@ -790,7 +638,6 @@ export class SetupWizardStateService {
     for (const phaseKey of keys) {
       this.unregisterPhaseSurface(phaseKey);
     }
-    // _phaseStateRefs intentionally retained — completed phases stay visible.
   }
 
   /**
@@ -833,8 +680,6 @@ export class SetupWizardStateService {
   public dispose(): void {
     this.messageDispatcher.dispose();
     this.isMessageListenerRegistered = false;
-    // Tear down any lingering surface registrations so subsequent test
-    // instances of the service don't see leaked routing state.
     this.resetPhaseSurfaces();
   }
 }

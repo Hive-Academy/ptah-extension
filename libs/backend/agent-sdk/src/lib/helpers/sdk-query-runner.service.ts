@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SdkQueryRunner â€” unified SDK query invocation primitive.
  *
  * Reconciles the previously-forked one-shot (InternalQueryService) and
@@ -238,7 +238,6 @@ export class SdkQueryRunner {
         try {
           warmQuery.close();
         } catch {
-          // ignore
         }
         sdkQuery = queryFn({
           prompt,

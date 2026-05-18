@@ -9,15 +9,6 @@ export class Result<T, E extends Error = Error> {
   private readonly _value?: T;
   private readonly _error?: E;
   private readonly _isSuccess: boolean;
-
-  // Constructor overloads make the two construction shapes type-safe and
-  // remove the need for an `undefined as never` cast at the `Result.err`
-  // call site. The earlier cast existed only because the previous loose
-  // signature `(isSuccess: boolean, value?: T, error?: E)` required passing
-  // `undefined` for `value` when `T = never`, and ts-jest spec configs (no
-  // `strictNullChecks`) reject `undefined` against `never`. The overloads
-  // express each branch's shape directly; the implementation signature
-  // remains permissive enough to host both bodies.
   private constructor(success: true, value: T);
   private constructor(success: false, value: undefined, error: E);
   private constructor(isSuccess: boolean, value: T | undefined, error?: E) {
@@ -96,7 +87,6 @@ export class Result<T, E extends Error = Error> {
       if (this._error instanceof Error) {
         throw this._error;
       }
-      // This should never happen due to type constraint E extends Error
       throw new Error('Unknown error');
     }
     if (this._value === undefined) {

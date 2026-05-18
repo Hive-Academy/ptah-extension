@@ -52,10 +52,6 @@ export class PtahFileSettingsManager {
    * Cross-process fs.watch() layers on top of these.
    */
   private readonly listeners = new Map<string, Set<(value: unknown) => void>>();
-
-  // ---------------------------------------------------------------------------
-  // Cross-process watcher state
-  // ---------------------------------------------------------------------------
   /** Active FSWatcher, set by enableCrossProcessWatch(). */
   private crossProcessWatcher: FSWatcher | null = null;
   /** Which path surface the active watcher is on. */
@@ -105,12 +101,10 @@ export class PtahFileSettingsManager {
       () => this.persist(),
     );
     await this.writePromise;
-    // Fire listeners after the write resolves.
     this.listeners.get(key)?.forEach((cb) => {
       try {
         cb(value);
       } catch {
-        // Listener errors must not abort other listeners.
       }
     });
   }
@@ -135,7 +129,6 @@ export class PtahFileSettingsManager {
     if (!this.listeners.has(key)) {
       this.listeners.set(key, new Set());
     }
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     this.listeners.get(key)!.add(cb);
     return {
       dispose: () => {
@@ -143,10 +136,6 @@ export class PtahFileSettingsManager {
       },
     };
   }
-
-  // ---------------------------------------------------------------------------
-  // Cross-process reactivity
-  // ---------------------------------------------------------------------------
 
   /**
    * Enable cross-process change detection by watching the settings file with
@@ -173,7 +162,6 @@ export class PtahFileSettingsManager {
    */
   enableCrossProcessWatch(): ISettingsWatchHandle {
     if (this.crossProcessWatchEnabled) {
-      // Already active — return a no-op disposable.
       return { dispose: () => this.disposeCrossProcessWatch() };
     }
     this.crossProcessWatchEnabled = true;
@@ -197,7 +185,6 @@ export class PtahFileSettingsManager {
       try {
         this.crossProcessWatcher.close();
       } catch {
-        // Already closed — ignore.
       }
       this.crossProcessWatcher = null;
     }
@@ -221,7 +208,6 @@ export class PtahFileSettingsManager {
       };
 
       const json = JSON.stringify(output, null, 2);
-      // Distinct tmp path so a concurrent async persist() does not race on the same file.
       const tmpPath = this.filePath + '.flush.tmp';
 
       fs.writeFileSync(tmpPath, json, 'utf-8');
@@ -234,10 +220,6 @@ export class PtahFileSettingsManager {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Cross-process watcher — private implementation
-  // ---------------------------------------------------------------------------
-
   /**
    * Entry point for watcher establishment. Prefers a file-level watcher for
    * precision (no sibling-file noise). Falls back to a directory-level watcher
@@ -245,22 +227,14 @@ export class PtahFileSettingsManager {
    * transitions automatically to a file watcher once settings.json appears.
    */
   private startWatcher(): void {
-    // Tear down any existing watcher before creating a new one.
     this.closeCurrentWatcher();
-
-    // Ensure the ~/.ptah/ directory exists before trying to watch anything.
     try {
       fs.mkdirSync(this.dirPath, { recursive: true });
     } catch {
-      // If we can't create the directory, there's nothing to watch.
     }
-
-    // PREFERRED path: file-watch (narrow surface — no sibling-file noise).
     if (this.tryStartFileWatch()) {
       return;
     }
-
-    // FALLBACK path: directory-watch, used only when the file is absent.
     this.startDirectoryWatchForFile();
   }
 
@@ -290,15 +264,12 @@ export class PtahFileSettingsManager {
 
       this.crossProcessWatcher = watcher;
       this.crossProcessWatchMode = 'file';
-      // Reset retry counter on successful establishment.
       this.watcherRetries = 0;
       return true;
     } catch (err: unknown) {
       if (isNodeError(err) && err.code === 'ENOENT') {
-        // File does not exist yet — fall back to directory watch.
         return false;
       }
-      // Unexpected error — log and report failure.
       console.warn(
         `[PtahFileSettingsManager] fs.watch(file) failed unexpectedly on ${this.filePath}:`,
         err instanceof Error ? err.message : String(err),
@@ -326,16 +297,10 @@ export class PtahFileSettingsManager {
           const name =
             filename instanceof Buffer ? filename.toString() : filename;
           if (name !== settingsFileName) return;
-
-          // settings.json appeared or changed. Try to transition to file-watch.
-          // Close directory watcher first, then attempt file-watch.
           this.closeCurrentWatcher();
           if (!this.tryStartFileWatch()) {
-            // File still not readable — stay on directory watch for next event.
             this.startDirectoryWatchForFile();
           }
-
-          // Also process the change that brought us here.
           this.scheduleDebouncedFlush();
         },
       );
@@ -376,8 +341,6 @@ export class PtahFileSettingsManager {
   private handleFileRename(): void {
     if (this.fileRenameReestablishPending) return;
     this.fileRenameReestablishPending = true;
-
-    // Cancel any existing debounce so we own the next debounce slot.
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
     }
@@ -385,15 +348,10 @@ export class PtahFileSettingsManager {
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
       this.fileRenameReestablishPending = false;
-
-      // Process the change that the rename brought.
       this.processCrossProcessChange();
-
-      // Re-establish the file watcher on the new inode (file is now stable).
       if (this.crossProcessWatchEnabled) {
         this.closeCurrentWatcher();
         if (!this.tryStartFileWatch()) {
-          // File missing after rename — unlikely but fall back to directory watch.
           this.startDirectoryWatchForFile();
         }
       }
@@ -409,7 +367,6 @@ export class PtahFileSettingsManager {
       try {
         this.crossProcessWatcher.close();
       } catch {
-        // Already closed — ignore.
       }
       this.crossProcessWatcher = null;
     }
@@ -473,15 +430,12 @@ export class PtahFileSettingsManager {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       freshSettings = flattenObject(parsed);
     } catch (err: unknown) {
-      // File might be mid-write or deleted — skip this event.
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(
         `[PtahFileSettingsManager] Cross-process read failed for ${this.filePath}: ${msg}`,
       );
       return;
     }
-
-    // Compute the union of all keys in both old and new states.
     const previousSettings = this.settings;
     const allKeys = new Set([
       ...Object.keys(previousSettings),
@@ -498,21 +452,15 @@ export class PtahFileSettingsManager {
     }
 
     if (changedKeys.length === 0) {
-      // No changes — this was our own write echoing back. Do nothing.
       return;
     }
-
-    // Update the cache to reflect the new on-disk state.
     this.settings = freshSettings;
-
-    // Fire listeners for each changed key.
     for (const key of changedKeys) {
       const newVal = freshSettings[key];
       this.listeners.get(key)?.forEach((cb) => {
         try {
           cb(newVal);
         } catch {
-          // Listener errors must not abort other listeners.
         }
       });
     }
@@ -527,15 +475,12 @@ export class PtahFileSettingsManager {
     try {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw);
-      // Flatten the nested JSON structure to dot-notation keys
       this.settings = flattenObject(parsed);
     } catch (error: unknown) {
       if (isNodeError(error) && error.code === 'ENOENT') {
-        // File doesn't exist on first launch — start with empty settings
         this.settings = {};
         return;
       }
-      // JSON parse error or other read error — log warning, start fresh
       console.warn(
         `[PtahFileSettingsManager] Failed to load settings from ${this.filePath}:`,
         error instanceof Error ? error.message : String(error),
@@ -551,10 +496,7 @@ export class PtahFileSettingsManager {
    */
   private async persist(): Promise<void> {
     try {
-      // Ensure directory exists
       await fsPromises.mkdir(this.dirPath, { recursive: true });
-
-      // Build the nested object from flat keys, including schema and version metadata
       const nested = unflattenObject(this.settings);
       const output = {
         $schema: 'https://ptah.live/schemas/settings.json',
@@ -564,13 +506,9 @@ export class PtahFileSettingsManager {
 
       const json = JSON.stringify(output, null, 2);
       const tmpPath = this.filePath + '.tmp';
-
-      // Atomic write: write to temp file, then rename
       await fsPromises.writeFile(tmpPath, json, 'utf-8');
       await fsPromises.rename(tmpPath, this.filePath);
     } catch (error: unknown) {
-      // Swallow persist errors — in-memory cache is authoritative.
-      // Matches VscodeDiskStateStorage convention.
       console.warn(
         `[PtahFileSettingsManager] Failed to persist settings to ${this.filePath}:`,
         error instanceof Error ? error.message : String(error),
@@ -578,10 +516,6 @@ export class PtahFileSettingsManager {
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers: flatten / unflatten
-// ---------------------------------------------------------------------------
 
 /**
  * Flatten a nested object into dot-notation keys.
@@ -600,7 +534,6 @@ function flattenObject(
   const result: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(obj)) {
-    // Skip file metadata keys — not actual settings
     if (prefix === '' && (key === '$schema' || key === 'version')) {
       continue;
     }
@@ -613,7 +546,6 @@ function flattenObject(
         flattenObject(value as Record<string, unknown>, flatKey),
       );
     } else {
-      // Leaf value: primitive, array, or null
       result[flatKey] = value;
     }
   }
@@ -695,8 +627,6 @@ function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
   if (typeof a !== typeof b) return false;
-  // For objects and arrays, use JSON serialization as a fast structural check.
-  // This is correct because settings round-trip through JSON.stringify/parse.
   if (typeof a === 'object') {
     try {
       return JSON.stringify(a) === JSON.stringify(b);

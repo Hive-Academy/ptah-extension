@@ -32,10 +32,6 @@ import {
   type WorktreeCreatedData,
 } from '@ptah-extension/cli-agent-runtime';
 import { ChatRpcHandlers } from '@ptah-extension/rpc-handlers';
-
-// Electron-specific handler classes.
-// GitRpcHandlers and WorkspaceRpcHandlers live in shared rpc-handlers
-// (registered + dispatched via SHARED_HANDLERS).
 import {
   EditorRpcHandlers,
   FileRpcHandlers,
@@ -92,12 +88,7 @@ export class ElectronRpcMethodRegistrationService {
    * handlers register supplementary/override methods.
    */
   registerAll(): void {
-    // Wire the six extracted harness services BEFORE
-    // `registerAllRpcHandlers` resolves `HarnessRpcHandlers`.
     registerHarnessServices(container);
-
-    // Wire the four extracted chat services BEFORE
-    // `registerAllRpcHandlers` resolves `ChatRpcHandlers`.
     registerChatServices(container);
 
     registerAllRpcHandlers(container);

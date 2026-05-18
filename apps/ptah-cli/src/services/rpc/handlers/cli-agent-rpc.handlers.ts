@@ -96,11 +96,6 @@ export class CliAgentRpcHandlers {
     this.registerPermissionResponse();
     this.registerAgentStop();
     this.registerResumeCliSession();
-
-    // Initialize Copilot auto-approve from saved config (default: true).
-    // Read via workspace provider so file-based key routes to ~/.ptah/settings.json
-    // — parity with Electron AgentRpcHandlers and the gate in
-    // agent-process-manager.service.ts.
     const copilotAutoApprove = this.getAgentCfg<boolean>(
       'copilotAutoApprove',
       true,
@@ -138,9 +133,6 @@ export class CliAgentRpcHandlers {
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            // agentOrchestration.* settings are read via IWorkspaceProvider so
-            // file-based keys route to ~/.ptah/settings.json — parity with the
-            // Electron handler and the gate in agent-process-manager.service.ts.
             preferredAgentOrder: this.getAgentCfg<string[]>(
               'preferredAgentOrder',
               [],
@@ -168,8 +160,6 @@ export class CliAgentRpcHandlers {
               'copilotReasoningEffort',
               '',
             ),
-            // mcpPort lives under the `ptah` namespace (non-file-based);
-            // intentionally kept on stateStorage for parity with Electron.
             mcpPort:
               this.stateStorage.get<number>(
                 'agentOrchestration.mcpPort',
@@ -260,8 +250,6 @@ export class CliAgentRpcHandlers {
           );
         }
         if (params.mcpPort !== undefined) {
-          // mcpPort lives under `ptah` (not agentOrchestration) — kept on
-          // stateStorage to match Electron.
           await this.stateStorage.update(
             'agentOrchestration.mcpPort',
             Math.max(1024, Math.min(65535, params.mcpPort)),
@@ -276,8 +264,6 @@ export class CliAgentRpcHandlers {
             params.disabledMcpNamespaces,
           );
         }
-        // Browser settings — write via workspace provider (FILE_BASED_SETTINGS_KEYS routes
-        // through PtahFileSettingsManager → ~/.ptah/settings.json).
         if (params.browserAllowLocalhost !== undefined) {
           await this.workspace.setConfiguration(
             'ptah',
@@ -665,11 +651,9 @@ export class CliAgentRpcHandlers {
           await fs.access(sessionFile);
           return true;
         } catch {
-          // JSONL file not found
         }
       }
     } catch {
-      // Projects dir doesn't exist
     }
 
     return false;

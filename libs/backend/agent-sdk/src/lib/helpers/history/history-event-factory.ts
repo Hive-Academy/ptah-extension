@@ -51,9 +51,6 @@ export interface MessageUsageData {
  */
 @injectable()
 export class HistoryEventFactory {
-  // ==========================================================================
-  // MESSAGE EVENTS
-  // ==========================================================================
 
   /**
    * Create a message_start event
@@ -110,16 +107,11 @@ export class HistoryEventFactory {
       messageId,
       timestamp,
       source: 'history',
-      // Include usage data for per-message stats display
       ...(usageData?.tokenUsage && { tokenUsage: usageData.tokenUsage }),
       ...(usageData?.cost !== undefined && { cost: usageData.cost }),
       ...(usageData?.model && { model: usageData.model }),
     };
   }
-
-  // ==========================================================================
-  // CONTENT DELTA EVENTS
-  // ==========================================================================
 
   /**
    * Create a text_delta event
@@ -182,10 +174,6 @@ export class HistoryEventFactory {
       source: 'history',
     };
   }
-
-  // ==========================================================================
-  // TOOL EVENTS
-  // ==========================================================================
 
   /**
    * Create a tool_start event
@@ -256,10 +244,6 @@ export class HistoryEventFactory {
     };
   }
 
-  // ==========================================================================
-  // AGENT EVENTS
-  // ==========================================================================
-
   /**
    * Create an agent_start event for Task tool spawning
    *
@@ -307,10 +291,6 @@ export class HistoryEventFactory {
       source: 'history',
     };
   }
-
-  // ==========================================================================
-  // AGENT-SCOPED EVENTS (for nested agent messages)
-  // ==========================================================================
 
   /**
    * Create a message_start event for agent-scoped messages.
@@ -480,16 +460,11 @@ export class HistoryEventFactory {
       parentToolUseId,
       timestamp,
       source: 'history',
-      // Include usage data for per-message stats display
       ...(usageData?.tokenUsage && { tokenUsage: usageData.tokenUsage }),
       ...(usageData?.cost !== undefined && { cost: usageData.cost }),
       ...(usageData?.model && { model: usageData.model }),
     };
   }
-
-  // ==========================================================================
-  // UTILITIES
-  // ==========================================================================
 
   /**
    * Generate a unique message ID

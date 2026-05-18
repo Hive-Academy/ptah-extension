@@ -50,7 +50,6 @@ function writeFallback500(
       response.end();
     }
   } catch {
-    // Response already destroyed — nothing else we can do.
   }
 }
 
@@ -61,7 +60,6 @@ export class CliHttpServerProvider implements IHttpServerProvider {
     handler: HttpServerRequestHandler,
   ): Promise<IHttpServerHandle> {
     const server = http.createServer((req, res) => {
-      // Wrap user handler so a thrown error never reaches the listener loop.
       Promise.resolve()
         .then(() => handler(req, res))
         .catch((err) => {
@@ -69,8 +67,6 @@ export class CliHttpServerProvider implements IHttpServerProvider {
           writeFallback500(res, message);
         });
     });
-
-    // Bind and resolve once the server is listening — or reject on bind failure.
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error): void => {
         server.removeListener('listening', onListening);
@@ -95,12 +91,7 @@ export class CliHttpServerProvider implements IHttpServerProvider {
     const close = (): Promise<void> => {
       if (closing) return closing;
       closing = new Promise<void>((resolve) => {
-        // `server.close()` only stops accepting new connections; existing
-        // keep-alive sockets stay open. Force-close idle sockets so we don't
-        // hang the process on shutdown.
         server.close(() => resolve());
-        // Best-effort: close idle sockets immediately. Node 18.2+ ships
-        // closeIdleConnections / closeAllConnections — guard for older runtimes.
         const maybeCloseIdle = (
           server as unknown as { closeIdleConnections?: () => void }
         ).closeIdleConnections;

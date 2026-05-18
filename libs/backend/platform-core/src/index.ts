@@ -1,4 +1,3 @@
-// Types
 export type {
   IDisposable,
   IEvent,
@@ -17,8 +16,6 @@ export type {
 } from './types/platform.types';
 
 export { FileType, PlatformType } from './types/platform.types';
-
-// Interfaces
 export type { IFileSystemProvider } from './interfaces/file-system-provider.interface';
 export type { IStateStorage } from './interfaces/state-storage.interface';
 export type { ISecretStorage } from './interfaces/secret-storage.interface';
@@ -41,22 +38,14 @@ export type {
   HttpServerRequestHandler,
 } from './interfaces/http-server-provider.interface';
 export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
-
-// Platform abstractions
 export type {
   IPlatformCommands,
   IPlatformAuthProvider,
   ISaveDialogProvider,
   IModelDiscovery,
 } from './interfaces/platform-abstractions.interface';
-
-// DI Tokens
 export { PLATFORM_TOKENS } from './di';
-
-// Utilities
 export { createEvent } from './utils/event-emitter';
-
-// File-Based Settings
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
 export {
@@ -64,21 +53,15 @@ export {
   FILE_BASED_SETTINGS_DEFAULTS,
   isFileBasedSettingKey,
 } from './file-settings-keys';
-
-// Content Download
 export { ContentDownloadService } from './content-download.service';
 export type {
   ContentDownloadResult,
   ContentProgressCallback,
 } from './content-download.service';
-
-// Agent Pack Download
 export { AgentPackDownloadService } from './agent-pack-download.service';
 export type {
   AgentPackInfo,
   AgentPackEntry,
   AgentPackDownloadResult,
 } from './agent-pack-download.service';
-
-// Settings auth key resolution helper
 export { resolveAuthProviderKey } from './settings-auth-key';

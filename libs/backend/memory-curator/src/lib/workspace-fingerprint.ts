@@ -32,7 +32,6 @@ export async function deriveWorkspaceFingerprint(
   workspaceRoot: string,
   fs: IFileSystemProvider,
 ): Promise<FingerprintResult> {
-  // 1. Git: read .git/config + HEAD
   try {
     const cfg = await safeReadText(fs, join(workspaceRoot, '.git', 'config'));
     if (cfg) {
@@ -71,8 +70,6 @@ export async function deriveWorkspaceFingerprint(
   } catch {
     /* fall through to package.json */
   }
-
-  // 2. package.json
   try {
     const pkgRaw = await safeReadText(fs, join(workspaceRoot, 'package.json'));
     if (pkgRaw) {
@@ -92,8 +89,6 @@ export async function deriveWorkspaceFingerprint(
   } catch {
     /* fall through to path */
   }
-
-  // 3. Path fallback — does NOT survive moves; caller should log a warning.
   return { fp: HEX16(`path:${workspaceRoot}`), source: 'path' };
 }
 

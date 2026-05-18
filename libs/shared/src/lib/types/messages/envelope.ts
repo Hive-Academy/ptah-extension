@@ -12,11 +12,7 @@ import type {
 } from '../content-block.types';
 
 import type { MessagePayloadMap } from './payload-map';
-
-// Re-export for convenience
 export { CorrelationId };
-
-// Re-export ContentBlock types from foundation layer
 export type {
   ContentBlock,
   TextContentBlock,

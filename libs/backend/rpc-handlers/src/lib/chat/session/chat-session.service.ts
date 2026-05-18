@@ -115,8 +115,6 @@ export class ChatSessionService {
   async startSession(params: ChatStartParams): Promise<ChatStartResult> {
     try {
       const { prompt, tabId, options, name } = params;
-      // Workspace path: frontend-provided value, then IWorkspaceProvider.
-      // Never process.cwd() — that returns the app installation directory.
       const workspacePath =
         params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!workspacePath) {
@@ -141,13 +139,7 @@ export class ChatSessionService {
         sessionName: name,
         ptahCliId: params.ptahCliId,
       });
-
-      // Ptah CLI dispatch
       if (params.ptahCliId) {
-        // Forward the resolved workspacePath so the Ptah CLI adapter uses
-        // the actual workspace as cwd instead of falling back to homedir
-        // when the frontend omitted workspacePath (e.g. workspace:getInfo
-        // hadn't resolved yet).
         const dispatch = await this.ptahCli.handleStart({
           ...params,
           workspacePath,
@@ -163,8 +155,6 @@ export class ChatSessionService {
         }
         return dispatch.result;
       }
-
-      // Intercept native slash commands on initial message
       const interceptResult = prompt
         ? this.slashCommandInterceptor.intercept(prompt)
         : { action: 'passthrough' as const };
@@ -175,7 +165,6 @@ export class ChatSessionService {
         });
 
         if (interceptResult.commandName === 'clear') {
-          // /clear as first message = no-op (fresh session anyway)
           await this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.CHAT_COMPLETE,
             {
@@ -186,15 +175,11 @@ export class ChatSessionService {
           );
           return { success: true };
         }
-
-        // Other native commands — no-op on fresh session
         this.logger.warn('[RPC] chat:start - unrecognized native command', {
           command: interceptResult.commandName,
         });
         return { success: true };
       }
-
-      // License + MCP gating; enhanced prompts + plugin paths
       const licenseStatus = await this.licenseService.verifyLicense();
       const isPremium = isPremiumTier(licenseStatus);
       const mcpServerRunning = this.premiumContext.isMcpServerRunning();
@@ -227,8 +212,6 @@ export class ChatSessionService {
         options?.model ||
         this.modelSettings.selectedModel.get() ||
         DEFAULT_FALLBACK_MODEL_ID;
-
-      // tabId is the primary tracking key; SDK generates real UUID
       const files = options?.files ?? [];
       if (files.length > 0) {
         this.logger.debug('RPC: chat:start received files', {
@@ -237,8 +220,6 @@ export class ChatSessionService {
           files,
         });
       }
-
-      // SDK handles slash commands natively when receiving string prompts
       const images = options?.images ?? [];
       const stream = await this.sdkAdapter.startChatSession({
         tabId,
@@ -256,18 +237,9 @@ export class ChatSessionService {
         pluginPaths,
         thinking: options?.thinking,
         effort: options?.effort,
-        // Opt-in passthrough for SDK partial-message stream events. When
-        // omitted, the SDK plumbing defaults to ON (preserves historical
-        // Ptah behavior — StreamTransformer already consumes stream_event).
         includePartialMessages: options?.includePartialMessages,
-        // Caller-supplied MCP HTTP server overrides
-        // (populated by the Anthropic-compatible HTTP proxy via the
-        // X-Ptah-Mcp-Servers header). Identity-preserved when undefined or
-        // empty — see SdkQueryOptionsBuilder.mergeMcpOverride.
         mcpServersOverride: params.mcpServersOverride,
       });
-
-      // Stream ExecutionNodes to webview (background — don't await)
       this.streamBroadcaster.streamEventsToWebview(
         tabId as SessionId,
         stream,
@@ -297,7 +269,6 @@ export class ChatSessionService {
   ): Promise<ChatContinueResult> {
     try {
       const { prompt, sessionId, tabId, name } = params;
-      // Workspace path mirrors chat:start resolution.
       const workspacePath =
         params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!workspacePath) {
@@ -321,24 +292,16 @@ export class ChatSessionService {
         tabId,
         sessionName: name,
       });
-
-      // Check if this is a Ptah CLI session
       const ptahCliResult = await this.ptahCli.handleContinue(params);
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-
-      // Ensure MCP server is registered in .mcp.json for subagent discovery (premium only)
-      // Must run outside the resume block — active sessions also spawn subagents
       if (this.premiumContext.isMcpServerRunning()) {
         const licenseCheck = await this.licenseService.verifyLicense();
         if (isPremiumTier(licenseCheck)) {
           this.codeExecutionMcp.ensureRegisteredForSubagents();
         }
       }
-
-      // Auto-resume if inactive — caller proceeds with sendMessageToSession on
-      // success; bails with the structured error on failure.
       const resumeOutcome = await this.autoResumeIfInactive(
         sessionId,
         tabId,
@@ -358,10 +321,6 @@ export class ChatSessionService {
           files,
         });
       }
-
-      // Intercept slash commands BEFORE subagent context injection.
-      // Subagent injection mutates the registry; running it for a slash command
-      // (whose enhanced prompt is discarded) would lose interrupted-agent state.
       const slashResult =
         await this.slashCommandRouter.routeFollowUpSlashCommand(
           prompt,
@@ -373,18 +332,12 @@ export class ChatSessionService {
       if (slashResult) {
         return slashResult;
       }
-
-      // Inject interrupted-subagent context so Claude auto-resumes.
       const { prompt: enhancedPrompt } =
         await this.subagentContextInjector.injectInterruptedAgentsContext(
           prompt,
           sessionId,
           workspacePath,
         );
-
-      // Autopilot stop-intent: yolo/auto-edit auto-approves tool calls, so a
-      // "stop"/"cancel" message must explicitly interrupt the current turn.
-      // Skip when we just resumed (no active turn to stop).
       if (!justResumed && hasStopIntent(prompt)) {
         const autopilotEnabled = this.configManager.getWithDefault<boolean>(
           'autopilot.enabled',
@@ -405,9 +358,6 @@ export class ChatSessionService {
           await this.sdkAdapter.interruptCurrentTurn(sessionId);
         }
       }
-
-      // Even after an interrupt, send the message: the new turn lets the agent
-      // acknowledge the user's "stop" instead of leaving the session ambiguous.
       const images = params.images ?? [];
       await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
         files,
@@ -462,8 +412,6 @@ export class ChatSessionService {
         usedFallback: !params.workspacePath,
         ptahCliId: params.ptahCliId,
       });
-
-      // Track Ptah CLI session for subsequent chat:continue/abort
       if (params.ptahCliId) {
         this.ptahCli.registerResumedSession(
           sessionId as string,
@@ -471,8 +419,6 @@ export class ChatSessionService {
           params.tabId,
         );
       }
-
-      // Full FlatStreamEventUnion[] for tree reconstruction
       const result = await this.historyReader.readSessionHistory(
         sessionId,
         resolvedWorkspacePath,
@@ -484,9 +430,6 @@ export class ChatSessionService {
         sessionId,
         resolvedWorkspacePath,
       );
-
-      // Register interrupted agents from history so context
-      // injection can fire on cold-loaded sessions (live SDK hooks haven't run).
       const registeredFromHistory =
         this.subagentRegistry.registerFromHistoryEvents(events, sessionId);
 
@@ -496,12 +439,8 @@ export class ChatSessionService {
           registeredCount: registeredFromHistory,
         });
       }
-
-      // Frontend marks resumable agent nodes
       const resumableSubagents =
         this.subagentRegistry.getResumableBySession(sessionId);
-
-      // Query CLI sessions from session metadata
       let cliSessions: CliSessionReference[] | undefined;
       try {
         const metadata = await this.sessionMetadataStore.get(sessionId);
@@ -528,17 +467,6 @@ export class ChatSessionService {
         resumableSubagentCount: resumableSubagents.length,
         cliSessionCount: cliSessions?.length ?? 0,
       });
-
-      // Activate live SDK Query if requested and not already active.
-      // Without activate:true, chat:resume is history-load only and does NOT
-      // start an SDK Query — that is the correct default for normal session loads.
-      // The resume-and-retry rewind path sets activate:true to ensure
-      // rewindFiles finds a live Query in SessionLifecycleManager.
-      //
-      // resumeSessionAt forces the activation path even when the session is
-      // already active — the adapter ends the existing Query and restarts
-      // with the truncation option applied. Without this bypass, the SDK
-      // would silently reuse the in-flight Query and ignore the truncation.
       let activated = false;
       const wantsTruncation = typeof params.resumeSessionAt === 'string';
       if (params.activate === true && params.tabId) {
@@ -592,8 +520,6 @@ export class ChatSessionService {
     try {
       const { sessionId } = params;
       this.logger.debug('RPC: chat:abort called', { sessionId });
-
-      // Ptah CLI sessions take a separate abort path
       const customAbortResult = await this.ptahCli.handleAbort(params);
       if (customAbortResult.error !== '__NOT_PTAH_CLI__') {
         return customAbortResult;
@@ -696,10 +622,6 @@ export class ChatSessionService {
     params: ChatContinueParams,
     resumeSessionAt?: string,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
-    // When resumeSessionAt is set, fall through to resumeSession even if the
-    // session is currently active — the adapter ends + restarts with the new
-    // truncation option. Returning justResumed:false here would leave the
-    // transcript untouched.
     if (!resumeSessionAt && this.sdkAdapter.isSessionActive(sessionId)) {
       return { justResumed: false };
     }

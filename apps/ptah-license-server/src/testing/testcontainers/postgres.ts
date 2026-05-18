@@ -88,7 +88,6 @@ export async function startPostgresContainer(
     GenericContainer: new (image: string) => unknown;
   };
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     testcontainers = require('testcontainers') as {
       GenericContainer: new (image: string) => unknown;
     };
@@ -99,8 +98,6 @@ export async function startPostgresContainer(
         `Original error: ${(err as Error).message}`,
     );
   }
-
-  // We bind late to avoid typing the whole testcontainers surface.
   interface TcContainer {
     withEnvironment(env: Record<string, string>): TcContainer;
     withExposedPorts(port: number): TcContainer;
@@ -131,8 +128,6 @@ export async function startPostgresContainer(
   const host = started.getHost();
   const port = started.getMappedPort(5432);
   const connectionString = `postgresql://${username}:${password}@${host}:${port}/${databaseName}?schema=public`;
-
-  // Run Prisma migrations against the fresh DB.
   if (!options.skipMigrations) {
     const schemaPath =
       options.schemaPath ??
@@ -149,9 +144,6 @@ export async function startPostgresContainer(
       );
     }
   }
-
-  // Lazy prisma client — require it dynamically so the file doesn't
-  // tie this helper's type graph to generated Prisma output.
   let prismaClient: unknown = null;
   let stopped = false;
 
@@ -179,7 +171,6 @@ export async function startPostgresContainer(
     get prisma(): unknown {
       if (prismaClient) return prismaClient;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { PrismaClient } =
           require('../../generated-prisma-client/client') as {
             PrismaClient: new (options: unknown) => unknown;

@@ -81,21 +81,16 @@ export class PopoverComponent implements OnDestroy {
 
   readonly popoverContent =
     viewChild<ElementRef<HTMLElement>>('popoverContent');
-
-  // Inputs
   readonly isOpen = input.required<boolean>();
   readonly position = input<'above' | 'below' | 'before' | 'after'>('below');
   readonly positions = input<ConnectedPosition[]>(); // Custom positions override
   readonly hasBackdrop = input(true);
   readonly backdropClass = input('cdk-overlay-transparent-backdrop');
-
-  // Outputs
   readonly opened = output<void>();
   readonly closed = output<void>();
   readonly backdropClicked = output<void>();
 
   ngOnDestroy(): void {
-    // Clean up focus trap if component destroyed while popover is open
     if (this.focusTrap) {
       this.focusTrap.destroy();
       this.focusTrap = null;
@@ -108,13 +103,10 @@ export class PopoverComponent implements OnDestroy {
    * Defaults to 'below' position if invalid position provided and no custom positions.
    */
   getPositions(): ConnectedPosition[] {
-    // Use custom positions if provided
     const customPositions = this.positions();
     if (customPositions && customPositions.length > 0) {
       return customPositions;
     }
-
-    // Otherwise use position map
     const position = this.position();
     return POPOVER_POSITION_MAP[position] || POPOVER_POSITION_MAP['below'];
   }
@@ -124,7 +116,6 @@ export class PopoverComponent implements OnDestroy {
    * Called automatically when cdkConnectedOverlay opens.
    */
   handleAttach(): void {
-    // Create focus trap when popover opens
     const content = this.popoverContent();
     if (content) {
       this.focusTrap = this.focusTrapFactory.create(content.nativeElement);
@@ -138,8 +129,6 @@ export class PopoverComponent implements OnDestroy {
    * Called automatically when cdkConnectedOverlay closes.
    */
   handleDetach(): void {
-    // Destroy focus trap when popover closes
-    // Focus automatically returns to trigger element via CDK
     this.focusTrap?.destroy();
     this.focusTrap = null;
     this.closed.emit();

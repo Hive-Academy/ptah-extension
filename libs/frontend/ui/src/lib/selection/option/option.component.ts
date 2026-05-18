@@ -56,12 +56,8 @@ import { Highlightable } from '@angular/cdk/a11y';
 export class OptionComponent<T = unknown> implements Highlightable {
   private readonly elementRef = inject(ElementRef);
   private readonly cdr = inject(ChangeDetectorRef);
-
-  // Inputs
   readonly optionId = input.required<string>();
   readonly value = input.required<T>();
-
-  // Outputs
   readonly selected = output<T>();
   readonly hovered = output<void>();
 
@@ -78,7 +74,6 @@ export class OptionComponent<T = unknown> implements Highlightable {
   readonly isActive = signal(false);
 
   constructor() {
-    // Validate optionId is non-empty
     effect(() => {
       const id = this.optionId();
       if (!id || id.trim().length === 0) {
@@ -96,7 +91,6 @@ export class OptionComponent<T = unknown> implements Highlightable {
   setActiveStyles(): void {
     this.isActive.set(true);
     this.cdr.markForCheck();
-    // Scroll into view when activated via keyboard
     this.elementRef.nativeElement.scrollIntoView({
       block: 'nearest',
       behavior: 'smooth',

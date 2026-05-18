@@ -23,28 +23,19 @@
  * @see libs/backend/vscode-core/src/di/tokens.ts for canonical convention reference
  */
 export const SDK_TOKENS = {
-  // Core services
   SDK_AGENT_ADAPTER: Symbol.for('SdkAgentAdapter'),
   SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),
   SDK_SESSION_IMPORTER: Symbol.for('SdkSessionImporter'),
   SDK_SESSION_HISTORY_READER: Symbol.for('SdkSessionHistoryReader'),
   SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
   SDK_MESSAGE_TRANSFORMER: Symbol.for('SdkMessageTransformer'),
-
-  // Helper services
   SDK_SESSION_LIFECYCLE_MANAGER: Symbol.for('SdkSessionLifecycleManager'),
   SDK_CONFIG_WATCHER: Symbol.for('SdkConfigWatcher'),
   SDK_STREAM_TRANSFORMER: Symbol.for('SdkStreamTransformer'),
   SDK_CLI_DETECTOR: Symbol.for('SdkCliDetector'),
   SDK_ATTACHMENT_PROCESSOR: Symbol.for('SdkAttachmentProcessor'),
-
-  // Subagent hook handler
   SDK_SUBAGENT_HOOK_HANDLER: Symbol.for('SdkSubagentHookHandler'),
-
-  // Compaction configuration provider
   SDK_COMPACTION_CONFIG_PROVIDER: Symbol.for('SdkCompactionConfigProvider'),
-
-  // Compaction hook handler
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
@@ -52,11 +43,7 @@ export const SDK_TOKENS = {
   SDK_SESSION_END_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionEndCallbackRegistry',
   ),
-
-  // Worktree hook handler
   SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
-
-  // Extracted services
   SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
   SDK_QUERY_RUNNER: Symbol.for('SdkQueryRunner'),

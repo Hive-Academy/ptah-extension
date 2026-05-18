@@ -35,46 +35,34 @@ export class FrameworkDetectorService {
     workspacePath: string,
     projectType: ProjectType,
   ): Promise<Framework | undefined> {
-    // Only detect frameworks for relevant project types
     if (projectType === ProjectType.General) {
       return undefined;
     }
 
     try {
-      // Check for framework-specific config files first (most reliable)
       const frameworkFromConfig =
         await this.detectFromConfigFiles(workspacePath);
       if (frameworkFromConfig) {
         return frameworkFromConfig;
       }
-
-      // Fall back to package.json dependency analysis
       if (
         projectType === ProjectType.Node ||
         projectType === ProjectType.React
       ) {
         return await this.detectFromPackageJson(workspacePath);
       }
-
-      // Python framework detection
       if (projectType === ProjectType.Python) {
         return await this.detectPythonFramework(workspacePath);
       }
-
-      // PHP framework detection
       if (projectType === ProjectType.PHP) {
         return await this.detectPHPFramework(workspacePath);
       }
-
-      // Ruby framework detection
       if (projectType === ProjectType.Ruby) {
         return await this.detectRubyFramework(workspacePath);
       }
 
       return undefined;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_error) {
-      // Graceful error handling - return undefined instead of crashing
       return undefined;
     }
   }
@@ -130,8 +118,6 @@ export class FrameworkDetectorService {
         ...packageJson.dependencies,
         ...packageJson.devDependencies,
       };
-
-      // Check for frameworks in order of specificity (most specific first)
       if (allDeps['next']) {
         return Framework.NextJS;
       }
@@ -157,9 +143,7 @@ export class FrameworkDetectorService {
       }
 
       return undefined;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_error) {
-      // JSON parse error or file read error - return undefined
       return undefined;
     }
   }
@@ -170,15 +154,12 @@ export class FrameworkDetectorService {
   private async detectPythonFramework(
     workspacePath: string,
   ): Promise<Framework | undefined> {
-    // Check for Django-specific files
     const manageExists = await this.fileSystem.exists(
       path.join(workspacePath, 'manage.py'),
     );
     if (manageExists) {
       return Framework.Django;
     }
-
-    // Check requirements.txt for framework dependencies
     const requirementsPath = path.join(workspacePath, 'requirements.txt');
     const requirementsExist = await this.fileSystem.exists(requirementsPath);
 
@@ -190,9 +171,7 @@ export class FrameworkDetectorService {
         if (lowerContent.includes('django')) {
           return Framework.Django;
         }
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (_error) {
-        // Ignore read errors
       }
     }
 
@@ -205,15 +184,12 @@ export class FrameworkDetectorService {
   private async detectPHPFramework(
     workspacePath: string,
   ): Promise<Framework | undefined> {
-    // Check for Laravel-specific files
     const artisanExists = await this.fileSystem.exists(
       path.join(workspacePath, 'artisan'),
     );
     if (artisanExists) {
       return Framework.Laravel;
     }
-
-    // Check composer.json
     const composerPath = path.join(workspacePath, 'composer.json');
     const composerExists = await this.fileSystem.exists(composerPath);
 
@@ -227,9 +203,7 @@ export class FrameworkDetectorService {
         if (composer.require && composer.require['laravel/framework']) {
           return Framework.Laravel;
         }
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (_error) {
-        // Ignore parse errors
       }
     }
 
@@ -242,15 +216,12 @@ export class FrameworkDetectorService {
   private async detectRubyFramework(
     workspacePath: string,
   ): Promise<Framework | undefined> {
-    // Check for Rails-specific files
     const railsAppExists = await this.fileSystem.exists(
       path.join(workspacePath, 'config', 'application.rb'),
     );
     if (railsAppExists) {
       return Framework.Rails;
     }
-
-    // Check Gemfile
     const gemfilePath = path.join(workspacePath, 'Gemfile');
     const gemfileExists = await this.fileSystem.exists(gemfilePath);
 
@@ -260,9 +231,7 @@ export class FrameworkDetectorService {
         if (content.includes('rails')) {
           return Framework.Rails;
         }
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (_error) {
-        // Ignore read errors
       }
     }
 

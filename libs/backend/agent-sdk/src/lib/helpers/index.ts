@@ -41,17 +41,13 @@ export {
   type CompactionStartCallback,
   isPreCompactHook,
 } from './compaction-hook-handler';
-// Compaction callback registry
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
-// Session end callback registry
 export {
   SessionEndCallbackRegistry,
   type SessionEndCallback,
   type SessionEndPayload,
 } from './session-end-callback-registry';
-// Live usage tracker
 export { LiveUsageTracker } from './live-usage-tracker';
-// Worktree hook handler
 export {
   WorktreeHookHandler,
   type WorktreeCreatedCallback,
@@ -73,7 +69,6 @@ export {
   type QueryConfig,
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
-// SDK Query Runner — unified one-shot + interactive SDK invocation primitive
 export {
   SdkQueryRunner,
   type OneShotRunInput,
@@ -81,9 +76,7 @@ export {
   type InteractiveRunInput,
   type InteractiveRunResult,
 } from './sdk-query-runner.service';
-// Memory prompt injector
 export { MemoryPromptInjector } from './memory-prompt-injector';
-// Curator LLM adapter (moved from memory-curator to break circular dependency)
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
 export {
   SdkModelService,
@@ -94,46 +87,32 @@ export {
   type ModelTier,
   type EnvMappedTier,
 } from './sdk-model-service';
-// Slash command interceptor
 export {
   SlashCommandInterceptor,
   type SlashCommandResult,
 } from './slash-command-interceptor';
-// History module
 export * from './history';
-
-// Plugin loader
 export { PluginLoaderService } from './plugin-loader.service';
-
-// Plugin skill discovery
 export {
   discoverPluginSkills,
   formatSkillsForPrompt,
   type PluginSkillInfo,
 } from './plugin-skill-discovery';
-
-// Skill junction management
 export {
   SkillJunctionService,
   type SkillJunctionActivateOptions,
   type SkillJunctionResult,
 } from './skill-junction.service';
-
-// Warm-query manager (extracted from sdk-agent-adapter)
 export {
   SdkWarmQueryManager,
   type WarmQueryHandle,
   type WarmPrewarmFingerprint,
 } from './sdk-warm-query-manager';
-
-// Session fork/rewind service (extracted from sdk-agent-adapter)
 export {
   SessionForkService,
   type ForkSessionParams,
   type RewindFilesParams,
 } from './session-fork.service';
-
-// Adapter callback registry (extracted from sdk-agent-adapter; plain TS, not @injectable)
 export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
 
 export { SdkRuntimeStateService } from './sdk-runtime-state.service';

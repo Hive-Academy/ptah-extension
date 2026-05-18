@@ -1,4 +1,3 @@
-// VS Code Webview API declarations
 declare function acquireVsCodeApi(): {
   postMessage(message: any): void;
   getState(): any;

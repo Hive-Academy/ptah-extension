@@ -106,7 +106,6 @@ export class JobRunner {
     scheduledFor: number,
     opts: JobRunnerRunOptions = {},
   ): Promise<void> {
-    // ── 1. Try to claim the slot. UNIQUE collision = another runner has it. ──
     let runId: RunId;
     try {
       const claimed = this.runs.tryClaim(job.id, scheduledFor);
@@ -126,8 +125,6 @@ export class JobRunner {
       });
       return;
     }
-
-    // ── 2. Concurrency gate. Persist skipped rows for visibility. ──
     if (this.inFlight >= this.maxConcurrent) {
       this.runs.markSkipped(runId, 'concurrency-limit');
       this.logger.warn('[cron-scheduler] skipped: concurrency cap reached', {
@@ -137,8 +134,6 @@ export class JobRunner {
       });
       return;
     }
-
-    // ── 3. Wire abort: caller signal OR our own controller. ──
     const localCtl = new AbortController();
     const onCallerAbort = (): void => localCtl.abort();
     if (opts.signal) {
@@ -185,10 +180,6 @@ export class JobRunner {
       }
     }
   }
-
-  // ────────────────────────────────────────────────────────────────────────
-  // Dispatch
-  // ────────────────────────────────────────────────────────────────────────
   private async dispatch(
     job: ScheduledJob,
     scheduledFor: number,
@@ -205,12 +196,8 @@ export class JobRunner {
       }
       return handler({ job, scheduledFor, signal: ctl.signal });
     }
-
-    // Prompt path: forward to SDK_INTERNAL_QUERY_SERVICE.
     const handle = await this.internalQuery.execute({
       cwd: job.workspaceRoot ?? process.cwd(),
-      // The scheduler does not pin a model — InternalQueryService resolves
-      // the active model via SdkModelService when given an empty string.
       model: '',
       prompt: job.prompt,
       isPremium: false,
@@ -222,8 +209,6 @@ export class JobRunner {
     try {
       for await (const msg of handle.stream) {
         if (ctl.signal.aborted) break;
-        // We don't need to interpret intermediate messages — only the final
-        // `result` carries the summary we care about.
         if (
           msg &&
           typeof msg === 'object' &&

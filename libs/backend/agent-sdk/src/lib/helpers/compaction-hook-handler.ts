@@ -87,26 +87,8 @@ export function isPreCompactHook(
 export class CompactionHookHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    // Inject the LiveUsageTracker so we can read the latest cumulative
-    // pre-compaction token snapshot at PreCompact firing time. The tracker
-    // aggregates `message_start` + `message_delta` usage on the streaming
-    // wire (written by SdkMessageTransformer) and exposes a read-only
-    // `getCumulativeTokens(sessionId)` API.
-    //
-    // Why a dedicated tracker instead of injecting the transformer:
-    // injecting `SdkMessageTransformer` here closes a DI cycle
-    // (SessionLifecycleManager → SdkQueryOptionsBuilder → CompactionHookHandler
-    // → SdkMessageTransformer → SessionLifecycleManager) that crashes every
-    // `withEngine`-driven CLI subcommand at construction time. Splitting the
-    // session-token state into an orthogonal service breaks the cycle without
-    // weakening the cumulative-usage semantics.
     @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
     private readonly usageTracker: LiveUsageTracker,
-    // Fan-out registry for additional subscribers
-    // (e.g. memory curator). Marked @optional so legacy paths that resolve
-    // CompactionHookHandler directly without the registry registered (mostly
-    // unit tests) keep working — the field will be undefined and the
-    // notifyAll() call below short-circuits.
     @inject(SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY)
     private readonly callbackRegistry?: CompactionCallbackRegistry,
   ) {}
@@ -132,10 +114,7 @@ export class CompactionHookHandler {
     cwd: string | null,
     onCompactionStart?: CompactionStartCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // Capture callback in closure for use in hook
     const capturedCallback = onCompactionStart;
-
-    // DIAGNOSTIC: Log hook creation
     this.logger.info('[CompactionHookHandler] Creating hooks for session', {
       sessionId,
       hasCallback: !!capturedCallback,
@@ -150,7 +129,6 @@ export class CompactionHookHandler {
               _toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
-              // Log that the hook was invoked by SDK
               this.logger.info(
                 '[CompactionHookHandler] PreCompact hook invoked',
                 {
@@ -160,7 +138,6 @@ export class CompactionHookHandler {
               );
 
               try {
-                // Use type guard for type safety
                 if (!isPreCompactHook(input)) {
                   this.logger.warn(
                     '[CompactionHookHandler] Unexpected hook input type for PreCompact',
@@ -171,8 +148,6 @@ export class CompactionHookHandler {
                   );
                   return { continue: true };
                 }
-
-                // SDK should always provide 'manual' or 'auto', but we guard against malformed data
                 const trigger = input.trigger;
                 if (trigger !== 'manual' && trigger !== 'auto') {
                   this.logger.warn(
@@ -184,8 +159,6 @@ export class CompactionHookHandler {
                   );
                   return { continue: true };
                 }
-
-                // Log compaction details
                 this.logger.info(
                   '[CompactionHookHandler] PreCompact hook triggered',
                   {
@@ -194,11 +167,6 @@ export class CompactionHookHandler {
                     hasCustomInstructions: !!input.custom_instructions,
                   },
                 );
-
-                // Also fan out to the registry, so memory-curator
-                // (and any future subscribers) receive the
-                // PreCompact event without the chat path having to know about
-                // them. Sample tokens once and reuse.
                 let preTokensSampled: number | null = null;
                 const ensurePreTokens = () => {
                   if (preTokensSampled === null) {
@@ -217,12 +185,7 @@ export class CompactionHookHandler {
                     cwd,
                   });
                 }
-
-                // Notify via callback if provided
                 if (capturedCallback) {
-                  // from the live usage tracker. Returns 0 for sessions that
-                  // haven't yet produced any assistant turn — acceptable
-                  // because compaction-before-first-turn is a no-op edge case.
                   const preTokens = ensurePreTokens();
 
                   const compactionData = {
@@ -237,13 +200,9 @@ export class CompactionHookHandler {
                     '[CompactionHookHandler] Invoking compaction callback',
                     compactionData,
                   );
-
-                  // Invoke callback but don't await (fire-and-forget)
-                  // This ensures we don't block the SDK even if callback takes time
                   try {
                     capturedCallback(compactionData);
                   } catch (callbackError) {
-                    // Log but don't throw - callback errors shouldn't block SDK
                     this.logger.error(
                       '[CompactionHookHandler] Error in compaction callback',
                       callbackError instanceof Error
@@ -258,14 +217,11 @@ export class CompactionHookHandler {
                   { sessionId },
                 );
               } catch (error) {
-                // CRITICAL: Never throw from hooks - it would break SDK
                 this.logger.error(
                   '[CompactionHookHandler] Error in PreCompact hook',
                   error instanceof Error ? error : new Error(String(error)),
                 );
               }
-
-              // Always return continue: true to not block SDK compaction
               return { continue: true };
             },
           ],

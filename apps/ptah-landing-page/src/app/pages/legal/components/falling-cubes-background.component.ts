@@ -191,7 +191,6 @@ export class FallingCubesBackgroundComponent {
     const count = this.cubeCount();
     this.cubes = Array.from({ length: count }, (_, i) => {
       const size = 35 + Math.random() * 45; // 35-80px
-      // Alternate left edge / right edge placement
       const isLeft = i % 2 === 0;
       const left = isLeft
         ? Math.random() * 12 // 0-12% (left edge)
@@ -200,7 +199,6 @@ export class FallingCubesBackgroundComponent {
         id: i,
         left,
         size,
-        // Distribute evenly across the page height with some randomness
         topPercent: (i / count) * 85 + Math.random() * 10,
         rotation: Math.random() * 360,
         spinDuration: 15 + Math.random() * 20, // 15-35s per full spin
@@ -220,8 +218,6 @@ export class FallingCubesBackgroundComponent {
     wrappers.forEach((wrapper, index) => {
       const cube = this.cubes[index];
       if (!cube) return;
-
-      // Each cube drifts down at a different speed (parallax)
       const fallDistance = 80 + Math.random() * 200; // 80-280px drift
 
       const tween = gsap.to(wrapper, {

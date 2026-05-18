@@ -15,10 +15,6 @@ import type {
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 /** Maximum output buffer size per agent (1MB) */
 export const MAX_BUFFER_SIZE = 1024 * 1024;
 
@@ -63,10 +59,6 @@ export const LANDMARK_EVENT_TYPES = new Set<string>([
   'message_complete',
 ]);
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 /** Buffered output deltas per agent, flushed every OUTPUT_FLUSH_INTERVAL */
 export interface PendingDelta {
   stdout: string;
@@ -74,10 +66,6 @@ export interface PendingDelta {
   segments: CliOutputSegment[];
   streamEvents: FlatStreamEventUnion[];
 }
-
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
 
 export function createEmptyPendingDelta(): PendingDelta {
   return { stdout: '', stderr: '', segments: [], streamEvents: [] };
@@ -149,10 +137,8 @@ export function mergeConsecutiveTextSegments(
   for (const seg of segments) {
     if (seg.type === 'text' || seg.type === 'thinking') {
       if (bufferType === seg.type) {
-        // Same type — accumulate
         buffer += seg.content;
       } else {
-        // Different type — flush previous buffer
         if (buffer && bufferType) {
           result.push({ type: bufferType, content: buffer });
         }
@@ -160,7 +146,6 @@ export function mergeConsecutiveTextSegments(
         bufferType = seg.type;
       }
     } else {
-      // Non-mergeable segment — flush buffer and push
       if (buffer && bufferType) {
         result.push({ type: bufferType, content: buffer });
         buffer = '';

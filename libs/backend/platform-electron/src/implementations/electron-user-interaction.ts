@@ -175,7 +175,6 @@ export class ElectronUserInteraction implements IUserInteraction {
     items: QuickPickItem[],
     options?: QuickPickOptions,
   ): Promise<QuickPickItem | undefined> {
-    // Delegate to renderer via IPC — renderer shows Angular-based quick pick
     const win = this.getWindow();
     if (!win || !this.ipcMain) return undefined;
 
@@ -205,7 +204,6 @@ export class ElectronUserInteraction implements IUserInteraction {
   }
 
   async showInputBox(options?: InputBoxOptions): Promise<string | undefined> {
-    // Delegate to renderer via IPC
     const win = this.getWindow();
     if (!win || !this.ipcMain) return undefined;
 
@@ -248,8 +246,6 @@ export class ElectronUserInteraction implements IUserInteraction {
   ): Promise<T> {
     const win = this.getWindow();
     const progressId = `progress-${randomUUID()}`;
-
-    // Create cancellation support
     const [onCancellationRequested, fireCancellation] = createEvent<void>();
     let isCancelled = false;
 
@@ -276,8 +272,6 @@ export class ElectronUserInteraction implements IUserInteraction {
         });
       },
     };
-
-    // Notify renderer that progress started
     win?.webContents.send('progress-start', {
       id: progressId,
       title: options.title,

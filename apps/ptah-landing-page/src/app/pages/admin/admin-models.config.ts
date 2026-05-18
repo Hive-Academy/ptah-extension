@@ -117,7 +117,6 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
     searchPlaceholder: 'Search license key, user ID, plan, status…',
     fields: [
       { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
-      // licenseKey is IMMUTABLE — never editable, regardless of UI toggles.
       {
         key: 'licenseKey',
         label: 'License Key',
@@ -170,7 +169,6 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
   {
     key: 'subscriptions',
     label: 'Subscriptions',
-    // Paddle is the system of record — admin UI is view-only.
     readOnly: true,
     searchPlaceholder:
       'Search Paddle sub ID, customer ID, user ID, status, price…',
@@ -281,7 +279,6 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
   {
     key: 'trial-reminders',
     label: 'Trial Reminders',
-    // Historical audit log — never mutated from the UI.
     readOnly: true,
     searchPlaceholder: 'Search user ID, reminder type, email…',
     fields: [

@@ -28,7 +28,6 @@ export async function runV2Migration(ptahDir: string): Promise<void> {
     raw = await fsPromises.readFile(settingsPath, 'utf8');
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') {
-      // No settings file yet — nothing to migrate.
       return;
     }
     throw err;
@@ -38,29 +37,19 @@ export async function runV2Migration(ptahDir: string): Promise<void> {
   try {
     data = JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    // Corrupt settings file — skip migration, let the next startup recreate defaults.
     return;
   }
-
-  // PtahFileSettingsManager uses nested JSON on disk.
-  // Top-level flat keys that need migrating are stored as nested objects.
-  // E.g., 'model.selected' is stored as { model: { selected: '...' } }.
-  // We read both the nested path and the flat key (for any old flat writes).
   const modelSelected =
     readNested(data, 'model', 'selected') ?? readFlat(data, 'model.selected');
   const reasoningEffort =
     readNested(data, 'reasoningEffort') ?? readFlat(data, 'reasoningEffort');
   const authMethod = (readNested(data, 'authMethod') ?? '') as string;
   const providerId = (readNested(data, 'anthropicProviderId') ?? '') as string;
-
-  // Nothing to migrate if neither legacy key is present.
   if (modelSelected === undefined && reasoningEffort === undefined) {
     return;
   }
 
   const authKey = resolveAuthProviderKey(authMethod || 'apiKey', providerId);
-
-  // Write provider-scoped keys.
   if (modelSelected !== undefined) {
     setNested(data, ['provider', authKey, 'selectedModel'], modelSelected);
     deleteNested(data, 'model', 'selected');
@@ -77,8 +66,6 @@ export async function runV2Migration(ptahDir: string): Promise<void> {
   await fsPromises.writeFile(tmpPath, updated, 'utf8');
   await fsPromises.rename(tmpPath, settingsPath);
 }
-
-// ---- helpers ---------------------------------------------------------------
 
 function readNested(obj: Record<string, unknown>, ...keys: string[]): unknown {
   let current: unknown = obj;
@@ -129,9 +116,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  // Use duck-typing instead of `instanceof Error` to work correctly across
-  // module boundaries (e.g. Jest worker realms where the Error constructor
-  // may differ from the one used by the fs module).
   return (
     typeof err === 'object' && err !== null && 'code' in err && 'message' in err
   );

@@ -2,10 +2,6 @@
  * Setup Wizard saved analysis metadata (persistent analysis history).
  */
 
-// ============================================================================
-// Saved Analysis Types (Persistent Analysis History)
-// ============================================================================
-
 /**
  * Metadata for a saved analysis (lightweight, for listing).
  * v2-only: represents multi-phase analysis slug directories.

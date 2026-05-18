@@ -22,10 +22,7 @@ export class ElectronSaveDialog implements ISaveDialogProvider {
     content: Buffer;
   }): Promise<string | null> {
     try {
-      // Dynamic import to avoid bundling issues
       const { dialog } = await import('electron');
-
-      // Convert filters to Electron format
       const electronFilters = Object.entries(options.filters).map(
         ([name, extensions]) => ({
           name,

@@ -23,10 +23,6 @@ export interface McpHttpServerOverride {
   readonly headers?: Record<string, string>;
 }
 
-// ============================================================
-// Chat RPC Types
-// ============================================================
-
 /** Inline image attachment (pasted or dropped into chat) */
 export interface InlineImageAttachment {
   /** Base64-encoded image data (no data URI prefix) */

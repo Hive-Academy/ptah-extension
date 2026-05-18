@@ -50,8 +50,6 @@ export class AuthStateService {
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
 
-  // --- Private mutable signals ---
-
   /** Whether an Anthropic API key is configured in SecretStorage */
   private readonly _hasApiKey = signal(false);
 
@@ -120,8 +118,6 @@ export class AuthStateService {
   /** Cached in-flight promise for loadAuthStatus deduplication */
   private _loadPromise: Promise<void> | null = null;
 
-  // --- Public readonly signals ---
-
   /** Whether API key is configured */
   readonly hasApiKey = this._hasApiKey.asReadonly();
 
@@ -179,7 +175,6 @@ export class AuthStateService {
    * Used to show an "Active" indicator on the correct tile, separate from the viewed tile.
    */
   readonly persistedTileId = computed(() => {
-    // Return null while loading to avoid flashing the wrong tile as active
     if (this._isLoading()) return null;
     const method = this._persistedAuthMethod();
     if (method === 'apiKey' || method === 'claudeCli') {
@@ -187,8 +182,6 @@ export class AuthStateService {
     }
     return this._persistedProviderId();
   });
-
-  // --- Computed signals ---
 
   /**
    * Whether the currently selected provider has a key configured.
@@ -220,22 +213,14 @@ export class AuthStateService {
    */
   readonly showProviderModels = computed(() => {
     const method = this._authMethod();
-
-    // Direct Anthropic auth: model mapping not needed — SDK handles tiers natively
     if (method === 'apiKey' || method === 'claudeCli') return false;
-
-    // Third-party provider: check provider-level credentials
     if (method !== 'thirdParty') return false;
-
-    // OAuth providers use their own auth, not API keys
     const provider = this.selectedProvider();
     if (provider?.authType === 'oauth') {
       if (provider.id === 'github-copilot') return this._copilotAuthenticated();
       if (provider.id === 'openai-codex') return this._codexAuthenticated();
       return false;
     }
-
-    // Local providers (authType === 'none') don't need API keys — always show models
     if (provider?.authType === 'none') return true;
 
     return this.hasProviderKey();
@@ -260,16 +245,12 @@ export class AuthStateService {
     const method = this._authMethod();
     if (method === 'claudeCli') return this._claudeCliInstalled();
     if (method === 'apiKey') return this._hasApiKey();
-
-    // OpenRouter/auto: check provider-level credentials
     const provider = this.selectedProvider();
     if (provider?.authType === 'oauth') {
       if (provider.id === 'github-copilot') return this._copilotAuthenticated();
       if (provider.id === 'openai-codex') return this._codexAuthenticated();
       return false;
     }
-
-    // Local providers (authType === 'none') don't need API keys — always credentialed
     if (provider?.authType === 'none') return true;
 
     return this.hasProviderKey();
@@ -283,8 +264,6 @@ export class AuthStateService {
     const id = this._selectedProviderId();
     return this._availableProviders().find((p) => p.id === id) ?? null;
   });
-
-  // --- Public methods ---
 
   /**
    * Synchronous lookup: check if a specific provider has a key configured.
@@ -306,11 +285,9 @@ export class AuthStateService {
     if (this._isLoaded) {
       return;
     }
-    // Deduplicate concurrent calls: return the same in-flight promise
     if (!this._loadPromise) {
       this._loadPromise = this.fetchAndPopulateAuthStatus()
         .then((success) => {
-          // Only mark as loaded on success (failure leaves _isLoaded false for retry)
           if (success) {
             this._isLoaded = true;
           }
@@ -404,17 +381,12 @@ export class AuthStateService {
    * @param params - Auth settings to save
    */
   async saveAndTest(params: AuthSaveSettingsParams): Promise<void> {
-    // Concurrent guard: prevent double-click or rapid re-invocation
     if (this._isSaving()) {
       console.warn(
         '[AuthStateService] Save already in progress, ignoring duplicate call',
       );
       return;
     }
-
-    // Capture values at invocation time — if the user clicks a different tile
-    // while the save is in-flight, these snapshots ensure we update persisted
-    // state to what was actually saved, not the new UI-local selection.
     const savedAuthMethod = this._authMethod();
     const savedProviderId = this._selectedProviderId();
 
@@ -424,7 +396,6 @@ export class AuthStateService {
     this._successMessage.set('');
 
     try {
-      // Step 1: Save settings
       const saveResult = await this.rpc.call('auth:saveSettings', params);
 
       if (!saveResult.isSuccess() || !saveResult.data?.success) {
@@ -436,8 +407,6 @@ export class AuthStateService {
         this._errorMessage.set(errorMsg);
         return;
       }
-
-      // Step 2: Test connection
       this._connectionStatus.set('testing');
 
       const testResult = await this.rpc.call(
@@ -448,13 +417,8 @@ export class AuthStateService {
       if (testResult.isSuccess() && testResult.data?.success) {
         this._connectionStatus.set('success');
         this._successMessage.set('Connection successful! Settings saved.');
-
-        // Update persisted state using the captured snapshots from invocation time
         this._persistedAuthMethod.set(savedAuthMethod);
         this._persistedProviderId.set(savedProviderId);
-
-        // Refresh auth status and model list in isolated try-catch so
-        // failures don't overwrite the successful save+test status
         try {
           await this.refreshAuthStatus();
           await Promise.all([
@@ -534,7 +498,6 @@ export class AuthStateService {
       });
 
       if (result.isSuccess()) {
-        // Update local map immediately for responsive UI
         this._providerKeyMap.update((prev) => {
           const next = new Map(prev);
           next.set(providerId, false);
@@ -572,7 +535,6 @@ export class AuthStateService {
     this._successMessage.set('');
 
     try {
-      // Extended timeout (120s) — user must complete GitHub OAuth in browser
       const result = await this.rpc.call(
         'auth:copilotLogin',
         {} as Record<string, never>,
@@ -588,15 +550,12 @@ export class AuthStateService {
             result.data.username ? ` as ${result.data.username}` : ''
           }`,
         );
-
-        // Save the provider selection so the backend knows to use Copilot
         const saveResult = await this.rpc.call('auth:saveSettings', {
           authMethod: this._authMethod(),
           anthropicProviderId: 'github-copilot',
         });
 
         if (saveResult.isSuccess()) {
-          // Update persisted state — Copilot is now the active provider
           this._persistedAuthMethod.set(this._authMethod());
           this._persistedProviderId.set('github-copilot');
         } else {
@@ -605,8 +564,6 @@ export class AuthStateService {
             saveResult.error,
           );
         }
-
-        // Refresh models and effort for the new provider
         try {
           await Promise.all([
             this.modelState.refreshModels(),
@@ -645,8 +602,6 @@ export class AuthStateService {
     } catch (error) {
       console.warn('[AuthStateService] copilotLogout RPC failed:', error);
     }
-
-    // Always clear local state even if RPC fails
     this._copilotAuthenticated.set(false);
     this._copilotUsername.set(null);
     this._connectionStatus.set('idle');
@@ -670,8 +625,6 @@ export class AuthStateService {
     this._errorMessage.set('');
     this._successMessage.set('');
   }
-
-  // --- Private methods ---
 
   /**
    * Fetch auth status from backend and populate all signals.
@@ -725,31 +678,19 @@ export class AuthStateService {
     this._authMethod.set(response.authMethod);
     this._selectedProviderId.set(response.anthropicProviderId);
     this._availableProviders.set(response.availableProviders);
-
-    // Update persisted state to match backend truth
     this._persistedAuthMethod.set(response.authMethod);
     this._persistedProviderId.set(response.anthropicProviderId);
-
-    // Reset provider key map to only contain the current provider's status.
-    // Clears stale entries from previously checked providers that may
-    // have changed via backend or another client since last check.
     this._providerKeyMap.set(
       new Map([[response.anthropicProviderId, response.hasOpenRouterKey]]),
     );
-
-    // Populate Copilot auth status
     if (response.copilotAuthenticated !== undefined) {
       this._copilotAuthenticated.set(response.copilotAuthenticated);
     }
     if (response.copilotUsername !== undefined) {
       this._copilotUsername.set(response.copilotUsername ?? null);
     }
-
-    // Populate Codex auth status
     this._codexAuthenticated.set(response.codexAuthenticated ?? false);
     this._codexTokenStale.set(response.codexTokenStale ?? false);
-
-    // Populate Claude CLI availability
     this._claudeCliInstalled.set(response.claudeCliInstalled ?? false);
   }
 }

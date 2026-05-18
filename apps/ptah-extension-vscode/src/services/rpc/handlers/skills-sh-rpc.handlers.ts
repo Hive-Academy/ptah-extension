@@ -24,10 +24,7 @@ import type {
   SkillDetectionResult,
 } from '@ptah-extension/shared';
 
-// ─── Curated Popular Skills (fallback when CLI is unavailable) ───
-
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
-  // Verified: vercel-labs/agent-skills contains: vercel-react-best-practices, web-design-guidelines, vercel-composition-patterns, deploy-to-vercel, vercel-react-native-skills
   {
     source: 'vercel-labs/agent-skills',
     skillId: 'vercel-react-best-practices',
@@ -64,7 +61,6 @@ const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
     installs: 95000,
     isInstalled: false,
   },
-  // Verified: anthropics/skills contains: frontend-design, claude-api, mcp-builder, pdf, skill-creator, webapp-testing, doc-coauthoring, etc.
   {
     source: 'anthropics/skills',
     skillId: 'frontend-design',
@@ -145,7 +141,6 @@ const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
     installs: 38000,
     isInstalled: false,
   },
-  // Other popular repos
   {
     source: 'remotion-dev/skills',
     skillId: 'remotion-best-practices',
@@ -197,8 +192,6 @@ const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
   },
 ];
 
-// ─── Technology-to-skill keyword mapping ───
-
 const TECH_SKILL_KEYWORDS: Record<string, string[]> = {
   react: [
     'vercel-react-best-practices',
@@ -222,8 +215,6 @@ const TECH_SKILL_KEYWORDS: Record<string, string[]> = {
   'react-native': ['vercel-react-native-skills'],
   remotion: ['remotion-best-practices'],
 };
-
-// ─── Source validation regex (security) ───
 
 const SAFE_SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 
@@ -270,8 +261,6 @@ export class SkillsShRpcHandlers {
     });
   }
 
-  // ─── RPC Method: skillsSh:search ───
-
   /**
    * Search skills via the `npx skills find` CLI.
    *
@@ -287,8 +276,6 @@ export class SkillsShRpcHandlers {
         this.logger.debug('RPC: skillsSh:search called', {
           query: params.query,
         });
-
-        // Sanitize query: allow only alphanumeric, spaces, hyphens, dots, slashes
         const sanitizedQuery = params.query.replace(/[^a-zA-Z0-9\s\-._/]/g, '');
         if (!sanitizedQuery.trim()) {
           return { skills: [], error: 'Invalid search query' };
@@ -334,8 +321,6 @@ export class SkillsShRpcHandlers {
     });
   }
 
-  // ─── RPC Method: skillsSh:listInstalled ───
-
   /**
    * List installed skills using `npx skills list --json` for both project and global scopes.
    * Falls back to filesystem scanning if the CLI is unavailable.
@@ -350,8 +335,6 @@ export class SkillsShRpcHandlers {
 
         const workspaceRoot = this.getWorkspaceRoot();
         const skills: InstalledSkill[] = [];
-
-        // Fetch project-scope skills via CLI
         try {
           const projectResult = await this.runSkillsCli(
             ['list', '--json'],
@@ -377,7 +360,6 @@ export class SkillsShRpcHandlers {
             }
           }
         } catch {
-          // CLI unavailable, fall back to filesystem scanning
           if (workspaceRoot) {
             const projectSkills = await this.scanSkillsDirectory(
               path.join(workspaceRoot, '.claude', 'skills'),
@@ -386,8 +368,6 @@ export class SkillsShRpcHandlers {
             skills.push(...projectSkills);
           }
         }
-
-        // Fetch global-scope skills via CLI
         try {
           const globalResult = await this.runSkillsCli(
             ['list', '--json', '-g'],
@@ -413,7 +393,6 @@ export class SkillsShRpcHandlers {
             }
           }
         } catch {
-          // CLI unavailable, fall back to filesystem scanning
           const globalSkills = await this.scanSkillsDirectory(
             path.join(os.homedir(), '.claude', 'skills'),
             'global',
@@ -442,8 +421,6 @@ export class SkillsShRpcHandlers {
     });
   }
 
-  // ─── RPC Method: skillsSh:install ───
-
   /**
    * Install a skill from the Skills.sh registry.
    *
@@ -468,8 +445,6 @@ export class SkillsShRpcHandlers {
           scope: params.scope,
           agents: params.agents,
         });
-
-        // Security: Validate source format to prevent shell injection
         if (!SAFE_SOURCE_PATTERN.test(params.source)) {
           const error = `Invalid source format: "${params.source}". Expected "owner/repo" with alphanumeric characters only.`;
           this.logger.warn('RPC: skillsSh:install rejected unsafe source', {
@@ -477,8 +452,6 @@ export class SkillsShRpcHandlers {
           });
           return { success: false, error };
         }
-
-        // Validate skillId if provided
         if (params.skillId && !/^[a-zA-Z0-9_.-]+$/.test(params.skillId)) {
           const error = `Invalid skillId format: "${params.skillId}".`;
           this.logger.warn('RPC: skillsSh:install rejected unsafe skillId', {
@@ -494,15 +467,10 @@ export class SkillsShRpcHandlers {
             error: 'No workspace folder open for project-scope installation.',
           };
         }
-
-        // Build install args
         const args = ['add', params.source];
         if (params.skillId) {
           args.push('--skill', params.skillId);
         }
-        // Only install for Claude Code — Ptah's SkillJunctionService manages
-        // skill discovery via .claude/skills/ junctions. Installing for all agents
-        // ('*') pollutes the workspace with 28+ tool-specific directories.
         args.push('--agent', 'claude-code');
         args.push('-y');
         if (params.scope === 'global') {
@@ -516,7 +484,6 @@ export class SkillsShRpcHandlers {
         );
 
         if (result.exitCode !== 0) {
-          // CLI may write errors to stderr or stdout — capture both
           const errorDetail =
             result.stderr.trim() ||
             result.stdout.trim().split('\n').pop() ||
@@ -528,8 +495,6 @@ export class SkillsShRpcHandlers {
           });
           return { success: false, error: errorDetail };
         }
-
-        // Invalidate popular cache so isInstalled flags refresh
         this.popularCache = null;
 
         this.logger.info('RPC: skillsSh:install success', {
@@ -555,8 +520,6 @@ export class SkillsShRpcHandlers {
     });
   }
 
-  // ─── RPC Method: skillsSh:uninstall ───
-
   /**
    * Remove an installed skill.
    */
@@ -570,8 +533,6 @@ export class SkillsShRpcHandlers {
           name: params.name,
           scope: params.scope,
         });
-
-        // Security: Validate name format
         if (!/^[a-zA-Z0-9_.-]+$/.test(params.name)) {
           const error = `Invalid skill name format: "${params.name}".`;
           this.logger.warn('RPC: skillsSh:uninstall rejected unsafe name', {
@@ -611,8 +572,6 @@ export class SkillsShRpcHandlers {
           });
           return { success: false, error: errorDetail };
         }
-
-        // Invalidate popular cache so isInstalled flags refresh
         this.popularCache = null;
 
         this.logger.info('RPC: skillsSh:uninstall success', {
@@ -637,8 +596,6 @@ export class SkillsShRpcHandlers {
     });
   }
 
-  // ─── RPC Method: skillsSh:getPopular ───
-
   /**
    * Get popular skills with 10-minute caching.
    *
@@ -653,8 +610,6 @@ export class SkillsShRpcHandlers {
     >('skillsSh:getPopular', async () => {
       try {
         this.logger.debug('RPC: skillsSh:getPopular called');
-
-        // Check cache
         if (
           this.popularCache &&
           Date.now() - this.popularCache.timestamp <
@@ -666,8 +621,6 @@ export class SkillsShRpcHandlers {
           });
           return { skills: this.popularCache.data };
         }
-
-        // Tier 1: Try CLI
         let skills: SkillShEntry[] = [];
         try {
           const workspaceRoot = this.getWorkspaceRoot() || os.homedir();
@@ -689,15 +642,11 @@ export class SkillsShRpcHandlers {
             },
           );
         }
-
-        // Tier 2: Fall back to curated list
         if (skills.length === 0) {
           skills = await this.enrichWithInstallStatus(
             CURATED_POPULAR_SKILLS.map((s) => ({ ...s })),
           );
         }
-
-        // Update cache
         this.popularCache = { data: skills, timestamp: Date.now() };
 
         this.logger.debug('RPC: skillsSh:getPopular success', {
@@ -714,13 +663,10 @@ export class SkillsShRpcHandlers {
           'RPC: skillsSh:getPopular failed',
           error instanceof Error ? error : new Error(String(error)),
         );
-        // Return curated as ultimate fallback
         return { skills: CURATED_POPULAR_SKILLS };
       }
     });
   }
-
-  // ─── RPC Method: skillsSh:detectRecommended ───
 
   /**
    * Detect workspace technologies and recommend matching skills.
@@ -785,8 +731,6 @@ export class SkillsShRpcHandlers {
       },
     );
   }
-
-  // ─── Helper: Run Skills CLI ───
 
   /**
    * Execute the `npx skills` CLI with given arguments.
@@ -857,13 +801,10 @@ export class SkillsShRpcHandlers {
           reject(error);
         }
       });
-
-      // Single timeout mechanism
       const timer = setTimeout(() => {
         try {
           child.kill('SIGTERM');
         } catch {
-          // Process may already be dead
         }
         settle({
           stdout,
@@ -873,8 +814,6 @@ export class SkillsShRpcHandlers {
       }, timeout);
     });
   }
-
-  // ─── Helper: Parse Skills CLI Output ───
 
   /**
    * Parse the text output from `npx skills find` into SkillShEntry objects.
@@ -888,8 +827,6 @@ export class SkillsShRpcHandlers {
   private parseSkillsOutput(output: string): SkillShEntry[] {
     const skills: SkillShEntry[] = [];
 
-    // Strip ANSI escape codes — the CLI ignores NO_COLOR and always emits them
-
     const stripped = output.replace(
       new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*m', 'g'),
       '',
@@ -897,12 +834,6 @@ export class SkillsShRpcHandlers {
     const lines = stripped.split('\n').filter((line) => line.trim().length > 0);
 
     if (lines.length === 0) return skills;
-
-    // Match the actual CLI format: "owner/repo@skill-id  N installs"
-    // Examples:
-    //   msmps/opentui-skill@opentui 1.8K installs
-    //   vercel-labs/agent-skills@vercel-react-best-practices 261.1K installs
-    //   google-labs-code/stitch-skills@react:components 25.7K installs
     const skillLineRegex =
       /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)@([a-zA-Z0-9_.:/-]+)\s+([0-9,.]+[kKmM]?)\s+installs?$/;
 
@@ -964,8 +895,6 @@ export class SkillsShRpcHandlers {
       .join(' ');
   }
 
-  // ─── Helper: Scan Skills Directory ───
-
   /**
    * Scan a skills directory for installed skills by reading SKILL.md files
    * and extracting YAML frontmatter metadata.
@@ -996,7 +925,6 @@ export class SkillsShRpcHandlers {
             agents: [],
           });
         } catch {
-          // SKILL.md doesn't exist or is unreadable - still list the directory
           skills.push({
             name: entry.name,
             description: '',
@@ -1008,7 +936,6 @@ export class SkillsShRpcHandlers {
         }
       }
     } catch {
-      // Directory doesn't exist - not an error
     }
 
     return skills;
@@ -1053,8 +980,6 @@ export class SkillsShRpcHandlers {
     return { name, description, source };
   }
 
-  // ─── Helper: Detect Technologies ───
-
   /**
    * Detect technologies used in the workspace by scanning configuration files.
    *
@@ -1075,8 +1000,6 @@ export class SkillsShRpcHandlers {
     const frameworks: string[] = [];
     const languages: string[] = [];
     const tools: string[] = [];
-
-    // Check package.json for JavaScript/TypeScript ecosystem
     try {
       const pkgJsonPath = path.join(workspaceRoot, 'package.json');
       const pkgContent = await fs.readFile(pkgJsonPath, 'utf8');
@@ -1111,36 +1034,24 @@ export class SkillsShRpcHandlers {
         }
       }
     } catch {
-      // No package.json
     }
-
-    // Check tsconfig.json
     try {
       await fs.access(path.join(workspaceRoot, 'tsconfig.json'));
       if (!languages.includes('typescript')) {
         languages.push('typescript');
       }
     } catch {
-      // No tsconfig.json
     }
-
-    // Check Cargo.toml (Rust)
     try {
       await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
       languages.push('rust');
     } catch {
-      // No Cargo.toml
     }
-
-    // Check go.mod (Go)
     try {
       await fs.access(path.join(workspaceRoot, 'go.mod'));
       languages.push('go');
     } catch {
-      // No go.mod
     }
-
-    // Check Python indicators
     try {
       const pyFiles = ['requirements.txt', 'pyproject.toml', 'setup.py'];
       for (const pyFile of pyFiles) {
@@ -1151,14 +1062,10 @@ export class SkillsShRpcHandlers {
           }
           break;
         } catch {
-          // File doesn't exist
         }
       }
     } catch {
-      // No Python files
     }
-
-    // Check Docker
     try {
       const dockerFiles = [
         'Dockerfile',
@@ -1173,25 +1080,18 @@ export class SkillsShRpcHandlers {
           }
           break;
         } catch {
-          // File doesn't exist
         }
       }
     } catch {
-      // No Docker files
     }
-
-    // Check nx.json (Nx monorepo)
     try {
       await fs.access(path.join(workspaceRoot, 'nx.json'));
       tools.push('nx');
     } catch {
-      // No nx.json
     }
 
     return { frameworks, languages, tools };
   }
-
-  // ─── Helper: Match Skills to Technologies ───
 
   /**
    * Map detected technologies to relevant skills from the curated catalog.
@@ -1219,8 +1119,6 @@ export class SkillsShRpcHandlers {
         }
       }
     }
-
-    // Always include general-purpose skills for any detected technology
     if (allTechs.length > 0) {
       matchedSkillIds.add('code-review');
       matchedSkillIds.add('documentation');
@@ -1234,8 +1132,6 @@ export class SkillsShRpcHandlers {
       matchedSkillIds.has(skill.skillId),
     ).map((skill) => ({ ...skill }));
   }
-
-  // ─── Helper: Enrich with Install Status ───
 
   /**
    * Update the isInstalled flag on skills by checking against
@@ -1253,7 +1149,6 @@ export class SkillsShRpcHandlers {
           installed.has(skill.name.toLowerCase());
       }
     } catch {
-      // Non-critical - return skills without install status
     }
 
     return skills;
@@ -1274,7 +1169,6 @@ export class SkillsShRpcHandlers {
           }
         }
       } catch {
-        // Directory doesn't exist
       }
     };
 
@@ -1286,8 +1180,6 @@ export class SkillsShRpcHandlers {
 
     return names;
   }
-
-  // ─── Helper: Get Workspace Root ───
 
   /**
    * Get the current workspace root path.

@@ -145,7 +145,6 @@ export class PreferencesStorageService implements IPreferencesStorageService {
 
     this.logger.info('[PreferencesStorageService.set] Preference updated', {
       key,
-      // Don't log actual values for privacy
     });
   }
 

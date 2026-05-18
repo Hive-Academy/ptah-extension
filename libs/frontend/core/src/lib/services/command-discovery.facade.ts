@@ -37,12 +37,9 @@ export class CommandDiscoveryFacade {
    * Fetch all commands from backend
    */
   async fetchCommands(): Promise<void> {
-    // Cache check - skip RPC if already cached
     if (this._isCached()) {
       return;
     }
-
-    // Prevent duplicate in-flight requests
     if (this._isLoading()) {
       return;
     }
@@ -62,7 +59,6 @@ export class CommandDiscoveryFacade {
             icon: this.getCommandIcon(c.scope),
           })),
         );
-        // Only mark cache as valid when we have actual data
         if (result.data.commands.length > 0) {
           this._isCached.set(true);
         }

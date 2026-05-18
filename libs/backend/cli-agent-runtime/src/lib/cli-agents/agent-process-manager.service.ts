@@ -70,7 +70,6 @@ const execFileAsync = promisify(execFile);
  * possible. Stripping these chars corrupts legitimate prompts containing
  * code characters ($, (), {}, backticks, etc.).
  */
-// const SHELL_METACHAR_PATTERN = /[`$(){}|&<>^;%!]/g; // REMOVED — see comment above
 
 interface TrackedAgent {
   info: AgentProcessInfo;
@@ -128,7 +127,6 @@ export class AgentProcessManager {
   }
 
   private resolveAutoApprove(cli: CliType): boolean | undefined {
-    // Codex always runs in full-auto headless mode (SDK has no permission hooks)
     if (cli === 'codex') return undefined;
     if (cli !== 'copilot') return undefined;
     return this.workspace.getConfiguration<boolean>(
@@ -166,7 +164,6 @@ export class AgentProcessManager {
    */
   async spawn(request: SpawnAgentRequest): Promise<SpawnAgentResult> {
     return this.acquireSpawnLock(async () => {
-      // Increment spawning counter synchronously before any async work
       this.spawning++;
 
       try {
@@ -181,7 +178,6 @@ export class AgentProcessManager {
    * Internal spawn implementation, wrapped by spawn() for concurrency tracking
    */
   private async doSpawn(request: SpawnAgentRequest): Promise<SpawnAgentResult> {
-    // Check concurrent limit (include in-flight spawns)
     const maxConcurrent = this.getMaxConcurrentAgents();
     const runningCount = this.getRunningCount();
     if (runningCount + this.spawning > maxConcurrent) {
@@ -191,8 +187,6 @@ export class AgentProcessManager {
           `Running agents: ${this.getRunningAgentIds().join(', ')}`,
       );
     }
-
-    // Log the incoming spawn request
     this.logger.info('[AgentProcessManager] Spawn request received', {
       requestedCli: request.cli ?? 'auto-detect',
       task:
@@ -203,8 +197,6 @@ export class AgentProcessManager {
       files: request.files?.length ?? 0,
       taskFolder: request.taskFolder,
     });
-
-    // Determine which CLI to use
     const cli = request.cli ?? (await this.getPreferredCli());
     if (!cli) {
       throw new Error(
@@ -217,8 +209,6 @@ export class AgentProcessManager {
       resolvedCli: cli,
       source: request.cli ? 'user-specified' : 'auto-detected',
     });
-
-    // Verify CLI is installed
     const detection = await this.cliDetection.getDetection(cli);
     if (!detection || !detection.installed) {
       this.logger.error('[AgentProcessManager] CLI not installed', {
@@ -235,8 +225,6 @@ export class AgentProcessManager {
         `${cli} CLI is not installed. Install it and run authentication before using.`,
       );
     }
-
-    // Get adapter and build command
     const adapter = this.cliDetection.getAdapter(cli);
     if (!adapter) {
       throw new Error(`No adapter registered for CLI: ${cli}`);
@@ -249,21 +237,11 @@ export class AgentProcessManager {
       detectedVersion: detection.version,
       detectedPath: detection.path,
     });
-
-    // Validate working directory
     const workingDirectory =
       request.workingDirectory ?? this.getWorkspaceRoot();
     await this.validateWorkingDirectory(workingDirectory);
-
-    // Resolve MCP port before SDK/CLI branch — only for adapters that support it.
-    // Premium-gated: only provided when user is premium AND MCP server is running.
-    // Adapters that declare supportsMcp=false (e.g., Gemini) skip the health check.
     const mcpPort =
       adapter.supportsMcp !== false ? await this.resolveMcpPort() : undefined;
-
-    // Branch: SDK-based adapters use runSdk() instead of spawn()
-    // SDK adapters run in-process, so shell injection sanitization is not needed
-    // and would corrupt legitimate code content (e.g., $, (), {}, backticks).
     const runSdk = adapter.runSdk?.bind(adapter);
     if (runSdk) {
       return this.doSpawnSdk(
@@ -277,8 +255,6 @@ export class AgentProcessManager {
         mcpPort,
       );
     }
-
-    // Resolve model for CLI subprocess path (same logic as SDK path)
     let cliModel = request.model;
     if (
       !cliModel &&
@@ -300,9 +276,6 @@ export class AgentProcessManager {
         cliModel = configuredModel;
       }
     }
-
-    // No sanitization needed: spawn() is called without shell:true,
-    // so args are passed directly to the binary (no shell interpretation).
     const command = adapter.buildCommand({
       task: request.task,
       workingDirectory,
@@ -316,8 +289,6 @@ export class AgentProcessManager {
       reasoningEffort: this.resolveReasoningEffort(cli),
       autoApprove: this.resolveAutoApprove(cli),
     });
-
-    // Create agent ID and info
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
 
@@ -334,11 +305,7 @@ export class AgentProcessManager {
       model: cliModel,
       resumedFromAgentId: request.resumedFromAgentId,
     };
-
-    // Use resolved binary path from detection.
     const binaryPath = detection.path ?? command.binary;
-
-    // Spawn the process using cross-spawn (transparent .cmd handling on Windows)
     this.logger.info('[AgentProcessManager] Spawning agent', {
       agentId,
       cli,
@@ -351,18 +318,12 @@ export class AgentProcessManager {
       cwd: workingDirectory,
       env: command.env,
     });
-
-    // Explicit UTF-8 encoding prevents Buffer concatenation issues
     childProcess.stdout?.setEncoding('utf8');
     childProcess.stderr?.setEncoding('utf8');
-
-    // Set up timeout
     const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
     const timeoutHandle = setTimeout(() => {
       this.handleTimeout(agentId);
     }, timeout);
-
-    // Track the agent
     const tracked: TrackedAgent = {
       info: { ...info, pid: childProcess.pid },
       process: childProcess,
@@ -378,8 +339,6 @@ export class AgentProcessManager {
     };
 
     this.agents.set(agentId, tracked);
-
-    // Set up output capture
     childProcess.stdout?.on('data', (data: Buffer) => {
       this.appendBuffer(agentId, 'stdout', data.toString());
     });
@@ -387,8 +346,6 @@ export class AgentProcessManager {
     childProcess.stderr?.on('data', (data: Buffer) => {
       this.appendBuffer(agentId, 'stderr', data.toString());
     });
-
-    // Handle process exit
     childProcess.on('exit', (code, signal) => {
       this.handleExit(agentId, code, signal);
     });
@@ -406,8 +363,6 @@ export class AgentProcessManager {
     };
 
     this.events.emit('agent:spawned', tracked.info);
-
-    // so they are not interrupted when the parent SDK session ends.
     this.markParentSubagentsAsCliAgent(request.parentSessionId);
 
     return spawnResult;
@@ -429,8 +384,6 @@ export class AgentProcessManager {
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
-
-    // Resolve model: use explicit request.model, else per-CLI config, else CLI default
     let resolvedModel = request.model;
     if (
       !resolvedModel &&
@@ -464,11 +417,6 @@ export class AgentProcessManager {
       parentSessionId: request.parentSessionId,
       displayName,
       model: resolvedModel,
-      // Pre-set cliSessionId for resume: we already know the CLI session being
-      // resumed, so make it available on the agent:spawned event immediately.
-      // This enables spawn-time persistence (linking to parent session before
-      // the agent exits). The late-capture callback will update it if the init
-      // event returns a different session ID.
       ...(request.resumeSessionId
         ? { cliSessionId: request.resumeSessionId }
         : {}),
@@ -505,8 +453,6 @@ export class AgentProcessManager {
       reasoningEffort: this.resolveReasoningEffort(cli),
       autoApprove: this.resolveAutoApprove(cli),
     });
-
-    // Capture CLI session ID immediately if available (e.g., from sync init)
     const initialCliSessionId = sdkHandle.getSessionId?.();
     const infoWithSession = initialCliSessionId
       ? { ...info, cliSessionId: initialCliSessionId }
@@ -518,8 +464,6 @@ export class AgentProcessManager {
       sdkHandle,
       infoWithSession,
       timeout,
-      // Late capture: session_id arrives in init event (first JSONL line).
-      // Passed as callback so trackSdkHandle can invoke it on each segment.
       () => sdkHandle.getSessionId?.(),
     );
   }
@@ -546,11 +490,9 @@ export class AgentProcessManager {
     },
   ): Promise<SpawnAgentResult> {
     return this.acquireSpawnLock(async () => {
-      // Increment spawning counter synchronously before any async work
       this.spawning++;
 
       try {
-        // Check concurrent limit (include in-flight spawns)
         const maxConcurrent = this.getMaxConcurrentAgents();
         const runningCount = this.getRunningCount();
         if (runningCount + this.spawning > maxConcurrent) {
@@ -560,8 +502,6 @@ export class AgentProcessManager {
               `Running agents: ${this.getRunningAgentIds().join(', ')}`,
           );
         }
-
-        // Validate working directory is within workspace root (same as doSpawn path)
         await this.validateWorkingDirectory(meta.workingDirectory);
 
         const agentId = AgentId.create();
@@ -580,15 +520,10 @@ export class AgentProcessManager {
           ptahCliName: meta.ptahCliName,
           ptahCliId: meta.ptahCliId,
           resumedFromAgentId: meta.resumedFromAgentId,
-          // Pre-set cliSessionId for resume (same as doSpawnSdk path).
-          // Makes the ID available on the agent:spawned event so the frontend
-          // can deduplicate agent cards by CLI session ID.
           ...(meta.resumeSessionId
             ? { cliSessionId: meta.resumeSessionId }
             : {}),
         };
-
-        // Capture CLI session ID immediately if available (e.g., from sync init)
         const initialCliSessionId = sdkHandle.getSessionId?.();
         const infoWithSession = initialCliSessionId
           ? { ...info, cliSessionId: initialCliSessionId }
@@ -607,7 +542,6 @@ export class AgentProcessManager {
           sdkHandle,
           infoWithSession,
           timeout,
-          // Late capture: session_id may arrive via init event after spawn
           () => sdkHandle.getSessionId?.(),
         );
       } finally {
@@ -636,13 +570,9 @@ export class AgentProcessManager {
     captureSessionId?: () => string | undefined,
   ): SpawnAgentResult {
     const agentId = info.agentId;
-
-    // Set up timeout
     const timeoutHandle = setTimeout(() => {
       this.handleTimeout(agentId);
     }, timeout);
-
-    // Track the SDK agent (process is null, abort via sdkAbortController)
     const tracked: TrackedAgent = {
       info,
       process: null,
@@ -659,25 +589,13 @@ export class AgentProcessManager {
     };
 
     this.agents.set(agentId, tracked);
-
-    // Update permission routing to use the real agentId (Copilot SDK)
     sdkHandle.setAgentId?.(agentId);
-
-    // Wire SDK output to the agent's stdout buffer
     sdkHandle.onOutput((data: string) => {
       this.appendBuffer(agentId, 'stdout', data);
     });
-
-    // Wire structured segments (if the adapter provides them)
     if (sdkHandle.onSegment) {
       sdkHandle.onSegment((segment: CliOutputSegment) => {
         this.accumulateSegment(agentId, segment);
-
-        // Late capture: session_id arrives in init event (first JSONL line).
-        // For fresh agents, cliSessionId starts undefined and is captured here.
-        // For resumed agents, cliSessionId is pre-set to resumeSessionId; we
-        // still check the init event in case the CLI returns a different ID
-        // (e.g., new session instead of true resume).
         if (captureSessionId) {
           const sessionId = captureSessionId();
           if (sessionId && sessionId !== tracked.info.cliSessionId) {
@@ -686,15 +604,11 @@ export class AgentProcessManager {
         }
       });
     }
-
-    // Wire FlatStreamEventUnion events (Ptah CLI only -- enables rich ExecutionNode rendering)
     if (sdkHandle.onStreamEvent) {
       sdkHandle.onStreamEvent((event: FlatStreamEventUnion) => {
         this.accumulateStreamEvent(agentId, event);
       });
     }
-
-    // Wire session ID resolution (Ptah CLI only — session ID arrives via system init)
     if (sdkHandle.onSessionResolved) {
       sdkHandle.onSessionResolved((sessionId: string) => {
         if (sessionId && sessionId !== tracked.info.cliSessionId) {
@@ -702,8 +616,6 @@ export class AgentProcessManager {
         }
       });
     }
-
-    // Wire SDK completion to handleExit (uses hasExited guard to prevent double-exit)
     sdkHandle.done.then(
       (exitCode) => {
         this.handleExit(agentId, exitCode, null);
@@ -729,8 +641,6 @@ export class AgentProcessManager {
     };
 
     this.events.emit('agent:spawned', tracked.info);
-
-    // so they are not interrupted when the parent SDK session ends.
     this.markParentSubagentsAsCliAgent(info.parentSessionId);
 
     return spawnResult;
@@ -769,14 +679,10 @@ export class AgentProcessManager {
 
     let stdout = tracked.stdoutBuffer;
     let stderr = tracked.stderrBuffer;
-
-    // Parse output through adapter to strip ANSI codes
     if (adapter) {
       stdout = adapter.parseOutput(stdout);
       stderr = adapter.parseOutput(stderr);
     }
-
-    // Apply tail limit
     if (tail && tail > 0) {
       stdout = tailLines(stdout, tail);
       stderr = tailLines(stderr, tail);
@@ -854,8 +760,6 @@ export class AgentProcessManager {
           `The agent will complete its task based on the original prompt.`,
       );
     }
-
-    // SDK agents have no child process - steering requires stdin pipe
     if (!tracked.process) {
       throw new Error(
         `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`,
@@ -877,8 +781,6 @@ export class AgentProcessManager {
     if (!tracked) {
       throw new Error(`Agent not found: ${agentId}`);
     }
-
-    // Already finished
     if (tracked.info.status !== 'running') {
       return tracked.info;
     }
@@ -890,8 +792,6 @@ export class AgentProcessManager {
       completedAt: new Date().toISOString(),
     };
     clearTimeout(tracked.timeoutHandle);
-
-    // Flush any pending output deltas before emitting exit
     this.flushDelta(agentId);
     this.cleanupFlushTimer(agentId);
 
@@ -913,17 +813,12 @@ export class AgentProcessManager {
     );
 
     await Promise.all(running.map(([id]) => this.stop(id)));
-
-    // Clear all cleanup timers and flush timers on shutdown
     for (const [agentId, tracked] of this.agents) {
       if (tracked.cleanupHandle) {
         clearTimeout(tracked.cleanupHandle);
       }
       this.cleanupFlushTimer(agentId);
     }
-
-    // Dispose SDK adapters that hold long-lived client processes.
-    // Fire-and-forget: errors are logged but do not block shutdown.
     try {
       const copilotAdapter = this.cliDetection.getAdapter('copilot');
       if (
@@ -947,10 +842,6 @@ export class AgentProcessManager {
     );
   }
 
-  // ========================================
-  // Private Methods
-  // ========================================
-
   /**
    * Serialize spawn operations to prevent TOCTOU race conditions in
    * the concurrent limit check. Without this mutex, two spawn() calls
@@ -963,7 +854,6 @@ export class AgentProcessManager {
    */
   private acquireSpawnLock<T>(fn: () => Promise<T>): Promise<T> {
     const release = this.spawnMutex;
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
     let resolve: () => void = () => {};
     this.spawnMutex = new Promise<void>((r) => {
       resolve = r;
@@ -991,8 +881,6 @@ export class AgentProcessManager {
 
     tracked[key] += data;
     tracked[lineCountKey] += (data.match(/\n/g) || []).length;
-
-    // Rolling buffer: trim from beginning if over limit
     if (tracked[key].length > MAX_BUFFER_SIZE) {
       const excess = tracked[key].length - MAX_BUFFER_SIZE;
       const newlineIndex = tracked[key].indexOf('\n', excess);
@@ -1002,8 +890,6 @@ export class AgentProcessManager {
           : tracked[key].substring(excess);
       tracked.truncated = true;
     }
-
-    // Accumulate output delta for throttled emission
     this.accumulateDelta(agentId, stream, data);
   }
 
@@ -1022,8 +908,6 @@ export class AgentProcessManager {
       this.pendingDeltas.set(agentId, pending);
     }
     pending[stream] += data;
-
-    // Start flush timer if not already running
     if (!this.flushTimers.has(agentId)) {
       const timer = setTimeout(() => {
         this.flushDelta(agentId);
@@ -1043,8 +927,6 @@ export class AgentProcessManager {
       this.pendingDeltas.set(agentId, pending);
     }
     pending.segments.push(segment);
-
-    // Also accumulate for persistence (capped)
     const tracked = this.agents.get(agentId);
     if (
       tracked &&
@@ -1052,8 +934,6 @@ export class AgentProcessManager {
     ) {
       tracked.accumulatedSegments.push(segment);
     }
-
-    // Start flush timer if not already running
     if (!this.flushTimers.has(agentId)) {
       const timer = setTimeout(() => {
         this.flushDelta(agentId);
@@ -1077,8 +957,6 @@ export class AgentProcessManager {
       this.pendingDeltas.set(agentId, pending);
     }
     pending.streamEvents.push(event);
-
-    // Also accumulate for persistence with smart capping that preserves tree-structural landmarks
     const tracked = this.agents.get(agentId);
     if (tracked) {
       tracked.accumulatedStreamEvents.push(event);
@@ -1099,8 +977,6 @@ export class AgentProcessManager {
         );
       }
     }
-
-    // Start flush timer if not already running
     if (!this.flushTimers.has(agentId)) {
       const timer = setTimeout(() => {
         this.flushDelta(agentId);
@@ -1140,8 +1016,6 @@ export class AgentProcessManager {
         ? { streamEvents: pending.streamEvents }
         : {}),
     };
-
-    // Reset pending
     pending.stdout = '';
     pending.stderr = '';
     pending.segments = [];
@@ -1171,14 +1045,10 @@ export class AgentProcessManager {
   ): void {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
-
-    // Guard against double handleExit (error + exit events both firing)
     if (tracked.hasExited) return;
     tracked.hasExited = true;
 
     clearTimeout(tracked.timeoutHandle);
-
-    // Don't override timeout/stopped status
     if (tracked.info.status === 'running') {
       const status: AgentStatus = code === 0 ? 'completed' : 'failed';
       tracked.info = {
@@ -1188,21 +1058,15 @@ export class AgentProcessManager {
         completedAt: new Date().toISOString(),
       };
     } else if (!tracked.info.completedAt) {
-      // Ensure completedAt is set even for timeout/stopped agents
       tracked.info = {
         ...tracked.info,
         completedAt: new Date().toISOString(),
       };
     }
-
-    // Flush remaining output deltas before emitting exit
     this.flushDelta(agentId);
     this.cleanupFlushTimer(agentId);
 
     this.scheduleCleanup(agentId);
-
-    // Delay the exit event so the UI has time to process the last output chunks
-    // before the agent card is marked as complete.
     const exitInfo = tracked.info;
     setTimeout(() => {
       this.events.emit('agent:exited', exitInfo);
@@ -1223,8 +1087,6 @@ export class AgentProcessManager {
   private scheduleCleanup(agentId: string): void {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
-
-    // Clear any existing cleanup timer
     if (tracked.cleanupHandle) {
       clearTimeout(tracked.cleanupHandle);
     }
@@ -1251,13 +1113,9 @@ export class AgentProcessManager {
 
   private async killProcess(tracked: TrackedAgent): Promise<void> {
     const child = tracked.process;
-
-    // SDK-based agent: abort via AbortController instead of process signals
     if (!child) {
       if (tracked.sdkAbortController) {
         tracked.sdkAbortController.abort();
-        // AbortController.abort() is synchronous but the SDK needs a tick
-        // to process the signal and tear down resources.
         await new Promise<void>((resolve) => setTimeout(resolve, 500));
       }
       return;
@@ -1266,7 +1124,6 @@ export class AgentProcessManager {
     if (!child.pid) return;
 
     if (process.platform === 'win32') {
-      // Windows: use taskkill to kill process tree
       try {
         await execFileAsync('taskkill', [
           '/pid',
@@ -1275,7 +1132,6 @@ export class AgentProcessManager {
           '/F',
         ]);
       } catch (err) {
-        // taskkill failed (process already dead or access denied), fallback
         this.sentryService.captureException(
           err instanceof Error ? err : new Error(String(err)),
           { errorSource: 'AgentProcessManager.killProcess.taskkill' },
@@ -1291,23 +1147,12 @@ export class AgentProcessManager {
         }
       }
     } else {
-      // Unix: SIGTERM then SIGKILL after grace period.
-      //
-      // Try to signal the entire process group first via `process.kill(-pid)`.
-      // This reaches every descendant (CLIs that spawn shells/tools) so we
-      // don't leave orphaned subprocesses on Linux/macOS. Requires the child
-      // to have been spawned in its own process group (detached:true) OR for
-      // the CLI itself to have called setpgid(). When neither holds, the
-      // negative-pid kill targets our own group (EPERM) or fails (ESRCH /
-      // EINVAL); we fall back to direct child.kill() in that case.
       const childPid = child.pid;
       const killGroup = (signal: NodeJS.Signals): boolean => {
         try {
           process.kill(-childPid, signal);
           return true;
         } catch {
-          // Process group signaling not available (no setpgid, already dead,
-          // or insufficient permissions). Fall back to direct child kill.
           try {
             child.kill(signal);
           } catch {
@@ -1359,9 +1204,6 @@ export class AgentProcessManager {
   }
 
   private getMaxConcurrentAgents(): number {
-    // Section 'ptah' + flat key 'agentOrchestration.<key>' matches the write path
-    // in agent-rpc.handlers.ts and ensures FILE_BASED_SETTINGS_KEYS routing
-    // through PtahFileSettingsManager (~/.ptah/settings.json) where applicable.
     return (
       this.workspace.getConfiguration<number>(
         'ptah',
@@ -1372,14 +1214,7 @@ export class AgentProcessManager {
   }
 
   private async getPreferredCli(): Promise<CliType | null> {
-    // Known system CLI types (not Ptah CLI IDs)
     const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
-
-    // Read disabled CLIs to exclude them from selection.
-    // IMPORTANT: section MUST be 'ptah' (not 'ptah.agentOrchestration') so the
-    // FILE_BASED_SETTINGS_KEYS check in IWorkspaceProvider.getConfiguration
-    // routes through PtahFileSettingsManager → ~/.ptah/settings.json. Writes
-    // (agent-rpc.handlers.ts) use the same section + flat-key format.
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
         'ptah',
@@ -1387,8 +1222,6 @@ export class AgentProcessManager {
         [],
       ) ?? [],
     );
-
-    // Read user's preferred agent order (matches write format)
     const preferredOrder =
       this.workspace.getConfiguration<string[]>(
         'ptah',
@@ -1405,14 +1238,10 @@ export class AgentProcessManager {
         disabled: disabledClis.size > 0 ? [...disabledClis].join(', ') : 'none',
       },
     );
-
-    // Iterate preferred list and return first installed, enabled system CLI
     for (const entry of preferredOrder) {
-      // Skip Ptah CLI IDs — they are handled by the namespace builder, not here
       if (!systemCliTypes.has(entry)) {
         continue;
       }
-      // Skip disabled CLIs
       if (disabledClis.has(entry)) {
         continue;
       }
@@ -1435,8 +1264,6 @@ export class AgentProcessManager {
         );
       }
     }
-
-    // Fallback: auto-detect first installed CLI that is not disabled
     const installed = await this.cliDetection.getInstalledClis();
     const enabled = installed.filter((c) => !disabledClis.has(c.cli));
     this.logger.debug(
@@ -1453,10 +1280,6 @@ export class AgentProcessManager {
   }
 
   private getWorkspaceRoot(): string {
-    // Never return '' — child_process.spawn with cwd:'' falls back to the
-    // parent process cwd (the app install dir in VS Code/Electron), which
-    // makes CLI agents operate on the wrong files. Use the user's home
-    // directory as a safe fallback when no workspace is open.
     return this.workspace.getWorkspaceRoot() ?? require('os').homedir();
   }
 
@@ -1495,50 +1318,29 @@ export class AgentProcessManager {
 
   private async validateWorkingDirectory(dir: string): Promise<void> {
     const workspaceRoot = this.getWorkspaceRoot();
-    // Reject if workspace root is missing. An empty workspaceRoot would pass
-    // the startsWith check for any directory (empty string is a prefix of
-    // everything), effectively disabling the guard.
     if (!workspaceRoot || workspaceRoot.trim() === '') {
       throw new Error('Cannot spawn agent process: no workspace root is open.');
     }
     if (!dir || dir.trim() === '') {
       throw new Error('Working directory is required but was empty.');
     }
-
-    // Cross-platform path normalization differs:
-    // - Windows: filesystem is case-insensitive, drive letters and `\` vs `/`
-    //   should both compare equal -> lowercase + slash-normalize.
-    // - Unix (Linux/macOS): filesystem is case-sensitive (case-preserving on
-    //   default macOS APFS but still treated as sensitive by exact-match
-    //   tooling). Lowercasing here would break legitimate paths whose real
-    //   components contain uppercase letters. Instead, resolve symlinks via
-    //   realpath so a symlinked workspace root still matches its canonical
-    //   target.
     let normalizedDir: string;
     let normalizedRoot: string;
     if (process.platform === 'win32') {
-      // Locale-independent ASCII-only lowercase. Avoid String.prototype.toLowerCase()
-      // because Turkish locale maps `I` -> `ı` (dotless), breaking path comparison
-      // for drive letters and ASCII path components.
       const asciiLower = (s: string): string =>
         s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
       normalizedDir = asciiLower(dir.replace(/\\/g, '/'));
       normalizedRoot = asciiLower(workspaceRoot.replace(/\\/g, '/'));
     } else {
-      // Resolve real paths to handle symlinked workspace roots (common on
-      // macOS where /tmp -> /private/tmp). Fall back to the raw paths if
-      // realpath fails (e.g., directory doesn't exist yet, EACCES).
       let realDir = dir;
       let realRoot = workspaceRoot;
       try {
         realDir = await fsPromises.realpath(dir);
       } catch {
-        // Directory may not exist yet — keep original
       }
       try {
         realRoot = await fsPromises.realpath(workspaceRoot);
       } catch {
-        // Workspace root may not exist yet — keep original
       }
       normalizedDir = realDir;
       normalizedRoot = realRoot;
@@ -1562,8 +1364,6 @@ export class AgentProcessManager {
    */
   private async resolveMcpPort(): Promise<number | undefined> {
     try {
-      // Check 1: Is user premium? Use cached status first (no network call),
-      // fall back to verifyLicense() if cache is empty.
       const cached = this.licenseService.getCachedStatus();
       const status = cached ?? (await this.licenseService.verifyLicense());
       const isPremium =
@@ -1580,8 +1380,6 @@ export class AgentProcessManager {
         );
         return undefined;
       }
-
-      // Check 2: Is MCP server running? Use cached health check result if fresh.
       const configuredPort =
         this.workspace.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
         51820;
@@ -1593,14 +1391,10 @@ export class AgentProcessManager {
       ) {
         return this.mcpHealthCache.port;
       }
-
-      // Health check: verify server is actually running
       try {
         await axios.get(`http://localhost:${configuredPort}/health`, {
           timeout: 2000,
         });
-
-        // If we reach here, status was 2xx
         this.mcpHealthCache = { port: configuredPort, timestamp: Date.now() };
         this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
           port: configuredPort,
@@ -1630,7 +1424,4 @@ export class AgentProcessManager {
       return undefined;
     }
   }
-
-  // sanitizeTask removed: spawn() without shell:true doesn't need it,
-  // and stripping metachar chars corrupts legitimate prompts.
 }

@@ -59,9 +59,6 @@ export class ChatMessageHandler implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
-    // CHAT_COMPLETE intentionally not registered — SESSION_STATS is authoritative.
-    // CHAT_COMPLETE fires per-turn (on message_complete), not at session end.
-    // Handling it here would mark tabs idle mid-session during multi-turn tool-use.
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
@@ -140,8 +137,6 @@ export class ChatMessageHandler implements MessageHandler {
       });
     }, ChatMessageHandler.METADATA_DEBOUNCE_MS);
   }
-
-  // CHAT_CHUNK: SDK streaming events with tabId/sessionId extraction
   private handleChatChunk(payload: unknown): void {
     if (!payload) {
       console.warn(
@@ -157,17 +152,9 @@ export class ChatMessageHandler implements MessageHandler {
     };
 
     this.chatStore.processStreamEvent(event, tabId, sessionId);
-
-    // Authoritative routing. The router maintains
-    // ConversationRegistry/TabSessionBinding so other consumers
-    // (banner UI, fan-out) can resolve session→conversation→tab[] mapping
-    // from a single source. Errors are NOT swallowed — a router defect
-    // needs to surface during testing.
     const originTabId = tabId ? TabId.safeParse(tabId) : null;
     this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
   }
-
-  // CHAT_ERROR: Chat error signal
   private handleChatError(payload: unknown): void {
     const { tabId, sessionId, error } =
       (payload as {
@@ -188,8 +175,6 @@ export class ChatMessageHandler implements MessageHandler {
       error: error ?? 'Unknown error',
     });
   }
-
-  // PERMISSION_REQUEST: Permission prompt from backend
   private handlePermissionRequest(payload: unknown): void {
     if (!payload) {
       console.warn(
@@ -197,8 +182,6 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    // Validate at the frontend receive point. A malformed payload must NOT
-    // crash the message-handler loop for other message types; log + early-return.
     const parsed = PermissionRequestSchema.safeParse(payload);
     if (!parsed.success) {
       console.warn(
@@ -210,17 +193,9 @@ export class ChatMessageHandler implements MessageHandler {
     const prompt = parsed.data as Parameters<
       typeof this.chatStore.handlePermissionRequest
     >[0];
-    // 1. Append to PermissionHandler queue first so the prompt is in
-    //    `_permissionRequests` by the time the router tags target tabs.
     this.chatStore.handlePermissionRequest(prompt);
-    // 2. Compute fan-out target tabs and stash
-    //    them on the PermissionHandler so cancel-on-decision can broadcast
-    //    correctly. Router falls back to no-op when the prompt's session
-    //    isn't yet in the registry — global visibility kicks in.
     this.streamRouter.routePermissionPrompt(prompt);
   }
-
-  // AGENT_SUMMARY_CHUNK: Real-time agent summary streaming
   private handleAgentSummaryChunk(payload: unknown): void {
     if (!payload) {
       console.warn(
@@ -232,8 +207,6 @@ export class ChatMessageHandler implements MessageHandler {
       payload as Parameters<typeof this.chatStore.handleAgentSummaryChunk>[0],
     );
   }
-
-  // SESSION_STATS: Cost/token data after completion
   private handleSessionStats(payload: unknown): void {
     if (!payload) {
       console.warn(
@@ -245,8 +218,6 @@ export class ChatMessageHandler implements MessageHandler {
       payload as Parameters<typeof this.chatStore.handleSessionStats>[0],
     );
   }
-
-  // SESSION_ID_RESOLVED: Real SDK UUID resolution
   private handleSessionIdResolved(payload: unknown): void {
     const { tabId, realSessionId } =
       (payload as {
@@ -259,20 +230,9 @@ export class ChatMessageHandler implements MessageHandler {
         tabId: tabId as string,
         realSessionId: realSessionId as string,
       });
-
-      // Re-route any pending questions whose stale tabId targets just got
-      // rebound to the real SDK session id. Without this, a question that
-      // arrived during the pending-session window stays pinned to the
-      // placeholder tabId and the chat-view filter silently drops it once
-      // the binding flips.
       this.streamRouter.refreshQuestionTargetsForSession(
         realSessionId as ClaudeSessionId,
       );
-
-      // Update parentSessionId on any agents spawned with the tab ID before
-      // the real SDK UUID was resolved. Without this, agents spawned early in
-      // the session lifecycle have a stale tab ID that never matches the tab's
-      // claudeSessionId, making them invisible in the filtered agent panel.
       if (tabId) {
         this.agentMonitorStore.resolveParentSessionId(tabId, realSessionId);
       }
@@ -282,8 +242,6 @@ export class ChatMessageHandler implements MessageHandler {
       );
     }
   }
-
-  // ASK_USER_QUESTION_REQUEST: AskUserQuestion tool from SDK
   private handleAskUserQuestion(payload: unknown): void {
     if (!payload) {
       console.warn(
@@ -291,8 +249,6 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    // Validate at the frontend receive point. A malformed payload must NOT
-    // crash the message-handler loop for other message types; log + early-return.
     const parsed = AskUserQuestionRequestSchema.safeParse(payload);
     if (!parsed.success) {
       console.warn(
@@ -303,22 +259,9 @@ export class ChatMessageHandler implements MessageHandler {
     }
     const question =
       parsed.data as import('@ptah-extension/shared').AskUserQuestionRequest;
-    // 1. Enqueue the question first so the router-resolved targets land
-    //    on a question that's already in the queue.
     this.chatStore.handleQuestionRequest(question);
-    // 2. Resolve sessionId → tabs and stash the target tab ids on the
-    //    PermissionHandler. Mirrors the permission prompt path. Without
-    //    this, the chat-view filter falls back to raw payload-id equality,
-    //    which silently drops questions whose session id rotated while
-    //    the user was idle (compaction / late SESSION_ID_RESOLVED) — and
-    //    the backend's `awaitQuestionResponse` has no timeout, so the
-    //    tool call hangs forever.
     this.streamRouter.routeQuestionPrompt(question);
   }
-
-  // ASK_USER_QUESTION_AUTO_RESOLVED: idle-timeout fired backend-side and the
-  // recommended option was auto-picked. Drop the now-stale card from the UI
-  // (the agent already received the answer and moved on).
   private handleAskUserQuestionAutoResolved(payload: unknown): void {
     const { id, answers } =
       (payload as {
@@ -332,8 +275,6 @@ export class ChatMessageHandler implements MessageHandler {
     );
     this.chatStore.dropQuestionRequest(id);
   }
-
-  // PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
   private handlePermissionAutoResolved(payload: unknown): void {
     if (payload) {
       this.chatStore.handlePermissionAutoResolved(
@@ -341,8 +282,6 @@ export class ChatMessageHandler implements MessageHandler {
       );
     }
   }
-
-  // PERMISSION_SESSION_CLEANUP: Remove all permission/question cards for aborted session
   private handlePermissionSessionCleanup(payload: unknown): void {
     const { sessionId } = (payload as { sessionId?: string }) ?? {};
     if (sessionId) {

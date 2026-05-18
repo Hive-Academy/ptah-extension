@@ -21,8 +21,6 @@ export class CliDiagnosticsProvider implements IDiagnosticsProvider {
       severity: 'error' | 'warning' | 'info' | 'hint';
     }>;
   }> {
-    // CLI has no live language server. Return empty diagnostics.
-    // Future: integrate tree-sitter parse errors or `tsc --noEmit` output.
     return [];
   }
 }

@@ -4,10 +4,6 @@
  * Extracted from setup-wizard.types.ts — zero behavior change.
  */
 
-// ============================================================================
-// Wizard Message Types
-// ============================================================================
-
 /**
  * Wizard message types for type-safe message handling.
  * Used by the discriminated union for exhaustive switch checking.
@@ -22,10 +18,6 @@ export type WizardMessageType =
   | 'setup-wizard:generation-stream'
   | 'setup-wizard:enhance-stream'
   | 'setup-wizard:error';
-
-// ============================================================================
-// Wizard Message Payload Types
-// ============================================================================
 
 /**
  * Analysis phase identifiers for agentic workspace analysis.
@@ -221,10 +213,6 @@ export interface WizardErrorPayload {
   /** Error type: 'error' for real errors, 'fallback-warning' for degraded-mode warnings */
   type?: 'error' | 'fallback-warning';
 }
-
-// ============================================================================
-// Wizard Message Discriminated Union
-// ============================================================================
 
 /**
  * Discriminated union for wizard messages.

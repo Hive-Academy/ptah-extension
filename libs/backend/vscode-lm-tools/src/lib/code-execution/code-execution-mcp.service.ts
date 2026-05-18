@@ -80,21 +80,10 @@ export class CodeExecutionMCP implements IDisposable {
     @inject(TOKENS.PERMISSION_PROMPT_SERVICE)
     private readonly permissionPromptService: PermissionPromptService,
   ) {
-    // Resolve WebviewManager lazily: in Electron the token is not registered.
-    // Uses the same container.isRegistered() pattern as SDK_SESSION_LIFECYCLE_MANAGER
-    // in ptah-api-builder.service.ts.
     this.webviewManager = container.isRegistered(TOKENS.WEBVIEW_MANAGER)
       ? container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER)
       : undefined;
-
-    // Detect IDE capabilities: true in VS Code (VscodeIDECapabilities is registered),
-    // false in Electron/standalone (token is not registered).
-    // This flag controls tool filtering in handleToolsList — VS Code-only tools
-    // (ptah_lsp_references, ptah_lsp_definitions, ptah_get_dirty_files) are excluded
-    // when IDE capabilities are not available.
     this.hasIDECapabilities = container.isRegistered(IDE_CAPABILITIES_TOKEN);
-
-    // Build ptah API once at construction (reused for all executions)
     this.ptahAPI = this.apiBuilder.build();
   }
 
@@ -253,9 +242,6 @@ export class CodeExecutionMCP implements IDisposable {
    * Prevents stale entries pointing to a dead server.
    */
   private unregisterFromMcpJson(): void {
-    // If the service was never registered, skip the disk read entirely.
-    // Avoids unnecessary fs.readFileSync on shutdown when
-    // ensureRegisteredForSubagents() never ran (e.g., free-tier sessions).
     if (!this.registeredInMcpJson) return;
 
     const mcpJsonPath = this.getMcpJsonPath();

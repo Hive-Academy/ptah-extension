@@ -17,7 +17,6 @@ import type {
  * Model list kept in sync with COPILOT_MODELS in copilot-sdk.adapter.ts.
  */
 const COPILOT_STATIC_MODELS: ProviderStaticModel[] = [
-  // --- Claude models ---
   {
     id: 'claude-sonnet-4.6',
     name: 'Claude Sonnet 4.6',
@@ -72,7 +71,6 @@ const COPILOT_STATIC_MODELS: ProviderStaticModel[] = [
     inputCostPerToken: 0,
     outputCostPerToken: 0,
   },
-  // --- GPT models ---
   {
     id: 'gpt-5.4',
     name: 'GPT 5.4',
@@ -163,7 +161,6 @@ const COPILOT_STATIC_MODELS: ProviderStaticModel[] = [
     inputCostPerToken: 0,
     outputCostPerToken: 0,
   },
-  // --- Gemini models ---
   {
     id: 'gemini-3-pro-preview',
     name: 'Gemini 3 Pro Preview',

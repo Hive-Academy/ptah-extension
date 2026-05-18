@@ -108,9 +108,6 @@ export class CatchupCoordinator {
         try {
           await this.runner.run(job, slot, { suppressJobTimestamps: true });
         } catch (err) {
-          // JobRunner.run never throws under normal conditions — but defend
-          // against a future regression so one job's failure doesn't stall
-          // catchup for the rest.
           this.logger.error('[cron-scheduler] catchup runner threw', {
             jobId: job.id,
             slot,
@@ -151,7 +148,6 @@ export class CatchupCoordinator {
 
     const slots: number[] = [];
     let cursor = new Date(since);
-    // Hard cap iterations defensively — 24h / 1min = 1440 max.
     const MAX_ITER = 2000;
     for (let i = 0; i < MAX_ITER; i += 1) {
       const next = cron.nextRun(cursor);

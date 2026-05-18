@@ -28,9 +28,6 @@ import { AdminService } from './admin.service';
     forwardRef(() => LicenseModule),
   ],
   controllers: [AdminController],
-  // `AuditModule` is `@Global()` — `AuditLogService` resolves without import.
-  // `AdminThrottlerGuard` is a per-route guard, provided (not exported) so
-  // `@UseGuards(AdminThrottlerGuard)` on controller methods can DI it.
   providers: [AdminService, AdminGuard, AdminThrottlerGuard],
   exports: [AdminThrottlerGuard],
 })

@@ -26,7 +26,6 @@ export class CliEditorProvider implements IEditorProvider {
   }
 
   getActiveEditorPath(): string | undefined {
-    // No editor in CLI context
     return undefined;
   }
 }

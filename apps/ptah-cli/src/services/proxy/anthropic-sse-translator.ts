@@ -80,7 +80,6 @@ const STOP_REASON_MAP: Record<string, string> = {
   max_tokens: 'max_tokens',
   stop_sequence: 'stop_sequence',
   tool_use: 'tool_use',
-  // Backend-specific aliases we still see in the wild.
   natural_stop: 'end_turn',
   stop: 'end_turn',
 };
@@ -156,9 +155,6 @@ export class AnthropicSseTranslator {
   onChunk(event: ChatChunkEventLike): SseFrame[] {
     if (this.messageStopped) return [];
     if (!this.messageStarted) {
-      // Defensive — the proxy should have called `start()` already, but if
-      // it didn't (e.g. the very first event arrives before our ack handler
-      // runs) we synthesize the start frame here so the protocol stays valid.
       const startFrames = this.start();
       return [...startFrames, ...this.onChunk(event)];
     }
@@ -173,8 +169,6 @@ export class AnthropicSseTranslator {
         return this.handleToolDelta(event);
       case 'message_complete':
         return this.handleMessageComplete(event);
-      // The following are intentionally dropped — Anthropic's streaming wire
-      // does not surface them today.
       case 'thinking_delta':
       case 'thought_delta':
       case 'thinking_start':
@@ -211,22 +205,14 @@ export class AnthropicSseTranslator {
     return this.messageStopped;
   }
 
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
-
   private handleTextDelta(event: ChatChunkEventLike): SseFrame[] {
     const text = event.delta ?? event.text ?? '';
     if (text.length === 0) return [];
 
     const frames: SseFrame[] = [];
-
-    // If a non-text block is open, close it before opening a new text block.
     if (this.openBlock !== null && this.openBlock.type !== 'text') {
       frames.push(this.closeCurrentBlock());
     }
-
-    // Open a new text block if none is open.
     if (this.openBlock === null) {
       const index = this.allocBlockIndex();
       this.openBlock = { index, type: 'text' };
@@ -239,8 +225,6 @@ export class AnthropicSseTranslator {
         },
       });
     }
-
-    // Emit the text delta.
     frames.push({
       event: 'content_block_delta',
       data: {
@@ -254,9 +238,6 @@ export class AnthropicSseTranslator {
 
   private handleToolStart(event: ChatChunkEventLike): SseFrame[] {
     const frames: SseFrame[] = [];
-
-    // Close any prior block (text or tool_use) — Anthropic only allows one
-    // open block at a time.
     if (this.openBlock !== null) {
       frames.push(this.closeCurrentBlock());
     }
@@ -279,10 +260,6 @@ export class AnthropicSseTranslator {
         },
       },
     });
-
-    // If the backend supplied the full tool input upfront (non-streaming
-    // tool_start), emit a single `input_json_delta` frame so the caller sees
-    // the complete arguments. Anthropic streams partial JSON here normally.
     if (event.toolInput && Object.keys(event.toolInput).length > 0) {
       frames.push({
         event: 'content_block_delta',
@@ -301,7 +278,6 @@ export class AnthropicSseTranslator {
 
   private handleToolDelta(event: ChatChunkEventLike): SseFrame[] {
     if (this.openBlock === null || this.openBlock.type !== 'tool_use') {
-      // Stray tool delta with no active tool block — drop it.
       return [];
     }
     const partial = event.inputJsonDelta ?? event.delta ?? '';
@@ -321,8 +297,6 @@ export class AnthropicSseTranslator {
   private handleMessageComplete(event: ChatChunkEventLike): SseFrame[] {
     if (this.messageStopped) return [];
     const frames: SseFrame[] = [];
-
-    // Close any open block before message_delta / message_stop.
     if (this.openBlock !== null) {
       frames.push(this.closeCurrentBlock());
     }
@@ -367,8 +341,6 @@ export class AnthropicSseTranslator {
   private closeCurrentBlock(): SseFrame {
     const block = this.openBlock;
     if (block === null) {
-      // Defensive — caller checked isObject already, but TypeScript needs the
-      // narrowing. Synthesize a no-op frame at index 0.
       return {
         event: 'content_block_stop',
         data: { type: 'content_block_stop', index: 0 },

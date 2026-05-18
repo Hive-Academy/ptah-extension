@@ -7,8 +7,6 @@
 
 import type { FlatStreamEventUnion } from '../execution';
 
-// ─── Common Types ────────────────────────────────────────
-
 /** Workspace context describing the current project environment for harness operations */
 export interface HarnessWorkspaceContext {
   projectName: string;
@@ -16,8 +14,6 @@ export interface HarnessWorkspaceContext {
   frameworks: string[];
   languages: string[];
 }
-
-// ─── Data Model ──────────────────────────────────────────
 
 /** Top-level harness configuration output */
 export interface HarnessConfig {
@@ -130,8 +126,6 @@ export interface HarnessClaudeMdConfig {
   previewContent: string;
 }
 
-// ─── Wizard Step Types ──────────────────────────────────
-
 export type HarnessWizardStep =
   | 'persona'
   | 'agents'
@@ -139,8 +133,6 @@ export type HarnessWizardStep =
   | 'prompts'
   | 'mcp'
   | 'review';
-
-// ─── MCP Server Suggestion ──────────────────────────────
 
 /** Suggested MCP server from persona-based AI suggestions */
 export interface McpServerSuggestion {
@@ -152,8 +144,6 @@ export interface McpServerSuggestion {
   reason: string;
 }
 
-// ─── Skill Browser Types ────────────────────────────────
-
 export interface SkillSummary {
   id: string;
   name: string;
@@ -161,8 +151,6 @@ export interface SkillSummary {
   source: 'builtin' | 'plugin' | 'harness';
   isActive: boolean;
 }
-
-// ─── Available Agent Info ───────────────────────────────
 
 export interface AvailableAgent {
   id: string;
@@ -172,8 +160,6 @@ export interface AvailableAgent {
   available: boolean;
 }
 
-// ─── Harness Preset ─────────────────────────────────────
-
 export interface HarnessPreset {
   id: string;
   name: string;
@@ -181,8 +167,6 @@ export interface HarnessPreset {
   config: HarnessConfig;
   createdAt: string;
 }
-
-// ─── RPC Request/Response Pairs ─────────────────────────
 
 /** harness:initialize — Start a harness builder session */
 export type HarnessInitializeParams = Record<string, never>;
@@ -306,8 +290,6 @@ export interface HarnessChatAction {
   payload: Record<string, unknown>;
 }
 
-// ─── New Collaborative RPC Contracts ──────────────────
-
 /** harness:design-agents — AI designs a custom subagent fleet for the persona */
 export interface HarnessDesignAgentsParams {
   persona: PersonaDefinition;
@@ -368,8 +350,6 @@ export interface HarnessAnalyzeIntentResponse {
   reasoning: string;
 }
 
-// ─── Conversational Harness Types ───────────────────────
-
 export interface HarnessConversationMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -388,8 +368,6 @@ export interface HarnessConverseResponse {
   configUpdates?: Partial<HarnessConfig>;
   isConfigComplete?: boolean;
 }
-
-// ─── Harness Streaming Types ────────────────────────────
 
 /** Operation types that can produce streaming events */
 export type HarnessStreamOperation =
@@ -447,8 +425,6 @@ export type HarnessStreamMessage = {
   type: 'harness:stream-complete';
   payload: HarnessStreamCompletePayload;
 };
-
-// ─── Flat Stream Event Types (for inline execution visualization) ──
 
 /** Flat stream event payload for real-time execution visualization in the harness builder */
 export interface HarnessFlatStreamPayload {

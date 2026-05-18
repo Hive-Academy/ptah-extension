@@ -1,4 +1,3 @@
-// CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
 import { app, BrowserWindow } from 'electron';
@@ -15,22 +14,12 @@ import { wireRuntime } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import type { UpdateManager } from './services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from './services/update/update-tokens';
-
-// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// Force userData path to be stable across dev and packaged builds.
-// In development (NODE_ENV=development from scripts/launch.js) we point
-// userData at a separate directory so the single-instance lock doesn't
-// collide with a running packaged Ptah — letting dev and prod run side
-// by side. ~/.ptah/ptah.db and ~/.ptah/settings.json remain shared.
 const isDev = process.env.NODE_ENV === 'development';
 app.setName(isDev ? 'Ptah Dev' : 'Ptah');
 if (isDev) {
   app.setPath('userData', path.join(app.getPath('appData'), 'Ptah Dev'));
 }
-
-// Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -86,8 +75,6 @@ if (!gotLock) {
     cronScheduler = wired.refs.cronScheduler;
     symbolWatcher = wired.refs.symbolWatcher;
     licenseReactivityDisposable = wired.refs.licenseReactivityDisposable;
-    // Back-fill the mutable ref so bootstrap's onDidChangeWorkspaceFolders
-    // subscription can call gitWatcher.switchWorkspace on folder changes.
     boot.gitWatcherRef.current = gitWatcher;
 
     const post = await registerPostWindow({
@@ -105,23 +92,12 @@ if (!gotLock) {
     updateCheckInterval = post.updateCheckInterval;
     messagingGateway = post.messagingGateway;
   });
-
-  // Handle second instance (focus existing window).
-  // Registered at top level so the handler is bound synchronously from
-  // app start — safe because mainWindow is null until Phase 5 and the
-  // body is null-guarded.
   app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
   });
-
-  // macOS: re-create window when dock icon is clicked.
-  // DI container + IPC bridge persist across window close on macOS,
-  // so we only need to recreate the BrowserWindow and load the renderer.
-  // The IPC bridge's getWindow callback already references `mainWindow`,
-  // so it will pick up the new window automatically.
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createMainWindow(resolvedStateStorage);
@@ -129,31 +105,17 @@ if (!gotLock) {
       mainWindow.loadFile(rendererPath);
     }
   });
-
-  // Quit when all windows are closed (except on macOS)
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
       app.quit();
     }
   });
-
-  // Clean up skill junctions and license revalidation on app quit.
-  // deactivateSync() removes all managed junctions/symlinks and unsubscribes
-  // from workspace folder changes. Must be synchronous (will-quit is sync).
-  // Disposal order preserved LIFO.
   app.on('will-quit', () => {
-    // 1. Flush any pending debounced workspace persistence synchronously.
-    // Without this, removing a folder and quitting within the 500ms debounce
-    // window would lose the change — the removed folder reappears on restart.
     flushWorkspacePersistence?.();
-
-    // 2. Clear license revalidation interval
     if (revalidationInterval !== null) {
       clearInterval(revalidationInterval);
       revalidationInterval = null;
     }
-
-    // 2.5. Clear update check interval + dispose UpdateManager
     if (updateCheckInterval !== null) {
       clearInterval(updateCheckInterval);
       updateCheckInterval = null;
@@ -171,11 +133,7 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // 3. Stop git file system watcher
     gitWatcher?.stop();
-
-    // 3.1. Close code symbol chokidar watcher
     try {
       symbolWatcher?.close();
     } catch (error) {
@@ -184,8 +142,6 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // 3.2. Dispose license reactivity binder (removes license event listeners)
     try {
       licenseReactivityDisposable?.dispose();
     } catch (error) {
@@ -194,8 +150,6 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // 4. Deactivate skill junctions
     try {
       skillJunctionRef?.deactivateSync();
     } catch (error) {
@@ -204,13 +158,6 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // 4.5. Stop skill synthesis service.
-    // Currently a no-op (the synthesis service holds no long-lived
-    // resources of its own — the SQLite handle is owned by
-    // persistence-sqlite and disposed by its own lifecycle), but we
-    // call stop() to honour the start()/stop() contract and reserve a
-    // hook for future flushing.
     try {
       skillSynthesis?.stop();
     } catch (error) {
@@ -219,13 +166,6 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // 4.53. Stop cron scheduler.
-    // Stops croner timers and disposes the IPowerMonitor listener. Must run
-    // BEFORE sqliteConnection.close() because in-flight job runs write to
-    // SQLite (cron_runs table). Synchronous — croner.stop() is sync, and
-    // any active runner promises will resolve against an already-closed
-    // connection harmlessly.
     try {
       cronScheduler?.stop();
     } catch (error) {
@@ -234,13 +174,6 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // 4.55. Stop memory curator + close SQLite.
-    // Order: stop curator first (unsubscribes from PreCompact registry),
-    // THEN close SQLite (so any in-flight write started by stop() finishes
-    // before the connection goes away). Both are synchronous to fit in
-    // will-quit; the embedder worker is reaped by node:worker_threads on
-    // process exit (its IEmbedder.dispose is async and we cannot await).
     try {
       memoryCurator?.stop();
     } catch (error) {
@@ -257,13 +190,6 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // 4.6. Stop messaging gateway adapters.
-    // Fire-and-forget: each adapter's stop() may await a graceful
-    // disconnect (Telegram bot polling, Discord WebSocket close, Slack
-    // Socket Mode close). will-quit is synchronous so we cannot await,
-    // but the OS will reap any in-flight network sockets when the
-    // process exits.
     try {
       messagingGateway?.stop().catch((error) => {
         console.warn(
@@ -277,8 +203,6 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // 5. Dispose PtahCliRegistry CLI adapters
     try {
       const diContainer = ElectronDIContainer.getContainer();
       if (
@@ -290,7 +214,6 @@ if (!gotLock) {
         cliRegistry.disposeAll();
       }
     } catch {
-      // Non-fatal: registry may not have been initialized
     }
   });
 } // end of gotLock guard

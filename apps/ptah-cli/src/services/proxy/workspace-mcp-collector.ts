@@ -92,8 +92,6 @@ export class WorkspaceMcpCollector {
     }
 
     const tools: AnthropicToolDefinition[] = [];
-
-    // -- MCP servers ----------------------------------------------------
     try {
       const mcpResp = await this.rpcCall<
         Record<string, never>,
@@ -106,11 +104,8 @@ export class WorkspaceMcpCollector {
         }
       }
     } catch {
-      // RPC threw — collector continues with skills-only.
       this.cache.delete(workspacePath);
     }
-
-    // -- Plugin skills -------------------------------------------------
     try {
       const pluginsListResp = await this.rpcCall<
         Record<string, never>,
@@ -141,7 +136,6 @@ export class WorkspaceMcpCollector {
         }
       }
     } catch {
-      // Plugin RPCs may not be registered (e.g. minimal mode). Skip silently.
     }
 
     this.cache.set(workspacePath, {
@@ -155,10 +149,6 @@ export class WorkspaceMcpCollector {
   invalidate(): void {
     this.cache.clear();
   }
-
-  // -------------------------------------------------------------------------
-  // Projection helpers
-  // -------------------------------------------------------------------------
 
   /**
    * Transform an installed MCP server into an Anthropic tool placeholder.

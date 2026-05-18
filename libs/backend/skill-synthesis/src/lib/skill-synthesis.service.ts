@@ -105,9 +105,6 @@ export class SkillSynthesisService {
   async start(): Promise<void> {
     if (this.started) return;
     if (!this.readSettings().enabled) {
-      // Do NOT latch `started` here — leave it false so a later start() call
-      // (after the user toggles `skillSynthesis.enabled` to true at runtime)
-      // re-evaluates the setting and wires up the subscription.
       this.logger.info(
         '[skill-synthesis] disabled via settings; skipping start',
       );
@@ -116,9 +113,6 @@ export class SkillSynthesisService {
     if (!this.connection.isOpen) {
       await this.connection.openAndMigrate();
     }
-
-    // Run SKILL.md format migration (agentskills.io when_to_use field).
-    // Non-fatal — wrapped in try/catch so startup proceeds regardless.
     try {
       const settingsForMigration = this.readSettings();
       const activeResult = migrateSkillMdFiles(
@@ -163,8 +157,6 @@ export class SkillSynthesisService {
         );
       },
     );
-
-    // Start Curator daemon if registered and enabled.
     const settings = this.readSettings();
     try {
       this.curator?.start(settings);
@@ -185,9 +177,6 @@ export class SkillSynthesisService {
     this._sessionEndDisposer = undefined;
     this.curator?.stop();
     this.started = false;
-    // Reset the per-process dedup so a future start() re-analyzes sessions
-    // that were skipped during a prior on/off/on cycle. The DB-level dedup
-    // via findByTrajectoryHash keeps this safe across restarts.
     this.analyzedSessions.clear();
   }
 
@@ -224,8 +213,6 @@ export class SkillSynthesisService {
       );
       return null;
     }
-
-    // Signal 3: Trajectory fidelity ratio — how many session turns were useful.
     const fidelityRatio =
       trajectory.sessionTurnCount > 0
         ? trajectory.turnCount / trajectory.sessionTurnCount
@@ -241,8 +228,6 @@ export class SkillSynthesisService {
       );
       return null;
     }
-
-    // Avoid duplicate work for trajectories we've already captured.
     const existing = this.store.findByTrajectoryHash(trajectory.hash);
     if (existing) {
       return { candidate: existing, reused: true };
@@ -263,9 +248,6 @@ export class SkillSynthesisService {
         );
       }
     }
-
-    // Signal 6: Abstraction edit-distance — ensure trajectory is different enough
-    // from its synthesized body (guards against overly literal captures).
     const synthesizedBody = this.synthesizeBody(
       trajectory.canonicalText,
       trajectory.shortDescription,
@@ -306,9 +288,6 @@ export class SkillSynthesisService {
       });
       return null;
     }
-
-    // Derive a short context ID from the workspace root — used for
-    // cross-context generalization tracking.
     const contextId = workspaceRoot
       ? crypto
           .createHash('sha256')
@@ -326,8 +305,6 @@ export class SkillSynthesisService {
       embedding,
       createdAt: Date.now(),
     });
-
-    // Record an initial invocation for the session that produced this candidate.
     if (!result.reused && contextId) {
       try {
         this.store.recordInvocation({
@@ -338,7 +315,6 @@ export class SkillSynthesisService {
           contextId,
         });
       } catch {
-        // Non-fatal — candidate was registered, invocation tracking is best-effort.
       }
     }
     this.logger.info('[skill-synthesis] candidate registered', {
@@ -478,8 +454,6 @@ export function computeNormalizedLevenshtein(a: string, b: string): number {
   if (m === 0 && n === 0) return 0;
   if (m === 0) return 1;
   if (n === 0) return 1;
-
-  // Use two-row DP to bound memory at O(n).
   let prev = new Array<number>(n + 1);
   let curr = new Array<number>(n + 1);
   for (let j = 0; j <= n; j++) prev[j] = j;

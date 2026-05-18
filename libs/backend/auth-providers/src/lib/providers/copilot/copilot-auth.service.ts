@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Authentication Service - Platform-Agnostic
  *
  * Handles GitHub OAuth login via file-based token reading or device code flow,
@@ -161,19 +161,10 @@ export class CopilotAuthService implements ICopilotAuthService {
   async login(): Promise<boolean> {
     try {
       this.logger.info('[CopilotAuth] Starting authentication...');
-
-      // Strategy 1: Try reading token from Copilot config file
       const fileRestored = await this.tryFileBasedAuth();
       if (fileRestored) {
         return true;
       }
-
-      // Strategy 2: GitHub Device Code flow.
-      //
-      //   beginLogin() â†’ surface user code via IUserInteraction â†’ pollLogin()
-      // so the headless CLI can drive the same primitives via JSON-RPC.
-      // Webview UX is preserved verbatim â€” clipboard write, info message
-      // with the device code, and openExternal still fire from this method.
       this.logger.info(
         '[CopilotAuth] Starting GitHub device code OAuth flow...',
       );
@@ -206,25 +197,18 @@ export class CopilotAuthService implements ICopilotAuthService {
     userCode: string,
     verificationUri: string,
   ): Promise<void> {
-    // Copy device code to clipboard â€” best-effort.
     try {
       await this.userInteraction.writeToClipboard(userCode);
       this.logger.info('[CopilotAuth] Device code copied to clipboard');
     } catch {
-      // Clipboard write is best-effort
     }
-
-    // Show dialog with the code (in case clipboard didn't work).
     void this.userInteraction.showInformationMessage(
       `Code "${userCode}" copied to clipboard.\nPaste it at ${verificationUri} to complete authentication.`,
       'OK',
     );
-
-    // Open the verification URL in the default browser â€” best-effort.
     try {
       await this.userInteraction.openExternal(verificationUri);
     } catch {
-      // Browser open is best-effort â€” user can navigate manually
     }
   }
 
@@ -297,10 +281,6 @@ export class CopilotAuthService implements ICopilotAuthService {
     return configured || DEFAULT_COPILOT_CLIENT_ID;
   }
 
-  // ---------------------------------------------------------------------------
-  // Headless device-code API
-  // ---------------------------------------------------------------------------
-
   /**
    * Step 1 of the headless device-code flow. Requests a fresh device code
    * from GitHub, registers an in-flight entry keyed by `deviceCode`, and
@@ -328,8 +308,6 @@ export class CopilotAuthService implements ICopilotAuthService {
         );
       }
     }, PENDING_LOGIN_PRUNE_MS);
-    // Allow the process to exit naturally even if a prune timer is still
-    // pending (Node-only; no-op in browser-like envs).
     if (typeof (pruneTimer as { unref?: () => void }).unref === 'function') {
       (pruneTimer as { unref: () => void }).unref();
     }
@@ -375,9 +353,6 @@ export class CopilotAuthService implements ICopilotAuthService {
     const intervalSeconds = opts.intervalSeconds ?? entry.intervalSeconds;
     const intervalMs = Math.max(intervalSeconds, 1) * 1000;
     const timeoutMs = opts.timeoutMs ?? DEFAULT_POLL_LOGIN_TIMEOUT_MS;
-
-    // External signal (e.g. CLI SIGINT handler) wired to the entry's
-    // controller so cancelLogin and the external signal both halt polling.
     const externalSignal = opts.signal;
     const onExternalAbort = (): void => entry.abortController.abort();
     if (externalSignal) {
@@ -399,8 +374,6 @@ export class CopilotAuthService implements ICopilotAuthService {
       });
 
       if (!githubToken) {
-        // Cancelled, expired, denied, timed out, or unknown error â€” already
-        // logged by pollForAccessToken when applicable.
         return false;
       }
 
@@ -408,10 +381,6 @@ export class CopilotAuthService implements ICopilotAuthService {
       if (!exchanged) {
         return false;
       }
-
-      // Persist the GitHub token so the next launch can restore silently.
-      // writeCopilotToken is best-effort â€” failure is logged but doesn't
-      // break the auth flow.
       try {
         await writeCopilotToken(githubToken);
         this.logger.info(
@@ -465,8 +434,6 @@ export class CopilotAuthService implements ICopilotAuthService {
     if (!this.authState) {
       return false;
     }
-
-    // Check if token needs refresh (expired or within buffer)
     if (this.isTokenExpiringSoon()) {
       this.logger.info(
         '[CopilotAuth] Token expiring soon, attempting auto-refresh...',
@@ -486,8 +453,6 @@ export class CopilotAuthService implements ICopilotAuthService {
     if (!this.authState) {
       return null;
     }
-
-    // Auto-refresh if expiring soon
     if (this.isTokenExpiringSoon()) {
       const refreshed = await this.refreshToken();
       if (!refreshed) {
@@ -533,10 +498,6 @@ export class CopilotAuthService implements ICopilotAuthService {
     this.authState = null;
     this.logger.info('[CopilotAuth] Logged out, cached state cleared');
   }
-
-  // ---------------------------------------------------------------------------
-  // Protected helpers (accessible by VscodeCopilotAuthService subclass)
-  // ---------------------------------------------------------------------------
 
   /**
    * Exchange a GitHub OAuth token for a Copilot bearer token.
@@ -635,10 +596,6 @@ export class CopilotAuthService implements ICopilotAuthService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
-
   /**
    * Read the Copilot token exchange URL from settings.
    * Falls back to the well-known GitHub Copilot internal endpoint when unconfigured.
@@ -699,14 +656,10 @@ export class CopilotAuthService implements ICopilotAuthService {
     if (!this.authState) return false;
 
     this.logger.info('[CopilotAuth] Refreshing Copilot bearer token...');
-
-    // Try re-exchanging the cached GitHub token first
     const success = await this.exchangeToken(this.authState.githubToken);
     if (success) {
       return true;
     }
-
-    // Cached GitHub token may be stale â€” try reading a fresh one from file
     this.logger.info(
       '[CopilotAuth] Cached GitHub token may be stale, trying file-based refresh...',
     );

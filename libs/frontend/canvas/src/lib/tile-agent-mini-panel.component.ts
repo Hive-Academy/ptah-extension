@@ -117,17 +117,10 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
   `,
 })
 export class TileAgentMiniPanelComponent {
-  // ---- Inputs ----
   readonly agents = input.required<MonitoredAgent[]>();
-
-  // ---- Dependencies ----
   private readonly vscode = inject(VSCodeService);
   private readonly agentStore = inject(AgentMonitorStore);
-
-  // ---- Icons ----
   readonly ShieldAlertIcon = ShieldAlert;
-
-  // ---- Permission handlers ----
 
   allowPermission(agentId: string, perm: AgentPermissionRequest): void {
     this.vscode.postMessage({

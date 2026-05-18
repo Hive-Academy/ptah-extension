@@ -53,45 +53,24 @@ const INCREMENTAL_MODE = 2;
 export function run(db: SqliteDatabase, dbPath?: string): void {
   const currentMode = db.pragma('auto_vacuum', { simple: true }) as number;
   if (currentMode === INCREMENTAL_MODE) {
-    // Already INCREMENTAL — no-op. The runner will still record bookkeeping.
     return;
   }
-
-  // Switch the pragma first. The mode change only takes effect after a VACUUM.
   db.pragma('auto_vacuum = INCREMENTAL');
-
-  // Use VACUUM INTO when a real file path is available. This writes pages to a
-  // new file without touching the original, avoiding the in-place rewrite risks
-  // described in the module comment. Fall back to plain VACUUM for :memory: /
-  // test scenarios where there is no file to rename.
   const useVacuumInto = dbPath && dbPath !== ':memory:';
 
   if (useVacuumInto) {
     const vacuumedPath = dbPath + '.vacuumed';
-    // Remove any leftover temp file from a previous aborted attempt.
     try {
       if (fs.existsSync(vacuumedPath)) {
         fs.unlinkSync(vacuumedPath);
       }
     } catch {
-      // Non-fatal: if unlink fails we'll get an overwrite or SQLITE will error,
-      // both of which are handled below.
     }
-    // VACUUM INTO writes to a brand-new file; the original is untouched.
-    // SQL is constructed dynamically because VACUUM INTO requires the
-    // destination as a string literal — bind parameters are not accepted for
-    // DDL filenames. The path comes from the DI-injected `dbPath` token (not
-    // user input), and single quotes are doubled to neutralise any embedded
-    // quote in case dbPath ever resolves to a path containing one.
     const escapedPath = vacuumedPath.replace(/'/g, "''");
     const vacuumSql = "VACUUM INTO '" + escapedPath + "'";
     db.exec(vacuumSql);
-    // Atomically replace the original with the vacuumed copy. fs.renameSync is
-    // atomic on POSIX; on Windows it is best-effort (may fail if the process
-    // holds the file open, but the DB is already closed per migration protocol).
     fs.renameSync(vacuumedPath, dbPath);
   } else {
-    // Fallback: plain VACUUM for in-memory / test databases.
     db.exec('VACUUM');
   }
 }

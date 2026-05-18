@@ -82,7 +82,6 @@ export class SkillCuratorService {
     });
     this.currentIntervalHours = settings.curatorIntervalHours;
     this.intervalHandle = setInterval(() => {
-      // Use the latest stored settings so model/interval changes take effect.
       const s = this.currentSettings;
       if (!s) return;
       void this.runPass(s).catch((err: unknown) => {
@@ -111,10 +110,6 @@ export class SkillCuratorService {
     return this.runPass(this.currentSettings);
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Implementation
-  // ─────────────────────────────────────────────────────────────────────
-
   private async runPass(
     settings: SkillSynthesisSettings,
   ): Promise<CuratorReport> {
@@ -129,8 +124,6 @@ export class SkillCuratorService {
     if (promoted.length === 0) {
       return this.emptyReport();
     }
-
-    // Build the prompt listing all promoted skills.
     const skillList = promoted
       .map(
         (s, i) =>
@@ -191,8 +184,6 @@ export class SkillCuratorService {
     } finally {
       clearTimeout(timeoutHandle);
     }
-
-    // Build ID→pinned lookup.
     const pinnedIds = new Set(
       promoted.filter((s) => s.pinned).map((s) => s.id as string),
     );
@@ -214,8 +205,6 @@ export class SkillCuratorService {
         );
         continue;
       }
-
-      // Log the finding — NEVER auto-delete.
       this.logger.warn('[skill-curator] finding flagged', {
         type: finding.type,
         skillIds: finding.skillIds,

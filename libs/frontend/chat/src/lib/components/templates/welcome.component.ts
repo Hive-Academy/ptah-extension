@@ -59,8 +59,6 @@ interface FeatureHighlight {
 export class WelcomeComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
-
-  // Icons
   readonly KeyIcon = Key;
   readonly SparklesIcon = Sparkles;
   readonly ZapIcon = Zap;
@@ -70,33 +68,23 @@ export class WelcomeComponent implements OnInit {
   readonly Loader2Icon = Loader2;
   readonly CheckCircle2Icon = CheckCircle2;
   readonly DownloadIcon = Download;
-
-  // State signals
   readonly licenseReason = signal<LicenseGetStatusResponse['reason'] | null>(
     null,
   );
   readonly isLoadingStatus = signal(true);
   readonly errorMessage = signal<string | null>(null);
-
-  // Inline license key input state
   readonly showLicenseInput = signal(false);
   readonly licenseKeyInput = signal('');
   readonly isVerifyingKey = signal(false);
   readonly keyError = signal<string | null>(null);
   readonly keySuccess = signal(false);
-
-  // Settings import state
   readonly isImporting = signal(false);
   readonly importSuccess = signal(false);
   /** True when the imported file contained a license key (backend will reload) */
   readonly importedLicenseKey = signal(false);
-
-  // Format validation: ptah_lic_ followed by 64 hex characters
   readonly isKeyFormatValid = computed(() => {
     return /^ptah_lic_[a-f0-9]{64}$/.test(this.licenseKeyInput());
   });
-
-  // Computed signals for derived state (per codebase convention)
   readonly headline = computed(() => {
     const reason = this.licenseReason();
     switch (reason) {
@@ -125,11 +113,7 @@ export class WelcomeComponent implements OnInit {
     const reason = this.licenseReason();
     return !reason || reason === 'no_license';
   });
-
-  // Ptah icon URI from VSCodeService
   readonly ptahIconUri: string;
-
-  // Feature highlights - showcasing Ptah's key capabilities
   readonly features: FeatureHighlight[] = [
     {
       icon: this.BotIcon,
@@ -174,8 +158,6 @@ export class WelcomeComponent implements OnInit {
 
       if (result.isSuccess() && result.data) {
         const data = result.data as LicenseGetStatusResponse;
-        // Extract reason field for context-aware messaging.
-        // reason field is included in LicenseGetStatusResponse.
         this.licenseReason.set(data.reason ?? null);
       }
     } catch (error) {
@@ -204,8 +186,6 @@ export class WelcomeComponent implements OnInit {
    */
   async submitLicenseKey(): Promise<void> {
     const key = this.licenseKeyInput().trim();
-
-    // Client-side format validation
     if (!key) {
       this.keyError.set('Please enter your license key.');
       return;
@@ -230,7 +210,6 @@ export class WelcomeComponent implements OnInit {
         if (data.success) {
           this.keySuccess.set(true);
           this.keyError.set(null);
-          // Window will reload automatically from backend
         } else {
           this.keyError.set(data.error || 'License verification failed.');
         }
@@ -297,7 +276,6 @@ export class WelcomeComponent implements OnInit {
 
       if (result.isSuccess()) {
         const data = result.data;
-        // Don't show success if user cancelled the file dialog
         if (data && !data.cancelled) {
           const imported = data.result?.imported ?? [];
           const errors = data.result?.errors ?? [];

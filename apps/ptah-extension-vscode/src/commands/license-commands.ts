@@ -67,7 +67,6 @@ export class LicenseCommands {
           return 'License key must start with "ptah_lic_"';
         }
         if (value.length !== 73) {
-          // ptah_lic_ (9) + 64 hex chars
           return 'Invalid license key format (expected 73 characters)';
         }
         if (!/^ptah_lic_[a-f0-9]{64}$/.test(value)) {
@@ -78,11 +77,8 @@ export class LicenseCommands {
     });
 
     if (!licenseKey) {
-      // User cancelled input
       return;
     }
-
-    // Store license key and verify
     await this.licenseService.setLicenseKey(licenseKey);
     const status = await this.licenseService.verifyLicense();
 
@@ -126,7 +122,6 @@ export class LicenseCommands {
     );
 
     if (confirm !== 'Log Out') {
-      // User cancelled
       return;
     }
 
@@ -161,15 +156,12 @@ export class LicenseCommands {
     const status = await this.licenseService.verifyLicense();
 
     if (status.valid) {
-      // Format tier names for display.
       const tierName =
         status.tier === 'community'
           ? 'Community (Free)'
           : status.tier === 'trial_pro'
             ? 'Pro (Trial)'
             : 'Pro';
-
-      // Community tier: show "Never" expires and "Unlimited" days
       const expiresText = status.expiresAt
         ? new Date(status.expiresAt).toLocaleDateString()
         : status.tier === 'community'
@@ -188,7 +180,6 @@ export class LicenseCommands {
           `Days Remaining: ${daysText}`,
       );
     } else {
-      // Only expired/revoked users reach here
       vscode.window.showWarningMessage(
         `License Status: Expired\n` +
           `Reason: ${

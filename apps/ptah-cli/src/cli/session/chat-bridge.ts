@@ -98,12 +98,6 @@ export interface RunTurnOptions {
   readonly command?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Internal payload shape narrowing — every backend event is an `unknown`
-// because the adapter is a generic `EventEmitter`. Helpers below project the
-// `unknown` payload onto a typed view, defaulting fields when absent.
-// ---------------------------------------------------------------------------
-
 interface ChatChunkPayload {
   readonly tabId: string;
   readonly sessionId?: string;
@@ -182,19 +176,8 @@ export class ChatBridge {
     const { tabId, rpcCall, abortSignal, timeoutMs } = opts;
     const command = opts.command ?? 'chat';
     const startedAt = Date.now();
-
-    // Mutable state — `message_start` flips the synthetic tabId for the real
-    // SDK UUID so subsequent `agent.*` notifications carry the SDK session_id.
     let resolvedSessionId: string = tabId;
-    // Fixed turn correlation id — kept stable across all `agent.*` notifications
-    // for this turn. Backend `chat:complete` may supply a `turnId`; if so, it
-    // overrides this one in the success result. Until then we synthesize from
-    // the synthetic tabId so partial progress notifications still correlate.
     const turnId = `${tabId}:t1`;
-
-    // Aggregate assistant text from `text_delta` chunks so the terminal
-    // `task.complete` summary carries the final message body for headless
-    // consumers that only read the terminal notification.
     let aggregatedText = '';
 
     let resolveOuter: (result: ChatTurnResult) => void = () => undefined;
@@ -246,16 +229,11 @@ export class ChatBridge {
       resolveOuter(result);
     };
 
-    // ---- Listeners (must be `.off`-able exactly so leak-detection works) ----
-
     const onChunk = (payload: unknown): void => {
       const chunk = asChunk(payload);
       if (!chunk || chunk.tabId !== tabId) return;
       const event = chunk.event;
       if (!event || typeof event.eventType !== 'string') return;
-
-      // `message_start` carries the real SDK session UUID — swap the
-      // synthetic tabId so subsequent `agent.*` carry the canonical id.
       if (event.eventType === 'message_start') {
         const real = event.sessionId ?? chunk.sessionId;
         if (typeof real === 'string' && real.length > 0) {
@@ -263,14 +241,9 @@ export class ChatBridge {
         }
         return;
       }
-
-      // Demux per spec § 4.1.2. The notification body matches the spec-shaped
-      // flat schema — NOT the raw backend chunk payload.
       switch (event.eventType) {
         case 'thinking_delta':
         case 'thought_delta': {
-          // Spec language uses `thought_delta`; the actual backend stream uses
-          // `thinking_delta` (FlatStreamEventUnion). Accept both for parity.
           const text = event.delta ?? event.text ?? '';
           if (text.length === 0) return;
           void this.jsonrpc.notify('agent.thought', {
@@ -295,9 +268,6 @@ export class ChatBridge {
           return;
         }
         case 'message_complete': {
-          // Backend emits `message_complete` with metadata; forward a terminal
-          // `agent.message` envelope so consumers always observe the message
-          // boundary, even when the chunk carries no text body.
           const text = event.text ?? '';
           void this.jsonrpc.notify('agent.message', {
             session_id: resolvedSessionId,
@@ -310,7 +280,6 @@ export class ChatBridge {
         }
         case 'tool_start':
         case 'tool_use': {
-          // Spec uses `tool_use`; backend emits `tool_start`. Accept both.
           void this.jsonrpc.notify('agent.tool_use', {
             session_id: resolvedSessionId,
             turn_id: turnId,
@@ -331,12 +300,6 @@ export class ChatBridge {
           return;
         }
         default:
-          // Unknown / non-target event types (e.g. `tool_delta`,
-          // `thinking_start`, `agent_start`, compaction events,
-          // background_agent_*). The bridge intentionally drops them — those
-          // surfaces have no JSON-RPC schema name yet. Surface the event name
-          // to stderr at debug level so future SDK additions are visible
-          // without re-running the bug repro under a debugger.
           debug(`dropped event type: ${event.eventType}`);
           return;
       }
@@ -371,17 +334,9 @@ export class ChatBridge {
         sessionId: sid,
       });
     };
-
-    // Listeners are registered BEFORE `rpcCall()` to avoid a race where the
-    // backend completes synchronously inside the same microtask (tests
-    // emit `complete` directly from `rpcCall`).
     this.pushAdapter.on('chat:chunk', onChunk);
     this.pushAdapter.on('chat:complete', onComplete);
     this.pushAdapter.on('chat:error', onError);
-
-    // Abort wiring — the bridge does NOT issue `chat:abort` itself; the caller
-    // is responsible for that side-effect (we have no rpc handle here). On
-    // signal fire we just settle cancelled and let `finally` detach listeners.
     let onAbort: (() => void) | undefined;
     if (abortSignal) {
       if (abortSignal.aborted) {
@@ -393,8 +348,6 @@ export class ChatBridge {
         abortSignal.addEventListener('abort', onAbort, { once: true });
       }
     }
-
-    // Optional timeout — undefined means wait forever.
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     if (typeof timeoutMs === 'number' && timeoutMs > 0) {
       timeoutHandle = setTimeout(() => {
@@ -407,20 +360,9 @@ export class ChatBridge {
     }
 
     try {
-      // Kick the backend turn. The synchronous `{success}` ack is normally
-      // discarded — we watch for `chat:complete | chat:error | abort |
-      // timeout`. BUT if the backend returns `{ success: false }` (rather
-      // than throwing) the bridge would otherwise wait forever for terminal
-      // events that will never arrive.
-      //
-      // Defensive backstop: settle with that failure result immediately so
-      // `outerPromise` resolves to a deterministic `task.error` instead of
-      // hanging. Independent of the throw-handling path below.
       try {
         const ack = await rpcCall();
         if (ack && ack.success === false) {
-          // Surface any error string the ack may carry; fall back to a
-          // generic message when the ack shape is bare `{ success: false }`.
           const ackError = (ack as { readonly error?: unknown }).error;
           const errorMessage =
             typeof ackError === 'string' && ackError.length > 0

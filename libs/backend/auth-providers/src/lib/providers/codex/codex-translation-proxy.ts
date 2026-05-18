@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex Translation Proxy
  *
  * Subclass of TranslationProxyBase that provides Codex-specific
@@ -33,10 +33,7 @@ export class CodexTranslationProxy extends TranslationProxyBase {
     super(logger, {
       name: 'Codex',
       modelPrefix: '',
-      // Required by base class config; Codex exclusively uses Responses API
-      // so this path is only reached if shouldUseResponsesApi() is overridden
       completionsPath: '/chat/completions',
-      // Codex uses /responses at the path level (appended to base URL)
       responsesPath: '/responses',
     });
   }
@@ -74,10 +71,6 @@ export class CodexTranslationProxy extends TranslationProxyBase {
     return CODEX_PROVIDER_ENTRY.staticModels ?? [];
   }
 
-  // ---------------------------------------------------------------------------
-  // Codex-specific routing overrides
-  // ---------------------------------------------------------------------------
-
   /**
    * Map Claude model names to Codex-compatible GPT equivalents.
    *
@@ -92,8 +85,6 @@ export class CodexTranslationProxy extends TranslationProxyBase {
     if (!modelId.startsWith('claude-')) {
       return modelId;
     }
-
-    // Determine which tier this Claude model represents
     const tier = this.detectClaudeTier(modelId);
     const mapped = CODEX_DEFAULT_TIERS[tier];
 

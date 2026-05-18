@@ -111,14 +111,10 @@ export type ParsedBlock =
 })
 export class AgentSummaryComponent {
   readonly content = input.required<string>();
-
-  // Icons
   readonly BrainIcon = Brain;
   readonly WrenchIcon = Wrench;
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
-
-  // Track collapsed state for thinking blocks
   readonly collapsedThinking = signal<Record<number, boolean>>({});
 
   /**
@@ -141,8 +137,6 @@ export class AgentSummaryComponent {
   protected getMainParam(block: ParsedBlock): string {
     if (block.type !== 'function_call') return '';
     const params = block.parameters;
-
-    // Return the most relevant parameter for each tool type
     if (params['file_path']) return params['file_path'];
     if (params['command']) {
       const cmd = params['command'];
@@ -150,8 +144,6 @@ export class AgentSummaryComponent {
     }
     if (params['pattern']) return `Pattern: ${params['pattern']}`;
     if (params['query']) return `Query: ${params['query']}`;
-
-    // Return first non-empty parameter value
     const firstValue = Object.values(params).find((v) => v && v.trim());
     if (firstValue) {
       return firstValue.length > 60
@@ -173,29 +165,22 @@ export class AgentSummaryComponent {
     let remaining = text;
 
     while (remaining.length > 0) {
-      // Find the next special tag
       const thinkingMatch = remaining.match(/<thinking>([\s\S]*?)<\/thinking>/);
       const functionMatch = remaining.match(
         /<function_calls>([\s\S]*?)<\/function_calls>/,
       );
-
-      // Determine which comes first
       const thinkingIndex = thinkingMatch
         ? remaining.indexOf(thinkingMatch[0])
         : -1;
       const functionIndex = functionMatch
         ? remaining.indexOf(functionMatch[0])
         : -1;
-
-      // No more special tags, treat rest as text
       if (thinkingIndex === -1 && functionIndex === -1) {
         if (remaining.trim()) {
           blocks.push({ type: 'text', content: remaining.trim() });
         }
         break;
       }
-
-      // Determine next tag
       let nextIndex: number;
       let isThinking: boolean;
 
@@ -209,16 +194,12 @@ export class AgentSummaryComponent {
         isThinking = thinkingIndex < functionIndex;
         nextIndex = isThinking ? thinkingIndex : functionIndex;
       }
-
-      // Add text before the tag
       if (nextIndex > 0) {
         const textBefore = remaining.substring(0, nextIndex).trim();
         if (textBefore) {
           blocks.push({ type: 'text', content: textBefore });
         }
       }
-
-      // Process the tag
       if (isThinking && thinkingMatch) {
         blocks.push({
           type: 'thinking',
@@ -226,7 +207,6 @@ export class AgentSummaryComponent {
         });
         remaining = remaining.substring(nextIndex + thinkingMatch[0].length);
       } else if (!isThinking && functionMatch) {
-        // Parse function calls from the block
         const functionCalls = this.parseFunctionCalls(functionMatch[1]);
         blocks.push(...functionCalls);
         remaining = remaining.substring(nextIndex + functionMatch[0].length);
@@ -247,8 +227,6 @@ export class AgentSummaryComponent {
     while ((match = invokeRegex.exec(content)) !== null) {
       const name = match[1];
       const invokeContent = match[2];
-
-      // Parse parameters
       const params: Record<string, string> = {};
       const paramRegex = /<parameter name="([^"]+)">([^<]*)<\/parameter>/g;
       let paramMatch;

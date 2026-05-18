@@ -1,5 +1,3 @@
-// Plugin loader + skill junction activation helpers.
-// Mirrors the Electron sibling (apps/ptah-electron/src/activation/plugin-activation.ts).
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -17,9 +15,6 @@ export function initPluginLoader(pluginsPath: string, logger: Logger): void {
     const pluginLoader = DIContainer.resolve<PluginLoaderService>(
       SDK_TOKENS.SDK_PLUGIN_LOADER,
     );
-    // Resolve IStateStorage from DI container instead of passing raw
-    // context.workspaceState (vscode.Memento). The VscodeStateStorage wrapper
-    // is registered as PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE.
     const workspaceStateStorage = DIContainer.resolve<IStateStorage>(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
@@ -49,8 +44,6 @@ export function activateSkillJunctions(
       SDK_TOKENS.SDK_SKILL_JUNCTION,
     );
     skillJunction.initialize(pluginsPath);
-
-    // Reuse the same pluginLoader singleton resolved in initPluginLoader.
     const junctionPluginLoader = DIContainer.resolve<PluginLoaderService>(
       SDK_TOKENS.SDK_PLUGIN_LOADER,
     );
@@ -59,9 +52,6 @@ export function activateSkillJunctions(
     const junctionPluginPaths = junctionPluginLoader.resolvePluginPaths(
       junctionPluginConfig.enabledPluginIds,
     );
-
-    // Always call activate() even with zero plugins, so the workspace change
-    // subscription is registered for future plugin enablement
     const junctionResult = skillJunction.activate({
       pluginPaths: junctionPluginPaths,
       disabledSkillIds: junctionPluginConfig.disabledSkillIds,

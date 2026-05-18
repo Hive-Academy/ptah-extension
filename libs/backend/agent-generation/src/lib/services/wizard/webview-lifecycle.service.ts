@@ -17,9 +17,6 @@ import {
   type IWebviewHtmlGenerator,
 } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-// APPROVED EXCEPTION: vscode import is required for WebviewPanel and Webview types
-// which are VS Code-specific UI constructs with no platform-core abstraction.
-// This service manages VS Code webview panels directly through WebviewManager.
 import type * as vscode from 'vscode';
 import type { WizardStep } from '../../types/wizard.types';
 
@@ -120,8 +117,6 @@ export class WizardWebviewLifecycleService {
       viewType,
       hasInitialData: !!initialData,
     });
-
-    // Create webview panel
     const panel = await this.webviewManager.createWebviewPanel({
       viewType,
       title,
@@ -141,8 +136,6 @@ export class WizardWebviewLifecycleService {
       );
       return null;
     }
-
-    // Register message handlers (CRITICAL: before setting HTML)
     this.messageHandler.setupMessageListener({
       webviewId: viewType,
       webview: panel.webview,
@@ -153,8 +146,6 @@ export class WizardWebviewLifecycleService {
         );
       },
     });
-
-    // Set webview HTML content
     panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       panel.webview,
       {

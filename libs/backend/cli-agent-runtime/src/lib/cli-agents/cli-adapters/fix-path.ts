@@ -42,8 +42,6 @@ function getCommonFallbackDirs(): string[] {
     path.join(home, '.cargo', 'bin'),
     path.join(home, '.deno', 'bin'),
   ];
-
-  // ~/.nvm/versions/node/<version>/bin — pick all installed versions.
   const nvmRoot = path.join(home, '.nvm', 'versions', 'node');
   try {
     const entries = fs.readdirSync(nvmRoot, { withFileTypes: true });
@@ -53,10 +51,7 @@ function getCommonFallbackDirs(): string[] {
       }
     }
   } catch {
-    // nvm not installed — ignore
   }
-
-  // ~/n/bin — the `n` Node version manager
   dirs.push(path.join(home, 'n', 'bin'));
 
   return dirs;
@@ -67,8 +62,6 @@ function readShellPath(): string | null {
   if (!shell) return null;
 
   try {
-    // -ilc: interactive + login + run command. Sources rc + profile files.
-    // Marker delimits PATH so we can ignore any motd/banner output.
     const marker = '__PTAH_PATH_MARKER__';
     const result = spawnSync(
       shell,
@@ -76,7 +69,6 @@ function readShellPath(): string | null {
       {
         encoding: 'utf8',
         timeout: 5000,
-        // Detach from any stdin to avoid hanging on prompts in some setups.
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     );
@@ -119,17 +111,11 @@ export function fixPath(): string {
     seen.add(dir);
     segments.push(dir);
   };
-
-  // 1. Shell-derived PATH (highest priority — reflects user intent)
   const shellPath = readShellPath();
   if (shellPath) {
     for (const dir of shellPath.split(path.delimiter)) push(dir);
   }
-
-  // 2. Original inherited PATH (preserve anything the OS gave us)
   for (const dir of original.split(path.delimiter)) push(dir);
-
-  // 3. Common fallback locations (catch missing npm-globals)
   for (const dir of getCommonFallbackDirs()) push(dir);
 
   const merged = segments.join(path.delimiter);

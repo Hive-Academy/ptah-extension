@@ -1,7 +1,3 @@
-// Post-window activation: Phases 4.95 through 7.
-// Registers the startup config + clipboard IPC handlers BEFORE creating the
-// main window (preload uses sendSync during page load), then creates the
-// window, kicks off the auto-updater, and wires the license status watcher.
 
 import { BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
@@ -21,8 +17,6 @@ import {
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
-
-// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface PostWindowOptions {
@@ -73,22 +67,12 @@ export async function registerPostWindow(
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
   let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
   let messagingGateway: GatewayService | null = null;
-  // PHASE 4.95: Startup Config IPC Handler
-  // Register a synchronous IPC handler that the preload script queries
-  // (via ipcRenderer.sendSync) to get license status and workspace info
-  // BEFORE exposing ptahConfig to the Angular renderer.
-  // Must be registered BEFORE Phase 5 (window creation + loadFile).
-  // Base config from initial verification. On first load these are used directly.
-  // On webContents.reload() the handler dynamically queries LicenseService
-  // to pick up any license changes that happened since startup.
   const baseStartupConfig = {
     initialView: startupInitialView,
     isLicensed: startupIsLicensed,
   };
 
   ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
-    // Dynamically resolve license status so webContents.reload() gets fresh
-    // state after license key set/clear or settings import.
     let isLicensed = baseStartupConfig.isLicensed;
     let initialView = baseStartupConfig.initialView;
     try {
@@ -104,11 +88,7 @@ export async function registerPostWindow(
         initialView = cached.valid ? null : 'welcome';
       }
     } catch {
-      // Fallback to base startup values if service unavailable
     }
-
-    // Dynamically resolve workspace so webContents.reload() picks up any
-    // workspace switch that happened since initial load.
     let workspaceRoot = '';
     let workspaceName = '';
     try {
@@ -121,7 +101,6 @@ export async function registerPostWindow(
         workspaceName = path.basename(resolvedRoot);
       }
     } catch {
-      // Workspace provider unavailable — leave empty strings
     }
 
     event.returnValue = {
@@ -132,10 +111,6 @@ export async function registerPostWindow(
       workspaceName,
     };
   });
-  // PHASE 4.96: Clipboard IPC Handlers
-  // Provide reliable clipboard access for the sandboxed renderer.
-  // navigator.clipboard.readText() can fail in sandboxed Electron;
-  // these IPC handlers use the main process clipboard directly.
   ipcMain.handle('clipboard:read-text', () => clipboard.readText());
   ipcMain.on(
     'clipboard:write-text',
@@ -149,31 +124,19 @@ export async function registerPostWindow(
       baseStartupConfig.initialView
     }, isLicensed=${baseStartupConfig.isLicensed}`,
   );
-  // PHASE 5: Create BrowserWindow + Load Renderer
   const mainWindow = createMainWindow(resolvedStateStorage);
   setMainWindow(mainWindow);
 
   const rendererPath = path.join(__dirname, 'renderer', 'index.html');
   mainWindow.loadFile(rendererPath);
-
-  // PHASE 4.96: Schedule embedder warmup AFTER the renderer finishes loading.
-  // Anchoring to did-finish-load ensures the 3s idle timer starts from window-ready,
-  // not from bootHeavyServices completion, so ONNX model I/O does not compete with
-  // the renderer's first paint. Fire-and-forget — warmup failure is non-fatal.
   if (scheduleWarmup) {
     mainWindow.webContents.once('did-finish-load', () => {
       scheduleWarmup();
     });
   }
-
-  // Open DevTools in development
   if (process.env['NODE_ENV'] === 'development') {
     mainWindow.webContents.openDevTools();
   }
-  // PHASE 5.5: Messaging gateway cold-start
-  // Started here (after window creation) so gateway adapters have a stable
-  // mainWindow reference for approval prompt dialogs. Failure is non-fatal —
-  // gateway.enabled defaults to false so most users will see start() as a no-op.
   try {
     messagingGateway = container.resolve<GatewayService>(
       GATEWAY_TOKENS.GATEWAY_SERVICE,
@@ -200,8 +163,6 @@ export async function registerPostWindow(
         },
       );
     } catch {
-      // non-fatal — frontend will hydrate via initialize()'s
-      // Promise.all([refreshStatus(), listBindings()]) RPC fallback
     }
   } catch (error) {
     console.warn(
@@ -210,10 +171,6 @@ export async function registerPostWindow(
     );
     messagingGateway = null;
   }
-  // PHASE 6: Event-driven Auto-Updater
-  // Replaces the previous fire-and-forget checkForUpdatesAndNotify() call with an
-  // event-driven UpdateManager that broadcasts UPDATE_STATUS_CHANGED to the renderer.
-  // Dev-mode skip is handled inside UpdateManager.start() — no env gate needed here.
   try {
     const updateManager =
       container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
@@ -226,11 +183,6 @@ export async function registerPostWindow(
       error instanceof Error ? error.message : String(error),
     );
   }
-  // PHASE 7: License Status Watcher
-  // The license:verified and license:expired subsystem lifecycle is now handled
-  // by bindLicenseReactivity() in wire-runtime.ts (PHASE 4.60). Here we only
-  // keep the 24-hour background revalidation timer and the soft notification
-  // dialog so the user sees a non-blocking confirmation when the tier changes.
   try {
     const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
       on: (event: string, handler: (...args: unknown[]) => void) => void;
@@ -239,8 +191,6 @@ export async function registerPostWindow(
 
     licenseService.on('license:verified', () => {
       console.log('[Ptah Electron] License status changed: verified');
-      // Soft non-blocking notification only — subsystem bring-up is handled
-      // by bindLicenseReactivity in wire-runtime PHASE 4.60.
       const win = getMainWindow();
       if (win) {
         dialog.showMessageBox(win, {
@@ -256,8 +206,6 @@ export async function registerPostWindow(
       console.warn(
         '[Ptah Electron] License expired — premium features deactivated',
       );
-      // Soft non-blocking notification only — subsystem tear-down is handled
-      // by bindLicenseReactivity in wire-runtime PHASE 4.60.
       const win = getMainWindow();
       if (win) {
         dialog.showMessageBox(win, {
@@ -269,10 +217,6 @@ export async function registerPostWindow(
         });
       }
     });
-
-    // Background revalidation every 24 hours. The revalidate() call emits
-    // license:verified / license:expired events which route through the
-    // bindLicenseReactivity binder so subsystem state stays in sync.
     revalidationInterval = setInterval(
       () => {
         licenseService.revalidate().catch((err) => {

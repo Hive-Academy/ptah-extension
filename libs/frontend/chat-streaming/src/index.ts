@@ -22,37 +22,21 @@
  * matches the BackgroundAgentStore shape, keeping the runtime graph
  * one-directional.
  */
-
-// ============================================================================
-// SERVICES — Streaming write path
-// ============================================================================
 export { StreamingHandlerService } from './lib/streaming-handler.service';
 export { MessageFinalizationService } from './lib/message-finalization.service';
 export { EventDeduplicationService } from './lib/event-deduplication.service';
 export { BatchedUpdateService } from './lib/batched-update.service';
 export { PermissionHandlerService } from './lib/permission-handler.service';
-
-// Extracted event-type switch core. Consumed directly by
-// `chat-routing`'s StreamRouter (surface routing) and transitively by
-// `StreamingHandlerService` (chat tab routing).
 export {
   StreamingAccumulatorCore,
   type AccumulatorContext,
   type AccumulatorResult,
 } from './lib/accumulator-core.service';
-
-// ============================================================================
-// SERVICES — Session + execution tree
-// ============================================================================
 export {
   SessionManager,
   type SessionState,
 } from './lib/session-manager.service';
 export { ExecutionTreeBuilderService } from './lib/execution-tree-builder.service';
-
-// ============================================================================
-// STORES — Agent monitoring
-// ============================================================================
 export {
   BackgroundAgentStore,
   type BackgroundAgentEntry,

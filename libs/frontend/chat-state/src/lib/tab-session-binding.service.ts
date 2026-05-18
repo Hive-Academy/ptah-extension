@@ -31,8 +31,6 @@ export class TabSessionBinding {
   private readonly _byConversation = signal<
     ReadonlyMap<ConversationId, ReadonlySet<TabId>>
   >(new Map());
-
-  // Parallel surface-keyed maps.
   private readonly _bySurface = signal<ReadonlyMap<SurfaceId, ConversationId>>(
     new Map(),
   );
@@ -82,8 +80,6 @@ export class TabSessionBinding {
       for (const [k, v] of prev) {
         next.set(k, v);
       }
-
-      // Remove from previous conversation's set.
       if (prevConv) {
         const oldSet = next.get(prevConv);
         if (oldSet) {
@@ -96,8 +92,6 @@ export class TabSessionBinding {
           }
         }
       }
-
-      // Add to the new conversation's set.
       const existing = next.get(convId);
       const updated = new Set<TabId>(existing ?? []);
       updated.add(tabId);
@@ -162,12 +156,6 @@ export class TabSessionBinding {
     return !!set && set.size > 0;
   }
 
-  // ---------------------------------------------------------------------
-  // Surface bindings (parallel).
-  //
-  // Mirrors bind/unbind/conversationFor/tabsFor exactly, keyed by SurfaceId.
-  // ---------------------------------------------------------------------
-
   /**
    * Bind a surface to a conversation. If the surface is already bound to a
    * different conversation, the prior binding is replaced. Re-binding to the
@@ -188,8 +176,6 @@ export class TabSessionBinding {
       for (const [k, v] of prev) {
         next.set(k, v);
       }
-
-      // Remove from previous conversation's set.
       if (prevConv) {
         const oldSet = next.get(prevConv);
         if (oldSet) {
@@ -202,8 +188,6 @@ export class TabSessionBinding {
           }
         }
       }
-
-      // Add to the new conversation's set.
       const existing = next.get(convId);
       const updated = new Set<SurfaceId>(existing ?? []);
       updated.add(surfaceId);

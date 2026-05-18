@@ -66,7 +66,6 @@ export class SdkWarmQueryManager {
         try {
           this._warmQuery.close();
         } catch {
-          // Ignore.
         }
       }
       this._warmQuery = warm;

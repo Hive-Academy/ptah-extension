@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ollama Model Discovery Service
  *
  * Fetches models from Ollama's native /api/tags endpoint and enriches
@@ -120,7 +120,6 @@ interface CloudModelMeta {
  * Key is the base model name (without `:cloud` suffix).
  */
 const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
-  // --- Flagship / Large ---
   'kimi-k2.5': {
     contextLength: 256000,
     supportsToolUse: true,
@@ -163,8 +162,6 @@ const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
     supportsVision: false,
     description: '80B \u2022 128K context \u2022 tools, thinking',
   },
-
-  // --- Mid-size ---
   'glm-5.1': {
     contextLength: 200000,
     supportsToolUse: true,
@@ -237,8 +234,6 @@ const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
     supportsVision: true,
     description: '128K context \u2022 vision, tools, thinking',
   },
-
-  // --- Small / Efficient ---
   'devstral-small-2': {
     contextLength: 128000,
     supportsToolUse: true,
@@ -368,7 +363,6 @@ export class OllamaModelDiscoveryService {
    * that aren't in our catalog (e.g., newly released models the user has tried).
    */
   async listCloudModels(): Promise<ProviderModelInfo[]> {
-    // Step 1: Build the base list from the static catalog
     const staticModels: ProviderModelInfo[] = Object.entries(
       KNOWN_CLOUD_MODELS,
     ).map(([baseName, meta]) => ({
@@ -378,27 +372,15 @@ export class OllamaModelDiscoveryService {
       contextLength: meta.contextLength,
       supportsToolUse: meta.supportsToolUse,
     }));
-
-    // Step 1.5: When the user has configured an ollama.com API key, fetch
-    // the live tag list from https://ollama.com/api/tags and overlay it on
-    // the static list. Live
-    // entries WIN on id overlap. The metadata service is resilient â€”
-    // failures degrade to `[]` and never throw, so the static catalog still
-    // ships. Note: ollama.com/api/tags returns only models the signed-in
-    // user has pulled, NOT the full public catalog â€” so this is a supplement
-    // to KNOWN_CLOUD_MODELS, not a replacement.
     const apiKey = await this.getOllamaCloudApiKey();
     if (apiKey) {
       try {
         const liveTags = await this.cloudMetadata.fetchCloudTags(apiKey);
         if (liveTags.length > 0) {
           const merged = new Map<string, ProviderModelInfo>();
-          // Static firstâ€¦
           for (const m of staticModels) merged.set(m.id, m);
-          // â€¦then live, replacing any overlaps and adding new ids.
           for (const tag of liveTags) {
             const existing = merged.get(tag.id);
-            // Strip cloud suffix to look up known metadata.
             const baseName = tag.id
               .replace(/:cloud$/, '')
               .replace(/-cloud$/, '');
@@ -433,7 +415,6 @@ export class OllamaModelDiscoveryService {
           );
         }
       } catch (error) {
-        // Defensive â€” fetchCloudTags should never throw, but be safe.
         this.sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
           {
@@ -452,16 +433,10 @@ export class OllamaModelDiscoveryService {
         `[OllamaModelDiscovery] listCloudModels: no ollama.com API key configured â€” using static catalog (${staticModels.length} models) plus any local /api/tags extras`,
       );
     }
-
-    // Step 2: Try to fetch dynamic models from local Ollama /api/tags and
-    // merge any extras (covers users who pulled cloud models locally without
-    // configuring an API key).
     try {
       const dynamicModels = await this.listModels('ollama-cloud', (name) =>
         isCloudTag(name),
       );
-
-      // Merge: add any dynamic models not already in the static catalog
       const staticIds = new Set(staticModels.map((m) => m.id));
       const extras = dynamicModels.filter((m) => !staticIds.has(m.id));
 
@@ -475,7 +450,6 @@ export class OllamaModelDiscoveryService {
 
       return [...staticModels, ...extras];
     } catch (tagsError) {
-      // /api/tags failed â€” return static catalog only (still useful)
       this.sentryService.captureException(
         tagsError instanceof Error ? tagsError : new Error(String(tagsError)),
         {
@@ -529,7 +503,6 @@ export class OllamaModelDiscoveryService {
     const baseUrl = this.getBaseUrl(providerId);
 
     try {
-      // Step 1: Fetch all models from /api/tags
       const tagsResponse = await this.httpGet<OllamaTagsResponse>(
         `${baseUrl}/api/tags`,
       );
@@ -540,11 +513,7 @@ export class OllamaModelDiscoveryService {
         );
         return [];
       }
-
-      // Step 2: Filter by local/cloud
       const filtered = tagsResponse.models.filter((m) => filter(m.name));
-
-      // Step 3: Enrich each model with /api/show metadata (batched to avoid flooding)
       const enriched: ProviderModelInfo[] = [];
       for (
         let i = 0;
@@ -607,7 +576,6 @@ export class OllamaModelDiscoveryService {
     baseUrl: string,
     modelName: string,
   ): Promise<ModelMetadataCache> {
-    // Check cache (error fallbacks use shorter TTL)
     const cached = this.metadataCache.get(modelName);
     if (cached) {
       const ttl = cached.isFallback
@@ -617,8 +585,6 @@ export class OllamaModelDiscoveryService {
         return cached;
       }
     }
-
-    // For cloud models, use known catalog (saves HTTP round-trip)
     if (isCloudTag(modelName)) {
       const baseName = modelName.replace(/:cloud$/, '').replace(/-cloud$/, '');
       const known = KNOWN_CLOUD_MODELS[baseName];
@@ -634,8 +600,6 @@ export class OllamaModelDiscoveryService {
         return metadata;
       }
     }
-
-    // Fetch from /api/show
     try {
       const showResponse = await this.httpPost<OllamaShowResponse>(
         `${baseUrl}/api/show`,
@@ -646,7 +610,6 @@ export class OllamaModelDiscoveryService {
       this.metadataCache.set(modelName, metadata);
       return metadata;
     } catch (showError) {
-      // Fallback: conservative defaults with shorter cache TTL
       this.sentryService.captureException(
         showError instanceof Error ? showError : new Error(String(showError)),
         { errorSource: 'OllamaModelDiscoveryService.getModelMetadata' },
@@ -672,14 +635,10 @@ export class OllamaModelDiscoveryService {
     modelName: string,
   ): ModelMetadataCache {
     const modelinfo = response.modelinfo ?? {};
-
-    // Context length: look for general.context_length in modelinfo
     const contextLength =
       (modelinfo['general.context_length'] as number) ??
       (modelinfo['llama.context_length'] as number) ??
       8192;
-
-    // Tool use: infer from template or family
     const template = response.template ?? '';
     const families = response.details?.families ?? [];
     const supportsToolUse =
@@ -687,12 +646,8 @@ export class OllamaModelDiscoveryService {
       template.includes('function') ||
       families.some((f) => TOOL_USE_FAMILIES.has(f)) ||
       this.inferToolUseFromFamily(modelName);
-
-    // Vision: infer from families
     const supportsVision =
       families.includes('clip') || families.includes('mllama');
-
-    // Thinking: infer from model name or template
     const supportsThinking =
       modelName.includes('thinking') ||
       template.includes('thinking') ||
@@ -742,18 +697,12 @@ export class OllamaModelDiscoveryService {
     metadata: ModelMetadataCache,
   ): string {
     const parts: string[] = [];
-
-    // Parameter size from tags response
     if (model.details?.parameter_size) {
       parts.push(model.details.parameter_size);
     }
-
-    // Context length
     if (metadata.contextLength >= 1000) {
       parts.push(`${Math.round(metadata.contextLength / 1000)}K context`);
     }
-
-    // Capabilities
     const caps: string[] = [];
     if (metadata.supportsToolUse) caps.push('tools');
     if (metadata.supportsVision) caps.push('vision');
@@ -769,10 +718,6 @@ export class OllamaModelDiscoveryService {
   clearCache(): void {
     this.metadataCache.clear();
   }
-
-  // -----------------------------------------------------------------------
-  // HTTP helpers (lightweight, no axios dependency)
-  // -----------------------------------------------------------------------
 
   private httpGet<T>(url: string): Promise<T> {
     return this.httpRequest<T>(url, 'GET');

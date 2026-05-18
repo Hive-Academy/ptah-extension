@@ -1,4 +1,3 @@
-﻿// Wire runtime: Phases 4 through 4.9 of Electron activation.
 
 import type { DependencyContainer } from 'tsyringe';
 import type { BrowserWindow } from 'electron';
@@ -134,10 +133,6 @@ export async function wireRuntime(
   };
 
   let resolvedStateStorage: IStateStorage | undefined;
-  // PHASE 4.45: Wire multi-phase analysis reader into EnhancedPromptsService
-  // Deferred from container.ts Phase 2.4 because the dependency chain
-  // (EnhancedPromptsService â†’ SdkPermissionHandler â†’ WebviewManager)
-  // requires TOKENS.WEBVIEW_MANAGER which was just registered above.
   try {
     const enhancedPrompts = container.resolve<EnhancedPromptsService>(
       AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
@@ -152,10 +147,6 @@ export async function wireRuntime(
       error instanceof Error ? error.message : String(error),
     );
   }
-  // PHASE 4.5: Register All RPC Methods
-  // Now that WebviewManager is registered, register ALL RPC methods via the
-  // class-based orchestrator. This replaces both setupRpcHandlers() and
-  // registerExtendedRpcMethods() with a single unified registration.
   const rpcRegistration = container.resolve(
     ElectronRpcMethodRegistrationService,
   );
@@ -164,9 +155,6 @@ export async function wireRuntime(
   console.log(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',
   );
-
-  // PHASE 4.9: Resolve State Storage for Window Persistence
-  // Moved up so it resolves synchronously before deferred services.
   try {
     resolvedStateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
@@ -186,11 +174,6 @@ export async function wireRuntime(
     console.log(
       '[Ptah Electron] Booting deferred backend services for workspace...',
     );
-
-    // PHASE 4.51: Open SQLite + run migrations.
-    // The connection is registered in Phase 2.55 but lazy-opened here so
-    // `openAndMigrate()` failures (missing better-sqlite3 native build,
-    // disk full, etc.) are non-fatal â€” memory curator simply stays disabled.
     try {
       if (container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
         console.log('[Ptah Electron] Resolving SQLite connection service...');
@@ -216,11 +199,6 @@ export async function wireRuntime(
         /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(
           errorMessage,
         );
-      // ONE prominent, actionable line â€” not a buried stack trace. The
-      // detailed failure reason now lives on `sqliteConnection.unavailable`,
-      // and every persistence-backed RPC will return a structured
-      // `PERSISTENCE_UNAVAILABLE` errorCode the UI can render as a single
-      // notice instead of N raw stack traces.
       console.error(
         '\n' +
           'â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—\n' +
@@ -235,20 +213,8 @@ export async function wireRuntime(
               `â•‘  CAUSE:  ${errorMessage.slice(0, 56).padEnd(56)}     â•‘\n`) +
           'â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n',
       );
-      // The DI-registered SqliteConnectionService is still in the
-      // container â€” the typed `db` getter throws
-      // RpcUserError(PERSISTENCE_UNAVAILABLE) on access, which the RPC
-      // layer auto-converts to a structured response. We null this local
-      // ref only so the next phases (memory curator / skill synthesis /
-      // code symbol indexer) skip their start() calls â€” they'd just fail
-      // again at the same point.
       refs.sqliteConnection = null;
     }
-
-    // PHASE 4.52: Memory curator cold-start.
-    // The PreCompact subscription (memory extraction) starts when memoryEnabled = true,
-    // regardless of boot strategy. IndexingControlService now gates the symbol walk.
-    // Failure is non-fatal â€” search/list still work against whatever is in the store.
     let indexingControl: IndexingControlService | null = null;
     try {
       if (
@@ -258,24 +224,17 @@ export async function wireRuntime(
         refs.memoryCurator = container.resolve<MemoryCuratorService>(
           MEMORY_TOKENS.MEMORY_CURATOR,
         );
-
-        // Resolve IndexingControlService early so we can gate memory curator start
-        // on the memoryEnabled flag and evaluate boot strategy before firing indexers.
         if (container.isRegistered(MEMORY_TOKENS.INDEXING_CONTROL)) {
           indexingControl = container.resolve<IndexingControlService>(
             MEMORY_TOKENS.INDEXING_CONTROL,
           );
         }
-
-        // Start memory curator only when the memory pipeline is enabled.
-        // When no indexing_state row exists yet (first launch), default to enabled.
         let memoryEnabled = true;
         if (indexingControl && workspaceRoot) {
           try {
             const status = await indexingControl.getStatus(workspaceRoot);
             memoryEnabled = status.memoryEnabled;
           } catch {
-            // Non-fatal â€” default to enabled on status-read failure
           }
         }
 
@@ -295,12 +254,6 @@ export async function wireRuntime(
       );
       refs.memoryCurator = null;
     }
-
-    // PHASE 4.53: Skill Synthesis cold-start.
-    // Resolve and start the skill synthesis service so the candidate store +
-    // sqlite migrations are ready before the first chat session ends.
-    // Failure is non-fatal â€” persistence-sqlite may not be available yet on
-    // every branch and we never want skill synthesis to block boot.
     try {
       refs.skillSynthesis = container.resolve<SkillSynthesisService>(
         SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
@@ -381,12 +334,6 @@ export async function wireRuntime(
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // PHASE 4.54: Ensure plugin/template content from GitHub
-    // Plugins and templates are no longer bundled in the app package.
-    // ContentDownloadService downloads them to ~/.ptah/ on first launch and
-    // keeps them up-to-date by comparing the manifest contentHash.
-    // Non-blocking fire-and-forget: activation continues immediately.
     const contentDownload = container.resolve<ContentDownloadService>(
       PLATFORM_TOKENS.CONTENT_DOWNLOAD,
     );
@@ -398,25 +345,11 @@ export async function wireRuntime(
         );
       }
     });
-
-    // PHASE 4.55: Plugin Loader Initialization.
-    // Must run AFTER Phase 4.5 (RPC registration) and BEFORE Phase 4.6 (session discovery).
     initPluginLoader(container, contentDownload.getPluginsPath());
-
-    // PHASE 4.56: Skill Junction Activation
-    // Always call activate() even with zero plugins so the workspace change
-    // subscription is registered for future plugin enablement.
     refs.skillJunctionRef = activateSkillJunctions(
       container,
       contentDownload.getPluginsPath(),
     );
-
-    // PHASE 4.565 + 4.566: CLI Skill Sync and CLI Agent Sync are now driven
-    // reactively by the license:verified / license:expired events wired via
-    // bindLicenseReactivity() below â€” no tier snapshot needed here.
-    // PHASE 4.57: Model Pricing Pre-fetch.
-    // Pre-fetch model pricing from OpenRouter so cost calculations use live data.
-    // Non-blocking, fire-and-forget. Falls back to bundled defaults if offline.
     try {
       const providerModels = container.resolve(
         AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS,
@@ -434,10 +367,6 @@ export async function wireRuntime(
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    // PHASE 4.58: Proactive CLI Detection.
-    // Detect installed CLI agents (Gemini, Codex) early so settings UI is instant.
-    // Non-blocking, fire-and-forget.
     try {
       const cliDetection = container.resolve(TOKENS.CLI_DETECTION_SERVICE) as {
         detectAll: () => Promise<
@@ -453,8 +382,6 @@ export async function wireRuntime(
           console.log(
             `[Ptah Electron] CLI detection complete: ${installed.length}/${results.length} CLIs found`,
           );
-
-          // Background token refresh for CLIs that use OAuth (Codex)
           if (installed.some((r) => r.cli === 'codex')) {
             try {
               await cliDetection.refreshCliTokens();
@@ -482,15 +409,6 @@ export async function wireRuntime(
           : String(cliDetectError),
       );
     }
-
-    // PHASE 4.59: MCP Server Startup is now driven reactively by the
-    // license:verified / license:expired events wired via bindLicenseReactivity()
-    // below â€” no tier snapshot needed here.
-
-    // PHASE 4.6: Session Auto-Discovery
-    // Import existing Claude sessions from ~/.claude/projects/ for the active
-    // workspace. Uses workspaceRoot which covers both CLI arg AND persisted workspace restoration.
-    // Non-fatal: failures are logged as warnings but do not block startup.
     if (workspaceRoot) {
       try {
         const sessionImporter = container.resolve(
@@ -513,17 +431,10 @@ export async function wireRuntime(
         );
       }
     }
-
-    // PHASE 4.8: Git File System Watcher
-    // Watch .git directory and workspace files for changes, push git status
-    // updates to the renderer. Replaces frontend polling with event-driven push.
-    // Only runs `git status` when something actually changes â€” zero wasted calls.
     if (workspaceRoot) {
       try {
         const { GitWatcherService } =
           await import('../services/git-watcher.service');
-        // GitInfoService lives in `@ptah-extension/vscode-core` and is
-        // registered under TOKENS.GIT_INFO_SERVICE.
         const gitInfoSvc = container.resolve(
           TOKENS.GIT_INFO_SERVICE,
         ) as InstanceType<
@@ -549,13 +460,6 @@ export async function wireRuntime(
         );
       }
     }
-    // PHASE 4.94: Cron scheduler cold-start.
-    // Resolve and start the scheduler so persisted jobs re-arm and the
-    // CatchupCoordinator runs its missed-run pass against `cron.catchupWindowMs`.
-    // Settings are read from IWorkspaceProvider â€” defaults come from
-    // FILE_BASED_SETTINGS_DEFAULTS (cron.enabled=true, maxConcurrentJobs=3,
-    // catchupWindowMs=86_400_000). Failure is non-fatal: croner is lazy-required
-    // and persistence-sqlite may be unavailable on some branches.
     try {
       if (
         refs.sqliteConnection !== null &&
@@ -600,13 +504,6 @@ export async function wireRuntime(
       );
       refs.cronScheduler = null;
     }
-
-    // PHASE 4.95: Daily backup cron job registration.
-    // Registers the @ptah/daily-backup system job idempotently on every boot.
-    // Uses JobStore.upsert so repeated boots update the schedule without
-    // creating duplicate rows. The handler is wired into IHandlerRegistry so
-    // the JobRunner can dispatch it by name when the cron fires.
-    // Entire phase is non-fatal â€” failure does not prevent the app from running.
     try {
       if (
         refs.cronScheduler !== null &&
@@ -620,10 +517,6 @@ export async function wireRuntime(
         const handlerRegistry = container.resolve<IHandlerRegistry>(
           CRON_TOKENS.CRON_HANDLER_REGISTRY,
         );
-
-        // Register the backup handler into the in-process registry.
-        // Use unregister+register to be idempotent across restarts in dev
-        // mode where bootHeavyServices may be called more than once.
         const BACKUP_HANDLER_NAME = 'backup:daily';
         if (!handlerRegistry.has(BACKUP_HANDLER_NAME)) {
           handlerRegistry.register(BACKUP_HANDLER_NAME, async () => {
@@ -672,8 +565,6 @@ export async function wireRuntime(
             };
           });
         }
-
-        // Upsert the job definition â€” idempotent across every boot.
         jobStore.upsert({
           id: '@ptah/daily-backup',
           name: 'Daily SQLite Backup',
@@ -692,19 +583,8 @@ export async function wireRuntime(
         err instanceof Error ? err.message : String(err),
       );
     }
-
-    // PHASE 4.96 warmup is intentionally NOT fired here.
-    // It is anchored to the window's `did-finish-load` event so that
-    // ONNX model loading I/O does not race with the renderer's first paint.
-    // The `scheduleWarmup()` return value on WireRuntimeResult is the entry
-    // point; post-window.ts calls it inside `mainWindow.webContents.once(
-    //   'did-finish-load', ...)`.
   }; // end of bootHeavyServices
-
-  // PHASE 4.7: Application Menu
   createApplicationMenu(container, getMainWindow);
-
-  // Subscribe to workspace changes to boot services lazily if they haven't been yet.
   const workspaceProvider = container.resolve<IWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
@@ -723,18 +603,8 @@ export async function wireRuntime(
   if (startupWorkspaceRoot) {
     await bootHeavyServices(startupWorkspaceRoot);
   }
-
-  // PHASE 4.60: License Reactivity Binder
-  // Replaces the three stale startupLicenseTier snapshot gates that prevented
-  // MCP server, CLI skill sync, and CLI agent sync from starting when the user
-  // activates a license mid-session. The binder subscribes to license:verified
-  // and license:expired, performs an initial dispatch based on current state,
-  // and brings up / tears down premium subsystems reactively.
   try {
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
-
-    // Resolve plugins path for skill sync callback (ContentDownloadService
-    // is a singleton â€” safe to resolve separately from bootHeavyServices).
     let pluginsPathForSync: string;
     try {
       const contentDownloadForSync = container.resolve<ContentDownloadService>(

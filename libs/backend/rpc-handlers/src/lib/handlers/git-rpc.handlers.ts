@@ -104,13 +104,11 @@ export class GitRpcHandlers {
     this.registerGitWorktrees();
     this.registerAddWorktree();
     this.registerRemoveWorktree();
-    // Source control methods
     this.registerGitStage();
     this.registerGitUnstage();
     this.registerGitDiscard();
     this.registerGitCommit();
     this.registerGitShowFile();
-    // Branch/tag/remote/stash methods
     this.registerGitBranches();
     this.registerGitCheckout();
     this.registerGitStashList();
@@ -232,10 +230,6 @@ export class GitRpcHandlers {
     });
   }
 
-  // ==========================================================================
-  // Source Control Handlers
-  // ==========================================================================
-
   /**
    * git:stage - Stage files in the git index.
    */
@@ -345,10 +339,6 @@ export class GitRpcHandlers {
       },
     );
   }
-
-  // ==========================================================================
-  // Branch, Checkout, Stash, Tag, Remote, Last-Commit Handlers
-  // ==========================================================================
 
   /**
    * git:branches - List local (and optionally remote) branches with ahead/behind counts.

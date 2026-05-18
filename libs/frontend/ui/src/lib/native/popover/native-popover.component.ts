@@ -170,11 +170,9 @@ export class NativePopoverComponent implements OnDestroy {
   private previousActiveElement: HTMLElement | null = null;
 
   constructor() {
-    // Effect to handle open/close state changes
     effect(() => {
       const isOpen = this.isOpen();
       if (isOpen) {
-        // Schedule opening for next microtask to ensure DOM is ready
         queueMicrotask(() => this.openPopover());
       } else {
         this.closePopover();
@@ -186,7 +184,6 @@ export class NativePopoverComponent implements OnDestroy {
    * Open the popover: store focus, position content, focus popover.
    */
   private async openPopover(): Promise<void> {
-    // Store current focus for restoration on close
     this.previousActiveElement = document.activeElement as HTMLElement;
 
     const trigger = this.triggerRef()?.nativeElement;
@@ -199,8 +196,6 @@ export class NativePopoverComponent implements OnDestroy {
         flip: true,
         shift: true,
       });
-
-      // Focus the popover content for keyboard accessibility
       floating.focus();
       this.opened.emit();
     }
@@ -211,9 +206,6 @@ export class NativePopoverComponent implements OnDestroy {
    */
   private closePopover(): void {
     this.floatingUI.cleanup();
-
-    // Restore focus to the element that had focus before opening
-    // Check isConnected to ensure element is still in DOM before focusing
     if (this.previousActiveElement?.isConnected) {
       this.previousActiveElement.focus();
     }
@@ -243,8 +235,6 @@ export class NativePopoverComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.floatingUI.cleanup();
-    // Ensure focus restoration if component destroyed while open
-    // Check isConnected to ensure element is still in DOM before focusing
     if (this.previousActiveElement?.isConnected) {
       this.previousActiveElement.focus();
     }

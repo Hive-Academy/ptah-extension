@@ -51,7 +51,6 @@ export function runUserInteractionContract(
         'Retry',
         'Cancel',
       );
-      // Mocks without script still return undefined — accept both.
       expect([undefined, 'Retry']).toContain(result);
     });
 
@@ -107,7 +106,6 @@ export function runUserInteractionContract(
       });
       expect(result).toBeDefined();
       expect(typeof result.opened).toBe('boolean');
-      // `code` is optional; if present it must be a string
       if (result.code !== undefined) {
         expect(typeof result.code).toBe('string');
       }

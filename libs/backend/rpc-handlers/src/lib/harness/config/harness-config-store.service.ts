@@ -59,8 +59,6 @@ export class HarnessConfigStore {
     await fs.mkdir(claudeDir, { recursive: true });
 
     const claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
-
-    // Back up existing CLAUDE.md before overwriting
     let backupPath: string | undefined;
     try {
       await fs.access(claudeMdPath);
@@ -68,10 +66,7 @@ export class HarnessConfigStore {
       await fs.copyFile(claudeMdPath, backupPath);
       this.logger.info('Backed up existing CLAUDE.md', { backupPath });
     } catch {
-      // File doesn't exist, no backup needed
     }
-
-    // Use preview content if available, otherwise generate
     const content = config.claudeMd.previewContent
       ? config.claudeMd.previewContent
       : this.promptBuilder.buildClaudeMdContent(config);
@@ -101,10 +96,7 @@ export class HarnessConfigStore {
       const raw = await fs.readFile(settingsPath, 'utf-8');
       existingSettings = JSON.parse(raw) as Record<string, unknown>;
     } catch {
-      // File doesn't exist or is invalid JSON; start fresh
     }
-
-    // Merge agent configuration
     const agentConfig: Record<string, unknown> = {};
     for (const [agentId, override] of Object.entries(
       config.agents.enabledAgents,
@@ -196,18 +188,14 @@ export class HarnessConfigStore {
     const baseName = this.sanitizeFileName(name);
     let fileName = `${baseName}.json`;
     let presetPath = path.join(harnessesDir, fileName);
-
-    // Avoid overwriting existing presets with different names
     let counter = 1;
     while (true) {
       try {
         await fs.access(presetPath);
-        // File exists — check if it belongs to the same preset (same name = update)
         const existing = JSON.parse(
           await fs.readFile(presetPath, 'utf-8'),
         ) as HarnessPreset;
         if (existing.name === name) break; // Same preset, safe to overwrite
-        // Different preset with colliding filename, try next suffix
         fileName = `${baseName}-${counter}.json`;
         presetPath = path.join(harnessesDir, fileName);
         counter++;
@@ -251,7 +239,6 @@ export class HarnessConfigStore {
     try {
       entries = await fs.readdir(harnessesDir);
     } catch {
-      // Directory doesn't exist yet — no presets
       return [];
     }
 
@@ -262,8 +249,6 @@ export class HarnessConfigStore {
       try {
         const raw = await fs.readFile(filePath, 'utf-8');
         const parsed = JSON.parse(raw) as HarnessPreset;
-
-        // Basic validation: ensure required fields exist
         if (parsed.id && parsed.name && parsed.config) {
           presets.push(parsed);
         } else {

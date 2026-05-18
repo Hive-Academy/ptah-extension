@@ -7,10 +7,6 @@
  * Design: Pure TypeScript types, no runtime dependencies (shared library boundary).
  */
 
-// ========================================
-// CLI Target
-// ========================================
-
 import type { CliType } from './agent-process.types';
 
 /** CLI targets that support user-level skill directories.
@@ -22,10 +18,6 @@ export type CliTarget = Extract<
   CliType,
   'copilot' | 'gemini' | 'codex' | 'cursor'
 >;
-
-// ========================================
-// Agent Transform Result
-// ========================================
 
 /**
  * Result of transforming a Claude-format agent to a CLI-specific format.
@@ -41,10 +33,6 @@ export interface CliAgentTransformResult {
   /** Absolute file path where the agent should be written */
   readonly filePath: string;
 }
-
-// ========================================
-// Skill Sync Status
-// ========================================
 
 /**
  * Status of skill sync for a single CLI.
@@ -63,10 +51,6 @@ export interface CliSkillSyncStatus {
   readonly error?: string;
 }
 
-// ========================================
-// Plugin Sync State (Persistence)
-// ========================================
-
 /**
  * Overall plugin sync state persisted in VS Code globalState.
  * Stored under 'ptah.cliSkillSync' key.
@@ -84,10 +68,6 @@ export interface CliPluginSyncState {
     }
   >;
 }
-
-// ========================================
-// Multi-CLI Generation Result
-// ========================================
 
 /**
  * Per-CLI agent generation/distribution result.

@@ -166,8 +166,6 @@ export class PtahCliRpcHandlers {
           this.logger.debug('RPC: ptahCli:update called', {
             id: params.id,
           });
-
-          // Extract config-level updates (excluding id and apiKey)
           const updates: {
             name?: string;
             enabled?: boolean;
@@ -308,8 +306,6 @@ export class PtahCliRpcHandlers {
         this.logger.debug('RPC: ptahCli:listModels called', {
           id: params.id,
         });
-
-        // Get the agent's config to find its provider
         const agents = await this.ptahCliRegistry.listAgents();
         const agent = agents.find((a) => a.id === params.id);
 
@@ -319,8 +315,6 @@ export class PtahCliRpcHandlers {
           });
           return { models: [], isStatic: true, error: 'Agent not found' };
         }
-
-        // Look up provider definition for static models
         const provider = getAnthropicProvider(agent.providerId);
 
         if (!provider) {
@@ -329,8 +323,6 @@ export class PtahCliRpcHandlers {
           });
           return { models: [], isStatic: true, error: 'Provider not found' };
         }
-
-        // Return static models from the provider registry
         const models = (provider.staticModels ?? []).map((m) => ({
           id: m.id,
           name: m.name,

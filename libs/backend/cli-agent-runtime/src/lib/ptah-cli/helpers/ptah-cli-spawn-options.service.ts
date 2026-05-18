@@ -79,7 +79,6 @@ export class PtahCliSpawnOptions {
     cwd: string,
     projectGuidance?: string,
   ): Promise<PtahSpawnAssembly> {
-    // ── Premium feature gating (Pro subscription required) ──
     let isPremium = false;
     try {
       const licenseStatus = await this.licenseService.verifyLicense();
@@ -93,14 +92,10 @@ export class PtahCliSpawnOptions {
     }
 
     const mcpServerRunning = this.isMcpServerRunning();
-
-    // Resolve enhanced prompts content (premium only)
     const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
       cwd,
       isPremium,
     );
-
-    // Build system prompt with full premium capabilities
     const activeProviderId = getActiveProviderId(authEnv);
     const promptResult = assembleSystemPrompt({
       providerId: activeProviderId,
@@ -109,8 +104,6 @@ export class PtahCliSpawnOptions {
       mcpServerRunning,
       enhancedPromptsContent,
     });
-
-    // Append project guidance (available for all tiers)
     const fullSystemPromptContent =
       [
         promptResult.content,
@@ -120,8 +113,6 @@ export class PtahCliSpawnOptions {
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;
-
-    // Build MCP servers config (premium only)
     const mcpServers: Record<string, McpHttpServerConfig> =
       isPremium && mcpServerRunning
         ? {
@@ -131,11 +122,6 @@ export class PtahCliSpawnOptions {
             },
           }
         : {};
-
-    // Plugins disabled — skills loaded via .claude/skills/ junctions (SkillJunctionService).
-    // Passing plugins via SDK option caused duplication in slash command autocomplete.
-
-    // Build hooks (subagent tracking + compaction lifecycle)
     let hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
     if (this.subagentHookHandler || this.compactionHookHandler) {
       hooks = {};
@@ -148,8 +134,6 @@ export class PtahCliSpawnOptions {
         Object.assign(hooks, compactionHooks);
       }
     }
-
-    // Get compaction configuration
     const compactionConfig = this.compactionConfigProvider?.getConfig();
     const compactionControl = compactionConfig?.enabled
       ? {

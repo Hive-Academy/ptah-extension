@@ -22,10 +22,6 @@
  * Follows the same patterns as OpenAIResponseTranslator in response-translator.ts.
  */
 
-// ---------------------------------------------------------------------------
-// SSE formatting helper
-// ---------------------------------------------------------------------------
-
 /**
  * Format a single Anthropic SSE event string.
  * Format: `event: <type>\ndata: <json>\n\n`
@@ -33,10 +29,6 @@
 function sseEvent(eventType: string, data: Record<string, unknown>): string {
   return `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
 }
-
-// ---------------------------------------------------------------------------
-// Responses API SSE event types
-// ---------------------------------------------------------------------------
 
 /** Parsed SSE event from the Responses API stream */
 interface ResponsesStreamEvent {
@@ -81,10 +73,6 @@ interface ResponsesCompletedData {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Internal state tracking
-// ---------------------------------------------------------------------------
-
 /** Tracks an active tool call (function_call) being streamed */
 interface ActiveToolCall {
   /** The call_id from the Responses API */
@@ -96,10 +84,6 @@ interface ActiveToolCall {
   /** Whether content_block_start has been emitted */
   started: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Main translator class
-// ---------------------------------------------------------------------------
 
 /**
  * Translates OpenAI Responses API streaming events into Anthropic SSE event strings.
@@ -188,28 +172,19 @@ export class ResponsesStreamTranslator {
     const events: string[] = [];
 
     this.lineBuffer += rawChunk;
-
-    // Split into lines and process complete event blocks
     const lines = this.lineBuffer.split('\n');
-    // Keep the last potentially incomplete line in the buffer
     this.lineBuffer = lines.pop() ?? '';
 
     let currentEventType = '';
 
     for (const line of lines) {
       const trimmed = line.trim();
-
-      // Track the event type from "event: xxx" lines
       if (trimmed.startsWith('event: ')) {
         currentEventType = trimmed.slice(7);
         continue;
       }
-
-      // Process data lines
       if (trimmed.startsWith('data: ')) {
         const data = trimmed.slice(6);
-
-        // End of stream marker
         if (data === '[DONE]') {
           if (!this.finalized) {
             events.push(...this.emitFinalEvents());
@@ -219,19 +194,13 @@ export class ResponsesStreamTranslator {
 
         try {
           const parsed = JSON.parse(data) as ResponsesStreamEvent;
-          // Use the type from the parsed data, or fall back to the event: line
           const eventType = parsed.type || currentEventType;
           events.push(...this.handleEvent(eventType, parsed));
         } catch {
-          // Skip unparseable data lines
         }
-
-        // Reset event type after processing
         currentEventType = '';
         continue;
       }
-
-      // Empty line = end of SSE event block, reset
       if (!trimmed) {
         currentEventType = '';
       }
@@ -239,10 +208,6 @@ export class ResponsesStreamTranslator {
 
     return events;
   }
-
-  // ---------------------------------------------------------------------------
-  // Event handlers
-  // ---------------------------------------------------------------------------
 
   /**
    * Route a parsed Responses API event to the appropriate handler.
@@ -268,7 +233,6 @@ export class ResponsesStreamTranslator {
         return this.handleResponseCompleted(event);
 
       default:
-        // Ignore unrecognized event types (response.created, response.in_progress, etc.)
         return [];
     }
   }
@@ -284,8 +248,6 @@ export class ResponsesStreamTranslator {
     if (text == null || text === '') {
       return events;
     }
-
-    // Open a new text block if needed
     if (!this.inTextBlock) {
       events.push(
         sseEvent('content_block_start', {
@@ -296,8 +258,6 @@ export class ResponsesStreamTranslator {
       );
       this.inTextBlock = true;
     }
-
-    // Emit text delta
     events.push(
       sseEvent('content_block_delta', {
         type: 'content_block_delta',
@@ -324,8 +284,6 @@ export class ResponsesStreamTranslator {
 
     if (item.type === 'function_call') {
       this.hadToolCalls = true;
-
-      // Close any open text block before tool calls
       if (this.inTextBlock) {
         events.push(
           sseEvent('content_block_stop', {
@@ -346,10 +304,7 @@ export class ResponsesStreamTranslator {
         blockIndex: this.blockIndex,
         started: false,
       });
-
-      // Emit content_block_start for this tool use if we have the name
       if (name) {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const toolCall = this.activeToolCalls.get(outputIndex)!;
         toolCall.started = true;
         events.push(
@@ -386,8 +341,6 @@ export class ResponsesStreamTranslator {
     }
 
     let toolCall = this.activeToolCalls.get(outputIndex);
-
-    // If no active tool call, create one from the event data
     if (!toolCall) {
       const callId = event.call_id ?? `call_${this.requestId}_${outputIndex}`;
       const name = event.name ?? '';
@@ -399,18 +352,13 @@ export class ResponsesStreamTranslator {
       };
       this.activeToolCalls.set(outputIndex, toolCall);
     }
-
-    // Update call_id and name if provided in this event
     if (event.call_id) {
       toolCall.callId = event.call_id;
     }
     if (event.name) {
       toolCall.name = event.name;
     }
-
-    // Emit content_block_start if not yet started
     if (!toolCall.started && toolCall.name) {
-      // Close any open text block first
       if (this.inTextBlock) {
         events.push(
           sseEvent('content_block_stop', {
@@ -437,8 +385,6 @@ export class ResponsesStreamTranslator {
         }),
       );
     }
-
-    // Emit input_json_delta
     if (toolCall.started) {
       events.push(
         sseEvent('content_block_delta', {
@@ -477,7 +423,6 @@ export class ResponsesStreamTranslator {
       }
       this.activeToolCalls.delete(outputIndex);
     } else if (item?.type === 'message') {
-      // Message output item done — close any open text block
       if (this.inTextBlock) {
         events.push(
           sseEvent('content_block_stop', {
@@ -510,10 +455,6 @@ export class ResponsesStreamTranslator {
     return this.emitFinalEvents();
   }
 
-  // ---------------------------------------------------------------------------
-  // Final event emission
-  // ---------------------------------------------------------------------------
-
   /**
    * Emit the final message_delta and message_stop events.
    * Closes any open content blocks first.
@@ -523,8 +464,6 @@ export class ResponsesStreamTranslator {
     this.finalized = true;
 
     const events: string[] = [];
-
-    // Close any open text block
     if (this.inTextBlock) {
       events.push(
         sseEvent('content_block_stop', {
@@ -534,8 +473,6 @@ export class ResponsesStreamTranslator {
       );
       this.inTextBlock = false;
     }
-
-    // Flush any remaining tool calls
     for (const [, toolCall] of this.activeToolCalls) {
       if (toolCall.started) {
         events.push(
@@ -547,11 +484,7 @@ export class ResponsesStreamTranslator {
       }
     }
     this.activeToolCalls.clear();
-
-    // Determine stop reason based on whether we had tool calls
     const stopReason = this.hadToolCalls ? 'tool_use' : 'end_turn';
-
-    // message_delta with stop reason and usage
     events.push(
       sseEvent('message_delta', {
         type: 'message_delta',
@@ -559,8 +492,6 @@ export class ResponsesStreamTranslator {
         usage: { output_tokens: this.outputTokens },
       }),
     );
-
-    // message_stop
     events.push(sseEvent('message_stop', { type: 'message_stop' }));
 
     return events;

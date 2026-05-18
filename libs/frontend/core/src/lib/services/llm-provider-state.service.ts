@@ -40,8 +40,6 @@ import { ClaudeRpcService } from './claude-rpc.service';
 export class LlmProviderStateService {
   private readonly rpc = inject(ClaudeRpcService);
 
-  // --- Private mutable signals ---
-
   /** Available LLM providers with their configuration status */
   private readonly _providers = signal<
     Array<{
@@ -76,8 +74,6 @@ export class LlmProviderStateService {
   /** Cached in-flight promise for loadProviderStatus deduplication */
   private _loadPromise: Promise<void> | null = null;
 
-  // --- Public readonly signals ---
-
   /** Available LLM providers with configuration status */
   readonly providers = this._providers.asReadonly();
 
@@ -101,8 +97,6 @@ export class LlmProviderStateService {
     () => this._providerModels().get('vscode-lm') ?? [],
   );
 
-  // --- Public methods ---
-
   /**
    * Load provider status from backend.
    * Populates providers and defaultProvider signals from the llm:getProviderStatus RPC.
@@ -113,11 +107,9 @@ export class LlmProviderStateService {
     if (this._isLoaded) {
       return;
     }
-    // Deduplicate concurrent calls: return the same in-flight promise
     if (!this._loadPromise) {
       this._loadPromise = this.fetchProviderStatus()
         .then((success) => {
-          // Only mark as loaded on success (failure leaves _isLoaded false for retry)
           if (success) {
             this._isLoaded = true;
           }
@@ -144,7 +136,6 @@ export class LlmProviderStateService {
    * @param provider - The LLM provider to load models for
    */
   async loadProviderModels(provider: LlmProviderName): Promise<void> {
-    // Track loading state
     const loading = new Set(this._loadingModels());
     loading.add(provider);
     this._loadingModels.set(loading);
@@ -237,7 +228,6 @@ export class LlmProviderStateService {
 
       if (result.isSuccess() && result.data?.success) {
         await this.fetchProviderStatus();
-        // Auto-load available models after key save (validates key + populates dropdown)
         this.loadProviderModels(provider);
         return true;
       }
@@ -321,7 +311,6 @@ export class LlmProviderStateService {
 
       const rawError =
         result.data?.error || result.error || 'Failed to set default model';
-      // Provide a friendlier message for VS Code settings-write conflict
       const errorMsg = rawError.includes('unsaved changes')
         ? 'Could not save model — please save and close your VS Code settings file, then try again.'
         : rawError;

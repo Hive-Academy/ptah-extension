@@ -2,8 +2,6 @@ import { BrowserWindow, Menu, screen } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-
-// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -24,7 +22,6 @@ function isOnScreen(bounds: WindowBounds): boolean {
   const displays = screen.getAllDisplays();
   return displays.some((display) => {
     const { x, y, width, height } = display.workArea;
-    // Check that at least 100px of the window is visible on this display
     return (
       bounds.x < x + width &&
       bounds.x + bounds.width > x &&
@@ -45,7 +42,6 @@ function isOnScreen(bounds: WindowBounds): boolean {
  * @param stateStorage - Optional state storage for persisting/restoring window bounds.
  */
 export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
-  // Attempt to restore saved window bounds
   const savedBounds = stateStorage?.get<WindowBounds>('window.bounds');
   const useSavedBounds =
     savedBounds &&
@@ -72,12 +68,9 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
       sandbox: true,
       webSecurity: true,
     },
-    // macOS title bar
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 15, y: 15 },
   });
-
-  // Right-click context menu for the entire app
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const menuItems: Electron.MenuItemConstructorOptions[] = [];
 
@@ -104,14 +97,11 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
       contextMenu.popup({ window: mainWindow });
     }
   });
-
-  // Persist window state on close
   mainWindow.on('close', () => {
     const bounds = mainWindow.getBounds();
     console.log(
       `[Ptah Electron] Saving window bounds: ${JSON.stringify(bounds)}`,
     );
-    // Fire-and-forget: persist bounds for next launch
     if (stateStorage) {
       stateStorage.update('window.bounds', bounds).catch((err: unknown) => {
         console.error(

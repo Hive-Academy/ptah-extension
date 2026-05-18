@@ -135,12 +135,8 @@ export type SetupStatus = SetupStatusGetResponse;
 })
 export class SetupStatusWidgetComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
-
-  // Lucide icon references
   protected readonly XCircleIcon = XCircle;
   protected readonly FolderOpenIcon = FolderOpen;
-
-  // Signals for reactive state
   readonly status = signal<SetupStatus | null>(null);
   readonly isLoading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
@@ -172,8 +168,6 @@ export class SetupStatusWidgetComponent implements OnInit {
         this.status.set(result.data);
         this.error.set(null);
       } else if (result.errorCode === 'WORKSPACE_NOT_OPEN') {
-        // Expected condition: no folder open. Show a friendly prompt instead
-        // of the generic error state so users know exactly what to do.
         this.workspaceNotOpen.set(true);
       } else {
         this.error.set(result.error || 'Failed to fetch status');
@@ -216,7 +210,6 @@ export class SetupStatusWidgetComponent implements OnInit {
           result.error || 'Failed to launch wizard. Please try again.',
         );
       }
-      // If success, wizard is already open - no action needed
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : 'Failed to launch wizard';
@@ -232,8 +225,6 @@ export class SetupStatusWidgetComponent implements OnInit {
    */
   formatRelativeTime(isoString: string): string {
     const date = new Date(isoString);
-
-    // Validate date before calculations to prevent NaN in template
     if (isNaN(date.getTime())) {
       return 'unknown'; // Graceful fallback for invalid dates
     }
@@ -254,7 +245,6 @@ export class SetupStatusWidgetComponent implements OnInit {
     } else if (diffDays < 30) {
       return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
     } else {
-      // For dates older than 30 days, show formatted date
       return date.toLocaleDateString();
     }
   }

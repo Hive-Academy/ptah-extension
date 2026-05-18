@@ -158,13 +158,6 @@ export const ANTHROPIC_PROVIDERS = [
     keyPlaceholder: 'Enter Moonshot API key...',
     maskedKeyDisplay: '••••••••••••',
     modelsEndpoint: 'https://api.moonshot.ai/v1/models',
-    // Moonshot's official Claude Code / Anthropic-compatible guide documents
-    // mapping all three tiers to `kimi-k2.5` — it is the only model validated
-    // against the /anthropic/ endpoint. Other IDs like `kimi-k2.6` and
-    // `kimi-k2-0905-preview` exist on the native /v1/ API but are not
-    // confirmed to route through the Anthropic-compatible layer, and using
-    // them here caused the UI to hang when the endpoint dropped the request.
-    // @see https://platform.kimi.ai/docs/guide/agent-support.en-US
     defaultTiers: {
       sonnet: 'kimi-k2.5',
       opus: 'kimi-k2.5',
@@ -221,7 +214,6 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Next-generation flagship model (256K context)',
         contextLength: 256000,
         supportsToolUse: true,
-        // Official pricing from https://platform.kimi.ai/docs/pricing/chat-k26
         inputCostPerToken: 0.95e-6, // $0.95 per 1M tokens (cache miss)
         outputCostPerToken: 4e-6, // $4.00 per 1M tokens
         cacheReadCostPerToken: 0.16e-6, // $0.16 per 1M tokens (cache hit)
@@ -239,8 +231,6 @@ export const ANTHROPIC_PROVIDERS = [
     description: 'GLM models via Anthropic-compatible API',
     keyPlaceholder: 'Enter Z.AI API key...',
     maskedKeyDisplay: '••••••••••••',
-    // Z.AI has no /v1/models API — static models only
-    // @see https://docs.z.ai/guides/overview/pricing
     defaultTiers: {
       sonnet: 'glm-5.1',
       opus: 'glm-5-code',
@@ -443,7 +433,6 @@ export function getProviderBaseUrl(id: string): string {
   if (provider) {
     return provider.baseUrl;
   }
-  // Fallback to default provider (OpenRouter)
   const defaultProvider = getAnthropicProvider(DEFAULT_PROVIDER_ID);
   if (!defaultProvider) {
     throw new Error(
@@ -491,10 +480,7 @@ export function seedStaticModelPricing(providerId: string): void {
       provider: providerId,
       maxTokens: model.contextLength,
     };
-
-    // Exact key
     entries[model.id] = pricing;
-    // Normalized lowercase key
     const lower = model.id.toLowerCase();
     if (lower !== model.id) {
       entries[lower] = pricing;

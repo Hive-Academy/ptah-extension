@@ -386,8 +386,6 @@ export class DownloadPageComponent implements OnInit {
 
   /** Auto-expand the latest release */
   readonly autoExpandApplied = signal(false);
-
-  // Animation configs
   readonly headlineConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.7,
@@ -411,8 +409,6 @@ export class DownloadPageComponent implements OnInit {
 
   ngOnInit(): void {
     this.releaseService.fetchReleases(3);
-
-    // Auto-expand the latest release once data loads
     const checkExpand = setInterval(() => {
       const r = this.releases();
       if (r.length > 0 && !this.autoExpandApplied()) {

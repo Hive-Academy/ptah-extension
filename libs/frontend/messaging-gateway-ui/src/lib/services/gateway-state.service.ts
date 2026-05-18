@@ -104,8 +104,6 @@ export class GatewayStateService implements MessageHandler {
    * renders it.
    */
   private readonly _pendingOrigins = new Set<string>();
-
-  // ── State signals ──────────────────────────────────────────────────────
   public readonly enabled = signal<boolean>(false);
   public readonly platforms = signal<PlatformStatusMap>(emptyStatusMap());
   public readonly bindings = signal<readonly GatewayBindingDto[]>([]);
@@ -134,8 +132,6 @@ export class GatewayStateService implements MessageHandler {
     readonly ok: boolean;
     readonly message: string;
   } | null>(null);
-
-  // ── Computed views ─────────────────────────────────────────────────────
   public readonly pendingBindings = computed(() =>
     this.bindings().filter((b) => b.approvalStatus === 'pending'),
   );
@@ -147,8 +143,6 @@ export class GatewayStateService implements MessageHandler {
   public readonly hasApprovedBindingFor = (
     platform: GatewayPlatformId,
   ): boolean => this.approvedBindings().some((b) => b.platform === platform);
-
-  // ── Lifecycle ──────────────────────────────────────────────────────────
 
   /**
    * Boot the state service: one-time initial hydration of status + bindings.
@@ -177,8 +171,6 @@ export class GatewayStateService implements MessageHandler {
     }
     this.applyStatus(payload.status);
   }
-
-  // ── Public actions ─────────────────────────────────────────────────────
 
   public async refreshStatus(): Promise<void> {
     try {
@@ -217,9 +209,7 @@ export class GatewayStateService implements MessageHandler {
       } = { platform, token };
       if (slackAppToken) params.slackAppToken = slackAppToken;
       await this.rpc.setToken(params);
-      // After persisting the token, kick the adapter and refresh status.
       this.markStarting(platform);
-      // Stamp origin so the resulting GATEWAY_STATUS_CHANGED echo is dropped.
       const origin = crypto.randomUUID();
       this._pendingOrigins.add(origin);
       try {
@@ -227,9 +217,6 @@ export class GatewayStateService implements MessageHandler {
       } catch (startErr) {
         this.recordPlatformError(platform, startErr);
       } finally {
-        // refreshStatus runs on both success and failure paths so the UI
-        // reflects the actual adapter state; the echo (if any) is dropped by
-        // the guard in handleMessage during refreshStatus.
         await this.refreshStatus();
         this._pendingOrigins.delete(origin);
       }
@@ -242,8 +229,6 @@ export class GatewayStateService implements MessageHandler {
   public async startPlatform(platform: GatewayPlatformId): Promise<void> {
     this.clearError(platform);
     this.markStarting(platform);
-    // Stamp origin so the resulting GATEWAY_STATUS_CHANGED echo is dropped
-    // (we already mutated state optimistically via markStarting / refreshStatus).
     const origin = crypto.randomUUID();
     this._pendingOrigins.add(origin);
     try {
@@ -258,7 +243,6 @@ export class GatewayStateService implements MessageHandler {
 
   public async stopPlatform(platform: GatewayPlatformId): Promise<void> {
     this.clearError(platform);
-    // Stamp origin so the resulting GATEWAY_STATUS_CHANGED echo is dropped.
     const origin = crypto.randomUUID();
     this._pendingOrigins.add(origin);
     try {
@@ -319,8 +303,6 @@ export class GatewayStateService implements MessageHandler {
     this.testResult.set(null);
     try {
       const result = await this.rpc.test(platform, bindingId);
-      // Record a UI-friendly flash (success or error) so the template can
-      // surface it without rebuilding the result shape.
       const platformId =
         platform === 'telegram' ||
         platform === 'discord' ||
@@ -344,8 +326,6 @@ export class GatewayStateService implements MessageHandler {
     }
   }
 
-  // ── Settings injection (read-only mirror) ──────────────────────────────
-
   /**
    * Hydrate the read-only settings mirror from values discovered elsewhere
    * (e.g. a future `config:get` call). Today the AppShell may inject these;
@@ -366,8 +346,6 @@ export class GatewayStateService implements MessageHandler {
   public dismissVoiceToast(): void {
     this.voiceDownload.set(null);
   }
-
-  // ── Internal helpers ───────────────────────────────────────────────────
 
   private applyStatus(status: GatewayStatusResult): void {
     this.enabled.set(status.enabled);
@@ -413,9 +391,6 @@ export class GatewayStateService implements MessageHandler {
   }
   private recordGlobalError(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
-    // Spread a global error across all platforms only if the error is
-    // platform-agnostic (network / RPC bridge). Per-platform routes already
-    // call recordPlatformError directly.
     this.lastError.update((current) => ({
       ...current,
       telegram: current.telegram ?? message,

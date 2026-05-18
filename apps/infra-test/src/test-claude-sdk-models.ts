@@ -30,8 +30,6 @@ interface CliJsonResult {
   [key: string]: unknown;
 }
 
-// ── Test 1: Model alias resolution ──────────────────────────────────────────
-
 async function testModelAliasResolution(): Promise<void> {
   console.log('\n=== Test 1: Model Alias Resolution ===\n');
 
@@ -55,8 +53,6 @@ async function testModelAliasResolution(): Promise<void> {
       );
 
       const result = JSON.parse(stdout.trim()) as CliJsonResult;
-
-      // Extract actual model from modelUsage keys
       const actualModels = result.modelUsage
         ? Object.keys(result.modelUsage)
         : [];
@@ -79,8 +75,6 @@ async function testModelAliasResolution(): Promise<void> {
     console.log('');
   }
 }
-
-// ── Test 2: Init message model field ────────────────────────────────────────
 
 async function testInitMessage(): Promise<void> {
   console.log('\n=== Test 2: Init Message (default model) ===\n');
@@ -108,8 +102,6 @@ async function testInitMessage(): Promise<void> {
           console.log(`  Default model (from init): ${event.model}`);
           console.log(`  Claude Code version: ${event.claude_code_version}`);
           console.log(`  Fast mode: ${event.fast_mode_state}`);
-
-          // Determine tier
           const model = (event.model as string).toLowerCase();
           if (model.includes('opus')) {
             console.log(
@@ -123,7 +115,6 @@ async function testInitMessage(): Promise<void> {
           break;
         }
       } catch {
-        // skip non-JSON lines
       }
     }
   } catch (error: unknown) {
@@ -131,8 +122,6 @@ async function testInitMessage(): Promise<void> {
     console.log(`  [FAIL] ${err.message.substring(0, 200)}`);
   }
 }
-
-// ── Test 3: Extension impact analysis ───────────────────────────────────────
 
 function analyzeExtensionImpact(): void {
   console.log('\n=== Test 3: Extension Impact Analysis ===\n');
@@ -186,8 +175,6 @@ function analyzeExtensionImpact(): void {
     '  - The displayName approach also handles future value changes gracefully'
   );
 }
-
-// ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   console.log('==========================================================');

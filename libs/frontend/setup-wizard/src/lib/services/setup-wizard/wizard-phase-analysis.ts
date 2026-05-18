@@ -50,8 +50,6 @@ export class WizardPhaseAnalysis {
       totalFiles: payload.totalFiles,
       detections: payload.detections,
     });
-
-    // Extract multi-phase analysis progress fields
     if (payload.currentPhaseNumber !== undefined) {
       this.state.currentPhaseNumber.set(payload.currentPhaseNumber);
     }
@@ -73,9 +71,6 @@ export class WizardPhaseAnalysis {
   public handleAnalysisStream(payload: AnalysisStreamPayload): void {
     this.state.analysisStream.update((messages) => [...messages, payload]);
     if (payload.flatEvent) {
-      // Route through StreamRouter. The façade lazy-mints the surface on
-      // first event for a given phaseKey, so wizard backends that don't
-      // emit a discrete "phase start" continue to work.
       this.surfaces.routePhaseEvent(
         payload.flatEvent.messageId,
         payload.flatEvent,
@@ -104,11 +99,6 @@ export class WizardPhaseAnalysis {
     this.state.analysisResults.set(analysisResults);
     this.state.projectContext.set(analysisResults.projectContext);
     this.state.setStepToAnalysis();
-
-    // Tear down all analysis-phase routing bindings. The accumulated
-    // StreamingStates remain visible in the public `phaseStreamingStates`
-    // signal (so the transcript keeps rendering completed phases), but
-    // the routing/registry state is cleaned up.
     this.surfaces.unregisterAllPhaseSurfaces();
   }
 

@@ -75,11 +75,6 @@ export function configureTestBedWithMocks(
     providers: [
       { provide: ClaudeRpcService, useValue: rpc },
       { provide: MessageRouterService, useValue: router },
-      // `MESSAGE_HANDLERS` is a multi-provider token. We don't register any
-      // default contributors here — `inject(MESSAGE_HANDLERS, { optional: true })`
-      // yields `[]` in Angular when no multi-providers exist, which is what
-      // specs want. Consumers that need handlers can append their own provider
-      // entries via `overrides.providers`.
       ...(overrides.providers ?? []),
     ],
   });

@@ -171,11 +171,9 @@ export class NativeDropdownComponent implements OnDestroy {
     viewChild<ElementRef<HTMLElement>>('floatingRef');
 
   constructor() {
-    // Effect to position dropdown when opened
     effect(() => {
       const isOpen = this.isOpen();
       if (isOpen) {
-        // Schedule positioning for next microtask to ensure DOM is ready
         this.positioningPending = true;
         queueMicrotask(() => {
           if (this.positioningPending && this.isOpen()) {

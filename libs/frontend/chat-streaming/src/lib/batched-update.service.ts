@@ -34,10 +34,7 @@ export class BatchedUpdateService {
    * @param state - Current streaming state (will be cloned on flush)
    */
   scheduleUpdate(tabId: string, state: StreamingState): void {
-    // Store reference to current state (we'll clone it on flush)
     this.pendingTabUpdates.set(tabId, state);
-
-    // Schedule flush if not already scheduled
     if (this.rafId === null) {
       this.rafId = requestAnimationFrame(() => this.flushPendingUpdates());
     }
@@ -50,15 +47,9 @@ export class BatchedUpdateService {
    */
   private flushPendingUpdates(): void {
     this.rafId = null;
-
-    // Process all pending updates
     for (const [tabId, state] of this.pendingTabUpdates) {
-      // Create shallow copy of state to trigger signal change detection
-      // This happens once per frame instead of 100+ times per frame
       this.tabManager.setStreamingState(tabId, { ...state });
     }
-
-    // Clear pending updates
     this.pendingTabUpdates.clear();
   }
 

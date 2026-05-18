@@ -330,10 +330,6 @@ export class EmailService {
     `;
   }
 
-  // ============================================================
-  // Contact & Session Email Methods
-  // ============================================================
-
   /**
    * Send contact form message to team
    */
@@ -428,10 +424,6 @@ export class EmailService {
     await this.sendWithRetry(msg, 3);
     this.logger.log(`Session confirmation sent to ${userEmail}`);
   }
-
-  // ============================================================
-  // Trial Reminder Email Methods (TASK_2025_142)
-  // ============================================================
 
   /**
    * Send 7-day trial reminder email
@@ -572,10 +564,6 @@ export class EmailService {
     await this.sendWithRetry(msg, 3);
     this.logger.log(`Community welcome email sent successfully to ${email}`);
   }
-
-  // ============================================================
-  // Trial Reminder Email Templates (TASK_2025_142)
-  // ============================================================
 
   /**
    * 7-day trial reminder email template
@@ -1028,10 +1016,6 @@ export class EmailService {
       </html>
     `;
   }
-
-  // ============================================================
-  // Contact & Session Email Templates
-  // ============================================================
 
   private getContactMessageTemplate(params: {
     userEmail: string;

@@ -93,21 +93,13 @@ export class OutputManager {
    * @returns Created or existing output channel
    */
   createOutputChannel(config: OutputChannelConfig): vscode.OutputChannel {
-    // Check if channel already exists
     if (this.outputChannels.has(config.name)) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.outputChannels.get(config.name)!;
     }
-
-    // Create output channel with language ID if provided
     const channel = config.languageId
       ? vscode.window.createOutputChannel(config.name, config.languageId)
       : vscode.window.createOutputChannel(config.name);
-
-    // Store channel reference
     this.outputChannels.set(config.name, channel);
-
-    // Initialize metrics tracking
     this.channelMetrics.set(config.name, {
       messageCount: 0,
       lastWrite: 0,
@@ -121,8 +113,6 @@ export class OutputManager {
         error: 0,
       },
     });
-
-    // Add to extension subscriptions for proper cleanup
     this.context.subscriptions.push(channel);
 
     return channel;
@@ -154,17 +144,10 @@ export class OutputManager {
         : '';
       const prefix = options.prefix ? `[${options.prefix}] ` : '';
       const formattedMessage = `${timestamp}${prefix}${message}`;
-
-      // Write message to channel
       channel.appendLine(formattedMessage);
-
-      // Update metrics
       this.updateChannelMetrics(channelName, level, false);
     } catch (error) {
-      // Update error metrics
       this.updateChannelMetrics(channelName, options.level || 'info', true);
-
-      // Re-throw to maintain error handling
       throw error;
     }
   }
@@ -334,7 +317,6 @@ export class OutputManager {
       this.outputChannels.clear();
       this.channelMetrics.clear();
     } catch {
-      // Silently handle disposal errors
     }
   }
 

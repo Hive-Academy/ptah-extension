@@ -200,9 +200,7 @@ export class WizardViewComponent {
    */
   protected canNavigateToStep(targetIndex: number): boolean {
     const currentIdx = this.stepIndex();
-    // Can always go back
     if (targetIndex <= currentIdx) return true;
-    // Can jump forward if prerequisites are met
     const steps = this.stepOrder();
     const targetStep = steps[targetIndex];
     if (targetStep) {
@@ -251,7 +249,6 @@ export class WizardViewComponent {
   ];
 
   public constructor() {
-    // Check license on component initialization
     this.checkLicense();
   }
 
@@ -267,21 +264,18 @@ export class WizardViewComponent {
       const result = await this.rpcService.call('license:getStatus', {});
 
       if (result.success && result.data) {
-        // Check if user has premium license
         if (result.data.isPremium) {
           this.licenseState.set('valid');
         } else {
           this.licenseState.set('invalid');
         }
       } else {
-        // RPC call failed - show error with retry option
         this.licenseError.set(
           result.error || 'Failed to verify license. Please try again.',
         );
         this.licenseState.set('invalid');
       }
     } catch (error) {
-      // Network or unexpected error - show error with retry option
       const message =
         error instanceof Error
           ? error.message

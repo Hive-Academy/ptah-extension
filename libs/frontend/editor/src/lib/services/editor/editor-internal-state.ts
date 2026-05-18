@@ -28,8 +28,6 @@ export interface EditorWorkspaceState {
  */
 export interface EditorInternalState {
   readonly vscodeService: VSCodeService;
-
-  // Signal bag — all signals live on the coordinator. Helpers mutate via setters.
   readonly fileTree: WritableSignal<FileTreeNode[]>;
   readonly activeFilePath: WritableSignal<string | undefined>;
   readonly activeFileContent: WritableSignal<string>;
@@ -40,15 +38,9 @@ export interface EditorInternalState {
   readonly splitFilePath: WritableSignal<string | undefined>;
   readonly splitFileContent: WritableSignal<string>;
   readonly focusedPane: WritableSignal<'left' | 'right'>;
-
-  // Per-workspace cache (owned by coordinator, mutated by helpers).
   readonly workspaceEditorState: Map<string, EditorWorkspaceState>;
-
-  // Active workspace path accessors (coordinator-owned).
   getActiveWorkspacePath(): string | null;
   setActiveWorkspacePath(path: string | null): void;
-
-  // Error plumbing — helpers call these without owning the error signal itself.
   showError(message: string): void;
   clearError(): void;
 }

@@ -23,10 +23,6 @@ import type {
   AgentPermissionDecision,
 } from '@ptah-extension/shared';
 
-// ========================================
-// Permission Policy
-// ========================================
-
 /**
  * Fine-grained permission policy for Copilot SDK tool/permission approval.
  */
@@ -250,8 +246,6 @@ export class CopilotPermissionBridge {
           resolve(decision);
         },
       });
-
-      // Emit event for RPC forwarding to webview
       this.events.emit('permission-request', request);
     });
   }

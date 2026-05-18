@@ -78,7 +78,6 @@ export class BrowserSettingsComponent implements OnInit {
         this.savedBrowserAllowLocalhost.set(allowLocalhost);
       }
     } catch {
-      // Use default if load fails
     }
   }
 

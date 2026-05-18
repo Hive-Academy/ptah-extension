@@ -6,12 +6,6 @@
  *
  * @packageDocumentation
  */
-
-// Interfaces
 export * from './interfaces';
-
-// Rules
 export * from './rules';
-
-// Services
 export * from './services';

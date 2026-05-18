@@ -196,9 +196,6 @@ export const PaddleClientProvider: Provider = {
     const nodeEnv = configService.get<string>('NODE_ENV');
     const environment =
       nodeEnv === 'production' ? Environment.production : Environment.sandbox;
-
-    // Package is marked as external in webpack.config.js
-    // Node.js loads it directly, so imports work as expected
     const client = new Paddle(apiKey, { environment });
     logger.log(
       `Paddle SDK initialized in ${

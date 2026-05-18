@@ -9,10 +9,6 @@ import type { WebviewConfiguration } from '../webview-ui.types';
 import type { MessagePayloadMap } from './payload-map';
 import type { StrictChatSession } from './session';
 
-// ============================================================================
-// View Payloads
-// ============================================================================
-
 export interface ViewChangedPayload {
   readonly view: string;
   readonly timestamp?: number;
@@ -27,13 +23,8 @@ export interface ViewGenericPayload {
   readonly data: unknown;
 }
 
-// ============================================================================
-// Command Payloads
-// ============================================================================
-
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 export interface CommandsGetTemplatesPayload {
-  // No payload needed for get templates request
 }
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
@@ -49,10 +40,6 @@ export interface CommandsSelectFilePayload {
 export interface CommandsSaveTemplatePayload {
   readonly template: CommandTemplate;
 }
-
-// ============================================================================
-// Analytics / Config / State Payloads
-// ============================================================================
 
 export interface AnalyticsGetDataPayload {
   readonly timestamp?: number;
@@ -76,25 +63,17 @@ export interface StateSavePayload {
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 export interface StateLoadPayload {
-  // No payload needed for load state request
 }
 
 export interface StateClearPayload {
-  // No payload needed for clear state request
 }
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
-// ============================================================================
-// Provider Management Payloads
-// ============================================================================
-
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 export interface ProvidersGetAvailablePayload {
-  // No payload needed for get available providers request
 }
 
 export interface ProvidersGetCurrentPayload {
-  // No payload needed for get current provider request
 }
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
@@ -109,7 +88,6 @@ export interface ProvidersGetHealthPayload {
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 export interface ProvidersGetAllHealthPayload {
-  // No payload needed for get all providers health request
 }
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
@@ -183,10 +161,6 @@ export interface ProvidersAvailableUpdatedPayload {
       | 'disabled';
   }[];
 }
-
-// ============================================================================
-// Error / Theme / Initial Data Payloads
-// ============================================================================
 
 /**
  * Generic error payload for error messages
@@ -283,7 +257,6 @@ export interface InitialDataPayload {
   readonly data: {
     readonly sessions: readonly StrictChatSession[];
     readonly currentSession: StrictChatSession | null;
-    // Provider state (added for type safety)
     readonly providers: {
       readonly current: InitialDataProviderInfo | null;
       readonly available: readonly InitialDataProviderInfo[];
@@ -300,24 +273,17 @@ export interface InitialDataPayload {
   readonly timestamp: number;
 }
 
-// ============================================================================
-// System Message / Routable Message / Webview Union
-// ============================================================================
-
 /**
  * System Message Payloads - For webview lifecycle messages
  */
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 export interface SystemReadyPayload {
-  // No payload needed - just lifecycle notification
 }
 
 export interface SystemWebviewReadyPayload {
-  // No payload needed - just lifecycle notification
 }
 
 export interface SystemRequestInitialDataPayload {
-  // No payload needed - just lifecycle notification
 }
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 

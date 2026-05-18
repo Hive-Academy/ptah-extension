@@ -35,7 +35,6 @@ export function discoverPluginSkills(pluginPaths: string[]): PluginSkillInfo[] {
 
   for (const pluginPath of pluginPaths) {
     try {
-      // Derive plugin ID from directory name
       const pluginId = pluginPath.split(/[\\/]/).pop() || 'unknown';
       const skillsDir = join(pluginPath, 'skills');
 
@@ -43,7 +42,6 @@ export function discoverPluginSkills(pluginPaths: string[]): PluginSkillInfo[] {
       try {
         entries = readdirSync(skillsDir);
       } catch {
-        // No skills directory — skip this plugin
         continue;
       }
 
@@ -67,11 +65,9 @@ export function discoverPluginSkills(pluginPaths: string[]): PluginSkillInfo[] {
             });
           }
         } catch {
-          // SKILL.md not readable — skip this skill
         }
       }
     } catch {
-      // Plugin path not accessible — skip
     }
   }
 

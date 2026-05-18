@@ -1,6 +1,3 @@
-// SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
-// Enforced by ESLint (no-template-curly-in-migration) + Semgrep
-// (sql-injection-in-migration). Adding interpolation = SQL injection by design.
 export const sql = `
 -- Rebuild memory_chunks_fts with porter unicode61 tokenizer for stemming.
 -- Drop + recreate; repopulate from memory_chunks in the same transaction.

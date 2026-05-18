@@ -223,8 +223,6 @@ export class ExecutionNodeComponent {
    * Bubbles up from tool-call-item through component tree
    */
   readonly permissionResponded = output<PermissionResponse>();
-
-  // Lucide icons
   readonly InfoIcon = Info;
 
   /**
@@ -251,8 +249,6 @@ export class ExecutionNodeComponent {
   protected isAgentSummaryContent = computed(() => {
     const content = this.node().content;
     if (!content || this.node().type !== 'text') return false;
-
-    // Check for XML-like tags that indicate agent summary format
     return (
       content.includes('<function_calls>') ||
       content.includes('<thinking>') ||

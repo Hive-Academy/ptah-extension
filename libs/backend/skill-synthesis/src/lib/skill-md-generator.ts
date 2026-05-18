@@ -84,14 +84,10 @@ export class SkillMdGenerator {
     input: SkillMdInput,
     candidatesDir?: string,
   ): MaterializedSkill {
-    // Re-write the SKILL.md fresh at the active root so that we don't depend
-    // on a candidate file that may have been edited or removed manually.
     void candidatesDir;
     const root = this.activeRoot();
     return this.writeAtRoot(input, root);
   }
-
-  // ──────────────────────────────────────────────────────────────────
 
   private writeAtRoot(input: SkillMdInput, root: string): MaterializedSkill {
     fs.mkdirSync(root, { recursive: true });
@@ -137,9 +133,6 @@ export class SkillMdGenerator {
       `name: ${input.slug}`,
       `description: ${safeDescription}`,
     ];
-
-    // Emit when_to_use only when non-empty, always as a double-quoted YAML
-    // scalar so colons, quotes, and other special characters can't break parsing.
     if (rawWhenToUse.length > 0) {
       const escaped = rawWhenToUse.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       lines.push(`when_to_use: "${escaped}"`);

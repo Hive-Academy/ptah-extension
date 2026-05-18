@@ -36,25 +36,17 @@ import {
   SdkModelService,
   MemoryPromptInjector,
   SdkInternalQueryCuratorLlm,
-  // History reader child services
   HistoryEventFactory,
   JsonlReaderService,
   AgentCorrelationService,
   SessionReplayService,
-  // Compaction configuration and hooks
   CompactionConfigProvider,
   CompactionHookHandler,
-  // Compaction callback registry
   CompactionCallbackRegistry,
-  // Session end callback registry
   SessionEndCallbackRegistry,
-  // Live usage tracker
   LiveUsageTracker,
-  // Worktree hook handler
   WorktreeHookHandler,
-  // Slash command interceptor
   SlashCommandInterceptor,
-  // Warm-query manager + session fork service (Win 6c)
   SdkWarmQueryManager,
   SessionForkService,
   SdkRuntimeStateService,
@@ -88,23 +80,16 @@ export function registerSdkServices(
   logger: Logger,
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
-
-  // Session metadata store - uses @inject decorators for IStateStorage and Logger
-  // Resolved via decorator injection (PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE).
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Session importer - scans existing Claude sessions
   container.register(
     SDK_TOKENS.SDK_SESSION_IMPORTER,
     { useClass: SessionImporterService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // History event factory - creates FlatStreamEventUnion events
   container.register(
     SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY,
     { useClass: HistoryEventFactory },
@@ -260,8 +245,6 @@ export function registerSdkServices(
     { useClass: SdkTranscriptReaderAdapter },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Curator LLM adapter — SdkInternalQueryCuratorLlm implements ICuratorLLM.
   container.register(
     SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER,
     { useClass: SdkInternalQueryCuratorLlm },

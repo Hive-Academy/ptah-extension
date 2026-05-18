@@ -116,10 +116,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// packs list — RPC `wizard:list-agent-packs`
-// ---------------------------------------------------------------------------
-
 async function runPacksList(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -138,10 +134,6 @@ async function runPacksList(
   });
 }
 
-// ---------------------------------------------------------------------------
-// packs install — RPC `wizard:install-pack-agents`
-// ---------------------------------------------------------------------------
-
 async function runPacksInstall(
   opts: AgentOptions,
   globals: GlobalOptions,
@@ -156,7 +148,6 @@ async function runPacksInstall(
   const packId = opts.packId;
 
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // Resolve the curated pack to get its `source` URL + `agents` list.
     const list = await callRpc<{ packs: AgentPackInfoDto[] }>(
       ctx.transport,
       'wizard:list-agent-packs',
@@ -195,18 +186,12 @@ async function runPacksInstall(
       packId,
       source: pack.source,
       agentsDownloaded: result?.agentsDownloaded ?? 0,
-      // `fromCache: true` from the backend means "no work was done — files
-      // were already there", which is our `changed: false` semantic.
       changed: result ? !result.fromCache : true,
       error: result?.error,
     });
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// list — pure fs.readdir, NO DI.
-// ---------------------------------------------------------------------------
 
 async function runList(
   globals: GlobalOptions,
@@ -238,10 +223,6 @@ async function runList(
   });
   return ExitCode.Success;
 }
-
-// ---------------------------------------------------------------------------
-// apply <name> — write .ptah/agents/<name>.md with content-diff.
-// ---------------------------------------------------------------------------
 
 async function runApply(
   opts: AgentOptions,
@@ -310,14 +291,7 @@ async function runApply(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
-
 function defaultResolvePluginsPath(): string {
-  // `withEngine` ensures the global container is bootstrapped, so resolving
-  // the ContentDownloadService here is safe in production. Tests bypass this
-  // path by passing `hooks.resolvePluginsPath`.
   const contentDownload = container.resolve<ContentDownloadService>(
     PLATFORM_TOKENS.CONTENT_DOWNLOAD,
   );

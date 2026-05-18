@@ -120,10 +120,6 @@ export class SkillPromotionService {
         closestMatchSimilarity: dedupResult.similarity,
       };
     }
-
-    // Check cross-context generalization — if candidate has been seen in enough
-    // distinct contexts, use a halved promotion threshold (it's already proven
-    // useful across different workspaces).
     const distinctContexts = this.store.countDistinctContexts(candidate.id);
     const effectiveSuccessThreshold =
       distinctContexts >= settings.generalizationContextThreshold
@@ -132,8 +128,6 @@ export class SkillPromotionService {
     if (candidate.successCount < effectiveSuccessThreshold) {
       return { promoted: false, reason: 'below-threshold', candidate };
     }
-
-    // Signal 4: Cluster-centroid dedup (after pairwise dedup check).
     if (this.clusterDedup && candidate.embeddingRowid !== null) {
       const probe = this.store.getEmbedding(candidate.embeddingRowid);
       if (probe && this.clusterDedup.isDuplicate(probe, settings)) {
@@ -143,8 +137,6 @@ export class SkillPromotionService {
         return { promoted: false, reason: 'duplicate', candidate: updated };
       }
     }
-
-    // Signal 5: LLM-as-judge gate (runs before materialization).
     if (this.judge) {
       const body = this.readCandidateBody(candidate);
       const judgeDecision = await this.judge.judge(candidate, body, settings);
@@ -154,7 +146,6 @@ export class SkillPromotionService {
           score: judgeDecision.score,
           minScore: settings.minJudgeScore,
         });
-        // Persist the rejection so the status is durable (mirrors cluster-duplicate path).
         const rejected = this.store.updateStatus(candidate.id, 'rejected', {
           reason: 'below-judge-score',
         });
@@ -167,14 +158,11 @@ export class SkillPromotionService {
     }
 
     let evictedSkillId: CandidateId | undefined;
-    // Decay-based eviction: only count unpinned promoted skills against the cap.
-    // Pinned skills are exempt from both eviction and the cap count.
     const activeUnpinned = this.store.listActiveOrderedByDecayScore(
       nowFn(),
       settings.evictionDecayRate,
     );
     if (activeUnpinned.length >= settings.maxActiveSkills) {
-      // Ascending decay score — first element has lowest score (least valuable).
       const weakest = activeUnpinned[0];
       this.store.updateStatus(weakest.id, 'rejected', {
         reason: 'decay-cap-eviction',
@@ -187,15 +175,10 @@ export class SkillPromotionService {
         cap: settings.maxActiveSkills,
       });
     }
-
-    // Optionally polish the candidate body with a one-shot LLM query before
-    // materializing — silently skipped when InternalQueryService is absent.
     let body = this.readCandidateBody(candidate);
     if (this.internalQuery) {
       body = await this.polishBody(body, candidate.name, candidate.description);
     }
-
-    // Re-materialize SKILL.md at the active root and capture the new body_path.
     let bodyPath = candidate.bodyPath;
     try {
       const md = this.mdGenerator.promoteToActive(
@@ -221,8 +204,6 @@ export class SkillPromotionService {
       promotedAt: nowFn(),
       bodyPath,
     });
-
-    // Invalidate cluster cache so next promotion sees fresh clusters.
     this.clusterDedup?.invalidate();
 
     return {
@@ -234,8 +215,6 @@ export class SkillPromotionService {
       filePath: bodyPath,
     };
   }
-
-  // ──────────────────────────────────────────────────────────────────
 
   private checkDuplicate(
     candidate: SkillCandidateRow,
@@ -356,7 +335,6 @@ Skill description: ${description}`;
     try {
       if (fs.existsSync(candidate.bodyPath)) {
         const raw = fs.readFileSync(candidate.bodyPath, 'utf8');
-        // Strip frontmatter — we re-emit it from candidate.name/description.
         const stripped = raw.replace(/^---[\s\S]*?---\s*/, '');
         return stripped.trim();
       }

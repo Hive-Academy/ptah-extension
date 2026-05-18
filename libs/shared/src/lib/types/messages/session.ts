@@ -18,15 +18,10 @@ export interface StrictChatMessage {
   readonly files?: readonly string[];
   readonly isError?: boolean;
   readonly metadata?: Readonly<Record<string, unknown>>;
-  // For assistant messages
   readonly isComplete?: boolean;
-  // For system messages
   readonly level?: 'info' | 'warning' | 'error';
-
-  // Fields for full message lifecycle
   readonly cost?: number; // Message cost in USD
   readonly tokens?: {
-    // Token breakdown
     readonly input: number;
     readonly output: number;
     readonly cacheHit?: number;
@@ -77,8 +72,6 @@ export interface StrictChatSession {
     percentage: number;
     maxTokens?: number;
   }>;
-
-  // Fields for IMPLEMENTATION_PLAN compatibility
   readonly capabilities?: SessionCapabilities; // AI agent capabilities
   readonly model?: string; // Active model (e.g., "claude-sonnet-4")
   readonly totalCost?: number; // Cumulative cost in USD

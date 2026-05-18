@@ -258,7 +258,6 @@ WAITING:
 
 EXAMPLE:
   const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: 'gemini' });
-  // ... continue working ...
   const status = await ptah.agent.status(result.agentId);
   if (status.status === 'completed') {
     const output = await ptah.agent.read(result.agentId);
@@ -281,14 +280,11 @@ function stripJsonComments(jsonString: string): string {
 
   while (i < len) {
     const ch = jsonString[i];
-
-    // Handle string literals — pass through unchanged
     if (ch === '"') {
       result += '"';
       i++;
       while (i < len && jsonString[i] !== '"') {
         if (jsonString[i] === '\\') {
-          // Escaped character — copy both backslash and next char
           result += jsonString[i] + (jsonString[i + 1] || '');
           i += 2;
         } else {
@@ -302,18 +298,13 @@ function stripJsonComments(jsonString: string): string {
       }
       continue;
     }
-
-    // Handle single-line comments (// ...)
     if (ch === '/' && i + 1 < len && jsonString[i + 1] === '/') {
-      // Skip until end of line
       i += 2;
       while (i < len && jsonString[i] !== '\n') {
         i++;
       }
       continue;
     }
-
-    // Handle multi-line comments (/* ... */)
     if (ch === '/' && i + 1 < len && jsonString[i + 1] === '*') {
       i += 2;
       while (
@@ -327,13 +318,9 @@ function stripJsonComments(jsonString: string): string {
       }
       continue;
     }
-
-    // Regular character
     result += ch;
     i++;
   }
-
-  // Remove trailing commas before } or ]
   result = result.replace(/,(\s*[}\]])/g, '$1');
 
   return result;
@@ -348,12 +335,7 @@ function resolveWorkspacePath(
   filePath: string,
   workspaceProvider: IWorkspaceProvider,
 ): string {
-  // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
-
-  // Reject absolute paths (drive letters, UNC paths, Unix absolute).
-  // path.isAbsolute() is platform-dependent and doesn't recognize Windows
-  // drive letters or UNC paths on POSIX hosts, so check explicitly.
   const isWindowsDriveAbsolute = /^[a-zA-Z]:[/\\]/.test(filePath);
   const isUncPath = /^[/\\]{2}/.test(filePath);
   if (path.isAbsolute(normalizedPath) || isWindowsDriveAbsolute || isUncPath) {
@@ -361,16 +343,12 @@ function resolveWorkspacePath(
       'Absolute paths are not allowed. Use workspace-relative paths only.',
     );
   }
-
-  // Reject path traversal attempts
   const resolved = path.normalize(normalizedPath);
   if (resolved.startsWith('..')) {
     throw new Error(
       'Path traversal is not allowed. Stay within workspace boundaries.',
     );
   }
-
-  // Resolve relative to workspace root
   const workspaceRoot = workspaceProvider.getWorkspaceRoot();
   if (!workspaceRoot) {
     throw new Error('No workspace folder is open.');
@@ -391,7 +369,6 @@ export function buildFilesNamespace(
   return {
     read: async (filePath: string) => {
       const resolvedPath = resolveWorkspacePath(filePath, workspaceProvider);
-      // Check if file exists before reading
       const exists = await fileSystemProvider.exists(resolvedPath);
       if (!exists) {
         throw new Error(`File not found: ${resolvedPath}`);
@@ -400,31 +377,24 @@ export function buildFilesNamespace(
     },
     readJson: async (filePath: string) => {
       const resolvedPath = resolveWorkspacePath(filePath, workspaceProvider);
-      // Check if file exists before reading
       const exists = await fileSystemProvider.exists(resolvedPath);
       if (!exists) {
         throw new Error(`File not found: ${resolvedPath}`);
       }
       const text = await fileSystemProvider.readFile(resolvedPath);
-
-      // Try standard JSON.parse first (most files like package.json are valid JSON)
       try {
         return JSON.parse(text);
       } catch {
-        // Fallback: strip comments for files like tsconfig.json, .eslintrc.json
         const cleaned = stripJsonComments(text);
         return JSON.parse(cleaned);
       }
     },
     list: async (directory: string) => {
       const resolvedPath = resolveWorkspacePath(directory, workspaceProvider);
-      // Stat the path so we can distinguish "missing" from "wrong type".
       let stat;
       try {
         stat = await fileSystemProvider.stat(resolvedPath);
       } catch (error) {
-        // ENOTDIR can surface from stat() on some platforms when an
-        // intermediate path component is a file. Treat it as wrong-type.
         const code = (error as NodeJS.ErrnoException | undefined)?.code;
         if (code === 'ENOTDIR') {
           throw new Error(`Not a directory: ${resolvedPath}`);
@@ -452,8 +422,6 @@ export function buildHelpMethod() {
     if (!topic) {
       return HELP_DOCS['overview'];
     }
-
-    // Support old ai.ide.* prefix for backward compatibility
     const normalizedTopic = topic.replace(/^ai\.ide\./, 'ide.');
 
     const doc = HELP_DOCS[normalizedTopic];

@@ -146,7 +146,6 @@ export class SessionMetadataStore {
     try {
       this.events.emit('metadataChanged', { kind, sessionId, workspaceId });
     } catch (err) {
-      // Listener errors must not poison the write path.
       this.logger.warn(
         '[SessionMetadataStore] metadataChanged listener threw',
         err instanceof Error ? err : new Error(String(err)),
@@ -177,10 +176,6 @@ export class SessionMetadataStore {
     const index = all.findIndex((m) => m.sessionId === metadata.sessionId);
 
     if (index >= 0) {
-      // Preserve isChildSession and cliSessions from existing metadata.
-      // Once a session is marked as a child (by createChild()), it must stay
-      // hidden from the sidebar even if create() is later called without the
-      // flag (e.g., when the main SdkAgentAdapter resumes a ptah-cli session).
       const existing = all[index];
       all[index] = {
         ...metadata,
@@ -219,9 +214,6 @@ export class SessionMetadataStore {
     includeChildren = false,
   ): Promise<SessionMetadata[]> {
     const all = await this.getAll();
-    // Normalize path separators for cross-platform comparison.
-    // Frontend may send forward slashes (normalizeCacheKey) while
-    // stored workspaceId uses OS-native backslashes on Windows.
     const normalizedQuery = workspaceId.replace(/\\/g, '/');
     return all
       .filter(
@@ -272,8 +264,6 @@ export class SessionMetadataStore {
             output: metadata.totalTokens.output + stats.tokens.output,
           },
         });
-
-        // If this is a child session, propagate stats to the parent
         if (metadata.isChildSession) {
           await this.propagateStatsToParent(sessionId, stats);
         }
@@ -335,16 +325,12 @@ export class SessionMetadataStore {
       }
 
       const existing = metadata.cliSessions ?? [];
-      // Upsert by cliSessionId: if a reference with the same cliSessionId already
-      // exists, replace it with the new one (preserves updated status, stdout, and
-      // segments from resumed sessions). Otherwise append.
       const existingIndex = existing.findIndex(
         (s) => s.cliSessionId === cliSession.cliSessionId,
       );
 
       let updated: readonly CliSessionReference[];
       if (existingIndex >= 0) {
-        // Replace existing reference with updated data (resume scenario)
         const mutable = [...existing];
         mutable[existingIndex] = cliSession;
         updated = mutable;
@@ -372,8 +358,6 @@ export class SessionMetadataStore {
    * Serialized through writeQueue to prevent concurrent read-modify-write races.
    */
   async delete(sessionId: string): Promise<void> {
-    // Capture workspaceId BEFORE deletion so the emitted event still carries it.
-    // After _deleteInternal, get() returns null, so we'd lose the workspace context.
     const existing = await this.get(sessionId);
     await this.enqueueWrite(() => this._deleteInternal(sessionId));
     if (existing) {
@@ -414,7 +398,6 @@ export class SessionMetadataStore {
     name: string,
     kind: SessionMetadataChangeKind = 'created',
   ): Promise<SessionMetadata> {
-    // Check if metadata already exists — preserve user-renamed name
     const existing = await this.get(sessionId);
     if (existing) {
       this.logger.info(
@@ -530,7 +513,6 @@ export class SessionMetadataStore {
    */
   private enqueueWrite(fn: () => Promise<void>): Promise<void> {
     const next = this.writeQueue.then(fn, () => fn());
-    // Update queue head — always resolves so next write can proceed even if this one fails
     this.writeQueue = next.catch(() => {
       /* swallow to keep chain alive */
     });

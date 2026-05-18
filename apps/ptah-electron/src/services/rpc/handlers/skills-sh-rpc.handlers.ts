@@ -28,8 +28,6 @@ import type {
   SkillDetectionResult,
 } from '@ptah-extension/shared';
 
-// ─── Curated Popular Skills (fallback when CLI is unavailable) ───
-
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
   {
     source: 'vercel-labs/agent-skills',
@@ -98,8 +96,6 @@ const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
     isInstalled: false,
   },
 ];
-
-// ─── Technology-to-skill keyword mapping ───
 
 const TECH_SKILL_KEYWORDS: Record<string, string[]> = {
   react: [
@@ -215,8 +211,6 @@ export class SkillsShRpcHandlers {
 
         const workspaceRoot = this.getWorkspaceRoot();
         const skills: InstalledSkill[] = [];
-
-        // Try CLI for project scope
         try {
           const projectResult = await this.runSkillsCli(
             ['list', '--json'],
@@ -250,8 +244,6 @@ export class SkillsShRpcHandlers {
             skills.push(...projectSkills);
           }
         }
-
-        // Try CLI for global scope
         try {
           const globalResult = await this.runSkillsCli(
             ['list', '--json', '-g'],
@@ -342,8 +334,6 @@ export class SkillsShRpcHandlers {
         if (params.skillId) {
           args.push('--skill', params.skillId);
         }
-        // Only install for Claude Code — installing for all agents ('*')
-        // pollutes the workspace with 28+ tool-specific directories.
         args.push('--agent', 'claude-code');
         args.push('-y');
         if (params.scope === 'global') {
@@ -550,8 +540,6 @@ export class SkillsShRpcHandlers {
     );
   }
 
-  // ─── Helpers ───
-
   private runSkillsCli(
     args: string[],
     cwd: string,
@@ -611,7 +599,6 @@ export class SkillsShRpcHandlers {
         try {
           child.kill('SIGTERM');
         } catch {
-          // Process may already be dead
         }
         settle({
           stdout,
@@ -634,8 +621,6 @@ export class SkillsShRpcHandlers {
   private parseSkillsOutput(output: string): SkillShEntry[] {
     const skills: SkillShEntry[] = [];
 
-    // Strip ANSI escape codes — the CLI ignores NO_COLOR and always emits them
-
     const stripped = output.replace(
       new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*m', 'g'),
       '',
@@ -643,8 +628,6 @@ export class SkillsShRpcHandlers {
     const lines = stripped.split('\n').filter((line) => line.trim().length > 0);
 
     if (lines.length === 0) return skills;
-
-    // Match the actual CLI format: "owner/repo@skill-id  N installs"
     const skillLineRegex =
       /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)@([a-zA-Z0-9_.:/-]+)\s+([0-9,.]+[kKmM]?)\s+installs?$/;
 
@@ -722,7 +705,6 @@ export class SkillsShRpcHandlers {
         }
       }
     } catch {
-      // Directory doesn't exist
     }
     return skills;
   }
@@ -784,28 +766,24 @@ export class SkillsShRpcHandlers {
         }
       }
     } catch {
-      // No package.json
     }
 
     try {
       await fs.access(path.join(workspaceRoot, 'tsconfig.json'));
       if (!languages.includes('typescript')) languages.push('typescript');
     } catch {
-      // No tsconfig.json
     }
 
     try {
       await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
       languages.push('rust');
     } catch {
-      // No Cargo.toml
     }
 
     try {
       await fs.access(path.join(workspaceRoot, 'go.mod'));
       languages.push('go');
     } catch {
-      // No go.mod
     }
 
     try {
@@ -820,18 +798,15 @@ export class SkillsShRpcHandlers {
           if (!tools.includes('docker')) tools.push('docker');
           break;
         } catch {
-          // File doesn't exist
         }
       }
     } catch {
-      // No Docker files
     }
 
     try {
       await fs.access(path.join(workspaceRoot, 'nx.json'));
       tools.push('nx');
     } catch {
-      // No nx.json
     }
 
     return { frameworks, languages, tools };
@@ -874,7 +849,6 @@ export class SkillsShRpcHandlers {
           installed.has(skill.name.toLowerCase());
       }
     } catch {
-      // Non-critical
     }
     return skills;
   }
@@ -888,7 +862,6 @@ export class SkillsShRpcHandlers {
           if (entry.isDirectory()) names.add(entry.name.toLowerCase());
         }
       } catch {
-        // Directory doesn't exist
       }
     };
 

@@ -91,26 +91,16 @@ import { ClaudeRpcService } from '@ptah-extension/core';
   `,
 })
 export class CommunityUpgradeBannerComponent {
-  // Inputs from parent
   readonly isCommunity = input<boolean>(false);
   readonly reason = input<string | undefined>(undefined);
-
-  // Internal state
   private readonly dismissed = signal(false);
-
-  // Icons
   protected readonly SparklesIcon = Sparkles;
   protected readonly XIcon = X;
   protected readonly ArrowRightIcon = ArrowRight;
-
-  // Session storage key
   private readonly DISMISS_KEY = 'ptah_community_upgrade_banner_dismissed';
-
-  // RPC service for opening pricing
   private readonly rpcService = inject(ClaudeRpcService);
 
   constructor() {
-    // Check if dismissed this session
     if (typeof sessionStorage !== 'undefined') {
       this.dismissed.set(sessionStorage.getItem(this.DISMISS_KEY) === 'true');
     }

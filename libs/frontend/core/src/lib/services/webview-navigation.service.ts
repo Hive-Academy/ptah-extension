@@ -30,8 +30,6 @@ export interface NavigationState {
 @Injectable({ providedIn: 'root' })
 export class WebviewNavigationService {
   private readonly appState = inject(AppStateManager);
-
-  // Private signals for internal state
   private readonly _navigationState = signal<NavigationState>({
     currentView: 'chat',
     previousView: null,
@@ -42,13 +40,9 @@ export class WebviewNavigationService {
 
   private readonly _navigationHistory = signal<ViewType[]>(['chat']);
   private readonly _navigationErrors = signal<string[]>([]);
-
-  // Public readonly signals
   readonly navigationState = this._navigationState.asReadonly();
   readonly navigationHistory = this._navigationHistory.asReadonly();
   readonly navigationErrors = this._navigationErrors.asReadonly();
-
-  // Computed signals for derived state
   readonly currentView = computed(() => this._navigationState().currentView);
   readonly previousView = computed(() => this._navigationState().previousView);
   readonly isNavigating = computed(() => this._navigationState().isNavigating);
@@ -68,14 +62,11 @@ export class WebviewNavigationService {
   }
 
   private initializeService(): void {
-    // Sync initial state with AppStateManager
     const initialView = this.appState.currentView();
     this._navigationState.update((state) => ({
       ...state,
       currentView: initialView,
     }));
-
-    // Clear any stale error state
     this._navigationErrors.set([]);
   }
 
@@ -97,7 +88,6 @@ export class WebviewNavigationService {
     this.setNavigating(true);
 
     try {
-      // Pure signal-based navigation - update component state directly
       this.updateNavigationState(view);
       this.setNavigating(false);
       return true;
@@ -110,8 +100,6 @@ export class WebviewNavigationService {
 
   private updateNavigationState(view: ViewType): void {
     const currentState = this._navigationState();
-
-    // Update navigation state
     this._navigationState.set({
       currentView: view,
       previousView: currentState.currentView,
@@ -119,14 +107,8 @@ export class WebviewNavigationService {
       lastNavigationTime: Date.now(),
       isNavigating: false,
     });
-
-    // Update app state to trigger component switching
     this.appState.setCurrentView(view);
-
-    // Update history
     this._navigationHistory.update((history) => [...history, view]);
-
-    // Keep history manageable (last 50 navigations)
     if (this._navigationHistory().length > 50) {
       this._navigationHistory.update((history) => history.slice(-50));
     }
@@ -146,13 +128,9 @@ export class WebviewNavigationService {
     console.error('WebviewNavigationService:', errorMessage);
 
     this._navigationErrors.update((errors) => [...errors, errorMessage]);
-
-    // Keep error log manageable (last 20 errors)
     if (this._navigationErrors().length > 20) {
       this._navigationErrors.update((errors) => errors.slice(-20));
     }
-
-    // Notify app state of error
     this.appState.handleError(
       `Navigation failed: ${
         error instanceof Error ? error.message : 'Unknown error'

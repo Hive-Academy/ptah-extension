@@ -13,10 +13,6 @@ import type {
 } from './analysis';
 import type { CodeConventions } from './conventions';
 
-// ============================================================================
-// Agent Recommendation Types
-// ============================================================================
-
 /**
  * Agent category for grouping and display.
  */
@@ -69,10 +65,6 @@ export interface AgentRecommendation {
   /** Optional: Icon identifier for UI display. */
   icon?: string;
 }
-
-// ============================================================================
-// Project Analysis Result Types
-// ============================================================================
 
 /**
  * Project analysis result for RPC communication.
@@ -130,11 +122,6 @@ export interface ProjectAnalysisResult {
   testCoverage: TestCoverageEstimate;
   /** Code conventions detected. */
   codeConventions?: CodeConventions;
-
-  // ========================================
-  // Quality Assessment Fields.
-  // All fields optional for backward compatibility
-  // ========================================
 
   /**
    * Overall code quality score (0-100).

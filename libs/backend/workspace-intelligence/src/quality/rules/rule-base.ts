@@ -19,10 +19,6 @@ import type {
 
 import { stripCommentsAndStrings } from './strip-comments-and-strings';
 
-// ============================================
-// Factory Configuration Types
-// ============================================
-
 /**
  * Configuration for creating a regex-based anti-pattern rule.
  * Regex rules detect patterns by matching a regular expression
@@ -98,10 +94,6 @@ export interface HeuristicRuleConfig {
   enabledByDefault?: boolean;
 }
 
-// ============================================
-// Factory Functions
-// ============================================
-
 /**
  * Creates a regex-based anti-pattern detection rule.
  *
@@ -139,16 +131,6 @@ export function createRegexRule(config: RegexRuleConfig): AntiPatternRule {
 
     detect: (content: string, filePath: string): AntiPatternMatch[] => {
       const matches: AntiPatternMatch[] = [];
-      // Strip comment/string contents before matching so rules don't mis-fire
-      // on e.g. `// TODO: fix any` or `"console.log(x)"`.
-      // The stripper preserves line count and per-line column positions, so
-      // offsets computed against the stripped text are valid in the original
-      // source — line/column in reported matches still point to the right
-      // spot. We report `matchedText` from the ORIGINAL source so callers see
-      // meaningful output (the stripped version would be spaces).
-      //
-      // Rules whose subject IS a comment/string (e.g. `@ts-ignore`) opt out
-      // via `matchInCommentsAndStrings: true`.
       const scanTarget = config.matchInCommentsAndStrings
         ? content
         : stripCommentsAndStrings(content);
@@ -156,7 +138,6 @@ export function createRegexRule(config: RegexRuleConfig): AntiPatternRule {
       const originalLines = content.split('\n');
 
       strippedLines.forEach((strippedLine, lineIndex) => {
-        // Reset regex lastIndex for global patterns
         const pattern = new RegExp(config.pattern.source, config.pattern.flags);
         let match: RegExpExecArray | null;
 
@@ -177,8 +158,6 @@ export function createRegexRule(config: RegexRuleConfig): AntiPatternRule {
             },
             matchedText: originalMatch || match[0],
           });
-
-          // Prevent infinite loops for non-global patterns
           if (!config.pattern.global) {
             break;
           }
@@ -246,10 +225,6 @@ export function createHeuristicRule(
     getSuggestion: (): string => config.suggestionTemplate,
   };
 }
-
-// ============================================
-// Utility Functions
-// ============================================
 
 /**
  * Extracts file extension from a file path.

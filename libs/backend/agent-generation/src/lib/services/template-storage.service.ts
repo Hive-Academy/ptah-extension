@@ -68,8 +68,6 @@ export class TemplateStorageService implements ITemplateStorageService {
     private readonly sentryService: SentryService,
     templatesPath?: string,
   ) {
-    // In production, templatesPath is always injected by the DI container
-    // (resolved from extensionPath). The fallback is only for standalone testing.
     this.templatesPath =
       templatesPath ||
       join(require('os').homedir(), '.ptah', 'templates', 'agents');
@@ -104,21 +102,16 @@ export class TemplateStorageService implements ITemplateStorageService {
         templatesPath: this.templatesPath,
         cacheSize: this.templateCache.size,
       });
-
-      // If templates already loaded and cached, return cached versions
       if (this.templatesLoaded && this.templateCache.size > 0) {
         this.logger.debug('Returning cached templates', {
           count: this.templateCache.size,
         });
         return Result.ok(Array.from(this.templateCache.values()));
       }
-
-      // Read template directory
       let files: string[];
       try {
         files = await readdir(this.templatesPath);
       } catch (error) {
-        // Directory doesn't exist or not readable
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           this.logger.warn('Templates directory does not exist', {
             templatesPath: this.templatesPath,
@@ -127,8 +120,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         }
         throw error; // Re-throw other errors
       }
-
-      // Filter to only .template.md files
       const templateFiles = files.filter((file) =>
         file.endsWith(this.TEMPLATE_EXTENSION),
       );
@@ -140,8 +131,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         this.templatesLoaded = true;
         return Result.ok([]);
       }
-
-      // Load each template file
       const templates: AgentTemplate[] = [];
       const errors: Error[] = [];
 
@@ -153,15 +142,12 @@ export class TemplateStorageService implements ITemplateStorageService {
           templates.push(result.value!);
           this.templateCache.set(templateId, result.value!);
         } else {
-          // Log error but continue loading other templates
           this.logger.error(`Failed to load template: ${file}`, result.error!);
           errors.push(result.error!);
         }
       }
 
       this.templatesLoaded = true;
-
-      // If no templates loaded successfully, return error
       if (templates.length === 0 && errors.length > 0) {
         return Result.err(
           new TemplateError(
@@ -214,20 +200,15 @@ export class TemplateStorageService implements ITemplateStorageService {
   ): Promise<Result<AgentTemplate, Error>> {
     try {
       this.logger.debug('Loading template', { templateId });
-
-      // Check cache first
       const cached = this.templateCache.get(templateId);
       if (cached) {
         this.logger.debug('Template found in cache', { templateId });
         return Result.ok(cached);
       }
-
-      // Load from disk
       const fileName = `${templateId}${this.TEMPLATE_EXTENSION}`;
       const result = await this.loadTemplateFromDisk(templateId, fileName);
 
       if (result.isOk()) {
-        // Cache the loaded template
         this.templateCache.set(templateId, result.value!);
         this.logger.info('Template loaded and cached', { templateId });
       }
@@ -275,28 +256,19 @@ export class TemplateStorageService implements ITemplateStorageService {
   ): Promise<Result<AgentTemplate[], Error>> {
     try {
       this.logger.debug('Getting applicable templates', { projectType });
-
-      // Ensure all templates are loaded
       const allTemplatesResult = await this.loadAllTemplates();
       if (allTemplatesResult.isErr()) {
         return allTemplatesResult;
       }
 
       const allTemplates = allTemplatesResult.value!;
-
-      // Filter templates by project type
       const applicableTemplates = allTemplates.filter((template) => {
-        // Always include templates marked as alwaysInclude
         if (template.applicabilityRules.alwaysInclude) {
           return true;
         }
-
-        // Include if projectTypes is empty (applies to all)
         if (template.applicabilityRules.projectTypes.length === 0) {
           return true;
         }
-
-        // Include if project type matches
         return template.applicabilityRules.projectTypes.some(
           (type) => type.toString().toLowerCase() === projectType.toLowerCase(),
         );
@@ -339,8 +311,6 @@ export class TemplateStorageService implements ITemplateStorageService {
   ): Promise<Result<AgentTemplate, Error>> {
     try {
       const filePath = join(this.templatesPath, fileName);
-
-      // Read file content
       let fileContent: string;
       try {
         fileContent = await readFile(filePath, 'utf-8');
@@ -357,8 +327,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         }
         throw error; // Re-throw other errors
       }
-
-      // Parse YAML frontmatter
       let parsed: matter.GrayMatterFile<string>;
       try {
         parsed = matter(fileContent);
@@ -374,17 +342,9 @@ export class TemplateStorageService implements ITemplateStorageService {
           ),
         );
       }
-
-      // Validate and extract frontmatter
       const frontmatter = parsed.data;
       const content = parsed.content;
-
-      // Normalize frontmatter fields:
-      // Templates use a dual-YAML-block format where gray-matter only parses the
-      // first block. The first block uses `templateId` / `templateVersion` while
-      // the validator expects `name` / `version`. Normalize here before validation.
       if (!frontmatter['name'] && frontmatter['templateId']) {
-        // Derive agent name from templateId by stripping version suffix (e.g. "project-manager-v2" → "project-manager")
         frontmatter['name'] = (frontmatter['templateId'] as string).replace(
           /-v\d+$/,
           '',
@@ -393,8 +353,6 @@ export class TemplateStorageService implements ITemplateStorageService {
       if (!frontmatter['version'] && frontmatter['templateVersion']) {
         frontmatter['version'] = frontmatter['templateVersion'];
       }
-
-      // Normalize applicabilityRules — templates may omit optional array fields
       const rules = frontmatter['applicabilityRules'] as
         | Record<string, unknown>
         | undefined;
@@ -406,8 +364,6 @@ export class TemplateStorageService implements ITemplateStorageService {
           rules['monorepoTypes'] = [];
         }
       }
-
-      // Validate required fields
       const validationResult = this.validateTemplate(
         templateId,
         frontmatter,
@@ -416,8 +372,6 @@ export class TemplateStorageService implements ITemplateStorageService {
       if (validationResult.isErr()) {
         return Result.err(validationResult.error!);
       }
-
-      // Build AgentTemplate object
       const template: AgentTemplate = {
         id: frontmatter['id'] || templateId,
         name: frontmatter['name'],
@@ -455,7 +409,6 @@ export class TemplateStorageService implements ITemplateStorageService {
     frontmatter: Record<string, unknown>,
     content: string,
   ): Result<void, Error> {
-    // Required fields in frontmatter
     const requiredFields = ['name', 'version', 'applicabilityRules'];
 
     for (const field of requiredFields) {
@@ -470,8 +423,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         );
       }
     }
-
-    // Validate applicabilityRules structure
     const rules = frontmatter['applicabilityRules'] as Record<string, unknown>;
     if (!rules) {
       return Result.err(
@@ -482,8 +433,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         ),
       );
     }
-
-    // Validate required applicabilityRules fields
     const requiredRuleFields = [
       'projectTypes',
       'frameworks',
@@ -504,8 +453,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         );
       }
     }
-
-    // Validate arrays
     if (!Array.isArray(rules['projectTypes'])) {
       return Result.err(
         new TemplateError(
@@ -535,8 +482,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         ),
       );
     }
-
-    // Validate minimumRelevanceScore
     if (
       typeof rules['minimumRelevanceScore'] !== 'number' ||
       rules['minimumRelevanceScore'] < 0 ||
@@ -550,8 +495,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         ),
       );
     }
-
-    // Validate alwaysInclude
     if (typeof rules['alwaysInclude'] !== 'boolean') {
       return Result.err(
         new TemplateError(
@@ -561,8 +504,6 @@ export class TemplateStorageService implements ITemplateStorageService {
         ),
       );
     }
-
-    // Validate content not empty
     if (!content || content.trim().length === 0) {
       return Result.err(
         new TemplateError(

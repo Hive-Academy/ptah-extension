@@ -14,10 +14,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-// ============================================================
-// Lazy-loaded dependency types (gifenc has no TS declarations)
-// ============================================================
-
 /** jpeg-js decode result */
 interface JpegDecodeResult {
   width: number;
@@ -76,8 +72,6 @@ interface GifencModule {
     format?: string,
   ): Uint8Array;
 }
-
-// Lazy-loaded module singletons
 let jpegModule: JpegModule | undefined;
 let gifencModule: GifencModule | undefined;
 
@@ -90,16 +84,10 @@ async function loadJpeg(): Promise<JpegModule> {
 
 async function loadGifenc(): Promise<GifencModule> {
   if (!gifencModule) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore -- gifenc has no bundled types; d.ts exists locally but not visible to all consuming tsconfigs
     gifencModule = (await import('gifenc')) as unknown as GifencModule;
   }
   return gifencModule;
 }
-
-// ============================================================
-// Recording state
-// ============================================================
 
 interface RecordingFrame {
   /** Base64-encoded JPEG data (no data URI prefix) */
@@ -116,10 +104,6 @@ interface RecordingState {
   truncated: boolean;
 }
 
-// ============================================================
-// Public result types (mirrors BrowserRecordStopResult shape)
-// ============================================================
-
 export interface RecordingStartResult {
   success: boolean;
   error?: string;
@@ -133,10 +117,6 @@ export interface RecordingStopResult {
   truncated: boolean;
   error?: string;
 }
-
-// ============================================================
-// ScreenRecorderService
-// ============================================================
 
 const DEFAULT_MAX_FRAMES = 500;
 const DEFAULT_FRAME_DELAY = 200;
@@ -171,15 +151,11 @@ export class ScreenRecorderService {
           'Recording already in progress. Stop the current recording first.',
       };
     }
-
-    // Validate and clamp maxFrames: must be positive, finite, max 10000
     let maxFrames = options?.maxFrames ?? DEFAULT_MAX_FRAMES;
     if (!Number.isFinite(maxFrames) || maxFrames <= 0) {
       maxFrames = DEFAULT_MAX_FRAMES;
     }
     maxFrames = Math.min(Math.floor(maxFrames), 10000);
-
-    // Validate and clamp frameDelay: must be positive, finite, range [10, 60000]
     let frameDelay = options?.frameDelay ?? DEFAULT_FRAME_DELAY;
     if (!Number.isFinite(frameDelay) || frameDelay <= 0) {
       frameDelay = DEFAULT_FRAME_DELAY;
@@ -213,8 +189,6 @@ export class ScreenRecorderService {
       data: base64JpegData,
       timestamp: Date.now(),
     });
-
-    // Ring buffer: discard oldest frame if we exceed the limit
     if (this.state.frames.length > this.state.maxFrames) {
       this.state.frames.shift();
       this.state.truncated = true;
@@ -240,8 +214,6 @@ export class ScreenRecorderService {
         error: 'No recording in progress.',
       };
     }
-
-    // Capture state and clear it immediately so isRecording() returns false
     const recordingState = this.state;
     this.state = null;
 
@@ -260,15 +232,9 @@ export class ScreenRecorderService {
     }
 
     try {
-      // Load dependencies lazily
       const jpeg = await loadJpeg();
       const gifenc = await loadGifenc();
-
-      // Create the GIF encoder
       const gif = gifenc.GIFEncoder();
-
-      // Process each frame: decode JPEG -> quantize -> apply palette -> write frame
-      // Per-frame try/catch: skip corrupt frames rather than losing the entire recording
       let skippedFrames = 0;
       for (const frame of recordingState.frames) {
         try {
@@ -281,27 +247,17 @@ export class ScreenRecorderService {
 
           const rgba = decoded.data;
           const { width, height } = decoded;
-
-          // Quantize RGBA to a 256-color palette for this frame
           const palette = gifenc.quantize(rgba, GIF_QUANTIZE_MAX_COLORS);
-
-          // Map each pixel to the nearest palette index
           const indexedPixels = gifenc.applyPalette(rgba, palette);
-
-          // Write frame with per-frame palette and configured delay
           gif.writeFrame(indexedPixels, width, height, {
             palette,
             delay: recordingState.frameDelay,
           });
         } catch {
-          // Skip corrupt frame — one bad JPEG should not kill the entire recording
           skippedFrames++;
         }
-        // Release base64 data after processing to reduce memory pressure
         frame.data = '';
       }
-
-      // If all frames were corrupt, fail gracefully
       const validFrameCount = frameCount - skippedFrames;
       if (validFrameCount === 0) {
         return {
@@ -313,23 +269,13 @@ export class ScreenRecorderService {
           error: `All ${frameCount} frames were corrupt and could not be decoded.`,
         };
       }
-
-      // Finalize the GIF stream
       gif.finish();
       const gifBytes = gif.bytes();
-
-      // Determine output directory
       const resolvedDir = this.resolveOutputDir(outputDir);
-
-      // Generate filename with ISO timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `ptah-recording-${timestamp}.gif`;
       const filePath = path.join(resolvedDir, filename);
-
-      // Write the GIF file (async to avoid blocking the event loop)
       await fs.promises.writeFile(filePath, gifBytes);
-
-      // Set restrictive file permissions on non-Windows platforms
       if (process.platform !== 'win32') {
         await fs.promises.chmod(filePath, 0o600);
       }
@@ -367,16 +313,12 @@ export class ScreenRecorderService {
     if (!outputDir || outputDir.trim() === '') {
       return tmpDir;
     }
-
-    // Normalize to absolute path
     const resolved = path.resolve(outputDir);
 
     try {
       if (!fs.existsSync(resolved)) {
         fs.mkdirSync(resolved, { recursive: true });
       }
-
-      // Verify the directory is actually a directory
       const stat = fs.statSync(resolved);
       if (!stat.isDirectory()) {
         return tmpDir;
@@ -384,7 +326,6 @@ export class ScreenRecorderService {
 
       return resolved;
     } catch {
-      // Fall back to temp directory if we cannot create or access the target
       return tmpDir;
     }
   }

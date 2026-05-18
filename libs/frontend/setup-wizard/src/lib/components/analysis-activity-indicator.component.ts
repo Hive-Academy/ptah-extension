@@ -115,7 +115,6 @@ export class AnalysisActivityIndicatorComponent implements OnInit, OnDestroy {
               currentMessage.slice(0, this.currentCharIndex)
             );
           } else {
-            // Finished typing — pause then delete
             if (this.typingInterval !== null) {
               clearInterval(this.typingInterval);
             }
@@ -131,7 +130,6 @@ export class AnalysisActivityIndicatorComponent implements OnInit, OnDestroy {
               currentMessage.slice(0, this.currentCharIndex)
             );
           } else {
-            // Finished deleting — next message
             this.isDeleting = false;
             this.currentIndex = (this.currentIndex + 1) % this.messages.length;
           }

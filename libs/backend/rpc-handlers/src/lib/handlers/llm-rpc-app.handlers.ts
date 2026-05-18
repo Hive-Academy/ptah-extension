@@ -101,8 +101,6 @@ function buildStatusProviderList(): Array<{
     isLocal: boolean;
     defaultBaseUrl: string | null;
   }> = [
-    // Virtual "Anthropic Direct" entry — not in the registry but surfaced
-    // so users see the route they hit when auth = direct API key.
     {
       id: ANTHROPIC_DIRECT_PROVIDER_ID,
       displayName:
@@ -114,10 +112,6 @@ function buildStatusProviderList(): Array<{
       defaultBaseUrl: null,
     },
   ];
-
-  // Widen the per-entry type to the registry's interface so optional fields
-  // (`authType`, `requiresProxy`, `isLocal`) on entries that omit them
-  // narrow to `undefined` instead of being absent at the type level.
   const registry: readonly AnthropicProvider[] = ANTHROPIC_PROVIDERS;
   for (const p of registry) {
     entries.push({
@@ -245,9 +239,6 @@ export class LlmRpcHandlers {
           const configManager = this.getConfigManager();
           const defaultProvider =
             configManager.get<string>('llm.defaultProvider') ?? 'anthropic';
-
-          // authMethod drives the virtual `anthropic` entry's authType:
-          // 'claudeCli' / 'claude-cli' → 'cli' (no key needed), else 'apiKey'.
           const rawAuthMethod = configManager.get<string>('authMethod');
           const isClaudeCli =
             rawAuthMethod === 'claudeCli' || rawAuthMethod === 'claude-cli';
@@ -266,14 +257,10 @@ export class LlmRpcHandlers {
 
               const baseUrlOverridden = override !== null;
               const baseUrl = override ?? entry.defaultBaseUrl;
-
-              // Resolve auth type — virtual anthropic entry honors authMethod.
               let authType: LlmProviderAuthMode = entry.authTypeDefault;
               if (entry.id === ANTHROPIC_DIRECT_PROVIDER_ID && isClaudeCli) {
                 authType = 'cli';
               }
-
-              // hasApiKey is only meaningful when authType === 'apiKey'.
               let hasApiKey = false;
               if (authType === 'apiKey') {
                 const stored = await secretStorage.get(
@@ -330,7 +317,6 @@ export class LlmRpcHandlers {
         }
 
         try {
-          // SECURITY: Never log the actual API key
           this.logger.debug('RPC: llm:setApiKey called', {
             provider: params.provider,
           });
@@ -338,8 +324,6 @@ export class LlmRpcHandlers {
           const secretStorage = this.getSecretStorage();
           const storageKey = `${API_KEY_PREFIX}.${params.provider}`;
           await secretStorage.store(storageKey, params.apiKey);
-
-          // Set in environment for SDK adapters
           const providerInfo = PROVIDER_INFO[params.provider];
           if (providerInfo) {
             process.env[providerInfo.envVar] = params.apiKey;
@@ -383,8 +367,6 @@ export class LlmRpcHandlers {
 
         const secretStorage = this.getSecretStorage();
         await secretStorage.delete(`${API_KEY_PREFIX}.${params.provider}`);
-
-        // Clear from environment
         const providerInfo = PROVIDER_INFO[params.provider];
         if (providerInfo) {
           delete process.env[providerInfo.envVar];
@@ -536,7 +518,6 @@ export class LlmRpcHandlers {
         }
 
         try {
-          // SECURITY: Never log the actual API key
           this.logger.debug('RPC: llm:validateApiKeyFormat called', {
             provider: params.provider,
           });
@@ -556,8 +537,6 @@ export class LlmRpcHandlers {
                   error: `API key should start with '${providerInfo.keyPrefix}' and be at least ${providerInfo.minLength} characters`,
                 };
           }
-
-          // Generic fallback for unknown providers
           return { valid: key.length > 10 };
         } catch (error) {
           this.logger.error(
@@ -643,8 +622,6 @@ export class LlmRpcHandlers {
             error: 'baseUrl must not be empty',
           };
         }
-
-        // Light URL sanity check — accept http/https schemes only.
         try {
           const parsed = new URL(trimmed);
           if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -663,7 +640,6 @@ export class LlmRpcHandlers {
         try {
           this.logger.debug('RPC: llm:setProviderBaseUrl called', {
             provider: params.provider,
-            // SECURITY: log host but not query/path which may contain tokens
             host: new URL(trimmed).host,
           });
           const configManager = this.getConfigManager();
@@ -722,7 +698,6 @@ export class LlmRpcHandlers {
           try {
             defaultBaseUrl = getRegistryProviderBaseUrl(params.provider);
           } catch {
-            // Provider not in registry — leave default null.
             defaultBaseUrl = null;
           }
           return { baseUrl: trimmed, defaultBaseUrl };
@@ -761,8 +736,6 @@ export class LlmRpcHandlers {
             provider: params.provider,
           });
           const configManager = this.getConfigManager();
-          // Set to empty string so PtahFileSettingsManager removes the key
-          // (its set() falls back to the default when given an empty value).
           await configManager.set(`provider.${params.provider}.baseUrl`, '');
           return { success: true };
         } catch (error) {
@@ -803,8 +776,6 @@ export class LlmRpcHandlers {
           });
 
           const modelDiscovery = this.getModelDiscovery();
-
-          // Route to appropriate discovery method based on provider
           const models =
             params.provider === 'copilot'
               ? await modelDiscovery.getCopilotModels()

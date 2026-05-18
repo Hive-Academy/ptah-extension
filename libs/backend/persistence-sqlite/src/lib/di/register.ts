@@ -41,9 +41,6 @@ export function registerPersistenceSqliteServices(
     PERSISTENCE_TOKENS.BACKUP_SERVICE,
     SqliteBackupService,
   );
-  // Wire the backup service into the connection service after both singletons
-  // are registered. tsyringe 4.x does not provide @optional(), so we post-wire
-  // via setBackupService() to avoid a constructor circular dependency.
   const connection = container.resolve<SqliteConnectionService>(
     PERSISTENCE_TOKENS.SQLITE_CONNECTION,
   );

@@ -76,7 +76,6 @@ export function registerPlatformElectronServices(
   container: DependencyContainer,
   options: ElectronPlatformOptions,
 ): void {
-  // Compute workspace-scoped storage path from the first workspace folder
   const workspaceStoragePath = options.initialFolders?.[0]
     ? path.join(
         options.userDataPath,
@@ -84,8 +83,6 @@ export function registerPlatformElectronServices(
         encodeWorkspacePath(options.initialFolders[0]),
       )
     : path.join(options.userDataPath, 'workspace-storage', 'default');
-
-  // Platform Info
   const platformInfo: IPlatformInfo = {
     type: PlatformType.Electron,
     extensionPath: options.appPath,
@@ -95,40 +92,27 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.PLATFORM_INFO, {
     useValue: platformInfo,
   });
-
-  // File System
   container.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: new ElectronFileSystemProvider(),
   });
-
-  // State Storage (global)
   container.register(PLATFORM_TOKENS.STATE_STORAGE, {
     useValue: new ElectronStateStorage(
       options.userDataPath,
       'global-state.json',
     ),
   });
-
-  // State Storage (workspace-scoped)
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
     useValue: new ElectronStateStorage(
       workspaceStoragePath,
       'workspace-state.json',
     ),
   });
-
-  // Secret Storage (uses safeStorage for encryption)
   container.register(PLATFORM_TOKENS.SECRET_STORAGE, {
     useValue: new ElectronSecretStorage(
       options.userDataPath,
       options.safeStorage,
     ),
   });
-
-  // Workspace Provider — same instance dual-registered under both
-  // WORKSPACE_PROVIDER (read-only) and WORKSPACE_LIFECYCLE_PROVIDER (mutations)
-  // so the lifted WorkspaceRpcHandlers can request lifecycle methods via a
-  // typed second injection rather than casting to a concrete class.
   const electronWorkspaceProvider = new ElectronWorkspaceProvider(
     options.userDataPath,
     options.initialFolders,
@@ -139,8 +123,6 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER, {
     useValue: electronWorkspaceProvider,
   });
-
-  // User Interaction
   container.register(PLATFORM_TOKENS.USER_INTERACTION, {
     useValue: new ElectronUserInteraction(
       options.dialog,
@@ -149,33 +131,21 @@ export function registerPlatformElectronServices(
       options.shell,
     ),
   });
-
-  // Output Channel
   container.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
     useValue: new ElectronOutputChannel('Ptah Electron', options.logsPath),
   });
-
-  // Command Registry
   container.register(PLATFORM_TOKENS.COMMAND_REGISTRY, {
     useValue: new ElectronCommandRegistry(),
   });
-
-  // Editor Provider
   container.register(PLATFORM_TOKENS.EDITOR_PROVIDER, {
     useValue: new ElectronEditorProvider(),
   });
-
-  // Token Counter (uses gpt-tokenizer BPE tokenization)
   container.register(PLATFORM_TOKENS.TOKEN_COUNTER, {
     useValue: new ElectronTokenCounter(),
   });
-
-  // Diagnostics Provider (returns empty — no live language server in Electron)
   container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
     useValue: new ElectronDiagnosticsProvider(),
   });
-
-  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
   });

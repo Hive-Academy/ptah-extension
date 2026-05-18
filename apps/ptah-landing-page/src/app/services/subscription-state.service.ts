@@ -25,14 +25,10 @@ import { AuthService } from './auth.service';
 export class SubscriptionStateService {
   private readonly http = inject(HttpClient);
   private readonly authService = inject(AuthService);
-
-  // Private writable signals
   private readonly _licenseData = signal<LicenseData | null>(null);
   private readonly _isLoading = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _isFetched = signal(false);
-
-  // Public readonly signals
   public readonly licenseData = this._licenseData.asReadonly();
   public readonly isLoading = this._isLoading.asReadonly();
   public readonly error = this._error.asReadonly();
@@ -49,23 +45,12 @@ export class SubscriptionStateService {
    * @returns 'community' | 'pro' | null
    */
   public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
-    // Return null when data hasn't been fetched yet - loading/unknown state
     if (!this._isFetched()) return null;
 
     const data = this._licenseData();
-
-    // No license data after fetch = Community (free tier)
-    // This means user is either unauthenticated or has no subscription
     if (!data?.plan) return 'community';
-
-    // Pro tier (including trial) - exact matching to prevent false positives
-    // Matches: 'pro', 'trial_pro'
     if (data.plan === 'pro' || data.plan === 'trial_pro') return 'pro';
-
-    // Community tier - exact matching
     if (data.plan === 'community') return 'community';
-
-    // Default to community for unknown plans
     return 'community';
   });
 
@@ -83,8 +68,6 @@ export class SubscriptionStateService {
     const data = this._licenseData();
     const hasTrial = data?.plan?.startsWith('trial_') ?? false;
     const isActiveSubscription = data?.subscription?.status === 'active';
-
-    // If subscription is active (paying), they're not on trial
     return hasTrial && !isActiveSubscription;
   });
 
@@ -189,25 +172,19 @@ export class SubscriptionStateService {
    * @returns Observable<LicenseData | null> - License data or null if not authenticated
    */
   public fetchSubscriptionState(): Observable<LicenseData | null> {
-    // Skip if already fetched or currently loading
     if (this._isFetched() || this._isLoading()) {
       return of(this._licenseData());
     }
 
     this._isLoading.set(true);
     this._error.set(null);
-
-    // Use switchMap to chain observables properly for cleanup
     return this.authService.isAuthenticated().pipe(
       switchMap((isAuth) => {
         if (!isAuth) {
-          // Not authenticated - skip API call, mark as fetched
           this._isLoading.set(false);
           this._isFetched.set(true);
           return of(null);
         }
-
-        // Fetch license data from backend
         return this.http.get<LicenseData>('/api/v1/licenses/me').pipe(
           tap((data) => {
             this._licenseData.set(data);
@@ -228,7 +205,6 @@ export class SubscriptionStateService {
         );
       }),
       catchError((err) => {
-        // Auth check failed - mark as fetched without data
         console.error(
           '[SubscriptionState] Auth check failed:',
           err.message || err

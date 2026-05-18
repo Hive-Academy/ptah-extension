@@ -37,7 +37,6 @@ export class McpInstallManifestTracker {
     const existing = this.manifest.servers[serverKey];
 
     if (existing) {
-      // Merge targets (avoid duplicates)
       const merged = new Set([...existing.targets, ...targets]);
       this.manifest.servers[serverKey] = {
         ...existing,

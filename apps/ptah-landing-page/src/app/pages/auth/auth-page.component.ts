@@ -8,8 +8,6 @@ import {
   viewChild,
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-
-// Child Components
 import { AuthFormComponent } from './components/auth-form.component';
 import { AuthHeaderComponent } from './components/auth-header.component';
 import { AuthFooterComponent } from './components/auth-footer.component';
@@ -17,8 +15,6 @@ import { AuthMessagesComponent } from './components/auth-messages.component';
 import { AuthHeroComponent } from './components/auth-hero.component';
 import { SocialLoginButtonsComponent } from './components/social-login-buttons.component';
 import { VerificationCodeComponent } from './components/verification-code.component';
-
-// Services & Types
 import { AuthApiService } from './services/auth-api.service';
 import { AuthService } from '../../services/auth.service';
 import {
@@ -246,10 +242,6 @@ export class AuthPageComponent implements OnInit {
   /** Reference to the form component for resetting */
   private readonly authForm = viewChild(AuthFormComponent);
 
-  // ============================================
-  // STATE SIGNALS
-  // ============================================
-
   /** Current authentication mode */
   public readonly mode = signal<AuthMode>('signin');
 
@@ -280,10 +272,6 @@ export class AuthPageComponent implements OnInit {
   /** Whether to show VS Code post-signup success screen */
   public readonly showVscodeSuccess = signal(false);
 
-  // ============================================
-  // EMAIL VERIFICATION STATE
-  // ============================================
-
   /** Whether waiting for email verification */
   public readonly pendingVerification = signal(false);
 
@@ -295,10 +283,6 @@ export class AuthPageComponent implements OnInit {
 
   /** Resending verification code state */
   public readonly isResending = signal(false);
-
-  // ============================================
-  // COMPUTED SIGNALS
-  // ============================================
 
   /** URL error from query params */
   public readonly urlError = computed(() => {
@@ -312,19 +296,11 @@ export class AuthPageComponent implements OnInit {
     isValidEmail(this.currentEmail())
   );
 
-  // ============================================
-  // LIFECYCLE
-  // ============================================
-
   public ngOnInit(): void {
-    // Set mode based on current route
     const path = this.route.snapshot.routeConfig?.path;
     if (path === 'signup') {
       this.mode.set('signup');
     }
-
-    // Capture return URL and plan from query params
-    // These are set when redirecting from pricing page for unauthenticated checkout
     const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
     const plan = this.route.snapshot.queryParamMap.get('plan');
 
@@ -334,17 +310,11 @@ export class AuthPageComponent implements OnInit {
     if (plan) {
       this.selectedPlan.set(plan);
     }
-
-    // Capture source (e.g., 'vscode') for post-signup welcome screen
     const source = this.route.snapshot.queryParamMap.get('source');
     if (source) {
       this.source.set(source);
     }
   }
-
-  // ============================================
-  // MODE SWITCHING
-  // ============================================
 
   /**
    * Handle email changes from form (for magic link validation)
@@ -358,32 +328,20 @@ export class AuthPageComponent implements OnInit {
    */
   public setMode(newMode: AuthMode): void {
     if (this.mode() === newMode) return;
-
-    // Trigger transition state for CSS animations
     this.isTransitioning.set(true);
 
     setTimeout(() => {
       this.mode.set(newMode);
       this.successMessage.set('');
       this.errorMessage.set('');
-
-      // Reset form password
       this.authForm()?.resetPassword();
-
-      // Update URL without navigation
       const newPath = newMode === 'signup' ? '/signup' : '/login';
       this.router.navigate([newPath], { replaceUrl: true });
-
-      // End transition
       setTimeout(() => {
         this.isTransitioning.set(false);
       }, 100);
     }, 150);
   }
-
-  // ============================================
-  // FORM SUBMISSION
-  // ============================================
 
   /**
    * Handle form submission (email/password)
@@ -417,10 +375,7 @@ export class AuthPageComponent implements OnInit {
       },
       error: (error: AuthErrorResponse) => {
         this.isLoading.set(false);
-
-        // Check if email verification is required
         if (error.code === 'email_verification_required' && error.userId) {
-          // Show verification UI
           this.pendingVerification.set(true);
           this.pendingUserId.set(error.userId);
           this.pendingEmail.set(error.email || email);
@@ -444,10 +399,7 @@ export class AuthPageComponent implements OnInit {
    * Otherwise, defaults to profile page
    */
   private navigateAfterAuth(): void {
-    // Set auth hint so future auth checks don't make unnecessary API calls
     this.authService.setAuthHint();
-
-    // VS Code extension users: show inline success screen with license key instructions
     if (this.source() === 'vscode') {
       this.showVscodeSuccess.set(true);
       return;
@@ -457,11 +409,9 @@ export class AuthPageComponent implements OnInit {
     const plan = this.selectedPlan();
 
     if (returnUrl) {
-      // Build query params for return URL (e.g., /pricing?autoCheckout=pro-monthly)
       const queryParams = plan ? { autoCheckout: plan } : {};
       this.router.navigate([returnUrl], { queryParams });
     } else {
-      // Default: go to profile
       this.router.navigate(['/profile']);
     }
   }
@@ -475,7 +425,6 @@ export class AuthPageComponent implements OnInit {
       next: (response) => {
         this.isLoading.set(false);
         if (response.success && response.pendingVerification) {
-          // Show verification code input
           this.pendingVerification.set(true);
           this.pendingUserId.set(response.userId);
           this.pendingEmail.set(response.email);
@@ -491,10 +440,6 @@ export class AuthPageComponent implements OnInit {
       },
     });
   }
-
-  // ============================================
-  // EMAIL VERIFICATION METHODS
-  // ============================================
 
   /**
    * Handle verification code submission
@@ -513,11 +458,9 @@ export class AuthPageComponent implements OnInit {
         next: (response) => {
           this.isLoading.set(false);
           if (response.success) {
-            // Clear pending state
             this.pendingVerification.set(false);
             this.pendingUserId.set('');
             this.pendingEmail.set('');
-            // Navigate to return URL or profile
             this.navigateAfterAuth();
           }
         },
@@ -566,10 +509,6 @@ export class AuthPageComponent implements OnInit {
     this.successMessage.set('');
   }
 
-  // ============================================
-  // OAUTH METHODS
-  // ============================================
-
   /**
    * Login with GitHub OAuth
    * Passes returnUrl and plan to the OAuth flow for post-auth redirect
@@ -590,10 +529,6 @@ export class AuthPageComponent implements OnInit {
     this.authApi.loginWithGoogle(returnUrl, plan);
   }
 
-  // ============================================
-  // MAGIC LINK
-  // ============================================
-
   /**
    * Send magic link for passwordless login
    * Passes returnUrl and plan to preserve checkout intent after auth
@@ -608,8 +543,6 @@ export class AuthPageComponent implements OnInit {
     this.successMessage.set('');
     this.errorMessage.set('');
     this.isLoading.set(true);
-
-    // Include returnUrl and plan so checkout intent is preserved after magic link auth
     const returnUrl = this.returnUrl();
     const plan = this.selectedPlan();
 

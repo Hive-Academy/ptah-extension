@@ -64,8 +64,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
       for (const pluginPath of pluginPaths) {
         try {
           const skillsSourceDir = join(pluginPath, 'skills');
-
-          // Check if skills/ directory exists in plugin (use lstat for symlink safety)
           let skillsDirStat;
           try {
             skillsDirStat = await lstat(skillsSourceDir);
@@ -76,8 +74,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
           if (!skillsDirStat.isDirectory() || skillsDirStat.isSymbolicLink()) {
             continue;
           }
-
-          // Copy each skill directory FLAT into ~/.cursor/skills/ptah-{skillName}/
           const skillDirs = await readdir(skillsSourceDir);
           for (const skillDirName of skillDirs) {
             try {
@@ -132,8 +128,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
           );
         }
       }
-
-      // Cleanup is scoped to THIS call's prefix bucket only.
       try {
         const existingEntries = await readdir(basePath);
         for (const entry of existingEntries) {
@@ -143,10 +137,7 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
           }
         }
       } catch {
-        // Non-fatal: best-effort cleanup of stale skills
       }
-
-      // Sync command files from plugins
       if (syncCommandsEnabled) {
         await this.syncCommands(pluginPaths, errors);
       }
@@ -180,8 +171,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
     } catch {
       return;
     }
-
-    // Clean up old ptah- prefixed command files
     try {
       const existing = await readdir(commandsDir);
       for (const entry of existing) {
@@ -190,7 +179,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
         }
       }
     } catch {
-      // Non-fatal
     }
 
     for (const pluginPath of pluginPaths) {
@@ -209,7 +197,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
             join(commandsSourceDir, entry),
             'utf8',
           );
-          // Prefix with ptah- for cleanup identification
           const targetName = `ptah-${entry}`;
           await writeFile(join(commandsDir, targetName), content, 'utf8');
         } catch (err) {
@@ -225,7 +212,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
 
   async uninstall(): Promise<void> {
     try {
-      // Remove ptah- skill folders
       const basePath = this.getSkillsBasePath();
       try {
         const entries = await readdir(basePath);
@@ -235,10 +221,7 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
           }
         }
       } catch {
-        // Skills directory doesn't exist — continue to commands cleanup
       }
-
-      // Remove ptah- command files
       const commandsPath = this.getCommandsBasePath();
       try {
         const commandEntries = await readdir(commandsPath);
@@ -248,10 +231,8 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
           }
         }
       } catch {
-        // Commands directory doesn't exist — nothing to clean
       }
     } catch {
-      // Non-fatal: best-effort cleanup
     }
   }
 }

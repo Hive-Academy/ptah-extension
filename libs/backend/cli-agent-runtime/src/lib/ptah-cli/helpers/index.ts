@@ -5,8 +5,6 @@
  * and single responsibility.
  *
  */
-
-// Pure utility functions and constants
 export {
   PTAH_CLI_KEY_PREFIX,
   PTAH_CLI_AGENTS_CONFIG_KEY,
@@ -14,17 +12,11 @@ export {
   summarizeToolInput,
   sanitizeErrorMessage,
 } from './ptah-cli-registry.utils';
-
-// Config persistence (injectable singleton)
 export { PtahCliConfigPersistence } from './ptah-cli-config-persistence.service';
-
-// Spawn options assembly (injectable singleton)
 export {
   PtahCliSpawnOptions,
   type PtahSpawnAssembly,
 } from './ptah-cli-spawn-options.service';
-
-// Stream processing loop (per-call plain class)
 export {
   PtahCliStreamLoop,
   type PtahCliStreamLoopConfig,

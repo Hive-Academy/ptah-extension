@@ -71,8 +71,6 @@ function walkNode(
       }
     }
   }
-
-  // Defensive: node.children may be undefined for malformed/partial session data
   for (const child of node.children ?? []) {
     walkNode(child, state);
   }

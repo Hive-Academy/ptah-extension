@@ -4,10 +4,6 @@
 
 import type { ExecutionNode, MessageRole, MessageTokenUsage } from './node';
 
-// ============================================================================
-// EXECUTION CHAT MESSAGE WRAPPER
-// ============================================================================
-
 /**
  * AgentInfo - Metadata for agent-specific chat bubbles
  *
@@ -120,8 +116,6 @@ export interface ExecutionChatMessage {
    * When present, this message is an agent execution extracted as a separate bubble.
    */
   readonly agentInfo?: AgentInfo;
-
-  // ---- Usage Metrics ----
 
   /** Token usage for this message (aligned with Claude SDK) */
   readonly tokens?: MessageTokenUsage;

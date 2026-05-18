@@ -12,8 +12,6 @@
  * - SessionReplayService: Event replay orchestration
  *
  */
-
-// Types
 export type {
   JsonlMessageLine,
   SessionHistoryMessage,
@@ -23,8 +21,6 @@ export type {
   AgentDataMapEntry,
   TaskToolUse,
 } from './history.types';
-
-// Services
 export { HistoryEventFactory } from './history-event-factory';
 export type { MessageUsageData } from './history-event-factory';
 export { JsonlReaderService } from './jsonl-reader.service';

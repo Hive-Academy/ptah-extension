@@ -181,10 +181,6 @@ async function runSwitch(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function wrapResult(result: unknown): Record<string, unknown> {
   if (result === null || result === undefined) return {};
   if (typeof result === 'object' && !Array.isArray(result)) {

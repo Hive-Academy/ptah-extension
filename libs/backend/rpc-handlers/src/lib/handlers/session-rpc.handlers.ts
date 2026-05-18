@@ -167,8 +167,6 @@ export class SessionRpcHandlers {
   private sanitizeForkTitle(title: unknown): string | undefined {
     if (title === undefined || title === null) return undefined;
     if (typeof title !== 'string') return undefined;
-    // Strip characters that Windows disallows in filenames — the SDK persists
-    // the title as part of session metadata which can flow into file paths.
     const stripped = title.replace(/[\\/:*?"<>|]/g, '').trim();
     if (stripped.length === 0) return undefined;
     return stripped.length > 200 ? stripped.substring(0, 200) : stripped;
@@ -188,8 +186,6 @@ export class SessionRpcHandlers {
         `session-not-found: session ${sessionId} not in metadata store`,
       );
     }
-    // Some legacy sessions may have a missing workspaceId. In that case we
-    // can't verify ownership, so reject conservatively rather than allow.
     const workspacePath = metadata.workspaceId;
     if (!workspacePath || !this.isAuthorizedWorkspace(workspacePath)) {
       throw new Error(
@@ -250,22 +246,11 @@ export class SessionRpcHandlers {
             );
             throw new Error('workspace-not-authorized');
           }
-
-          // Get session metadata for workspace
           const allSessions =
             await this.metadataStore.getForWorkspace(workspacePath);
-
-          // Already sorted by lastActiveAt in metadataStore
           const total = allSessions.length;
           const paginated = allSessions.slice(offset, offset + limit);
           const hasMore = offset + limit < total;
-
-          // Transform to RPC response format (ChatSessionSummary).
-          // Per identity-audit §4 Priority 3, promote `s.sessionId` via
-          // `SessionId.from(...)` so corrupt store rows fail-fast instead of
-          // silently leaking a non-UUID string downstream. We swallow the
-          // failure per-row so a single bad row cannot crash the whole
-          // `session:list` response.
           const sessions = paginated.flatMap((s) => {
             let id: SessionId;
             try {
@@ -287,7 +272,6 @@ export class SessionRpcHandlers {
                 createdAt: s.createdAt,
                 messageCount: 0, // SDK handles messages - count not stored in metadata
                 isActive: false, // Listed sessions are not currently active
-                // Pass through token usage from metadata if available
                 ...(s.totalTokens &&
                 (s.totalTokens.input > 0 || s.totalTokens.output > 0)
                   ? {
@@ -340,8 +324,6 @@ export class SessionRpcHandlers {
           this.logger.debug('RPC: session:load called (metadata validation)', {
             sessionId,
           });
-
-          // Validate session exists in metadata store
           const metadata = await this.metadataStore.get(sessionId);
 
           if (!metadata) {
@@ -354,10 +336,6 @@ export class SessionRpcHandlers {
               sessionId,
             },
           );
-
-          // Promote via `SessionId.from(...)` so a corrupt metadata row fails
-          // here at the RPC boundary rather than leaking a non-UUID into the
-          // frontend's branded surfaces (identity-audit §4 Priority 3).
           let validatedSessionId: SessionId;
           try {
             validatedSessionId = SessionId.from(metadata.sessionId);
@@ -372,8 +350,6 @@ export class SessionRpcHandlers {
               `Session metadata corrupted (non-UUID sessionId): ${sessionId}`,
             );
           }
-
-          // Return empty arrays - actual messages loaded via chat:resume
           return {
             sessionId: validatedSessionId,
             messages: [], // Empty by design - see SessionLoadResult docs
@@ -411,15 +387,9 @@ export class SessionRpcHandlers {
         const { sessionId } = params;
 
         this.logger.info('RPC: session:delete called', { sessionId });
-
-        // Get workspace path from metadata BEFORE deleting it
         const metadata = await this.metadataStore.get(sessionId);
         const workspacePath = metadata?.workspaceId;
-
-        // Delete metadata first
         await this.metadataStore.delete(sessionId);
-
-        // Delete JSONL session file from disk
         if (workspacePath) {
           await this.deleteSessionFiles(sessionId, workspacePath);
         } else {
@@ -471,8 +441,6 @@ export class SessionRpcHandlers {
             sessionId,
             name: trimmedName,
           });
-
-          // Verify session exists before renaming
           const metadata = await this.metadataStore.get(sessionId);
           if (!metadata) {
             return { success: false, error: 'Session not found' };
@@ -528,8 +496,6 @@ export class SessionRpcHandlers {
     }
 
     const sessionsDir = path.dirname(sessionFilePath);
-
-    // Delete the main session file
     try {
       await fs.unlink(sessionFilePath);
       this.logger.info('RPC: session:delete - deleted JSONL file', {
@@ -543,11 +509,7 @@ export class SessionRpcHandlers {
         error: err instanceof Error ? err.message : String(err),
       });
     }
-
-    // Delete agent sub-session files
     let deletedSubagents = 0;
-
-    // 1. Current nested layout: {sessionsDir}/{sessionId}/subagents/
     const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
     try {
       const subagentFiles = await fs.readdir(subagentsDir);
@@ -557,28 +519,19 @@ export class SessionRpcHandlers {
             await fs.unlink(path.join(subagentsDir, file));
             deletedSubagents++;
           } catch {
-            // Skip individual file failures
           }
         }
       }
-      // Remove the subagents directory itself (if empty)
       try {
         await fs.rmdir(subagentsDir);
       } catch {
-        // Not empty or doesn't exist — fine
       }
-      // Remove the parent session directory (if empty)
       try {
         await fs.rmdir(path.join(sessionsDir, sessionId));
       } catch {
-        // Not empty or doesn't exist — fine
       }
     } catch {
-      // Nested subagents directory doesn't exist — try legacy layout
     }
-
-    // 2. Legacy flat layout: {sessionsDir}/agent-*.jsonl
-    // Only scan if no nested subagents were found
     if (deletedSubagents === 0) {
       try {
         const allFiles = await fs.readdir(sessionsDir);
@@ -588,7 +541,6 @@ export class SessionRpcHandlers {
         for (const file of agentFiles) {
           const filePath = path.join(sessionsDir, file);
           try {
-            // Read first line to check if this agent belongs to our session
             const content = await fs.readFile(filePath, 'utf-8');
             const firstLine = content.split('\n')[0];
             if (firstLine) {
@@ -596,7 +548,6 @@ export class SessionRpcHandlers {
               try {
                 parsed = JSON.parse(firstLine);
               } catch {
-                // Malformed JSON — skip file, do not crash.
                 this.logger.debug(
                   'session:delete — skipping unreadable JSONL (malformed JSON)',
                   { filePath },
@@ -605,7 +556,6 @@ export class SessionRpcHandlers {
               }
               const result = AgentJsonlFirstLineSchema.safeParse(parsed);
               if (!result.success) {
-                // Valid JSON but unexpected shape — skip for diagnosis.
                 this.logger.debug(
                   'session:delete — skipping JSONL with unexpected first-line shape',
                   { filePath, issues: result.error.issues },
@@ -618,11 +568,9 @@ export class SessionRpcHandlers {
               }
             }
           } catch {
-            // Skip unreadable files (e.g. permission errors)
           }
         }
       } catch {
-        // Directory not readable
       }
     }
 
@@ -713,12 +661,6 @@ export class SessionRpcHandlers {
         const { sessionId } = params;
         const metadata = await this.metadataStore.get(sessionId);
         const raw = metadata?.cliSessions ?? [];
-
-        // Filter out ghost entries synthesized by the old (now-removed)
-        // recoverMissingCliSessions() method. That code incorrectly labeled
-        // SDK internal subagents (agent_start history events) as ptah-cli
-        // CLI sessions. Real ptah-cli CLI sessions persisted by
-        // persistCliSessionReference() always have a ptahCliId set.
         const cliSessions = raw.filter(
           (ref) => ref.cli !== 'ptah-cli' || ref.ptahCliId,
         );
@@ -756,9 +698,6 @@ export class SessionRpcHandlers {
         sessionCount: sessionIds.length,
         workspacePath,
       });
-
-      // Process with limited concurrency (5 at a time) to avoid
-      // overwhelming file system while staying well within RPC timeout
       const CONCURRENCY_LIMIT = 5;
       const sessionStats: SessionStatsEntry[] = [];
 
@@ -771,8 +710,6 @@ export class SessionRpcHandlers {
                 sessionId,
                 workspacePath,
               );
-
-              // Get CLI agent types from metadata (gemini, codex, copilot, ptah-cli)
               const metadata = await this.metadataStore.get(sessionId);
               const cliAgents = metadata?.cliSessions
                 ? [...new Set(metadata.cliSessions.map((ref) => ref.cli))]
@@ -886,19 +823,12 @@ export class SessionRpcHandlers {
       'session:forkSession',
       async (params: SessionForkParams) => {
         try {
-          // Validate inputs at the boundary BEFORE any side effects. These
-          // throw with stable error code prefixes the frontend branches on.
           const sessionId = this.validateSessionId(params.sessionId);
-          // upToMessageId is optional — only validate when present.
           const upToMessageId =
             params.upToMessageId !== undefined
               ? this.validateUserMessageId(params.upToMessageId)
               : undefined;
           const title = this.sanitizeForkTitle(params.title);
-
-          // Authorize: confirm the session exists in our metadata store and
-          // belongs to a currently-open workspace. Rejects cross-workspace
-          // probes that bypass the frontend tab UI.
           await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:forkSession called', {
@@ -912,20 +842,10 @@ export class SessionRpcHandlers {
             upToMessageId,
             title,
           );
-
-          // SDK's ForkSessionResult exposes the new id as `sessionId`. Surface
-          // it to the webview as `newSessionId` so callers don't confuse it
-          // with the source session id they just passed in.
           return { newSessionId: result.sessionId as SessionId };
         } catch (error) {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
-
-          // Distinguish user-recoverable ID-resolution failures (expected,
-          // no Sentry) from true infrastructure bugs (reported to Sentry).
-          // SdkError messages from resolveNativeMessageId contain the phrase
-          // "not found in session history" when the upToMessageId could not
-          // be matched in the JSONL transcript.
           if (
             error instanceof SdkError &&
             errorObj.message.includes(MESSAGE_ID_NOT_FOUND_PHRASE)
@@ -966,17 +886,11 @@ export class SessionRpcHandlers {
       'session:rewindFiles',
       async (params: SessionRewindParams) => {
         try {
-          // Validate inputs at the boundary. Stable error code prefixes
-          // (`invalid-session-id`, `invalid-user-message-id`) flow up to the
-          // frontend so it can show actionable messages.
           const sessionId = this.validateSessionId(params.sessionId);
           const userMessageId = this.validateUserMessageId(
             params.userMessageId,
           );
           const dryRun = params.dryRun;
-
-          // Authorize cross-workspace access (rejects when session belongs to
-          // a workspace not currently open in the editor).
           await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:rewindFiles called', {
@@ -990,14 +904,6 @@ export class SessionRpcHandlers {
             userMessageId,
             dryRun,
           );
-
-          // Path containment guard: when the SDK reports filesChanged in a
-          // non-dry-run, verify each path resolves under one of the active
-          // workspace roots. The SDK has already written by the time we see
-          // the result — moving the validation to a server-side dryRun first
-          // would be a much larger refactor (the frontend already does the
-          // dry-run preview pattern). Best we can do at this boundary:
-          // log + Sentry + reject the response so the user is alerted.
           if (
             dryRun === false &&
             Array.isArray(result.filesChanged) &&
@@ -1032,13 +938,9 @@ export class SessionRpcHandlers {
                 errorSource:
                   'SessionRpcHandlers.registerRewindFiles.pathContainment',
               });
-              // Surface to the frontend so the user knows something is off.
               throw err;
             }
           }
-
-          // SDK's RewindFilesResult is structurally identical to the shared
-          // SessionRewindResult (see rpc-session.types.ts) — return as-is.
           return {
             canRewind: result.canRewind,
             error: result.error,
@@ -1053,9 +955,6 @@ export class SessionRpcHandlers {
           this.sentryService.captureException(errorObj, {
             errorSource: 'SessionRpcHandlers.registerRewindFiles',
           });
-          // Prefer the stable error type over regex-matching the message.
-          // The regex fallback is preserved below for safety in case a
-          // non-typed error bubbles up through legacy paths.
           if (error instanceof SessionNotActiveError) {
             throw new Error(`session-not-active: ${errorObj.message}`);
           }

@@ -76,8 +76,6 @@ export async function execute(
   const formatter = hooks.formatter ?? buildFormatter(globals);
   const readFile = hooks.readFile ?? ((p: string) => fs.readFile(p, 'utf8'));
   const delegate = hooks.executeSessionStart ?? executeSessionStart;
-
-  // ---- 1. Validate --id was supplied ---------------------------------------
   const specId = opts.id?.trim();
   if (!specId) {
     await formatter.writeNotification('task.error', {
@@ -87,8 +85,6 @@ export async function execute(
     });
     return ExitCode.GeneralError;
   }
-
-  // ---- 2. Resolve + read required files ------------------------------------
   const cwd = globals.cwd;
   const specDir = path.join(cwd, '.ptah', 'specs', specId);
   const taskDescPath = path.join(specDir, 'task-description.md');
@@ -119,18 +115,11 @@ export async function execute(
     });
     return ExitCode.GeneralError;
   }
-
-  // ---- 3. Build the Team Leader prompt -------------------------------------
   const prompt = buildTeamLeaderPrompt(
     specId,
     taskDescription,
     implementationPlan,
   );
-
-  // ---- 4. Delegate to `session start` (single-turn) ------------------------
-  // The B10c `executeSessionStart` signature treats `task` as the free-form
-  // prompt forwarded to `chat:start`, so we pass the built Team Leader prompt
-  // as `task`. `once: true` — execute-spec is a one-shot.
   return delegate(
     {
       task: prompt,

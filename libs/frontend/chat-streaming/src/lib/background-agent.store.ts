@@ -68,8 +68,6 @@ export class BackgroundAgentStore implements OnDestroy {
   /** Shared tick signal incremented every 1s while agents are running. */
   readonly tick = signal(0);
   private _tickInterval: ReturnType<typeof setInterval> | null = null;
-
-  // Public computed signals
   readonly agents = computed(() => {
     const map = this._agents();
     return Array.from(map.values()).sort((a, b) => b.startedAt - a.startedAt);

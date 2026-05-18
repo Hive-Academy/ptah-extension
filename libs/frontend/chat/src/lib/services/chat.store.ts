@@ -63,22 +63,14 @@ export class ChatStore {
   private readonly messageDispatch = inject(MessageDispatchService);
   private readonly statsAggregator = inject(SessionStatsAggregatorService);
   private readonly lifecycle = inject(ChatLifecycleService);
-  // Fan-out cancel after the user answers a question. Mirrors the
-  // permission-decision broadcast wiring.
   private readonly streamRouter = inject(StreamRouter);
 
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
 
   constructor() {
-    // ChatLifecycleService runs the bootstrap chain and flips _servicesReady
-    // via this callback so the signal stays owned by the facade.
     this.lifecycle.bootstrap(() => this._servicesReady.set(true));
   }
-
-  // ============================================================================
-  // SIGNAL PASSTHROUGHS
-  // ============================================================================
 
   readonly sessions = this.sessionLoader.sessions;
   readonly hasMoreSessions = this.sessionLoader.hasMoreSessions;
@@ -88,11 +80,9 @@ export class ChatStore {
   readonly queueRestoreContent = this.conversation.queueRestoreSignal;
   readonly permissionRequests = this.permissionHandler.permissionRequests;
   readonly unmatchedPermissions = this.permissionHandler.unmatchedPermissions;
-  // Question requests for AskUserQuestion tool
   readonly questionRequests = this.permissionHandler.questionRequests;
   readonly resumableSubagents = this.sessionLoader.resumableSubagents;
   readonly licenseStatus = this.lifecycle.licenseStatus;
-  // Compaction state — per-tab via TabManagerService
   readonly isCompacting = this.tabManager.activeTabIsCompacting;
 
   readonly activeTab = computed(() => this.tabManager.activeTab());
@@ -160,10 +150,6 @@ export class ChatStore {
     return sessionId !== null && status === 'loaded';
   });
 
-  // ============================================================================
-  // PUBLIC METHODS
-  // ============================================================================
-
   getPermissionForTool(
     toolCallId: string | undefined,
   ): PermissionRequest | null {
@@ -220,8 +206,6 @@ export class ChatStore {
   async continueConversation(content: string, files?: string[]): Promise<void> {
     return this.conversation.continueConversation(content, files);
   }
-
-  // Subagent resume signals/methods delegate to SessionLoader
   clearResumableSubagents(): void {
     this.sessionLoader.clearResumableSubagents();
   }
@@ -340,14 +324,10 @@ export class ChatStore {
       });
       return;
     }
-
-    // Compaction start flows through CHAT_CHUNK
     if (result && result.compactionSessionId) {
       this.handleCompactionStart(result.compactionSessionId);
       return;
     }
-
-    // Re-steering via queued content on message_complete
     if (result && result.queuedContent) {
       const queuedContent = result.queuedContent;
       const resultTabId = result.tabId;
@@ -359,10 +339,6 @@ export class ChatStore {
   private finalizeCurrentMessage(tabId?: string): void {
     this.streamingHandler.finalizeCurrentMessage(tabId);
   }
-
-  // ============================================================================
-  // PERMISSION REQUEST HANDLING (PermissionHandlerService delegation)
-  // ============================================================================
 
   handlePermissionRequest(request: PermissionRequest): void {
     this.permissionHandler.handlePermissionRequest(request);
@@ -394,9 +370,6 @@ export class ChatStore {
 
   /** User answer to AskUserQuestion. */
   handleQuestionResponse(response: AskUserQuestionResponse): void {
-    // Capture the deciding tab BEFORE dispatching so we can fan a
-    // "question resolved" cancel to every OTHER bound tab. Mirrors the
-    // permission-decision broadcast wiring.
     const decidingTabIdRaw = this.tabManager.activeTabId() ?? null;
     const decidingTabId = decidingTabIdRaw
       ? (TabId.safeParse(decidingTabIdRaw) ?? null)
@@ -440,13 +413,6 @@ export class ChatStore {
       });
     }
   }
-
-  // ============================================================================
-  // SESSION STATS / ID / ERROR HANDLING
-  // ============================================================================
-  // NOTE: handleChatComplete was removed â€” chat:complete is no longer used for
-  // streaming state management. SESSION_STATS (from type=result) is the
-  // authoritative completion signal.
 
   /** Handle session stats update. Delegates to SessionStatsAggregatorService. */
   handleSessionStats(stats: {

@@ -150,10 +150,6 @@ export interface SubagentQueryResult {
   readonly subagents: SubagentRecord[];
 }
 
-// ============================================================================
-// Bidirectional messaging + stop/interrupt RPC types
-// ============================================================================
-
 /**
  * Parameters for subagent:send-message RPC method
  */

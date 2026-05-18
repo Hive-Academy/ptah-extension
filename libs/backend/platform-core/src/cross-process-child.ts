@@ -11,10 +11,6 @@
  *   Child -> Parent: { type: 'error', message: string }
  *   Parent -> Child: { type: 'exit' }
  */
-
-// Must use require() / CJS-compatible imports because this runs as a plain
-// Node script via fork(). The tsconfig for the lib uses CommonJS output.
-// We also need reflect-metadata for any DI imports that may come in.
 import 'reflect-metadata';
 
 import { PtahFileSettingsManager } from './file-settings-manager';
@@ -39,9 +35,6 @@ process.on('message', (msg: InboundMessage) => {
   }
 
   if (msg.type === 'set') {
-    // Construct a manager pointing at the same temp directory.
-    // We mock os.homedir indirectly by setting the HOME/USERPROFILE env vars
-    // that the parent passes via the fork() env option.
     const mgr = new PtahFileSettingsManager({});
 
     mgr
@@ -57,6 +50,4 @@ process.on('message', (msg: InboundMessage) => {
       });
   }
 });
-
-// Signal readiness.
 process.send!({ type: 'ready' });

@@ -1,4 +1,3 @@
-// Cross-domain union types and tool-name maps.
 
 import type {
   EditToolInput,

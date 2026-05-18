@@ -38,18 +38,10 @@ declare global {
 export class VimModeService {
   private readonly vscodeService = inject(VSCodeService);
 
-  // ============================================================================
-  // SIGNAL STATE
-  // ============================================================================
-
   private readonly _enabled = signal(false);
 
   /** Whether vim mode is currently enabled. */
   readonly enabled = this._enabled.asReadonly();
-
-  // ============================================================================
-  // INTERNAL STATE
-  // ============================================================================
 
   /** The current monaco-vim disposable instance. */
   private vimMode: { dispose: () => void } | null = null;
@@ -59,10 +51,6 @@ export class VimModeService {
 
   /** Whether the monaco-vim module has been confirmed as unavailable. */
   private loadFailed = false;
-
-  // ============================================================================
-  // PREFERENCE MANAGEMENT
-  // ============================================================================
 
   /**
    * Load the saved vim mode preference from backend settings.
@@ -79,7 +67,6 @@ export class VimModeService {
         this._enabled.set(result.data.value ?? false);
       }
     } catch {
-      // Silently fall back to disabled if settings read fails
     }
   }
 
@@ -101,13 +88,8 @@ export class VimModeService {
         value: newValue,
       });
     } catch {
-      // Preference persistence failure is non-critical
     }
   }
-
-  // ============================================================================
-  // EDITOR ATTACHMENT
-  // ============================================================================
 
   /**
    * Attach vim mode to a Monaco editor instance.
@@ -124,19 +106,13 @@ export class VimModeService {
     if (!this._enabled() || !editor || !statusBarElement) {
       return;
     }
-
-    // If a previous load attempt failed, don't retry
     if (this.loadFailed) {
       return;
     }
-
-    // If MonacoVim is already available on window, use it immediately
     if (window.MonacoVim?.initVimMode) {
       this.vimMode = window.MonacoVim.initVimMode(editor, statusBarElement);
       return;
     }
-
-    // Otherwise, load the script dynamically
     this.loadMonacoVimScript().then((success) => {
       if (!success || !this._enabled()) {
         return;
@@ -154,7 +130,6 @@ export class VimModeService {
    */
   private async loadMonacoVimScript(): Promise<boolean> {
     if (this.isLoadingScript) {
-      // Wait for existing load to complete
       while (this.isLoadingScript) {
         await new Promise((r) => setTimeout(r, 50));
       }
@@ -191,7 +166,6 @@ export class VimModeService {
       try {
         this.vimMode.dispose();
       } catch {
-        // Dispose may throw if the editor was already destroyed
       }
       this.vimMode = null;
     }

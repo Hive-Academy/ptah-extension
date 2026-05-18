@@ -183,7 +183,6 @@ export class AnthropicProxyService {
       (req, res) => {
         this.dispatch(req as IncomingMessage, res as ServerResponse).catch(
           (err) => {
-            // Top-level dispatch failure — write a 500 if we still can.
             this.write500(
               res as ServerResponse,
               err instanceof Error ? err.message : String(err),
@@ -198,9 +197,6 @@ export class AnthropicProxyService {
       this.handle.port,
       this.config.userDataPath,
     );
-
-    // Compute fingerprint inside the service so the raw token never leaks
-    // out — registry caller receives only the fingerprint.
     const fingerprint = tokenFingerprint(this.token);
 
     await this.notifier.notify('proxy.started', {
@@ -231,7 +227,6 @@ export class AnthropicProxyService {
   ): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    // Abort in-flight requests so their bridges detach + responses end.
     for (const ctrl of this.inFlight.values()) {
       try {
         ctrl.abort();
@@ -278,8 +273,6 @@ export class AnthropicProxyService {
         return { stopped: false, reason: 'already stopped' };
       }
       const port = this.handle?.port;
-      // Schedule the actual stop async so the response can flush before
-      // the listener tears down.
       setImmediate(() => {
         void this.stop('rpc');
       });
@@ -288,18 +281,12 @@ export class AnthropicProxyService {
     return () => server.unregister('proxy.shutdown');
   }
 
-  // -------------------------------------------------------------------------
-  // Request dispatch
-  // -------------------------------------------------------------------------
-
   private async dispatch(
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
     const url = req.url ?? '/';
     const method = (req.method ?? 'GET').toUpperCase();
-
-    // Strip query string for path matching.
     const queryStart = url.indexOf('?');
     const path = queryStart >= 0 ? url.slice(0, queryStart) : url;
     const query = queryStart >= 0 ? url.slice(queryStart + 1) : '';
@@ -406,8 +393,6 @@ export class AnthropicProxyService {
 
     const stream = body.stream === true;
     const callerTools = Array.isArray(body.tools) ? body.tools : [];
-
-    // -- Tool merging ------------------------------------------------------
     const workspaceTools: AnthropicToolDefinition[] = expose
       ? await this.collector.collect(this.config.workspacePath).catch(() => [])
       : [];
@@ -438,11 +423,6 @@ export class AnthropicProxyService {
       stream,
       phase: 'start',
     });
-
-    // -- Parse X-Ptah-Mcp-Servers header ---------------------------------
-    // Header is the ONLY signal. Malformed headers DO NOT produce 400; we
-    // degrade to `undefined` + emit `proxy.warning` so the chat path proceeds
-    // with the registry-built MCP map intact.
     const mcpHeaderParse = parseMcpOverrideHeader(
       req.headers['x-ptah-mcp-servers'],
     );
@@ -454,33 +434,18 @@ export class AnthropicProxyService {
       });
     }
     const mcpServersOverride = mcpHeaderParse.override;
-
-    // -- Build chat:start params ------------------------------------------
-    // Caller `model` is intentionally IGNORED in the MVP — the workspace
-    // config drives the actual model. Caller `system` is APPENDED to the
-    // prompt as a system-prefix block. Caller `messages[]` are flattened
-    // into a single prompt by concatenating role+content text.
     const prompt = flattenMessagesForChat(body.messages, body.system);
     const tabId = `proxy-${requestId}`;
 
     const abortController = new AbortController();
     this.inFlight.set(requestId, abortController);
     req.on('close', () => {
-      // Caller disconnected — abort in-flight chat. NOT a terminal error
-      // (the model may have already streamed everything we needed).
       abortController.abort();
     });
-
-    // Per-request bridge — one ChatBridge instance per request so the
-    // listener filter is exclusive on tabId.
     const bridge = new ChatBridge(
       this.pushAdapter as unknown as EventEmitter,
       { notify: () => Promise.resolve() }, // proxy doesn't forward agent.* notifications
     );
-
-    // Wire a chunk listener directly so we can translate alongside the
-    // bridge's lifecycle. The bridge demuxes `chat:chunk` events for its
-    // own purposes (which we ignore via the no-op notify shim above).
     let translator: AnthropicSseTranslator | null = null;
     let accumulator: AnthropicNonStreamingAccumulator | null = null;
     if (stream) {
@@ -501,7 +466,6 @@ export class AnthropicProxyService {
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
       });
-      // Emit message_start immediately so the caller sees lifecycle.
       if (translator !== null) {
         for (const frame of translator.start()) {
           res.write(encodeSseFrame(frame));
@@ -530,12 +494,6 @@ export class AnthropicProxyService {
       const result = await bridge.runTurn({
         tabId,
         rpcCall: async () => {
-          // mcpServersOverride is forwarded through the `chat:start` payload.
-          // When the header is absent / empty / invalid
-          // it stays `undefined`, which is identity-preserved at every layer
-          // of the SDK chain (see SdkQueryOptionsBuilder.mergeMcpOverride).
-          // Workspace MCP tools are also surfaced via the merged `tools[]`
-          // array on the response side for callers that don't speak MCP.
           const chatStartParams: Record<string, unknown> = {
             tabId,
             prompt,
@@ -553,8 +511,6 @@ export class AnthropicProxyService {
         },
         abortSignal: abortController.signal,
       });
-
-      // Translate terminal state.
       if (result.success === false) {
         const errMessage = result.error ?? 'unknown chat error';
         if (translator !== null) {
@@ -576,8 +532,6 @@ export class AnthropicProxyService {
           message: errMessage,
         });
       } else {
-        // Success — translator/accumulator already received message_complete
-        // through the chunk listener. For non-streaming, build the JSON now.
         if (translator !== null) {
           if (!streamingHeadersWritten) writeStreamingHeaders();
           if (!res.writableEnded) res.end();
@@ -632,10 +586,6 @@ export class AnthropicProxyService {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Response helpers
-  // -------------------------------------------------------------------------
-
   private writeJson(
     res: ServerResponse,
     status: number,
@@ -671,10 +621,6 @@ export class AnthropicProxyService {
     });
   }
 }
-
-// ---------------------------------------------------------------------------
-// Free helpers
-// ---------------------------------------------------------------------------
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -817,7 +763,6 @@ export interface McpOverrideParseResult {
 export function parseMcpOverrideHeader(
   rawHeader: string | string[] | undefined,
 ): McpOverrideParseResult {
-  // Normalize: pick first value if array, treat empty/whitespace as absent.
   const raw = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
   if (raw === undefined || raw === null) {
     return { override: undefined, warning: null };
@@ -903,8 +848,6 @@ export function parseMcpOverrideHeader(
       ? { type: 'http', url: obj['url'] as string, headers }
       : { type: 'http', url: obj['url'] as string };
   }
-
-  // Treat `{}` as absent — keeps the merge a no-op, matches mergeMcpOverride.
   if (Object.keys(out).length === 0) {
     return { override: undefined, warning: null };
   }

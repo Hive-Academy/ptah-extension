@@ -41,10 +41,6 @@ import { parseWorktreeList } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import * as vscode from 'vscode';
-
-// VS Code-specific handlers (local to this app).
-// `McpDirectoryRpcHandlers` lives in the shared rpc-handlers library and is
-// registered via `registerAllRpcHandlers()` — no manual register() call.
 import {
   ChatRpcHandlers,
   FileRpcHandlers,
@@ -93,17 +89,11 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   'terminal:create',
   'terminal:kill',
   'license:clearKey',
-  // Cron scheduler (requires SQLite CronScheduler service)
   ...CronRpcHandlers.METHODS,
-  // Messaging gateway (requires SQLite GatewayService)
   ...GatewayRpcHandlers.METHODS,
-  // Memory curator (requires SQLite MemoryStore/MemorySearch/MemoryCurator)
   ...MemoryRpcHandlers.METHODS,
-  // Skills synthesis pipeline (requires SQLite SkillSynthesisService/SkillCandidateStore)
   ...SkillsSynthesisRpcHandlers.METHODS,
-  // Persistence health + reset (requires SqliteConnectionService — Electron-only)
   ...PersistenceRpcHandlers.METHODS,
-  // Workspace indexing control (requires IndexingControlService from memory-curator)
   ...IndexingRpcHandlers.METHODS,
 ];
 
@@ -136,17 +126,6 @@ export class RpcMethodRegistrationService {
    * Register all RPC methods and wire SDK / agent events.
    */
   registerAll(): void {
-    // Note: registerHarnessServices + registerChatServices moved into
-    // `phase-3-handlers.ts` so they fire before `ChatRpcHandlers` is
-    // eagerly resolved by this service's constructor.
-
-    // Thoth features (memory-curator, cron-scheduler, messaging-gateway,
-    // skill-synthesis) are intentionally disabled in the VS Code extension host.
-    // better-sqlite3 cannot run in the extension host process, so the entire
-    // persistence-sqlite layer — and every service that depends on it — is
-    // never registered here. These RPC methods are Electron-only. All excluded
-    // methods are declared in ELECTRON_ONLY_METHODS so the RPC verifier accepts
-    // the gap without emitting warnings.
     registerAllRpcHandlers(this.container, {
       exclude: [
         WorkspaceRpcHandlers,
@@ -154,12 +133,7 @@ export class RpcMethodRegistrationService {
         GatewayRpcHandlers,
         MemoryRpcHandlers,
         SkillsSynthesisRpcHandlers,
-        // PersistenceRpcHandlers requires SqliteConnectionService which is
-        // never registered in the VS Code extension host.
         PersistenceRpcHandlers,
-        // IndexingRpcHandlers @inject's MEMORY_TOKENS.INDEXING_CONTROL which
-        // is registered by memory-curator (not wired in VS Code). Excluded
-        // for the same reason as the other SQLite-backed handlers.
         IndexingRpcHandlers,
       ],
     });
@@ -169,8 +143,6 @@ export class RpcMethodRegistrationService {
     this.commandHandlers.register();
     this.agentHandlers.register();
     this.skillsShHandlers.register();
-    // McpDirectoryRpcHandlers is registered via `registerAllRpcHandlers`
-    // above (lives in the shared `rpc-handlers` library).
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -182,8 +154,6 @@ export class RpcMethodRegistrationService {
       options: {
         worktree: true,
         resolveWorktreePath: async (data: WorktreeCreatedData) => {
-          // VS Code resolves via dynamic `cross-spawn` import (extension host has no
-          // @ptah-extension/platform-* dependency at this layer).
           try {
             const crossSpawn = await import('cross-spawn');
             const child = crossSpawn.default(
@@ -223,11 +193,6 @@ export class RpcMethodRegistrationService {
           this.chatHandlers.getPtahCliSdkSessionId(ptahCliId),
       },
     });
-
-    // Broadcast session:metadataChanged push events to webviews so sidebars
-    // refresh on create/update/delete/fork without imperative loadSessions()
-    // calls scattered across the frontend. Disposer is intentionally ignored
-    // — extension lifetime === process lifetime.
     wireSessionMetadataEvents(this.container, {
       logger: this.logger,
       platform: 'vscode',
@@ -303,8 +268,6 @@ export class RpcMethodRegistrationService {
 
       this.logger.info('Setup agents command registered');
     } catch (error) {
-      // Command may already be registered by another instance of the extension
-      // (e.g., marketplace version running alongside dev build).
       this.logger.warn(
         'Setup agents command registration skipped (likely already registered)',
         error instanceof Error ? error : new Error(String(error)),

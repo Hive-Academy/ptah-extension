@@ -70,8 +70,6 @@ export class HarnessWorkspaceContextService {
     let projectType = 'workspace';
     const frameworks: string[] = [];
     const languages: string[] = [];
-
-    // Try to detect from package.json
     try {
       const pkgPath = path.join(workspaceRoot, 'package.json');
       const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8')) as {
@@ -109,26 +107,19 @@ export class HarnessWorkspaceContextService {
         projectType = 'nx-monorepo';
       }
     } catch {
-      // No package.json or unreadable — that's fine
     }
-
-    // Detect Python projects
     try {
       await fs.access(path.join(workspaceRoot, 'requirements.txt'));
       languages.push('Python');
     } catch {
       /* ignore */
     }
-
-    // Detect Go projects
     try {
       await fs.access(path.join(workspaceRoot, 'go.mod'));
       languages.push('Go');
     } catch {
       /* ignore */
     }
-
-    // Detect Rust projects
     try {
       await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
       languages.push('Rust');

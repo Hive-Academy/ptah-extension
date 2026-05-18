@@ -111,8 +111,6 @@ export class AdminService {
     const cfg = ADMIN_MODELS[key];
     const page = Number(q.page ?? 1) || 1;
     const pageSize = Number(q.pageSize ?? 25) || 25;
-
-    // Validate sortBy against the hard-coded allowlist BEFORE touching Prisma.
     if (q.sortBy && !cfg.sortableFields.includes(q.sortBy)) {
       throw new BadRequestException(
         `sortBy '${q.sortBy}' not allowed. Allowed: ${cfg.sortableFields.join(', ')}`,
@@ -124,8 +122,6 @@ export class AdminService {
         : cfg.defaultSortBy;
 
     const where = this.buildSearchWhere(cfg, q.search);
-
-    // cfg.prismaModel is a hard-coded literal union — safe to index dynamically.
     const delegate = (
       this.prisma as unknown as Record<
         string,
@@ -323,10 +319,6 @@ export class AdminService {
     return isNaN(d.getTime()) ? value : d;
   }
 
-  // --------------------------------------------------------------------------
-  // TASK_2025_292 — User cascade deletion (Batch B2)
-  // --------------------------------------------------------------------------
-
   /**
    * Compute the impact preview for `DELETE /v1/admin/users/:id` (§5.1).
    *
@@ -412,16 +404,12 @@ export class AdminService {
         if (!user) {
           throw new NotFoundException(`User ${id} not found`);
         }
-
-        // (2) Admin self-delete guard — case-insensitive compare.
         if (this.isAdminEmail(user.email)) {
           throw new ForbiddenException({
             code: 'CANNOT_DELETE_ADMIN',
             message: 'Admins cannot delete another admin account',
           });
         }
-
-        // (3) Typed-email confirmation.
         if (
           body.confirmEmail.trim().toLowerCase() !==
           user.email.trim().toLowerCase()
@@ -431,8 +419,6 @@ export class AdminService {
             message: 'confirmEmail does not match target user email',
           });
         }
-
-        // (4) Active paid subscription gate.
         const activePaid = await tx.subscription.findFirst({
           where: {
             userId: id,
@@ -448,8 +434,6 @@ export class AdminService {
               'User has an active paid Paddle subscription. Re-submit with acknowledgePaidSubscription: true to force-delete.',
           });
         }
-
-        // (5) Snapshot counts + user row for the audit payload.
         const [subscriptions, licenses, trialReminders, sessionRequests] =
           await Promise.all([
             tx.subscription.count({ where: { userId: id } }),
@@ -477,8 +461,6 @@ export class AdminService {
           createdAt: user.createdAt.toISOString(),
           updatedAt: user.updatedAt.toISOString(),
         };
-
-        // (6) Audit log — in-transaction so it rolls back on failure.
         const auditLogId = await this.auditLog.write({
           actorEmail: actor.email,
           action: 'user.delete',
@@ -494,12 +476,7 @@ export class AdminService {
           userAgent: actor.userAgent,
           tx,
         });
-
-        // (7) Cascade delete — schema FKs handle the children.
         await tx.user.delete({ where: { id } });
-
-        // Structured log — no email in cleartext beyond the audit context
-        // that callers can tail via `kubectl logs | grep admin_audit_log`.
         this.logger.log({
           message: 'admin user cascade delete',
           actorEmail: actor.email,
@@ -522,7 +499,6 @@ export class AdminService {
         };
       });
     } catch (err) {
-      // Concurrent delete race — map Prisma's P2025 to 404 (E6).
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2025'

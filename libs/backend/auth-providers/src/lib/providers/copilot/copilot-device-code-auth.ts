@@ -140,8 +140,6 @@ export async function pollForAccessToken(
     if (signal?.aborted) {
       return null;
     }
-
-    // Wait for the polling interval, but bail early if the abort signal fires.
     const aborted = await waitOrAbort(pollInterval, signal);
     if (aborted) {
       return null;
@@ -196,7 +194,6 @@ export async function pollForAccessToken(
       logger?.warn(
         `[CopilotDeviceAuth] Poll request failed: ${error instanceof Error ? error.message : String(error)}`,
       );
-      // Continue polling on network errors — GitHub may be transiently flaky.
     }
   }
 
@@ -253,28 +250,18 @@ export async function executeDeviceCodeFlow(
   callbacks: DeviceCodeCallbacks,
   clientId: string,
 ): Promise<string | null> {
-  // Step 1: Request device code
   logger.info('[CopilotDeviceAuth] Starting GitHub device code flow...');
   const deviceCodeResponse = await requestDeviceCode(clientId);
-
-  // Step 2: Display code to user
   callbacks.onUserCode(
     deviceCodeResponse.user_code,
     deviceCodeResponse.verification_uri,
   );
-
-  // Optionally open browser
   if (callbacks.openBrowser) {
     try {
       await callbacks.openBrowser(deviceCodeResponse.verification_uri);
     } catch {
-      // Browser open is best-effort
     }
   }
-
-  // Step 3: Poll for access token. Pass logger through so the legacy log
-  // surface (Device code expired / User denied access / Poll request failed)
-  // is preserved for existing spec assertions and webview UX diagnostics.
   const intervalMs = Math.max(deviceCodeResponse.interval, 5) * 1000;
   const startTime = Date.now();
   const result = await pollForAccessToken(
@@ -288,10 +275,6 @@ export async function executeDeviceCodeFlow(
   );
 
   if (result === null) {
-    // Only emit the "timed out" warn when polling actually exhausted its
-    // budget — terminal errors (expired_token / access_denied / unknown) have
-    // already been logged inside pollForAccessToken and should not surface
-    // a misleading "timed out" message on top.
     if (Date.now() - startTime >= MAX_POLL_TIME_MS) {
       logger.warn('[CopilotDeviceAuth] Device code flow timed out');
     }

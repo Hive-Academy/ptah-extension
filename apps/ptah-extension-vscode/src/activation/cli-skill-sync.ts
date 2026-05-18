@@ -1,7 +1,3 @@
-// CLI Skill Sync helper: syncs Ptah plugin skills to installed CLI agent
-// directories (Copilot, Gemini). Pro/trial_pro-only fire-and-forget.
-// Caller is responsible for the tier gate.
-// Mirrors the Electron sibling (apps/ptah-electron/src/activation/cli-skill-sync.ts).
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -25,14 +21,9 @@ export function syncCliSkillsOnActivation(
       ) => void;
       syncOnActivation: (enabledPluginIds: string[]) => Promise<unknown[]>;
     };
-
-    // Resolve enabled plugin IDs (pluginLoader must be resolved before initialize
-    // so we can pass its resolvePluginPaths as the validated path resolver)
     const pluginLoader = DIContainer.resolve<PluginLoaderService>(
       SDK_TOKENS.SDK_PLUGIN_LOADER,
     );
-
-    // Late-initialize with global state storage, extension path, and validated path resolver
     const globalStateStorage = DIContainer.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
     );
@@ -43,7 +34,6 @@ export function syncCliSkillsOnActivation(
     const enabledPluginIds = pluginConfig.enabledPluginIds || [];
 
     if (enabledPluginIds.length > 0) {
-      // Fire-and-forget: sync skills in background
       cliPluginSync
         .syncOnActivation(enabledPluginIds)
         .then((results) => {

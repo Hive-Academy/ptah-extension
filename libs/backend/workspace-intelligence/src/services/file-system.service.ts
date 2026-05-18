@@ -87,8 +87,6 @@ export class FileSystemService {
    * @returns True if virtual workspace
    */
   isVirtualWorkspace(path: string): boolean {
-    // If the path contains a scheme indicator (e.g., "vscode-vfs://"),
-    // it's a virtual workspace. Regular file paths don't contain "://"
     return path.includes('://') && !path.startsWith('file://');
   }
 
@@ -117,8 +115,6 @@ export class FileSystemError extends Error {
   ) {
     super(message);
     this.name = 'FileSystemError';
-
-    // Maintain stack trace
     if (cause?.stack) {
       this.stack = `${this.stack}\nCaused by: ${cause.stack}`;
     }

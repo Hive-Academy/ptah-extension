@@ -350,11 +350,9 @@ export class PluginLoaderService {
               pluginId,
             });
           } catch {
-            // SKILL.md not readable — skip this skill
           }
         }
       } catch {
-        // Plugin path not accessible — skip
       }
     }
 

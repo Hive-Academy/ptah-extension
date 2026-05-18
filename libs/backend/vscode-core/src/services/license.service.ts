@@ -30,9 +30,6 @@ import type {
   LicenseEvents,
   PreviousUserContext,
 } from './license/license-types';
-
-// Re-export public types so the barrel (`src/index.ts`) and external consumers
-// see the same names at the same import paths as before the split.
 export type {
   LicenseStatus,
   LicenseEvents,
@@ -108,8 +105,6 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       cacheTtlMs: 60 * 60 * 1000,
       gracePeriodMs: 7 * 24 * 60 * 60 * 1000,
     });
-
-    // Load persisted cache on initialization (for offline grace period)
     this.ready = this.cache
       .loadPersistedCache()
       .then((persisted) => {
@@ -149,8 +144,6 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   async verifyLicense(): Promise<LicenseStatus> {
     try {
       await this.ready;
-
-      // Step 1: Check cache (1-hour TTL)
       if (this.cache.isCacheValid()) {
         const cachedStatus = this.cache.getCached();
         const cachedTimestamp = this.cache.getCachedTimestamp();
@@ -163,23 +156,16 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
               cacheAge: Date.now() - cachedTimestamp,
             },
           );
-          // Seed the broadcaster so a future network re-verify of the same
-          // status is suppressed rather than firing a spurious license:verified.
           this.broadcaster.seed(cachedStatus);
           return cachedStatus;
         }
       }
-
-      // Step 2: Get license key from SecretStorage
       const licenseKey = await this.context.secrets.get(SECRET_KEY);
 
       if (!licenseKey) {
-        // Check for previousUserContext (returning user with expired/trial-ended license)
         const previous = this.cache.loadPreviousUserContext();
 
         if (previous.kind === 'valid') {
-          // Returning user: activate as community with expiration reason
-          // This prevents the welcome screen and shows trial-ended modal instead
           const communityWithContext: LicenseStatus = {
             valid: true,
             tier: 'community',
@@ -193,14 +179,11 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
           );
           return communityWithContext;
         } else if (previous.kind === 'invalid') {
-          // Invalid structure - clear it
           this.logger.warn(
             '[LicenseService.verifyLicense] Invalid previousUserContext structure, clearing',
           );
           await this.cache.clearPreviousUserContext();
         }
-
-        // No license key and no previous context = prompt user to register
         const noAccountStatus: LicenseStatus = {
           valid: false,
           tier: 'community',
@@ -212,8 +195,6 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         );
         return noAccountStatus;
       }
-
-      // Step 3: Verify with server
       this.logger.debug(
         '[LicenseService.verifyLicense] Verifying with server',
         {
@@ -223,11 +204,6 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       );
 
       const status = await this.fetcher.fetchLicenseStatus(licenseKey);
-
-      // Community fallback for expired Pro users.
-      // When server says license is invalid (expired/trial_ended/not_found),
-      // automatically fall back to Community tier instead of blocking.
-      // ONLY explicit revocation by admin should block the user.
       if (!status.valid && status.reason !== 'revoked') {
         this.logger.info(
           '[LicenseService.verifyLicense] License invalid (non-revoked), falling back to Community tier',
@@ -236,9 +212,6 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             reason: status.reason,
           },
         );
-
-        // Persist user context before clearing key so returning users
-        // see expiration notice instead of new-user welcome screen
         if (status.reason === 'expired' || status.reason === 'trial_ended') {
           const previousContext: PreviousUserContext = {
             reason: status.reason,
@@ -251,8 +224,6 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             { reason: status.reason },
           );
         }
-
-        // Clear the expired/invalid license key so user gets Community tier
         await this.context.secrets.delete(SECRET_KEY);
         await this.cache.clearPersistedCache();
 
@@ -266,13 +237,8 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         this.emit('license:updated', communityFallback);
         return communityFallback;
       }
-
-      // Step 4: Update cache and emit events
       this.cache.updateCache(status);
       this.emitLicenseEvent(status);
-
-      // Step 5: Persist cache to globalState (for offline grace period).
-      // Only persist valid licenses (we don't want to cache expired status)
       if (status.valid) {
         await this.cache.persistCacheToStorage(status);
       }
@@ -293,13 +259,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         stack: error instanceof Error ? error.stack : undefined,
         url: this.fetcher.licenseServerUrl,
       });
-
-      // Check offline grace period cache.
-      // Grace period is for NETWORK FAILURES only (not expired licenses).
       const persistedCache = await this.cache.loadPersistedCache();
 
       if (persistedCache && this.cache.isWithinGracePeriod(persistedCache)) {
-        // Within grace period - use persisted cache
         this.logger.warn(
           '[LicenseService.verifyLicense] Network error - using offline cached license (grace period)',
           {
@@ -309,16 +271,10 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
               this.cache.getGracePeriodRemaining(persistedCache),
           },
         );
-
-        // Update in-memory cache from persisted cache
-        // Use Date.now() so this grace-period result is cached for the normal TTL,
-        // preventing repeated failing network calls on every verifyLicense() invocation
         this.cache.setCache(persistedCache.status, Date.now());
 
         return persistedCache.status;
       }
-
-      // Outside grace period or no cache - check in-memory cache
       const inMemoryStatus = this.cache.getCached();
       if (inMemoryStatus) {
         this.logger.warn(
@@ -330,12 +286,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         );
         return inMemoryStatus;
       }
-
-      // No cache and outside grace period - check if user had a license key
       const licenseKey = await this.context.secrets.get(SECRET_KEY);
 
       if (licenseKey) {
-        // User has a key but server is unreachable and grace period expired
         this.logger.warn(
           '[LicenseService.verifyLicense] License key exists but cannot verify (grace period expired)',
         );
@@ -346,8 +299,6 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         };
         return expiredStatus;
       }
-
-      // No key at all = prompt registration
       const noAccountStatus: LicenseStatus = {
         valid: false,
         tier: 'community',
@@ -373,11 +324,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     this.logger.info('[LicenseService.setLicenseKey] License key stored', {
       keyPrefix: licenseKey.substring(0, 10) + '...',
     });
-
-    // Clear any stale previousUserContext (user is entering a fresh key)
     await this.cache.clearPreviousUserContext();
-
-    // Invalidate cache and dedup tracker so re-verify emits events
     this.cache.invalidate();
     this.broadcaster.reset();
     const status = await this.verifyLicense();
@@ -396,15 +343,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   async clearLicenseKey(): Promise<void> {
     await this.context.secrets.delete(SECRET_KEY);
     this.logger.info('[LicenseService.clearLicenseKey] License key removed');
-
-    // Clear persisted cache as well (no grace period for manual removal).
     await this.cache.clearPersistedCache();
     this.broadcaster.reset();
-
-    // Clear previousUserContext (manual removal = voluntary, not expiration)
     await this.cache.clearPreviousUserContext();
-
-    // No license key = prompt registration on next activation
     const noAccountStatus: LicenseStatus = {
       valid: false,
       tier: 'community',
@@ -474,6 +415,5 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     } else if (decision === 'expired') {
       this.emit('license:expired', status);
     }
-    // 'suppressed' → no emit
   }
 }

@@ -66,9 +66,6 @@ export class CommandRpcHandlers {
         const { command, args } = params;
 
         this.logger.debug('RPC: command:execute called', { command });
-
-        // SECURITY: Only allow whitelisted commands from webview to prevent
-        // arbitrary VS Code command execution.
         const ALLOWED_COMMAND_PREFIXES = ['ptah.'];
         const ALLOWED_EXACT_COMMANDS = [
           'workbench.action.reloadWindow',
@@ -88,8 +85,6 @@ export class CommandRpcHandlers {
             error: `Command not allowed from webview. Received: ${command}`,
           };
         }
-
-        // Execute the command with optional arguments
         await vscode.commands.executeCommand(command, ...(args || []));
 
         this.logger.debug('RPC: command:execute success', { command });

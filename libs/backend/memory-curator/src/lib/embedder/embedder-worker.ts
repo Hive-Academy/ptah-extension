@@ -23,10 +23,6 @@ if (!parentPort) {
 
 const port = parentPort;
 
-// ---------------------------------------------------------------------------
-// Embedder (feature-extraction)
-// ---------------------------------------------------------------------------
-
 interface PipelineFn {
   (
     texts: string | string[],
@@ -41,7 +37,6 @@ async function loadPipeline(): Promise<PipelineFn> {
   if (pipelineSingleton) return pipelineSingleton;
   if (pipelineLoading) return pipelineLoading;
   pipelineLoading = (async () => {
-    // Dynamic import so test envs without the package can stub this file.
     const mod = (await import(
       '@huggingface/transformers' as unknown as string
     )) as {
@@ -62,11 +57,6 @@ async function loadPipeline(): Promise<PipelineFn> {
     pipelineSingleton = fn;
     return fn;
   })();
-
-  // Mirror the cross-encoder retry-on-failure guard: if the BGE model download
-  // fails (network timeout, corrupted cache, offline boot), clear pipelineLoading
-  // so the next embed call can retry rather than hanging on a stale rejected
-  // promise forever (H3 from code-style review).
   pipelineLoading.catch(() => {
     pipelineLoading = null;
   });
@@ -83,10 +73,6 @@ async function embed(texts: readonly string[]): Promise<number[][]> {
   }
   return out;
 }
-
-// ---------------------------------------------------------------------------
-// Cross-encoder (text-classification / reranker)
-// ---------------------------------------------------------------------------
 
 /**
  * A single label-score entry returned by the transformers text-classification
@@ -144,9 +130,6 @@ async function loadCrossEncoder(): Promise<CrossEncoderFn> {
     crossEncoderSingleton = fn as unknown as CrossEncoderFn;
     return crossEncoderSingleton;
   })();
-
-  // On timeout (or any load error), clear crossEncoderLoading so the next
-  // rerank call retries rather than hanging on the same stalled promise.
   crossEncoderLoading.catch(() => {
     crossEncoderLoading = null;
   });
@@ -163,7 +146,6 @@ async function loadCrossEncoder(): Promise<CrossEncoderFn> {
  */
 function extractScore(entry: LabelScore | LabelScore[]): number {
   if (Array.isArray(entry)) {
-    // Array is sorted descending by score; element 0 is the most-relevant label.
     return entry[0]?.score ?? 0;
   }
   return entry.score;
@@ -191,8 +173,6 @@ async function rerank(
     truncation: true,
     max_length: 512,
   });
-  // results[i] corresponds to candidates[i] by positional index (see JSDoc above).
-  // extractScore safely handles both array and bare-object pipeline output formats.
   const scored = candidates.map((c, i) => ({
     id: c.id,
     score: extractScore(results[i]),
@@ -212,10 +192,6 @@ async function warmup(): Promise<void> {
   const dummy = await embed(['warmup']);
   await rerank('warmup', [{ id: 'x', text: dummy.toString() }], 1);
 }
-
-// ---------------------------------------------------------------------------
-// Message handler
-// ---------------------------------------------------------------------------
 
 port.on(
   'message',

@@ -36,19 +36,12 @@ export function registerPhase0Platform(
   container: DependencyContainer,
   context: vscode.ExtensionContext,
 ): Phase0Result {
-  // Extension Context (MUST BE FIRST)
   if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
     container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
   }
-
-  // Platform Abstraction Layer — MUST be before any library services
-  // (they inject PLATFORM_TOKENS).
   if (!container.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
     registerPlatformVscodeServices(container, context);
   }
-
-  // Logger Dependencies — OutputManager must be registered BEFORE Logger
-  // because Logger depends on OutputManager (@inject(OUTPUT_MANAGER)).
   if (!container.isRegistered(TOKENS.OUTPUT_MANAGER)) {
     container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
   }
@@ -56,21 +49,9 @@ export function registerPhase0Platform(
     container.registerSingleton(TOKENS.LOGGER, Logger);
   }
   const logger = container.resolve<Logger>(TOKENS.LOGGER);
-
-  // Sentry Error Monitoring — registered early for activation failure
-  // capture. SentryService depends on LOGGER — must come after Logger.
   if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) {
     container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
   }
-
-  // ConfigManager wraps vscode.workspace.getConfiguration('ptah'). LicenseService
-  // depends on it for reading license config, so it must be registered before
-  // the minimal path registers LicenseService.
-  //
-  // On the full path, `registerVsCodeCoreServices` will re-register this token;
-  // tsyringe's `registerSingleton` is idempotent for the same class, so this is
-  // fine. We keep the registration here so setupMinimal does not need to call
-  // the full vscode-core helper.
   if (!container.isRegistered(TOKENS.CONFIG_MANAGER)) {
     container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
   }

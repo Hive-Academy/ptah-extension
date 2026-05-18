@@ -57,10 +57,6 @@ import * as readline from 'node:readline';
 
 import { withTimeout } from './wait-for.js';
 import type { TmpHome } from './tmp-home.js';
-
-// `tree-kill` ships only a CommonJS export. Import via require so the spec
-// works under ts-jest without an `esModuleInterop` flag drift.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const treeKill: (
   pid: number,
   signal: string,
@@ -253,7 +249,6 @@ export class CliRunner {
       try {
         stdoutLines.push(JSON.parse(trimmed));
       } catch {
-        // Non-JSON lines are tolerated (e.g. `--version` prints a bare semver).
         hasMalformedStdout = true;
       }
     });
@@ -288,7 +283,6 @@ export class CliRunner {
           setTimeout(() => {
             killed = true;
             void killTree(child).then(() => {
-              // Wait for the actual exit after the kill so we don't race teardown.
               child.once('exit', (code, signal) => resolve({ code, signal }));
             });
           }, deadline);
@@ -298,7 +292,6 @@ export class CliRunner {
 
     rl.close();
     if (killed && result.code === null && result.signal === null) {
-      // Already kill-tree'd above, but the inner exit handler will resolve.
     }
 
     return {
@@ -312,13 +305,7 @@ export class CliRunner {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
 function resolveDistBin(): string {
-  // __dirname at runtime: <repoRoot>/apps/ptah-cli/tests/e2e/_harness
-  // walk up to repo root (4 levels) then descend into dist.
   const here = __dirname;
   const repoRoot = path.resolve(here, '..', '..', '..', '..', '..');
   return path.join(repoRoot, 'dist', 'apps', 'ptah-cli', 'main.mjs');
@@ -329,23 +316,19 @@ function buildEnv(
   overrides: NodeJS.ProcessEnv | undefined,
 ): NodeJS.ProcessEnv {
   const cleaned: NodeJS.ProcessEnv = { ...process.env };
-  // Strip upstream auth env vars so e2e never accidentally calls real APIs.
   delete cleaned['ANTHROPIC_API_KEY'];
   delete cleaned['ANTHROPIC_AUTH_TOKEN'];
   delete cleaned['OPENAI_API_KEY'];
   delete cleaned['COPILOT_TOKEN'];
   delete cleaned['GITHUB_TOKEN'];
-  // Force headless / non-coloured output.
   cleaned['FORCE_COLOR'] = '0';
   cleaned['NO_COLOR'] = '1';
   cleaned['PTAH_NO_TTY'] = '1';
   cleaned['NX_TUI'] = 'false';
-  // HOME + USERPROFILE: both, every test, every platform.
   cleaned['HOME'] = homePath;
   cleaned['USERPROFILE'] = homePath;
   cleaned['APPDATA'] = path.join(homePath, 'AppData', 'Roaming');
   cleaned['LOCALAPPDATA'] = path.join(homePath, 'AppData', 'Local');
-  // Caller overrides win — e.g. fake ANTHROPIC_API_KEY or PTAH_AUTO_APPROVE.
   return { ...cleaned, ...(overrides ?? {}) };
 }
 
@@ -373,7 +356,6 @@ async function wireHandle(
     if (!isObj(msg) || msg['jsonrpc'] !== '2.0') return;
 
     if ('id' in msg && ('result' in msg || 'error' in msg)) {
-      // Response.
       const resp = msg as unknown as JsonRpcResponseLike;
       const p = pending.get(resp.id);
       if (!p) return;
@@ -395,7 +377,6 @@ async function wireHandle(
     if (typeof (msg as { method?: unknown }).method === 'string') {
       const note = msg as unknown as JsonRpcNotificationLike;
       notifications.push({ method: note.method, params: note.params });
-      // Drain matching waiters.
       for (let i = notifWaiters.length - 1; i >= 0; i--) {
         const w = notifWaiters[i];
         if (w.method !== note.method) continue;
@@ -418,7 +399,6 @@ async function wireHandle(
 
   child.once('exit', (code) => {
     resolvedExit = code;
-    // Reject any in-flight waiters / pending requests so tests fail cleanly.
     for (const p of pending.values()) {
       if (p.timer) clearTimeout(p.timer);
       p.reject(
@@ -429,8 +409,6 @@ async function wireHandle(
       );
     }
     pending.clear();
-    // Surface any task.error payload so failure messages are diagnosable
-    // without needing a verbose flag.
     const taskErrors = notifications.filter((n) => n.method === 'task.error');
     const taskErrorSummary =
       taskErrors.length > 0
@@ -517,7 +495,6 @@ async function wireHandle(
     pred?: (params: T) => boolean,
   ): Promise<T> =>
     new Promise<T>((resolve, reject) => {
-      // Sweep already-buffered notifications first.
       for (const n of notifications) {
         if (n.method !== method) continue;
         if (pred && !safePred(pred as (p: unknown) => boolean, n.params))
@@ -547,8 +524,6 @@ async function wireHandle(
       };
       notifWaiters.push(waiter);
     });
-
-  // Wait for session.ready (unless caller opted out).
   let ready: SessionReady = {
     session_id: '',
     version: '',
@@ -563,7 +538,6 @@ async function wireHandle(
         'session.ready',
       );
     } catch (err) {
-      // Surface stderr so test failures are diagnosable.
       const reason = err instanceof Error ? err.message : String(err);
       throw new Error(
         `CliRunner.spawn: session.ready never arrived. ${reason}\n` +

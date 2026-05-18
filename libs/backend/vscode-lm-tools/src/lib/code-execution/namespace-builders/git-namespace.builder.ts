@@ -171,8 +171,6 @@ export function buildGitNamespace(
             error: stderr.trim() || 'Failed to add worktree',
           };
         }
-
-        // Notify frontend about the new worktree so it can refresh UI
         if (onWorktreeChanged) {
           try {
             onWorktreeChanged({
@@ -181,7 +179,6 @@ export function buildGitNamespace(
               branch: params.branch,
             });
           } catch {
-            // Notification failure should never break worktree creation
           }
         }
 
@@ -211,8 +208,6 @@ export function buildGitNamespace(
             error: stderr.trim() || 'Failed to remove worktree',
           };
         }
-
-        // Notify frontend about the removal so it can refresh UI
         if (onWorktreeChanged) {
           try {
             onWorktreeChanged({
@@ -220,7 +215,6 @@ export function buildGitNamespace(
               worktreePath: params.path,
             });
           } catch {
-            // Notification failure should never break worktree removal
           }
         }
 

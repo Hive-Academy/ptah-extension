@@ -193,8 +193,6 @@ export class EnhancedPromptsService {
     private readonly modelSettings: ModelSettings,
   ) {
     this.stateStore = new EnhancedPromptsStateStore(this.context);
-
-    // Listen for cache invalidation events
     this.cacheService.onInvalidation((event) => {
       this.logger.info(
         'EnhancedPromptsService: Cache invalidated, prompt needs regeneration',
@@ -203,7 +201,6 @@ export class EnhancedPromptsService {
           workspacePath: event.workspacePath,
         },
       );
-      // Mark workspace state as needing regeneration (but don't disable)
       const state = this.stateStore.peek(event.workspacePath);
       if (state) {
         state.configHash = null; // Mark as stale
@@ -233,8 +230,6 @@ export class EnhancedPromptsService {
     }
 
     this.isGenerating = true;
-
-    // Set up timeout-based auto-release to prevent deadlock
     this.generationLockTimer = setTimeout(() => {
       this.logger.warn(
         'EnhancedPromptsService: Generation lock timed out, force releasing',
@@ -265,8 +260,6 @@ export class EnhancedPromptsService {
    */
   async getStatus(workspacePath: string): Promise<EnhancedPromptsStatus> {
     const state = await this.stateStore.load(workspacePath);
-
-    // Check if cache is still valid
     let cacheValid = false;
     let invalidationReason: string | undefined;
 
@@ -329,7 +322,6 @@ export class EnhancedPromptsService {
       let input: PromptDesignerInput;
 
       if (preComputedInput) {
-        // Use pre-computed input from wizard analysis — skip independent analysis
         this.logger.info(
           'EnhancedPromptsService: Using pre-computed input from wizard analysis',
         );
@@ -342,8 +334,6 @@ export class EnhancedPromptsService {
           progress: 0.3,
         });
       } else {
-        // Step 1: Analyze workspace (original path)
-        // Uses getProjectInfo() + getCurrentWorkspaceInfo() from WorkspaceAnalyzerService
         onProgress?.({
           status: 'analyzing',
           message: 'Analyzing workspace...',
@@ -354,8 +344,6 @@ export class EnhancedPromptsService {
         try {
           const projectInfo = await this.workspaceIntelligence.getProjectInfo();
           const wsInfo = this.workspaceIntelligence.getCurrentWorkspaceInfo();
-
-          // Derive languages from file statistics keys (e.g., ".ts" → "TypeScript")
           const languageMap: Record<string, string> = {
             '.ts': 'TypeScript',
             '.tsx': 'TypeScript',
@@ -402,8 +390,6 @@ export class EnhancedPromptsService {
               'Unable to analyze workspace. Please ensure the workspace contains a valid project structure.',
           };
         }
-
-        // Step 2: Build detected stack
         detectedStack = this.buildDetectedStack(analysis);
 
         onProgress?.({
@@ -411,19 +397,13 @@ export class EnhancedPromptsService {
           message: 'Preparing prompt generation...',
           progress: 0.3,
         });
-
-        // Step 3: Build input for PromptDesignerAgent
         input = this.buildDesignerInput(workspacePath, analysis, config);
       }
-
-      // Step 3.5: Enrich with multi-phase analysis if available
       await this.enrichWithMultiPhaseAnalysis(
         input,
         workspacePath,
         analysisDir,
       );
-
-      // Step 4: Generate guidance via InternalQueryService (Agent SDK)
       onProgress?.({
         status: 'generating',
         message: 'Generating project-specific guidance...',
@@ -435,7 +415,6 @@ export class EnhancedPromptsService {
         workspacePath,
         sdkConfig,
         (progress) => {
-          // Map internal progress to 0.5 - 0.9 range
           const mappedProgress = 0.5 + (progress.progress || 0) * 0.004;
           onProgress?.({
             ...progress,
@@ -450,18 +429,12 @@ export class EnhancedPromptsService {
           error: 'Failed to generate guidance - no output received',
         };
       }
-
-      // Step 5: Build combined prompt content (with MCP docs for premium)
       const generatedPrompt = this.buildCombinedPrompt(output, sdkConfig);
-
-      // Step 6: Compute dependency hash for cache validation
       const baseHash =
         await this.cacheService.computeDependencyHash(workspacePath);
       const configHash = baseHash
         ? `${baseHash}:pt${PTAH_CORE_SYSTEM_PROMPT_TOKENS}`
         : null;
-
-      // Step 7: Update state
       const newState: EnhancedPromptsState = {
         enabled: true,
         generatedAt: new Date().toISOString(),
@@ -472,8 +445,6 @@ export class EnhancedPromptsService {
       };
 
       await this.stateStore.save(workspacePath, newState);
-
-      // Step 8: Cache the output
       if (configHash) {
         await this.cacheService.set(workspacePath, configHash, output);
       }
@@ -483,8 +454,6 @@ export class EnhancedPromptsService {
         message: 'Enhanced Prompts setup complete!',
         progress: 1.0,
       });
-
-      // Step 9: Build summary for frontend display (no actual content exposed)
       const summary = this.buildSummary(output);
 
       this.logger.info(
@@ -548,8 +517,6 @@ export class EnhancedPromptsService {
     onProgress?: (progress: PromptGenerationProgress) => void,
     sdkConfig?: EnhancedPromptsSdkConfig,
   ): Promise<RegeneratePromptsResponse> {
-    // Require existing multi-phase analysis — never fall back to lightweight analysis.
-    // The user must run the setup wizard first to produce analysis data.
     let analysisDir: string | undefined;
     if (this.analysisReader) {
       const analysis =
@@ -570,13 +537,9 @@ export class EnhancedPromptsService {
           'No existing workspace analysis found. Please run the Setup Wizard first to analyze your workspace, then regenerate.',
       };
     }
-
-    // Invalidate existing cache if forcing
     if (request?.force) {
       await this.cacheService.invalidate(workspacePath, 'manual');
     }
-
-    // Run wizard with explicit analysis directory for enrichment
     const result = await this.runWizard(
       workspacePath,
       request?.config,
@@ -618,18 +581,12 @@ export class EnhancedPromptsService {
     workspacePath: string,
   ): Promise<string | null> {
     const state = await this.stateStore.load(workspacePath);
-
-    // Return null if not enabled
     if (!state.enabled) {
       return null;
     }
-
-    // Return cached prompt if available
     if (state.generatedPrompt) {
       return state.generatedPrompt;
     }
-
-    // No prompt available - return null so the caller can decide what to do
     this.logger.info(
       'Enhanced prompts enabled but no generated prompt available. Run the setup wizard to generate enhanced prompts.',
       { workspacePath },
@@ -686,8 +643,6 @@ export class EnhancedPromptsService {
   ): Promise<string | null> {
     const state = await this.stateStore.load(workspacePath);
     if (!state.enabled || !state.generatedPrompt) return null;
-
-    // Extract project-specific guidance (after the marker)
     const marker = '## Project-Specific Guidance';
     const idx = state.generatedPrompt.indexOf(marker);
     if (idx === -1) return null;
@@ -701,10 +656,6 @@ export class EnhancedPromptsService {
   isGeneratingPrompt(): boolean {
     return this.isGenerating;
   }
-
-  // ==========================================================================
-  // Private — SDK-based Guidance Generation
-  // ==========================================================================
 
   /**
    * Generate guidance using InternalQueryService (Agent SDK).
@@ -723,21 +674,16 @@ export class EnhancedPromptsService {
     onProgress?: (progress: PromptGenerationProgress) => void,
   ): Promise<PromptDesignerOutput | null> {
     const isPremium = sdkConfig?.isPremium ?? false;
-    // Disable MCP for enhanced prompts generation — the LLM should generate
-    // guidance from the provided analysis data, not re-explore the workspace.
     const mcpServerRunning = false;
     const mcpPort = undefined;
 
     try {
-      // 1. Build prompts + schema via PromptDesignerAgent
       const {
         systemPrompt: baseSystemPrompt,
         userPrompt,
         outputSchema,
         qualityAssessment,
       } = await this.promptDesignerAgent.buildPrompts(input);
-
-      // Enrich system prompt with plugin skill context when available
       let systemPrompt = baseSystemPrompt;
       if (sdkConfig?.pluginPaths && sdkConfig.pluginPaths.length > 0) {
         const skills = discoverPluginSkills(sdkConfig.pluginPaths);
@@ -753,15 +699,8 @@ export class EnhancedPromptsService {
         message: 'Calling AI agent for guidance generation...',
         progress: 40,
       });
-
-      // 2. Resolve model: frontend override > typed repository > fallback.
-      // selectedModel is set by SdkAgentAdapter.initialize() from the SDK's
-      // supportedModels() API. InternalQueryService resolves bare tier names
-      // ('opus', 'sonnet', 'haiku', 'default') to full model IDs before use.
       const configModel = this.modelSettings.selectedModel.get();
       const model = sdkConfig?.model || configModel || 'default';
-
-      // 3. Execute SDK query with structured output
       const abortController = new AbortController();
       const handle = await this.internalQueryService.execute({
         cwd: workspacePath,
@@ -781,7 +720,6 @@ export class EnhancedPromptsService {
       });
 
       try {
-        // 4. Process stream and extract structured output
         const structuredOutput = await this.processPromptDesignerStream(
           handle.stream,
           abortController,
@@ -789,14 +727,12 @@ export class EnhancedPromptsService {
         );
 
         if (structuredOutput) {
-          // 5. Parse and validate via PromptDesignerAgent
           const output = await this.promptDesignerAgent.parseAndValidateOutput(
             structuredOutput,
             onProgress,
           );
 
           if (output) {
-            // Enhance with quality data if available
             if (qualityAssessment) {
               output.qualityScore = qualityAssessment.score;
               output.qualityAssessment = qualityAssessment;
@@ -804,8 +740,6 @@ export class EnhancedPromptsService {
             return output;
           }
         }
-
-        // Structured output not available — use fallback
         this.logger.warn(
           `${SERVICE_TAG} SDK query completed but no structured output, using fallback`,
         );
@@ -825,8 +759,6 @@ export class EnhancedPromptsService {
             : undefined,
       });
     }
-
-    // Fallback to template-based guidance
     onProgress?.({
       status: 'fallback',
       message: 'Using template-based guidance',
@@ -881,10 +813,6 @@ export class EnhancedPromptsService {
     }
   }
 
-  // ==========================================================================
-  // Private — Multi-Phase Analysis Enrichment
-  // ==========================================================================
-
   /**
    * Enrich PromptDesignerInput with multi-phase analysis data when available.
    *
@@ -920,8 +848,6 @@ export class EnhancedPromptsService {
       };
 
       if (explicitAnalysisDir) {
-        // Use the explicit analysis directory from the wizard flow
-        // Read the manifest to get phase file names
         const manifestContent = await this.analysisReader.readPhaseFile(
           explicitAnalysisDir,
           'manifest.json',
@@ -936,7 +862,6 @@ export class EnhancedPromptsService {
         slugDir = explicitAnalysisDir;
         manifest = JSON.parse(manifestContent);
       } else {
-        // Auto-discover latest analysis
         const multiPhase =
           await this.analysisReader.findLatestMultiPhaseAnalysis(workspacePath);
         if (!multiPhase) {
@@ -945,9 +870,6 @@ export class EnhancedPromptsService {
         slugDir = multiPhase.slugDir;
         manifest = multiPhase.manifest;
       }
-
-      // Read all 4 LLM-generated phase files for comprehensive context
-      // Keys match MultiPhaseId values used in the manifest
       const phaseFiles = [
         { key: 'project-profile', label: 'Project Profile', limit: 8_000 },
         {
@@ -1003,19 +925,11 @@ export class EnhancedPromptsService {
         );
       }
     } catch (error) {
-      // Non-critical: log and continue without multi-phase data
       this.logger.warn(`${SERVICE_TAG} Failed to read multi-phase analysis`, {
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
-
-  // State management (loadState/saveState/getStorageKey) moved to
-  // ./enhanced-prompts-state-store.ts.
-
-  // ==========================================================================
-  // Private — Stack Detection & Input Building
-  // ==========================================================================
 
   /**
    * Build DetectedStack from pre-computed PromptDesignerInput.
@@ -1031,8 +945,6 @@ export class EnhancedPromptsService {
     if (input.framework) {
       frameworks.push(input.framework);
     }
-
-    // Pattern-match dependencies for build tools
     const buildToolPatterns = [
       'webpack',
       'vite',
@@ -1052,8 +964,6 @@ export class EnhancedPromptsService {
     const buildTools = allDeps
       .filter((dep) => buildToolPatterns.some((p) => dep.includes(p)))
       .slice(0, 10);
-
-    // Add monorepo type as a build tool
     if (
       input.isMonorepo &&
       input.monorepoType &&
@@ -1061,8 +971,6 @@ export class EnhancedPromptsService {
     ) {
       buildTools.unshift(input.monorepoType);
     }
-
-    // Pattern-match dev dependencies for testing frameworks
     const testPatterns = [
       'jest',
       'vitest',
@@ -1079,8 +987,6 @@ export class EnhancedPromptsService {
     const testingFrameworks = input.devDependencies
       .filter((dep) => testPatterns.some((p) => dep.includes(p)))
       .slice(0, 10);
-
-    // Remaining deps as additional tools (excluding already-categorized ones)
     const categorized = new Set([...buildTools, ...testingFrameworks]);
     const additionalTools = allDeps
       .filter(
@@ -1111,28 +1017,18 @@ export class EnhancedPromptsService {
    * extract additional info from dependency names dynamically.
    */
   private buildDetectedStack(analysis: WorkspaceAnalysisResult): DetectedStack {
-    // Use the analyzer's detected framework as primary
     const frameworks: string[] = [];
     if (analysis.framework) {
       frameworks.push(analysis.framework);
     }
-
-    // Build tools from monorepo type
     const buildTools: string[] = [];
     if (analysis.isMonorepo && analysis.monorepoType) {
       buildTools.push(analysis.monorepoType);
     }
-
-    // Pass through all dependencies — the LLM will determine what's relevant
-    // We just categorize broadly for UI display purposes
     const allDeps = [...analysis.dependencies, ...analysis.devDependencies];
-
-    // Use dependency names directly as discovered tools (no regex matching)
-    // The LLM prompt receives the full dependency list for intelligent analysis
     const additionalTools = allDeps
       .filter(
         (dep) =>
-          // Filter out internal/scoped packages that are just noise for display
           !dep.startsWith('@types/') && !dep.startsWith('.'),
       )
       .slice(0, 15); // Limit for display purposes
@@ -1232,13 +1128,6 @@ export class EnhancedPromptsService {
     _sdkConfig?: EnhancedPromptsSdkConfig,
   ): string {
     const sections: string[] = [];
-
-    // Note: PTAH_CORE_SYSTEM_PROMPT is NOT included here.
-    // assembleSystemPrompt() in sdk-query-options-builder.ts handles adding the
-    // core prompt as the base. This method only produces the project-specific
-    // guidance that gets appended as a top-up.
-
-    // Project-specific context (the premium value)
     sections.push('## Project-Specific Guidance\n');
 
     if (output.projectContext) {

@@ -32,7 +32,6 @@ export function migrateSkillMdFiles(
   try {
     files = findSkillMdFiles(skillsDir);
   } catch (err) {
-    // Directory doesn't exist or isn't readable — not an error at startup.
     logger.debug(
       '[skill-synthesis] migrateSkillMdFiles: dir not found or empty',
       {
@@ -46,8 +45,6 @@ export function migrateSkillMdFiles(
   for (const filePath of files) {
     try {
       const content = fs.readFileSync(filePath, 'utf8');
-
-      // Idempotent check — skip if already has when_to_use.
       if (/^when_to_use:/m.test(content)) {
         result.skipped++;
         continue;
@@ -55,7 +52,6 @@ export function migrateSkillMdFiles(
 
       const rewritten = addWhenToUseFrontmatter(content);
       if (rewritten === null) {
-        // Could not parse frontmatter — skip safely.
         result.skipped++;
         continue;
       }
@@ -91,7 +87,6 @@ function findSkillMdFiles(dir: string): string[] {
       try {
         results.push(...findSkillMdFiles(fullPath));
       } catch {
-        // Permission error or broken symlink — skip.
       }
     } else if (entry.isFile() && entry.name === 'SKILL.md') {
       results.push(fullPath);
@@ -109,7 +104,6 @@ function findSkillMdFiles(dir: string): string[] {
  * If the extracted value is empty, the field is omitted entirely.
  */
 function addWhenToUseFrontmatter(content: string): string | null {
-  // Match the YAML frontmatter block.
   const fmMatch = /^---\n([\s\S]*?)\n---\s*\n([\s\S]*)$/.exec(content);
   if (!fmMatch) return null;
 
@@ -117,13 +111,9 @@ function addWhenToUseFrontmatter(content: string): string | null {
   const body = fmMatch[2];
 
   const whenToUse = extractWhenToUse(body);
-
-  // Skip the field entirely when there is nothing to inject.
   if (!whenToUse) {
     return null; // caller will count as skipped
   }
-
-  // Escape for YAML double-quoted scalar: backslash then double-quote.
   const escaped = whenToUse.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const newFrontmatter = `${frontmatter}\nwhen_to_use: "${escaped}"`;
 

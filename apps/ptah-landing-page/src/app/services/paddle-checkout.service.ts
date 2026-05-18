@@ -73,11 +73,7 @@ export class PaddleCheckoutService {
     this.paddleConfig.licenseVerifyRetries ?? 3;
   private readonly LICENSE_VERIFY_DELAY =
     this.paddleConfig.licenseVerifyDelay ?? 2000;
-
-  // Paddle instance from npm package
   private paddleInstance: Paddle | null = null;
-
-  // Reactive state signals
   private readonly _isReady = signal(false);
   private readonly _isLoading = signal(false);
   private readonly _error = signal<string | null>(null);
@@ -87,8 +83,6 @@ export class PaddleCheckoutService {
   private readonly _isValidating = signal(false);
   private readonly _validationError = signal<string | null>(null);
   private readonly _customerPortalUrl = signal<string | null>(null);
-
-  // Public readonly signals
   public readonly isReady = this._isReady.asReadonly();
   public readonly isLoading = this._isLoading.asReadonly();
   public readonly error = this._error.asReadonly();
@@ -98,8 +92,6 @@ export class PaddleCheckoutService {
   public readonly isValidating = this._isValidating.asReadonly();
   public readonly validationError = this._validationError.asReadonly();
   public readonly customerPortalUrl = this._customerPortalUrl.asReadonly();
-
-  // Computed: Can checkout if ready and not loading
   public readonly canCheckout = computed(
     () => this._isReady() && !this._isLoading(),
   );
@@ -119,7 +111,6 @@ export class PaddleCheckoutService {
    * Guards against concurrent initialization calls.
    */
   public initialize(): Promise<void> {
-    // Return existing promise if initialization already in progress
     if (this.initPromise) {
       return this.initPromise;
     }
@@ -127,19 +118,13 @@ export class PaddleCheckoutService {
     if (this._isReady()) {
       return Promise.resolve();
     }
-
-    // Validate configuration before initialization
     if (!this.validateConfig()) {
       return Promise.reject(new Error('Invalid Paddle configuration'));
     }
 
     this._isLoading.set(true);
     this._error.set(null);
-
-    // Create and store initialization promise
     this.initPromise = this.initializePaddleWithRetry();
-
-    // Clear promise when complete (success or failure)
     this.initPromise
       .then(() => {
         this.initPromise = null;
@@ -234,7 +219,6 @@ export class PaddleCheckoutService {
       this._isValidating.set(false);
 
       if (!response.canCheckout) {
-        // User has an existing subscription - show error with portal link
         const errorMessage =
           response.message ||
           `You already have an active ${
@@ -255,9 +239,6 @@ export class PaddleCheckoutService {
       return true;
     } catch (error) {
       this._isValidating.set(false);
-
-      // If validation API fails, log but allow checkout to proceed
-      // (fail-open approach - don't block checkout on validation API issues)
       console.error(
         '[Paddle] Checkout validation failed, proceeding anyway:',
         error,
@@ -301,55 +282,33 @@ export class PaddleCheckoutService {
       this._error.set('Paddle SDK not ready. Please try again.');
       return;
     }
-
-    // Prevent duplicate checkout if already open
     if (this._isCheckoutOpen()) {
       return;
     }
-
-    // Step 1: Validate checkout before opening overlay
     const canProceed = await this.validateCheckoutBeforeOpen(options.priceId);
 
     if (!canProceed) {
-      // Validation failed - error state already set by validateCheckoutBeforeOpen
-      // Do NOT open Paddle overlay
       return;
     }
-
-    // Step 2: Fetch checkout info to get existing Paddle customer ID
     const checkoutInfo = await this.fetchCheckoutInfo();
-
-    // Store onComplete callback if provided
     this._onCompleteCallback = options.onComplete || null;
-
-    // Step 3: Proceed with opening checkout
     this._isLoading.set(true);
     this._isCheckoutOpen.set(true);
-
-    // Set 5-minute timeout to prevent stuck checkout
     this.checkoutTimeoutId = setTimeout(() => {
       this._error.set(
         'Checkout timed out after 5 minutes of inactivity. Please try again.',
       );
       this.closeCheckout();
     }, this.CHECKOUT_TIMEOUT);
-
-    // Build customer object - prefer ID over email to reuse existing customer
     let customerConfig: { id: string } | { email: string } | undefined;
 
     if (checkoutInfo?.paddleCustomerId) {
-      // Use existing Paddle customer ID (prevents duplicate customers)
       customerConfig = { id: checkoutInfo.paddleCustomerId };
     } else if (checkoutInfo?.email) {
-      // Fall back to email from checkout info
       customerConfig = { email: checkoutInfo.email };
     } else if (options.customerEmail) {
-      // Last resort: use provided email
       customerConfig = { email: options.customerEmail };
     }
-
-    // Paddle requires a successUrl on the underlying transaction even in overlay mode.
-    // Use the provided URL, or fall back to the profile page on the current origin.
     const successUrl =
       options.successUrl ?? `${window.location.origin}/profile`;
 
@@ -364,8 +323,6 @@ export class PaddleCheckoutService {
         successUrl,
       },
     };
-
-    // Debug: log checkout options in development
     if (
       !this.paddleConfig.environment ||
       this.paddleConfig.environment === 'sandbox'
@@ -425,22 +382,16 @@ export class PaddleCheckoutService {
   private validateConfig(): boolean {
     const { environment, token, proPriceIdMonthly, proPriceIdYearly } =
       this.paddleConfig;
-
-    // Check environment is valid
     if (environment !== 'sandbox' && environment !== 'production') {
       this._error.set('Invalid Paddle environment configuration');
       return false;
     }
-
-    // Check token is configured and matches environment
     if (!token || token.includes('REPLACE')) {
       this._error.set(
         'Paddle client-side token not configured. Please check environment configuration.',
       );
       return false;
     }
-
-    // Validate token prefix matches environment
     const expectedPrefix = environment === 'sandbox' ? 'test_' : 'live_';
     if (!token.startsWith(expectedPrefix)) {
       this._error.set(
@@ -448,8 +399,6 @@ export class PaddleCheckoutService {
       );
       return false;
     }
-
-    // Check for placeholder price IDs
     const placeholderPatterns = [
       'REPLACE',
       'xxxxxxxxx',
@@ -463,8 +412,6 @@ export class PaddleCheckoutService {
         (pattern) =>
           !priceId || priceId.toLowerCase().includes(pattern.toLowerCase()),
       );
-
-    // TASK_2025_128: Only Pro plan price IDs (Community is free, no Paddle)
     const hasPlaceholders =
       isPlaceholder(proPriceIdMonthly) || isPlaceholder(proPriceIdYearly);
 
@@ -501,7 +448,6 @@ export class PaddleCheckoutService {
         this.initAttempts++;
 
         if (attempt < maxRetries) {
-          // Calculate exponential backoff delay
           const delay = baseDelay * Math.pow(2, attempt);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
@@ -554,14 +500,10 @@ export class PaddleCheckoutService {
         this.clearCheckoutTimeout();
         this._isLoading.set(false);
         this._isCheckoutOpen.set(false);
-
-        // Close the Paddle overlay after a brief delay to show success message
         setTimeout(() => {
           if (this.paddleInstance) {
             this.paddleInstance.Checkout.close();
           }
-
-          // If a custom onComplete callback was provided, use it instead of default flow
           if (this._onCompleteCallback) {
             const transactionId = (event.data as { transaction_id?: string })
               ?.transaction_id;
@@ -569,15 +511,10 @@ export class PaddleCheckoutService {
             this._onCompleteCallback = null;
             return;
           }
-
-          // Default: Verify license activation with backend before navigation
           this.verifyLicenseActivation().then((isActive) => {
             if (isActive) {
-              // Navigate to profile page after successful verification
               this.router.navigate(['/profile']);
             } else {
-              // License might not be ready yet (webhook delay) - navigate anyway
-              // The profile page will show trial/pending status
               console.log(
                 '[Paddle] License not yet active, navigating to profile anyway',
               );
@@ -591,14 +528,12 @@ export class PaddleCheckoutService {
         this.clearCheckoutTimeout();
         this._isLoading.set(false);
         this._isCheckoutOpen.set(false);
-        // User closed checkout - no action needed
         break;
 
       case 'checkout.error':
         this.clearCheckoutTimeout();
         this._isLoading.set(false);
         this._isCheckoutOpen.set(false);
-        // Paddle handles error display in overlay
         break;
     }
   }

@@ -505,16 +505,12 @@ import type {
 })
 export class AgentOrchestrationConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
-
-  // Lucide icons
   readonly TerminalIcon = Terminal;
   readonly RefreshCwIcon = RefreshCw;
   readonly ChevronRightIcon = ChevronRight;
   readonly ArrowUpIcon = ArrowUp;
   readonly ArrowDownIcon = ArrowDown;
   readonly GripVerticalIcon = GripVertical;
-
-  // Reasoning effort options for Codex/Copilot
   readonly reasoningEffortOptions = [
     { value: '', label: 'Default' },
     { value: 'minimal', label: 'Minimal' },
@@ -523,17 +519,11 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     { value: 'high', label: 'High' },
     { value: 'xhigh', label: 'Extra High' },
   ];
-
-  // State signals
   readonly agentConfig = signal<AgentOrchestrationConfig | null>(null);
   readonly agentConfigLoading = signal(false);
   readonly agentConfigError = signal<string | null>(null);
   readonly isDetectingClis = signal(false);
-
-  // Accordion state — all collapsed by default
   readonly expandedClis = signal<Set<string>>(new Set());
-
-  // CLI model lists
   readonly geminiModels = signal<CliModelOption[]>([]);
   readonly codexModels = signal<CliModelOption[]>([]);
   readonly copilotModels = signal<CliModelOption[]>([]);
@@ -559,8 +549,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     if (!config) return [];
 
     const disabledClis = new Set(config.disabledClis ?? []);
-
-    // Build list of all installed agents (including disabled ones)
     const agents: {
       id: string;
       name: string;
@@ -579,8 +567,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         disabled: isDisabled,
       });
     }
-
-    // Sort by preferred order
     const preferred = config.preferredAgentOrder ?? [];
     if (preferred.length === 0) return agents;
 
@@ -627,7 +613,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         this.copilotModels.set(result.data.copilot);
       }
     } catch {
-      // Non-fatal: dropdowns will just be empty
     }
   }
 

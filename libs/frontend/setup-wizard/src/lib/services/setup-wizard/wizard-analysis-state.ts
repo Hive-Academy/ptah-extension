@@ -42,8 +42,6 @@ export class WizardAnalysisState {
    */
   public setRecommendations(recommendations: AgentRecommendation[]): void {
     this.state.recommendations.set(recommendations);
-
-    // Auto-select agents with score >= 80 (highly recommended)
     const autoSelected: Record<string, boolean> = {};
     for (const rec of recommendations) {
       autoSelected[rec.agentId] = rec.relevanceScore >= 80;
@@ -127,10 +125,6 @@ export class WizardAnalysisState {
   public loadSavedAnalysis(multiPhase: MultiPhaseAnalysisResponse): void {
     this.state.multiPhaseResult.set(multiPhase);
     this.state.analysisLoadedFromHistory.set(true);
-
-    // Set projectContext from slug for backward compatibility.
-    // Cross-helper write: projectContext is owned by WizardScanState but
-    // shared via the WizardInternalState handle (signal identity preserved).
     const projectType = multiPhase.manifest.slug
       .replace(/-/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase());

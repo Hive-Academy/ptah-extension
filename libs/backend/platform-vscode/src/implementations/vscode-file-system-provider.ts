@@ -123,8 +123,6 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
     maxResults?: number,
     _cwd?: string,
   ): Promise<string[]> {
-    // cwd is intentionally ignored: VS Code findFiles operates on the open workspace folders.
-    // VS Code findFiles requires a single GlobPattern; convert array to {a,b,c} brace expansion.
     let excludeGlob: string | undefined;
     if (exclude && exclude.length > 0) {
       excludeGlob =

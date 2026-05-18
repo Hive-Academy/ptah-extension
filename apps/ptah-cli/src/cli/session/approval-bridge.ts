@@ -102,9 +102,6 @@ export class ApprovalBridge {
   private readonly pending = new Map<string, PendingApproval>();
   private readonly timeoutMs: number;
   private readonly exitFn: (code: number) => never;
-
-  // Bound handler references — kept on the instance so `detach()` can
-  // `.off()` exactly the same function reference that `attach()` registered.
   private readonly onPermissionRequest = (payload: unknown): void => {
     void this.handlePermissionRequest(payload);
   };
@@ -167,17 +164,10 @@ export class ApprovalBridge {
     this.pending.clear();
   }
 
-  // ------------------------------------------------------------------
-  // Permission round-trip
-  // ------------------------------------------------------------------
-
   private async handlePermissionRequest(payload: unknown): Promise<void> {
     if (!isPermissionRequest(payload)) {
       return;
     }
-
-    // PTAH_AUTO_APPROVE short-circuits BEFORE any JSON-RPC traffic. Read per
-    // request so the user can flip the flag between turns.
     if (process.env['PTAH_AUTO_APPROVE'] === 'true') {
       const autoResponse: PermissionResponse = {
         id: payload.id,
@@ -234,19 +224,12 @@ export class ApprovalBridge {
     this.exitFn(ExitCode.AuthRequired);
   }
 
-  // ------------------------------------------------------------------
-  // Question round-trip (mirror of permission)
-  // ------------------------------------------------------------------
-
   private async handleQuestionRequest(payload: unknown): Promise<void> {
     if (!isQuestionRequest(payload)) {
       return;
     }
 
     if (process.env['PTAH_AUTO_APPROVE'] === 'true') {
-      // No defensible auto-answer for arbitrary user questions — the only
-      // safe move is empty-answers, which the SDK side treats as user-cancel.
-      // We MUST still call `handleQuestionResponse` to unblock the SDK.
       this.permissionHandler.handleQuestionResponse({
         id: payload.id,
         answers: {},
@@ -298,11 +281,6 @@ export class ApprovalBridge {
     this.exitFn(ExitCode.AuthRequired);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Payload guards — narrow `unknown` push-adapter / JSON-RPC params onto typed
-// views. Reject malformed shapes silently (consistent with B9c discipline).
-// ---------------------------------------------------------------------------
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -131,13 +131,8 @@ export class CliSkillManifestTracker {
         const skillsDir = join(pluginPath, 'skills');
         await this.collectFileEntries(skillsDir, pluginPath, entries);
       } catch {
-        // Plugin path doesn't exist or not accessible, skip
       }
     }
-
-    // SHA-256 hash for collision resistance
-    // Include pipeline version so code-level changes to copy/transform
-    // logic (e.g., rewriteSkillName) invalidate the hash and force re-sync
     return createHash('sha256')
       .update(`v${SYNC_PIPELINE_VERSION}|${entries.join('|')}`)
       .digest('hex')
@@ -164,7 +159,6 @@ export class CliSkillManifestTracker {
     for (const entry of dirEntries.sort()) {
       const fullPath = join(dirPath, entry);
       try {
-        // Use lstat() to detect symlinks without following them
         const fileStat = await lstat(fullPath);
 
         if (fileStat.isSymbolicLink()) {
@@ -174,12 +168,10 @@ export class CliSkillManifestTracker {
         if (fileStat.isDirectory()) {
           await this.collectFileEntries(fullPath, pluginRoot, entries);
         } else if (fileStat.isFile()) {
-          // Use relative path + size (no mtime) for stable hashing
           const relPath = relative(pluginRoot, fullPath);
           entries.push(`${relPath}:${fileStat.size}`);
         }
       } catch {
-        // Skip inaccessible entries
       }
     }
   }

@@ -387,8 +387,6 @@ export class ChatEmptyStateComponent {
   /** Set the active tab and check skills configuration if switching to setup */
   protected setActiveTab(tab: 'skills' | 'setup'): void {
     this.activeTab.set(tab);
-
-    // Check if skills are configured when switching to setup tab
     if (tab === 'setup' && this.isPremium()) {
       this.checkSkillsConfiguration();
     }
@@ -403,7 +401,6 @@ export class ChatEmptyStateComponent {
         this.hasConfiguredSkills.set(hasEnabled);
       }
     } catch {
-      // Silently fail - warning won't show if we can't determine
       this.hasConfiguredSkills.set(true);
     }
   }
@@ -423,9 +420,7 @@ export class ChatEmptyStateComponent {
   protected onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
     this.pluginWidget?.fetchPluginStatus();
-    // Update skills configuration status
     this.hasConfiguredSkills.set(_enabledIds.length > 0);
-    // Invalidate slash command cache so plugin commands are re-fetched
     this.commandDiscovery.clearCache();
   }
 }

@@ -12,10 +12,6 @@ import {
 import { AstAnalysisService } from './ast-analysis.service';
 import { FileSystemService } from '../services/file-system.service';
 
-// ---------------------------------------------------------------------------
-// Public data structures
-// ---------------------------------------------------------------------------
-
 /** A node in the dependency graph representing a single file */
 export interface FileNode {
   /** Absolute file path */
@@ -47,10 +43,6 @@ export interface DependencyGraph {
 /** Map of file path to its exported symbols, used by relevance scorer */
 export type SymbolIndex = Map<string, ExportInfo[]>;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 /** Extensions to try when resolving relative imports (in order) */
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 
@@ -59,10 +51,6 @@ const INDEX_FILES = ['index.ts', 'index.js'];
 
 /** Maximum transitive depth allowed for getDependencies */
 const MAX_DEPTH = 3;
-
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
 
 /**
  * Dependency Graph Service
@@ -114,11 +102,7 @@ export class DependencyGraphService {
     const edges = new Map<string, Set<string>>();
     const reverseEdges = new Map<string, Set<string>>();
     let unresolvedCount = 0;
-
-    // Normalize workspace root to use forward slashes for consistent path handling
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
-
-    // Phase 1: Parse all files and build nodes (bounded parallelism, chunks of 20)
     const CHUNK_SIZE = 20;
 
     const processFile = async (filePath: string): Promise<void> => {
@@ -176,11 +160,7 @@ export class DependencyGraphService {
       const chunk = filePaths.slice(i, i + CHUNK_SIZE);
       await Promise.allSettled(chunk.map(processFile));
     }
-
-    // Build a set of known file paths for fast lookup during resolution
     const knownFiles = new Set(nodes.keys());
-
-    // Phase 2: Resolve imports and build edges
     for (const [filePath, node] of nodes) {
       const fileEdges = new Set<string>();
 
@@ -195,8 +175,6 @@ export class DependencyGraphService {
 
         if (resolvedPath) {
           fileEdges.add(resolvedPath);
-
-          // Build reverse edge
           if (!reverseEdges.has(resolvedPath)) {
             reverseEdges.set(resolvedPath, new Set());
           }
@@ -254,8 +232,6 @@ export class DependencyGraphService {
       const directEdges = this.graph.edges.get(normalizedPath);
       return directEdges ? Array.from(directEdges) : [];
     }
-
-    // Transitive traversal with cycle detection
     const result: string[] = [];
     const visited = new Set<string>();
     visited.add(normalizedPath); // Mark origin as visited to prevent self-cycles
@@ -319,11 +295,8 @@ export class DependencyGraphService {
     }
 
     const normalizedPath = filePath.replace(/\\/g, '/');
-
-    // Remove forward edges from this file
     const forwardDeps = this.graph.edges.get(normalizedPath);
     if (forwardDeps) {
-      // Remove this file from reverse edges of its dependencies
       for (const dep of forwardDeps) {
         const reverseDeps = this.graph.reverseEdges.get(dep);
         if (reverseDeps) {
@@ -335,11 +308,8 @@ export class DependencyGraphService {
       }
       this.graph.edges.delete(normalizedPath);
     }
-
-    // Remove reverse edges pointing to this file
     const reverseDeps = this.graph.reverseEdges.get(normalizedPath);
     if (reverseDeps) {
-      // Remove this file from forward edges of its dependents
       for (const dependent of reverseDeps) {
         const fwdDeps = this.graph.edges.get(dependent);
         if (fwdDeps) {
@@ -348,11 +318,7 @@ export class DependencyGraphService {
       }
       this.graph.reverseEdges.delete(normalizedPath);
     }
-
-    // Remove the node itself
     this.graph.nodes.delete(normalizedPath);
-
-    // Invalidate cached symbol index
     this.symbolIndex = null;
 
     this.logger.debug(
@@ -366,10 +332,6 @@ export class DependencyGraphService {
   isBuilt(): boolean {
     return this.graph !== null;
   }
-
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
 
   /**
    * Recursively collect transitive dependencies with cycle detection.
@@ -396,8 +358,6 @@ export class DependencyGraphService {
 
       visited.add(dep);
       result.push(dep);
-
-      // Recurse for transitive dependencies
       if (remainingDepth > 1) {
         this.collectDependencies(dep, remainingDepth - 1, visited, result);
       }
@@ -416,7 +376,6 @@ export class DependencyGraphService {
     knownFiles: Set<string>,
     tsconfigPaths?: Record<string, string[]>,
   ): string | null {
-    // Case 1: Relative imports
     if (importSource.startsWith('.')) {
       return this.resolveRelativeImport(
         importSource,
@@ -424,8 +383,6 @@ export class DependencyGraphService {
         knownFiles,
       );
     }
-
-    // Case 2: tsconfig path aliases
     if (tsconfigPaths) {
       const resolved = this.resolveTsconfigPath(
         importSource,
@@ -437,8 +394,6 @@ export class DependencyGraphService {
         return resolved;
       }
     }
-
-    // Case 3: External package -- unresolved
     return null;
   }
 
@@ -452,30 +407,21 @@ export class DependencyGraphService {
   ): string | null {
     const importDir = path.dirname(importingFilePath);
     const basePath = path.resolve(importDir, importSource).replace(/\\/g, '/');
-
-    // Try exact path first (already has extension)
     if (knownFiles.has(basePath)) {
       return basePath;
     }
-
-    // Try adding extensions
     for (const ext of RESOLVE_EXTENSIONS) {
       const withExt = basePath + ext;
       if (knownFiles.has(withExt)) {
         return withExt;
       }
     }
-
-    // Try as directory with index file
     for (const indexFile of INDEX_FILES) {
       const indexPath = basePath + '/' + indexFile;
       if (knownFiles.has(indexPath)) {
         return indexPath;
       }
     }
-
-    // If not found in knownFiles, mark as unresolved rather than hitting the filesystem.
-    // Files not in knownFiles were not included in the build scope.
     return null;
   }
 
@@ -493,29 +439,20 @@ export class DependencyGraphService {
       if (match === null) {
         continue;
       }
-
-      // Try each mapping path
       for (const mappingPath of mappings) {
-        // Replace the wildcard with the captured portion
         const resolvedMapping = mappingPath.replace('*', match);
         const absolutePath = path
           .resolve(workspaceRoot, resolvedMapping)
           .replace(/\\/g, '/');
-
-        // Try exact path
         if (knownFiles.has(absolutePath)) {
           return absolutePath;
         }
-
-        // Try with extensions
         for (const ext of RESOLVE_EXTENSIONS) {
           const withExt = absolutePath + ext;
           if (knownFiles.has(withExt)) {
             return withExt;
           }
         }
-
-        // Try as directory with index file
         for (const indexFile of INDEX_FILES) {
           const indexPath = absolutePath + '/' + indexFile;
           if (knownFiles.has(indexPath)) {
@@ -543,7 +480,6 @@ export class DependencyGraphService {
     const wildcardIndex = pattern.indexOf('*');
 
     if (wildcardIndex === -1) {
-      // Exact match pattern (no wildcard)
       return importSource === pattern ? '' : null;
     }
 
@@ -557,8 +493,6 @@ export class DependencyGraphService {
     if (suffix && !importSource.endsWith(suffix)) {
       return null;
     }
-
-    // Extract the captured portion between prefix and suffix
     const captured = importSource.substring(
       prefix.length,
       importSource.length - suffix.length,

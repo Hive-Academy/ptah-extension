@@ -84,7 +84,6 @@ export class WizardMessageDispatcher {
       }
 
       try {
-        // Type-safe switch with exhaustive checking via discriminated union
         switch (message.type) {
           case 'setup-wizard:scan-progress':
             this.handlers.handleScanProgress(message.payload);
@@ -158,6 +157,4 @@ export class WizardMessageDispatcher {
     );
   }
 }
-
-// Re-export small helper for coordinator convenience
 export type { AnalysisResults, CompletionData };

@@ -7,7 +7,6 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../coverage/libs/shared',
-  // Rounded down to the nearest 5 so minor variation doesn't flake CI.
   coverageThreshold: {
     global: {
       statements: 85,

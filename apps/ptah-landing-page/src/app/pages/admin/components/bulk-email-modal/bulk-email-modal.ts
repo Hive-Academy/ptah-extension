@@ -44,8 +44,6 @@ export class BulkEmailModal {
   /** Emitted after a successful bulk-email call with the server response. */
   public readonly submitted = output<AdminBulkEmailResponse>();
 
-  // --- Form state ----------------------------------------------------------
-
   protected readonly mode = signal<'explicit-users' | 'segment'>(
     'explicit-users',
   );
@@ -72,8 +70,6 @@ export class BulkEmailModal {
         : this.userIds().length > 0;
 
     if (!hasRecipients) return false;
-
-    // If template selected, we don't need subject/html
     if (this.templateId()) return true;
 
     const subject = this.subject().trim();
@@ -100,8 +96,6 @@ export class BulkEmailModal {
       }
     });
   }
-
-  // --- Event handlers ------------------------------------------------------
 
   protected onSubjectInput(event: Event): void {
     const t = event.target as HTMLInputElement | null;
@@ -142,7 +136,6 @@ export class BulkEmailModal {
       next: (res) => {
         this.sending.set(false);
         this.success.set(true);
-        // Map to legacy response shape for the toast in AdminList
         this.submitted.emit({
           sent: res.recipientCount,
           failed: [],

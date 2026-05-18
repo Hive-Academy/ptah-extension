@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import type { Logger, LicenseStatus } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
@@ -31,9 +31,6 @@ export async function wireRuntimeVscode(
   logger: Logger,
   licenseStatus: LicenseStatus,
 ): Promise<void> {
-  // Plugins and templates are not bundled in the VSIX. ContentDownloadService
-  // downloads them to ~/.ptah/ on first launch and keeps them up-to-date by
-  // comparing the manifest contentHash.
   const contentDownload = DIContainer.resolve<ContentDownloadService>(
     PLATFORM_TOKENS.CONTENT_DOWNLOAD,
   );
@@ -48,23 +45,13 @@ export async function wireRuntimeVscode(
 
   initPluginLoader(contentDownload.getPluginsPath(), logger);
   activateSkillJunctions(contentDownload.getPluginsPath(), logger);
-  // CLI Skill Sync and CLI Agent Sync are driven reactively by the
-  // license:verified / license:expired events wired via bindLicenseReactivity()
-  // in post-init.ts â€” no tier snapshot needed here. licenseStatus is still
-  // accepted by the function signature for caller compatibility but is no
-  // longer used here.
   void licenseStatus;
-  // Pre-fetch model pricing from OpenRouter (non-blocking, no auth needed).
-  // OpenRouter's /api/v1/models endpoint is publicly accessible and returns
-  // pricing data for 200+ models, providing live pricing instead of hardcoded.
   try {
     const providerModels = DIContainer.getContainer().resolve(
       AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS,
     ) as { prefetchPricing: () => Promise<number> };
-    // Fire-and-forget: prefetchPricing handles errors internally
     providerModels.prefetchPricing();
   } catch (prefetchError) {
-    // Synchronous errors from require()/resolve() only
     logger.debug('Pricing pre-fetch setup failed', {
       error:
         prefetchError instanceof Error
@@ -72,8 +59,6 @@ export async function wireRuntimeVscode(
           : String(prefetchError),
     });
   }
-  // Proactive CLI detection (non-blocking, warms cache for agent orchestration).
-  // Detect installed CLI agents (Gemini, Codex) early so settings UI is instant.
   try {
     const cliDetection = DIContainer.getContainer().resolve(
       TOKENS.CLI_DETECTION_SERVICE,
@@ -83,8 +68,6 @@ export async function wireRuntimeVscode(
       >;
       refreshCliTokens: () => Promise<void>;
     };
-    // Fire-and-forget: detectAll caches results internally,
-    // then refresh OAuth tokens (Codex) so model lists work on first use
     cliDetection
       .detectAll()
       .then(async (results) => {
@@ -95,8 +78,6 @@ export async function wireRuntimeVscode(
             clis: installed.map((r) => `${r.cli}@${r.version || 'unknown'}`),
           },
         );
-
-        // Background token refresh for CLIs that use OAuth (Codex)
         if (installed.some((r) => r.cli === 'codex')) {
           try {
             await cliDetection.refreshCliTokens();
@@ -123,7 +104,6 @@ export async function wireRuntimeVscode(
           : String(cliDetectError),
     });
   }
-  // Import existing Claude sessions.
   const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (workspacePath) {
     try {
@@ -145,7 +125,6 @@ export async function wireRuntimeVscode(
       });
     }
   }
-  // Register Settings Export/Import commands.
   try {
     const settingsExportService = DIContainer.getContainer().resolve(
       SDK_TOKENS.SDK_SETTINGS_EXPORT,
@@ -168,10 +147,6 @@ export async function wireRuntimeVscode(
           : String(settingsError),
     });
   }
-
-  // Code symbol indexer cold-start: fire-and-forget workspace index +
-  // onDidSaveTextDocument handler for incremental re-indexing. Non-fatal â€”
-  // SQLite may be unavailable.
   try {
     const sqliteOk =
       DIContainer.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION) &&
@@ -187,7 +162,6 @@ export async function wireRuntimeVscode(
         vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
 
       if (workspaceRoot) {
-        // Fire-and-forget full workspace index â€” must NOT block activation.
         void symbolIndexer.indexWorkspace(workspaceRoot).catch((err) => {
           logger.warn(
             '[wire-runtime] CodeSymbolIndexer.indexWorkspace failed (non-fatal)',
@@ -197,9 +171,6 @@ export async function wireRuntimeVscode(
           );
         });
       }
-
-      // Incremental re-index on file save â€” debounced 500ms to prevent
-      // concurrent delete+insert races on rapid saves.
       const allowedExts = new Set(['.ts', '.tsx', '.js', '.jsx']);
       const reindexDebounce = new Map<string, ReturnType<typeof setTimeout>>();
       const saveWatcher = vscode.workspace.onDidSaveTextDocument((doc) => {
@@ -244,10 +215,4 @@ export async function wireRuntimeVscode(
       },
     );
   }
-
-  // Note: ptah.resetDatabase is intentionally NOT registered in the VS Code
-  // extension host. The persistence-sqlite layer is excluded from VS Code's
-  // RPC registration (see rpc-method-registration.service.ts ELECTRON_ONLY_METHODS),
-  // so the underlying db:reset RPC would always return Method-Not-Found.
-  // Reset Database is an Electron-app-only feature (Help > Database menu).
 }

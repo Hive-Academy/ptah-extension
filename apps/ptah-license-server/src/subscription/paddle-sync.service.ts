@@ -71,13 +71,10 @@ export class PaddleSyncService {
   async findSubscriptionByEmail(
     email: string
   ): Promise<PaddleSubscriptionResult> {
-    // Normalize email to lowercase for consistent lookups
     const normalizedEmail = email.toLowerCase();
     this.logger.debug(
       `Finding Paddle subscription for email: ${normalizedEmail}`
     );
-
-    // Step 1: Find customer by email
     const customerResult = await this.findCustomerByEmail(normalizedEmail);
 
     if (customerResult.status === 'error') {
@@ -88,8 +85,6 @@ export class PaddleSyncService {
       this.logger.debug(`No Paddle customer found for email: ${email}`);
       return { status: 'not_found' };
     }
-
-    // Step 2: Get subscriptions for this customer
     return this.findSubscriptionByCustomerId(customerResult.customerId);
   }
 
@@ -108,8 +103,6 @@ export class PaddleSyncService {
       const collection = this.paddle.subscriptions.list({
         customerId: [customerId],
       });
-
-      // Use timeout wrapper for async iteration
       const timeoutPromise = new Promise<'timeout'>((resolve) =>
         setTimeout(() => resolve('timeout'), this.PADDLE_API_TIMEOUT)
       );
@@ -117,7 +110,6 @@ export class PaddleSyncService {
       const fetchPromise =
         (async (): Promise<PaddleSubscriptionData | null> => {
           for await (const sub of collection) {
-            // Return first subscription found
             return {
               id: sub.id,
               customerId: sub.customerId,

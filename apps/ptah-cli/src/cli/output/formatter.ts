@@ -76,10 +76,6 @@ export class JsonFormatter implements Formatter {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Human-readable formatter
-// ---------------------------------------------------------------------------
-
 /** Minimal ANSI palette — intentionally hand-rolled (no `chalk` dep). */
 const ANSI = {
   reset: '\x1b[0m',
@@ -128,10 +124,6 @@ export class HumanFormatter implements Formatter {
   }
 
   writeNotification(method: string, params?: unknown): Promise<void> {
-    // Pretty-print common status-style notifications as tables — `--human`
-    // mode is intentionally lossy compared to the JSON-RPC NDJSON envelope,
-    // so we render a compact human view rather than dumping JSON. Falls back
-    // to the prefixed JSON line for everything else.
     const pretty = this.prettyPrintForMethod(method, params);
     if (pretty !== null) {
       return this.writer.write(pretty);
@@ -262,8 +254,6 @@ export class HumanFormatter implements Formatter {
     const lines: string[] = [];
     const header = this.color('* doctor.report', 'cyan');
     lines.push(header);
-
-    // 1. License
     const license = (obj['license'] ?? null) as Record<string, unknown> | null;
     if (license) {
       lines.push(this.color('  License', 'bold'));
@@ -282,8 +272,6 @@ export class HumanFormatter implements Formatter {
         lines.push(`    expiryWarning:  ${this.color(warn, warnColor)}`);
       }
     }
-
-    // 2. Auth
     const auth = (obj['auth'] ?? null) as Record<string, unknown> | null;
     if (auth) {
       lines.push(this.color('  Auth', 'bold'));
@@ -294,8 +282,6 @@ export class HumanFormatter implements Formatter {
       lines.push(`    defaultProvider:      ${def}`);
       lines.push(`    anthropicProviderId:  ${anth}`);
     }
-
-    // 3. Providers
     const providers = Array.isArray(obj['providers'])
       ? (obj['providers'] as Array<Record<string, unknown>>)
       : [];
@@ -308,8 +294,6 @@ export class HumanFormatter implements Formatter {
       ]);
       lines.push(renderTable(['id', 'type', 'status'], rows).trimEnd());
     }
-
-    // 4. Effective route
     const effective = (obj['effective'] ?? null) as Record<
       string,
       unknown
@@ -464,8 +448,6 @@ export class HumanFormatter implements Formatter {
     push('copilot', 'copilotAuthenticated');
     push('codex', 'codexAuthenticated');
     push('claudeCli', 'claudeCliInstalled');
-
-    // Nested coalesced shapes (item #6).
     if ('health' in obj && obj['health'] !== null) {
       const h = obj['health'] as Record<string, unknown>;
       const status = stringField(h, 'status');
@@ -549,10 +531,6 @@ function formatScalar(value: unknown): string {
     return String(value);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
 
 export interface BuildFormatterOptions extends FormatterGlobals {
   /** Override the underlying writer (tests). */

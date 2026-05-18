@@ -40,10 +40,8 @@ export enum Framework {
   Django = 'django',
   Laravel = 'laravel',
   Rails = 'rails',
-  // Additional frontend frameworks
   Svelte = 'svelte',
   Astro = 'astro',
-  // Additional backend frameworks
   NestJS = 'nestjs',
   Fastify = 'fastify',
   Flask = 'flask',

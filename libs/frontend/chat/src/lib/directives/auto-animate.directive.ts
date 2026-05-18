@@ -35,7 +35,6 @@ import autoAnimate, {
  *   media query at init and react to runtime changes via the `change` event.
  */
 @Directive({
-  // eslint-disable-next-line @angular-eslint/directive-selector
   selector: '[auto-animate]',
   standalone: true,
 })
@@ -70,8 +69,6 @@ export class AutoAnimateDirective implements AfterViewInit, OnDestroy {
   );
 
   constructor() {
-    // Initialize / tear down based on the combined gate. Runs after view-init
-    // (the `viewInited` guard prevents premature init on the very first read).
     effect(() => {
       const animate = this.shouldAnimate();
       if (!this.viewInited) return;
@@ -84,7 +81,6 @@ export class AutoAnimateDirective implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
-    // Detect prefers-reduced-motion. Window.matchMedia is available in webviews.
     if (typeof window !== 'undefined' && window.matchMedia) {
       this.mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
       this.reducedMotion.set(this.mediaQuery.matches);
@@ -114,9 +110,6 @@ export class AutoAnimateDirective implements AfterViewInit, OnDestroy {
     if (this.controller) return;
     const raw = this.options();
     const userOpts = raw && typeof raw === 'object' ? raw : {};
-    // Softer defaults than the library's 250ms ease-in-out: longer duration
-    // with the Material "standard" curve gives a calmer, more natural feel
-    // for tree-node inserts. Caller can override via [auto-animate]="{...}".
     const opts: Partial<AutoAnimateOptions> = {
       duration: 320,
       easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',

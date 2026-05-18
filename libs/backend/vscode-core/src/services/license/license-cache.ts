@@ -70,10 +70,6 @@ export class LicenseCache {
     private readonly logger: Logger,
   ) {}
 
-  // ==========================================================================
-  // In-memory cache
-  // ==========================================================================
-
   /**
    * Get the currently cached status without any TTL validation.
    *
@@ -128,10 +124,6 @@ export class LicenseCache {
     this.cache = { status: null, timestamp: null };
   }
 
-  // ==========================================================================
-  // Persisted cache (globalState)
-  // ==========================================================================
-
   /**
    * Persist license cache to VS Code globalState.
    *
@@ -172,8 +164,6 @@ export class LicenseCache {
     if (!persistedCache) {
       return null;
     }
-
-    // Validate cache structure
     if (
       !persistedCache.status ||
       typeof persistedCache.persistedAt !== 'number'
@@ -206,10 +196,6 @@ export class LicenseCache {
     );
   }
 
-  // ==========================================================================
-  // Grace period
-  // ==========================================================================
-
   /**
    * Check if persisted cache is within grace period (7 days).
    *
@@ -223,13 +209,9 @@ export class LicenseCache {
    * @returns true if within grace period and license not expired
    */
   isWithinGracePeriod(cache: PersistedLicenseCache): boolean {
-    // Grace period only applies to valid licenses
     if (!cache.status.valid) {
       return false;
     }
-
-    // Check if license has expired since caching.
-    // Even during grace period, if expiresAt has passed, license is invalid.
     if (cache.status.expiresAt) {
       const expiresAt = new Date(cache.status.expiresAt).getTime();
       if (Date.now() > expiresAt) {
@@ -274,10 +256,6 @@ export class LicenseCache {
     }
     return `${hours} hour${hours === 1 ? '' : 's'}`;
   }
-
-  // ==========================================================================
-  // Previous user context
-  // ==========================================================================
 
   /**
    * Load the persisted previousUserContext, validating its structure and age.

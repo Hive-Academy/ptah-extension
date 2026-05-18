@@ -52,10 +52,6 @@ import {
   type PaddleFixtureName,
 } from '../../ptah-license-server/src/testing/fixtures/paddle';
 
-// ---------------------------------------------------------------------------
-// Harness helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Construct a real Paddle SDK client. The SDK does NOT call the network
  * during `webhooks.unmarshal()`, so any syntactically valid API key works.
@@ -145,10 +141,6 @@ function seedHappyHandlers(paddleService: jest.Mocked<PaddleService>): void {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Specs
-// ---------------------------------------------------------------------------
-
 describe('POST /webhooks/paddle — end-to-end', () => {
   let harness: HarnessBundle;
 
@@ -156,10 +148,6 @@ describe('POST /webhooks/paddle — end-to-end', () => {
     harness = await buildHarness();
     seedHappyHandlers(harness.paddleService);
   });
-
-  // -------------------------------------------------------------------------
-  // Signature verification — security gate
-  // -------------------------------------------------------------------------
 
   describe('signature verification', () => {
     it('accepts a subscription.created event with a valid signature', async () => {
@@ -229,10 +217,6 @@ describe('POST /webhooks/paddle — end-to-end', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // Event routing — verify each lifecycle handler fires with parsed data
-  // -------------------------------------------------------------------------
-
   describe('event routing', () => {
     const cases: Array<{
       name: PaddleFixtureName;
@@ -272,10 +256,6 @@ describe('POST /webhooks/paddle — end-to-end', () => {
     );
   });
 
-  // -------------------------------------------------------------------------
-  // Failed-webhook persistence — recovery path
-  // -------------------------------------------------------------------------
-
   describe('failed-webhook persistence', () => {
     it('writes a FailedWebhook row and re-throws 500 when the downstream handler throws', async () => {
       harness.paddleService.handleSubscriptionCreatedEvent.mockRejectedValueOnce(
@@ -312,9 +292,6 @@ describe('POST /webhooks/paddle — end-to-end', () => {
         new Error('audit DB offline too'),
       );
       const fixture = loadPaddleFixture('subscription-updated');
-
-      // Even with BOTH downstreams broken we expect the SAME 500, never
-      // a crash with the audit-store error leaking out.
       await expect(
         harness.controller.handleWebhook(
           fixture.signatureHeader,
@@ -323,10 +300,6 @@ describe('POST /webhooks/paddle — end-to-end', () => {
       ).rejects.toBeInstanceOf(InternalServerErrorException);
     });
   });
-
-  // -------------------------------------------------------------------------
-  // Idempotency — duplicate-delivery protection
-  // -------------------------------------------------------------------------
 
   describe('idempotency', () => {
     it('skips duplicate eventIds after a successful first delivery', async () => {
@@ -353,16 +326,12 @@ describe('POST /webhooks/paddle — end-to-end', () => {
         .mockRejectedValueOnce(new Error('transient'))
         .mockResolvedValueOnce({ success: true, licenseId: 'lic_retry_ok' });
       const fixture = loadPaddleFixture('subscription-created');
-
-      // First delivery fails with 500 — event NOT marked processed.
       await expect(
         harness.controller.handleWebhook(
           fixture.signatureHeader,
           makeRequest(fixture.body),
         ),
       ).rejects.toBeInstanceOf(InternalServerErrorException);
-
-      // Paddle retries same eventId — this time it succeeds.
       const retry = await harness.controller.handleWebhook(
         fixture.signatureHeader,
         makeRequest(fixture.body),

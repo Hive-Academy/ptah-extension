@@ -45,12 +45,9 @@ export class UpdateBannerService implements MessageHandler {
 
     const current = this._state();
     if (current.state === 'dismissed') {
-      // Stay dismissed for non-actionable background states.
       if (payload.state === 'idle' || payload.state === 'checking') {
         return;
       }
-      // Otherwise (available/downloading/downloaded/error) fall through and
-      // exit dismissed.
     }
 
     this._state.set(payload);

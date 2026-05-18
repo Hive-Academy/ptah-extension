@@ -3,10 +3,6 @@
  * language stats, diagnostics, test coverage estimate.
  */
 
-// ============================================================================
-// Architecture Pattern Types
-// ============================================================================
-
 /**
  * Known architecture pattern names.
  * Extensible string literal union for pattern identification.
@@ -75,10 +71,6 @@ export interface ArchitecturePattern {
   description?: string;
 }
 
-// ============================================================================
-// Key File Locations Types
-// ============================================================================
-
 /**
  * Key file locations organized by purpose.
  *
@@ -118,10 +110,6 @@ export interface KeyFileLocations {
   utilities?: string[];
 }
 
-// ============================================================================
-// Language Statistics Types
-// ============================================================================
-
 /**
  * Language distribution statistics.
  *
@@ -148,10 +136,6 @@ export interface LanguageStats {
   /** Optional: Estimated lines of code. */
   linesOfCode?: number;
 }
-
-// ============================================================================
-// Diagnostic Summary Types
-// ============================================================================
 
 /**
  * Summary of existing code issues from VS Code diagnostics.
@@ -188,10 +172,6 @@ export interface DiagnosticSummary {
     source: string;
   }>;
 }
-
-// ============================================================================
-// Test Coverage Types
-// ============================================================================
 
 /**
  * Estimated test coverage information.

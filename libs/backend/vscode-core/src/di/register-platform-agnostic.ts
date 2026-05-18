@@ -12,8 +12,6 @@
 import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '../logging/logger';
 import { TOKENS } from './tokens';
-
-// Platform-agnostic vscode-core services (verified: no vscode runtime import)
 import { RpcHandler } from '../messaging/rpc-handler';
 import { MessageValidatorService } from '../validation/message-validator.service';
 import { SubagentRegistryService } from '../services/subagent-registry.service';
@@ -54,18 +52,11 @@ export function registerVsCodeCorePlatformAgnostic(
   options: PlatformAgnosticRegistrationOptions = {},
 ): void {
   const { includeLicensingAndAuth = true } = options;
-
-  // Core platform-agnostic infrastructure
   container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
   container.registerSingleton(
     TOKENS.MESSAGE_VALIDATOR,
     MessageValidatorService,
   );
-
-  // TODO: remove guard once app containers stop double-registering
-  // SUBAGENT_REGISTRY_SERVICE. Currently registered by both:
-  //   - apps/ptah-extension-vscode/src/di/container.ts
-  //   - apps/ptah-electron/src/di/container.ts (unguarded)
   if (!container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
     container.registerSingleton(
       TOKENS.SUBAGENT_REGISTRY_SERVICE,
@@ -76,11 +67,6 @@ export function registerVsCodeCorePlatformAgnostic(
   container.registerSingleton(TOKENS.FEATURE_GATE_SERVICE, FeatureGateService);
 
   if (includeLicensingAndAuth) {
-    // All three use `import type` for vscode — no runtime dependency.
-    // Guarded because VS Code's setupMinimal() pre-registers SENTRY_SERVICE and
-    // LICENSE_SERVICE before setup() (and thus before registerVsCodeCoreServices)
-    // runs. Electron's container.ts also registers these independently today; the
-    // guards make the helper idempotent for that transitional window.
     if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) {
       container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
     }

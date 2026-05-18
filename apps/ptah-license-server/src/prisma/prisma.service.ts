@@ -32,11 +32,7 @@ export class PrismaService
       console.error('[PrismaService] ERROR: DATABASE_URL is not set!');
       throw new Error('DATABASE_URL environment variable is required');
     }
-
-    // Create Prisma adapter with connection string (as per official docs)
     const adapter = new PrismaPg({ connectionString });
-
-    // Initialize PrismaClient with adapter
     super({ adapter });
   }
 
@@ -47,8 +43,6 @@ export class PrismaService
     try {
       await this.$connect();
       this.logger.log('Prisma $connect() successful');
-
-      // Test query to verify connection works
       this.logger.log('Testing Prisma model query (user.count)...');
       const userCount = await this.user.count();
       this.logger.log(`Database connection verified. User count: ${userCount}`);

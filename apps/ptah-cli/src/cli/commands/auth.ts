@@ -1,4 +1,4 @@
-﻿/**
+/**
  * `ptah auth` command â€” sub-dispatcher for status / login / logout / test.
  *
  * Sub-commands (per task-description.md Â§3.1):
@@ -255,10 +255,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// `auth status`
-// ---------------------------------------------------------------------------
-
 async function runStatus(
   formatter: Formatter,
   globals: GlobalOptions,
@@ -284,16 +280,6 @@ async function runStatus(
     );
 
     const reveal = globals.reveal === true;
-
-    // Default (non-verbose) emits ONE coalesced `auth.status` notification.
-    // The formatter's `renderAuthStatus` understands the nested `health` and
-    // `apiKey` fields, so `--human` users see a single table instead of three
-    // disjoint envelopes. Operators driving the CLI from JSON-RPC also get a
-    // single deterministic frame, simplifying their state machine.
-    //
-    // `--verbose` preserves the legacy 3-frame stream for parity with older
-    // tooling that depends on `auth.health` / `auth.api_key.status` being
-    // separate envelopes (e.g. the doctor stream).
     if (globals.verbose) {
       await formatter.writeNotification(
         'auth.status',
@@ -309,13 +295,6 @@ async function runStatus(
       );
       return ExitCode.Success;
     }
-
-    // Nested keys are namespaced (`health`, `apiKeyStatus`) to avoid colliding
-    // with any top-level field on the auth-status payload. Naming the nested
-    // RPC result `apiKeyStatus` keeps it disjoint from the redactor's
-    // sensitive-key heuristics (which match `/apikey/i`) â€” the nested object
-    // gets walked and `hasApiKey`/`apiKey` fields inside it still redact
-    // correctly via the recursion.
     const coalesced = {
       ...(status ?? {}),
       health: health ?? null,
@@ -328,10 +307,6 @@ async function runStatus(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `auth login [copilot|codex|claude]`
-// ---------------------------------------------------------------------------
 
 async function runLogin(
   opts: AuthOptions,
@@ -360,8 +335,6 @@ async function runLogin(
   }
 
   if (provider === 'anthropic') {
-    // Settings-based: API-key auth flow lives under `provider set-key`.
-    // `claude` and `claude-cli` are now distinct (PATH-detected CLI auth).
     await formatter.writeNotification('auth.login.start', {
       provider: 'anthropic',
       timestamp: new Date().toISOString(),
@@ -442,10 +415,6 @@ async function runClaudeCliLogin(
       );
       return ExitCode.UsageError;
     }
-
-    // Persist authMethod=claudeCli via the workspace provider. The
-    // `authMethod` key is part of FILE_BASED_SETTINGS_KEYS so it routes to
-    // ~/.ptah/settings.json automatically.
     const workspaceProvider = await (hooks.resolveWorkspaceProvider
       ? hooks.resolveWorkspaceProvider(ctx.container)
       : (ctx.container.resolve(
@@ -461,10 +430,6 @@ async function runClaudeCliLogin(
       });
       return ExitCode.InternalFailure;
     }
-
-    // Stream A migrates `claudeCli` â†’ `claude-cli` (kebab) across the
-    // codebase. Always write the canonical kebab token; Stream A's read-back
-    // shim in `with-engine.ts` normalizes legacy values for older configs.
     await workspaceProvider.setConfiguration(
       'ptah',
       'authMethod',
@@ -532,10 +497,6 @@ async function runCodexLogin(
     );
     return ExitCode.AuthRequired;
   }
-
-  // Capture stdout to detect the device-code URL. We surface the FIRST
-  // https:// URL we see via `auth.login.url`; subsequent output is only
-  // mirrored to stderr (so humans driving the flow see codex's prompts).
   let urlEmitted = false;
   let stdoutBuffer = '';
   const urlPattern = /(https?:\/\/[^\s'"<>]+)/;
@@ -543,7 +504,6 @@ async function runCodexLogin(
   const onStdoutData = async (chunk: Buffer | string): Promise<void> => {
     const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     stdoutBuffer += text;
-    // Mirror codex output to stderr so humans see the prompts.
     stderr.write(text);
     if (!urlEmitted) {
       const match = urlPattern.exec(stdoutBuffer);
@@ -561,7 +521,6 @@ async function runCodexLogin(
 
   if (child.stdout) {
     child.stdout.on('data', (chunk) => {
-      // Fire-and-forget â€” async errors surface via the formatter elsewhere.
       void onStdoutData(chunk);
     });
   }
@@ -572,15 +531,11 @@ async function runCodexLogin(
       stderr.write(text);
     });
   }
-
-  // SIGINT propagation: forward Ctrl-C to the child so the device-code flow
-  // cancels cleanly. We attach a one-shot handler and remove it on exit.
   const sigintSource: NodeJS.EventEmitter = hooks.processRefForCodex ?? process;
   const onSigint = (): void => {
     try {
       child.kill('SIGINT');
     } catch {
-      // Ignore â€” child may already be dead.
     }
   };
   sigintSource.on('SIGINT', onSigint);
@@ -599,8 +554,6 @@ async function runCodexLogin(
       resolve(1);
     });
   });
-
-  // Detach the SIGINT handler.
   sigintSource.removeListener('SIGINT', onSigint);
 
   if (exitCode === 0) {
@@ -636,18 +589,11 @@ async function runCopilotLogin(
   const headless = hooks.runHeadlessLogin ?? runHeadlessLogin;
 
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-    // Resolve CopilotAuthService directly from the container â€” we need the
-    // begin/poll/cancel methods, which are not exposed via the RPC surface.
-    // The hook lets tests inject a mock without touching the container.
     const copilotAuth = await (hooks.resolveCopilotAuth
       ? hooks.resolveCopilotAuth(ctx.container)
       : ctx.container.resolve<ICopilotAuthService>(
           AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
         ));
-
-    // One-shot CLI commands have no JSON-RPC peer on stdio (that's `interact`
-    // mode only). Surface the URL via stderr so a human operator can complete
-    // the device-code flow manually.
     const opener = new StderrOAuthUrlOpener();
 
     const result = await headless({
@@ -660,10 +606,6 @@ async function runCopilotLogin(
     return result.exitCode;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `auth logout [copilot|codex]`
-// ---------------------------------------------------------------------------
 
 async function runLogout(
   opts: AuthOptions,
@@ -703,7 +645,6 @@ async function runLogout(
     try {
       await unlink(codexPath);
     } catch (error) {
-      // ENOENT is benign â€” logout is idempotent.
       const code = (error as NodeJS.ErrnoException | undefined)?.code;
       if (code !== 'ENOENT') {
         const message = error instanceof Error ? error.message : String(error);
@@ -727,10 +668,6 @@ async function runLogout(
   return ExitCode.UsageError;
 }
 
-// ---------------------------------------------------------------------------
-// `auth test <provider>`
-// ---------------------------------------------------------------------------
-
 async function runTest(
   opts: AuthOptions,
   formatter: Formatter,
@@ -752,10 +689,6 @@ async function runTest(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `auth use <providerId>`
-// ---------------------------------------------------------------------------
 
 /**
  * Provider-id â†’ settings-shape resolution table for `ptah auth use`.
@@ -888,10 +821,6 @@ async function runUse(
       });
       return ExitCode.InternalFailure;
     }
-
-    // Write all three keys before emitting the notification so callers see a
-    // consistent post-state. Order matters less here than atomicity within
-    // ~/.ptah/settings.json â€” `PtahFileSettingsManager` serializes writes.
     await workspaceProvider.setConfiguration(
       'ptah',
       'authMethod',
@@ -917,10 +846,6 @@ async function runUse(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `auth set-anthropic-route <providerId>`
-// ---------------------------------------------------------------------------
 
 /**
  * `ptah auth set-anthropic-route <providerId>`.
@@ -958,8 +883,6 @@ async function runSetAnthropicRoute(
 
   const validIds = ANTHROPIC_PROVIDERS.map((p) => p.id);
   const lowered = raw.toLowerCase();
-
-  // Treat "default" / "none" / "clear" / "null" as a clear instruction.
   const isClear =
     lowered === 'default' ||
     lowered === 'none' ||
@@ -1014,10 +937,6 @@ async function runSetAnthropicRoute(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Thin wrapper around `transport.call` that throws on RPC error (so the

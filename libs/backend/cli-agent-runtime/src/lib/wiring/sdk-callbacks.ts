@@ -175,11 +175,7 @@ function wireSessionIdResolvedCallback(
                 subagentRegistry.resolveParentSessionId(tabId, realSessionId);
               }
             } catch {
-              // SubagentRegistryService may not be registered yet
             }
-
-            // Re-persist exited agents whose parentSessionId couldn't resolve
-            // earlier (timing race: agent exited while tab ID was still in play).
             const allAgents =
               agentProcessManager.getStatus() as AgentProcessInfo[];
             const exitedWithParent = allAgents.filter(
@@ -202,7 +198,6 @@ function wireSessionIdResolvedCallback(
             }
           }
         } catch {
-          // AgentProcessManager may not be registered yet
         }
       }
 
@@ -231,8 +226,6 @@ function wireCompactionStartCallback(
     logger.info(
       `${tag} Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}, preTokens=${data.preTokens}`,
     );
-    // pre-compaction header stats and pair this start with the eventual
-    // `compact_boundary` for duration / delta computation.
     const compactionEvent = {
       id: `compaction_${data.sessionId}_${data.timestamp}`,
       eventType: 'compaction_start' as const,

@@ -105,7 +105,6 @@ export class AnthropicNonStreamingAccumulator {
       case 'message_complete':
         this.handleMessageComplete(event);
         return;
-      // thinking / tool_result / agent_start / message_start are dropped.
       default:
         return;
     }
@@ -135,7 +134,6 @@ export class AnthropicNonStreamingAccumulator {
    */
   build(): AnthropicMessageResponse | null {
     if (this.errorMessage !== null) return null;
-    // Flush any unclosed block defensively so partial responses still land.
     this.flushOpenBlocks();
     return {
       id: this.messageId,
@@ -148,10 +146,6 @@ export class AnthropicNonStreamingAccumulator {
       usage: this.usage,
     };
   }
-
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
 
   private handleTextDelta(event: ChatChunkEventLike): void {
     const text = event.delta ?? event.text ?? '';
@@ -166,7 +160,6 @@ export class AnthropicNonStreamingAccumulator {
   }
 
   private handleToolStart(event: ChatChunkEventLike): void {
-    // Close any prior block before opening tool_use.
     this.flushTextBlock();
     this.flushToolBlock();
     const id = event.toolCallId ?? event.id ?? `toolu_${this.content.length}`;
@@ -231,8 +224,6 @@ export class AnthropicNonStreamingAccumulator {
     if (this.currentToolBlock === null) return;
     const block = this.currentToolBlock;
     this.currentToolBlock = null;
-    // If we accumulated streamed JSON deltas, parse them onto `input`. Best
-    // effort — malformed JSON keeps whatever upfront `input` was set.
     if (block.partialJson.length > 0) {
       try {
         const parsed: unknown = JSON.parse(block.partialJson);

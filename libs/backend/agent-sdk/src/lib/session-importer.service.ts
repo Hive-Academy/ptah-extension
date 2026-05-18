@@ -89,16 +89,12 @@ export class SessionImporterService {
     }
 
     let imported = 0;
-
-    // Primary: Import from sessions-index.json (Claude CLI's canonical session catalog)
     const indexImported = await this.importFromSessionsIndex(
       sessionsDir,
       workspacePath,
       limit,
     );
     imported += indexImported;
-
-    // Secondary: Scan for .jsonl files not already imported via the index
     const remainingLimit = limit - imported;
     if (remainingLimit > 0) {
       const fileImported = await this.importFromJsonlFiles(
@@ -134,7 +130,6 @@ export class SessionImporterService {
     try {
       await fs.promises.access(indexPath);
     } catch {
-      // No index file — fall through to .jsonl scanning
       return 0;
     }
 
@@ -148,8 +143,6 @@ export class SessionImporterService {
         );
         return 0;
       }
-
-      // Guard against unknown index format versions
       if (index.version && index.version > 1) {
         this.logger.warn(
           '[SessionImporter] Unknown sessions-index.json version, skipping',
@@ -157,9 +150,6 @@ export class SessionImporterService {
         );
         return 0;
       }
-
-      // Sort by modified date (most recent first) and limit.
-      // Use fileMtime as fallback when modified date is invalid.
       const sortedEntries = [...index.entries]
         .filter(
           (e) =>
@@ -178,9 +168,6 @@ export class SessionImporterService {
 
       for (const entry of sortedEntries) {
         try {
-          // Skip sessions whose .jsonl file no longer exists on disk.
-          // Importing ghost sessions causes "No messages or events found" errors
-          // when the user clicks on them in the sidebar.
           const sessionFilePath = path.join(
             sessionsDir,
             `${entry.sessionId}.jsonl`,
@@ -206,8 +193,6 @@ export class SessionImporterService {
             );
             continue;
           }
-
-          // Derive the best session name from available fields
           const createdTs = this.parseIndexTimestamp(
             entry.created,
             entry.fileMtime,
@@ -359,13 +344,9 @@ export class SessionImporterService {
   ): Promise<SessionFileInfo[]> {
     try {
       const files = await fs.promises.readdir(sessionsDir);
-
-      // Filter to only main session files (not agent subagent files)
       const sessionFiles = files.filter(
         (f) => f.endsWith('.jsonl') && !f.startsWith('agent-'),
       );
-
-      // Get stats for each file (just mtime, not content)
       const fileInfos: SessionFileInfo[] = [];
 
       for (const filename of sessionFiles) {
@@ -378,11 +359,8 @@ export class SessionImporterService {
             mtime: stats.mtimeMs,
           });
         } catch {
-          // Skip files that can't be read
         }
       }
-
-      // Sort by modification time (most recent first) and take only limit
       return fileInfos.sort((a, b) => b.mtime - a.mtime).slice(0, limit);
     } catch (error) {
       this.logger.debug('[SessionImporter] Failed to read sessions directory', {
@@ -415,7 +393,6 @@ export class SessionImporterService {
     mtime: number,
   ): Promise<SessionMetadata | null> {
     try {
-      // Read first 8KB - enough to get init + first user message
       const fd = await fs.promises.open(filePath, 'r');
       const buffer = Buffer.alloc(8192);
       const { bytesRead } = await fd.read(buffer, 0, 8192, 0);
@@ -432,8 +409,6 @@ export class SessionImporterService {
       for (const line of lines) {
         try {
           const msg = JSON.parse(line);
-
-          // Get session ID from system init message
           if (
             msg.type === 'system' &&
             msg.subtype === 'init' &&
@@ -441,25 +416,17 @@ export class SessionImporterService {
           ) {
             sessionId = msg.session_id;
           }
-
-          // Get name from first user message
           if (msg.type === 'user' && !sessionName) {
             const text = this.extractUserMessageText(msg);
             if (text) {
-              // Use first 50 chars as session name
               sessionName = text.substring(0, 50).trim();
               if (text.length > 50) sessionName += '...';
             }
           }
-
-          // Stop once we have both
           if (sessionId && sessionName) break;
         } catch {
-          // Skip malformed lines
         }
       }
-
-      // Use filename as session ID if not found in content
       if (!sessionId) {
         sessionId = this.extractSessionIdFromFilename(path.basename(filePath));
       }
@@ -491,8 +458,6 @@ export class SessionImporterService {
     message?: { content?: string | Array<{ type: string; text?: string }> };
   }): string | null {
     if (!msg.message?.content) return null;
-
-    // Content can be string or array
     if (typeof msg.message.content === 'string') {
       return msg.message.content;
     }
@@ -524,8 +489,6 @@ export class SessionImporterService {
     } catch {
       return null;
     }
-
-    // Generate the escaped path pattern (replace : and /\ with -)
     const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
 
     this.logger.debug('[SessionImporter] findSessionsDirectory', {
@@ -534,21 +497,14 @@ export class SessionImporterService {
     });
 
     const dirs = await fs.promises.readdir(projectsDir);
-
-    // Try exact match first
     if (dirs.includes(escapedPath)) {
       return path.join(projectsDir, escapedPath);
     }
-
-    // Try lowercase match
     const lowerEscaped = escapedPath.toLowerCase();
     const lowerMatch = dirs.find((d) => d.toLowerCase() === lowerEscaped);
     if (lowerMatch) {
       return path.join(projectsDir, lowerMatch);
     }
-
-    // Try normalized match: treat hyphens and underscores as equivalent.
-    // Claude CLI may normalize path separators differently (e.g., replacing _ with -)
     const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
     const normalizedEscaped = normalize(escapedPath);
     const normalizedMatch = dirs.find(
@@ -557,8 +513,6 @@ export class SessionImporterService {
     if (normalizedMatch) {
       return path.join(projectsDir, normalizedMatch);
     }
-
-    // Try without leading hyphen
     const withoutLeading = escapedPath.replace(/^-+/, '');
     const withoutLeadingLower = withoutLeading.toLowerCase();
     const normalizedWithoutLeading = normalize(withoutLeading);

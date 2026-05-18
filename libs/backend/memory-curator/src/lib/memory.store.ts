@@ -67,7 +67,6 @@ function rowToMemory(row: MemoryRow): Memory {
       if (Array.isArray(parsed))
         sourceMessageIds = parsed.filter((x) => typeof x === 'string');
     } catch {
-      // ignore malformed JSON; treat as empty
     }
   }
   return {
@@ -156,9 +155,6 @@ export class MemoryStore implements IMemoryLister {
       last_used_at: now,
       expires_at: insert.expiresAt ?? null,
     };
-
-    // Compute embeddings before opening tx (better-sqlite3 transactions are
-    // synchronous and we cannot await inside).
     const vecAvailable = this.connection.vecExtensionLoaded;
     const embeddings: Float32Array[] =
       vecAvailable && chunks.length > 0
@@ -186,11 +182,6 @@ export class MemoryStore implements IMemoryLister {
     const fetchRowidStmt = db.prepare(
       `SELECT rowid AS rowid FROM memory_chunks WHERE id = ?`,
     );
-
-    // better-sqlite3's `db.transaction()` is typed against a generic varargs
-    // callback. Cast the typed inner function exactly once to a callable
-    // matching that signature, then back to our typed wrapper — one cast in,
-    // one cast out, instead of three chained `as unknown as`.
     type TxnFn = (m: typeof memoryParams) => MemoryId;
     const txnFn = ((m: typeof memoryParams): MemoryId => {
       insertMemoryStmt.run(m);
@@ -228,9 +219,6 @@ export class MemoryStore implements IMemoryLister {
       this.bumpWriteCounter(insert.workspaceRoot);
       return result;
     } catch (err: unknown) {
-      // If this is a fatal disk-full error, close the connection and mark it
-      // unavailable so subsequent RPC calls surface PERSISTENCE_UNAVAILABLE
-      // instead of opaque SQLITE_FULL errors.
       this.connection.handleFatalWriteError(err);
       throw err;
     }
@@ -287,9 +275,6 @@ export class MemoryStore implements IMemoryLister {
     const totalRow = this.connection.db
       .prepare(`SELECT COUNT(*) AS n FROM memories ${whereSql}`)
       .get(params) as { n: number } | undefined;
-    // Parameterize LIMIT/OFFSET — even though `limit` and `offset` are clamped
-    // to safe integers above, parameterizing prevents any future caller from
-    // accidentally re-introducing string interpolation as a refactor pattern.
     const rows = this.connection.db
       .prepare(
         `SELECT * FROM memories ${whereSql} ORDER BY salience DESC, last_used_at DESC LIMIT @__limit OFFSET @__offset`,
@@ -387,7 +372,6 @@ export class MemoryStore implements IMemoryLister {
    * from silently over-matching and deleting symbols from the wrong files.
    */
   deleteBySubjectPrefix(prefix: string, workspaceRoot: string): number {
-    // Escape backslashes first, then % and _ so SQLite LIKE treats them literally.
     const escaped = prefix
       .replace(/\\/g, '\\\\')
       .replace(/%/g, '\\%')
@@ -433,14 +417,12 @@ export class MemoryStore implements IMemoryLister {
 
     let likePattern: string;
     if (mode === 'substring') {
-      // Escape backslashes first, then % and _ so SQLite LIKE treats them literally.
       const escaped = pattern
         .replace(/\\/g, '\\\\')
         .replace(/%/g, '\\%')
         .replace(/_/g, '\\_');
       likePattern = `%${escaped}%`;
     } else {
-      // mode === 'like': caller provides the raw LIKE pattern verbatim.
       likePattern = pattern;
     }
 
@@ -553,8 +535,6 @@ export class MemoryStore implements IMemoryLister {
       txn();
       this.bumpWriteCounter(ws);
     } catch (err: unknown) {
-      // Wire fatal write error classification so disk-full errors close the
-      // connection and surface PERSISTENCE_UNAVAILABLE instead of raw SQLITE_FULL.
       this.connection.handleFatalWriteError(err);
       throw err;
     }
@@ -612,7 +592,6 @@ export class MemoryStore implements IMemoryLister {
           `SELECT rowid AS rowid, text FROM memory_chunks ORDER BY rowid ASC`,
         )
         .all() as Array<{ rowid: number; text: string }>;
-      // Embed in batches of 32 to avoid worker stalls.
       const batch = 32;
       const insertVecStmt = db.prepare(
         `INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (?, ?)`,

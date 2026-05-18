@@ -76,8 +76,6 @@ export class PtahCliStreamLoop {
   private readonly emittedToolCallIds = new Set<string>();
 
   constructor(private readonly config: PtahCliStreamLoopConfig) {
-    // Per-stream isolated transformer — the shared singleton has mutable state
-    // that causes errors when concurrent Ptah CLI agents interleave events.
     this.streamTransformer = config.messageTransformer.createIsolated();
   }
 
@@ -91,18 +89,8 @@ export class PtahCliStreamLoop {
     const { logger, emitOutput, emitSegment, emitStreamEvent } = this.config;
 
     try {
-      // outer try-finally for state cleanup
       try {
         for await (const msg of sdkQuery) {
-          // ── FlatStreamEventUnion emission (agent monitor) ──
-          // DEDUP STRATEGY:
-          //  - stream_event → emit all events (primary source for real-time deltas)
-          //  - assistant    → emit structural/landmark events only (message_start,
-          //                   tool_start, agent_start, message_complete, etc.)
-          //                   Content deltas (text_delta, thinking_delta, tool_delta)
-          //                   are already provided by stream_event — skipping them
-          //                   prevents doubled text in the tree builder accumulators.
-          //  - user         → emit all events (provides tool_result)
           if (isStreamEvent(msg) || isUserMessage(msg)) {
             try {
               const flatEvents = this.streamTransformer.transform(
@@ -110,7 +98,6 @@ export class PtahCliStreamLoop {
                 this.effectiveSessionId || undefined,
               );
               for (const event of flatEvents) {
-                // Track IDs from stream_event to dedup against assistant
                 if (event.eventType === 'message_start') {
                   this.emittedMessageIds.add(
                     (event as { messageId?: string }).messageId ?? '',
@@ -139,10 +126,6 @@ export class PtahCliStreamLoop {
                 msg,
                 this.effectiveSessionId || undefined,
               );
-              // Emit structural events that provide tree structure for the agent
-              // monitor. Content deltas are already streamed via stream_event messages.
-              // Skip message_start/tool_start if already emitted by stream_event
-              // (same messageId) to prevent duplicate tree nodes.
               for (const event of flatEvents) {
                 switch (event.eventType) {
                   case 'message_start': {
@@ -168,7 +151,6 @@ export class PtahCliStreamLoop {
                   case 'background_agent_started':
                     emitStreamEvent(event);
                     break;
-                  // Skip content deltas — already provided by stream_event
                   default:
                     break;
                 }
@@ -185,12 +167,7 @@ export class PtahCliStreamLoop {
               );
             }
           }
-
-          // ── system init ─────────────────────────────────
           if (isSystemInit(msg)) {
-            // Hard-fail on malformed SDK session_id (non-UUID): SessionId.from
-            // throws, surfacing the contract violation rather than silently
-            // routing events under an empty sentinel.
             if (msg.session_id) {
               this.effectiveSessionId = SessionId.from(msg.session_id);
             }
@@ -205,8 +182,6 @@ export class PtahCliStreamLoop {
             }
             continue;
           }
-
-          // ── compact_boundary ────────────────────────────
           if (isCompactBoundary(msg)) {
             const tokens = msg.compact_metadata?.pre_tokens;
             const content = tokens
@@ -216,12 +191,8 @@ export class PtahCliStreamLoop {
             emitSegment({ type: 'info', content });
             continue;
           }
-
-          // ── stream_event (streaming deltas) ─────────────
           if (isStreamEvent(msg)) {
             const event = msg.event;
-
-            // content_block_start: detect tool_use / thinking / text block starts
             if (isContentBlockStart(event)) {
               const block = event.content_block;
               if (isToolUseBlock(block)) {
@@ -243,8 +214,6 @@ export class PtahCliStreamLoop {
               }
               continue;
             }
-
-            // content_block_delta: streaming content
             if (isContentBlockDelta(event)) {
               const delta = event.delta;
 
@@ -263,12 +232,8 @@ export class PtahCliStreamLoop {
               }
               continue;
             }
-
-            // Other stream events are structural — no user-visible segments needed
             continue;
           }
-
-          // ── assistant (complete message — fallback if no streaming) ──
           if (isAssistantMessage(msg)) {
             const blocks = msg.message?.content;
             if (Array.isArray(blocks)) {
@@ -303,14 +268,11 @@ export class PtahCliStreamLoop {
                 }
               }
             }
-            // Reset streaming flags for next turn
             this.receivedTextDeltas = false;
             this.receivedThinkingDeltas = false;
             this.pendingToolArgs.clear();
             continue;
           }
-
-          // ── user message (contains tool results) ────────
           if (isUserMessage(msg)) {
             const content = msg.message?.content;
             if (Array.isArray(content)) {
@@ -353,8 +315,6 @@ export class PtahCliStreamLoop {
             }
             continue;
           }
-
-          // ── result (final message with usage) ───────────
           if (isResultMessage(msg)) {
             if (isSuccessResult(msg)) {
               const parts: string[] = [];
@@ -380,8 +340,6 @@ export class PtahCliStreamLoop {
             }
             continue;
           }
-
-          // ── tool_progress ───────────────────────────────
           if (isToolProgress(msg)) {
             emitSegment({
               type: 'info',
@@ -391,8 +349,6 @@ export class PtahCliStreamLoop {
             });
             continue;
           }
-
-          // ── tool_use_summary ────────────────────────────
           if (isToolUseSummary(msg)) {
             emitOutput(`\n${msg.summary}\n`);
             emitSegment({ type: 'info', content: msg.summary });
@@ -416,8 +372,6 @@ export class PtahCliStreamLoop {
         return 1;
       }
     } finally {
-      // Clear mutable per-stream state to release references after stream ends.
-      // Safe to call on both success and error paths — the stream is done at this point.
       this.pendingToolArgs.clear();
       this.emittedMessageIds.clear();
       this.emittedToolCallIds.clear();

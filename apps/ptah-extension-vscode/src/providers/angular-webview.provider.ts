@@ -6,7 +6,6 @@ import {
 } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
-// Sessions are handled by ClaudeProcess via the CLI --session-id flag.
 import {
   type WebviewMessage,
   type WorkspaceChangedPayload,
@@ -65,13 +64,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     _token: vscode.CancellationToken,
   ): Promise<void> {
     this._view = webviewView;
-
-    // CRITICAL: Register webview with WebviewManager for message routing
     this.webviewManager.registerWebviewView('ptah.main', webviewView);
     this.logger.info('Webview registered with WebviewManager as "ptah.main"');
-
-    // Configure webview for Angular app
-    // NOTE: context.extensionUri already points to dist/apps/ptah-extension-vscode
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -85,9 +79,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       webviewView.webview,
       this.htmlGenerator.buildWorkspaceInfo(),
     );
-
-    // Set up RPC message listener via WebviewMessageHandlerService for
-    // unified message handling (RPC, permissions, etc.).
     this.messageHandler.setupMessageListener(
       {
         webviewId: 'ptah.main',
@@ -95,17 +86,11 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         onReady: () => {
           this.logger.info('Sidebar webview ready signal received');
           this.markWebviewReady();
-          // Send current workspace info after Angular bootstraps — handles the
-          // race condition where workspaceFolders wasn't yet available when the
-          // HTML was generated (common on Linux when VS Code starts without a folder).
           this.broadcastWorkspaceChanged();
         },
       },
       this._disposables,
     );
-
-    // Keep workspace root in sync when the user opens/closes folders while the
-    // sidebar is already visible (e.g. File > Open Folder on Linux/macOS).
     this._disposables.push(
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
         this.broadcastWorkspaceChanged();
@@ -124,9 +109,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     initialView?: string;
   }): Promise<void> {
     const panelId = `ptah.panel.${crypto.randomUUID()}`;
-
-    // Backward compat: 'orchestra-canvas' panel title kept for the ptah.openOrchestraCanvas command.
-    // AppStateManager maps this to layoutMode('grid') + chat view at runtime.
     const panelTitle =
       options?.initialView === 'analytics'
         ? 'Ptah - Session Analytics'
@@ -149,25 +131,14 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         ],
       },
     );
-
-    // Track in local registry
     this._panels.set(panelId, panel);
-
-    // Register with WebviewManager for broadcast message routing
-    // Uses existing cast pattern (both WebviewPanel and WebviewView have .webview property)
     this.webviewManager.registerWebviewView(
       panelId,
       panel as unknown as vscode.WebviewView,
     );
-
-    // Per-panel event queue for readiness gating (manually instantiated, not from DI)
     const panelEventQueue = new WebviewEventQueue(this.logger as Logger);
     this._panelEventQueues.set(panelId, panelEventQueue);
-
-    // Per-panel disposables to avoid stale entries in shared _disposables
     const panelDisposables: vscode.Disposable[] = [];
-
-    // Setup message handling using shared service
     this.messageHandler.setupMessageListener(
       {
         webviewId: panelId,
@@ -186,8 +157,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       },
       panelDisposables,
     );
-
-    // Generate HTML with panelId and optional initial session in ptahConfig
     panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       panel.webview,
       {
@@ -198,9 +167,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         initialView: options?.initialView,
       },
     );
-
-    // Cleanup on dispose: remove from local Map, dispose event queue and per-panel disposables
-    // WebviewManager auto-removes via its own onDidDispose listener (registerWebviewView sets this up)
     panel.onDidDispose(() => {
       this._panels.delete(panelId);
       panelEventQueue.dispose();
@@ -266,15 +232,11 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    * Uses WebviewEventQueue service for readiness gate
    */
   private postMessage(message: WebviewMessage): void {
-    // Try to enqueue if not ready
     const wasQueued = this.eventQueue.enqueue(message);
 
     if (wasQueued) {
-      // Event was queued (webview not ready)
       return;
     }
-
-    // Webview ready - deliver immediately
     this.postMessageDirect(message);
   }
 
@@ -298,23 +260,18 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    * Implements development file watching for hot reload during F5 debugging
    */
   private initializeDevelopmentWatcher(): void {
-    // Only enable in development mode (when debugging)
     if (this.context.extensionMode === vscode.ExtensionMode.Development) {
       const webviewDistPath = vscode.Uri.joinPath(
         this.context.extensionUri,
         'webview',
         'browser',
       );
-
-      // Create file system watcher for webview changes
       this.fileWatcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(webviewDistPath, '**/*'),
         false, // Don't ignore creates
         false, // Don't ignore changes
         false, // Don't ignore deletes
       );
-
-      // Handle webview file changes
       this.fileWatcher.onDidChange(this.handleWebviewFileChange.bind(this));
       this.fileWatcher.onDidCreate(this.handleWebviewFileChange.bind(this));
       this.fileWatcher.onDidDelete(this.handleWebviewFileChange.bind(this));
@@ -329,7 +286,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    * Implements webview HTML reloading on file changes
    */
   private async handleWebviewFileChange(uri: vscode.Uri): Promise<void> {
-    // Debounce rapid file changes
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     try {
@@ -351,11 +307,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   private async reloadWebview(): Promise<void> {
     let reloadedCount = 0;
-
-    // Reset sidebar event queue on reload
     this.eventQueue.reset();
-
-    // Reload all editor panels
     for (const [panelId, panel] of this._panels) {
       if (panel.webview) {
         const panelEventQueue = this._panelEventQueues.get(panelId);
@@ -374,8 +326,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         this.logger.info(`Panel ${panelId} webview reloaded`);
       }
     }
-
-    // Reload sidebar
     if (this._view?.webview) {
       const newHtml = this.htmlGenerator.generateAngularWebviewContent(
         this._view.webview,
@@ -389,37 +339,24 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     if (reloadedCount === 0) {
       this.logger.warn('No webviews available to reload.');
     }
-    // NOTE: Hot-reload works by replacing webview.html entirely, no need for refresh signal
   }
-
-  // All message handling is unified via
-  // WebviewMessageHandlerService.setupMessageListener() in resolveWebviewView()
-  // and createPanel().
 
   /**
    * Dispose of resources. Also disposes all per-panel event queues.
    */
   dispose(): void {
     this.logger.info('Disposing Angular Webview Provider...');
-
-    // Clear sidebar event queue using DI-injected service
     this.eventQueue.dispose();
-
-    // Dispose all per-panel event queues
     for (const [panelId, panelEventQueue] of this._panelEventQueues) {
       panelEventQueue.dispose();
       this.logger.info(`Panel ${panelId} event queue disposed`);
     }
     this._panelEventQueues.clear();
     this._panels.clear();
-
-    // Dispose file watcher
     if (this.fileWatcher) {
       this.fileWatcher.dispose();
       this.fileWatcher = undefined;
     }
-
-    // Dispose all other resources
     this._disposables.forEach((d) => d.dispose());
     this._disposables = [];
   }

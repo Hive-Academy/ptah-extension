@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenRouter Translation Proxy
  *
  * Thin subclass of TranslationProxyBase that provides OpenRouter-specific
@@ -38,10 +38,7 @@ export class OpenRouterTranslationProxy extends TranslationProxyBase {
   ) {
     super(logger, {
       name: 'OpenRouter',
-      // OpenRouter expects full provider-prefixed model IDs
-      // (e.g., 'anthropic/claude-sonnet-4.5'), no additional prefix needed
       modelPrefix: '',
-      // OpenRouter speaks standard OpenAI Chat Completions
       completionsPath: '/chat/completions',
     });
   }

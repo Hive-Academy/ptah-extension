@@ -44,8 +44,6 @@ import type {
   RpcMethodName,
 } from '@ptah-extension/shared';
 
-// ---- Status mapper -----------------------------------------------------------
-
 function toStatusWire(status: IndexingStatus): IndexingStatusWire {
   return {
     state: status.state,
@@ -61,8 +59,6 @@ function toStatusWire(status: IndexingStatus): IndexingStatusWire {
     errorMessage: status.errorMessage,
   };
 }
-
-// ---- Handler class -----------------------------------------------------------
 
 @injectable()
 export class IndexingRpcHandlers {
@@ -99,7 +95,6 @@ export class IndexingRpcHandlers {
   }
 
   register(): void {
-    // indexing:getStatus — returns full IndexingStatusWire for workspace
     this.rpcHandler.registerMethod(
       'indexing:getStatus',
       async (
@@ -136,8 +131,6 @@ export class IndexingRpcHandlers {
         }
       },
     );
-
-    // indexing:start — start or force-restart indexing
     this.rpcHandler.registerMethod(
       'indexing:start',
       async (
@@ -153,7 +146,6 @@ export class IndexingRpcHandlers {
           return { accepted: false, state: 'never-indexed' };
         }
         try {
-          // Fire-and-forget — state machine handles concurrency guard internally
           void this.indexingControl
             .start(params.pipeline, params.workspaceRoot, this.runDeps, {
               force: params.force,
@@ -175,8 +167,6 @@ export class IndexingRpcHandlers {
         }
       },
     );
-
-    // indexing:pause — cooperative abort of active run
     this.rpcHandler.registerMethod(
       'indexing:pause',
       async (
@@ -193,8 +183,6 @@ export class IndexingRpcHandlers {
         }
       },
     );
-
-    // indexing:resume — resume from stored cursor (or start fresh)
     this.rpcHandler.registerMethod(
       'indexing:resume',
       async (
@@ -229,8 +217,6 @@ export class IndexingRpcHandlers {
         }
       },
     );
-
-    // indexing:cancel — abort and clear cursor
     this.rpcHandler.registerMethod(
       'indexing:cancel',
       async (
@@ -247,8 +233,6 @@ export class IndexingRpcHandlers {
         }
       },
     );
-
-    // indexing:setPipelineEnabled — toggle symbol or memory pipeline
     this.rpcHandler.registerMethod(
       'indexing:setPipelineEnabled',
       async (
@@ -279,8 +263,6 @@ export class IndexingRpcHandlers {
         }
       },
     );
-
-    // indexing:dismissStale — record dismissed SHA so banner is hidden
     this.rpcHandler.registerMethod(
       'indexing:dismissStale',
       async (
@@ -306,8 +288,6 @@ export class IndexingRpcHandlers {
         }
       },
     );
-
-    // indexing:acknowledgeDisclosure — record privacy disclosure acceptance
     this.rpcHandler.registerMethod(
       'indexing:acknowledgeDisclosure',
       async (

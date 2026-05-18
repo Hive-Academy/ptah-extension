@@ -92,7 +92,6 @@ export class ElectronWorkspaceProvider
     key: string,
     defaultValue?: T,
   ): T | undefined {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       return this.fileSettings.get<T>(key, defaultValue);
     }
@@ -108,7 +107,6 @@ export class ElectronWorkspaceProvider
    */
   setWorkspaceFolders(folders: string[]): void {
     this.folders = [...folders];
-    // Update activeFolder if the current active is no longer in the list
     if (
       this.activeFolder &&
       !this.folders.some(
@@ -126,8 +124,6 @@ export class ElectronWorkspaceProvider
    */
   addFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
-
-    // Deduplicate: check if already present (by resolved path)
     const alreadyExists = this.folders.some(
       (existing) => path.resolve(existing) === resolved,
     );
@@ -136,8 +132,6 @@ export class ElectronWorkspaceProvider
     }
 
     this.folders.push(resolved);
-
-    // If this is the first folder, make it active by default
     if (this.folders.length === 1) {
       this.activeFolder = resolved;
     }
@@ -162,8 +156,6 @@ export class ElectronWorkspaceProvider
     }
 
     this.folders.splice(index, 1);
-
-    // Update activeFolder if the removed folder was active
     if (this.activeFolder && path.resolve(this.activeFolder) === resolved) {
       this.activeFolder = this.folders[0] ?? undefined;
     }
@@ -222,7 +214,6 @@ export class ElectronWorkspaceProvider
     key: string,
     value: unknown,
   ): Promise<void> {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       await this.fileSettings.set(key, value);
       const fullKey = `${section}.${key}`;
@@ -253,7 +244,6 @@ export class ElectronWorkspaceProvider
       const raw = fs.readFileSync(this.configFilePath, 'utf-8');
       this.config = JSON.parse(raw);
     } catch {
-      // Config file doesn't exist on first launch — start with empty config
       this.config = {};
     }
   }

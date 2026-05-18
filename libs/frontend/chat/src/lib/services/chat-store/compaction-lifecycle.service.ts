@@ -90,9 +90,6 @@ export class CompactionLifecycleService {
    * @param sessionId - The session ID where compaction is occurring
    */
   handleCompactionStart(sessionId: string): void {
-    // Fan out to ALL tabs bound to this session.
-    // Canvas-grid scenario: two tiles share a session; both must show the
-    // banner. Legacy single-tab path used to silently freeze the other tile.
     const tabs = this.tabManager.findTabsBySessionId(SessionId.from(sessionId));
     if (tabs.length === 0) {
       console.warn(
@@ -101,18 +98,10 @@ export class CompactionLifecycleService {
       );
       return;
     }
-
-    // Clear any existing timeout
     if (this.compactionTimeoutId) {
       clearTimeout(this.compactionTimeoutId);
       this.compactionTimeoutId = null;
     }
-
-    // Write through to ConversationRegistry (the single source of truth).
-    // Per-tab `isCompacting` is no longer mutated here;
-    // banner UI in chat-view reads exclusively from the registry. Multiple
-    // tabs may bind to the same conversation (canvas grid) — we still set
-    // state once per unique conversation to avoid redundant writes.
     const compactingConvIds = this.collectConversationIdsForTabs(
       tabs.map((t) => t.id),
     );
@@ -123,20 +112,12 @@ export class CompactionLifecycleService {
         startedAt,
       });
     }
-
-    // Safety fallback: dismiss if compaction_complete event is never received.
-    // We snapshot the bound tab IDs at trigger time — tabs closed during the
-    // 120s window are skipped via the per-tab existence check inside the
-    // timeout callback. The session's first tab also drives sessionManager
-    // status (legacy behavior) so single-tab callers see no change.
     const compactingTabIds = tabs.map((t) => t.id);
     this.compactionTimeoutId = setTimeout(() => {
       for (const tabId of compactingTabIds) {
         this.tabManager.applyCompactionTimeoutReset(tabId);
         this.tabManager.markTabIdle(tabId);
       }
-      // Also clear the in-flight flag on the registry so the banner dismisses
-      // even when the StreamRouter never observed `compaction_complete`.
       for (const convId of compactingConvIds) {
         this.conversationRegistry.setCompactionState(convId, {
           inFlight: false,
@@ -194,31 +175,11 @@ export class CompactionLifecycleService {
     tabId: string;
     compactionSessionId: string;
   }): void {
-    // Do NOT clear `inFlight` upfront. We pin
-    // compaction-in-flight through the entire reset + reload cycle so the
-    // SESSION_STATS late-event filter (`isLateAfterCompaction`) drops every
-    // stat event that arrives while we are reloading. The `inFlight` flag is
-    // cleared in the `switchSession` settle handler below, after which the
-    // 2s `lastCompactionAt` grace window takes over for any final tail
-    // events. Only the safety timeout is cancelled here.
     if (this.compactionTimeoutId) {
       clearTimeout(this.compactionTimeoutId);
       this.compactionTimeoutId = null;
     }
-    // Clear the execution-tree cache BEFORE messages are
-    // cleared on the tab. OnPush change detection then sees an empty tree
-    // first, eliminating the diff between stale pre-compaction nodes and the
-    // post-reload tree that produced visible bubble overlap with sticky
-    // agent-message headers.
     this.treeBuilder.clearCache();
-
-    // Resolve sibling tabs that share the same
-    // session. Prefer the compactionSessionId from the SDK event (which is
-    // the canonical post-compaction session id); fall back to the
-    // originating tab's claudeSessionId when the lookup is empty (e.g. the
-    // SDK emitted a fresh id we have not bound yet). The originating tab is
-    // always included even when not in the lookup, so a never-bound tile
-    // does not silently miss its own reset.
     const originatingTab = this.tabManager
       .tabs()
       .find((t) => t.id === result.tabId);
@@ -233,24 +194,8 @@ export class CompactionLifecycleService {
     const fanoutTabs = Array.from(fanoutMap.values()).filter(
       (t): t is NonNullable<typeof originatingTab> => t != null,
     );
-
-    // Clear finalized messages for the tab - stale pre-compaction messages
-    // Verify tab still exists before clearing (it may have been closed during compaction)
     const compactionTab = originatingTab;
     if (compactionTab) {
-      // Split lifetime cost vs current context tokens.
-      //
-      // Per Claude Agent SDK semantics, `compact_boundary` resets the model's
-      // context window: post-compaction usage starts from a fresh baseline.
-      // Cumulative session cost ($) is what the user cares about and must be
-      // preserved. Context-fill tokens (input/output/cacheRead/cacheCreation)
-      // must NOT carry forward — otherwise the header double-counts (pre-
-      // compaction tokens + new post-compaction tokens) and CTX % shows the
-      // model context as if compaction never happened.
-      //
-      // After this reset, `SessionHistoryReaderService.aggregateUsageStats`
-      // (which slices messages after the last `compact_boundary`) is the
-      // source of truth via the `switchSession` reload below.
       const priorPreloaded = compactionTab.preloadedStats ?? null;
       const livePreCompactionSnapshot =
         !priorPreloaded && compactionTab.messages.length > 0
@@ -274,24 +219,8 @@ export class CompactionLifecycleService {
         },
         messageCount: priorMessageCount,
       };
-
-      // Suppress `[auto-animate]` for the synchronous
-      // tick that clears messages and the immediately-following reload.
-      // queueMicrotask runs after this synchronous batch but before paint,
-      // so the directive sees `[autoAnimateDisabled]=true` for exactly one
-      // change-detection cycle and skips animating the stale→empty diff.
       this._suppressAnimateOnce.set(true);
       queueMicrotask(() => this._suppressAnimateOnce.set(false));
-
-      // Also clears any queued message so the
-      // "Message queued (will send when Claude finishes)" banner disappears
-      // and the next user message is sent fresh instead of draining a stale queue.
-      //
-      // Fan out applyCompactionComplete +
-      // markTabIdle to every sibling tab bound to this session. Each tab's
-      // `compactionCount` is incremented from its own current value. The
-      // preloadedStats payload is shared (lifetime cost is per-session, not
-      // per-tab — every tile sees the same accounting surface).
       for (const t of fanoutTabs) {
         this.tabManager.applyCompactionComplete(t.id, {
           preloadedStats,
@@ -300,17 +229,6 @@ export class CompactionLifecycleService {
         this.tabManager.markTabIdle(t.id);
       }
       this.sessionManager.setStatus('loaded');
-
-      // Reload session from disk to show the post-compaction state.
-      // The SDK writes the compaction summary as a user message to the
-      // session JSONL, but it's NOT emitted in the live stream. Without
-      // this reload, the tab shows a clean slate until manually reopened.
-      //
-      // Reload is keyed by unique
-      // claudeSessionId across all fan-out tabs. Sibling tiles bound to
-      // the same session share the JSONL on disk, so a single switchSession
-      // is enough; tiles bound to a different post-compaction session id
-      // get their own reload.
       const reloadIds = new Set<SessionId>();
       for (const t of fanoutTabs) {
         const id =
@@ -318,25 +236,13 @@ export class CompactionLifecycleService {
         if (id) reloadIds.add(id);
       }
       if (reloadIds.size === 0) {
-        // No session id to reload — clear state so the banner doesn't stick.
         this.clearCompactionStateForFanout(fanoutTabs);
         return;
       }
-
-      // Pin inFlight on the conversation through the reload settle. We use
-      // a shared counter so `inFlight` is only cleared once every reload
-      // completes — otherwise the first settle would prematurely re-open
-      // the SESSION_STATS late-event filter for sibling tiles still mid-
-      // reload. The conversation registry is the single source of truth
-      // (per C1) so we do NOT duplicate per-tab pinning.
       let pending = reloadIds.size;
       const onSettle = (): void => {
         pending -= 1;
         if (pending > 0) return;
-        // Clear inFlight only after every reload
-        // settles. From this point the 2s `lastCompactionAt` grace window
-        // in `isLateAfterCompaction` covers any final tail events that
-        // race the settle.
         this.clearCompactionStateForFanout(fanoutTabs);
       };
       for (const sid of reloadIds) {
@@ -351,8 +257,6 @@ export class CompactionLifecycleService {
           .finally(onSettle);
       }
     } else {
-      // Tab was closed mid-compaction. Drop the in-flight flag so any
-      // surviving conversation-bound siblings don't keep the banner up.
       this.clearCompactionState(TabId.from(result.tabId));
     }
   }
@@ -370,8 +274,6 @@ export class CompactionLifecycleService {
       fanoutTabs.map((t) => t.id),
     );
     if (convIds.length === 0) {
-      // No conversation bindings yet — fall back to the per-tab clear which
-      // also handles the "no binding" case via the sweep path.
       for (const t of fanoutTabs) this.clearCompactionState(t.id);
       return;
     }
@@ -417,7 +319,6 @@ export class CompactionLifecycleService {
       }
       return;
     }
-    // Fallback sweep: clear inFlight on every conversation that has it set.
     for (const conv of this.conversationRegistry.conversations()) {
       if (conv.compactionInFlight) {
         this.conversationRegistry.setCompactionState(conv.id, {

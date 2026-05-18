@@ -20,16 +20,11 @@ import { fileURLToPath } from 'url';
 
 function resolveBundleDir(): string {
   try {
-    // In the ESM bundle, esbuild's banner provides `import.meta.url`.
-    // In CJS tests, this module is mocked, so this branch is never evaluated.
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore TS1470: import.meta not allowed in CJS output. Safe: the final ESM bundle provides it.
     const metaUrl: string | undefined = import.meta?.url;
     if (metaUrl) {
       return path.dirname(fileURLToPath(metaUrl));
     }
   } catch {
-    // Fall through to __dirname fallback below.
   }
   return __dirname;
 }

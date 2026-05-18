@@ -41,8 +41,6 @@ export class JwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-
-    // Extract JWT token from unified HTTP-only cookie
     const token = request.cookies?.['ptah_auth'];
 
     if (!token) {
@@ -52,14 +50,7 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      // Validate token and extract user information
       const user = await this.authService.validateToken(token);
-
-      // ✅ CRITICAL: Attach user to request
-      // This makes user context available to:
-      // 1. Neo4j security decorators (fixes "No request context" error)
-      // 2. ChromaDB @TenantAware decorator (tenant isolation)
-      // 3. LangGraph workflow context (user-aware workflows)
       request.user = user;
 
       return true;

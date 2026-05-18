@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Provider Models Service
  *
  * Fetches available models from any Anthropic-compatible provider and manages
@@ -152,12 +152,9 @@ export class ProviderModelsService {
     totalCount: number;
     isStatic: boolean;
   }> {
-    // Path 0: Registered dynamic fetcher (checked BEFORE registry to support
-    // virtual provider IDs like 'anthropic' that aren't in ANTHROPIC_PROVIDERS)
     const dynamicFetcher = this.dynamicFetchers.get(providerId);
     if (dynamicFetcher) {
       try {
-        // Check cache first
         const cached = this.modelCache.get(providerId);
         const now = Date.now();
         if (
@@ -188,7 +185,6 @@ export class ProviderModelsService {
             isStatic: false,
           };
         }
-        // Empty result â€” fall through to static fallback if provider has a registry entry
       } catch (error) {
         this.logger.warn(
           '[ProviderModelsService] Dynamic fetcher failed, falling back to static models',
@@ -197,10 +193,7 @@ export class ProviderModelsService {
             error: error instanceof Error ? error.message : String(error),
           },
         );
-        // Fall through to registry paths if available
       }
-
-      // Virtual provider with no registry entry: return empty gracefully
       if (!getAnthropicProvider(providerId)) {
         return { models: [], totalCount: 0, isStatic: false };
       }
@@ -210,8 +203,6 @@ export class ProviderModelsService {
     if (!provider) {
       throw new SdkError(`Unknown provider: ${providerId}`);
     }
-
-    // Path 1: Has API endpoint AND key â†’ try dynamic first
     if (provider.modelsEndpoint && apiKey) {
       try {
         const result = await this.fetchDynamicModels(
@@ -220,7 +211,6 @@ export class ProviderModelsService {
           apiKey,
           toolUseOnly,
         );
-        // Merge static metadata (pricing, toolUse flags) into dynamic results
         result.models = this.mergeStaticMetadata(result.models, provider);
         return result;
       } catch (error) {
@@ -231,11 +221,8 @@ export class ProviderModelsService {
             error: error instanceof Error ? error.message : String(error),
           },
         );
-        // Fall through to static fallback
       }
     }
-
-    // Path 2: Static fallback (no key, or dynamic failed)
     if (provider.staticModels && provider.staticModels.length > 0) {
       const models: ProviderModelInfo[] = provider.staticModels.map((m) => ({
         id: m.id,
@@ -251,8 +238,6 @@ export class ProviderModelsService {
 
       return { models: filtered, totalCount: models.length, isStatic: true };
     }
-
-    // No models available (dynamic-only without key, or provider misconfigured)
     this.logger.debug(
       '[ProviderModelsService] No models available for provider',
       {
@@ -278,7 +263,6 @@ export class ProviderModelsService {
     totalCount: number;
     isStatic: boolean;
   }> {
-    // Check cache
     const now = Date.now();
     const cached = this.modelCache.get(providerId);
     if (
@@ -328,14 +312,8 @@ export class ProviderModelsService {
       if (!data.data || !Array.isArray(data.data)) {
         throw new SdkError(`Invalid response format from ${provider.name} API`);
       }
-
-      // Transform to our model format and extract pricing
       const models = this.transformApiModels(data.data);
-
-      // Feed dynamic pricing into the shared pricing map
       this.feedPricingMap(models);
-
-      // Update cache
       this.modelCache.set(providerId, { models, timestamp: now });
 
       this.logger.info(
@@ -392,7 +370,6 @@ export class ProviderModelsService {
 
       return {
         ...model,
-        // OR logic: static can supplement dynamic (APIs often underreport tool support)
         supportsToolUse: model.supportsToolUse || staticInfo.supportsToolUse,
         inputCostPerToken:
           model.inputCostPerToken ?? staticInfo.inputCostPerToken,
@@ -403,7 +380,6 @@ export class ProviderModelsService {
         cacheCreationCostPerToken:
           model.cacheCreationCostPerToken ??
           staticInfo.cacheCreationCostPerToken,
-        // Prefer static display name if dynamic is just the raw ID
         name:
           model.name !== model.id ? model.name : staticInfo.name || model.name,
         description: model.description || staticInfo.description,
@@ -433,15 +409,9 @@ export class ProviderModelsService {
   ): Promise<void> {
     const envVar = TIER_ENV_VAR_MAP[tier];
     const configKey = this.getTierConfigKey(providerId, tier, scope);
-
-    // Persist to config (always, regardless of scope)
     await this.config.set(configKey, modelId);
-
-    // Only propagate to global runtime env for the main agent
     if (scope === 'mainAgent') {
-      // Set AuthEnv variable for immediate use
       this.authEnv[envVar as keyof AuthEnv] = modelId;
-      // Sync to process.env (SDK reads model tiers from process.env internally)
       process.env[envVar] = modelId;
     }
 
@@ -499,11 +469,7 @@ export class ProviderModelsService {
   ): Promise<void> {
     const envVar = TIER_ENV_VAR_MAP[tier];
     const configKey = this.getTierConfigKey(providerId, tier, scope);
-
-    // Clear config (always, regardless of scope)
     await this.config.set(configKey, undefined);
-
-    // Only remove from global runtime env for the main agent
     if (scope === 'mainAgent') {
       delete this.authEnv[envVar as keyof AuthEnv];
     }
@@ -524,9 +490,6 @@ export class ProviderModelsService {
    */
   applyPersistedTiers(providerId: string): void {
     const userTiers = this.getModelTiers(providerId, 'mainAgent');
-    // Fall back to the provider's curated defaults so providers like Ollama
-    // (where Anthropic's claude-* model IDs are nonsensical) get sensible
-    // tier env vars even when the user has not explicitly mapped tiers.
     const providerDefaults =
       getAnthropicProvider(providerId)?.defaultTiers ?? {};
 
@@ -557,7 +520,6 @@ export class ProviderModelsService {
    * Call this when switching providers or switching to OAuth/API key auth
    */
   clearAllTierEnvVars(): void {
-    // Iterate the canonical TIER_ENV_VAR_MAP to ensure all tiers are covered
     for (const envKey of Object.values(TIER_ENV_VAR_MAP)) {
       delete this.authEnv[envKey as keyof AuthEnv];
       delete process.env[envKey];
@@ -597,8 +559,6 @@ export class ProviderModelsService {
       'authMethod',
       'apiKey',
     );
-    // Normalize through the shared helper so new spellings ('claude-cli',
-    // 'oauth') and legacy ones ('openrouter', 'claudeCli') route consistently.
     const authMethod = normalizeAuthMethod(rawMethod);
 
     if (authMethod === 'apiKey' || authMethod === 'claudeCli') {
@@ -610,7 +570,6 @@ export class ProviderModelsService {
         DEFAULT_PROVIDER_ID,
       );
     }
-    // Unknown method â€” treat as direct Anthropic
     return ANTHROPIC_DIRECT_PROVIDER_ID;
   }
 
@@ -644,8 +603,6 @@ export class ProviderModelsService {
     if (!openRouter?.modelsEndpoint) {
       return 0;
     }
-
-    // Check pricing-specific cache
     const cached = this.modelCache.get(PREFETCH_CACHE_KEY);
     if (
       cached &&
@@ -656,12 +613,7 @@ export class ProviderModelsService {
       return cached.models.filter((m) => m.inputCostPerToken !== undefined)
         .length;
     }
-
-    // Delay initial fetch to let VS Code networking initialize fully.
-    // Extension activation fires early; network stack may not be ready.
     await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    // Attempt with one retry â€” network may be transiently unavailable at startup
     const maxAttempts = 2;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -685,8 +637,6 @@ export class ProviderModelsService {
         }
 
         const models = this.transformApiModels(data.data);
-
-        // Cache under pricing-specific key (separate from authenticated model list)
         this.modelCache.set(PREFETCH_CACHE_KEY, {
           models,
           timestamp: Date.now(),
@@ -701,7 +651,6 @@ export class ProviderModelsService {
 
         return pricedCount;
       } catch (error) {
-        // HTTP errors (non-2xx) return 0 immediately â€” no retry
         if (axios.isAxiosError(error) && error.response) {
           this.logger.warn(
             `[ProviderModelsService] OpenRouter pricing pre-fetch failed: ${error.response.status}`,
@@ -798,18 +747,11 @@ export class ProviderModelsService {
         cacheReadCostPerToken: model.cacheReadCostPerToken,
         cacheCreationCostPerToken: model.cacheCreationCostPerToken,
       };
-
-      // Key 1: Full provider model ID
       const fullId = model.id.toLowerCase();
       pricingEntries[fullId] = pricing;
-
-      // Key 2: Strip provider prefix (e.g., "anthropic/claude-opus-4.5" -> "claude-opus-4.5")
       if (fullId.includes('/')) {
         const stripped = fullId.split('/').slice(1).join('/');
         pricingEntries[stripped] = pricing;
-
-        // Key 3: Normalize dots to hyphens for SDK model ID matching
-        // "claude-opus-4.5" -> "claude-opus-4-5" (matches "claude-opus-4-5-20251101")
         const normalized = stripped.replace(/\./g, '-');
         if (normalized !== stripped) {
           pricingEntries[normalized] = pricing;
@@ -845,8 +787,6 @@ export class ProviderModelsService {
     const scopedKey = this.getTierConfigKey(providerId, tier, scope);
     const scopedValue = this.config.get<string>(scopedKey);
     if (scopedValue) return scopedValue;
-
-    // Legacy fallback â€” only for mainAgent scope
     if (scope === 'mainAgent') {
       const legacyKey = this.getLegacyTierConfigKey(providerId, tier);
       const legacyValue = this.config.get<string>(legacyKey);

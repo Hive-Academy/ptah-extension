@@ -32,7 +32,6 @@ export function createEvent<T>(): [IEvent<T>, (data: T) => void] {
       try {
         listener(data);
       } catch {
-        // Swallow listener errors to prevent one listener from breaking others
       }
     }
   };

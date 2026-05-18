@@ -76,10 +76,6 @@ export class CursorCliAdapter implements CliAdapter {
 
   async detect(): Promise<CliDetectionResult> {
     try {
-      // IMPORTANT: resolve 'cursor-agent' (headless CLI), NOT 'cursor' (GUI IDE).
-      // On Windows, `cursor` on PATH points to the Cursor IDE Electron app;
-      // passing CLI flags to it causes "not in list of known options" warnings
-      // and launches the IDE instead of running headless.
       const binaryPath = await resolveCliPath('cursor-agent');
       if (!binaryPath) {
         return { cli: 'cursor', installed: false, supportsSteer: false };
@@ -94,7 +90,6 @@ export class CursorCliAdapter implements CliAdapter {
         );
         version = versionOutput.trim().split(/\r?\n/)[0];
       } catch {
-        // Version check failed, CLI still usable
       }
 
       return {
@@ -168,13 +163,10 @@ export class CursorCliAdapter implements CliAdapter {
         const content = await readFile(mcpPath, 'utf8');
         config = JSON.parse(content) as Record<string, unknown>;
       } catch {
-        // File doesn't exist or invalid JSON — start fresh
       }
 
       const mcpServers =
         (config['mcpServers'] as Record<string, unknown>) || {};
-
-      // Idempotency: skip write if already configured with the same port
       const existing = mcpServers['ptah'] as
         | Record<string, unknown>
         | undefined;
@@ -190,7 +182,6 @@ export class CursorCliAdapter implements CliAdapter {
       await mkdir(cursorDir, { recursive: true });
       await writeFile(mcpPath, JSON.stringify(config, null, 2), 'utf8');
     } catch {
-      // Non-fatal — MCP tools won't be available but agent still runs
     }
   }
 
@@ -215,7 +206,6 @@ export class CursorCliAdapter implements CliAdapter {
       }
       await writeFile(mcpPath, JSON.stringify(config, null, 2), 'utf8');
     } catch {
-      // Non-fatal — file may not exist or never had a ptah entry
     }
   }
 
@@ -227,18 +217,11 @@ export class CursorCliAdapter implements CliAdapter {
    * Parses JSONL events line-by-line and emits readable output.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    // Configure Ptah MCP server in {workingDir}/.cursor/mcp.json before spawning.
     if (options.mcpPort && options.workingDirectory) {
       await this.configureMcpServer(options.workingDirectory, options.mcpPort);
     }
-
-    // Build full task prompt including system prompt/guidance (prepended).
-    // Cursor has no native system-prompt env-var mechanism, so we use the
-    // standard buildTaskPrompt() path which prepends systemPrompt/projectGuidance.
     const taskPrompt = buildTaskPrompt(options);
     const abortController = new AbortController();
-
-    // Session ID captured from init event (closure scoped per invocation)
     let capturedSessionId: string | undefined;
 
     const args = [
@@ -249,18 +232,12 @@ export class CursorCliAdapter implements CliAdapter {
       '-p',
       '', // Prompt delivered via stdin — avoids Windows 8191-char argument limit
     ];
-
-    // Resume mode: pass --resume <id> to load prior session context
     if (options.resumeSessionId) {
       args.push('--resume', options.resumeSessionId);
     }
-
-    // Add model if specified
     if (options.model) {
       args.push('--model', options.model);
     }
-
-    // Output buffering (same pattern as Gemini/Codex adapters)
     const outputBuffer: string[] = [];
     const outputCallbacks: Array<(data: string) => void> = [];
 
@@ -283,8 +260,6 @@ export class CursorCliAdapter implements CliAdapter {
         }
       }
     };
-
-    // Structured segment buffering (same pattern as output)
     const segmentBuffer: CliOutputSegment[] = [];
     const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
 
@@ -307,26 +282,12 @@ export class CursorCliAdapter implements CliAdapter {
         }
       }
     };
-
-    // Spawn using cross-spawn — transparent .cmd handling on Windows.
-    // No `needsConsole: true` because Cursor does not use node-pty/ConPTY
-    // internally for shell execution (Gemini is the only adapter that does).
-    // Cursor's tool execution goes through its own internal subprocess machinery
-    // that does not call AttachConsole(), so the default piped stdio with
-    // CREATE_NO_WINDOW is fine on Windows. Setting `needsConsole: true`
-    // unnecessarily would allocate an extra (hidden) console window per spawn.
     const binary = options.binaryPath ?? 'cursor-agent';
     const child = spawnCli(binary, args, {
       cwd: options.workingDirectory,
     });
-
-    // Explicit UTF-8 encoding prevents Buffer concatenation issues
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
-
-    // Deliver prompt via stdin then close (avoids Windows 8191-char argument limit).
-    // Resume mode: Cursor loads session context via --resume; send a short continuation
-    // prompt to avoid re-triggering the full original task.
     if (options.resumeSessionId) {
       child.stdin?.write(
         'Continue working on the previous task. Pick up where you left off.\n',
@@ -335,23 +296,17 @@ export class CursorCliAdapter implements CliAdapter {
       child.stdin?.write(taskPrompt + '\n');
     }
     child.stdin?.end();
-
-    // Abort handler: kill the child process
     const onAbort = (): void => {
       if (!child.killed) {
         child.kill('SIGTERM');
       }
     };
     abortController.signal.addEventListener('abort', onAbort);
-
-    // JSONL line buffer for incremental parsing
     let lineBuf = '';
 
     child.stdout?.on('data', (data: string) => {
       lineBuf += data;
-      // Cross-platform line splitting: handle both \n (Unix) and \r\n (Windows).
       const lines = lineBuf.split(/\r?\n/);
-      // Keep the last incomplete line in the buffer
       lineBuf = lines.pop() ?? '';
 
       for (const line of lines) {
@@ -375,12 +330,9 @@ export class CursorCliAdapter implements CliAdapter {
         );
       emitSegment({ type: isError ? 'error' : 'info', content: cleaned });
     });
-
-    // Done promise: resolves when the process exits
     const done = new Promise<number>((resolve) => {
       child.on('close', (code, signal) => {
         abortController.signal.removeEventListener('abort', onAbort);
-        // Flush remaining line buffer
         if (lineBuf.trim()) {
           const sessionId = this.handleJsonLine(
             lineBuf.trim(),
@@ -405,8 +357,6 @@ export class CursorCliAdapter implements CliAdapter {
         resolve(1);
       });
     });
-
-    // Clean up workspace MCP config after process exits
     done
       .then(() => {
         if (options.mcpPort && options.workingDirectory) {
@@ -442,7 +392,6 @@ export class CursorCliAdapter implements CliAdapter {
     try {
       event = JSON.parse(line) as CursorStreamEvent;
     } catch {
-      // Not valid JSON — emit as-is if it looks meaningful
       if (line.length > 0 && !line.startsWith('{')) {
         emitOutput(line + '\n');
         emitSegment({ type: 'text', content: line });
@@ -469,7 +418,6 @@ export class CursorCliAdapter implements CliAdapter {
       }
 
       case 'assistant':
-        // Main text output from the model
         if (event.content) {
           emitOutput(event.content);
           emitSegment({ type: 'text', content: event.content });
@@ -477,14 +425,12 @@ export class CursorCliAdapter implements CliAdapter {
         break;
 
       case 'thinking':
-        // Reasoning delta — emit as faint info (not surfaced as primary text)
         if (event.delta) {
           emitSegment({ type: 'info', content: `[thinking] ${event.delta}` });
         }
         break;
 
       case 'tool_call':
-        // Tool invocation — handles both in_progress and completed phases
         if (event.name) {
           if (event.status === 'in_progress' || event.status === undefined) {
             const inputSummary = event.input
@@ -520,7 +466,6 @@ export class CursorCliAdapter implements CliAdapter {
               });
             }
           }
-          // Unknown status values are silently ignored
         }
         break;
 
@@ -539,12 +484,10 @@ export class CursorCliAdapter implements CliAdapter {
         break;
 
       case 'result':
-        // Some Cursor versions emit direct text content on the result event
         if (event.content) {
           emitOutput(event.content);
           emitSegment({ type: 'text', content: event.content });
         }
-        // Final result with stats
         if (event.stats) {
           const { input_tokens, output_tokens, duration_ms } = event.stats;
           const parts: string[] = [];
@@ -560,7 +503,6 @@ export class CursorCliAdapter implements CliAdapter {
         break;
 
       default:
-        // Unknown event type — ignore silently
         break;
     }
     return undefined;

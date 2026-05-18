@@ -57,12 +57,8 @@ function restoreCrlf(normalized: string, originalUsedCrlf: boolean): string {
  * - Returns content unchanged if no frontmatter present
  */
 export function stripAllowedToolsFromFrontmatter(content: string): string {
-  // Detect original line-ending style so we can restore it on output.
   const originalUsedCrlf = hasCrlf(content);
-  // Normalize CRLF to LF for reliable regex matching on Windows
   const normalized = normalizeCrlf(content);
-
-  // Match YAML frontmatter block
   const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
     return restoreCrlf(normalized, originalUsedCrlf);
@@ -73,8 +69,6 @@ export function stripAllowedToolsFromFrontmatter(content: string): string {
   const filteredLines = lines.filter(
     (line) => !line.trimStart().startsWith('allowed-tools:'),
   );
-
-  // If nothing was filtered, return normalized content
   if (filteredLines.length === lines.length) {
     return restoreCrlf(normalized, originalUsedCrlf);
   }
@@ -110,7 +104,6 @@ export function sanitizeYamlDescriptions(content: string): string {
   const frontmatter = frontmatterMatch[1];
   const lines = frontmatter.split('\n');
   const sanitizedLines = lines.map((line) => {
-    // Match description: value (not already quoted)
     const descMatch = line.match(/^(\s*description:\s*)(.+)$/);
     if (!descMatch) {
       return line;
@@ -118,18 +111,13 @@ export function sanitizeYamlDescriptions(content: string): string {
 
     const prefix = descMatch[1];
     const value = descMatch[2].trim();
-
-    // Already quoted with single or double quotes — leave as-is
     if (
       (value.startsWith('"') && value.endsWith('"')) ||
       (value.startsWith("'") && value.endsWith("'"))
     ) {
       return line;
     }
-
-    // Contains colon-space which breaks strict YAML parsers — quote it
     if (value.includes(': ')) {
-      // Escape any existing double quotes inside the value
       const escaped = value.replace(/"/g, '\\"');
       return `${prefix}"${escaped}"`;
     }
@@ -171,8 +159,6 @@ export function rewriteSkillName(content: string, newName: string): string {
     }
     return `${nameMatch[1]}${newName}`;
   });
-
-  // If nothing changed, return as-is
   if (updatedLines.every((line, i) => line === lines[i])) {
     return content;
   }
@@ -209,11 +195,9 @@ export async function copyDirectoryRecursive(
   for (const entry of entries) {
     const sourcePath = join(sourceDir, entry);
     const targetPath = join(targetDir, entry);
-    // Use lstat() to NOT follow symlinks — prevents infinite loops
     const entryStat = await lstat(sourcePath);
 
     if (entryStat.isSymbolicLink()) {
-      // Skip symlinks entirely for safety
       continue;
     }
 
@@ -226,9 +210,6 @@ export async function copyDirectoryRecursive(
         skillFolderName,
       );
     } else if (entryStat.isFile()) {
-      // For markdown files, strip Claude-specific frontmatter fields,
-      // sanitize YAML descriptions for strict parsers (Codex/Gemini),
-      // and rewrite skill name to match target folder if needed
       if (extname(entry).toLowerCase() === '.md') {
         const content = await readFile(sourcePath, 'utf8');
         const stripped = stripAllowedToolsFromFrontmatter(content);
@@ -239,7 +220,6 @@ export async function copyDirectoryRecursive(
             : sanitized;
         await writeFile(targetPath, processed, 'utf8');
       } else {
-        // Binary/other files: direct copy via read+write
         const content = await readFile(sourcePath);
         await writeFile(targetPath, content);
       }

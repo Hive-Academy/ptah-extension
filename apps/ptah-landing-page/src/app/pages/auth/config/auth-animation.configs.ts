@@ -10,10 +10,6 @@ import {
  * Provides consistent, staggered entrance animations.
  */
 
-// ============================================
-// LEFT SIDE (Form) ANIMATIONS
-// ============================================
-
 /** Logo - First to appear with fade */
 export const LOGO_ANIMATION: ViewportAnimationConfig = {
   animation: 'fadeIn',
@@ -97,10 +93,6 @@ export const DIVIDER_ANIMATION: ViewportAnimationConfig = {
   once: true,
 };
 
-// ============================================
-// SOCIAL BUTTON ANIMATIONS (Staggered)
-// ============================================
-
 /** GitHub button - First social button */
 export const SOCIAL_BTN_1_ANIMATION: ViewportAnimationConfig = {
   animation: 'scaleIn',
@@ -144,10 +136,6 @@ export const FOOTER_ANIMATION: ViewportAnimationConfig = {
   once: true,
 };
 
-// ============================================
-// RIGHT SIDE (Hero) ANIMATIONS
-// ============================================
-
 /** Parallax background effect */
 export const PARALLAX_ANIMATION: ScrollAnimationConfig = {
   animation: 'parallax',
@@ -177,10 +165,6 @@ export const SECONDARY_CARD_ANIMATION: ViewportAnimationConfig = {
   once: true,
 };
 
-// ============================================
-// CARD ANIMATION (For simpler pages)
-// ============================================
-
 /** Card scale in animation */
 export const CARD_ANIMATION: ViewportAnimationConfig = {
   animation: 'scaleIn',
@@ -188,10 +172,6 @@ export const CARD_ANIMATION: ViewportAnimationConfig = {
   threshold: 0.1,
   ease: 'power2.out',
 };
-
-// ============================================
-// VERIFICATION CODE ANIMATIONS
-// ============================================
 
 /** Verification code input */
 export const CODE_INPUT_ANIMATION: ViewportAnimationConfig = {

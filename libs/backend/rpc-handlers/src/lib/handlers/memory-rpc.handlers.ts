@@ -145,10 +145,6 @@ export class MemoryRpcHandlers {
         if (!params || typeof params.query !== 'string') {
           return { hits: [], bm25Only: false };
         }
-        // Extract workspaceRoot independently so that an invalid topK or query
-        // field cannot silently drop the scope (cross-workspace memory leak).
-        // The full MemorySearchParamsSchema (in memory-rpc.schema.ts) remains
-        // the end-to-end validation contract used by the test layer.
         const workspaceRoot = WorkspaceRootSchema.safeParse(
           (params as { workspaceRoot?: unknown }).workspaceRoot,
         ).data;
@@ -271,7 +267,6 @@ export class MemoryRpcHandlers {
         try {
           validated = MemoryPurgeBySubjectPatternParamsSchema.parse(params);
         } catch (err) {
-          // Issue 3 (LOW): log full Zod error server-side; send generic message to client.
           this.logger.warn('[memory] purgeBySubjectPattern — invalid params', {
             err: String(err),
           });
@@ -280,7 +275,6 @@ export class MemoryRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        // Issue 1 (HIGH): reject null/undefined workspaceRoot — cross-workspace purge not permitted.
         if (
           validated.workspaceRoot === null ||
           validated.workspaceRoot === undefined
@@ -290,7 +284,6 @@ export class MemoryRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        // Issue 2 (MEDIUM): workspace authorization guard — defence-in-depth against arbitrary workspaceRoot.
         if (
           !isAuthorizedWorkspace(
             validated.workspaceRoot,

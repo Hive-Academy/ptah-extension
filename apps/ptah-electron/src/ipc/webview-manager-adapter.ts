@@ -74,8 +74,6 @@ export class ElectronWebviewManagerAdapter {
    * @returns true if the BrowserWindow is available
    */
   isVisible(_viewType?: string): boolean {
-    // The bridge itself checks for window availability in sendToRenderer,
-    // so we return true to indicate messages can be sent.
     return true;
   }
 }

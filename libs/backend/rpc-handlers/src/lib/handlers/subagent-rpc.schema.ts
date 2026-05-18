@@ -9,10 +9,6 @@
 
 import { z } from 'zod';
 
-// ---------------------------------------------------------------------------
-// subagent:send-message
-// ---------------------------------------------------------------------------
-
 export const SubagentSendMessageSchema = z.object({
   sessionId: z.string().min(1, 'sessionId is required'),
   parentToolUseId: z.string().min(1, 'parentToolUseId is required'),
@@ -23,20 +19,12 @@ export type SubagentSendMessageInput = z.infer<
   typeof SubagentSendMessageSchema
 >;
 
-// ---------------------------------------------------------------------------
-// subagent:stop
-// ---------------------------------------------------------------------------
-
 export const SubagentStopSchema = z.object({
   sessionId: z.string().min(1, 'sessionId is required'),
   taskId: z.string().min(1, 'taskId is required'),
 });
 
 export type SubagentStopInput = z.infer<typeof SubagentStopSchema>;
-
-// ---------------------------------------------------------------------------
-// subagent:interrupt
-// ---------------------------------------------------------------------------
 
 export const SubagentInterruptSchema = z.object({
   sessionId: z.string().min(1, 'sessionId is required'),

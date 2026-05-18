@@ -16,7 +16,6 @@ export class VscodeTokenCounter implements ITokenCounter {
         return await models[0].countTokens(text);
       }
     } catch {
-      // VS Code LM API unavailable, fall through to gpt-tokenizer
     }
     try {
       return encode(text).length;
@@ -32,7 +31,6 @@ export class VscodeTokenCounter implements ITokenCounter {
         return models[0].maxInputTokens;
       }
     } catch {
-      // VS Code LM API unavailable
     }
     return null;
   }

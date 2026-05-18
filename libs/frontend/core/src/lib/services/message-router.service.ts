@@ -68,7 +68,6 @@ export function initializeMessageRouter(
   _router: MessageRouterService,
 ): () => void {
   return () => {
-    // Service is already initialized in constructor
   };
 }
 

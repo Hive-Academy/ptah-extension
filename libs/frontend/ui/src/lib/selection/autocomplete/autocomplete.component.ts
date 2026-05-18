@@ -136,8 +136,6 @@ export class AutocompleteComponent<T = unknown>
   implements AfterViewInit, OnDestroy
 {
   private readonly destroyRef = inject(DestroyRef);
-
-  // Inputs
   readonly suggestions = input.required<T[]>();
   readonly isLoading = input(false);
   readonly isOpen = input.required<boolean>();
@@ -148,33 +146,17 @@ export class AutocompleteComponent<T = unknown>
     (i: number) => i,
   );
   readonly suggestionTemplate = input.required<TemplateRef<{ $implicit: T }>>();
-
-  // Outputs
   readonly suggestionSelected = output<T>();
   readonly closed = output<void>();
-
-  // ViewChildren for ActiveDescendantKeyManager
   private readonly optionComponents = viewChildren(OptionComponent<T>);
-
-  // ActiveDescendantKeyManager
   private keyManager: ActiveDescendantKeyManager<OptionComponent<T>> | null =
     null;
-
-  // Tracks the last option count seen by the init effect so that we only
-  // reset the active item when the suggestion set actually changes size,
-  // not on every re-evaluation of the viewChildren signal.
   private lastOptionCount = 0;
-
-  // Active option ID for aria-activedescendant
   private readonly _activeOptionId = signal<string | null>(null);
   readonly activeOptionId = this._activeOptionId.asReadonly();
-
-  // Autocomplete positions (below input, match width)
   readonly autocompletePositions: ConnectedPosition[] = AUTOCOMPLETE_POSITIONS;
 
   constructor() {
-    // CRITICAL: Initialize/re-initialize key manager when options change
-    // This handles both initial render AND subsequent suggestion changes
     effect(() => {
       const options = this.optionComponents();
       const count = options.length;
@@ -182,7 +164,6 @@ export class AutocompleteComponent<T = unknown>
       this.lastOptionCount = count;
 
       if (count === 0) {
-        // Destroy keyManager when no options to prevent stale references
         if (this.keyManager) {
           this.keyManager.destroy();
           this.keyManager = null;
@@ -190,28 +171,20 @@ export class AutocompleteComponent<T = unknown>
         }
         return;
       }
-
-      // Only act when the option set actually changes size. Without this
-      // guard every detectChanges pass that re-evaluates viewChildren
-      // would reset the active item to index 0, clobbering hover /
-      // arrow-key selections the parent may have just applied.
       if (count === previousCount && this.keyManager) {
         return;
       }
 
       if (this.keyManager) {
-        // Option count changed (new suggestions) - reset to first item
         this.keyManager.setFirstItemActive();
         this.updateActiveOptionId();
       } else {
-        // First time options are available - initialize key manager
         this.initKeyManager();
       }
     });
   }
 
   ngAfterViewInit(): void {
-    // Key manager may already be initialized by effect() if options were available
     if (!this.keyManager) {
       this.initKeyManager();
     }
@@ -233,12 +206,8 @@ export class AutocompleteComponent<T = unknown>
       .withVerticalOrientation()
       .withWrap()
       .withHomeAndEnd();
-
-    // Set first item active initially
     this.keyManager.setFirstItemActive();
     this.updateActiveOptionId();
-
-    // Subscribe to active item changes (auto-unsubscribes on component destroy)
     this.keyManager.change
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
@@ -255,10 +224,6 @@ export class AutocompleteComponent<T = unknown>
       this._activeOptionId.set(activeItem.optionId());
     }
   }
-
-  // ============================================================
-  // PUBLIC API - Called by parent for keyboard navigation
-  // ============================================================
 
   /**
    * Handle keyboard events from parent

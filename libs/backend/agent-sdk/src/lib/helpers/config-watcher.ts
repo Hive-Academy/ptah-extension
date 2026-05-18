@@ -39,10 +39,7 @@ export class ConfigWatcher {
    * Watches authMethod in ConfigManager and credentials in SecretStorage
    */
   registerWatchers(reinitCallback: ReinitCallback): void {
-    // Clear existing watchers
     this.dispose();
-
-    // Watch auth-related config keys (non-sensitive settings)
     const watchKeys = ['authMethod', 'anthropicProviderId'];
 
     for (const key of watchKeys) {
@@ -52,10 +49,6 @@ export class ConfigWatcher {
 
       this.watchers.push(watcher);
     }
-
-    // Watch SecretStorage for credential changes
-    // Use prefix match to catch all auth-related secrets:
-    // ptah.auth.anthropicApiKey, ptah.auth.openrouterApiKey, ptah.auth.provider.* etc.
     this.secretsDisposable = this.secretStorage.onDidChange((event) => {
       if (event.key.startsWith('ptah.auth.')) {
         this.logger.info('[ConfigWatcher] Secret changed', { key: event.key });
@@ -75,7 +68,6 @@ export class ConfigWatcher {
     key: string,
     reinitCallback: ReinitCallback,
   ): Promise<void> {
-    // Prevent concurrent re-initialization
     if (this.isReinitializing) {
       this.logger.debug(
         `[ConfigWatcher] Skipping re-init for ${key} - already in progress`,

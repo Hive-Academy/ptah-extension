@@ -189,7 +189,6 @@ export class WebviewMessageHandlerService {
     });
 
     try {
-      // Try custom handlers first
       if (customHandlers) {
         for (const handler of customHandlers) {
           const handled = await handler(message, webview);
@@ -198,8 +197,6 @@ export class WebviewMessageHandlerService {
           }
         }
       }
-
-      // Handle common message types
       switch (message.type) {
         case MESSAGE_TYPES.WEBVIEW_READY:
           this.logger.info(`[${webviewId}] Webview ready signal received`);
@@ -239,8 +236,6 @@ export class WebviewMessageHandlerService {
         `[${webviewId}] Error handling message`,
         error instanceof Error ? error : new Error(String(error)),
       );
-
-      // Send error response to webview if message has correlationId
       if (message.correlationId || message.requestId) {
         const reqId = message.correlationId || message.requestId;
         await webview.postMessage({
@@ -261,7 +256,6 @@ export class WebviewMessageHandlerService {
     webview: vscode.Webview,
     message: WebviewMessage,
   ): Promise<void> {
-    // Frontend wraps RPC data in 'payload' object, so unwrap it
     const rpcData = (message.payload || message) as {
       requestId?: string;
       method: string;
@@ -282,10 +276,6 @@ export class WebviewMessageHandlerService {
         params,
         correlationId: reqId,
       });
-
-      // Send response back (correlationId and data are the canonical fields).
-      // errorCode is included for license-related errors.
-      // RPC hardening: error is always a string at the dispatcher boundary.
       await webview.postMessage({
         type: MESSAGE_TYPES.RPC_RESPONSE,
         correlationId: reqId,
@@ -406,9 +396,6 @@ export class WebviewMessageHandlerService {
         );
         return;
       }
-
-      // Delegate to the existing RPC handler 'agent:permissionResponse'
-      // which resolves the CopilotPermissionBridge pending Promise
       const response = await this.rpcHandler.handleMessage({
         method: 'agent:permissionResponse',
         params: payload,
@@ -465,8 +452,6 @@ export class WebviewMessageHandlerService {
         const permissionHandler = container.resolve<ISdkPermissionHandler>(
           SDK_PERMISSION_HANDLER,
         );
-        // Must pass 'id' and 'decision' fields matching
-        // SdkPermissionHandler.PermissionResponse (not a boolean 'approved').
         const decision = payload?.decision ?? 'deny';
         permissionHandler.handleResponse(requestId, {
           id: requestId,

@@ -19,10 +19,6 @@
  * which `tsc --noEmit` surfaces as a CI failure in the `typecheck` target.
  */
 
-// ---------------------------------------------------------------------------
-// Imports — type-only so this file has zero runtime footprint.
-// ---------------------------------------------------------------------------
-
 import type { SetupRpcHandlers } from './setup-rpc.handlers';
 import type { SettingsRpcHandlers } from './settings-rpc.handlers';
 import type { AuthRpcHandlers } from './auth-rpc.handlers';
@@ -43,13 +39,6 @@ import type {
 } from '@ptah-extension/platform-core';
 import type { DependencyContainer } from 'tsyringe';
 
-// ---------------------------------------------------------------------------
-// SetupRpcHandlers
-// Signature: (logger, rpcHandler, modelSettings, pluginLoader, workspaceProvider,
-//             container, sentryService, platformCommands, ...)
-// Key assertion: param 0 = Logger, param 1 = RpcHandler, param 2 = ModelSettings
-// ---------------------------------------------------------------------------
-
 type _SetupRpcHandlersArgs = ConstructorParameters<typeof SetupRpcHandlers>;
 
 type _SetupParam0 = _SetupRpcHandlersArgs[0];
@@ -59,20 +48,10 @@ void _assertSetupParam0;
 type _SetupParam1 = _SetupRpcHandlersArgs[1];
 const _assertSetupParam1: _SetupParam1 extends RpcHandler ? true : never = true;
 void _assertSetupParam1;
-
-// param 2 must be ModelSettings (not ConfigManager — regression guard for the
-// ConfigManager → ModelSettings drift)
 type _SetupParam2 = _SetupRpcHandlersArgs[2];
 const _assertSetupParam2: _SetupParam2 extends ModelSettings ? true : never =
   true;
 void _assertSetupParam2;
-
-// ---------------------------------------------------------------------------
-// SettingsRpcHandlers
-// Signature: (logger, rpcHandler, settingsExportService, settingsImportService,
-//             saveDialogProvider, userInteraction, workspaceProvider,
-//             platformCommands, licenseService)
-// ---------------------------------------------------------------------------
 
 type _SettingsRpcHandlersArgs = ConstructorParameters<
   typeof SettingsRpcHandlers
@@ -118,12 +97,6 @@ const _assertSettingsParam6: _SettingsParam6 extends IWorkspaceProvider
   : never = true;
 void _assertSettingsParam6;
 
-// ---------------------------------------------------------------------------
-// AuthRpcHandlers
-// Signature: (logger, rpcHandler, configManager, authSecretsService,
-//             sdkAdapter, providerModels, copilotAuth, codexAuth, ...)
-// ---------------------------------------------------------------------------
-
 type _AuthRpcHandlersArgs = ConstructorParameters<typeof AuthRpcHandlers>;
 
 type _AuthParam0 = _AuthRpcHandlersArgs[0];
@@ -133,11 +106,6 @@ void _assertAuthParam0;
 type _AuthParam1 = _AuthRpcHandlersArgs[1];
 const _assertAuthParam1: _AuthParam1 extends RpcHandler ? true : never = true;
 void _assertAuthParam1;
-
-// ---------------------------------------------------------------------------
-// LlmRpcHandlers
-// Signature: (logger, rpcHandler, container, sentryService)
-// ---------------------------------------------------------------------------
 
 type _LlmRpcHandlersArgs = ConstructorParameters<typeof LlmRpcHandlers>;
 
@@ -153,12 +121,6 @@ type _LlmParam2 = _LlmRpcHandlersArgs[2];
 const _assertLlmParam2: _LlmParam2 extends DependencyContainer ? true : never =
   true;
 void _assertLlmParam2;
-
-// ---------------------------------------------------------------------------
-// WorkspaceRpcHandlers
-// Signature: (logger, rpcHandler, workspaceProvider, workspaceLifecycle,
-//             userInteraction, workspaceContextManager, sessionImporter)
-// ---------------------------------------------------------------------------
 
 type _WorkspaceRpcHandlersArgs = ConstructorParameters<
   typeof WorkspaceRpcHandlers

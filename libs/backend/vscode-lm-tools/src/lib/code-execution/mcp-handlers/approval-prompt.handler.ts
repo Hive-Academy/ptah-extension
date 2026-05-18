@@ -40,10 +40,6 @@ export async function handleApprovalPrompt(
   const { permissionPromptService, webviewManager, logger } = deps;
 
   logger.debug('Handling approval_prompt', { params });
-
-  // Auto-allow when WebviewManager is absent (Electron/standalone).
-  // This is a defensive check — protocol-handlers.ts already short-circuits
-  // before calling this function, but we guard here for safety.
   if (!webviewManager) {
     logger.info('approval_prompt auto-allowed (no WebviewManager)', {
       tool: params.tool_name,
@@ -64,11 +60,7 @@ export async function handleApprovalPrompt(
       },
     };
   }
-
-  // 1. Create permission request
   const permissionRequest = permissionPromptService.createRequest(params);
-
-  // 2. Create Promise that will be resolved when user responds
   const responsePromise = new Promise<PermissionResponse>((resolve) => {
     permissionPromptService.setPendingResolver(
       permissionRequest.id,
@@ -76,20 +68,12 @@ export async function handleApprovalPrompt(
       permissionRequest,
     );
   });
-
-  // 3. Send MCP permission request to webview via WebviewManager
-  // The webview is registered as 'ptah.main' in angular-webview.provider.ts
-  // Uses shared PERMISSION_REQUEST type (same as SDK)
   await webviewManager.sendMessage(
     'ptah.main',
     MESSAGE_TYPES.PERMISSION_REQUEST,
     permissionRequest,
   );
-
-  // 4. Wait for user response (or timeout)
   const response = await responsePromise;
-
-  // 5. Format MCP response based on user decision
   return formatApprovalResponse(request, params, response, logger);
 }
 

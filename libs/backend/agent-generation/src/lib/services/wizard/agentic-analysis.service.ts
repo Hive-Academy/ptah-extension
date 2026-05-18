@@ -43,10 +43,6 @@ import {
   buildAnalysisJsonSchema,
 } from './analysis-schema';
 
-// ============================================================================
-// Constants
-// ============================================================================
-
 const SERVICE_TAG = '[AgenticAnalysis]';
 const DEFAULT_TIMEOUT_MS = 3_600_000; // 1 hour
 const MAX_AGENT_TURNS = 25;
@@ -76,11 +72,6 @@ const TOOL_COUNT_PHASE_HEURISTIC: Record<number, AnalysisPhase> = {
   5: 'health',
   6: 'health',
 };
-// 7+ defaults to 'quality'
-
-// ============================================================================
-// Analysis System Prompt
-// ============================================================================
 
 function buildAnalysisSystemPrompt(): string {
   return `You are an expert workspace analyzer and code quality assessor. Analyze the codebase using the available MCP tools and gather comprehensive information about the project, including a thorough quality assessment.
@@ -120,10 +111,6 @@ function buildAnalysisSystemPrompt(): string {
 
 Your response will be automatically constrained to the required JSON schema. Just focus on gathering accurate data.`;
 }
-
-// ============================================================================
-// Service
-// ============================================================================
 
 /**
  * AgenticAnalysisService
@@ -286,7 +273,6 @@ export class AgenticAnalysisService {
     abortController: AbortController,
     timeoutMs: number,
   ): Promise<Result<DeepProjectAnalysis, Error>> {
-    // Phase tracking state for progress heuristics
     let currentPhase: AnalysisPhase | undefined;
     const completedPhases: AnalysisPhase[] = [];
 
@@ -361,9 +347,6 @@ export class AgenticAnalysisService {
     if (result.structuredOutput) {
       return this.normalizeStructuredOutput(result.structuredOutput);
     }
-
-    // No structured output — try text parsing from result meta context
-    // (the processor already attempted JSON.parse on result text internally)
     return Result.err(new Error('Analysis completed but produced no output'));
   }
 
@@ -385,10 +368,6 @@ export class AgenticAnalysisService {
       if (validation.success) {
         return Result.ok(normalizeAgentOutput(validation.data));
       }
-
-      // SDK already validated structure, but Zod preprocess handles edge cases
-      // (boolean monorepoType, percentage clamping, enum normalization).
-      // If Zod still fails, report the issues.
       const errors = validation.error.issues
         .map((e) => `${String(e.path.join('.'))}: ${e.message}`)
         .join('; ');
@@ -415,22 +394,17 @@ export class AgenticAnalysisService {
    */
   private parseJsonFromText(text: string): Result<DeepProjectAnalysis, Error> {
     try {
-      // Try to parse as direct JSON first
       const parsed = JSON.parse(text);
       return this.normalizeStructuredOutput(parsed);
     } catch {
-      // Try to extract from code blocks
       const jsonMatch = text.match(/```json\s*\n([\s\S]*?)\n```/);
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[1]);
           return this.normalizeStructuredOutput(parsed);
         } catch {
-          // fall through
         }
       }
-
-      // Try brace extraction
       const firstBrace = text.indexOf('{');
       const lastBrace = text.lastIndexOf('}');
       if (firstBrace !== -1 && lastBrace > firstBrace) {
@@ -438,7 +412,6 @@ export class AgenticAnalysisService {
           const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
           return this.normalizeStructuredOutput(parsed);
         } catch {
-          // fall through
         }
       }
 

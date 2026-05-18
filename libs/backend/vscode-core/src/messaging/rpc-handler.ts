@@ -204,7 +204,6 @@ export class RpcHandler {
     name: string,
     handler: RpcMethodHandler<TParams, TResult>,
   ): void {
-    // Security validation: Check method name against whitelist
     if (!this.isValidMethodName(name)) {
       const error = `Invalid method name "${name}" - must start with allowed prefix: ${ALLOWED_METHOD_PREFIXES.join(
         ', ',
@@ -212,13 +211,9 @@ export class RpcHandler {
       this.logger.error(`RpcHandler: ${error}`);
       throw new Error(error);
     }
-
-    // Warn if overwriting existing method
     if (this.handlers.has(name)) {
       this.logger.warn(`RpcHandler: Overwriting method "${name}"`);
     }
-
-    // Store as BaseRpcMethodHandler (type erasure at runtime, but compile-time type safety)
     this.handlers.set(name, handler as BaseRpcMethodHandler);
     this.logger.debug(`RpcHandler: Registered method "${name}"`);
   }
@@ -249,13 +244,8 @@ export class RpcHandler {
     this.logger.debug(`RpcHandler: Handling method "${method}"`, {
       correlationId,
     });
-
-    // License validation runs BEFORE handler lookup so unlicensed users
-    // cannot execute ANY non-exempt RPC methods.
     const validation = this.validateLicense(method);
     if (!validation.allowed) {
-      // Return structured error with errorCode for frontend handling
-      // Frontend can differentiate LICENSE_REQUIRED vs PRO_TIER_REQUIRED
       return {
         success: false,
         error: validation.error?.message ?? 'License validation failed',
@@ -371,7 +361,6 @@ export class RpcHandler {
       const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
       sentry.captureException(error, context);
     } catch {
-      // Never let Sentry reporting break the RPC response path.
     }
   }
 
@@ -397,24 +386,12 @@ export class RpcHandler {
    * @returns Validation result with allowed flag and optional error
    */
   private validateLicense(method: string): RpcLicenseValidationResult {
-    // Step 1: Check exempt prefixes (license, auth) - always allowed
-    // These must work without license to allow users to enter license key
     if (LICENSE_EXEMPT_PREFIXES.some((prefix) => method.startsWith(prefix))) {
       return { allowed: true };
     }
-
-    // Defensive try/catch: prevents handleMessage from crashing if
-    // getCachedStatus throws unexpectedly.
     try {
-      // Step 2: Get cached license status (NO server call - O(1) memory read)
       const status: LicenseStatus | null =
         this.licenseService.getCachedStatus();
-
-      // Step 3: Handle edge case - no cached status
-      // This can happen if:
-      // - Extension just started and verifyLicense() hasn't completed
-      // - Cache was cleared unexpectedly
-      // Solution: Return LICENSE_REQUIRED, user should restart extension
       if (!status) {
         this.logger.info(
           'RpcHandler: No cached license status, rejecting RPC',
@@ -431,9 +408,6 @@ export class RpcHandler {
           },
         };
       }
-
-      // Step 4: Handle edge case - invalid license (expired, revoked, not found)
-      // Block all non-exempt methods when license is invalid
       if (!status.valid) {
         this.logger.info('RpcHandler: Invalid license, blocking RPC', {
           method,
@@ -449,9 +423,6 @@ export class RpcHandler {
           },
         };
       }
-
-      // Step 5: Handle edge case - Pro-only method with Community tier
-      // Pro-only methods: setup-status:*, setup-wizard:*, wizard:*
       if (this.isProOnlyMethod(method)) {
         const isPro = status.tier === 'pro' || status.tier === 'trial_pro';
         if (!isPro) {
@@ -469,12 +440,8 @@ export class RpcHandler {
           };
         }
       }
-
-      // Valid license, allowed to proceed
       return { allowed: true };
     } catch (error) {
-      // Defensive: If license check fails unexpectedly, block the request
-      // This ensures we fail-closed rather than fail-open
       this.logger.error('RpcHandler: License validation error', {
         method,
         error: error instanceof Error ? error.message : String(error),

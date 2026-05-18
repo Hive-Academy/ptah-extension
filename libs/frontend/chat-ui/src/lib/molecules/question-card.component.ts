@@ -330,8 +330,6 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    // timeoutAt === 0 means "no timeout — block indefinitely"
-    // Skip timer entirely when no timeout is set
     if (this.request().timeoutAt <= 0) {
       this.timeRemaining.set(-1); // Sentinel: no timeout
       return;
@@ -446,7 +444,6 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   /** Activate custom input mode for a question */
   protected onCustomSelect(question: string): void {
     this.isCustomMode.set(true);
-    // Clear the predefined selection so custom text takes over
     this.selectedAnswers.update((a) => {
       const { [question]: _, ...rest } = a;
       return rest;

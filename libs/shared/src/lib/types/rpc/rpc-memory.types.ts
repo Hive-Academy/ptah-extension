@@ -37,8 +37,6 @@ export interface MemoryChunkWire {
   readonly tokenCount: number;
   readonly createdAt: number;
 }
-
-// ---- memory:list ----
 export interface MemoryListParams {
   readonly workspaceRoot?: string | null;
   readonly tier?: MemoryTierWire;
@@ -49,8 +47,6 @@ export interface MemoryListResult {
   readonly memories: readonly MemoryWire[];
   readonly total: number;
 }
-
-// ---- memory:search ----
 export interface MemorySearchParams {
   readonly query: string;
   readonly topK?: number;
@@ -67,8 +63,6 @@ export interface MemorySearchResult {
   readonly hits: readonly MemorySearchHitWire[];
   readonly bm25Only: boolean;
 }
-
-// ---- memory:get ----
 export interface MemoryGetParams {
   readonly id: string;
 }
@@ -76,8 +70,6 @@ export interface MemoryGetResult {
   readonly memory: MemoryWire | null;
   readonly chunks: readonly MemoryChunkWire[];
 }
-
-// ---- memory:pin / memory:unpin ----
 export interface MemoryPinParams {
   readonly id: string;
 }
@@ -85,16 +77,12 @@ export interface MemoryPinResult {
   readonly success: boolean;
   readonly pinned: boolean;
 }
-
-// ---- memory:forget ----
 export interface MemoryForgetParams {
   readonly id: string;
 }
 export interface MemoryForgetResult {
   readonly success: boolean;
 }
-
-// ---- memory:rebuildIndex ----
 export interface MemoryRebuildIndexParams {
   readonly mode?: 'fts' | 'vec' | 'both';
 }
@@ -102,9 +90,6 @@ export interface MemoryRebuildIndexResult {
   readonly rebuiltFts: boolean;
   readonly rebuiltVec: boolean;
 }
-
-// ---- memory:stats ----
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface MemoryStatsParams {
   readonly workspaceRoot?: string | null;
 }
@@ -115,8 +100,6 @@ export interface MemoryStatsResult {
   readonly codeIndex: number;
   readonly lastCuratedAt: number | null;
 }
-
-// ---- memory:purgeBySubjectPattern ----
 export interface MemoryPurgeBySubjectPatternParams {
   readonly pattern: string;
   readonly mode: 'substring' | 'like';
@@ -125,9 +108,6 @@ export interface MemoryPurgeBySubjectPatternParams {
 export interface MemoryPurgeBySubjectPatternResult {
   readonly deleted: number;
 }
-
-// ---- memory:purgeJunk ----
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface MemoryPurgeJunkParams {
   readonly workspaceRoot?: string | null;
 }

@@ -74,15 +74,11 @@ function decodeBase64Prefix(base64: string, byteCount: number): Uint8Array {
   if (!base64 || byteCount <= 0) {
     return new Uint8Array(0);
   }
-
-  // Strip whitespace and take enough characters to cover `byteCount` bytes.
-  // 4 base64 chars encode 3 bytes, so we need ceil(byteCount / 3) * 4 chars.
   const cleaned = base64.replace(/\s+/g, '');
   if (cleaned === '') {
     return new Uint8Array(0);
   }
   const neededChars = Math.min(cleaned.length, Math.ceil(byteCount / 3) * 4);
-  // Must align to a multiple of 4 for atob; pad with '=' if short.
   let slice = cleaned.slice(0, neededChars);
   const mod = slice.length % 4;
   if (mod !== 0) {
@@ -104,10 +100,6 @@ function decodeBase64Prefix(base64: string, byteCount: number): Uint8Array {
   } catch {
     return new Uint8Array(0);
   }
-
-  // Node fallback — only reached if `atob` is unavailable. We deliberately
-  // avoid importing `buffer` so bundlers don't pull it into browser builds;
-  // the global `Buffer` is used when the runtime already exposes it.
   const globalBuffer:
     | { from(data: string, encoding: string): Uint8Array }
     | undefined = (
@@ -145,13 +137,9 @@ export function sniffMediaType(base64: string): AllowedImageMediaType | null {
   if (bytes.length < 3) {
     return null;
   }
-
-  // JPEG: FF D8 FF
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return 'image/jpeg';
   }
-
-  // PNG: 89 50 4E 47 0D 0A 1A 0A
   if (
     bytes.length >= 8 &&
     bytes[0] === 0x89 &&
@@ -165,8 +153,6 @@ export function sniffMediaType(base64: string): AllowedImageMediaType | null {
   ) {
     return 'image/png';
   }
-
-  // GIF: 47 49 46 38 (GIF87a / GIF89a — we only check the common 4-byte prefix)
   if (
     bytes.length >= 4 &&
     bytes[0] === 0x47 &&
@@ -176,8 +162,6 @@ export function sniffMediaType(base64: string): AllowedImageMediaType | null {
   ) {
     return 'image/gif';
   }
-
-  // WebP: RIFF ???? WEBP
   if (
     bytes.length >= 12 &&
     bytes[0] === 0x52 &&

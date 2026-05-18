@@ -94,15 +94,10 @@ export class PromptDesignerAgent {
       isMonorepo: input.isMonorepo,
       hasQualityData: !!input.qualityAssessment,
     });
-
-    // Quality data comes pre-computed from the agentic analysis (Step 1).
-    // No separate quality assessment pipeline needed.
     const qualityAssessment: QualityAssessment | undefined =
       input.qualityAssessment;
     const prescriptiveGuidance: PrescriptiveGuidance | undefined =
       input.prescriptiveGuidance;
-
-    // Build quality context for prompt if not provided and assessment available
     const effectiveQualityContext =
       qualityContext ??
       (qualityAssessment && prescriptiveGuidance
@@ -114,8 +109,6 @@ export class PromptDesignerAgent {
       input,
       effectiveQualityContext,
     );
-
-    // Build JSON Schema from the Zod schema for SDK outputFormat
     const outputSchema = this.buildJsonSchema();
 
     return {
@@ -149,19 +142,13 @@ export class PromptDesignerAgent {
         message: 'Parsing response...',
         progress: 70,
       });
-
-      // Use a simple token estimator (4 chars per token)
       const countTokens = async (text: string) => Math.ceil(text.length / 4);
 
       const output = await parseStructuredResponse(
         structuredOutput as PromptDesignerResponse,
         countTokens,
       );
-
-      // Enforce token budgets
       const budgeted = this.enforceTokenBudgets(output);
-
-      // Validate output quality
       const validation = validateOutput(budgeted);
       if (!validation.valid) {
         this.logger.warn('PromptDesignerAgent: Output validation issues', {
@@ -202,8 +189,6 @@ export class PromptDesignerAgent {
    */
   enforceTokenBudgets(output: PromptDesignerOutput): PromptDesignerOutput {
     const maxSection = this.config.maxSectionTokens;
-
-    // Truncate sections that exceed budget
     if (output.tokenBreakdown.projectContext > maxSection) {
       output.projectContext = truncateToTokenBudget(
         output.projectContext,
@@ -235,8 +220,6 @@ export class PromptDesignerAgent {
         output.tokenBreakdown.architectureNotes,
       );
     }
-
-    // Recalculate total (approximate, since we used truncation)
     output.totalTokens = Math.min(
       output.totalTokens,
       this.config.maxTotalTokens,
@@ -259,8 +242,6 @@ export class PromptDesignerAgent {
     fallbackReason?: string,
   ): PromptDesignerOutput {
     const fallbackText = buildFallbackGuidance(input);
-
-    // Estimate tokens (4 chars per token)
     const estimatedTokens = Math.ceil(fallbackText.length / 4);
 
     const output: PromptDesignerOutput = {
@@ -285,8 +266,6 @@ export class PromptDesignerAgent {
         architectureNotes: Math.ceil(estimatedTokens / 4),
       },
     };
-
-    // Generate quality guidance from assessment if score indicates issues
     if (qualityAssessment && qualityAssessment.score < 70) {
       const topIssues = qualityAssessment.antiPatterns
         .slice(0, 3)
@@ -296,15 +275,12 @@ export class PromptDesignerAgent {
       output.qualityGuidance = `## Code Quality Considerations\n\nQuality score: ${qualityAssessment.score}/100.\n\nTop issues detected:\n${topIssues}`;
       output.qualityScore = qualityAssessment.score;
       output.qualityAssessment = qualityAssessment;
-
-      // Update token breakdown for quality guidance
       const qualityGuidanceTokens = Math.ceil(
         output.qualityGuidance.length / 4,
       );
       output.tokenBreakdown.qualityGuidance = qualityGuidanceTokens;
       output.totalTokens += qualityGuidanceTokens;
     } else if (qualityAssessment) {
-      // Include quality data even if score is good
       output.qualityScore = qualityAssessment.score;
       output.qualityAssessment = qualityAssessment;
     }

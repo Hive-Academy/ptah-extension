@@ -291,8 +291,6 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
 export class CompletionComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly vscodeService = inject(VSCodeService);
-
-  // Lucide icon references
   protected readonly CheckIcon = Check;
   protected readonly FolderIcon = Folder;
   protected readonly ZapIcon = Zap;
@@ -372,10 +370,7 @@ export class CompletionComponent {
    * Example: "frontend-developer.md" -> "Frontend Developer"
    */
   protected formatAgentName(filename: string): string {
-    // Remove .md extension
     const nameWithoutExt = filename.replace(/\.md$/i, '');
-
-    // Convert kebab-case to Title Case
     return nameWithoutExt
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
