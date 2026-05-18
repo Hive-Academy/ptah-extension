@@ -96,7 +96,7 @@ import {
 import {
   AgentProcessManager,
   CliDetectionService,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 
 /**
  * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency

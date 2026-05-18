@@ -1,9 +1,9 @@
 /**
- * VS Code MCP Server Installer
+ * Cursor IDE MCP Server Installer
  *
- * Config: .vscode/mcp.json (workspace-scoped)
- * Root key: "servers"
- * Type field: included (VS Code uses "type" to distinguish stdio/http/sse)
+ * Config: .cursor/mcp.json (workspace-scoped)
+ * Root key: "mcpServers"
+ * Type field: not included (Cursor infers from presence of "command" vs "url")
  */
 
 import * as path from 'path';
@@ -18,13 +18,13 @@ import {
   uninstallServer,
   listInstalledServers,
 } from '../mcp-config-io.utils';
-import { SdkError } from '../../../errors';
+import { SdkError } from '@ptah-extension/agent-sdk';
 
-export class VscodeMcpInstaller implements IMcpServerInstaller {
-  readonly target = 'vscode' as const;
+export class CursorMcpInstaller implements IMcpServerInstaller {
+  readonly target = 'cursor' as const;
 
-  private static readonly ROOT_KEY = 'servers';
-  private static readonly INCLUDE_TYPE = true;
+  private static readonly ROOT_KEY = 'mcpServers';
+  private static readonly INCLUDE_TYPE = false;
 
   install(
     serverKey: string,
@@ -36,10 +36,10 @@ export class VscodeMcpInstaller implements IMcpServerInstaller {
       installServer(
         this.target,
         configPath,
-        VscodeMcpInstaller.ROOT_KEY,
+        CursorMcpInstaller.ROOT_KEY,
         serverKey,
         config,
-        VscodeMcpInstaller.INCLUDE_TYPE,
+        CursorMcpInstaller.INCLUDE_TYPE,
       ),
     );
   }
@@ -53,7 +53,7 @@ export class VscodeMcpInstaller implements IMcpServerInstaller {
       uninstallServer(
         this.target,
         configPath,
-        VscodeMcpInstaller.ROOT_KEY,
+        CursorMcpInstaller.ROOT_KEY,
         serverKey,
       ),
     );
@@ -65,14 +65,14 @@ export class VscodeMcpInstaller implements IMcpServerInstaller {
       listInstalledServers(
         this.target,
         configPath,
-        VscodeMcpInstaller.ROOT_KEY,
+        CursorMcpInstaller.ROOT_KEY,
       ),
     );
   }
 
   getConfigPath(workspaceRoot?: string): string {
     if (!workspaceRoot)
-      throw new SdkError('VS Code MCP installer requires a workspace root');
-    return path.join(workspaceRoot, '.vscode', 'mcp.json');
+      throw new SdkError('Cursor MCP installer requires a workspace root');
+    return path.join(workspaceRoot, '.cursor', 'mcp.json');
   }
 }

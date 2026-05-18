@@ -30,45 +30,38 @@ import {
   EffortLevel,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { SdkError } from '../errors';
-import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
-import type { SdkMessageTransformer } from '../sdk-message-transformer';
-import type { SdkPermissionHandler } from '../sdk-permission-handler';
 import type { PtahCliConfig } from '@ptah-extension/shared';
 import {
+  SdkError,
+  SdkModuleLoader,
+  SdkMessageTransformer,
+  SdkPermissionHandler,
   getAnthropicProvider,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
-} from '../providers/_shared/provider-registry';
-import type { ModelResolver } from '../auth/model-resolver';
-import {
+  ModelResolver,
   assembleSystemPrompt,
   getActiveProviderId,
-  type SdkQueryOptions,
-} from '../helpers/sdk-query-options-builder';
-import { buildSafeEnv } from '../helpers/build-safe-env';
-import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
-import type { CompactionHookHandler } from '../helpers/compaction-hook-handler';
-import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
-import type { CompactionStartCallback } from '../helpers/compaction-hook-handler';
-import type {
-  SDKMessage,
-  SDKUserMessage,
-  Options,
-  Query,
-  UserMessageContent,
-  McpHttpServerConfig,
-  HookEvent,
-  HookCallbackMatcher,
-  SdkBeta,
-} from '../types/sdk-types/claude-sdk.types';
-import {
+  buildSafeEnv,
+  SubagentHookHandler,
+  CompactionHookHandler,
+  CompactionConfigProvider,
+  PTAH_MCP_PORT,
   isResultMessage,
   isSystemInit,
   isCompactBoundary,
-} from '../types/sdk-types/claude-sdk.types';
-
-import { PTAH_MCP_PORT } from '../constants';
+  type SdkQueryOptions,
+  type CompactionStartCallback,
+  type SDKMessage,
+  type SDKUserMessage,
+  type Options,
+  type Query,
+  type UserMessageContent,
+  type McpHttpServerConfig,
+  type HookEvent,
+  type HookCallbackMatcher,
+  type SdkBeta,
+} from '@ptah-extension/agent-sdk';
 
 /**
  * Premium capabilities passed from the RPC handler layer.

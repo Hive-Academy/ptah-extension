@@ -68,6 +68,7 @@ import {
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import type {
   EnhancedPromptsService,
   IMultiPhaseAnalysisReader,
@@ -580,6 +581,7 @@ export class CliDIContainer {
 
     // Phase 2.2: Agent SDK (Claude Agent SDK integration)
     registerSdkServices(container, logger);
+    registerCliAgentRuntimeServices(container, logger);
 
     // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (shared wiring helpers resolve
     // via TOKENS.AGENT_ADAPTER; mirror VS Code / Electron pattern so the

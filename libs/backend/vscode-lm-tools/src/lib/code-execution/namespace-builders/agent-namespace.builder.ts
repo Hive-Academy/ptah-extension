@@ -13,7 +13,7 @@ import type {
   AgentProcessManager,
   CliDetectionService,
   SdkHandle,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentProcessInfo,
   CliDetectionResult,

@@ -83,6 +83,14 @@ export {
   CompactionHookHandler,
   type CompactionStartCallback,
 } from './lib/helpers';
+export { CompactionConfigProvider } from './lib/helpers';
+
+// SDK module + query option helpers re-exported for cli-agent-runtime consumers
+export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
+export type { SdkQueryOptions } from './lib/helpers';
+
+// Safe environment builder used when spawning Ptah CLI processes
+export { buildSafeEnv } from './lib/helpers/build-safe-env';
 
 // Model ID constants and tier resolution (single source of truth)
 export {
@@ -91,6 +99,7 @@ export {
   DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
 } from './lib/helpers';
+export type { ModelTier } from './lib/helpers';
 
 // Anthropic-compatible provider registry
 // Re-exported via providers barrel (canonical source: providers/_shared/provider-registry.ts)
@@ -100,6 +109,8 @@ export {
   ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
   getProviderBaseUrl,
+  getProviderAuthEnvVar,
+  seedStaticModelPricing,
 } from './lib/providers';
 export type {
   AnthropicProvider,
@@ -223,13 +234,6 @@ export {
 } from './lib/helpers';
 
 // ============================================================
-// Ptah CLI
-// User-configured adapters for Anthropic-compatible providers
-// ============================================================
-export { PtahCliAdapter, PtahCliRegistry } from './lib/ptah-cli';
-export type { PtahCliPremiumConfig } from './lib/ptah-cli';
-
-// ============================================================
 // Copilot Provider
 // GitHub Copilot integration via OAuth + translation proxy
 // ============================================================
@@ -349,16 +353,6 @@ export type {
 } from './lib/stream-processing';
 
 // ============================================================
-// MCP Server Directory (discovery + installation)
-// ============================================================
-export {
-  McpRegistryProvider,
-  McpInstallService,
-  McpInstallManifestTracker,
-} from './lib/helpers';
-export type { IMcpServerInstaller } from './lib/helpers';
-
-// ============================================================
 // MCP Port Management
 // ============================================================
 export { PTAH_MCP_PORT, setPtahMcpPort } from './lib/constants';
@@ -382,32 +376,6 @@ export {
   type EffectiveRouteConfig,
   type EffectiveRouteResult,
 } from './lib/auth';
-
-// ============================================================
-// CLI Agents
-// Relocated from the deleted @ptah-extension/llm-abstraction library.
-// External agent processes (Gemini, Codex, Copilot, Cursor) that Ptah
-// spawns and coordinates via stdio — peers of the Agent SDK itself,
-// not LLM providers.
-// ============================================================
-export {
-  CliDetectionService,
-  AgentProcessManager,
-  CopilotPermissionBridge,
-  CliPluginSyncService,
-  fixPath,
-  spawnCli,
-  resolveCliPath,
-  stripAnsiCodes,
-} from './lib/cli-agents';
-export type {
-  CliAdapter,
-  CliCommand,
-  CliCommandOptions,
-  CliModelInfo,
-  SdkHandle,
-  ICliSkillInstaller,
-} from './lib/cli-agents';
 
 // ============================================================
 // RPC Wiring helpers

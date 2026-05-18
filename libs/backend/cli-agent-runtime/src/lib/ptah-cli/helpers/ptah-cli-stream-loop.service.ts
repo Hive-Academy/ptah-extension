@@ -13,9 +13,8 @@ import type {
 } from '@ptah-extension/shared';
 import { SessionId } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { SdkMessageTransformer } from '../../sdk-message-transformer';
-import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
 import {
+  SdkMessageTransformer,
   isStreamEvent,
   isAssistantMessage,
   isResultMessage,
@@ -34,7 +33,8 @@ import {
   isTextDelta,
   isInputJsonDelta,
   isThinkingDelta,
-} from '../../types/sdk-types/claude-sdk.types';
+  type SDKMessage,
+} from '@ptah-extension/agent-sdk';
 import {
   summarizeToolInput,
   sanitizeErrorMessage,

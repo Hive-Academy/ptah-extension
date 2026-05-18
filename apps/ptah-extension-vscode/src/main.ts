@@ -43,11 +43,11 @@ import {
   TOKENS,
   SentryService,
 } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, SkillJunctionService } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
+  CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
-  SkillJunctionService,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import { DIContainer } from './di/container';
 import { PtahExtension } from './core/ptah-extension';
 import { bootstrapVscode } from './activation/bootstrap';
@@ -165,7 +165,7 @@ export async function deactivate(): Promise<void> {
   // Dispose all Ptah CLI adapters before clearing the container.
   try {
     const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
-      SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
+      CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
     );
     ptahCliRegistry.disposeAll();
   } catch {

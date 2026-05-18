@@ -24,7 +24,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   McpRegistryProvider,
   McpInstallService,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   McpDirectorySearchParams,
   McpDirectorySearchResult,

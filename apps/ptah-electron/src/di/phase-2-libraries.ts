@@ -19,6 +19,7 @@ import {
   SDK_TOKENS,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
+import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
@@ -60,6 +61,7 @@ export function registerPhase2Libraries(
   // ========================================
   // NOTE: registerVsCodeLmToolsServices is called in Phase 3 (decoupled from VS Code)
   registerSdkServices(container, logger);
+  registerCliAgentRuntimeServices(container, logger);
 
   // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding).
   // NOTE: tsyringe rejects Lifecycle.Singleton with factory providers. The factory

@@ -6,7 +6,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
@@ -281,9 +281,11 @@ if (!gotLock) {
     // 5. Dispose PtahCliRegistry CLI adapters
     try {
       const diContainer = ElectronDIContainer.getContainer();
-      if (diContainer.isRegistered(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)) {
+      if (
+        diContainer.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
+      ) {
         const cliRegistry = diContainer.resolve<{ disposeAll(): void }>(
-          SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
+          CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
         );
         cliRegistry.disposeAll();
       }

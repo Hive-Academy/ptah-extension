@@ -55,7 +55,7 @@ import {
   type MockRpcHandler,
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
-import type { PtahCliRegistry } from '@ptah-extension/agent-sdk';
+import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
 import type { PtahCliSummary } from '@ptah-extension/shared';
 import {
   createMockLogger,

@@ -6,7 +6,7 @@ import {
   TOKENS,
   SentryService,
 } from '@ptah-extension/vscode-core';
-import { fixPath } from '@ptah-extension/agent-sdk';
+import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { registerVscodeSettings } from '@ptah-extension/platform-vscode';
 import {
   SETTINGS_TOKENS,

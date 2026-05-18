@@ -18,10 +18,8 @@ import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import {
-  McpRegistryProvider,
-  DEFAULT_FALLBACK_MODEL_ID,
-} from '@ptah-extension/agent-sdk';
+import { DEFAULT_FALLBACK_MODEL_ID } from '@ptah-extension/agent-sdk';
+import { McpRegistryProvider } from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentOverride,
   AvailableAgent,

@@ -27,8 +27,10 @@ import {
   type FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
-import type { AgentProcessManager } from '../cli-agents';
-import type { CopilotPermissionBridge } from '../cli-agents';
+import type {
+  AgentProcessManager,
+  CopilotPermissionBridge,
+} from '@ptah-extension/cli-agent-runtime';
 
 /** Minimal shape of the webview manager used by the wiring. */
 interface WebviewManagerLike {

@@ -32,31 +32,33 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from '../cli-agents/cli-adapters';
-import { SDK_TOKENS } from '../di/tokens';
-import { SdkError } from '../errors';
-import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
-import type { SdkMessageTransformer } from '../sdk-message-transformer';
-import type { SdkPermissionHandler } from '../sdk-permission-handler';
-import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
-import type { CompactionHookHandler } from '../helpers/compaction-hook-handler';
-import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
-import type { ProviderModelsService } from '../provider-models.service';
-import type { ModelResolver } from '../auth/model-resolver';
 import {
+  SDK_TOKENS,
+  SdkError,
+  SdkModuleLoader,
+  SdkMessageTransformer,
+  SdkPermissionHandler,
+  SubagentHookHandler,
+  CompactionHookHandler,
+  CompactionConfigProvider,
+  ProviderModelsService,
+  ModelResolver,
   ANTHROPIC_PROVIDERS,
   getAnthropicProvider,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
+  OLLAMA_AUTH_TOKEN_PLACEHOLDER,
+  buildSafeEnv,
+  TIER_TO_MODEL_ID,
   type AnthropicProvider,
-} from '../providers/_shared/provider-registry';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
-import { buildSafeEnv } from '../helpers/build-safe-env';
-import { TIER_TO_MODEL_ID, type ModelTier } from '../helpers/sdk-model-service';
-import type { Options } from '../types/sdk-types/claude-sdk.types';
+  type ModelTier,
+  type Options,
+} from '@ptah-extension/agent-sdk';
 import { PtahCliAdapter } from './ptah-cli-adapter';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
 import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import {
   PTAH_CLI_KEY_PREFIX,
   generateAgentId,
@@ -106,9 +108,9 @@ export class PtahCliRegistry {
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
-    @inject(SDK_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE)
     private readonly configPersistence: PtahCliConfigPersistence,
-    @inject(SDK_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS)
     private readonly spawnOptionsService: PtahCliSpawnOptions,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,

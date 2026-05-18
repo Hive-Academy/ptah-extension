@@ -35,12 +35,10 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
-} from '@ptah-extension/agent-sdk';
-import {
-  SDK_TOKENS,
+  CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
-  SessionMetadataStore,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
+import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -76,7 +74,7 @@ export class CliAgentRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
-    @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,

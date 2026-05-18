@@ -37,10 +37,10 @@ import { join as pathJoin } from 'node:path';
 import {
   ANTHROPIC_PROVIDERS,
   SDK_TOKENS,
-  spawnCli,
   type ICopilotAuthService,
   type ClaudeCliDetector,
 } from '@ptah-extension/agent-sdk';
+import { spawnCli } from '@ptah-extension/cli-agent-runtime';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ClaudeCliHealth } from '@ptah-extension/shared';
 

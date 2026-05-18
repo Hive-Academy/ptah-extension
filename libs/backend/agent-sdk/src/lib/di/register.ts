@@ -13,16 +13,12 @@
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
   type IMemoryReader,
 } from '@ptah-extension/memory-contracts';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
-import { CliDetectionService } from '../cli-agents/cli-detection.service';
-import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
-import { CliPluginSyncService } from '../cli-agents/cli-skill-sync/cli-plugin-sync.service';
 import { SessionMetadataStore } from '../session-metadata-store';
 import { SessionImporterService } from '../session-importer.service';
 import { SessionHistoryReaderService } from '../session-history-reader.service';
@@ -72,11 +68,6 @@ import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { SkillJunctionService } from '../helpers/skill-junction.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
-import {
-  PtahCliRegistry,
-  PtahCliConfigPersistence,
-  PtahCliSpawnOptions,
-} from '../ptah-cli';
 import { registerProviders } from '../providers';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
@@ -442,28 +433,6 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Ptah CLI Services
-  // Config persistence, spawn options, and registry
-  // ============================================================
-  container.register(
-    SDK_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE,
-    { useClass: PtahCliConfigPersistence },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS,
-    { useClass: PtahCliSpawnOptions },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
-    { useClass: PtahCliRegistry },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
   // Slash Command Interceptor
   // Detects and classifies slash commands in follow-up messages
   // ============================================================
@@ -471,28 +440,6 @@ export function registerSdkServices(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
     { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // CLI Agent Services
-  // CliDetectionService enumerates installed CLI agents (Gemini, Codex,
-  // Copilot, Cursor). AgentProcessManager spawns and supervises their
-  // processes. CliPluginSyncService mirrors MCP plugins into each CLI's
-  // native extension format.
-  // Tokens live in @ptah-extension/vscode-core (cross-layer platform
-  // tokens) — resolve-call sites at apps are unchanged.
-  // ============================================================
-  container.registerSingleton(
-    TOKENS.CLI_DETECTION_SERVICE,
-    CliDetectionService,
-  );
-  container.registerSingleton(
-    TOKENS.AGENT_PROCESS_MANAGER,
-    AgentProcessManager,
-  );
-  container.registerSingleton(
-    TOKENS.CLI_PLUGIN_SYNC_SERVICE,
-    CliPluginSyncService,
   );
 
   // Provider services (Copilot, Codex, OpenRouter, Ollama, LM Studio).

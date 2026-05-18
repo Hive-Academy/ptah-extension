@@ -15,23 +15,21 @@ import {
   isPremiumTier,
   type LicenseService,
 } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS } from '../../di/tokens';
-import type { SubagentHookHandler } from '../../helpers/subagent-hook-handler';
-import type { CompactionHookHandler } from '../../helpers/compaction-hook-handler';
-import type { CompactionConfigProvider } from '../../helpers/compaction-config-provider';
-import type { EnhancedPromptsService } from '../../prompt-harness/enhanced-prompts/enhanced-prompts.service';
-import type { PluginLoaderService } from '../../helpers/plugin-loader.service';
 import {
+  SDK_TOKENS,
+  SubagentHookHandler,
+  CompactionHookHandler,
+  CompactionConfigProvider,
+  EnhancedPromptsService,
+  PluginLoaderService,
   assembleSystemPrompt,
   getActiveProviderId,
-} from '../../helpers/sdk-query-options-builder';
-import { PTAH_MCP_PORT } from '../../constants';
-import type {
-  HookEvent,
-  HookCallbackMatcher,
-  McpHttpServerConfig,
-  SdkPluginConfig,
-} from '../../types/sdk-types/claude-sdk.types';
+  PTAH_MCP_PORT,
+  type HookEvent,
+  type HookCallbackMatcher,
+  type McpHttpServerConfig,
+  type SdkPluginConfig,
+} from '@ptah-extension/agent-sdk';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()

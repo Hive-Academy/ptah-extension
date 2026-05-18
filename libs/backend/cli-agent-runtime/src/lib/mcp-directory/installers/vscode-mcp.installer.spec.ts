@@ -1,18 +1,17 @@
 /**
- * claude-mcp.installer — unit specs.
+ * vscode-mcp.installer — unit specs.
  *
- * Covers the ClaudeMcpInstaller which writes MCP server configs to the
- * workspace-scoped shared `<workspaceRoot>/.mcp.json` (consumed by Claude
- * Code, Codex, and the Ptah CLI).
+ * Covers the VscodeMcpInstaller which writes MCP server configs to the
+ * workspace-scoped VS Code config at `<workspaceRoot>/.vscode/mcp.json`.
  *
- * Claude-specific invariants:
- *   - Workspace-scoped: `getConfigPath` throws `SdkError` without a workspace.
- *   - Config lives at `<workspaceRoot>/.mcp.json` (dotfile at the repo root,
- *     NOT under `.claude/`).
- *   - Root key is `mcpServers`, and the discriminant `type` field is
- *     omitted (Claude infers from the presence of `command` vs `url`).
- *   - Read → merge → write preserves unrelated entries; corrupted JSON
- *     degrades to a clean empty default.
+ * VS-Code-specific invariants:
+ *   - Workspace-scoped: `getConfigPath` throws `SdkError` when no workspace
+ *     root is provided. This is distinct from the user-global installers.
+ *   - Root key is `servers` (NOT `mcpServers`).
+ *   - Discriminant `type` field IS emitted — VS Code uses it to select
+ *     the transport implementation.
+ *   - JSON round-trip preserves unrelated sibling servers and top-level
+ *     keys; corrupted JSON degrades to a clean empty default.
  */
 
 import 'reflect-metadata';
@@ -46,8 +45,8 @@ jest.mock('os', () => ({
 }));
 
 import * as fs from 'fs';
-import { ClaudeMcpInstaller } from './claude-mcp.installer';
-import { SdkError } from '../../../errors';
+import { VscodeMcpInstaller } from './vscode-mcp.installer';
+import { SdkError } from '@ptah-extension/agent-sdk';
 
 const mockedExistsSync = fs.existsSync as jest.MockedFunction<
   typeof fs.existsSync
@@ -64,6 +63,10 @@ const mockedCopyFileSync = fs.copyFileSync as jest.MockedFunction<
 const mockedRenameSync = fs.renameSync as jest.MockedFunction<
   typeof fs.renameSync
 >;
+const mockedMkdirSync = fs.mkdirSync as jest.MockedFunction<
+  typeof fs.mkdirSync
+>;
+
 const ORIGINAL_PLATFORM = process.platform;
 function setPlatform(value: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', {
@@ -90,15 +93,17 @@ function capturedWrite(): { tmpPath: string; contents: string } {
   };
 }
 
+// Use posix joins for expected fixtures so the comparison is deterministic
+// when expectNormalizedPath normalizes both sides.
 const POSIX_WORKSPACE = '/workspace/project';
 const WIN_WORKSPACE = 'C:\\workspace\\project';
 
-describe('ClaudeMcpInstaller', () => {
-  let installer: ClaudeMcpInstaller;
+describe('VscodeMcpInstaller', () => {
+  let installer: VscodeMcpInstaller;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    installer = new ClaudeMcpInstaller();
+    installer = new VscodeMcpInstaller();
   });
 
   afterEach(() => {
@@ -106,29 +111,29 @@ describe('ClaudeMcpInstaller', () => {
   });
 
   describe('target identity', () => {
-    it('declares target "claude"', () => {
-      expect(installer.target).toBe('claude');
+    it('declares target "vscode"', () => {
+      expect(installer.target).toBe('vscode');
     });
   });
 
   // -------------------------------------------------------------------------
-  // getConfigPath
+  // getConfigPath — workspace-scoped, requires a workspace root.
   // -------------------------------------------------------------------------
 
   describe('getConfigPath', () => {
-    it('resolves <workspace>/.mcp.json on POSIX (repo-root dotfile, not under .claude/)', () => {
+    it('resolves <workspace>/.vscode/mcp.json on POSIX', () => {
       setPlatform('linux');
       expectNormalizedPath(
         installer.getConfigPath(POSIX_WORKSPACE),
-        path.posix.join(POSIX_WORKSPACE, '.mcp.json'),
+        path.posix.join(POSIX_WORKSPACE, '.vscode', 'mcp.json'),
       );
     });
 
-    it('resolves under the workspace root on win32', () => {
+    it('resolves <workspace>\\.vscode\\mcp.json on win32', () => {
       setPlatform('win32');
       expectNormalizedPath(
         installer.getConfigPath(WIN_WORKSPACE),
-        'C:/workspace/project/.mcp.json',
+        'C:/workspace/project/.vscode/mcp.json',
       );
     });
 
@@ -138,12 +143,13 @@ describe('ClaudeMcpInstaller', () => {
     });
 
     it('throws SdkError when workspaceRoot is an empty string', () => {
+      // Empty string is falsy → same branch as undefined.
       expect(() => installer.getConfigPath('')).toThrow(SdkError);
     });
   });
 
   // -------------------------------------------------------------------------
-  // install — NO discriminant type, under "mcpServers".
+  // install — emits discriminant type, merges, preserves siblings.
   // -------------------------------------------------------------------------
 
   describe('install', () => {
@@ -151,7 +157,7 @@ describe('ClaudeMcpInstaller', () => {
       setPlatform('linux');
     });
 
-    it('writes stdio entries under mcpServers without a type discriminant', async () => {
+    it('writes a fresh config with discriminant type field under "servers"', async () => {
       mockedExistsSync.mockReturnValue(false);
 
       const config: McpServerConfig = {
@@ -167,25 +173,25 @@ describe('ClaudeMcpInstaller', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.target).toBe('claude');
+      expect(result.target).toBe('vscode');
       expectNormalizedPath(
         result.configPath,
-        path.posix.join(POSIX_WORKSPACE, '.mcp.json'),
+        path.posix.join(POSIX_WORKSPACE, '.vscode', 'mcp.json'),
       );
 
       const { contents } = capturedWrite();
       const parsed = JSON.parse(contents) as {
-        mcpServers: Record<string, Record<string, unknown>>;
+        servers: Record<string, Record<string, unknown>>;
       };
-      expect(parsed.mcpServers['example']).toEqual({
+      // INCLUDE_TYPE = true — VS Code needs the discriminant.
+      expect(parsed.servers['example']).toEqual({
+        type: 'stdio',
         command: 'npx',
         args: ['-y', '@example/mcp'],
       });
-      // INCLUDE_TYPE = false — Claude infers from `command` vs `url`.
-      expect(parsed.mcpServers['example']['type']).toBeUndefined();
     });
 
-    it('writes http entries with url (no type) under mcpServers', async () => {
+    it('emits http transport under "servers" with type="http"', async () => {
       mockedExistsSync.mockReturnValue(false);
 
       await installer.install(
@@ -196,21 +202,22 @@ describe('ClaudeMcpInstaller', () => {
 
       const { contents } = capturedWrite();
       const parsed = JSON.parse(contents) as {
-        mcpServers: Record<string, Record<string, unknown>>;
+        servers: Record<string, Record<string, unknown>>;
       };
-      expect(parsed.mcpServers['remote']).toEqual({
+      expect(parsed.servers['remote']).toEqual({
+        type: 'http',
         url: 'https://example.com/mcp',
       });
-      expect(parsed.mcpServers['remote']['type']).toBeUndefined();
     });
 
-    it('preserves unrelated servers when merging into an existing file', async () => {
+    it('preserves unrelated servers and unrelated top-level keys', async () => {
       mockedExistsSync.mockReturnValue(true);
       mockedReadFileSync.mockReturnValueOnce(
         JSON.stringify({
-          mcpServers: {
-            filesystem: { command: 'node', args: ['./fs.js'] },
-            github: { command: 'npx', args: ['@gh/mcp'] },
+          inputs: [{ id: 'api-key', type: 'promptString' }],
+          servers: {
+            filesystem: { type: 'stdio', command: 'node' },
+            github: { type: 'http', url: 'https://api.github.com' },
           },
         }),
       );
@@ -223,23 +230,26 @@ describe('ClaudeMcpInstaller', () => {
 
       const { contents } = capturedWrite();
       const parsed = JSON.parse(contents) as {
-        mcpServers: Record<string, unknown>;
+        inputs?: unknown;
+        servers: Record<string, unknown>;
       };
-      expect(parsed.mcpServers['filesystem']).toEqual({
+      // VS Code-specific top-level "inputs" must survive the round-trip.
+      expect(parsed.inputs).toEqual([{ id: 'api-key', type: 'promptString' }]);
+      expect(parsed.servers['filesystem']).toEqual({
+        type: 'stdio',
         command: 'node',
-        args: ['./fs.js'],
       });
-      expect(parsed.mcpServers['github']).toEqual({
-        command: 'npx',
-        args: ['@gh/mcp'],
+      expect(parsed.servers['github']).toEqual({
+        type: 'http',
+        url: 'https://api.github.com',
       });
-      expect(parsed.mcpServers['example']).toBeDefined();
+      expect(parsed.servers['example']).toBeDefined();
       expect(mockedCopyFileSync).toHaveBeenCalledTimes(1);
     });
 
-    it('starts fresh when existing JSON is corrupted (never throws)', async () => {
+    it('starts fresh when existing JSON is corrupted', async () => {
       mockedExistsSync.mockReturnValue(true);
-      mockedReadFileSync.mockReturnValueOnce('{ invalid json');
+      mockedReadFileSync.mockReturnValueOnce('{ invalid');
 
       const result = await installer.install(
         'example',
@@ -250,18 +260,35 @@ describe('ClaudeMcpInstaller', () => {
       expect(result.success).toBe(true);
       const { contents } = capturedWrite();
       const parsed = JSON.parse(contents) as {
-        mcpServers: Record<string, unknown>;
+        servers: Record<string, unknown>;
       };
-      expect(Object.keys(parsed.mcpServers)).toEqual(['example']);
+      expect(Object.keys(parsed.servers)).toEqual(['example']);
+    });
+
+    it('creates .vscode directory recursively when missing', async () => {
+      mockedExistsSync.mockReturnValue(false);
+
+      await installer.install(
+        'example',
+        { type: 'stdio', command: 'npx' },
+        POSIX_WORKSPACE,
+      );
+
+      expect(mockedMkdirSync).toHaveBeenCalledWith(expect.any(String), {
+        recursive: true,
+      });
     });
 
     it('throws SdkError synchronously when workspaceRoot is missing', () => {
+      // install() is declared `Promise<McpInstallResult>` but has no `async`
+      // keyword — `getConfigPath` runs synchronously on entry, so a missing
+      // workspace throws before the promise-wrapping `installServer` call.
       expect(() =>
         installer.install('example', { type: 'stdio', command: 'npx' }),
       ).toThrow(SdkError);
     });
 
-    it('returns success=false when the filesystem write fails', async () => {
+    it('returns success=false when the write fails', async () => {
       mockedExistsSync.mockReturnValue(false);
       mockedWriteFileSync.mockImplementationOnce(() => {
         throw new Error('EACCES');
@@ -277,7 +304,7 @@ describe('ClaudeMcpInstaller', () => {
       expect(result.error).toMatch(/EACCES/);
     });
 
-    it('uses atomic write (tmp file + rename)', async () => {
+    it('uses atomic write via tmp file + rename', async () => {
       mockedExistsSync.mockReturnValue(false);
 
       await installer.install(
@@ -301,13 +328,13 @@ describe('ClaudeMcpInstaller', () => {
       setPlatform('linux');
     });
 
-    it('removes the target server and preserves siblings', async () => {
+    it('removes the server and preserves siblings under "servers"', async () => {
       mockedExistsSync.mockReturnValue(true);
       mockedReadFileSync.mockReturnValueOnce(
         JSON.stringify({
-          mcpServers: {
-            example: { command: 'npx' },
-            keep: { command: 'node' },
+          servers: {
+            example: { type: 'stdio', command: 'npx' },
+            keep: { type: 'stdio', command: 'node' },
           },
         }),
       );
@@ -317,16 +344,21 @@ describe('ClaudeMcpInstaller', () => {
       expect(result.success).toBe(true);
       const { contents } = capturedWrite();
       const parsed = JSON.parse(contents) as {
-        mcpServers: Record<string, unknown>;
+        servers: Record<string, unknown>;
       };
-      expect(parsed.mcpServers['example']).toBeUndefined();
-      expect(parsed.mcpServers['keep']).toEqual({ command: 'node' });
+      expect(parsed.servers['example']).toBeUndefined();
+      expect(parsed.servers['keep']).toEqual({
+        type: 'stdio',
+        command: 'node',
+      });
     });
 
-    it('is a no-op when the server key is not present', async () => {
+    it('is a no-op when the server key is absent', async () => {
       mockedExistsSync.mockReturnValue(true);
       mockedReadFileSync.mockReturnValueOnce(
-        JSON.stringify({ mcpServers: { keep: { command: 'node' } } }),
+        JSON.stringify({
+          servers: { keep: { type: 'stdio', command: 'node' } },
+        }),
       );
 
       const result = await installer.uninstall('missing', POSIX_WORKSPACE);
@@ -364,13 +396,20 @@ describe('ClaudeMcpInstaller', () => {
       );
     });
 
-    it('infers transport type from command vs url when not set', async () => {
+    it('parses servers with explicit type discriminants', async () => {
       mockedExistsSync.mockReturnValue(true);
       mockedReadFileSync.mockReturnValueOnce(
         JSON.stringify({
-          mcpServers: {
-            localFs: { command: 'node', args: ['./fs.js'] },
-            remoteHttp: { url: 'https://example.com/mcp' },
+          servers: {
+            localFs: {
+              type: 'stdio',
+              command: 'node',
+              args: ['./fs.js'],
+            },
+            remoteHttp: {
+              type: 'http',
+              url: 'https://example.com/mcp',
+            },
           },
         }),
       );
@@ -379,16 +418,17 @@ describe('ClaudeMcpInstaller', () => {
       const byKey = Object.fromEntries(
         listed.map((entry) => [entry.serverKey, entry]),
       );
+
       expect(byKey['localFs'].config.type).toBe('stdio');
       expect(byKey['remoteHttp'].config.type).toBe('http');
 
       for (const entry of listed) {
-        expect(entry.target).toBe('claude');
+        expect(entry.target).toBe('vscode');
+        expect(entry.managedByPtah).toBe(false);
         expectNormalizedPath(
           entry.configPath,
-          path.posix.join(POSIX_WORKSPACE, '.mcp.json'),
+          path.posix.join(POSIX_WORKSPACE, '.vscode', 'mcp.json'),
         );
-        expect(entry.managedByPtah).toBe(false);
       }
     });
 

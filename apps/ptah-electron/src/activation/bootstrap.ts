@@ -22,7 +22,7 @@ import {
   SETTINGS_TOKENS,
   type MigrationRunner,
 } from '@ptah-extension/settings-core';
-import { fixPath } from '@ptah-extension/agent-sdk';
+import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { IpcBridge } from '../ipc/ipc-bridge';

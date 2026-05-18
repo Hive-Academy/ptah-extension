@@ -23,8 +23,10 @@
 import 'reflect-metadata';
 import { SessionId } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { SdkMessageTransformer } from '../../sdk-message-transformer';
-import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
+import type {
+  SdkMessageTransformer,
+  SDKMessage,
+} from '@ptah-extension/agent-sdk';
 import { PtahCliStreamLoop } from './ptah-cli-stream-loop.service';
 
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';

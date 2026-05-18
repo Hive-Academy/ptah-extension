@@ -1,17 +1,18 @@
 /**
- * cursor-mcp.installer — unit specs.
+ * claude-mcp.installer — unit specs.
  *
- * Covers the CursorMcpInstaller which writes MCP server configs to the
- * workspace-scoped Cursor IDE config at `<workspaceRoot>/.cursor/mcp.json`.
+ * Covers the ClaudeMcpInstaller which writes MCP server configs to the
+ * workspace-scoped shared `<workspaceRoot>/.mcp.json` (consumed by Claude
+ * Code, Codex, and the Ptah CLI).
  *
- * Cursor-specific invariants:
+ * Claude-specific invariants:
  *   - Workspace-scoped: `getConfigPath` throws `SdkError` without a workspace.
- *   - Config lives under `.cursor/` (distinct from Claude's root-level
- *     `.mcp.json` and VS Code's `.vscode/mcp.json`).
- *   - Root key is `mcpServers`, discriminant `type` field is NOT emitted
- *     (Cursor infers from `command` vs `url`).
- *   - Read → merge → write preserves siblings; corrupted JSON degrades
- *     cleanly to an empty default and the install still succeeds.
+ *   - Config lives at `<workspaceRoot>/.mcp.json` (dotfile at the repo root,
+ *     NOT under `.claude/`).
+ *   - Root key is `mcpServers`, and the discriminant `type` field is
+ *     omitted (Claude infers from the presence of `command` vs `url`).
+ *   - Read → merge → write preserves unrelated entries; corrupted JSON
+ *     degrades to a clean empty default.
  */
 
 import 'reflect-metadata';
@@ -45,8 +46,8 @@ jest.mock('os', () => ({
 }));
 
 import * as fs from 'fs';
-import { CursorMcpInstaller } from './cursor-mcp.installer';
-import { SdkError } from '../../../errors';
+import { ClaudeMcpInstaller } from './claude-mcp.installer';
+import { SdkError } from '@ptah-extension/agent-sdk';
 
 const mockedExistsSync = fs.existsSync as jest.MockedFunction<
   typeof fs.existsSync
@@ -63,10 +64,6 @@ const mockedCopyFileSync = fs.copyFileSync as jest.MockedFunction<
 const mockedRenameSync = fs.renameSync as jest.MockedFunction<
   typeof fs.renameSync
 >;
-const mockedMkdirSync = fs.mkdirSync as jest.MockedFunction<
-  typeof fs.mkdirSync
->;
-
 const ORIGINAL_PLATFORM = process.platform;
 function setPlatform(value: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', {
@@ -96,12 +93,12 @@ function capturedWrite(): { tmpPath: string; contents: string } {
 const POSIX_WORKSPACE = '/workspace/project';
 const WIN_WORKSPACE = 'C:\\workspace\\project';
 
-describe('CursorMcpInstaller', () => {
-  let installer: CursorMcpInstaller;
+describe('ClaudeMcpInstaller', () => {
+  let installer: ClaudeMcpInstaller;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    installer = new CursorMcpInstaller();
+    installer = new ClaudeMcpInstaller();
   });
 
   afterEach(() => {
@@ -109,8 +106,8 @@ describe('CursorMcpInstaller', () => {
   });
 
   describe('target identity', () => {
-    it('declares target "cursor"', () => {
-      expect(installer.target).toBe('cursor');
+    it('declares target "claude"', () => {
+      expect(installer.target).toBe('claude');
     });
   });
 
@@ -119,19 +116,19 @@ describe('CursorMcpInstaller', () => {
   // -------------------------------------------------------------------------
 
   describe('getConfigPath', () => {
-    it('resolves <workspace>/.cursor/mcp.json on POSIX', () => {
+    it('resolves <workspace>/.mcp.json on POSIX (repo-root dotfile, not under .claude/)', () => {
       setPlatform('linux');
       expectNormalizedPath(
         installer.getConfigPath(POSIX_WORKSPACE),
-        path.posix.join(POSIX_WORKSPACE, '.cursor', 'mcp.json'),
+        path.posix.join(POSIX_WORKSPACE, '.mcp.json'),
       );
     });
 
-    it('resolves <workspace>\\.cursor\\mcp.json on win32', () => {
+    it('resolves under the workspace root on win32', () => {
       setPlatform('win32');
       expectNormalizedPath(
         installer.getConfigPath(WIN_WORKSPACE),
-        'C:/workspace/project/.cursor/mcp.json',
+        'C:/workspace/project/.mcp.json',
       );
     });
 
@@ -146,7 +143,7 @@ describe('CursorMcpInstaller', () => {
   });
 
   // -------------------------------------------------------------------------
-  // install
+  // install — NO discriminant type, under "mcpServers".
   // -------------------------------------------------------------------------
 
   describe('install', () => {
@@ -170,10 +167,10 @@ describe('CursorMcpInstaller', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.target).toBe('cursor');
+      expect(result.target).toBe('claude');
       expectNormalizedPath(
         result.configPath,
-        path.posix.join(POSIX_WORKSPACE, '.cursor', 'mcp.json'),
+        path.posix.join(POSIX_WORKSPACE, '.mcp.json'),
       );
 
       const { contents } = capturedWrite();
@@ -184,6 +181,7 @@ describe('CursorMcpInstaller', () => {
         command: 'npx',
         args: ['-y', '@example/mcp'],
       });
+      // INCLUDE_TYPE = false — Claude infers from `command` vs `url`.
       expect(parsed.mcpServers['example']['type']).toBeUndefined();
     });
 
@@ -255,20 +253,6 @@ describe('CursorMcpInstaller', () => {
         mcpServers: Record<string, unknown>;
       };
       expect(Object.keys(parsed.mcpServers)).toEqual(['example']);
-    });
-
-    it('creates the .cursor directory recursively when missing', async () => {
-      mockedExistsSync.mockReturnValue(false);
-
-      await installer.install(
-        'example',
-        { type: 'stdio', command: 'npx' },
-        POSIX_WORKSPACE,
-      );
-
-      expect(mockedMkdirSync).toHaveBeenCalledWith(expect.any(String), {
-        recursive: true,
-      });
     });
 
     it('throws SdkError synchronously when workspaceRoot is missing', () => {
@@ -399,10 +383,10 @@ describe('CursorMcpInstaller', () => {
       expect(byKey['remoteHttp'].config.type).toBe('http');
 
       for (const entry of listed) {
-        expect(entry.target).toBe('cursor');
+        expect(entry.target).toBe('claude');
         expectNormalizedPath(
           entry.configPath,
-          path.posix.join(POSIX_WORKSPACE, '.cursor', 'mcp.json'),
+          path.posix.join(POSIX_WORKSPACE, '.mcp.json'),
         );
         expect(entry.managedByPtah).toBe(false);
       }

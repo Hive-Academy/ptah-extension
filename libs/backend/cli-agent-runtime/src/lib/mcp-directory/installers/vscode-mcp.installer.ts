@@ -1,9 +1,9 @@
 /**
- * Claude Code / Codex / Ptah CLI MCP Server Installer
+ * VS Code MCP Server Installer
  *
- * Config: .mcp.json (workspace-scoped, shared by Claude Code, Codex, and Ptah CLI)
- * Root key: "mcpServers"
- * Type field: not included (Claude infers from presence of "command" vs "url")
+ * Config: .vscode/mcp.json (workspace-scoped)
+ * Root key: "servers"
+ * Type field: included (VS Code uses "type" to distinguish stdio/http/sse)
  */
 
 import * as path from 'path';
@@ -18,13 +18,13 @@ import {
   uninstallServer,
   listInstalledServers,
 } from '../mcp-config-io.utils';
-import { SdkError } from '../../../errors';
+import { SdkError } from '@ptah-extension/agent-sdk';
 
-export class ClaudeMcpInstaller implements IMcpServerInstaller {
-  readonly target = 'claude' as const;
+export class VscodeMcpInstaller implements IMcpServerInstaller {
+  readonly target = 'vscode' as const;
 
-  private static readonly ROOT_KEY = 'mcpServers';
-  private static readonly INCLUDE_TYPE = false;
+  private static readonly ROOT_KEY = 'servers';
+  private static readonly INCLUDE_TYPE = true;
 
   install(
     serverKey: string,
@@ -36,10 +36,10 @@ export class ClaudeMcpInstaller implements IMcpServerInstaller {
       installServer(
         this.target,
         configPath,
-        ClaudeMcpInstaller.ROOT_KEY,
+        VscodeMcpInstaller.ROOT_KEY,
         serverKey,
         config,
-        ClaudeMcpInstaller.INCLUDE_TYPE,
+        VscodeMcpInstaller.INCLUDE_TYPE,
       ),
     );
   }
@@ -53,7 +53,7 @@ export class ClaudeMcpInstaller implements IMcpServerInstaller {
       uninstallServer(
         this.target,
         configPath,
-        ClaudeMcpInstaller.ROOT_KEY,
+        VscodeMcpInstaller.ROOT_KEY,
         serverKey,
       ),
     );
@@ -65,14 +65,14 @@ export class ClaudeMcpInstaller implements IMcpServerInstaller {
       listInstalledServers(
         this.target,
         configPath,
-        ClaudeMcpInstaller.ROOT_KEY,
+        VscodeMcpInstaller.ROOT_KEY,
       ),
     );
   }
 
   getConfigPath(workspaceRoot?: string): string {
     if (!workspaceRoot)
-      throw new SdkError('Claude MCP installer requires a workspace root');
-    return path.join(workspaceRoot, '.mcp.json');
+      throw new SdkError('VS Code MCP installer requires a workspace root');
+    return path.join(workspaceRoot, '.vscode', 'mcp.json');
   }
 }

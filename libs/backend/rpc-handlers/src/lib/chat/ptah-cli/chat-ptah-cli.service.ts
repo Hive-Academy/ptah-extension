@@ -28,7 +28,10 @@ import {
   LicenseService,
   isPremiumTier,
 } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, PtahCliRegistry } from '@ptah-extension/agent-sdk';
+import {
+  CLI_AGENT_RUNTIME_TOKENS,
+  PtahCliRegistry,
+} from '@ptah-extension/cli-agent-runtime';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
   ChatStartParams,
@@ -65,7 +68,7 @@ export class ChatPtahCliService {
     private readonly licenseService: LicenseService,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
-    @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
     private readonly premiumContext: ChatPremiumContextService,

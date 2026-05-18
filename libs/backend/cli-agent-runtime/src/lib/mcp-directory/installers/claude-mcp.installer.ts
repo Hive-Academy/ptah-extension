@@ -1,9 +1,9 @@
 /**
- * Cursor IDE MCP Server Installer
+ * Claude Code / Codex / Ptah CLI MCP Server Installer
  *
- * Config: .cursor/mcp.json (workspace-scoped)
+ * Config: .mcp.json (workspace-scoped, shared by Claude Code, Codex, and Ptah CLI)
  * Root key: "mcpServers"
- * Type field: not included (Cursor infers from presence of "command" vs "url")
+ * Type field: not included (Claude infers from presence of "command" vs "url")
  */
 
 import * as path from 'path';
@@ -18,10 +18,10 @@ import {
   uninstallServer,
   listInstalledServers,
 } from '../mcp-config-io.utils';
-import { SdkError } from '../../../errors';
+import { SdkError } from '@ptah-extension/agent-sdk';
 
-export class CursorMcpInstaller implements IMcpServerInstaller {
-  readonly target = 'cursor' as const;
+export class ClaudeMcpInstaller implements IMcpServerInstaller {
+  readonly target = 'claude' as const;
 
   private static readonly ROOT_KEY = 'mcpServers';
   private static readonly INCLUDE_TYPE = false;
@@ -36,10 +36,10 @@ export class CursorMcpInstaller implements IMcpServerInstaller {
       installServer(
         this.target,
         configPath,
-        CursorMcpInstaller.ROOT_KEY,
+        ClaudeMcpInstaller.ROOT_KEY,
         serverKey,
         config,
-        CursorMcpInstaller.INCLUDE_TYPE,
+        ClaudeMcpInstaller.INCLUDE_TYPE,
       ),
     );
   }
@@ -53,7 +53,7 @@ export class CursorMcpInstaller implements IMcpServerInstaller {
       uninstallServer(
         this.target,
         configPath,
-        CursorMcpInstaller.ROOT_KEY,
+        ClaudeMcpInstaller.ROOT_KEY,
         serverKey,
       ),
     );
@@ -65,14 +65,14 @@ export class CursorMcpInstaller implements IMcpServerInstaller {
       listInstalledServers(
         this.target,
         configPath,
-        CursorMcpInstaller.ROOT_KEY,
+        ClaudeMcpInstaller.ROOT_KEY,
       ),
     );
   }
 
   getConfigPath(workspaceRoot?: string): string {
     if (!workspaceRoot)
-      throw new SdkError('Cursor MCP installer requires a workspace root');
-    return path.join(workspaceRoot, '.cursor', 'mcp.json');
+      throw new SdkError('Claude MCP installer requires a workspace root');
+    return path.join(workspaceRoot, '.mcp.json');
   }
 }

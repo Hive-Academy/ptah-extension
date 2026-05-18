@@ -22,7 +22,7 @@
 // before any decorated class is touched, and esbuild preserves import order.
 import 'reflect-metadata';
 
-import { fixPath } from '@ptah-extension/agent-sdk';
+import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { buildRouter } from './cli/router.js';
 import { JSONRPC_SCHEMA_VERSION } from './cli/jsonrpc/types.js';
 import { CliDIContainer } from './di/container.js';

@@ -36,6 +36,7 @@ import {
   VscodeCopilotAuthService,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
+import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
@@ -96,6 +97,7 @@ export function registerPhase2Libraries(
   // directly. SDK services inject platform abstractions via PLATFORM_TOKENS
   // instead of receiving vscode.ExtensionContext.
   registerSdkServices(container, logger);
+  registerCliAgentRuntimeServices(container, logger);
 
   // Override CopilotAuthService with VS Code-enhanced version.
   // VscodeCopilotAuthService adds native GitHub OAuth via vscode.authentication
