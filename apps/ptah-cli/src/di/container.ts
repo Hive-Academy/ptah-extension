@@ -56,13 +56,8 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 
 // Platform-agnostic vscode-core services (verified: no runtime vscode imports)
-import { RpcHandler } from '@ptah-extension/vscode-core';
-import { MessageValidatorService } from '@ptah-extension/vscode-core';
-import { SubagentRegistryService } from '@ptah-extension/vscode-core';
-import { FeatureGateService } from '@ptah-extension/vscode-core';
+import { registerVsCodeCorePlatformAgnostic } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
-import { AuthSecretsService } from '@ptah-extension/vscode-core';
-import { SentryService } from '@ptah-extension/vscode-core';
 import { GitInfoService } from '@ptah-extension/vscode-core';
 import {
   WorkspaceAwareStateStorage,
@@ -287,38 +282,11 @@ export class CliDIContainer {
     logger.info('[CLI DI] Starting service registration...');
 
     // ========================================
-    // PHASE 1.0b: SentryService (opt-in; uninitialized until SENTRY_DSN is set)
-    // ========================================
-    // Shared RPC handler factories require TOKENS.SENTRY_SERVICE. The service
-    // is a no-op until `initialize()` is called with a DSN, so registering it
-    // unconditionally is safe for the CLI.
-    container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
-
-    // ========================================
-    // PHASE 1.1: LicenseService + AuthSecretsService (real implementations)
-    // ========================================
-    container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
-    container.registerSingleton(
-      TOKENS.AUTH_SECRETS_SERVICE,
-      AuthSecretsService,
-    );
-
-    // ========================================
     // PHASE 1.2: Platform-agnostic vscode-core services
     // ========================================
-    container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
-    container.registerSingleton(
-      TOKENS.MESSAGE_VALIDATOR,
-      MessageValidatorService,
-    );
-    container.registerSingleton(
-      TOKENS.SUBAGENT_REGISTRY_SERVICE,
-      SubagentRegistryService,
-    );
-    container.registerSingleton(
-      TOKENS.FEATURE_GATE_SERVICE,
-      FeatureGateService,
-    );
+    registerVsCodeCorePlatformAgnostic(container, logger, {
+      includeLicensingAndAuth: true,
+    });
 
     // GitInfoService is shared (cross-spawn around git CLI — no platform
     // coupling). Required by the lifted GitRpcHandlers.
