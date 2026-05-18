@@ -11,7 +11,7 @@
 import {
   EnhancedPromptsState,
   createInitialEnhancedPromptsState,
-} from './enhanced-prompts.types';
+} from '../../types/enhanced-prompts.types';
 
 /**
  * VS Code ExtensionContext interface (minimal) — mirrors the shape used by

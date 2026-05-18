@@ -133,84 +133,14 @@ export type {
 } from './lib/helpers';
 
 // ============================================================
-// Enhanced Prompts System
-// AI-powered, project-specific prompt generation
+// Ptah Core System Prompt
+// PTAH_CORE_SYSTEM_PROMPT stays in agent-sdk (used by InternalQueryService).
+// PromptDesigner / PromptCache / EnhancedPrompts live in
+// `@ptah-extension/agent-generation`.
 // ============================================================
-
-// Core prompt
 export {
   PTAH_CORE_SYSTEM_PROMPT,
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
-} from './lib/prompt-harness';
-
-// Prompt Designer Agent
-// Intelligent prompt generation based on workspace analysis
-export {
-  PromptDesignerAgent,
-  PROMPT_DESIGNER_SYSTEM_PROMPT,
-  buildGenerationUserPrompt,
-  buildFallbackGuidance,
-  parseStructuredResponse,
-  parseTextResponse,
-  validateOutput,
-  formatAsPromptSection,
-  truncateToTokenBudget,
-  PromptDesignerResponseSchema,
-  DEFAULT_PROMPT_DESIGNER_CONFIG,
-} from './lib/prompt-harness';
-export type {
-  PromptDesignerInput,
-  PromptDesignerOutput,
-  PromptDesignerConfig,
-  PromptDesignerResponse,
-  PromptGenerationProgress,
-  PromptGenerationStatus,
-  CachedPromptDesign,
-} from './lib/prompt-harness';
-
-// Prompt Cache Service
-// Smart caching with file-based invalidation
-export {
-  PromptCacheService,
-  DEFAULT_CACHE_CONFIG,
-  // Invalidation utilities
-  INVALIDATION_TRIGGER_FILES,
-  INVALIDATION_IGNORE_PATTERNS,
-  CACHE_CONFIG_VERSION,
-  DEFAULT_CACHE_TTL_MS,
-  computeHash,
-  generateCacheKey,
-  extractDependencyInfo,
-  isInvalidationTrigger,
-  getInvalidationReason,
-  isCacheExpired,
-  createInvalidationEvent,
-} from './lib/prompt-harness';
-export type {
-  PromptCacheConfig,
-  InvalidationReason,
-  InvalidationEvent,
-  CacheKeyComponents,
-} from './lib/prompt-harness';
-
-// Enhanced Prompts Service
-// Orchestrates the Enhanced Prompts feature
-export {
-  EnhancedPromptsService,
-  DEFAULT_ENHANCED_PROMPTS_CONFIG,
-  createInitialEnhancedPromptsState,
-} from './lib/prompt-harness';
-export type {
-  EnhancedPromptsState,
-  EnhancedPromptsStatus,
-  EnhancedPromptsConfig,
-  EnhancedPromptsWizardResult,
-  EnhancedPromptsSummary,
-  EnhancedPromptsSdkConfig,
-  DetectedStack,
-  RegeneratePromptsRequest,
-  RegeneratePromptsResponse,
-  IMultiPhaseAnalysisReader,
 } from './lib/prompt-harness';
 
 // ============================================================

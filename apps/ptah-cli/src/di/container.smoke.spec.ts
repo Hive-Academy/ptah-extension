@@ -24,6 +24,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
   SetupRpcHandlers,
@@ -80,7 +81,7 @@ function buildMinimalContainer(): DependencyContainer {
       resolvePluginPaths: jest.fn(() => []),
     },
   });
-  c.register(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE, {
+  c.register(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE, {
     useValue: {
       setAnalysisReader: jest.fn(),
       getStatus: jest.fn(),
@@ -110,8 +111,11 @@ describe('CLI DI — shared RPC handler resolution', () => {
       instance = c.resolve(SetupRpcHandlers);
     }).not.toThrow();
     expect(instance).toBeDefined();
-    const ms = (instance as unknown as { modelSettings: { selectedModel: { get: () => unknown } } })
-      .modelSettings;
+    const ms = (
+      instance as unknown as {
+        modelSettings: { selectedModel: { get: () => unknown } };
+      }
+    ).modelSettings;
     expect(typeof ms.selectedModel.get).toBe('function');
   });
 

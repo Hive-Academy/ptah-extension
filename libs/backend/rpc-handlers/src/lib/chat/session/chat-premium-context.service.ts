@@ -8,11 +8,11 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
-  PluginLoaderService,
+  AGENT_GENERATION_TOKENS,
   type EnhancedPromptsService,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/agent-generation';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 
 @injectable()
@@ -21,7 +21,7 @@ export class ChatPremiumContextService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
-    @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
+    @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,

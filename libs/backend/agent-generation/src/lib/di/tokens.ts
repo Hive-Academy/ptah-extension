@@ -171,6 +171,38 @@ export const MULTI_PHASE_ANALYSIS_SERVICE = Symbol.for(
 );
 
 // ========================================
+// Enhanced Prompts Services
+// ========================================
+
+/**
+ * PromptDesignerAgent - Pure prompt builder + result parser
+ * Responsibilities: Build prompts + JSON Schema for SDK structured output, parse/validate output, generate fallback guidance
+ *
+ * NOTE: Symbol.for('SdkPromptDesignerAgent') preserves the global symbol identity
+ * from the original SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT registration so cross-lib
+ * resolution remains intact.
+ */
+export const PROMPT_DESIGNER_AGENT = Symbol.for('SdkPromptDesignerAgent');
+
+/**
+ * PromptCacheService - Smart caching with file-based invalidation
+ * Responsibilities: Dual-layer cache (in-memory + persisted), file-based invalidation, TTL management
+ *
+ * NOTE: Symbol.for('SdkPromptCacheService') preserves the global symbol identity
+ * from the original SDK_TOKENS.SDK_PROMPT_CACHE_SERVICE registration.
+ */
+export const PROMPT_CACHE_SERVICE = Symbol.for('SdkPromptCacheService');
+
+/**
+ * EnhancedPromptsService - Orchestrates the Enhanced Prompts feature
+ * Responsibilities: State management, wizard execution flow, integration with PromptDesignerAgent + PromptCacheService
+ *
+ * NOTE: Symbol.for('SdkEnhancedPromptsService') preserves the global symbol identity
+ * from the original SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE registration.
+ */
+export const ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
+
+// ========================================
 // Token Registry (Type-Safe Access)
 // ========================================
 
@@ -215,6 +247,11 @@ export const AGENT_GENERATION_TOKENS = {
 
   // Multi-Phase Analysis
   MULTI_PHASE_ANALYSIS_SERVICE,
+
+  // Enhanced Prompts
+  PROMPT_DESIGNER_AGENT,
+  PROMPT_CACHE_SERVICE,
+  ENHANCED_PROMPTS_SERVICE,
 } as const;
 
 /**

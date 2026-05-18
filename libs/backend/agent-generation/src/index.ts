@@ -64,3 +64,75 @@ export {
   type WizardPanelInitialData,
   type ProjectAnalysisZodOutput,
 } from './lib/services/wizard';
+
+// ============================================================
+// Enhanced Prompts System
+// AI-powered, project-specific prompt generation (moved from agent-sdk).
+// PTAH_CORE_SYSTEM_PROMPT stays in agent-sdk (used by InternalQueryService).
+// ============================================================
+
+// Prompt Designer Agent — pure prompt builder + result parser
+export {
+  PromptDesignerAgent,
+  PROMPT_DESIGNER_SYSTEM_PROMPT,
+  buildGenerationUserPrompt,
+  buildFallbackGuidance,
+  parseStructuredResponse,
+  parseTextResponse,
+  validateOutput,
+  formatAsPromptSection,
+  truncateToTokenBudget,
+  PromptDesignerResponseSchema,
+  DEFAULT_PROMPT_DESIGNER_CONFIG,
+} from './lib/services/prompt-designer';
+export type {
+  PromptDesignerInput,
+  PromptDesignerOutput,
+  PromptDesignerConfig,
+  PromptDesignerResponse,
+  PromptGenerationProgress,
+  PromptGenerationStatus,
+  CachedPromptDesign,
+} from './lib/services/prompt-designer';
+
+// Prompt Cache Service — smart caching with file-based invalidation
+export {
+  PromptCacheService,
+  DEFAULT_CACHE_CONFIG,
+  INVALIDATION_TRIGGER_FILES,
+  INVALIDATION_IGNORE_PATTERNS,
+  CACHE_CONFIG_VERSION,
+  DEFAULT_CACHE_TTL_MS,
+  computeHash,
+  generateCacheKey,
+  extractDependencyInfo,
+  isInvalidationTrigger,
+  getInvalidationReason,
+  isCacheExpired,
+  createInvalidationEvent,
+} from './lib/services/prompt-designer';
+export type {
+  PromptCacheConfig,
+  InvalidationReason,
+  InvalidationEvent,
+  CacheKeyComponents,
+} from './lib/services/prompt-designer';
+
+// Enhanced Prompts Service — orchestrates the Enhanced Prompts feature
+export {
+  EnhancedPromptsService,
+  DEFAULT_ENHANCED_PROMPTS_CONFIG,
+  createInitialEnhancedPromptsState,
+} from './lib/services/enhanced-prompts';
+export type {
+  EnhancedPromptsState,
+  EnhancedPromptsStatus,
+  EnhancedPromptsConfig,
+  EnhancedPromptsWizardResult,
+  EnhancedPromptsSummary,
+  EnhancedPromptsSdkConfig,
+  DetectedStack,
+  RegeneratePromptsRequest,
+  RegeneratePromptsResponse,
+  IMultiPhaseAnalysisReader,
+} from './lib/services/enhanced-prompts';

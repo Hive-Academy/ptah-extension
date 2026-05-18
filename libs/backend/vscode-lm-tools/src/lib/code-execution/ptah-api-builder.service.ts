@@ -109,14 +109,14 @@ import {
 const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
 
 /**
- * Duplicated from SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE to avoid circular dependency
- * between vscode-lm-tools -> agent-sdk. Must match the string in:
- * libs/backend/agent-sdk/src/lib/di/tokens.ts
+ * Duplicated from AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE to avoid taking
+ * a hard dependency from vscode-lm-tools onto agent-generation. Must match the
+ * Symbol.for() description in:
+ * libs/backend/agent-generation/src/lib/di/tokens.ts
  *
- * @see SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE in libs/backend/agent-sdk/src/lib/di/tokens.ts
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
-const SDK_ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
+const ENHANCED_PROMPTS_SERVICE_TOKEN = Symbol.for('SdkEnhancedPromptsService');
 
 /**
  * Duplicated from SDK_TOKENS.SDK_PTAH_CLI_REGISTRY to avoid circular dependency
@@ -406,7 +406,7 @@ export class PtahAPIBuilder {
           getProjectGuidance: async () => {
             // Resolve EnhancedPromptsService lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
             // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
-            if (!container.isRegistered(SDK_ENHANCED_PROMPTS_SERVICE)) {
+            if (!container.isRegistered(ENHANCED_PROMPTS_SERVICE_TOKEN)) {
               return undefined;
             }
             try {
@@ -414,7 +414,7 @@ export class PtahAPIBuilder {
                 getProjectGuidanceContent(
                   workspacePath: string,
                 ): Promise<string | null>;
-              }>(SDK_ENHANCED_PROMPTS_SERVICE);
+              }>(ENHANCED_PROMPTS_SERVICE_TOKEN);
               const workspacePath = this.getWorkspaceRoot();
               const content =
                 await service.getProjectGuidanceContent(workspacePath);
@@ -427,7 +427,7 @@ export class PtahAPIBuilder {
             // Resolve EnhancedPromptsService lazily for the full enhanced prompt content.
             // Returns the full enhanced prompts (project guidance + framework guidelines +
             // coding standards + architecture notes) for use as CLI agent system prompt.
-            if (!container.isRegistered(SDK_ENHANCED_PROMPTS_SERVICE)) {
+            if (!container.isRegistered(ENHANCED_PROMPTS_SERVICE_TOKEN)) {
               return undefined;
             }
             try {
@@ -435,7 +435,7 @@ export class PtahAPIBuilder {
                 getEnhancedPromptContent(
                   workspacePath: string,
                 ): Promise<string | null>;
-              }>(SDK_ENHANCED_PROMPTS_SERVICE);
+              }>(ENHANCED_PROMPTS_SERVICE_TOKEN);
               const workspacePath = this.getWorkspaceRoot();
               const content =
                 await service.getEnhancedPromptContent(workspacePath);

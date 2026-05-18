@@ -70,14 +70,16 @@ import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import type {
-  EnhancedPromptsService,
-  IMultiPhaseAnalysisReader,
   PluginLoaderService,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
+} from '@ptah-extension/agent-generation';
+import type {
+  EnhancedPromptsService,
+  IMultiPhaseAnalysisReader,
 } from '@ptah-extension/agent-generation';
 import {
   registerVsCodeLmToolsServices,
@@ -767,7 +769,7 @@ export class CliDIContainer {
       // ========================================
       try {
         const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-          SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+          AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
         );
         const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
           AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,

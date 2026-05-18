@@ -32,16 +32,16 @@ import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 import {
   registerSdkServices,
   SDK_TOKENS,
-  EnhancedPromptsService,
   VscodeCopilotAuthService,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
-import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
+  EnhancedPromptsService,
 } from '@ptah-extension/agent-generation';
+import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
@@ -127,7 +127,7 @@ export function registerPhase2Libraries(
   // and connect them for optional multi-phase enrichment.
   try {
     const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-      SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+      AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
     );
     const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
       AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,

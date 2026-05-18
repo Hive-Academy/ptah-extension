@@ -59,11 +59,6 @@ import {
   // Slash command interceptor
   SlashCommandInterceptor,
 } from '../helpers';
-import {
-  PromptDesignerAgent,
-  PromptCacheService,
-  EnhancedPromptsService,
-} from '../prompt-harness';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { SkillJunctionService } from '../helpers/skill-junction.service';
@@ -366,39 +361,11 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Enhanced Prompts Services
-  // ============================================================
-
-  // Prompt Designer Agent - generates project-specific guidance
-  // Note: Requires LlmService to be registered by consuming application
-  container.register(
-    SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT,
-    { useClass: PromptDesignerAgent },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // Prompt Cache Service - smart caching with file-based invalidation
-  // Note: Requires ExtensionContext and FileSystemManager to be registered
-  container.register(
-    SDK_TOKENS.SDK_PROMPT_CACHE_SERVICE,
-    { useClass: PromptCacheService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // Enhanced Prompts Service - orchestrates the Enhanced Prompts feature
-  // Note: Requires PromptDesignerAgent, PromptCacheService, WorkspaceIntelligence
-  container.register(
-    SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
-    { useClass: EnhancedPromptsService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
   // Internal Query Service
   // One-shot SDK queries, separate from interactive chat path
   // ============================================================
 
-  // Depends on: SdkModuleLoader, SdkAgentAdapter (health check), EnhancedPromptsService,
+  // Depends on: SdkModuleLoader, SdkAgentAdapter (health check),
   // SubagentHookHandler, CompactionConfigProvider, CompactionHookHandler
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,

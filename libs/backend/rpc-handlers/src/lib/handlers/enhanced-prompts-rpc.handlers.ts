@@ -23,15 +23,15 @@ import {
   LicenseService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   EnhancedPromptsService,
-  SDK_TOKENS,
-  PluginLoaderService,
-} from '@ptah-extension/agent-sdk';
+  AGENT_GENERATION_TOKENS,
+} from '@ptah-extension/agent-generation';
 import type {
   PromptDesignerInput,
   EnhancedPromptsSdkConfig,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/agent-generation';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
   EnhancedPromptsGetStatusParams,
@@ -78,7 +78,7 @@ export class EnhancedPromptsRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
+    @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,

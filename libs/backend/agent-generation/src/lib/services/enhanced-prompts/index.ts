@@ -22,7 +22,7 @@ export {
   RegeneratePromptsResponse,
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
   createInitialEnhancedPromptsState,
-} from './enhanced-prompts.types';
+} from '../../types/enhanced-prompts.types';
 
 // Service
 export { EnhancedPromptsService } from './enhanced-prompts.service';

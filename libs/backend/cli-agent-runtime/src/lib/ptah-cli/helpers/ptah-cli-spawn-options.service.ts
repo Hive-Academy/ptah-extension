@@ -20,7 +20,6 @@ import {
   SubagentHookHandler,
   CompactionHookHandler,
   CompactionConfigProvider,
-  EnhancedPromptsService,
   PluginLoaderService,
   assembleSystemPrompt,
   getActiveProviderId,
@@ -30,6 +29,8 @@ import {
   type McpHttpServerConfig,
   type SdkPluginConfig,
 } from '@ptah-extension/agent-sdk';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import type { EnhancedPromptsService } from '@ptah-extension/agent-generation';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -59,7 +60,7 @@ export class PtahCliSpawnOptions {
     private readonly compactionHookHandler: CompactionHookHandler,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider,
-    @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
+    @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,

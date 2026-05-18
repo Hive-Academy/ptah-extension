@@ -25,7 +25,21 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import type { AnalysisStreamPayload } from '@ptah-extension/shared';
-import { SDK_TOKENS } from '../../di/tokens';
+import {
+  PTAH_CORE_SYSTEM_PROMPT,
+  PTAH_CORE_SYSTEM_PROMPT_TOKENS,
+  SDK_TOKENS,
+  SdkStreamProcessor,
+  discoverPluginSkills,
+  formatSkillsForPrompt,
+} from '@ptah-extension/agent-sdk';
+import type {
+  InternalQueryService,
+  SDKMessage,
+  StreamEventEmitter,
+  StreamEvent,
+} from '@ptah-extension/agent-sdk';
+import { AGENT_GENERATION_TOKENS } from '../../di/tokens';
 import type { PromptDesignerAgent } from '../prompt-designer/prompt-designer-agent';
 import type { PromptCacheService } from '../prompt-designer/prompt-cache.service';
 import type {
@@ -43,22 +57,7 @@ import {
   RegeneratePromptsRequest,
   RegeneratePromptsResponse,
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
-} from './enhanced-prompts.types';
-import {
-  PTAH_CORE_SYSTEM_PROMPT,
-  PTAH_CORE_SYSTEM_PROMPT_TOKENS,
-} from '../ptah-core-prompt';
-import type { InternalQueryService } from '../../internal-query/internal-query.service';
-import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
-import { SdkStreamProcessor } from '../../stream-processing/sdk-stream-processor';
-import type {
-  StreamEventEmitter,
-  StreamEvent,
-} from '../../stream-processing/sdk-stream-processor.types';
-import {
-  discoverPluginSkills,
-  formatSkillsForPrompt,
-} from '../../helpers/plugin-skill-discovery';
+} from '../../types/enhanced-prompts.types';
 import { EnhancedPromptsStateStore } from './enhanced-prompts-state-store';
 
 /**
@@ -180,9 +179,9 @@ export class EnhancedPromptsService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT)
+    @inject(AGENT_GENERATION_TOKENS.PROMPT_DESIGNER_AGENT)
     private readonly promptDesignerAgent: PromptDesignerAgent,
-    @inject(SDK_TOKENS.SDK_PROMPT_CACHE_SERVICE)
+    @inject(AGENT_GENERATION_TOKENS.PROMPT_CACHE_SERVICE)
     private readonly cacheService: PromptCacheService,
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: IExtensionContext,

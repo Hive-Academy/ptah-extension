@@ -307,7 +307,7 @@ export class WizardGenerationRpcHandlers {
         try {
           const enhancedPromptsService =
             this.resolveService<EnhancedPromptsServiceInterface>(
-              SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+              AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
               'EnhancedPromptsService',
             );
           const content =

@@ -9,13 +9,12 @@ import {
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS, bindLicenseReactivity } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
+  AGENT_GENERATION_TOKENS,
   EnhancedPromptsService,
-  setPtahMcpPort,
-} from '@ptah-extension/agent-sdk';
-import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
-import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+} from '@ptah-extension/agent-generation';
+import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation';
 import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
 import { createApplicationMenu } from '../menu/application-menu';
 import { syncCliAgentsOnActivation } from './cli-agent-sync';
@@ -140,7 +139,7 @@ export async function wireRuntime(
   // requires TOKENS.WEBVIEW_MANAGER which was just registered above.
   try {
     const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-      SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+      AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
     );
     const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
       AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,

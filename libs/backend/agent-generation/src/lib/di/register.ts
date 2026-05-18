@@ -38,6 +38,11 @@ import {
   MultiPhaseAnalysisService,
 } from '../services/wizard';
 import { AnalysisStorageService } from '../services/analysis-storage.service';
+import {
+  PromptDesignerAgent,
+  PromptCacheService,
+} from '../services/prompt-designer';
+import { EnhancedPromptsService } from '../services/enhanced-prompts/enhanced-prompts.service';
 
 /**
  * Register all agent-generation services in DI container
@@ -178,6 +183,34 @@ export function registerAgentGenerationServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
+  // ============================================================
+  // Enhanced Prompts Services
+  // ============================================================
+
+  // Prompt Designer Agent - pure prompt builder + result parser
+  container.register(
+    AGENT_GENERATION_TOKENS.PROMPT_DESIGNER_AGENT,
+    { useClass: PromptDesignerAgent },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Prompt Cache Service - smart caching with file-based invalidation
+  // Note: Requires ExtensionContext to be registered
+  container.register(
+    AGENT_GENERATION_TOKENS.PROMPT_CACHE_SERVICE,
+    { useClass: PromptCacheService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Enhanced Prompts Service - orchestrates the Enhanced Prompts feature
+  // Note: Requires PromptDesignerAgent, PromptCacheService, WorkspaceIntelligence,
+  // InternalQueryService (from agent-sdk), ModelSettings (from settings-core)
+  container.register(
+    AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
+    { useClass: EnhancedPromptsService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
   logger.info('[AgentGeneration] Agent-generation services registered', {
     services: [
       'OUTPUT_VALIDATION_SERVICE',
@@ -194,6 +227,9 @@ export function registerAgentGenerationServices(
       'AGENT_GENERATION_ORCHESTRATOR',
       'SETUP_STATUS_SERVICE',
       'SETUP_WIZARD_SERVICE',
+      'PROMPT_DESIGNER_AGENT',
+      'PROMPT_CACHE_SERVICE',
+      'ENHANCED_PROMPTS_SERVICE',
     ],
   });
 }

@@ -88,15 +88,6 @@ export const SDK_TOKENS = {
   SDK_AGENT_CORRELATION: Symbol.for('SdkAgentCorrelation'),
   SDK_SESSION_REPLAY: Symbol.for('SdkSessionReplay'),
 
-  // Prompt Designer Agent
-  SDK_PROMPT_DESIGNER_AGENT: Symbol.for('SdkPromptDesignerAgent'),
-
-  // Prompt Cache Service
-  SDK_PROMPT_CACHE_SERVICE: Symbol.for('SdkPromptCacheService'),
-
-  // Enhanced Prompts Service
-  SDK_ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
-
   // Internal Query Service
   // One-shot SDK query execution, separate from interactive chat path
   SDK_INTERNAL_QUERY_SERVICE: Symbol.for('SdkInternalQueryService'),
