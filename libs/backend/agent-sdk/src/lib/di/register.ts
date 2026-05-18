@@ -50,6 +50,7 @@ import {
   SdkWarmQueryManager,
   SessionForkService,
   SdkRuntimeStateService,
+  SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
@@ -159,6 +160,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_RUNTIME_STATE,
     { useClass: SdkRuntimeStateService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_ADAPTER_EVENTS,
+    { useClass: SdkAdapterEvents },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -315,6 +322,8 @@ export function registerSdkServices(
     { useClass: SdkAgentAdapter },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  container.resolve(SDK_TOKENS.SDK_CONFIG_WATCHER);
 
   logger.info('[AgentSDK] SDK services registered successfully', {
     services: Object.keys(SDK_TOKENS),

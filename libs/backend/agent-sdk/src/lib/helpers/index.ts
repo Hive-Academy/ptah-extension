@@ -116,3 +116,10 @@ export {
 export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
 
 export { SdkRuntimeStateService } from './sdk-runtime-state.service';
+export {
+  SdkAdapterEvents,
+  type SdkAdapterEventName,
+  type SdkAdapterInitializedEvent,
+  type SdkAdapterDisposedEvent,
+  type SdkAdapterConfigChangedEvent,
+} from './sdk-adapter-events.service';

@@ -1,0 +1,145 @@
+import 'reflect-metadata';
+
+import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  createMockLogger,
+  type MockLogger,
+} from '@ptah-extension/shared/testing';
+
+import { SdkAdapterEvents } from './sdk-adapter-events.service';
+
+function asLogger(mock: MockLogger): Logger {
+  return mock as unknown as Logger;
+}
+
+describe('SdkAdapterEvents', () => {
+  function make(): { events: SdkAdapterEvents; logger: MockLogger } {
+    const logger = createMockLogger();
+    const events = new SdkAdapterEvents(asLogger(logger));
+    return { events, logger };
+  }
+
+  describe('initialized', () => {
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onInitialized(listener);
+
+      events.emitInitialized({ success: true, timestamp: 123 });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith({ success: true, timestamp: 123 });
+    });
+
+    it('supports multiple subscribers', () => {
+      const { events } = make();
+      const a = jest.fn();
+      const b = jest.fn();
+      events.onInitialized(a);
+      events.onInitialized(b);
+
+      events.emitInitialized({ success: false, timestamp: 1 });
+
+      expect(a).toHaveBeenCalledTimes(1);
+      expect(b).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns an unsubscribe function that stops further delivery', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      const off = events.onInitialized(listener);
+
+      events.emitInitialized({ success: true, timestamp: 1 });
+      off();
+      events.emitInitialized({ success: true, timestamp: 2 });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('disposed', () => {
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onDisposed(listener);
+
+      events.emitDisposed({ timestamp: 999 });
+
+      expect(listener).toHaveBeenCalledWith({ timestamp: 999 });
+    });
+  });
+
+  describe('configChanged', () => {
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onConfigChanged(listener);
+
+      events.emitConfigChanged({ key: 'authMethod', timestamp: 42 });
+
+      expect(listener).toHaveBeenCalledWith({
+        key: 'authMethod',
+        timestamp: 42,
+      });
+    });
+  });
+
+  describe('listener isolation', () => {
+    it('does not cross-deliver between event channels', () => {
+      const { events } = make();
+      const initListener = jest.fn();
+      const disposedListener = jest.fn();
+      const configListener = jest.fn();
+
+      events.onInitialized(initListener);
+      events.onDisposed(disposedListener);
+      events.onConfigChanged(configListener);
+
+      events.emitInitialized({ success: true, timestamp: 1 });
+
+      expect(initListener).toHaveBeenCalledTimes(1);
+      expect(disposedListener).not.toHaveBeenCalled();
+      expect(configListener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('safeEmit', () => {
+    it('logs and swallows when a listener throws so other listeners still fire', () => {
+      const { events, logger } = make();
+      const throwing = jest.fn(() => {
+        throw new Error('boom');
+      });
+      events.onInitialized(throwing);
+
+      expect(() =>
+        events.emitInitialized({ success: true, timestamp: 1 }),
+      ).not.toThrow();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('removeAllListeners', () => {
+    it('clears every subscription so subsequent emits reach nobody', () => {
+      const { events } = make();
+      const init = jest.fn();
+      const disp = jest.fn();
+      const cfg = jest.fn();
+      events.onInitialized(init);
+      events.onDisposed(disp);
+      events.onConfigChanged(cfg);
+
+      events.removeAllListeners();
+
+      events.emitInitialized({ success: true, timestamp: 1 });
+      events.emitDisposed({ timestamp: 1 });
+      events.emitConfigChanged({ key: 'k', timestamp: 1 });
+
+      expect(init).not.toHaveBeenCalled();
+      expect(disp).not.toHaveBeenCalled();
+      expect(cfg).not.toHaveBeenCalled();
+      expect(events.listenerCount('initialized')).toBe(0);
+      expect(events.listenerCount('disposed')).toBe(0);
+      expect(events.listenerCount('configChanged')).toBe(0);
+    });
+  });
+});

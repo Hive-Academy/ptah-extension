@@ -76,6 +76,7 @@ export const SDK_TOKENS = {
   SDK_WARM_QUERY_MANAGER: Symbol.for('SdkWarmQueryManager'),
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
   SDK_RUNTIME_STATE: Symbol.for('SdkRuntimeState'),
+  SDK_ADAPTER_EVENTS: Symbol.for('SdkAdapterEvents'),
 } as const;
 
 /**

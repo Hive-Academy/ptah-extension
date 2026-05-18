@@ -19,6 +19,7 @@ import {
   type ProviderProfile,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
+import type { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
@@ -33,7 +34,6 @@ import {
 import type { IAuthEnvProvider } from './auth-env.port';
 import {
   SessionLifecycleManager,
-  ConfigWatcher,
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
@@ -108,8 +108,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly authManager: IAuthEnvProvider,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly sessionLifecycle: SessionLifecycleManager,
-    @inject(SDK_TOKENS.SDK_CONFIG_WATCHER)
-    private readonly configWatcher: ConfigWatcher,
     @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
     private readonly cliDetector: ClaudeCliDetector,
     @inject(SDK_TOKENS.SDK_STREAM_TRANSFORMER)
@@ -126,8 +124,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly forkService: SessionForkService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS)
+    private readonly events: SdkAdapterEvents,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
+    this.events.onConfigChanged(async () => {
+      this.logger.info(
+        '[SdkAgentAdapter] Config change detected, re-initializing...',
+      );
+      await this.sessionLifecycle.disposeAllSessions();
+      this.cliDetector.clearCache();
+      this.modelService.clearCache();
+      this.cliInstallation = null;
+      await this.initialize();
+    });
   }
 
   public async preloadSdk(): Promise<void> {
@@ -153,17 +163,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
-      this.configWatcher.registerWatchers(async () => {
-        this.logger.info(
-          '[SdkAgentAdapter] Config change detected, re-initializing...',
-        );
-        await this.sessionLifecycle.disposeAllSessions();
-        this.cliDetector.clearCache();
-        this.modelService.clearCache();
-        this.cliInstallation = null;
-        await this.initialize();
-      });
-
       const authMethod = this.config.get<string>('authMethod') || 'apiKey';
       const authResult =
         await this.authManager.configureAuthentication(authMethod);
@@ -173,6 +172,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
           status: 'error' as ProviderStatus,
           lastCheck: Date.now(),
           errorMessage: authResult.errorMessage,
+        });
+        this.events.emitInitialized({
+          success: false,
+          timestamp: Date.now(),
         });
         return false;
       }
@@ -260,6 +263,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       }
 
       this.logger.info('[SdkAgentAdapter] Initialized successfully');
+      this.events.emitInitialized({ success: true, timestamp: Date.now() });
       return true;
     } catch (error) {
       const errorObj =
@@ -273,13 +277,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
         lastCheck: Date.now(),
         errorMessage: errorObj.message,
       });
+      this.events.emitInitialized({ success: false, timestamp: Date.now() });
       return false;
     }
   }
 
   dispose(): void {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
-    this.configWatcher.dispose();
+    this.events.emitDisposed({ timestamp: Date.now() });
     this.sessionLifecycle.disposeAllSessions().catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Error during session disposal',
