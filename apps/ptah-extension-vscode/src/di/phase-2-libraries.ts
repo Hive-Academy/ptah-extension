@@ -12,7 +12,6 @@
 import { Lifecycle } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
-import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 // NOTE: persistence-sqlite, memory-curator, skill-synthesis, cron-scheduler
@@ -31,8 +30,7 @@ import {
 import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 import {
   registerSdkServices,
-  SDK_TOKENS,
-  SdkAgentAdapter,
+  wireAgentAdapterAliases,
 } from '@ptah-extension/agent-sdk';
 import {
   registerAuthProvidersServices,
@@ -116,14 +114,7 @@ export function registerPhase2Libraries(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding).
-  // tsyringe rejects `Lifecycle.Singleton` with factory providers. The factory
-  // delegates to `SDK_TOKENS.SDK_AGENT_ADAPTER` which IS already a singleton
-  // (useClass + Lifecycle.Singleton in registerSdkServices), so every call
-  // returns the same cached instance.
-  container.register(TOKENS.AGENT_ADAPTER, {
-    useFactory: (c) => c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
-  });
+  wireAgentAdapterAliases(container);
 
   // Agent Generation Services â€” SetupStatusService, SetupWizardService, and
   // supporting services required for setup wizard functionality. Services

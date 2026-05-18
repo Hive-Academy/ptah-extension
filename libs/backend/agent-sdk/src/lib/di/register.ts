@@ -11,6 +11,7 @@
  */
 
 import { DependencyContainer, Lifecycle } from 'tsyringe';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
@@ -345,5 +346,11 @@ export function registerSdkServices(
 
   logger.info('[AgentSDK] SDK services registered successfully', {
     services: Object.keys(SDK_TOKENS),
+  });
+}
+
+export function wireAgentAdapterAliases(container: DependencyContainer): void {
+  container.register(TOKENS.AGENT_ADAPTER, {
+    useFactory: (c) => c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
   });
 }

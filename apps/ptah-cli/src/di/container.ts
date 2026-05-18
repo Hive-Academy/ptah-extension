@@ -67,13 +67,14 @@ import {
 
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  registerSdkServices,
+  SDK_TOKENS,
+  wireAgentAdapterAliases,
+} from '@ptah-extension/agent-sdk';
 import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
-import type {
-  PluginLoaderService,
-  SdkAgentAdapter,
-} from '@ptah-extension/agent-sdk';
+import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
@@ -589,13 +590,7 @@ export class CliDIContainer {
     registerSdkServices(container, logger);
     registerCliAgentRuntimeServices(container, logger);
 
-    // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (shared wiring helpers resolve
-    // via TOKENS.AGENT_ADAPTER; mirror VS Code / Electron pattern so the
-    // helper sees the adapter when called from tui-rpc-method-registration).
-    container.register(TOKENS.AGENT_ADAPTER, {
-      useFactory: (c) =>
-        c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
-    });
+    wireAgentAdapterAliases(container);
 
     // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs
     // These tokens are required by WizardWebviewLifecycleService which is registered

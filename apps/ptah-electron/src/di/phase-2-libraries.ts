@@ -16,8 +16,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import {
   registerSdkServices,
-  SDK_TOKENS,
-  SdkAgentAdapter,
+  wireAgentAdapterAliases,
 } from '@ptah-extension/agent-sdk';
 import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
@@ -67,14 +66,7 @@ export function registerPhase2Libraries(
   registerSdkServices(container, logger);
   registerCliAgentRuntimeServices(container, logger);
 
-  // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding).
-  // NOTE: tsyringe rejects Lifecycle.Singleton with factory providers. The factory
-  // delegates to SDK_TOKENS.SDK_AGENT_ADAPTER which is already registered as a
-  // singleton (useClass + Lifecycle.Singleton in registerSdkServices), so every
-  // call returns the same cached instance.
-  container.register(TOKENS.AGENT_ADAPTER, {
-    useFactory: (c) => c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
-  });
+  wireAgentAdapterAliases(container);
 
   // ========================================
   // PHASE 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs
