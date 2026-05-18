@@ -23,6 +23,7 @@ import {
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { SDK_TOKENS } from '../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import {
   SDKMessage,
   isResultMessage,
@@ -213,8 +214,9 @@ export class StreamTransformer {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
     private readonly messageTransformer: SdkMessageTransformer,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
   ) {}
 

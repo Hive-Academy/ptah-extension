@@ -26,6 +26,7 @@ import {
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import {
   SDKUserMessage,
   SDKMessage,
@@ -299,9 +300,9 @@ export class SessionLifecycleManager {
     // SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private subagentRegistry: SubagentRegistryService,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
     @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,

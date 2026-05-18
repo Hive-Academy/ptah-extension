@@ -9,17 +9,16 @@
  * - Plain Symbol('Name') !== Symbol('Name') — creates unique symbols per call
  * - Symbol.for('Name') === Symbol.for('Name') — always matches, even across modules
  *
- * Auth + provider tokens are owned by `@ptah-extension/auth-providers` as
- * AUTH_PROVIDERS_TOKENS. They are MIRRORED here (byte-identical Symbol.for
- * descriptions) so agent-sdk consumers can @inject() them without a runtime
- * dependency on auth-providers. tsyringe resolves them to the same
- * registration because Symbol.for() interns globally.
+ * SDK_TOKENS holds only SDK-internal services (SdkAgentAdapter, SdkQueryRunner,
+ * SessionLifecycleManager, etc.). Auth + provider tokens live in
+ * `@ptah-extension/auth-providers-tokens` as AUTH_PROVIDERS_TOKENS — consumers
+ * inject from that leaf lib directly.
  *
  * Token files:
- * - vscode-core/src/di/tokens.ts    — core infrastructure tokens (TOKENS)
- * - agent-sdk/src/lib/di/tokens.ts  (this file) — SDK + mirrored auth tokens
- * - auth-providers/src/lib/di/tokens.ts — canonical AUTH_PROVIDERS_TOKENS
- * - agent-generation/src/lib/di/tokens.ts — agent generation tokens
+ * - vscode-core/src/di/tokens.ts             — core infrastructure tokens (TOKENS)
+ * - agent-sdk/src/lib/di/tokens.ts (this)    — SDK-internal services
+ * - auth-providers-tokens/src/lib/tokens.ts  — AUTH_PROVIDERS_TOKENS (canonical)
+ * - agent-generation/src/lib/di/tokens.ts    — agent generation tokens
  *
  * @see libs/backend/vscode-core/src/di/tokens.ts for canonical convention reference
  */
@@ -90,28 +89,6 @@ export const SDK_TOKENS = {
   SDK_WARM_QUERY_MANAGER: Symbol.for('SdkWarmQueryManager'),
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
   SDK_RUNTIME_STATE: Symbol.for('SdkRuntimeState'),
-
-  // Mirrored auth + provider tokens — byte-identical Symbol.for descriptions
-  // with AUTH_PROVIDERS_TOKENS so agent-sdk consumers can @inject() them
-  // without a runtime dependency on @ptah-extension/auth-providers.
-  SDK_AUTH_MANAGER: Symbol.for('SdkAuthManager'),
-  SDK_AUTH_ENV: Symbol.for('SdkAuthEnv'),
-  SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
-  SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
-  SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
-  SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),
-  SDK_LOCAL_NATIVE_STRATEGY: Symbol.for('SdkLocalNativeStrategy'),
-  SDK_LOCAL_PROXY_STRATEGY: Symbol.for('SdkLocalProxyStrategy'),
-  SDK_CLI_STRATEGY: Symbol.for('SdkCliStrategy'),
-  SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
-  SDK_COPILOT_PROXY: Symbol.for('SdkCopilotProxy'),
-  SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
-  SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
-  SDK_OPENROUTER_AUTH: Symbol.for('SdkOpenRouterAuth'),
-  SDK_OPENROUTER_PROXY: Symbol.for('SdkOpenRouterProxy'),
-  SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
-  SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
-  SDK_OLLAMA_CLOUD_METADATA: Symbol.for('SdkOllamaCloudMetadata'),
 } as const;
 
 /**

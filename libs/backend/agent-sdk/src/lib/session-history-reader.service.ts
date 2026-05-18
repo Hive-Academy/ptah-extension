@@ -31,6 +31,7 @@ import {
   type ModelUsageEntry,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from './errors';
 import type { IModelResolver } from './auth-env.port';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
@@ -71,7 +72,7 @@ export class SessionHistoryReaderService {
     private readonly replayService: SessionReplayService,
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
     private readonly eventFactory: HistoryEventFactory,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
   ) {}
 

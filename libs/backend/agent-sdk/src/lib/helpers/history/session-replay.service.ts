@@ -31,6 +31,7 @@ import {
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import { SDK_TOKENS } from '../../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { extractTokenUsage } from '../usage-extraction.utils';
 import type { IModelResolver } from '../../auth-env.port';
 import { AgentCorrelationService } from './agent-correlation.service';
@@ -56,7 +57,7 @@ export class SessionReplayService {
     private readonly correlationService: AgentCorrelationService,
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
     private readonly eventFactory: HistoryEventFactory,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
   ) {}
 

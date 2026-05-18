@@ -11,6 +11,7 @@
     "tsyringe": "^4.10.0",
     "@ptah-extension/shared": "0.0.1",
     "@ptah-extension/agent-sdk": "0.0.1",
+    "@ptah-extension/auth-providers-tokens": "0.0.1",
     "axios": "^1.15.0",
     "@types/vscode": "^1.103.0"
   }

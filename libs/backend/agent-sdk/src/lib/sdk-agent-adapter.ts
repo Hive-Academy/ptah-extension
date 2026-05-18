@@ -22,6 +22,7 @@ import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from './errors';
 import { SessionMetadataStore } from './session-metadata-store';
 import {
@@ -103,7 +104,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly runtimeState: SdkRuntimeStateService,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly metadataStore: SessionMetadataStore,
-    @inject(SDK_TOKENS.SDK_AUTH_MANAGER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER)
     private readonly authManager: IAuthEnvProvider,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly sessionLifecycle: SessionLifecycleManager,
