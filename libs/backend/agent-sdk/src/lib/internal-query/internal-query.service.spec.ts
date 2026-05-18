@@ -49,7 +49,7 @@ import {
 import { InternalQueryService } from './internal-query.service';
 import type { InternalQueryConfig } from './internal-query.types';
 import { SdkError } from '../errors';
-import type { SdkAgentAdapter } from '../sdk-agent-adapter';
+import type { SdkRuntimeStateService } from '../helpers/sdk-runtime-state.service';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
@@ -104,13 +104,13 @@ function createFakeInternalQuery(messages: SDKMessage[] = []): FakeQueryHandle {
 // Dependency factories
 // ---------------------------------------------------------------------------
 
-function createMockAdapter(
+function createMockRuntimeState(
   opts: {
     status?: 'available' | 'error' | 'initializing';
     errorMessage?: string;
     cliJsPath?: string | null;
   } = {},
-): jest.Mocked<Pick<SdkAgentAdapter, 'getHealth' | 'getCliJsPath'>> {
+): jest.Mocked<Pick<SdkRuntimeStateService, 'getHealth' | 'getCliJsPath'>> {
   return {
     getHealth: jest.fn().mockReturnValue({
       status: opts.status ?? 'available',
@@ -178,7 +178,7 @@ function createAuthEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
 interface ServiceHarness {
   service: InternalQueryService;
   logger: MockLogger;
-  adapter: ReturnType<typeof createMockAdapter>;
+  runtimeState: ReturnType<typeof createMockRuntimeState>;
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
   subagentHooks: ReturnType<typeof createMockSubagentHooks>;
   compactionConfig: ReturnType<typeof createMockCompactionConfig>;
@@ -190,7 +190,7 @@ interface ServiceHarness {
 
 function makeService(
   opts: {
-    adapter?: Parameters<typeof createMockAdapter>[0];
+    adapter?: Parameters<typeof createMockRuntimeState>[0];
     authEnv?: Partial<AuthEnv>;
     queryFnImpl?: (params: {
       prompt: string | AsyncIterable<unknown>;
@@ -199,7 +199,7 @@ function makeService(
   } = {},
 ): ServiceHarness {
   const logger = createMockLogger();
-  const adapter = createMockAdapter(opts.adapter);
+  const runtimeState = createMockRuntimeState(opts.adapter);
   const moduleLoader = createMockModuleLoader();
   const subagentHooks = createMockSubagentHooks();
   const compactionConfig = createMockCompactionConfig();
@@ -215,7 +215,7 @@ function makeService(
 
   const service = new InternalQueryService(
     asLogger(logger),
-    adapter as unknown as SdkAgentAdapter,
+    runtimeState as unknown as SdkRuntimeStateService,
     moduleLoader as unknown as SdkModuleLoader,
     subagentHooks as unknown as SubagentHookHandler,
     compactionConfig as unknown as CompactionConfigProvider,
@@ -227,7 +227,7 @@ function makeService(
   return {
     service,
     logger,
-    adapter,
+    runtimeState,
     moduleLoader,
     subagentHooks,
     compactionConfig,

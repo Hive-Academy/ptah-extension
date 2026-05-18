@@ -18,6 +18,7 @@ import {
   type McpHttpServerOverride,
   type ProviderProfile,
 } from '@ptah-extension/shared';
+import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
@@ -90,19 +91,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
   readonly info: ProviderInfo = SDK_PROVIDER_INFO;
 
   private initialized = false;
-  private health: ProviderHealth = {
-    status: 'initializing' as ProviderStatus,
-    lastCheck: Date.now(),
-  };
 
   private cliInstallation: ClaudeInstallation | null = null;
-  private cliJsPath: string | null = null;
 
   private readonly callbacks: SdkAdapterCallbackRegistry;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
+    @inject(SDK_TOKENS.SDK_RUNTIME_STATE)
+    private readonly runtimeState: SdkRuntimeStateService,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly metadataStore: SessionMetadataStore,
     @inject(SDK_TOKENS.SDK_AUTH_MANAGER)
@@ -138,7 +136,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
   public async prewarm(
     activeMcpServers?: Record<string, unknown>,
   ): Promise<void> {
-    return this.warmQueryManager.prewarm(this.cliJsPath, activeMcpServers);
+    return this.warmQueryManager.prewarm(
+      this.runtimeState.getCliJsPath(),
+      activeMcpServers,
+    );
   }
 
   public consumeWarmQuery(
@@ -167,11 +168,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
         await this.authManager.configureAuthentication(authMethod);
 
       if (!authResult.configured) {
-        this.health = {
+        this.runtimeState.setHealth({
           status: 'error' as ProviderStatus,
           lastCheck: Date.now(),
           errorMessage: authResult.errorMessage,
-        };
+        });
         return false;
       }
 
@@ -186,7 +187,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.cliInstallation = await this.cliDetector.findExecutable();
 
       if (this.cliInstallation) {
-        this.cliJsPath = this.cliInstallation.cliJsPath ?? null;
+        this.runtimeState.setCliJsPath(this.cliInstallation.cliJsPath ?? null);
         this.logger.info('[SdkAgentAdapter] Claude CLI found', {
           path: this.cliInstallation.path,
           source: this.cliInstallation.source,
@@ -199,13 +200,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
           'cli.js',
         );
         if (existsSync(bundledCliPath)) {
-          this.cliJsPath = bundledCliPath;
+          this.runtimeState.setCliJsPath(bundledCliPath);
           this.logger.info(
             '[SdkAgentAdapter] Claude CLI not found - using bundled cli.js fallback',
             { bundledCliPath },
           );
         } else {
-          this.cliJsPath = null;
+          this.runtimeState.setCliJsPath(null);
           this.logger.error(
             '[SdkAgentAdapter] Bundled cli.js not found at expected path',
             new Error(`cli.js missing at ${bundledCliPath}`),
@@ -214,12 +215,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
       }
 
       this.initialized = true;
-      this.health = {
+      this.runtimeState.setHealth({
         status: 'available' as ProviderStatus,
         lastCheck: Date.now(),
         responseTime: 0,
         uptime: Date.now(),
-      };
+      });
 
       try {
         const savedModel = this.config.get<string>('model.selected');
@@ -266,11 +267,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
         errorSource: 'SdkAgentAdapter.initialize',
       });
       this.logger.error('[SdkAgentAdapter] Initialization failed', errorObj);
-      this.health = {
+      this.runtimeState.setHealth({
         status: 'error' as ProviderStatus,
         lastCheck: Date.now(),
         errorMessage: errorObj.message,
-      };
+      });
       return false;
     }
   }
@@ -288,7 +289,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.modelService.clearCache();
     this.warmQueryManager.dispose();
     this.initialized = false;
-    this.cliJsPath = null;
+    this.runtimeState.reset();
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
   }
 
@@ -301,11 +302,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   getHealth(): ProviderHealth {
-    return { ...this.health };
+    return this.runtimeState.getHealth();
   }
 
   getCliJsPath(): string | null {
-    return this.cliJsPath;
+    return this.runtimeState.getCliJsPath();
   }
 
   async getSupportedModels(): Promise<ModelInfo[]> {
@@ -359,7 +360,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       providerProfile,
     } = config;
     const trackingId = tabId as SessionId;
-    const effectiveCliJsPath = providerProfile?.cliJsPath ?? this.cliJsPath;
+    const currentCliJsPath = this.runtimeState.getCliJsPath();
+    const effectiveCliJsPath = providerProfile?.cliJsPath ?? currentCliJsPath;
     const effectiveAuthEnv = providerProfile?.authEnv;
     const sessionConfigWithProfileModel: typeof config = providerProfile
       ? { ...config, model: providerProfile.model }
@@ -374,7 +376,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       mcpServersOverride || providerProfile
         ? null
         : this.warmQueryManager.consumeWarmQuery({
-            pathToClaudeCodeExecutable: this.cliJsPath,
+            pathToClaudeCodeExecutable: currentCliJsPath,
             mcpServers: null,
             baseUrl: null,
             authEnvHash: null,
@@ -482,7 +484,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const pluginPaths = config?.pluginPaths;
     const includePartialMessages = config?.includePartialMessages;
     const providerProfile = config?.providerProfile;
-    const effectiveCliJsPath = providerProfile?.cliJsPath ?? this.cliJsPath;
+    const effectiveCliJsPath =
+      providerProfile?.cliJsPath ?? this.runtimeState.getCliJsPath();
     const effectiveAuthEnv = providerProfile?.authEnv;
     const sessionConfigWithProfileModel = providerProfile
       ? { ...config, model: providerProfile.model }
@@ -622,7 +625,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
-        pathToClaudeCodeExecutable: this.cliJsPath || undefined,
+        pathToClaudeCodeExecutable:
+          this.runtimeState.getCliJsPath() || undefined,
       });
 
     return this.streamTransformer.transform({

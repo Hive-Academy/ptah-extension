@@ -26,7 +26,7 @@ import type { AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import { SdkModelService } from '../helpers/sdk-model-service';
-import { SdkAgentAdapter } from '../sdk-agent-adapter';
+import { SdkRuntimeStateService } from '../helpers/sdk-runtime-state.service';
 import { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import { CompactionConfigProvider } from '../helpers/compaction-config-provider';
 import { CompactionHookHandler } from '../helpers/compaction-hook-handler';
@@ -42,8 +42,8 @@ export class InternalQueryService {
 
   constructor(
     @inject(TOKENS.LOGGER) logger: Logger,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_RUNTIME_STATE)
+    runtimeState: SdkRuntimeStateService,
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     moduleLoader: SdkModuleLoader,
     @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
@@ -59,7 +59,7 @@ export class InternalQueryService {
   ) {
     this.runner = new SdkQueryRunner(
       logger,
-      sdkAdapter,
+      runtimeState,
       moduleLoader,
       subagentHookHandler,
       compactionConfigProvider,

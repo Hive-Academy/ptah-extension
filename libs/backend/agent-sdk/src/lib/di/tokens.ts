@@ -89,6 +89,7 @@ export const SDK_TOKENS = {
 
   SDK_WARM_QUERY_MANAGER: Symbol.for('SdkWarmQueryManager'),
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
+  SDK_RUNTIME_STATE: Symbol.for('SdkRuntimeState'),
 
   // Mirrored auth + provider tokens — byte-identical Symbol.for descriptions
   // with AUTH_PROVIDERS_TOKENS so agent-sdk consumers can @inject() them

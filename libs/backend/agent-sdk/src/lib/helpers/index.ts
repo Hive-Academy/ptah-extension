@@ -135,3 +135,5 @@ export {
 
 // Adapter callback registry (extracted from sdk-agent-adapter; plain TS, not @injectable)
 export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
+
+export { SdkRuntimeStateService } from './sdk-runtime-state.service';

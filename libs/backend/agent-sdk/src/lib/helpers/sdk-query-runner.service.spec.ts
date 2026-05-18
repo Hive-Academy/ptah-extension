@@ -10,7 +10,7 @@ import {
 
 import { SdkQueryRunner } from './sdk-query-runner.service';
 import { SdkError } from '../errors';
-import type { SdkAgentAdapter } from '../sdk-agent-adapter';
+import type { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SubagentHookHandler } from './subagent-hook-handler';
 import type { CompactionConfigProvider } from './compaction-config-provider';
@@ -45,9 +45,9 @@ function createFakeQuery(tag = 'fake'): Query & { close: jest.Mock } {
   } as unknown as Query & { close: jest.Mock };
 }
 
-function createAdapter(
+function createRuntimeState(
   opts: { status?: 'available' | 'error'; cliJsPath?: string | null } = {},
-): jest.Mocked<Pick<SdkAgentAdapter, 'getHealth' | 'getCliJsPath'>> {
+): jest.Mocked<Pick<SdkRuntimeStateService, 'getHealth' | 'getCliJsPath'>> {
   return {
     getHealth: jest.fn().mockReturnValue({
       status: opts.status ?? 'available',
@@ -69,14 +69,14 @@ function createModuleLoader(): jest.Mocked<
 interface RunnerHarness {
   runner: SdkQueryRunner;
   logger: MockLogger;
-  adapter: ReturnType<typeof createAdapter>;
+  runtimeState: ReturnType<typeof createRuntimeState>;
   moduleLoader: ReturnType<typeof createModuleLoader>;
   queryFn: jest.Mock;
 }
 
 function makeRunner(
   opts: {
-    adapter?: Parameters<typeof createAdapter>[0];
+    runtimeState?: Parameters<typeof createRuntimeState>[0];
     queryFnImpl?: (params: {
       prompt: string | AsyncIterable<SDKUserMessage>;
       options: SdkQueryOptions;
@@ -84,7 +84,7 @@ function makeRunner(
   } = {},
 ): RunnerHarness {
   const logger = createMockLogger();
-  const adapter = createAdapter(opts.adapter);
+  const runtimeState = createRuntimeState(opts.runtimeState);
   const moduleLoader = createModuleLoader();
   const subagentHooks = {
     createHooks: jest.fn().mockReturnValue({}),
@@ -110,7 +110,7 @@ function makeRunner(
 
   const runner = new SdkQueryRunner(
     asLogger(logger),
-    adapter as unknown as SdkAgentAdapter,
+    runtimeState as unknown as SdkRuntimeStateService,
     moduleLoader as unknown as SdkModuleLoader,
     subagentHooks,
     compactionConfig,
@@ -119,7 +119,7 @@ function makeRunner(
     modelService,
   );
 
-  return { runner, logger, adapter, moduleLoader, queryFn };
+  return { runner, logger, runtimeState, moduleLoader, queryFn };
 }
 
 describe('SdkQueryRunner', () => {
@@ -128,8 +128,8 @@ describe('SdkQueryRunner', () => {
   });
 
   describe('runOneShot — health gating', () => {
-    it('throws SdkError when adapter health is not "available"', async () => {
-      const h = makeRunner({ adapter: { status: 'error' } });
+    it('throws SdkError when runtime health is not "available"', async () => {
+      const h = makeRunner({ runtimeState: { status: 'error' } });
 
       await expect(
         h.runner.runOneShot({

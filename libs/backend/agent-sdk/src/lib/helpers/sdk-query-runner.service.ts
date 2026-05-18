@@ -33,7 +33,7 @@ import { SDK_TOKENS } from '../di/tokens';
 import { SdkError } from '../errors';
 import { SdkModuleLoader } from './sdk-module-loader';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
-import { SdkAgentAdapter } from '../sdk-agent-adapter';
+import { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import { CompactionHookHandler } from './compaction-hook-handler';
@@ -95,8 +95,8 @@ export interface InteractiveRunResult {
 export class SdkQueryRunner {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_RUNTIME_STATE)
+    private readonly runtimeState: SdkRuntimeStateService,
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     private readonly moduleLoader: SdkModuleLoader,
     @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
@@ -113,7 +113,7 @@ export class SdkQueryRunner {
 
   async runOneShot(input: OneShotRunInput): Promise<OneShotRunResult> {
     const cliJsPath =
-      this.sdkAdapter.getCliJsPath() ??
+      this.runtimeState.getCliJsPath() ??
       (await this.moduleLoader.getCliJsPath());
 
     this.logger.info(`${SERVICE_TAG} Starting internal query`, {
@@ -255,7 +255,7 @@ export class SdkQueryRunner {
   }
 
   private verifyHealth(): void {
-    const health = this.sdkAdapter.getHealth();
+    const health = this.runtimeState.getHealth();
     if (health.status !== 'available') {
       throw new SdkError(
         `SDK not available (status: ${health.status}). ${

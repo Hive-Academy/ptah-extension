@@ -52,6 +52,7 @@ import {
 } from '@ptah-extension/platform-core';
 
 import { SdkAgentAdapter } from './sdk-agent-adapter';
+import { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import { SdkError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
 import type {
@@ -304,9 +305,12 @@ function makeAdapter(
   const warmQueryManager = createMockWarmQueryManager();
   const forkService = createMockForkService();
 
+  const runtimeState = new SdkRuntimeStateService(asLogger(logger));
+
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
     config as unknown as ConfigManager,
+    runtimeState,
     metadataStore as unknown as SessionMetadataStore,
     authManager as unknown as IAuthEnvProvider,
     sessionLifecycle as unknown as SessionLifecycleManager,

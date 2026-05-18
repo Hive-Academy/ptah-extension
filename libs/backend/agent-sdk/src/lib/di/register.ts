@@ -59,6 +59,7 @@ import {
   // Warm-query manager + session fork service (Win 6c)
   SdkWarmQueryManager,
   SessionForkService,
+  SdkRuntimeStateService,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
@@ -169,6 +170,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY,
     { useClass: SessionEndCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_RUNTIME_STATE,
+    { useClass: SdkRuntimeStateService },
     { lifecycle: Lifecycle.Singleton },
   );
 
