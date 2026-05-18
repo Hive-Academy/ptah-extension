@@ -1,21 +1,4 @@
-﻿/**
- * Ptah CLI Registry - Manages lifecycle of PtahCliAdapter instances
- *
- * DI-injectable singleton that handles CRUD operations for Ptah CLI
- * configurations and lazily creates/caches adapter instances.
- *
- * Storage:
- * - Config: ConfigManager (VS Code workspace settings) under `ptahCliAgents`
- * - API keys: AuthSecretsService (VS Code SecretStorage) under `ptahCli.{id}`
- *
- * Delegates to extracted helper services:
- * - PtahCliConfigPersistence: config load/save/migration
- * - PtahCliSpawnOptions: premium feature assembly
- * - PtahCliStreamLoop: per-stream message processing
- *
- */
-
-import { injectable, inject } from 'tsyringe';
+﻿import { injectable, inject } from 'tsyringe';
 import {
   type AuthEnv,
   type PtahCliConfig,
@@ -58,7 +41,6 @@ import {
   ModelResolver,
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
 } from '@ptah-extension/auth-providers';
-import { PtahCliAdapter } from './ptah-cli-adapter';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
 import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
@@ -79,21 +61,8 @@ export type SpawnAgentFailure = {
   message: string;
 };
 
-/**
- * PtahCliRegistry - Manages the lifecycle of PtahCliAdapter instances
- *
- * Responsibilities:
- * - CRUD operations for Ptah CLI configurations
- * - API key storage via AuthSecretsService
- * - Lazy initialization and caching of adapter instances
- * - Connection testing for validation
- * - Provider listing for UI
- */
 @injectable()
 export class PtahCliRegistry {
-  /** Cached adapter instances (lazy-initialized) */
-  private adapters = new Map<string, PtahCliAdapter>();
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
@@ -143,18 +112,7 @@ export class PtahCliRegistry {
 
       let status: PtahCliState['status'] = 'unconfigured';
       if (hasKey) {
-        const adapter = this.adapters.get(agentConfig.id);
-        if (adapter) {
-          const health = adapter.getHealth();
-          status =
-            health.status === 'available'
-              ? 'available'
-              : health.status === 'error'
-                ? 'error'
-                : 'initializing';
-        } else {
-          status = 'available';
-        }
+        status = 'available';
       }
 
       summaries.push({
@@ -268,12 +226,6 @@ export class PtahCliRegistry {
       );
     }
 
-    const adapter = this.adapters.get(id);
-    if (adapter) {
-      adapter.dispose();
-      this.adapters.delete(id);
-    }
-
     this.logger.info(
       `[PtahCliRegistry] Updated agent "${updated.name}" (${id})`,
     );
@@ -283,12 +235,6 @@ export class PtahCliRegistry {
    * Delete a Ptah CLI configuration
    */
   async deleteAgent(id: string): Promise<void> {
-    const adapter = this.adapters.get(id);
-    if (adapter) {
-      adapter.dispose();
-      this.adapters.delete(id);
-    }
-
     const configs = this.configPersistence.loadConfigs();
     const filtered = configs.filter((c) => c.id !== id);
     if (filtered.length === configs.length) {
@@ -300,78 +246,6 @@ export class PtahCliRegistry {
     await this.authSecrets.deleteProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
 
     this.logger.info(`[PtahCliRegistry] Deleted agent: ${id}`);
-  }
-
-  /**
-   * Get or create (lazy init) an adapter instance for a given agent ID
-   */
-  async getAdapter(id: string): Promise<PtahCliAdapter | undefined> {
-    await this.configPersistence.ensureMigrated();
-    const existing = this.adapters.get(id);
-    if (existing) {
-      const health = existing.getHealth();
-      if (health.status === 'available') {
-        return existing;
-      }
-      existing.dispose();
-      this.adapters.delete(id);
-    }
-
-    const configs = this.configPersistence.loadConfigs();
-    const agentConfig = configs.find((c) => c.id === id);
-    if (!agentConfig) {
-      this.logger.warn(`[PtahCliRegistry] Agent config not found: ${id}`);
-      return undefined;
-    }
-
-    const provider = getAnthropicProvider(agentConfig.providerId);
-    const isLocalProvider = provider?.authType === 'none';
-
-    const apiKey = isLocalProvider
-      ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
-      : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
-    if (!apiKey) {
-      this.logger.warn(`[PtahCliRegistry] No API key for agent: ${id}`);
-      return undefined;
-    }
-
-    const effectiveTiers = provider
-      ? this.resolveEffectiveTiers(agentConfig, provider)
-      : agentConfig.tierMappings;
-    const configWithTiers: PtahCliConfig = {
-      ...agentConfig,
-      tierMappings: effectiveTiers,
-    };
-
-    // Create and initialize adapter with hook/compaction services for interactive chat
-    const adapter = new PtahCliAdapter(
-      configWithTiers,
-      apiKey,
-      this.logger,
-      this.moduleLoader,
-      this.messageTransformer,
-      this.permissionHandler,
-      this.subagentHookHandler,
-      this.compactionHookHandler,
-      this.compactionConfigProvider,
-      this.modelResolver,
-    );
-
-    const success = await adapter.initialize();
-    if (!success) {
-      this.logger.error(
-        `[PtahCliRegistry] Failed to initialize adapter for agent: ${id}`,
-      );
-      return undefined;
-    }
-
-    this.adapters.set(id, adapter);
-
-    this.logger.info(
-      `[PtahCliRegistry] Created and initialized adapter for agent "${agentConfig.name}" (${id})`,
-    );
-
-    return adapter;
   }
 
   /**
@@ -446,7 +320,13 @@ export class PtahCliRegistry {
       }
 
       const testProvider = getAnthropicProvider(agentConfig.providerId);
-      const isLocalProvider = testProvider?.authType === 'none';
+      if (!testProvider) {
+        return {
+          success: false,
+          error: `Unknown provider: ${agentConfig.providerId}`,
+        };
+      }
+      const isLocalProvider = testProvider.authType === 'none';
 
       const apiKey = isLocalProvider
         ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
@@ -454,30 +334,9 @@ export class PtahCliRegistry {
       if (!apiKey) {
         return { success: false, error: 'API key not configured' };
       }
-      const testTiers = testProvider
-        ? this.resolveEffectiveTiers(agentConfig, testProvider)
-        : agentConfig.tierMappings;
-      const testConfig: PtahCliConfig = {
-        ...agentConfig,
-        tierMappings: testTiers,
-      };
 
-      const testAdapter = new PtahCliAdapter(
-        testConfig,
-        apiKey,
-        this.logger,
-        this.moduleLoader,
-        this.messageTransformer,
-        this.permissionHandler,
-        undefined, // subagentHookHandler - not needed for test
-        undefined, // compactionHookHandler - not needed for test
-        undefined, // compactionConfigProvider - not needed for test
-        this.modelResolver,
-      );
-      const initSuccess = await testAdapter.initialize();
-      if (!initSuccess) {
-        return { success: false, error: 'Failed to initialize adapter' };
-      }
+      seedStaticModelPricing(agentConfig.providerId);
+      const testAuthEnv = this.buildAuthEnv(agentConfig, testProvider, apiKey);
 
       const abortController = new AbortController();
       const timeout = setTimeout(() => abortController.abort(), 30000);
@@ -487,7 +346,7 @@ export class PtahCliRegistry {
           prompt: 'Say "ok" and nothing else.',
           options: {
             abortController,
-            model: testAdapter['resolveModel'](),
+            model: 'claude-sonnet-4-20250514',
             maxTurns: 1,
             systemPrompt: {
               type: 'preset' as const,
@@ -497,7 +356,7 @@ export class PtahCliRegistry {
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
             includePartialMessages: false,
-            env: buildSafeEnv(testAdapter['authEnv']),
+            env: buildSafeEnv(testAuthEnv),
             pathToClaudeCodeExecutable:
               (await this.moduleLoader.getCliJsPath()) ?? undefined,
           } as Options,
@@ -524,7 +383,6 @@ export class PtahCliRegistry {
         }
       } finally {
         clearTimeout(timeout);
-        testAdapter.dispose();
       }
     } catch (error) {
       const latencyMs = Date.now() - startTime;
@@ -802,20 +660,10 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Dispose all active adapters
+   * Dispose all active adapters (no-op — chat sessions are owned by SdkAgentAdapter).
    */
   disposeAll(): void {
-    this.logger.info(
-      `[PtahCliRegistry] Disposing ${this.adapters.size} active adapters`,
-    );
-
-    for (const [id, adapter] of this.adapters.entries()) {
-      this.logger.debug(`[PtahCliRegistry] Disposing adapter: ${id}`);
-      adapter.dispose();
-    }
-
-    this.adapters.clear();
-    this.logger.info('[PtahCliRegistry] All adapters disposed');
+    this.logger.info('[PtahCliRegistry] disposeAll() — no-op');
   }
 
   // ============================================================================

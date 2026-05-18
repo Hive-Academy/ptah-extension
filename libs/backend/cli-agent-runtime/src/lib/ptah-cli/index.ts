@@ -3,8 +3,6 @@
  *
  */
 
-export { PtahCliAdapter } from './ptah-cli-adapter';
-export type { PtahCliPremiumConfig } from './ptah-cli-adapter';
 export { PtahCliRegistry } from './ptah-cli-registry';
 export type { SpawnAgentFailure } from './ptah-cli-registry';
 export type { ProviderProfile } from '@ptah-extension/shared';
