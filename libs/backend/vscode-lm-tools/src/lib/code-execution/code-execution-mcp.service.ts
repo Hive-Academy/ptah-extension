@@ -17,7 +17,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -30,6 +30,7 @@ import {
   PtahAPIBuilder,
   IDE_CAPABILITIES_TOKEN,
 } from './ptah-api-builder.service';
+import { type IIDECapabilities } from './namespace-builders';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
 import { PtahAPI } from './types';
 import {
@@ -48,20 +49,6 @@ export class CodeExecutionMCP implements IDisposable {
   private toolResultCallback: ToolResultCallback | undefined;
   private registeredInMcpJson = false;
 
-  /**
-   * WebviewManager is optional: present in VS Code for user approval prompts,
-   * absent in Electron where approval_prompt auto-allows (no webview UI).
-   * Resolved lazily via container.isRegistered() to avoid DI crash in Electron.
-   */
-  private readonly webviewManager: WebviewManager | undefined;
-
-  /**
-   * Whether the host platform supports VS Code IDE capabilities (LSP, editor state, code actions).
-   * Determined at construction time via DI container registration check.
-   *
-   * When true (VS Code): all tools are listed and available.
-   * When false (Electron/standalone): VS Code-only tools are excluded from tools/list.
-   */
   private readonly hasIDECapabilities: boolean;
 
   constructor(
@@ -79,11 +66,14 @@ export class CodeExecutionMCP implements IDisposable {
 
     @inject(TOKENS.PERMISSION_PROMPT_SERVICE)
     private readonly permissionPromptService: PermissionPromptService,
+
+    @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
+    private readonly webviewManager: WebviewManager | undefined,
+
+    @inject(IDE_CAPABILITIES_TOKEN, { isOptional: true })
+    ideCapabilities: IIDECapabilities | undefined,
   ) {
-    this.webviewManager = container.isRegistered(TOKENS.WEBVIEW_MANAGER)
-      ? container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER)
-      : undefined;
-    this.hasIDECapabilities = container.isRegistered(IDE_CAPABILITIES_TOKEN);
+    this.hasIDECapabilities = ideCapabilities !== undefined;
     this.ptahAPI = this.apiBuilder.build();
   }
 

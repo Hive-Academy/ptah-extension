@@ -30,8 +30,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
-import { container } from 'tsyringe';
-
 import { withEngine } from '../bootstrap/with-engine.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
@@ -238,9 +236,9 @@ async function runApply(
   }
   const name = opts.name;
 
-  return engine(globals, { mode: 'full' }, async () => {
+  return engine(globals, { mode: 'full' }, async (ctx) => {
     const pluginsPath =
-      hooks.resolvePluginsPath?.() ?? defaultResolvePluginsPath();
+      hooks.resolvePluginsPath?.() ?? defaultResolvePluginsPath(ctx.container);
     const sourceFile = path.join(pluginsPath, name, 'agent.md');
 
     const readFile = hooks.readFile ?? ((p: string) => fs.readFile(p, 'utf8'));
@@ -291,7 +289,9 @@ async function runApply(
   });
 }
 
-function defaultResolvePluginsPath(): string {
+function defaultResolvePluginsPath(
+  container: import('tsyringe').DependencyContainer,
+): string {
   const contentDownload = container.resolve<ContentDownloadService>(
     PLATFORM_TOKENS.CONTENT_DOWNLOAD,
   );

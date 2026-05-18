@@ -12,8 +12,9 @@
  * from the shared registry).
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   GitInfoService,
   Logger,
@@ -79,6 +80,8 @@ export class ElectronRpcMethodRegistrationService {
     private readonly terminalHandlers: TerminalRpcHandlers,
     @inject(UpdateRpcHandlers)
     private readonly updateHandlers: UpdateRpcHandlers,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly container: DependencyContainer,
   ) {}
 
   /**
@@ -88,25 +91,24 @@ export class ElectronRpcMethodRegistrationService {
    * handlers register supplementary/override methods.
    */
   registerAll(): void {
-    registerHarnessServices(container);
-    registerChatServices(container);
+    const c = this.container;
+    registerHarnessServices(c);
+    registerChatServices(c);
 
-    registerAllRpcHandlers(container);
+    registerAllRpcHandlers(c);
     this.registerElectronHandlers();
 
-    wireSdkCallbacks(container, {
+    wireSdkCallbacks(c, {
       logger: this.logger,
       platform: 'electron',
       options: {
         worktree: true,
         resolveWorktreePath: async (data: WorktreeCreatedData) => {
           try {
-            if (!container.isRegistered(TOKENS.GIT_INFO_SERVICE)) {
+            if (!c.isRegistered(TOKENS.GIT_INFO_SERVICE)) {
               return undefined;
             }
-            const gitInfo = container.resolve<GitInfoService>(
-              TOKENS.GIT_INFO_SERVICE,
-            );
+            const gitInfo = c.resolve<GitInfoService>(TOKENS.GIT_INFO_SERVICE);
             const worktrees = await gitInfo.getWorktrees(data.cwd);
             const match = worktrees.find((w) => w.branch === data.name);
             return match?.path;
@@ -123,7 +125,7 @@ export class ElectronRpcMethodRegistrationService {
       },
     });
 
-    wireAgentEventListeners(container, {
+    wireAgentEventListeners(c, {
       logger: this.logger,
       platform: 'electron',
       options: {
@@ -137,7 +139,7 @@ export class ElectronRpcMethodRegistrationService {
     verifyAndReportRpcRegistration({
       rpcHandler: this.rpcHandler,
       logger: this.logger,
-      container,
+      container: c,
       sentryToken: TOKENS.SENTRY_SERVICE,
       platform: 'electron',
       excluded: ELECTRON_EXCLUDED_METHODS,

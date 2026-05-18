@@ -15,7 +15,7 @@
  */
 const LICENSE_VERIFICATION_TIMEOUT_MS = 10 * 1000;
 
-import { injectable, inject, DependencyContainer } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
@@ -88,10 +88,12 @@ export class EnhancedPromptsRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SAVE_DIALOG_PROVIDER)
     private readonly saveDialogProvider: ISaveDialogProvider,
-    @inject(PLATFORM_TOKENS.DI_CONTAINER)
-    private readonly container: DependencyContainer,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
+    private readonly webviewManager: WebviewBroadcaster | undefined,
+    @inject(TOKENS.CODE_EXECUTION_MCP, { isOptional: true })
+    private readonly codeExecutionMcp: CodeExecutionMCP | undefined,
   ) {}
 
   /**
@@ -684,18 +686,7 @@ export class EnhancedPromptsRpcHandlers {
   private createEnhanceStreamBroadcaster(): (
     event: AnalysisStreamPayload,
   ) => void {
-    let webviewManager: WebviewBroadcaster | null = null;
-    try {
-      if (this.container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
-        webviewManager = this.container.resolve<WebviewBroadcaster>(
-          TOKENS.WEBVIEW_MANAGER,
-        );
-      }
-    } catch {
-      this.logger.debug(
-        'Could not resolve WebviewManager for enhance stream broadcasting',
-      );
-    }
+    const webviewManager = this.webviewManager;
 
     return (event: AnalysisStreamPayload): void => {
       if (!webviewManager) return;
@@ -728,11 +719,8 @@ export class EnhancedPromptsRpcHandlers {
     let mcpPort: number | undefined;
 
     try {
-      if (this.container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
-        const codeExecutionMcp = this.container.resolve<CodeExecutionMCP>(
-          TOKENS.CODE_EXECUTION_MCP,
-        );
-        const actualPort = codeExecutionMcp.getPort();
+      if (this.codeExecutionMcp) {
+        const actualPort = this.codeExecutionMcp.getPort();
         mcpServerRunning = actualPort !== null;
         mcpPort = actualPort ?? undefined;
       }

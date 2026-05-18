@@ -264,8 +264,9 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     pluginLoader as unknown as PluginLoaderService,
     workspace as unknown as IWorkspaceProvider,
     saveDialog as unknown as ISaveDialogProvider,
-    container as unknown as DependencyContainer,
     sentry as unknown as SentryService,
+    undefined,
+    undefined,
   );
 
   return {

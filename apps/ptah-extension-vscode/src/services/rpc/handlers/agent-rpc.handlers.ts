@@ -7,7 +7,7 @@
  * - agent:detectClis - Re-detect installed CLI agents (invalidates cache)
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
@@ -60,6 +60,8 @@ export class AgentRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly runtimeContainer: DependencyContainer,
   ) {}
 
   /**
@@ -545,10 +547,13 @@ export class AgentRpcHandlers {
         });
 
         let handled = false;
-        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
-          const permissionHandler = container.resolve<ISdkPermissionHandler>(
-            SDK_TOKENS.SDK_PERMISSION_HANDLER,
-          );
+        if (
+          this.runtimeContainer.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+        ) {
+          const permissionHandler =
+            this.runtimeContainer.resolve<ISdkPermissionHandler>(
+              SDK_TOKENS.SDK_PERMISSION_HANDLER,
+            );
           const response: PermissionResponse = {
             id: params.requestId,
             decision: params.decision,

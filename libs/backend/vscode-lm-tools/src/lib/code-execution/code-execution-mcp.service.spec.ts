@@ -207,13 +207,15 @@ function build(opts: BuildOptions = {}): Fixture {
   });
   const permissionPromptService = buildPermissionPromptService();
 
-  // Constructor reads container.isRegistered(TOKENS.WEBVIEW_MANAGER) +
-  // IDE_CAPABILITIES_TOKEN. We control both per-test via registerInstance.
-  if (opts.registerWebview) {
-    container.registerInstance(TOKENS.WEBVIEW_MANAGER, opts.registerWebview);
+  const webviewManager: WebviewManager | undefined = opts.registerWebview
+    ? (opts.registerWebview as WebviewManager)
+    : undefined;
+  const ideCapabilities = opts.registerIdeCapabilities ? {} : undefined;
+  if (webviewManager) {
+    container.registerInstance(TOKENS.WEBVIEW_MANAGER, webviewManager);
   }
-  if (opts.registerIdeCapabilities) {
-    container.registerInstance(IDE_CAPABILITIES_TOKEN, {});
+  if (ideCapabilities) {
+    container.registerInstance(IDE_CAPABILITIES_TOKEN, ideCapabilities);
   }
 
   const service = new CodeExecutionMCP(
@@ -222,6 +224,8 @@ function build(opts: BuildOptions = {}): Fixture {
     workspaceState as unknown as IStateStorage,
     workspaceProvider as unknown as IWorkspaceProvider,
     permissionPromptService,
+    webviewManager,
+    ideCapabilities as ConstructorParameters<typeof CodeExecutionMCP>[6],
   );
 
   return {

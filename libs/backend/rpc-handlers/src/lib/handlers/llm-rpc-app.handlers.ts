@@ -8,7 +8,7 @@
  * vscode-core's LlmRpcHandlers interface.
  */
 
-import { injectable, inject, DependencyContainer } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -152,10 +152,17 @@ export class LlmRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject(PLATFORM_TOKENS.DI_CONTAINER)
-    private readonly container: DependencyContainer,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(PLATFORM_TOKENS.SECRET_STORAGE)
+    private readonly secretStorage: ISecretStorage,
+    @inject(TOKENS.MODEL_DISCOVERY)
+    private readonly modelDiscovery: IModelDiscovery,
+    @inject(TOKENS.CONFIG_MANAGER)
+    private readonly configManager: {
+      get<T>(key: string): T | undefined;
+      set<T>(key: string, value: T): Promise<void>;
+    },
   ) {}
 
   /**
@@ -193,32 +200,19 @@ export class LlmRpcHandlers {
     });
   }
 
-  /**
-   * Lazily resolve ISecretStorage from the DI container.
-   * Uses lazy resolution because the container may not have all registrations
-   * at construction time (factory pattern).
-   */
   private getSecretStorage(): ISecretStorage {
-    return this.container.resolve<ISecretStorage>(
-      PLATFORM_TOKENS.SECRET_STORAGE,
-    );
+    return this.secretStorage;
   }
 
-  /**
-   * Lazily resolve IModelDiscovery from the DI container.
-   */
   private getModelDiscovery(): IModelDiscovery {
-    return this.container.resolve<IModelDiscovery>(TOKENS.MODEL_DISCOVERY);
+    return this.modelDiscovery;
   }
 
-  /**
-   * Get the config manager shim for reading/writing settings.
-   */
   private getConfigManager(): {
     get<T>(key: string): T | undefined;
     set<T>(key: string, value: T): Promise<void>;
   } {
-    return this.container.resolve(TOKENS.CONFIG_MANAGER);
+    return this.configManager;
   }
 
   /**

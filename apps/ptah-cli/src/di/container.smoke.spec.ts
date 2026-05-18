@@ -73,6 +73,25 @@ function buildMinimalContainer(): DependencyContainer {
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
+  c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
+    useValue: {
+      get: jest.fn(),
+      store: jest.fn(),
+      delete: jest.fn(),
+      has: jest.fn(),
+    },
+  });
+  c.register(TOKENS.MODEL_DISCOVERY, {
+    useValue: {
+      listModels: jest.fn(async () => []),
+    },
+  });
+  c.register(TOKENS.CONFIG_MANAGER, {
+    useValue: {
+      get: jest.fn(),
+      set: jest.fn(async () => undefined),
+    },
+  });
 
   c.register(SDK_TOKENS.SDK_PLUGIN_LOADER, {
     useValue: {

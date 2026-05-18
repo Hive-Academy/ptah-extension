@@ -7,7 +7,7 @@
  * - editor:getFileTree - Build recursive file tree from workspace root
  */
 
-import { injectable, inject, DependencyContainer } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import * as nodePath from 'path';
 import * as nodeFs from 'fs/promises';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -17,6 +17,10 @@ import type {
   IFileSystemProvider,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+
+interface EditorOpenedNotifier {
+  notifyFileOpened(filePath: string): void;
+}
 import type {
   FileOpenParams,
   EditorRevertFilesParams,
@@ -145,8 +149,8 @@ export class EditorRpcHandlers {
     private readonly fs: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(PLATFORM_TOKENS.DI_CONTAINER)
-    private readonly container: DependencyContainer,
+    @inject(PLATFORM_TOKENS.EDITOR_PROVIDER)
+    private readonly editorProvider: EditorOpenedNotifier,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewBroadcaster,
   ) {}
@@ -227,10 +231,7 @@ export class EditorRpcHandlers {
     try {
       const content = await this.fs.readFile(filePath);
 
-      const editorProvider = this.container.resolve<{
-        notifyFileOpened(filePath: string): void;
-      }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
-      editorProvider.notifyFileOpened(filePath);
+      this.editorProvider.notifyFileOpened(filePath);
       return { success: true, content, filePath };
     } catch (error) {
       this.logger.error(`[Electron RPC] ${methodName} failed`, {

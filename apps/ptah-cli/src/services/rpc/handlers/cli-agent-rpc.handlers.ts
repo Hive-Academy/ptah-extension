@@ -20,7 +20,7 @@
  * parity spec (`cli-agent-rpc.handlers.spec.ts`).
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -84,6 +84,8 @@ export class CliAgentRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
     private readonly stateStorage: IStateStorage,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly runtimeContainer: DependencyContainer,
   ) {}
 
   register(): void {
@@ -367,10 +369,13 @@ export class CliAgentRpcHandlers {
 
         let handled = false;
 
-        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
-          const permissionHandler = container.resolve<ISdkPermissionHandler>(
-            SDK_TOKENS.SDK_PERMISSION_HANDLER,
-          );
+        if (
+          this.runtimeContainer.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+        ) {
+          const permissionHandler =
+            this.runtimeContainer.resolve<ISdkPermissionHandler>(
+              SDK_TOKENS.SDK_PERMISSION_HANDLER,
+            );
           const response: PermissionResponse = {
             id: params.requestId,
             decision: params.decision,

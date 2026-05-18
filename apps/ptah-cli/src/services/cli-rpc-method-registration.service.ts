@@ -8,7 +8,7 @@
  * for every backend capability.
  */
 
-import { container } from 'tsyringe';
+import type { DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
@@ -118,7 +118,7 @@ export class CliRpcMethodRegistrationService {
   private readonly logger: Logger;
   private readonly rpcHandler: RpcHandler;
 
-  constructor() {
+  constructor(private readonly container: DependencyContainer) {
     this.logger = container.resolve<Logger>(TOKENS.LOGGER);
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
   }
@@ -129,9 +129,10 @@ export class CliRpcMethodRegistrationService {
    * surfaces stay excluded via `CLI_EXCLUDED_RPC_METHODS`.
    */
   registerAll(): void {
-    registerChatServices(container);
-    registerHarnessServices(container);
-    registerAllRpcHandlers(container, {
+    const c = this.container;
+    registerChatServices(c);
+    registerHarnessServices(c);
+    registerAllRpcHandlers(c, {
       exclude: [
         CronRpcHandlers,
         GatewayRpcHandlers,
@@ -141,18 +142,18 @@ export class CliRpcMethodRegistrationService {
         IndexingRpcHandlers,
       ],
     });
-    container.registerSingleton(SkillsShRpcHandlers);
-    container.resolve(SkillsShRpcHandlers).register();
-    container.registerSingleton(CliAgentRpcHandlers);
-    container.resolve(CliAgentRpcHandlers).register();
+    c.registerSingleton(SkillsShRpcHandlers);
+    c.resolve(SkillsShRpcHandlers).register();
+    c.registerSingleton(CliAgentRpcHandlers);
+    c.resolve(CliAgentRpcHandlers).register();
 
-    wireSdkCallbacks(container, {
+    wireSdkCallbacks(c, {
       logger: this.logger,
       platform: 'cli',
       options: { worktree: false },
     });
 
-    wireAgentEventListeners(container, {
+    wireAgentEventListeners(c, {
       logger: this.logger,
       platform: 'cli',
       options: {
@@ -163,7 +164,7 @@ export class CliRpcMethodRegistrationService {
     verifyAndReportRpcRegistration({
       rpcHandler: this.rpcHandler,
       logger: this.logger,
-      container,
+      container: c,
       sentryToken: TOKENS.SENTRY_SERVICE,
       platform: 'cli',
       excluded: CLI_EXCLUDED_RPC_METHODS,

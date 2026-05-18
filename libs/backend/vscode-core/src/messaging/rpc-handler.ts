@@ -19,7 +19,7 @@
  *   });
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging/logger';
 import type {
@@ -172,6 +172,8 @@ export class RpcHandler {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
+    @inject(TOKENS.SENTRY_SERVICE, { isOptional: true })
+    private readonly sentryService: SentryService | undefined,
   ) {
     this.logger.debug('RpcHandler: Initialized with license middleware');
   }
@@ -356,9 +358,8 @@ export class RpcHandler {
     error: Error,
     context: { errorSource: string; extra: Record<string, unknown> },
   ): void {
-    if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) return;
-    const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
-    sentry.captureException(error, context);
+    if (!this.sentryService) return;
+    this.sentryService.captureException(error, context);
   }
 
   /**

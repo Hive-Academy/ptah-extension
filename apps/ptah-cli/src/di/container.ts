@@ -625,7 +625,7 @@ export class CliDIContainer {
         } as unknown as Error);
       }
       try {
-        const registration = new CliRpcMethodRegistrationService();
+        const registration = new CliRpcMethodRegistrationService(container);
         registration.registerAll();
       } catch (error) {
         logger.error(

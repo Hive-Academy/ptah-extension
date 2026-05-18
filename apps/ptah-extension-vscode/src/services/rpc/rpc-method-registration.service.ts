@@ -12,7 +12,7 @@
  * helpers so this orchestrator stays thin.
  */
 
-import { injectable, inject, DependencyContainer, container } from 'tsyringe';
+import { injectable, inject, DependencyContainer } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
@@ -201,7 +201,7 @@ export class RpcMethodRegistrationService {
     verifyAndReportRpcRegistration({
       rpcHandler: this.rpcHandler,
       logger: this.logger,
-      container,
+      container: this.container,
       sentryToken: TOKENS.SENTRY_SERVICE,
       platform: 'vscode',
       excluded: ELECTRON_ONLY_METHODS,

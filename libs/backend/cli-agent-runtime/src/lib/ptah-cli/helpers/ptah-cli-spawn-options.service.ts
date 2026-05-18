@@ -7,7 +7,7 @@
  *
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import type { AuthEnv } from '@ptah-extension/shared';
 import {
   Logger,
@@ -15,6 +15,10 @@ import {
   isPremiumTier,
   type LicenseService,
 } from '@ptah-extension/vscode-core';
+
+interface CodeExecutionMcpLike {
+  getPort(): number | null;
+}
 import {
   SDK_TOKENS,
   SubagentHookHandler,
@@ -64,6 +68,8 @@ export class PtahCliSpawnOptions {
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
+    @inject(TOKENS.CODE_EXECUTION_MCP, { isOptional: true })
+    private readonly codeExecutionMcp: CodeExecutionMcpLike | undefined,
   ) {}
 
   /**
@@ -164,20 +170,12 @@ export class PtahCliSpawnOptions {
     };
   }
 
-  /**
-   * Check if the Ptah MCP server is running.
-   * Uses lazy DI resolution via Symbol.for() to avoid circular dependency.
-   */
   private isMcpServerRunning(): boolean {
     try {
-      const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
-      if (!container.isRegistered(CODE_EXECUTION_MCP)) {
+      if (!this.codeExecutionMcp) {
         return false;
       }
-      const mcp = container.resolve(CODE_EXECUTION_MCP) as {
-        getPort(): number | null;
-      };
-      return mcp.getPort() !== null;
+      return this.codeExecutionMcp.getPort() !== null;
     } catch (error) {
       this.logger.warn(
         `[PtahCliSpawnOptions] MCP server check failed: ${

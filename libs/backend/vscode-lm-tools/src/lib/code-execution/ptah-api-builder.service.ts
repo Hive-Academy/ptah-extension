@@ -23,7 +23,7 @@
 
 import * as os from 'os';
 import * as path from 'path';
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type {
@@ -31,7 +31,7 @@ import type {
   IMemoryLister,
 } from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
-import { CODE_SYMBOL_INDEXER as CODE_SYMBOL_INDEXER_TOKEN } from '@ptah-extension/workspace-intelligence';
+import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -165,6 +165,56 @@ const MEMORY_WRITER_TOKEN = Symbol.for('PlatformMemoryWriter');
  */
 export const IDE_CAPABILITIES_TOKEN = Symbol.for('IDECapabilities');
 
+interface SdkSessionLifecycleManagerLike {
+  getActiveSessionIds(): string[];
+  getActiveSessionWorkspace(): string | undefined;
+  find(id: string): { realSessionId: string | null } | undefined;
+}
+
+interface EnhancedPromptsServiceLike {
+  getProjectGuidanceContent(workspacePath: string): Promise<string | null>;
+  getEnhancedPromptContent(workspacePath: string): Promise<string | null>;
+}
+
+interface PluginLoaderLike {
+  getWorkspacePluginConfig(): { enabledPluginIds: string[] };
+  resolvePluginPaths(pluginIds: string[]): string[];
+}
+
+interface PtahCliRegistryLike {
+  listAgents(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      providerName: string;
+      hasApiKey: boolean;
+      enabled: boolean;
+    }>
+  >;
+  spawnAgent(
+    id: string,
+    task: string,
+    options?: {
+      projectGuidance?: string;
+      workingDirectory?: string;
+    },
+  ): Promise<
+    | {
+        handle: {
+          abort: AbortController;
+          done: Promise<number>;
+          onOutput: (cb: (data: string) => void) => void;
+        };
+        agentName: string;
+        setAgentId: (id: string) => void;
+      }
+    | {
+        status: 'not_found' | 'disabled' | 'no_api_key' | 'unknown_provider';
+        message: string;
+      }
+  >;
+}
+
 /**
  * DI token for browser capabilities.
  * In Electron, ElectronBrowserCapabilities is registered under this token.
@@ -237,6 +287,43 @@ export class PtahAPIBuilder {
 
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
     private readonly secretStorage: ISecretStorage,
+
+    @inject(SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
+    private readonly sdkSessionLifecycleManager:
+      | SdkSessionLifecycleManagerLike
+      | undefined,
+
+    @inject(ENHANCED_PROMPTS_SERVICE_TOKEN, { isOptional: true })
+    private readonly enhancedPromptsService:
+      | EnhancedPromptsServiceLike
+      | undefined,
+
+    @inject(SDK_PLUGIN_LOADER, { isOptional: true })
+    private readonly pluginLoader: PluginLoaderLike | undefined,
+
+    @inject(SDK_PTAH_CLI_REGISTRY, { isOptional: true })
+    private readonly ptahCliRegistry: PtahCliRegistryLike | undefined,
+
+    @inject(MEMORY_SEARCH_TOKEN, { isOptional: true })
+    private readonly memorySearch: IMemoryReader | undefined,
+
+    @inject(MEMORY_STORE_TOKEN, { isOptional: true })
+    private readonly memoryStore: IMemoryLister | undefined,
+
+    @inject(MEMORY_WRITER_TOKEN, { isOptional: true })
+    private readonly memoryWriter: IMemoryWriter | undefined,
+
+    @inject(CODE_SYMBOL_INDEXER, { isOptional: true })
+    private readonly symbolIndexer: CodeSymbolIndexer | undefined,
+
+    @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
+    private readonly webviewManager: WebviewManager | undefined,
+
+    @inject(IDE_CAPABILITIES_TOKEN, { isOptional: true })
+    private readonly ideCapabilities: IIDECapabilities | undefined,
+
+    @inject(BROWSER_CAPABILITIES_TOKEN, { isOptional: true })
+    private readonly browserCapabilities: IBrowserCapabilities | undefined,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
   }
@@ -327,137 +414,68 @@ export class PtahAPIBuilder {
           cliDetectionService: this.cliDetectionService,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
           getActiveSessionId: () => {
-            if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
-              return undefined;
-            }
             try {
-              const manager = container.resolve<{
-                getActiveSessionIds(): string[];
-              }>(SDK_SESSION_LIFECYCLE_MANAGER);
-              const ids = manager.getActiveSessionIds();
-              return ids.length > 0 ? (ids[0] as string) : undefined;
+              const ids =
+                this.sdkSessionLifecycleManager?.getActiveSessionIds();
+              return ids && ids.length > 0 ? (ids[0] as string) : undefined;
             } catch {
               return undefined;
             }
           },
           resolveSessionId: (tabIdOrSessionId: string) => {
-            if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
-              return tabIdOrSessionId;
-            }
             try {
-              const manager = container.resolve<{
-                find(id: string): { realSessionId: string | null } | undefined;
-              }>(SDK_SESSION_LIFECYCLE_MANAGER);
-              const rec = manager.find(tabIdOrSessionId);
+              const rec =
+                this.sdkSessionLifecycleManager?.find(tabIdOrSessionId);
               return rec?.realSessionId ?? tabIdOrSessionId;
             } catch {
               return tabIdOrSessionId;
             }
           },
           getProjectGuidance: async () => {
-            if (!container.isRegistered(ENHANCED_PROMPTS_SERVICE_TOKEN)) {
-              return undefined;
-            }
+            if (!this.enhancedPromptsService) return undefined;
             try {
-              const service = container.resolve<{
-                getProjectGuidanceContent(
-                  workspacePath: string,
-                ): Promise<string | null>;
-              }>(ENHANCED_PROMPTS_SERVICE_TOKEN);
               const workspacePath = this.getWorkspaceRoot();
               const content =
-                await service.getProjectGuidanceContent(workspacePath);
+                await this.enhancedPromptsService.getProjectGuidanceContent(
+                  workspacePath,
+                );
               return content ?? undefined;
             } catch {
               return undefined;
             }
           },
           getSystemPrompt: async () => {
-            if (!container.isRegistered(ENHANCED_PROMPTS_SERVICE_TOKEN)) {
-              return undefined;
-            }
+            if (!this.enhancedPromptsService) return undefined;
             try {
-              const service = container.resolve<{
-                getEnhancedPromptContent(
-                  workspacePath: string,
-                ): Promise<string | null>;
-              }>(ENHANCED_PROMPTS_SERVICE_TOKEN);
               const workspacePath = this.getWorkspaceRoot();
               const content =
-                await service.getEnhancedPromptContent(workspacePath);
+                await this.enhancedPromptsService.getEnhancedPromptContent(
+                  workspacePath,
+                );
               return content ?? undefined;
             } catch {
               return undefined;
             }
           },
           getPluginPaths: async () => {
-            if (!container.isRegistered(SDK_PLUGIN_LOADER)) {
-              return undefined;
-            }
+            if (!this.pluginLoader) return undefined;
             try {
-              const pluginLoader = container.resolve<{
-                getWorkspacePluginConfig(): {
-                  enabledPluginIds: string[];
-                };
-                resolvePluginPaths(pluginIds: string[]): string[];
-              }>(SDK_PLUGIN_LOADER);
-              const config = pluginLoader.getWorkspacePluginConfig();
+              const config = this.pluginLoader.getWorkspacePluginConfig();
               if (
                 !config.enabledPluginIds ||
                 config.enabledPluginIds.length === 0
               ) {
                 return undefined;
               }
-              return pluginLoader.resolvePluginPaths(config.enabledPluginIds);
+              return this.pluginLoader.resolvePluginPaths(
+                config.enabledPluginIds,
+              );
             } catch {
               return undefined;
             }
           },
           getPtahCliRegistry: () => {
-            if (!container.isRegistered(SDK_PTAH_CLI_REGISTRY)) {
-              return undefined;
-            }
-            try {
-              return container.resolve<{
-                listAgents(): Promise<
-                  Array<{
-                    id: string;
-                    name: string;
-                    providerName: string;
-                    hasApiKey: boolean;
-                    enabled: boolean;
-                  }>
-                >;
-                spawnAgent(
-                  id: string,
-                  task: string,
-                  options?: {
-                    projectGuidance?: string;
-                    workingDirectory?: string;
-                  },
-                ): Promise<
-                  | {
-                      handle: {
-                        abort: AbortController;
-                        done: Promise<number>;
-                        onOutput: (cb: (data: string) => void) => void;
-                      };
-                      agentName: string;
-                      setAgentId: (id: string) => void;
-                    }
-                  | {
-                      status:
-                        | 'not_found'
-                        | 'disabled'
-                        | 'no_api_key'
-                        | 'unknown_provider';
-                      message: string;
-                    }
-                >;
-              }>(SDK_PTAH_CLI_REGISTRY);
-            } catch {
-              return undefined;
-            }
+            return this.ptahCliRegistry;
           },
           getDisabledClis: () => {
             return (
@@ -518,58 +536,16 @@ export class PtahAPIBuilder {
       ),
       memory: this.buildNamespaceSafe('memory', () =>
         buildMemoryNamespace({
-          getMemorySearch: () => {
-            try {
-              return container.isRegistered(MEMORY_SEARCH_TOKEN)
-                ? container.resolve<IMemoryReader>(MEMORY_SEARCH_TOKEN)
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
-          getMemoryStore: () => {
-            try {
-              return container.isRegistered(MEMORY_STORE_TOKEN)
-                ? container.resolve<IMemoryLister>(MEMORY_STORE_TOKEN)
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
-          getMemoryWriter: () => {
-            try {
-              return container.isRegistered(MEMORY_WRITER_TOKEN)
-                ? container.resolve<IMemoryWriter>(MEMORY_WRITER_TOKEN)
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
+          getMemorySearch: () => this.memorySearch,
+          getMemoryStore: () => this.memoryStore,
+          getMemoryWriter: () => this.memoryWriter,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
       code: this.buildNamespaceSafe('code', () =>
         buildCodeNamespace({
-          getMemorySearch: () => {
-            try {
-              return container.isRegistered(MEMORY_SEARCH_TOKEN)
-                ? container.resolve<IMemoryReader>(MEMORY_SEARCH_TOKEN)
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
-          getSymbolIndexer: () => {
-            try {
-              return container.isRegistered(CODE_SYMBOL_INDEXER_TOKEN)
-                ? container.resolve<CodeSymbolIndexer>(
-                    CODE_SYMBOL_INDEXER_TOKEN,
-                  )
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
+          getMemorySearch: () => this.memorySearch,
+          getSymbolIndexer: () => this.symbolIndexer,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
@@ -630,14 +606,14 @@ export class PtahAPIBuilder {
    * or multiple sessions target different workspace folders.
    */
   private getWorkspaceRoot(): string {
-    if (container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
-      const manager = container.resolve<{
-        getActiveSessionWorkspace(): string | undefined;
-      }>(SDK_SESSION_LIFECYCLE_MANAGER);
-      const sessionWorkspace = manager.getActiveSessionWorkspace();
+    try {
+      const sessionWorkspace =
+        this.sdkSessionLifecycleManager?.getActiveSessionWorkspace();
       if (sessionWorkspace) {
         return sessionWorkspace;
       }
+    } catch {
+      // fall through to workspace provider
     }
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (workspaceRoot) {
@@ -660,20 +636,13 @@ export class PtahAPIBuilder {
   }) => void {
     const logger = this.logger;
 
+    const webviewManager = this.webviewManager;
+
     return (event) => {
-      if (!container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
+      if (!webviewManager) {
         logger.debug(
           '[PtahAPIBuilder] WebviewManager not registered, skipping worktree notification',
         );
-        return;
-      }
-
-      let webviewManager: WebviewManager;
-      try {
-        webviewManager = container.resolve<WebviewManager>(
-          TOKENS.WEBVIEW_MANAGER,
-        );
-      } catch {
         return;
       }
 
@@ -705,14 +674,7 @@ export class PtahAPIBuilder {
    * Follows the same pattern as SDK_SESSION_LIFECYCLE_MANAGER lazy resolution.
    */
   private resolveIDECapabilities(): IIDECapabilities | undefined {
-    if (!container.isRegistered(IDE_CAPABILITIES_TOKEN)) {
-      return undefined;
-    }
-    try {
-      return container.resolve<IIDECapabilities>(IDE_CAPABILITIES_TOKEN);
-    } catch {
-      return undefined;
-    }
+    return this.ideCapabilities;
   }
 
   /**
@@ -725,15 +687,6 @@ export class PtahAPIBuilder {
    * Follows the same pattern as IDE_CAPABILITIES_TOKEN lazy resolution.
    */
   private resolveBrowserCapabilities(): IBrowserCapabilities | undefined {
-    if (!container.isRegistered(BROWSER_CAPABILITIES_TOKEN)) {
-      return undefined;
-    }
-    try {
-      return container.resolve<IBrowserCapabilities>(
-        BROWSER_CAPABILITIES_TOKEN,
-      );
-    } catch {
-      return undefined;
-    }
+    return this.browserCapabilities;
   }
 }
