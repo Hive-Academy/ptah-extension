@@ -13,10 +13,7 @@
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import {
-  MEMORY_CONTRACT_TOKENS,
-  type IMemoryReader,
-} from '@ptah-extension/memory-contracts';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
@@ -271,14 +268,6 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
-    const noopReader: IMemoryReader = {
-      search: async () => ({ hits: [], bm25Only: true }),
-    };
-    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
-      useValue: noopReader,
-    });
-  }
   container.registerSingleton(
     SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR,
     MemoryPromptInjector,

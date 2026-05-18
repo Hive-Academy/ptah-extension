@@ -46,6 +46,10 @@ import {
 import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type IMemoryReader,
+} from '@ptah-extension/memory-contracts';
 
 export function registerPhase2Libraries(
   container: DependencyContainer,
@@ -115,6 +119,13 @@ export function registerPhase2Libraries(
   );
 
   wireAgentAdapterAliases(container);
+
+  const noopMemoryReader: IMemoryReader = {
+    search: async () => ({ hits: [], bm25Only: true }),
+  };
+  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
+    useValue: noopMemoryReader,
+  });
 
   // Agent Generation Services â€” SetupStatusService, SetupWizardService, and
   // supporting services required for setup wizard functionality. Services

@@ -45,6 +45,10 @@ import type {
   IStateStorage,
   ISecretStorage,
 } from '@ptah-extension/platform-core';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type IMemoryReader,
+} from '@ptah-extension/memory-contracts';
 
 // vscode-core: TOKENS + service classes (LicenseService & AuthSecretsService
 // use `import type` for vscode -- no runtime vscode dependency)
@@ -591,6 +595,13 @@ export class CliDIContainer {
     registerCliAgentRuntimeServices(container, logger);
 
     wireAgentAdapterAliases(container);
+
+    const noopMemoryReader: IMemoryReader = {
+      search: async () => ({ hits: [], bm25Only: true }),
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
+      useValue: noopMemoryReader,
+    });
 
     // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs
     // These tokens are required by WizardWebviewLifecycleService which is registered
