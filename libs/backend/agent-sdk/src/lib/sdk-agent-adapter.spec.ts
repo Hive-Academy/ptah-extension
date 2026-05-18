@@ -99,7 +99,6 @@ import { SdkError, SessionNotActiveError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
 import type { SessionHistoryReaderService } from './session-history-reader.service';
 import type {
-  AuthManager,
   SessionLifecycleManager,
   ConfigWatcher,
   StreamTransformer,
@@ -108,6 +107,7 @@ import type {
   ExecuteQueryResult,
   Query,
 } from './helpers';
+import type { IAuthEnvProvider } from './auth-env.port';
 import type {
   ClaudeCliDetector,
   ClaudeInstallation,
@@ -172,8 +172,8 @@ function createMockWorkspaceProvider(): jest.Mocked<
   };
 }
 
-function createMockAuthManager(): jest.Mocked<
-  Pick<AuthManager, 'configureAuthentication' | 'clearAuthentication'>
+function createMockIAuthEnvProvider(): jest.Mocked<
+  Pick<IAuthEnvProvider, 'configureAuthentication' | 'clearAuthentication'>
 > {
   return {
     configureAuthentication: jest.fn().mockResolvedValue({
@@ -346,7 +346,7 @@ interface AdapterHarness {
   config: MockConfigManager;
   sentry: ReturnType<typeof createMockSentry>;
   metadataStore: ReturnType<typeof createMockMetadataStore>;
-  authManager: ReturnType<typeof createMockAuthManager>;
+  authManager: ReturnType<typeof createMockIAuthEnvProvider>;
   sessionLifecycle: ReturnType<typeof createMockSessionLifecycle>;
   configWatcher: ReturnType<typeof createMockConfigWatcher>;
   cliDetector: ReturnType<typeof createMockCliDetector>;
@@ -368,7 +368,7 @@ function makeAdapter(
   const config = createMockConfigManager(options.config);
   const sentry = createMockSentry();
   const metadataStore = createMockMetadataStore();
-  const authManager = createMockAuthManager();
+  const authManager = createMockIAuthEnvProvider();
   const sessionLifecycle = createMockSessionLifecycle();
   const configWatcher = createMockConfigWatcher();
   const cliDetector = createMockCliDetector();
@@ -383,7 +383,7 @@ function makeAdapter(
     asLogger(logger),
     config as unknown as ConfigManager,
     metadataStore as unknown as SessionMetadataStore,
-    authManager as unknown as AuthManager,
+    authManager as unknown as IAuthEnvProvider,
     sessionLifecycle as unknown as SessionLifecycleManager,
     configWatcher as unknown as ConfigWatcher,
     cliDetector as unknown as ClaudeCliDetector,

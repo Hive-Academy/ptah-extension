@@ -1,0 +1,12 @@
+{
+  "name": "@ptah-extension/auth-providers",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "dependencies": {
+    "@ptah-extension/vscode-core": "0.0.1",
+    "tsyringe": "^4.10.0"
+  }
+}

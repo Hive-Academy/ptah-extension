@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Session Replay Service
  *
  * Orchestrates the conversion of JSONL messages to FlatStreamEventUnion events.
@@ -32,7 +32,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import { SDK_TOKENS } from '../../di/tokens';
 import { extractTokenUsage } from '../usage-extraction.utils';
-import type { ModelResolver } from '../../auth/model-resolver';
+import type { IModelResolver } from '../../auth-env.port';
 import { AgentCorrelationService } from './agent-correlation.service';
 import type { MessageUsageData } from './history-event-factory';
 import { HistoryEventFactory } from './history-event-factory';
@@ -57,7 +57,7 @@ export class SessionReplayService {
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
     private readonly eventFactory: HistoryEventFactory,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
-    private readonly modelResolver: ModelResolver,
+    private readonly modelResolver: IModelResolver,
   ) {}
 
   /**

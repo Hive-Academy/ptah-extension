@@ -21,6 +21,9 @@
         "libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/auth-providers": [
+        "libs/backend/auth-providers/src/index.ts"
+      ],
       "@ptah-extension/canvas": ["libs/frontend/canvas/src/index.ts"],
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
       "@ptah-extension/chat-types": ["libs/frontend/chat-types/src/index.ts"],

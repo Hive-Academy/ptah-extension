@@ -11,7 +11,6 @@
  */
 
 import { DependencyContainer, Lifecycle } from 'tsyringe';
-import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
@@ -26,7 +25,6 @@ import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
 import {
-  AuthManager,
   SessionLifecycleManager,
   ConfigWatcher,
   StreamTransformer,
@@ -64,17 +62,7 @@ import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { SkillJunctionService } from '../helpers/skill-junction.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
-import { registerProviders } from '../providers';
 import { SDK_TOKENS } from './tokens';
-import { ProviderModelsService } from '../provider-models.service';
-import { ModelResolver } from '../auth/model-resolver';
-import {
-  ApiKeyStrategy,
-  OAuthProxyStrategy,
-  LocalNativeStrategy,
-  LocalProxyStrategy,
-  CliStrategy,
-} from '../auth/strategies';
 
 /**
  * Register all agent-sdk services in DI container
@@ -85,6 +73,11 @@ import {
  * SessionMetadataStore resolves IStateStorage via
  * PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE decorator injection.
  *
+ * Prerequisite: `registerAuthProvidersServices(container, logger)` from
+ * `@ptah-extension/auth-providers` MUST run BEFORE this function. agent-sdk
+ * consumers inject AUTH_PROVIDERS_TOKENS.* (auth manager, env, strategies,
+ * provider services, model resolver) at construction time.
+ *
  * @param container - TSyringe DI container
  * @param logger - Logger instance
  */
@@ -94,10 +87,6 @@ export function registerSdkServices(
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
 
-  // ============================================================
-  // Core Services (require special initialization)
-  // ============================================================
-
   // Session metadata store - uses @inject decorators for IStateStorage and Logger
   // Resolved via decorator injection (PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE).
   container.register(
@@ -106,20 +95,12 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Shared mutable AuthEnv singleton.
-  // Must be registered before AuthManager and ProviderModelsService which inject it.
-  container.registerInstance(SDK_TOKENS.SDK_AUTH_ENV, createEmptyAuthEnv());
-
   // Session importer - scans existing Claude sessions
   container.register(
     SDK_TOKENS.SDK_SESSION_IMPORTER,
     { useClass: SessionImporterService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // ============================================================
-  // History reader child services
-  // ============================================================
 
   // History event factory - creates FlatStreamEventUnion events
   container.register(
@@ -128,192 +109,138 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // JSONL reader - file I/O operations for session files
   container.register(
     SDK_TOKENS.SDK_JSONL_READER,
     { useClass: JsonlReaderService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Agent correlation - correlates agents to Task tool_uses
   container.register(
     SDK_TOKENS.SDK_AGENT_CORRELATION,
     { useClass: AgentCorrelationService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Session replay - orchestrates JSONL to event conversion
   container.register(
     SDK_TOKENS.SDK_SESSION_REPLAY,
     { useClass: SessionReplayService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Session history reader (facade) - reads JSONL files and converts to stream events
   container.register(
     SDK_TOKENS.SDK_SESSION_HISTORY_READER,
     { useClass: SessionHistoryReaderService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // Services with @injectable() decorators (auto-wired)
-  // ============================================================
-
-  // Permission handler - no special deps
   container.register(
     SDK_TOKENS.SDK_PERMISSION_HANDLER,
     { useClass: SdkPermissionHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Live usage tracker - no deps; shared writer/reader for cumulative
-  // pre-compaction tokens. Registered BEFORE SdkMessageTransformer and
-  // CompactionHookHandler so both can resolve it.
   container.register(
     SDK_TOKENS.SDK_LIVE_USAGE_TRACKER,
     { useClass: LiveUsageTracker },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Message transformer - no special deps
   container.register(
     SDK_TOKENS.SDK_MESSAGE_TRANSFORMER,
     { useClass: SdkMessageTransformer },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // CLI detector - no DI deps (plain class)
   container.register(
     SDK_TOKENS.SDK_CLI_DETECTOR,
     { useClass: ClaudeCliDetector },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Auth manager - depends on Logger, ConfigManager
-  container.register(
-    SDK_TOKENS.SDK_AUTH_MANAGER,
-    { useClass: AuthManager },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // Config watcher - depends on Logger, ConfigManager
   container.register(
     SDK_TOKENS.SDK_CONFIG_WATCHER,
     { useClass: ConfigWatcher },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Session end callback registry.
-  // Must be registered BEFORE SessionControl (built inside SessionLifecycleManager facade)
   container.register(
     SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY,
     { useClass: SessionEndCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // SDK query runner — unified one-shot (InternalQueryService façade) and
-  // interactive (SessionQueryExecutor) SDK invocation primitive. Must be
-  // registered BEFORE SessionLifecycleManager (injects it) and before
-  // InternalQueryService (constructs it internally from shared deps).
   container.register(
     SDK_TOKENS.SDK_QUERY_RUNNER,
     { useClass: SdkQueryRunner },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Session lifecycle manager - depends on Logger only (runtime session tracking)
   container.register(
     SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
     { useClass: SessionLifecycleManager },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Stream transformer - depends on Logger, SdkMessageTransformer (no storage - SDK persists natively)
   container.register(
     SDK_TOKENS.SDK_STREAM_TRANSFORMER,
     { useClass: StreamTransformer },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Attachment processor (images + text) - depends on Logger
   container.register(
     SDK_TOKENS.SDK_ATTACHMENT_PROCESSOR,
     { useClass: AttachmentProcessorService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Provider models service - depends on Logger, ConfigManager
-  container.register(
-    SDK_TOKENS.SDK_PROVIDER_MODELS,
-    { useClass: ProviderModelsService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // Subagent hook handler - depends on Logger, SubagentRegistryService.
-  // Subagent visibility flows via `agentProgressSummaries: true` Option +
-  // task_* system messages handled by SdkMessageTransformer.
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
     { useClass: SubagentHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // SubagentMessageDispatcher — bidirectional messaging + stop/interrupt.
-  // Depends on Logger, SessionLifecycleManager, SubagentRegistryService.
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
     { useClass: SubagentMessageDispatcher },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Compaction config provider - depends on Logger, ConfigManager.
-  // Provides SDK compaction settings from VS Code configuration.
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
     { useClass: CompactionConfigProvider },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Compaction callback registry.
-  // Must be registered BEFORE CompactionHookHandler which injects it.
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
     { useClass: CompactionCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Compaction hook handler - depends on Logger.
-  // Handles SDK PreCompact hooks and notifies via callback.
   container.register(
     SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER,
     { useClass: CompactionHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Worktree hook handler - depends on Logger.
-  // Handles SDK WorktreeCreate/WorktreeRemove hooks and notifies via callback.
   container.register(
     SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER,
     { useClass: WorktreeHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // SDK module loader - caches SDK query function
   container.register(
     SDK_TOKENS.SDK_MODULE_LOADER,
     { useClass: SdkModuleLoader },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // SDK model service - fetches and caches supported models
   container.register(
     SDK_TOKENS.SDK_MODEL_SERVICE,
     { useClass: SdkModelService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Message factory - creates SDK user messages with attachments
   container.register(
     SDK_TOKENS.SDK_MESSAGE_FACTORY,
     { useClass: SdkMessageFactory },
@@ -327,19 +254,12 @@ export function registerSdkServices(
   );
 
   // Curator LLM adapter — SdkInternalQueryCuratorLlm implements ICuratorLLM.
-  // Symbol.for('PtahCuratorLlm') matches MEMORY_CONTRACT_TOKENS.CURATOR_LLM so
-  // memory-curator resolves this registration when it injects CURATOR_LLM.
   container.register(
     SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER,
     { useClass: SdkInternalQueryCuratorLlm },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Memory prompt injector.
-  // Register a no-op fallback for hosts where memory-curator is not registered
-  // (e.g. VS Code hosts that do not load SQLite support). This prevents the
-  // @inject(MEMORY_CONTRACT_TOKENS.MEMORY_READER) in MemoryPromptInjector from
-  // throwing at construction time when the token is absent.
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
     const noopReader: IMemoryReader = {
       search: async () => ({ hits: [], bm25Only: true }),
@@ -353,51 +273,30 @@ export function registerSdkServices(
     MemoryPromptInjector,
   );
 
-  // Query options builder - constructs SDK query config
   container.register(
     SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER,
     { useClass: SdkQueryOptionsBuilder },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // Internal Query Service
-  // One-shot SDK queries, separate from interactive chat path
-  // ============================================================
-
-  // Depends on: SdkModuleLoader, SdkAgentAdapter (health check),
-  // SubagentHookHandler, CompactionConfigProvider, CompactionHookHandler
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
     { useClass: InternalQueryService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // Plugin Loader Service
-  // Manages plugin discovery and per-workspace configuration
-  // ============================================================
   container.register(
     SDK_TOKENS.SDK_PLUGIN_LOADER,
     { useClass: PluginLoaderService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // Skill Junction Service
-  // Manages workspace .ptah/skills/ junctions to plugin skill directories
-  // So third-party providers (Codex, Copilot) can find skills via MCP search.
-  // ============================================================
   container.register(
     SDK_TOKENS.SDK_SKILL_JUNCTION,
     { useClass: SkillJunctionService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // Settings Export/Import Services
-  // Platform-agnostic settings portability between VS Code and Electron
-  // ============================================================
   container.register(
     SDK_TOKENS.SDK_SETTINGS_EXPORT,
     { useClass: SettingsExportService },
@@ -410,71 +309,12 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // Slash Command Interceptor
-  // Detects and classifies slash commands in follow-up messages
-  // ============================================================
   container.register(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Provider services (Copilot, Codex, OpenRouter, Ollama, LM Studio).
-  // Must register before AuthManager (auth strategies depend on these tokens).
-  registerProviders(container);
-
-  // ============================================================
-  // Auth Strategies
-  // 5 strategies extract auth logic from the AuthManager god class
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
-
-  container.register(
-    SDK_TOKENS.SDK_API_KEY_STRATEGY,
-    { useClass: ApiKeyStrategy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_OAUTH_PROXY_STRATEGY,
-    { useClass: OAuthProxyStrategy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_LOCAL_NATIVE_STRATEGY,
-    { useClass: LocalNativeStrategy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_LOCAL_PROXY_STRATEGY,
-    { useClass: LocalProxyStrategy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_CLI_STRATEGY,
-    { useClass: CliStrategy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // ModelResolver - Single source of truth for tier→model resolution
-  // ============================================================
-  container.register(
-    SDK_TOKENS.SDK_MODEL_RESOLVER,
-    { useClass: ModelResolver },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // Main Adapter (depends on all helper services)
-  // ============================================================
-
-  // SDK Agent Adapter - the main entry point
-  // CRITICAL: Must be singleton so initialize() state is shared
   container.register(
     SDK_TOKENS.SDK_AGENT_ADAPTER,
     { useClass: SdkAgentAdapter },

@@ -1,15 +1,15 @@
-/**
- * SessionControl — owner of the lifecycle-control methods that act on a
+﻿/**
+ * SessionControl â€” owner of the lifecycle-control methods that act on a
  * registered session's `query` handle: interrupt, end, dispose-all, set
  * permission level, set model.
  *
  * Extracted from `SessionLifecycleManager` (originally lines
- * 395–451, 462–556, 563–610, 1110–1149, 1162–1207). The cleanup-call order
- * inside `endSession` is spec-asserted (cleanupPendingPermissions →
- * markAllInterrupted → interrupt → abort → registry removal) and is
+ * 395â€“451, 462â€“556, 563â€“610, 1110â€“1149, 1162â€“1207). The cleanup-call order
+ * inside `endSession` is spec-asserted (cleanupPendingPermissions â†’
+ * markAllInterrupted â†’ interrupt â†’ abort â†’ registry removal) and is
  * preserved byte-identically.
  *
- * Plain class — NOT @injectable, NOT registered with tsyringe. Constructed
+ * Plain class â€” NOT @injectable, NOT registered with tsyringe. Constructed
  * eagerly by the facade.
  */
 
@@ -18,7 +18,7 @@ import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type { SessionId, ISdkPermissionHandler } from '@ptah-extension/shared';
 
 import { SdkError } from '../../errors';
-import type { ModelResolver } from '../../auth/model-resolver';
+import type { IModelResolver } from '../../auth-env.port';
 import type { SessionRegistry } from './session-registry.service';
 import { PERMISSION_MODE_MAP } from './permission-mode-map';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
@@ -29,7 +29,7 @@ export class SessionControl {
     private readonly registry: SessionRegistry,
     private readonly permissionHandler: ISdkPermissionHandler,
     private readonly subagentRegistry: SubagentRegistryService,
-    private readonly modelResolver: ModelResolver,
+    private readonly modelResolver: IModelResolver,
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
   ) {}
 
@@ -37,7 +37,7 @@ export class SessionControl {
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
-   * The session remains active for continued use — the user's follow-up message
+   * The session remains active for continued use â€” the user's follow-up message
    * will start a new turn.
    *
    * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
@@ -101,7 +101,7 @@ export class SessionControl {
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
   async endSession(sessionId: SessionId): Promise<void> {
-    // Reverse lookup — find() checks byTabId then bySessionId (dual-index).
+    // Reverse lookup â€” find() checks byTabId then bySessionId (dual-index).
     const rec = this.registry.find(sessionId as string);
     if (!rec) {
       this.logger.warn(
@@ -174,7 +174,7 @@ export class SessionControl {
       });
     } else {
       this.logger.debug(
-        `[SessionLifecycle] Skipping session-end notification — no workspaceRoot for session: ${sessionId}`,
+        `[SessionLifecycle] Skipping session-end notification â€” no workspaceRoot for session: ${sessionId}`,
       );
     }
   }
@@ -238,7 +238,7 @@ export class SessionControl {
     this.logger.info('[SessionLifecycle] All sessions disposed');
 
     // Notify session-end subscribers for each disposed session.
-    // Fires AFTER clearAll() — session data was captured in endedSessions above.
+    // Fires AFTER clearAll() â€” session data was captured in endedSessions above.
     for (const ended of endedSessions) {
       this.sessionEndRegistry.notifyAll(ended);
     }
@@ -298,7 +298,7 @@ export class SessionControl {
    *
    * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
    * before passing to the SDK. The SDK's setModel() requires full model IDs
-   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
+   * like 'claude-opus-4-6' â€” bare tier names cause "can't access model" errors.
    *
    * @param sessionId - Session to update
    * @param model - Model ID or bare tier name to set
@@ -314,12 +314,12 @@ export class SessionControl {
       throw new SdkError(`Session query not initialized: ${sessionId}`);
     }
 
-    // Resolve model through provider overrides (e.g., claude-sonnet-4-6 → glm-5.1 on Z.AI)
-    // and bare tier names (e.g., 'sonnet' → 'claude-sonnet-4-6' on direct Anthropic).
+    // Resolve model through provider overrides (e.g., claude-sonnet-4-6 â†’ glm-5.1 on Z.AI)
+    // and bare tier names (e.g., 'sonnet' â†’ 'claude-sonnet-4-6' on direct Anthropic).
     const resolvedModel = this.modelResolver.resolve(model);
     if (resolvedModel !== model) {
       this.logger.info(
-        `[SessionLifecycle] Model resolved: '${model}' → '${resolvedModel}'`,
+        `[SessionLifecycle] Model resolved: '${model}' â†’ '${resolvedModel}'`,
       );
     }
 

@@ -31,7 +31,7 @@
  * vanilla objects without touching tsyringe.
  */
 
-import type { ICopilotAuthService } from '@ptah-extension/agent-sdk';
+import type { ICopilotAuthService } from '@ptah-extension/auth-providers';
 import type { IOAuthUrlOpener } from '@ptah-extension/platform-cli';
 
 import type { Formatter } from '../output/formatter.js';

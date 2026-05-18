@@ -48,6 +48,10 @@ export * from './lib/types/rpc/rpc-error-codes.types';
 // Persistence RPC types (db:health, db:reset)
 export * from './lib/types/rpc/rpc-persistence.types';
 
+// Anthropic-compatible provider registry
+// Moved here in TASK_2026_123 Win 5 to break agent-sdk ↔ auth-providers cycle.
+export * from './lib/providers';
+
 // Constants
 export * from './lib/constants/trial.constants';
 export * from './lib/constants/environment.constants';

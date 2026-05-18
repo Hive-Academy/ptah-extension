@@ -21,10 +21,8 @@ import 'reflect-metadata';
 
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  ProviderModelsService,
-  AnthropicProvider,
-} from '@ptah-extension/agent-sdk';
+import type { AnthropicProvider } from '@ptah-extension/agent-sdk';
+import type { ProviderModelsService } from '@ptah-extension/auth-providers';
 import type { PtahCliConfig } from '@ptah-extension/shared';
 import { PtahCliRegistry } from './ptah-cli-registry';
 

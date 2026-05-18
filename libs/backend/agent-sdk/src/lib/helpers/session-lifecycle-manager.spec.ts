@@ -1,5 +1,5 @@
-/**
- * SessionLifecycleManager — unit specs.
+﻿/**
+ * SessionLifecycleManager â€” unit specs.
  *
  * Surface under test:
  *   - Workspace resolution & active-session ordering (legacy tests retained
@@ -11,7 +11,7 @@
  *     controller afterwards.
  *   - Concurrent sessions: two simultaneous `executeQuery` calls produce two
  *     distinct active sessions with independent abort controllers and
- *     independent message queues — aborting one must not affect the other.
+ *     independent message queues â€” aborting one must not affect the other.
  *   - Workspace inheritance: `executeQuery` seeds each session's config with
  *     the caller-supplied `projectPath` (cwd); resuming a session re-uses
  *     the new caller-supplied workspace (no silent carry-over from the
@@ -20,15 +20,15 @@
  *
  * Mocking posture:
  *   - All nine constructor dependencies are provided as typed
- *     `jest.Mocked<Pick<T, …>>` stubs; no tsyringe container.
+ *     `jest.Mocked<Pick<T, â€¦>>` stubs; no tsyringe container.
  *   - The SDK queryFn is a `jest.fn()` returning a fake `Query` whose
  *     async-iterator is backed by `createFakeAsyncGenerator`.
  *   - `freezeTime` pins Date.now() so the W3 suites are deterministic.
- *   - Zero `as any` casts — only a named `asLogger` bridge cast at the
+ *   - Zero `as any` casts â€” only a named `asLogger` bridge cast at the
  *     single nominal-type seam (production `Logger` is a class).
  *
  * Constructor signature note:
- *   The production constructor takes NINE dependencies — logger,
+ *   The production constructor takes NINE dependencies â€” logger,
  *   permissionHandler, moduleLoader, queryOptionsBuilder, messageFactory,
  *   subagentRegistry, authEnv, modelResolver, sessionEndRegistry. The fixture
  *   supplies all nine so `endSession()` exercises the full cleanup path.
@@ -63,7 +63,7 @@ import type {
   SdkQueryOptions,
 } from './sdk-query-options-builder';
 import type { SdkMessageFactory } from './sdk-message-factory';
-import type { ModelResolver } from '../auth/model-resolver';
+import type { IModelResolver } from '../auth-env.port';
 import type {
   QueryFunction,
   Query,
@@ -72,7 +72,7 @@ import type {
 } from '../types/sdk-types/claude-sdk.types';
 
 // ---------------------------------------------------------------------------
-// Typed bridges — production Logger is a nominal class with private fields,
+// Typed bridges â€” production Logger is a nominal class with private fields,
 // so a structural duck-type match fails. Bridge at a single named seam.
 // ---------------------------------------------------------------------------
 
@@ -81,7 +81,7 @@ function asLogger(mock: MockLogger): Logger {
 }
 
 // ---------------------------------------------------------------------------
-// Fake Query — the object the SDK's queryFn() returns. Backed by the shared
+// Fake Query â€” the object the SDK's queryFn() returns. Backed by the shared
 // `createFakeAsyncGenerator` so we can exercise the async-iterator surface.
 // ---------------------------------------------------------------------------
 
@@ -113,7 +113,7 @@ function createFakeQuery(messages: SDKMessage[] = []): FakeQueryHandle {
 }
 
 // ---------------------------------------------------------------------------
-// Dependency factories — typed jest.Mocked<Pick<…>> so specs only override
+// Dependency factories â€” typed jest.Mocked<Pick<â€¦>> so specs only override
 // what they care about.
 // ---------------------------------------------------------------------------
 
@@ -167,7 +167,7 @@ function createMockSubagentRegistry(): jest.Mocked<
 }
 
 function createMockModelResolver(): jest.Mocked<
-  Pick<ModelResolver, 'resolve'>
+  Pick<IModelResolver, 'resolve'>
 > {
   return {
     resolve: jest.fn((m: string) => m),
@@ -179,7 +179,7 @@ function createAuthEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
 }
 
 // ---------------------------------------------------------------------------
-// Harness — build a fully-mocked SessionLifecycleManager. All 8 constructor
+// Harness â€” build a fully-mocked SessionLifecycleManager. All 8 constructor
 // deps are supplied so tests that exercise endSession()/disposeAllSessions()
 // run the full cleanup path.
 // ---------------------------------------------------------------------------
@@ -253,11 +253,11 @@ function makeHarness(
     },
   );
 
-  // Minimal stub for SessionEndCallbackRegistry — notifyAll is fire-and-forget;
+  // Minimal stub for SessionEndCallbackRegistry â€” notifyAll is fire-and-forget;
   // tests that care about session-end notifications can assert on this mock.
   const sessionEndRegistryStub = { notifyAll: jest.fn() };
 
-  // Minimal SdkQueryRunner stub — the executor delegates the warm-query +
+  // Minimal SdkQueryRunner stub â€” the executor delegates the warm-query +
   // queryFn invocation through `invokeWithLoadedQuery`. The stub forwards the
   // call to the captured `queryFn` jest.fn so the existing assertions on its
   // invocations continue to hold.
@@ -306,7 +306,7 @@ function makeHarness(
     messageFactory as unknown as SdkMessageFactory,
     subagentRegistry as unknown as SubagentRegistryService,
     authEnv,
-    modelResolver as unknown as ModelResolver,
+    modelResolver as unknown as IModelResolver,
     sessionEndRegistryStub as unknown as import('./session-end-callback-registry').SessionEndCallbackRegistry,
     queryRunnerStub as unknown as import('./sdk-query-runner.service').SdkQueryRunner,
   );
@@ -584,7 +584,7 @@ describe('SessionLifecycleManager', () => {
 
       result.abortController.abort();
 
-      // Same object → aborting the returned handle fires the signal that the
+      // Same object â†’ aborting the returned handle fires the signal that the
       // SDK's queryFn is listening to. If this reference were cloned, the UI
       // "Stop" button would be a no-op.
       expect(sdkCtrl?.signal.aborted).toBe(true);
@@ -692,7 +692,7 @@ describe('SessionLifecycleManager', () => {
         }),
       ]);
 
-      // Distinct abort controllers — no accidental sharing through a module-
+      // Distinct abort controllers â€” no accidental sharing through a module-
       // level singleton or cached reference.
       expect(a.abortController).not.toBe(b.abortController);
       expect(controllers).toHaveLength(2);
@@ -791,7 +791,7 @@ describe('SessionLifecycleManager', () => {
       expect(harness.lastQueryOptions.value?.cwd).toBe('/caller/ws/new');
     });
 
-    it('resumed sessions use the caller-supplied projectPath — no silent carry-over from prior runs', async () => {
+    it('resumed sessions use the caller-supplied projectPath â€” no silent carry-over from prior runs', async () => {
       // Simulate a prior session with a different workspace.
       await harness.manager.executeQuery({
         sessionId: 'tab_ws_prev' as SessionId,
@@ -800,7 +800,7 @@ describe('SessionLifecycleManager', () => {
       await harness.manager.endSession('tab_ws_prev' as SessionId);
 
       // Now resume using a NEW workspace. The resumed session must honor the
-      // new caller cwd — not leak the old one back in.
+      // new caller cwd â€” not leak the old one back in.
       await harness.manager.executeQuery({
         sessionId: 'tab_ws_resume' as SessionId,
         sessionConfig: createSessionConfig({ projectPath: '/new/workspace' }),
@@ -827,7 +827,7 @@ describe('SessionLifecycleManager', () => {
       // If a caller forgets to supply projectPath on resume, the manager must
       // not silently inherit from any unrelated prior session. We assert the
       // effective cwd comes solely from what the caller provided (here:
-      // undefined → builder default).
+      // undefined â†’ builder default).
       await harness.manager.executeQuery({
         sessionId: 'tab_ws_other' as SessionId,
         sessionConfig: createSessionConfig({ projectPath: '/unrelated/ws' }),
@@ -840,7 +840,7 @@ describe('SessionLifecycleManager', () => {
       });
 
       // The builder stub uses '/mock/cwd' as default when projectPath is
-      // missing — proving nothing carried over from /unrelated/ws.
+      // missing â€” proving nothing carried over from /unrelated/ws.
       expect(harness.lastQueryOptions.value?.cwd).toBe('/mock/cwd');
       // And the registered session has no projectPath of its own.
       const session = harness.manager.find('tab_ws_resume_noCwd');
@@ -857,7 +857,7 @@ describe('SessionLifecycleManager', () => {
         sessionConfig: createSessionConfig({ projectPath: '/ws/b' }),
       });
 
-      // tab_ws_b was registered last → it is the current workspace.
+      // tab_ws_b was registered last â†’ it is the current workspace.
       expect(harness.manager.getActiveSessionWorkspace()).toBe('/ws/b');
 
       // Sending a message to tab_ws_a re-promotes it to "most recent".
@@ -868,11 +868,11 @@ describe('SessionLifecycleManager', () => {
 
   // =========================================================================
   // NEW COVERAGE: find() identity,
-  // getActiveSessionIds() ordering, executeQuery → bindRealSessionId flow.
+  // getActiveSessionIds() ordering, executeQuery â†’ bindRealSessionId flow.
   // =========================================================================
 
   // -------------------------------------------------------------------------
-  // find() identity — same record by both tabId and realId after bind
+  // find() identity â€” same record by both tabId and realId after bind
   // -------------------------------------------------------------------------
 
   describe('find() dual-index identity (TASK_2026_118)', () => {
@@ -889,7 +889,7 @@ describe('SessionLifecycleManager', () => {
 
       expect(byTab).toBeDefined();
       expect(byReal).toBeDefined();
-      // Identity equality — both lookups must return the SAME SessionRecord
+      // Identity equality â€” both lookups must return the SAME SessionRecord
       // object. This is the "no-rekey" invariant: one record, two keys.
       expect(byTab).toBe(byReal);
     });
@@ -908,13 +908,13 @@ describe('SessionLifecycleManager', () => {
       // Mutate a field via one lookup
       (byTab as { currentModel: string }).currentModel = 'mutated-model';
 
-      // Visible via the other — this is the core correctness guarantee
+      // Visible via the other â€” this is the core correctness guarantee
       expect(byReal?.currentModel).toBe('mutated-model');
     });
   });
 
   // -------------------------------------------------------------------------
-  // getActiveSessionIds() ordering — unchanged from legacy implementation
+  // getActiveSessionIds() ordering â€” unchanged from legacy implementation
   // -------------------------------------------------------------------------
 
   describe('getActiveSessionIds() ordering preservation (TASK_2026_118)', () => {
@@ -935,7 +935,7 @@ describe('SessionLifecycleManager', () => {
         new AbortController(),
       );
 
-      // tab_ord_3 registered last → should be first
+      // tab_ord_3 registered last â†’ should be first
       const ids = harness.manager.getActiveSessionIds();
       expect(ids[0]).toBe('tab_ord_3');
     });
@@ -954,7 +954,7 @@ describe('SessionLifecycleManager', () => {
       harness.manager.bindRealSessionId('tab_ord_a', 'uuid-ord-aaa');
       harness.manager.bindRealSessionId('tab_ord_b', 'uuid-ord-bbb');
 
-      // tab_ord_b registered last → its realSessionId should be first
+      // tab_ord_b registered last â†’ its realSessionId should be first
       const ids = harness.manager.getActiveSessionIds();
       expect(ids[0]).toBe('uuid-ord-bbb');
       expect(ids[1]).toBe('uuid-ord-aaa');
@@ -974,7 +974,7 @@ describe('SessionLifecycleManager', () => {
       harness.manager.bindRealSessionId('tab_bound', 'real-bound-uuid');
 
       const ids = harness.manager.getActiveSessionIds();
-      // tab_unbound has no real UUID yet → appears as tabId in the list
+      // tab_unbound has no real UUID yet â†’ appears as tabId in the list
       expect(ids).toContain('tab_unbound');
       expect(ids).toContain('real-bound-uuid');
       expect(ids).not.toContain('tab_bound');
@@ -982,14 +982,14 @@ describe('SessionLifecycleManager', () => {
   });
 
   // -------------------------------------------------------------------------
-  // executeQuery → bindRealSessionId → setSessionQuery flow
+  // executeQuery â†’ bindRealSessionId â†’ setSessionQuery flow
   // -------------------------------------------------------------------------
 
-  describe('executeQuery → bindRealSessionId → find(realUUID) flow (TASK_2026_118)', () => {
+  describe('executeQuery â†’ bindRealSessionId â†’ find(realUUID) flow (TASK_2026_118)', () => {
     it('executeQuery registers by tabId; find(realUUID) returns the record after bindRealSessionId fires', async () => {
       const realUUID = 'sdk-init-real-uuid-123';
 
-      // Execute a query — this registers the session by tabId
+      // Execute a query â€” this registers the session by tabId
       await harness.manager.executeQuery({
         sessionId: 'tab_flow' as SessionId,
         sessionConfig: createSessionConfig({ projectPath: '/ws/flow' }),
@@ -1050,7 +1050,7 @@ describe('SessionLifecycleManager', () => {
       // warmQuery.query was used; queryFn was NOT.
       expect(warmQueryFn).toHaveBeenCalledTimes(1);
       expect(harness.queryFn).not.toHaveBeenCalled();
-      // The handle was NOT closed — its lifecycle is now owned by the
+      // The handle was NOT closed â€” its lifecycle is now owned by the
       // returned Query object. (Once the Query terminates the SDK closes
       // the underlying subprocess on its own.)
       expect(close).not.toHaveBeenCalled();
@@ -1071,7 +1071,7 @@ describe('SessionLifecycleManager', () => {
         warmQuery,
       });
 
-      // resume sessions can NOT use the warm handle — fall through to
+      // resume sessions can NOT use the warm handle â€” fall through to
       // queryFn AND close the handle to avoid leaking the subprocess.
       expect(warmQueryFn).not.toHaveBeenCalled();
       expect(harness.queryFn).toHaveBeenCalledTimes(1);
@@ -1097,7 +1097,7 @@ describe('SessionLifecycleManager', () => {
 
     it('falls back to queryFn when warmQuery.query is missing on the handle', async () => {
       // Defensive guard: handle without a .query function (e.g. SDK
-      // bundled an older WarmQuery shape) must NOT crash — fall through.
+      // bundled an older WarmQuery shape) must NOT crash â€” fall through.
       const close = jest.fn();
       const warmQuery = { close } as unknown as {
         close: () => void;
@@ -1248,7 +1248,7 @@ describe('SessionLifecycleManager', () => {
       messageFactory as unknown as SdkMessageFactory,
       subagentRegistry as unknown as SubagentRegistryService,
       authEnv,
-      modelResolver as unknown as ModelResolver,
+      modelResolver as unknown as IModelResolver,
       sessionEndRegistryMock as unknown as import('./session-end-callback-registry').SessionEndCallbackRegistry,
       queryRunnerStub as unknown as import('./sdk-query-runner.service').SdkQueryRunner,
     );
@@ -1267,7 +1267,7 @@ describe('SessionLifecycleManager', () => {
   // Gap 8 (theater-5): disposeAllSessions with a real SessionRegistry
   // ---------------------------------------------------------------------------
 
-  describe('disposeAllSessions — real-registry integration (audit gap 8 / theater-5)', () => {
+  describe('disposeAllSessions â€” real-registry integration (audit gap 8 / theater-5)', () => {
     it('aborts all 3 controllers, calls interrupt on all queries, and notifies sessionEndRegistry with pre-clear workspace roots', async () => {
       const ih = makeIntegrationHarness();
 
@@ -1279,7 +1279,7 @@ describe('SessionLifecycleManager', () => {
       let callCount = 0;
       ih.queryFn.mockImplementation(() => fakeQueries[callCount++]);
 
-      // Register 3 sessions via executeQuery — this wires the real registry
+      // Register 3 sessions via executeQuery â€” this wires the real registry
       await ih.manager.executeQuery({
         sessionId: 'tab_a' as SessionId,
         sessionConfig: createSessionConfig({ projectPath: '/ws/a' }),
@@ -1330,7 +1330,7 @@ describe('SessionLifecycleManager', () => {
       expect(notifyArgs).toContain('/ws/b');
       expect(notifyArgs).toContain('/ws/c');
 
-      // (d) After dispose, ALL lookups return undefined — registry is cleared
+      // (d) After dispose, ALL lookups return undefined â€” registry is cleared
       expect(ih.manager.find('tab_a')).toBeUndefined();
       expect(ih.manager.find('tab_b')).toBeUndefined();
       expect(ih.manager.find('uuid_b')).toBeUndefined();
@@ -1343,7 +1343,7 @@ describe('SessionLifecycleManager', () => {
   // Gap 9: endSession(realUUID) removes from BOTH indexes
   // ---------------------------------------------------------------------------
 
-  describe('endSession(realUUID) — dual-index removal (audit gap 9)', () => {
+  describe('endSession(realUUID) â€” dual-index removal (audit gap 9)', () => {
     it('removes both byTabId and bySessionId entries when called with the real UUID', async () => {
       const ih = makeIntegrationHarness();
       const fakeQuery = createFakeQueryForIntegration();
@@ -1359,14 +1359,14 @@ describe('SessionLifecycleManager', () => {
       expect(ih.manager.find('tab_1')).toBeDefined();
       expect(ih.manager.find('real-uuid-123')).toBeDefined();
 
-      // End session via the REAL UUID — this is the exact failure mode the
+      // End session via the REAL UUID â€” this is the exact failure mode the
       // refactor was built to fix (byTabId-only removal would leave bySessionId
       // stale).
       await ih.manager.endSession('real-uuid-123' as SessionId);
 
       // (a) byTabId entry removed
       expect(ih.manager.find('tab_1')).toBeUndefined();
-      // (b) bySessionId entry removed — the central bug variant
+      // (b) bySessionId entry removed â€” the central bug variant
       expect(ih.manager.find('real-uuid-123')).toBeUndefined();
       // (c) abortController was aborted
       const rec = fakeQuery.query as unknown as Query & {
@@ -1376,7 +1376,7 @@ describe('SessionLifecycleManager', () => {
       // abort via the fake query's interrupt being called.
       expect(fakeQuery.interrupt).toHaveBeenCalledTimes(1);
       // (d) query.interrupt called exactly once
-      // (already asserted above — redundant assertion for clarity)
+      // (already asserted above â€” redundant assertion for clarity)
       expect(fakeQuery.interrupt).toHaveBeenCalledTimes(1);
     });
   });
@@ -1385,7 +1385,7 @@ describe('SessionLifecycleManager', () => {
   // Gap 10: interruptCurrentTurn after bindRealSessionId
   // ---------------------------------------------------------------------------
 
-  describe('interruptCurrentTurn(realUUID) — dual-index lookup (audit gap 10)', () => {
+  describe('interruptCurrentTurn(realUUID) â€” dual-index lookup (audit gap 10)', () => {
     it('calls query.interrupt exactly once and leaves the session active', async () => {
       const ih = makeIntegrationHarness();
       const fakeQuery = createFakeQueryForIntegration();
@@ -1416,7 +1416,7 @@ describe('SessionLifecycleManager', () => {
   // Gap 13 (theater-1): find(realUUID).query non-null after the full flow
   // ---------------------------------------------------------------------------
 
-  describe('find(realUUID).query non-null — dual-index query visibility (audit gap 13)', () => {
+  describe('find(realUUID).query non-null â€” dual-index query visibility (audit gap 13)', () => {
     it('find(realUUID).query is the same object reference as the query set by executeQuery', async () => {
       const ih = makeIntegrationHarness();
       const fakeQuery = createFakeQueryForIntegration();
@@ -1428,7 +1428,7 @@ describe('SessionLifecycleManager', () => {
         sessionConfig: createSessionConfig({ projectPath: '/ws/query-vis' }),
       });
 
-      // Bind the real UUID — creates the bySessionId pointer to the SAME record
+      // Bind the real UUID â€” creates the bySessionId pointer to the SAME record
       ih.manager.bindRealSessionId('tab_3', 'real-uuid-789');
 
       // find(realUUID) must return the record with query set (not null)
@@ -1457,7 +1457,7 @@ describe('SessionLifecycleManager', () => {
   // Gap 11: double endSession() on the same session is a safe no-op
   // ---------------------------------------------------------------------------
 
-  describe('double endSession — idempotency safety (audit gap 11)', () => {
+  describe('double endSession â€” idempotency safety (audit gap 11)', () => {
     it('calling endSession twice on the same session does not throw and does not call interrupt a second time', async () => {
       const ih = makeIntegrationHarness();
       const fakeQuery = createFakeQueryForIntegration();
@@ -1468,12 +1468,12 @@ describe('SessionLifecycleManager', () => {
         sessionConfig: createSessionConfig({ projectPath: '/ws/double' }),
       });
 
-      // First endSession — normal teardown
+      // First endSession â€” normal teardown
       await ih.manager.endSession('tab_double_end' as SessionId);
       expect(fakeQuery.interrupt).toHaveBeenCalledTimes(1);
       expect(ih.manager.find('tab_double_end')).toBeUndefined();
 
-      // Second endSession — must be a safe no-op (session is already gone)
+      // Second endSession â€” must be a safe no-op (session is already gone)
       await expect(
         ih.manager.endSession('tab_double_end' as SessionId),
       ).resolves.not.toThrow();
@@ -1504,7 +1504,7 @@ describe('SessionLifecycleManager', () => {
         }),
       ).rejects.toThrow('options builder exploded');
 
-      // (b) The pre-registered session must be rolled back — no orphan left
+      // (b) The pre-registered session must be rolled back â€” no orphan left
       expect(throwHarness.manager.find('tab_build_throw')).toBeUndefined();
       expect(throwHarness.manager.getActiveSessionIds()).not.toContain(
         'tab_build_throw',

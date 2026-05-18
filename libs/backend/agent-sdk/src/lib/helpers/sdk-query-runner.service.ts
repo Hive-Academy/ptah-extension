@@ -1,16 +1,16 @@
-/**
- * SdkQueryRunner — unified SDK query invocation primitive.
+﻿/**
+ * SdkQueryRunner â€” unified SDK query invocation primitive.
  *
  * Reconciles the previously-forked one-shot (InternalQueryService) and
- * interactive (SessionLifecycleManager → SessionQueryExecutor) paths under a
+ * interactive (SessionLifecycleManager â†’ SessionQueryExecutor) paths under a
  * single `run({ mode })` discriminator.
  *
  * Modes:
- *   - `oneShot`   — single-string prompt, bypassPermissions, no canUseTool,
+ *   - `oneShot`   â€” single-string prompt, bypassPermissions, no canUseTool,
  *                   maxTurns explicit, persistSession=false, subagent +
  *                   compaction hooks wired, identity prompt + PTAH_CORE
  *                   appended for premium. Used by `InternalQueryService`.
- *   - `interactive` — caller pre-builds `Options` via `SdkQueryOptionsBuilder`
+ *   - `interactive` â€” caller pre-builds `Options` via `SdkQueryOptionsBuilder`
  *                   and hands them in along with the iterable/string prompt
  *                   plus the optional `warmQuery` handle. The runner only owns
  *                   `moduleLoader.getQueryFunction()` + `queryFn(...)` +
@@ -19,7 +19,7 @@
  *
  * "Enhanced prompts never resolve here" invariant preserved: `enhancedPromptsContent`
  * is INPUT-ONLY on the interactive branch and IS NOT ACCEPTED on the oneShot
- * branch — the runner never imports `EnhancedPromptsService`.
+ * branch â€” the runner never imports `EnhancedPromptsService`.
  *
  * Compaction hook conditionality: oneShot wires compaction hooks (preserves the
  * pre-refactor InternalQueryService behaviour). Interactive option construction
@@ -40,7 +40,7 @@ import { CompactionHookHandler } from './compaction-hook-handler';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
-} from '../providers/_shared/provider-registry';
+} from '@ptah-extension/shared';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import {
   Options as SdkQueryOptions,
@@ -141,7 +141,7 @@ export class SdkQueryRunner {
         ? options.systemPrompt
         : undefined;
 
-    this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
+    this.logger.info(`${SERVICE_TAG} SDK options built â€” launching query`, {
       model: input.model,
       permissionMode: 'bypassPermissions',
       maxTurns: options.maxTurns,
@@ -231,7 +231,7 @@ export class SdkQueryRunner {
         usedWarmQuery = true;
       } catch (warmErr) {
         this.logger.warn(
-          `${SERVICE_TAG} warmQuery.query() threw — falling back to fresh query`,
+          `${SERVICE_TAG} warmQuery.query() threw â€” falling back to fresh query`,
           warmErr instanceof Error ? warmErr : new Error(String(warmErr)),
         );
         try {

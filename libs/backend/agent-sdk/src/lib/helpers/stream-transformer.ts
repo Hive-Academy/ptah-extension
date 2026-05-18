@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Stream Transformer
  *
  * Transforms SDK message streams into FlatStreamEventUnion for UI rendering.
@@ -32,7 +32,7 @@ import {
   isCompactBoundary,
   isLocalCommandOutput,
 } from '../types/sdk-types/claude-sdk.types';
-import type { ModelResolver } from '../auth/model-resolver';
+import type { IModelResolver } from '../auth-env.port';
 
 /**
  * Callback type for notifying when real session ID is received from SDK.
@@ -64,7 +64,7 @@ export interface ResultModelUsage {
   /**
    * Current context fill from the last API turn (input + cache_read tokens).
    * Unlike the cumulative inputTokens/cacheReadInputTokens, this represents
-   * the actual prompt size sent on the most recent turn — i.e., the real
+   * the actual prompt size sent on the most recent turn â€” i.e., the real
    * context window fill level. Undefined if no message_start was captured.
    */
   lastTurnContextTokens?: number;
@@ -215,7 +215,7 @@ export class StreamTransformer {
     private readonly messageTransformer: SdkMessageTransformer,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
-    private readonly modelResolver: ModelResolver,
+    private readonly modelResolver: IModelResolver,
   ) {}
 
   /**
@@ -257,7 +257,7 @@ export class StreamTransformer {
         // First-message timeout guard. If no SDK message has arrived within
         // FIRST_MESSAGE_TIMEOUT_MS, abort the query and surface a clear error
         // so the UI doesn't spin forever. Cleared as soon as the first message
-        // is received — normal streaming then proceeds without interference.
+        // is received â€” normal streaming then proceeds without interference.
         // Include the configured base URL and model ID in the error so users
         // can diagnose misrouted requests (e.g., unsupported Moonshot model
         // IDs on the Anthropic-compatible endpoint).
@@ -268,12 +268,12 @@ export class StreamTransformer {
               if (firstMessageReceived) return;
               const seconds = Math.round(FIRST_MESSAGE_TIMEOUT_MS / 1000);
               logger.error(
-                `[StreamTransformer] Session ${sessionId} timed out waiting for first response after ${seconds}s — aborting (baseUrl=${baseUrlForError}, model=${initialModel})`,
+                `[StreamTransformer] Session ${sessionId} timed out waiting for first response after ${seconds}s â€” aborting (baseUrl=${baseUrlForError}, model=${initialModel})`,
               );
               try {
                 abortController.abort(
                   new Error(
-                    `Request timed out after ${seconds}s — no response from provider ` +
+                    `Request timed out after ${seconds}s â€” no response from provider ` +
                       `(baseUrl="${baseUrlForError}", model="${initialModel}"). ` +
                       `The provider may not support this model ID, or the endpoint may be unreachable. ` +
                       `Check provider configuration or switch providers.`,
@@ -379,7 +379,7 @@ export class StreamTransformer {
                       continue;
                     }
 
-                    // Resolve actual model for accurate pricing (e.g., "claude-opus-4-..." → "kimi-k2.5")
+                    // Resolve actual model for accurate pricing (e.g., "claude-opus-4-..." â†’ "kimi-k2.5")
                     const resolvedModel = modelResolver.resolveForPricing(
                       model,
                       authEnv,
@@ -417,7 +417,7 @@ export class StreamTransformer {
                   // Strategy: match initialModel (fuzzy), then fall back to highest output tokens.
                   if (modelUsageList.length > 1) {
                     modelUsageList.sort((a, b) => {
-                      // First: try matching against initialModel (fuzzy — extract family name)
+                      // First: try matching against initialModel (fuzzy â€” extract family name)
                       if (initialModel) {
                         const normalizedInit = initialModel.toLowerCase();
                         const aFuzzy =
@@ -487,7 +487,7 @@ export class StreamTransformer {
             // Also process compact_boundary (type: 'system') to emit compaction_complete events.
             // Also process local_command_output (type: 'system') for /cost, /context output.
             if (isCompactBoundary(sdkMessage)) {
-              // Compaction wipes the per-turn context — the next result that
+              // Compaction wipes the per-turn context â€” the next result that
               // arrives without a fresh message_start must report undefined,
               // not the stale pre-compaction tokens.
               lastTurnContextByModel.clear();

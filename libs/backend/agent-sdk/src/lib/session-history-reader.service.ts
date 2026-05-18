@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SessionHistoryReaderService - Facade for session history reading
  *
  * This service provides the public API for reading session history from Claude JSONL files
@@ -32,7 +32,7 @@ import {
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
 import { SdkError } from './errors';
-import type { ModelResolver } from './auth/model-resolver';
+import type { IModelResolver } from './auth-env.port';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -72,7 +72,7 @@ export class SessionHistoryReaderService {
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
     private readonly eventFactory: HistoryEventFactory,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
-    private readonly modelResolver: ModelResolver,
+    private readonly modelResolver: IModelResolver,
   ) {}
 
   /**
@@ -289,7 +289,7 @@ export class SessionHistoryReaderService {
    *   or bedrock variants: msg_bdrk_01... (non-digit second char after msg_).
    *
    * Ptah-generated IDs: msg_<unix-timestamp>_<random>
-   *   e.g. msg_1778055502540_cegogbr — starts with 10+ consecutive digits after msg_.
+   *   e.g. msg_1778055502540_cegogbr â€” starts with 10+ consecutive digits after msg_.
    *
    * Negative lookahead `(?!\d{10,}_)` rejects Ptah-format IDs while accepting
    * all known Anthropic UUID variants (always start with a non-digit char after msg_).
@@ -332,13 +332,13 @@ export class SessionHistoryReaderService {
     workspacePath: string,
     upToMessageId: string,
   ): Promise<string> {
-    // Fast path: already a native UUID — pass through unchanged.
+    // Fast path: already a native UUID â€” pass through unchanged.
     if (this.NATIVE_SDK_UUID_PATTERN.test(upToMessageId)) {
       return upToMessageId;
     }
 
     this.logger.info(
-      '[SessionHistoryReader] Non-native upToMessageId — resolving via JSONL scan',
+      '[SessionHistoryReader] Non-native upToMessageId â€” resolving via JSONL scan',
       { sessionId, upToMessageId },
     );
 
@@ -476,7 +476,7 @@ export class SessionHistoryReaderService {
       perModelUsage.set(modelKey, existing);
     };
 
-    // Find the last compact_boundary — only aggregate stats from post-compaction
+    // Find the last compact_boundary â€” only aggregate stats from post-compaction
     // messages. Pre-compaction tokens were consumed in a context that no longer
     // exists; including them inflates CTX% and cost after compaction.
     let statsStartIndex = 0;
@@ -493,7 +493,7 @@ export class SessionHistoryReaderService {
       statsStartIndex > 0 ? mainMessages.slice(statsStartIndex) : mainMessages;
 
     // Detect model from ALL messages (system init is pre-compaction but model
-    // name is metadata, not usage — it stays valid after compaction).
+    // name is metadata, not usage â€” it stays valid after compaction).
     for (const msg of mainMessages) {
       if (
         !detectedModel &&

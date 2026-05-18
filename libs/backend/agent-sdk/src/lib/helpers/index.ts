@@ -9,7 +9,6 @@
  *
  */
 
-export { AuthManager, type AuthResult, type AuthConfig } from './auth-manager';
 export {
   SessionLifecycleManager,
   type SDKUserMessage,

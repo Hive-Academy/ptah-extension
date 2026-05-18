@@ -68,3 +68,31 @@ export function resolveStrategy(
 
   return 'api-key'; // default for API-key providers (OpenRouter, Moonshot, Z.AI)
 }
+
+/**
+ * Normalize any persisted `authMethod` value (legacy or new spelling) to the
+ * canonical `LegacyAuthMethod` triad. Defaults to `'apiKey'` on unknown input.
+ *
+ * Mapping (first match wins, default `'apiKey'`):
+ *   'apiKey'                              → 'apiKey'
+ *   'claudeCli' | 'claude-cli'            → 'claudeCli'
+ *   'thirdParty' | 'oauth' | 'openrouter' → 'thirdParty'
+ *   anything else                         → 'apiKey'
+ */
+export function normalizeAuthMethod(rawValue: unknown): LegacyAuthMethod {
+  if (typeof rawValue !== 'string') {
+    return 'apiKey';
+  }
+
+  if (rawValue === 'apiKey') return 'apiKey';
+  if (rawValue === 'claudeCli' || rawValue === 'claude-cli') return 'claudeCli';
+  if (
+    rawValue === 'thirdParty' ||
+    rawValue === 'oauth' ||
+    rawValue === 'openrouter'
+  ) {
+    return 'thirdParty';
+  }
+
+  return 'apiKey';
+}

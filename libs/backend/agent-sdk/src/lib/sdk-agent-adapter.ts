@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SDK Agent Adapter - IAIProvider implementation using official Claude Agent SDK
  *
  * This adapter provides direct in-process SDK communication with 10x performance
@@ -48,8 +48,8 @@ import {
   type ForkSessionResult,
   type RewindFilesResult,
 } from './types/sdk-types/claude-sdk.types';
+import type { IAuthEnvProvider } from './auth-env.port';
 import {
-  AuthManager,
   SessionLifecycleManager,
   ConfigWatcher,
   StreamTransformer,
@@ -79,7 +79,7 @@ export type {
 /**
  * Minimal shape of the SDK's `WarmQuery` returned by `startup()`. We type
  * `query` as `unknown` because callers must invoke it via the type-narrow
- * helper {@link tryUseWarmQuery} which discriminates at the call site —
+ * helper {@link tryUseWarmQuery} which discriminates at the call site â€”
  * keeping a tight, dynamic-import-friendly surface here.
  */
 export interface WarmQueryHandle {
@@ -90,7 +90,7 @@ export interface WarmQueryHandle {
 /**
  * Description of the options baked into a warm handle at `startup()` time.
  *
- * `WarmQuery.query(prompt)` accepts ONLY a prompt — model, cwd,
+ * `WarmQuery.query(prompt)` accepts ONLY a prompt â€” model, cwd,
  * permissionMode, hooks, canUseTool, agents, systemPrompt, plugins,
  * file-checkpointing, partial-messages, resume, fork, and per-call MCP
  * overrides are ALL inherited from `startup()`'s options. So this fingerprint
@@ -101,12 +101,12 @@ export interface WarmQueryHandle {
  * cwd, MCP override, etc.) discards the handle.
  */
 export interface WarmPrewarmFingerprint {
-  /** cli.js path baked into startup() — must match the consuming session. */
+  /** cli.js path baked into startup() â€” must match the consuming session. */
   pathToClaudeCodeExecutable: string | null;
-  /** MCP servers map baked at startup — `null` when none were passed. */
+  /** MCP servers map baked at startup â€” `null` when none were passed. */
   mcpServers: Record<string, unknown> | null;
   /**
-   * Base URL baked into startup()'s AuthEnv — `null` when the warm subprocess
+   * Base URL baked into startup()'s AuthEnv â€” `null` when the warm subprocess
    * was started against the default DI-singleton AuthEnv. Sessions that pass
    * a ProviderProfile populate this with the profile's baseUrl; a mismatch
    * here means the warm subprocess is talking to a different provider than
@@ -217,7 +217,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly metadataStore: SessionMetadataStore,
     @inject(SDK_TOKENS.SDK_AUTH_MANAGER)
-    private readonly authManager: AuthManager,
+    private readonly authManager: IAuthEnvProvider,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly sessionLifecycle: SessionLifecycleManager,
     @inject(SDK_TOKENS.SDK_CONFIG_WATCHER)
@@ -248,7 +248,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.moduleLoader.preload();
   }
 
-  /** Idempotency guard for prewarm() — see method docs. */
+  /** Idempotency guard for prewarm() â€” see method docs. */
   private _prewarmed = false;
 
   /**
@@ -266,7 +266,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * whose underlying subprocess was started with options that diverge from
    * what the upcoming session needs.
    *
-   * The SDK's `WarmQuery.query(prompt)` accepts ONLY a prompt — every other
+   * The SDK's `WarmQuery.query(prompt)` accepts ONLY a prompt â€” every other
    * Option (model, cwd, permissionMode, hooks, canUseTool, mcpServers,
    * agents, systemPrompt, plugins, file checkpointing, partial messages,
    * resume/fork) was frozen when `startup()` was called. So this snapshot
@@ -276,7 +276,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   /**
    * Wall-clock timestamp (ms) of the most recent successful prewarm. Used by
-   * {@link consumeWarmQuery} to evict warm handles older than 5 minutes —
+   * {@link consumeWarmQuery} to evict warm handles older than 5 minutes â€”
    * the underlying CLI subprocess gets stale, and consuming a stale warm
    * handle risks dead-pipe errors at first send.
    */
@@ -292,13 +292,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * Returns null when ANY of the following is true:
    *  - no warm handle is held, or
    *  - the held handle is older than {@link WARM_QUERY_TTL_MS} (the handle
-   *    is discarded — closed and nulled — before returning), or
+   *    is discarded â€” closed and nulled â€” before returning), or
    *  - `requirements` is provided AND fails to match the fingerprint baked
    *    into the warm handle at `prewarm()` time. On mismatch the handle is
    *    discarded so a fresh `prewarm()` can pick up the new fingerprint.
    *
    * **Why a requirements check is mandatory for the wiring path**: the SDK's
-   * `WarmQuery.query(prompt)` accepts ONLY a prompt — every other Option
+   * `WarmQuery.query(prompt)` accepts ONLY a prompt â€” every other Option
    * (model, cwd, permissionMode, hooks, canUseTool, mcpServers, agents,
    * systemPrompt, plugins, fork/resume, file-checkpointing, partial-messages)
    * was frozen at `startup()`. Handing out a warm handle to a session whose
@@ -336,7 +336,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       );
       if (reason) {
         this.logger.info(
-          `[SdkAgentAdapter] Discarding warm query — fingerprint mismatch: ${reason}`,
+          `[SdkAgentAdapter] Discarding warm query â€” fingerprint mismatch: ${reason}`,
         );
         this.discardWarmHandle();
         // Allow re-prewarm with the new desired fingerprint.
@@ -357,7 +357,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * slot and its fingerprint. Swallows errors from `close()` because the
    * SDK has thrown from this path before (e.g. when the underlying socket
    * is already half-shut by the OS) and we never want a discard to fail
-   * loudly — the caller is already on a fallback path.
+   * loudly â€” the caller is already on a fallback path.
    */
   private discardWarmHandle(): void {
     if (!this._warmQuery) {
@@ -384,7 +384,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    *
    * Equality rules:
    *  - `pathToClaudeCodeExecutable` must match exactly. A null on either
-   *    side that doesn't match the other is a mismatch — the SDK resolves
+   *    side that doesn't match the other is a mismatch â€” the SDK resolves
    *    a different cli.js when this is omitted, so a mismatch here means
    *    the warm subprocess literally is a different binary than the new
    *    session would have spawned.
@@ -394,7 +394,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    *    subprocess doesn't match what the session needs.
    *
    * Anything mutable mid-session (model, permissionMode) is NOT compared
-   * here — those are settable on the live `Query` after consumption (via
+   * here â€” those are settable on the live `Query` after consumption (via
    * `setModel`, `setPermissionMode`).
    */
   private static fingerprintMismatchReason(
@@ -433,7 +433,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   /**
    * Pre-warm the Claude Agent SDK subprocess via the SDK's `startup()` export.
    *
-   * `startup()` (Claude Agent SDK ≥ 0.2.111) spawns the CLI subprocess and
+   * `startup()` (Claude Agent SDK â‰¥ 0.2.111) spawns the CLI subprocess and
    * completes the initialize handshake ahead of time, so the first `query()`
    * resolves immediately instead of paying the spawn+handshake latency.
    *
@@ -441,12 +441,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
    *
    * The returned `WarmQuery` is retained on the adapter (see {@link _warmQuery})
    * so the first real chat send can consume it via {@link consumeWarmQuery} and
-   * skip the spawn+handshake entirely. The handle has a 5-minute TTL — older
+   * skip the spawn+handshake entirely. The handle has a 5-minute TTL â€” older
    * handles are discarded so subsequent sessions don't pick up a stale
    * subprocess. MCP server config and the authoritative tier env vars are
    * passed into `startup()` so the MCP handshake also amortizes during prewarm.
    *
-   * Failures are swallowed with `logger.warn` — a failed pre-warm must NOT
+   * Failures are swallowed with `logger.warn` â€” a failed pre-warm must NOT
    * block normal flow. The first real `query()` call will retry naturally.
    */
   public async prewarm(
@@ -498,7 +498,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         try {
           this._warmQuery.close();
         } catch {
-          // Ignore — we're replacing it anyway.
+          // Ignore â€” we're replacing it anyway.
         }
       }
       this._warmQuery = warm;
@@ -524,7 +524,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         `[SdkAgentAdapter] SDK subprocess pre-warmed and retained (${elapsed}ms)`,
       );
       // Set the idempotency flag ONLY after successful startup. Setting it
-      // before the await would silently swallow retry opportunities — a
+      // before the await would silently swallow retry opportunities â€” a
       // failed prewarm would mark itself "done" and the next call would
       // become a no-op even though the subprocess never warmed up.
       this._prewarmed = true;
@@ -532,7 +532,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       const elapsed = (performance.now() - startTime).toFixed(2);
       // Redact API key fragments before logging. SDK errors sometimes embed
       // bearer tokens / sk-ant-* keys in stack traces or messages from
-      // upstream HTTP clients. Log only the error name + redacted message —
+      // upstream HTTP clients. Log only the error name + redacted message â€”
       // never the full Error object (which carries `.stack`).
       const rawMessage = err instanceof Error ? err.message : String(err);
       const errorName = err instanceof Error ? err.name : 'UnknownError';
@@ -543,8 +543,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.logger.warn(
         `[SdkAgentAdapter] SDK prewarm failed after ${elapsed}ms (will resolve on first query): ${errorName}: ${redactedMessage}`,
       );
-      // Do NOT set _prewarmed in the catch — leave it false so a subsequent
-      // call retries the warmup naturally. Do NOT capture in Sentry — prewarm
+      // Do NOT set _prewarmed in the catch â€” leave it false so a subsequent
+      // call retries the warmup naturally. Do NOT capture in Sentry â€” prewarm
       // is best-effort and benign on failure.
     }
   }
@@ -654,7 +654,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
           savedModel !== 'default'
         ) {
           // Migrate legacy bare tier names ('opus', 'sonnet', 'haiku') to full IDs.
-          // 'default' is preserved — it means "let the SDK choose" and resolves at query time.
+          // 'default' is preserved â€” it means "let the SDK choose" and resolves at query time.
           // Older versions stored tier names that the SDK no longer resolves.
           const resolved = this.modelService.resolveModelId(savedModel);
           if (resolved !== savedModel) {
@@ -842,14 +842,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * Caller-supplied MCP HTTP server overrides.
        * Keyed by MCP server name; entries are merged OVER the registry-built
        * map by `SdkQueryOptionsBuilder.mergeMcpOverride` (caller wins on key
-       * collision). Reserved for the Anthropic-compatible HTTP proxy —
+       * collision). Reserved for the Anthropic-compatible HTTP proxy â€”
        * non-proxy callers leave this `undefined` and the merge is a no-op.
        */
       mcpServersOverride?: Record<string, McpHttpServerOverride>;
       /**
        * Optional ProviderProfile sourced from PtahCliRegistry. When provided,
        * the profile's authEnv, model, baseUrl, and cliJsPath override the
-       * DI-singleton defaults for this session — enabling third-party
+       * DI-singleton defaults for this session â€” enabling third-party
        * Anthropic-compatible providers (Moonshot, Z.AI, OpenRouter) through
        * the unified SdkAgentAdapter path.
        */
@@ -887,7 +887,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // Try to consume the warm subprocess held by
     // `prewarm()`. We only ask for the handle when this session has
     // requirements that match what was baked in at startup() time:
-    //   - same cli.js path (always true for this adapter — `cliJsPath` is
+    //   - same cli.js path (always true for this adapter â€” `cliJsPath` is
     //     set once in initialize() and used by both prewarm and queries),
     //   - no caller-supplied MCP override (the warm handle's MCP map was
     //     fixed at prewarm). When `mcpServersOverride` is supplied, the
@@ -1026,7 +1026,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * Truncate the transcript to (and including) this user-message UUID
        * on resume. Maps to SDK Options.resumeSessionAt. When the session is
        * already active, the existing Query is ended first so executeQuery
-       * starts a fresh Query with the truncation applied — reusing the
+       * starts a fresh Query with the truncation applied â€” reusing the
        * existing Query would silently ignore this option.
        */
       resumeSessionAt?: string;
@@ -1314,7 +1314,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    *
    * The returned session ID can be passed to `resumeSession()` to continue
    * the forked branch. The original session is left untouched. Forked sessions
-   * do NOT carry file-history snapshots — the SDK only copies transcript data.
+   * do NOT carry file-history snapshots â€” the SDK only copies transcript data.
    *
    * @param sessionId - UUID of the source session to fork from
    * @param upToMessageId - Optional message UUID to slice the transcript at (inclusive)
@@ -1355,7 +1355,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         );
       }
 
-      // Fetch source metadata once — used both for workspace path resolution
+      // Fetch source metadata once â€” used both for workspace path resolution
       // (needed during message ID resolution) and for naming the fork.
       const sourceMetadata = await this.metadataStore.get(sessionId);
 
@@ -1363,7 +1363,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // (msg_<timestamp>_<random>) obtained from a history-loaded session
       // replay. The SDK only accepts native Anthropic UUIDs (msg_01...).
       // We resolve the ID before calling fork() so the SDK never sees an
-      // invalid ID — instead a clear, actionable SdkError is thrown here.
+      // invalid ID â€” instead a clear, actionable SdkError is thrown here.
       let resolvedUpToMessageId: string | undefined = upToMessageId;
       if (upToMessageId !== undefined) {
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
@@ -1395,13 +1395,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
       // Create metadata for the new forked session so session:load and
       // chat:resume can find it. The SDK's standalone forkSession() only
-      // writes the JSONL file — it does not touch our metadata store, so
+      // writes the JSONL file â€” it does not touch our metadata store, so
       // without this the new session would 404 on session:load.
       const forkName =
         title ??
         (sourceMetadata ? `${sourceMetadata.name} (fork)` : 'Forked session');
 
-      // Workspace ID resolution chain: source metadata → active workspace.
+      // Workspace ID resolution chain: source metadata â†’ active workspace.
       // An empty workspaceId would poison the new record:
       //   - SessionRpcHandlers.authorizeSessionAccess rejects empty/unknown
       //     workspaces with `unauthorized-workspace`.
@@ -1416,7 +1416,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         );
       }
       // Pass kind='forked' so the metadata-changed broadcast distinguishes
-      // forked sessions from brand-new ones — the webview can highlight or
+      // forked sessions from brand-new ones â€” the webview can highlight or
       // scroll-to-fork in the sidebar based on this signal.
       await this.metadataStore.create(
         result.sessionId,
@@ -1452,7 +1452,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    *
    * Delegates to `Query.rewindFiles()` on the active SDK query handle for
    * this session. Requires that the session was started with file
-   * checkpointing enabled (the default — see SdkQueryOptionsBuilder).
+   * checkpointing enabled (the default â€” see SdkQueryOptionsBuilder).
    *
    * **CONSTRAINT**: This requires a LIVE `Query` handle. The session must
    * be currently active in `SessionLifecycleManager` (i.e. there's an
@@ -1491,13 +1491,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // for the legacy regex fallback at the RPC boundary.
       throw new SessionNotActiveError(
         `Cannot rewind files: session ${sessionId} is not active or has no live Query handle. ` +
-          `rewindFiles requires the session to be currently active in SessionLifecycleManager — ` +
+          `rewindFiles requires the session to be currently active in SessionLifecycleManager â€” ` +
           `resume the session before invoking rewind.`,
       );
     }
 
     // NOTE: the SessionNotActiveError thrown above is intentionally outside
-    // this try/catch — wrapping it would lose the `instanceof` discriminator
+    // this try/catch â€” wrapping it would lose the `instanceof` discriminator
     // the RPC layer relies on.
     try {
       const result = await rec.query.rewindFiles(userMessageId, {

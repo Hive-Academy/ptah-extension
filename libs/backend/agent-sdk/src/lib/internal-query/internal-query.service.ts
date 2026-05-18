@@ -1,20 +1,20 @@
-/**
- * InternalQueryService — one-shot SDK query façade.
+﻿/**
+ * InternalQueryService â€” one-shot SDK query faÃ§ade.
  *
- * Thin façade over `SdkQueryRunner.runOneShot`. Public API
+ * Thin faÃ§ade over `SdkQueryRunner.runOneShot`. Public API
  * (`execute`, `InternalQueryConfig`, `InternalQueryHandle`) preserved verbatim;
  * consumers (`SdkInternalQueryCuratorLlm`, `agent-generation`, `skill-synthesis`,
  * `memory-curator`) require zero migration.
  *
  * Generation-vs-usage invariant preserved: InternalQueryService NEVER resolves
- * `EnhancedPromptsService` — the runner exposes no `enhancedPromptsContent`
+ * `EnhancedPromptsService` â€” the runner exposes no `enhancedPromptsContent`
  * input on the oneShot path, so the cycle stays broken at the type level.
  *
  * The constructor signature is unchanged so that the existing unit spec
- * (`internal-query.service.spec.ts`) — which instantiates this class with eight
- * positional dependencies and asserts the type-level isolation property — keeps
+ * (`internal-query.service.spec.ts`) â€” which instantiates this class with eight
+ * positional dependencies and asserts the type-level isolation property â€” keeps
  * passing. `SdkQueryRunner` is constructed eagerly inside the body using those
- * same dependencies, mirroring the `SessionLifecycleManager → SessionQueryExecutor`
+ * same dependencies, mirroring the `SessionLifecycleManager â†’ SessionQueryExecutor`
  * pattern (sub-service constructed in the facade constructor, not injected).
  *
  * @module @ptah-extension/agent-sdk

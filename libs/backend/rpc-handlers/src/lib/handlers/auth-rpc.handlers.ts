@@ -23,15 +23,18 @@ import {
   SDK_TOKENS,
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
-  ProviderModelsService,
   getAnthropicProvider,
   TIER_ENV_VAR_MAP,
   ClaudeCliDetector,
 } from '@ptah-extension/agent-sdk';
+import {
+  ProviderModelsService,
+  AUTH_PROVIDERS_TOKENS,
+} from '@ptah-extension/auth-providers';
 import type {
   CopilotAuthService,
   ICodexAuthService,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/auth-providers';
 import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
@@ -67,11 +70,11 @@ export class AuthRpcHandlers {
     private readonly authSecretsService: IAuthSecretsService,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
-    @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
-    @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
     private readonly copilotAuth: CopilotAuthService,
-    @inject(SDK_TOKENS.SDK_CODEX_AUTH)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
     private readonly codexAuth: ICodexAuthService,
     @inject(TOKENS.PLATFORM_COMMANDS)
     private readonly platformCommands: IPlatformCommands,

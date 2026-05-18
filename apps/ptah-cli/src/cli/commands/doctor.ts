@@ -28,13 +28,12 @@
  * "what would happen if I ran an agent right now?" stays in lockstep.
  */
 
+import { SDK_TOKENS, type ClaudeCliDetector } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
   resolveEffectiveAuthRoute,
-  type ClaudeCliDetector,
   type EffectiveRouteProvider,
   type EffectiveRouteResult,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/auth-providers';
 
 import { withEngine } from '../bootstrap/with-engine.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
@@ -114,7 +113,7 @@ export interface DoctorReport {
 // Re-export the resolver so existing CLI consumers (and the doctor spec) can
 // import it from `./doctor.js` for backwards compatibility. The canonical
 // home is `@ptah-extension/agent-sdk`.
-export { resolveEffectiveAuthRoute } from '@ptah-extension/agent-sdk';
+export { resolveEffectiveAuthRoute } from '@ptah-extension/auth-providers';
 
 /** Optional collaborators — tests inject; production omits. */
 export interface DoctorExecuteHooks {

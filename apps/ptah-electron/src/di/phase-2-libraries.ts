@@ -19,6 +19,7 @@ import {
   SDK_TOKENS,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
+import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
@@ -60,6 +61,9 @@ export function registerPhase2Libraries(
   // PHASE 2.2: Agent SDK (Claude Agent SDK integration)
   // ========================================
   // NOTE: registerVsCodeLmToolsServices is called in Phase 3 (decoupled from VS Code)
+  // auth-providers MUST run BEFORE registerSdkServices because agent-sdk consumers
+  // inject AUTH_PROVIDERS_TOKENS.* at construction time.
+  registerAuthProvidersServices(container, logger);
   registerSdkServices(container, logger);
   registerCliAgentRuntimeServices(container, logger);
 

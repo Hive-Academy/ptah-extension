@@ -68,6 +68,7 @@ import {
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import type {
   PluginLoaderService,
@@ -582,6 +583,9 @@ export class CliDIContainer {
     registerWorkspaceIntelligenceServices(container, logger);
 
     // Phase 2.2: Agent SDK (Claude Agent SDK integration)
+    // auth-providers MUST run BEFORE registerSdkServices because agent-sdk
+    // consumers inject AUTH_PROVIDERS_TOKENS.* at construction time.
+    registerAuthProvidersServices(container, logger);
     registerSdkServices(container, logger);
     registerCliAgentRuntimeServices(container, logger);
 

@@ -1,4 +1,4 @@
-// Wire runtime: Phases 4 through 4.9 of Electron activation.
+﻿// Wire runtime: Phases 4 through 4.9 of Electron activation.
 
 import type { DependencyContainer } from 'tsyringe';
 import type { BrowserWindow } from 'electron';
@@ -10,6 +10,7 @@ import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS, bindLicenseReactivity } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, setPtahMcpPort } from '@ptah-extension/agent-sdk';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import {
   AGENT_GENERATION_TOKENS,
   EnhancedPromptsService,
@@ -74,7 +75,7 @@ export interface WireRuntimeResult {
     } | null;
     /**
      * SQLite connection service handle for orderly shutdown. Null when
-     * persistence-sqlite registration failed — caller's LIFO will-quit chain
+     * persistence-sqlite registration failed â€” caller's LIFO will-quit chain
      * must tolerate null.
      */
     sqliteConnection: SqliteConnectionService | null;
@@ -85,19 +86,19 @@ export interface WireRuntimeResult {
     memoryCurator: MemoryCuratorService | null;
     /**
      * Skill synthesis service handle for orderly shutdown. Null when
-     * persistence-sqlite is unavailable or `start()` failed — caller still
+     * persistence-sqlite is unavailable or `start()` failed â€” caller still
      * owns the LIFO will-quit chain and must tolerate null.
      */
     skillSynthesis: SkillSynthesisService | null;
     /**
      * Cron scheduler handle for orderly shutdown. Null when
      * persistence-sqlite is unavailable, croner is missing, or `start()`
-     * failed — caller's LIFO will-quit chain must tolerate null.
+     * failed â€” caller's LIFO will-quit chain must tolerate null.
      */
     cronScheduler: CronScheduler | null;
     /**
      * Messaging gateway service handle for orderly shutdown. Null when
-     * persistence-sqlite is unavailable or `gateway.enabled` is `false` —
+     * persistence-sqlite is unavailable or `gateway.enabled` is `false` â€”
      * caller's LIFO will-quit chain must tolerate null.
      */
     messagingGateway: GatewayService | null;
@@ -135,7 +136,7 @@ export async function wireRuntime(
   let resolvedStateStorage: IStateStorage | undefined;
   // PHASE 4.45: Wire multi-phase analysis reader into EnhancedPromptsService
   // Deferred from container.ts Phase 2.4 because the dependency chain
-  // (EnhancedPromptsService → SdkPermissionHandler → WebviewManager)
+  // (EnhancedPromptsService â†’ SdkPermissionHandler â†’ WebviewManager)
   // requires TOKENS.WEBVIEW_MANAGER which was just registered above.
   try {
     const enhancedPrompts = container.resolve<EnhancedPromptsService>(
@@ -189,7 +190,7 @@ export async function wireRuntime(
     // PHASE 4.51: Open SQLite + run migrations.
     // The connection is registered in Phase 2.55 but lazy-opened here so
     // `openAndMigrate()` failures (missing better-sqlite3 native build,
-    // disk full, etc.) are non-fatal — memory curator simply stays disabled.
+    // disk full, etc.) are non-fatal â€” memory curator simply stays disabled.
     try {
       if (container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
         console.log('[Ptah Electron] Resolving SQLite connection service...');
@@ -215,31 +216,31 @@ export async function wireRuntime(
         /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(
           errorMessage,
         );
-      // ONE prominent, actionable line — not a buried stack trace. The
+      // ONE prominent, actionable line â€” not a buried stack trace. The
       // detailed failure reason now lives on `sqliteConnection.unavailable`,
       // and every persistence-backed RPC will return a structured
       // `PERSISTENCE_UNAVAILABLE` errorCode the UI can render as a single
       // notice instead of N raw stack traces.
       console.error(
         '\n' +
-          '╔═══════════════════════════════════════════════════════════════════╗\n' +
-          '║  [Ptah] PERSISTENCE OFFLINE — Memory / Skills / Cron / Gateway   ║\n' +
-          '║  features will report PERSISTENCE_UNAVAILABLE until this is      ║\n' +
-          '║  resolved. The rest of the app will continue to boot.            ║\n' +
+          'â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—\n' +
+          'â•‘  [Ptah] PERSISTENCE OFFLINE â€” Memory / Skills / Cron / Gateway   â•‘\n' +
+          'â•‘  features will report PERSISTENCE_UNAVAILABLE until this is      â•‘\n' +
+          'â•‘  resolved. The rest of the app will continue to boot.            â•‘\n' +
           (isAbiMismatch
-            ? '║                                                                   ║\n' +
-              '║  CAUSE:  better-sqlite3 native module ABI mismatch.              ║\n' +
-              '║  FIX:    npm run electron:rebuild   (then restart Ptah)          ║\n'
-            : '║                                                                   ║\n' +
-              `║  CAUSE:  ${errorMessage.slice(0, 56).padEnd(56)}     ║\n`) +
-          '╚═══════════════════════════════════════════════════════════════════╝\n',
+            ? 'â•‘                                                                   â•‘\n' +
+              'â•‘  CAUSE:  better-sqlite3 native module ABI mismatch.              â•‘\n' +
+              'â•‘  FIX:    npm run electron:rebuild   (then restart Ptah)          â•‘\n'
+            : 'â•‘                                                                   â•‘\n' +
+              `â•‘  CAUSE:  ${errorMessage.slice(0, 56).padEnd(56)}     â•‘\n`) +
+          'â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n',
       );
       // The DI-registered SqliteConnectionService is still in the
-      // container — the typed `db` getter throws
+      // container â€” the typed `db` getter throws
       // RpcUserError(PERSISTENCE_UNAVAILABLE) on access, which the RPC
       // layer auto-converts to a structured response. We null this local
       // ref only so the next phases (memory curator / skill synthesis /
-      // code symbol indexer) skip their start() calls — they'd just fail
+      // code symbol indexer) skip their start() calls â€” they'd just fail
       // again at the same point.
       refs.sqliteConnection = null;
     }
@@ -247,7 +248,7 @@ export async function wireRuntime(
     // PHASE 4.52: Memory curator cold-start.
     // The PreCompact subscription (memory extraction) starts when memoryEnabled = true,
     // regardless of boot strategy. IndexingControlService now gates the symbol walk.
-    // Failure is non-fatal — search/list still work against whatever is in the store.
+    // Failure is non-fatal â€” search/list still work against whatever is in the store.
     let indexingControl: IndexingControlService | null = null;
     try {
       if (
@@ -274,7 +275,7 @@ export async function wireRuntime(
             const status = await indexingControl.getStatus(workspaceRoot);
             memoryEnabled = status.memoryEnabled;
           } catch {
-            // Non-fatal — default to enabled on status-read failure
+            // Non-fatal â€” default to enabled on status-read failure
           }
         }
 
@@ -298,7 +299,7 @@ export async function wireRuntime(
     // PHASE 4.53: Skill Synthesis cold-start.
     // Resolve and start the skill synthesis service so the candidate store +
     // sqlite migrations are ready before the first chat session ends.
-    // Failure is non-fatal — persistence-sqlite may not be available yet on
+    // Failure is non-fatal â€” persistence-sqlite may not be available yet on
     // every branch and we never want skill synthesis to block boot.
     try {
       refs.skillSynthesis = container.resolve<SkillSynthesisService>(
@@ -412,13 +413,13 @@ export async function wireRuntime(
 
     // PHASE 4.565 + 4.566: CLI Skill Sync and CLI Agent Sync are now driven
     // reactively by the license:verified / license:expired events wired via
-    // bindLicenseReactivity() below — no tier snapshot needed here.
+    // bindLicenseReactivity() below â€” no tier snapshot needed here.
     // PHASE 4.57: Model Pricing Pre-fetch.
     // Pre-fetch model pricing from OpenRouter so cost calculations use live data.
     // Non-blocking, fire-and-forget. Falls back to bundled defaults if offline.
     try {
       const providerModels = container.resolve(
-        SDK_TOKENS.SDK_PROVIDER_MODELS,
+        AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS,
       ) as { prefetchPricing: () => Promise<number> };
       providerModels.prefetchPricing().catch((err) => {
         console.warn(
@@ -484,7 +485,7 @@ export async function wireRuntime(
 
     // PHASE 4.59: MCP Server Startup is now driven reactively by the
     // license:verified / license:expired events wired via bindLicenseReactivity()
-    // below — no tier snapshot needed here.
+    // below â€” no tier snapshot needed here.
 
     // PHASE 4.6: Session Auto-Discovery
     // Import existing Claude sessions from ~/.claude/projects/ for the active
@@ -516,7 +517,7 @@ export async function wireRuntime(
     // PHASE 4.8: Git File System Watcher
     // Watch .git directory and workspace files for changes, push git status
     // updates to the renderer. Replaces frontend polling with event-driven push.
-    // Only runs `git status` when something actually changes — zero wasted calls.
+    // Only runs `git status` when something actually changes â€” zero wasted calls.
     if (workspaceRoot) {
       try {
         const { GitWatcherService } =
@@ -551,7 +552,7 @@ export async function wireRuntime(
     // PHASE 4.94: Cron scheduler cold-start.
     // Resolve and start the scheduler so persisted jobs re-arm and the
     // CatchupCoordinator runs its missed-run pass against `cron.catchupWindowMs`.
-    // Settings are read from IWorkspaceProvider — defaults come from
+    // Settings are read from IWorkspaceProvider â€” defaults come from
     // FILE_BASED_SETTINGS_DEFAULTS (cron.enabled=true, maxConcurrentJobs=3,
     // catchupWindowMs=86_400_000). Failure is non-fatal: croner is lazy-required
     // and persistence-sqlite may be unavailable on some branches.
@@ -605,7 +606,7 @@ export async function wireRuntime(
     // Uses JobStore.upsert so repeated boots update the schedule without
     // creating duplicate rows. The handler is wired into IHandlerRegistry so
     // the JobRunner can dispatch it by name when the cron fires.
-    // Entire phase is non-fatal — failure does not prevent the app from running.
+    // Entire phase is non-fatal â€” failure does not prevent the app from running.
     try {
       if (
         refs.cronScheduler !== null &&
@@ -672,7 +673,7 @@ export async function wireRuntime(
           });
         }
 
-        // Upsert the job definition — idempotent across every boot.
+        // Upsert the job definition â€” idempotent across every boot.
         jobStore.upsert({
           id: '@ptah/daily-backup',
           name: 'Daily SQLite Backup',
@@ -733,7 +734,7 @@ export async function wireRuntime(
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
 
     // Resolve plugins path for skill sync callback (ContentDownloadService
-    // is a singleton — safe to resolve separately from bootHeavyServices).
+    // is a singleton â€” safe to resolve separately from bootHeavyServices).
     let pluginsPathForSync: string;
     try {
       const contentDownloadForSync = container.resolve<ContentDownloadService>(

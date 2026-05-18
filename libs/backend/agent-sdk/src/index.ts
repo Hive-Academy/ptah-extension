@@ -52,11 +52,9 @@ export * from './lib/types/sdk-types/claude-sdk.types';
 // Permission handler exports
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 
-// Provider models service
-export {
-  ProviderModelsService,
-  type DynamicModelFetcher,
-} from './lib/provider-models.service';
+// Auth env port — agent-sdk reads AuthEnv on demand via this interface,
+// implemented by AuthManager in @ptah-extension/auth-providers.
+export type { IAuthEnvProvider } from './lib/auth-env.port';
 
 // Errors
 export {
@@ -99,10 +97,12 @@ export {
   DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
 } from './lib/helpers';
-export type { ModelTier } from './lib/helpers';
+export type { ModelTier, EnvMappedTier } from './lib/helpers';
 
 // Anthropic-compatible provider registry
-// Re-exported via providers barrel (canonical source: providers/_shared/provider-registry.ts)
+// Canonical source moved to @ptah-extension/shared in TASK_2026_123 Win 5
+// Batch 16 to break the agent-sdk ↔ auth-providers cycle. Re-exported here
+// for backward-compatibility with existing consumers.
 export {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
@@ -111,12 +111,12 @@ export {
   getProviderBaseUrl,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
-} from './lib/providers';
+} from '@ptah-extension/shared';
 export type {
   AnthropicProvider,
   AnthropicProviderId,
   ProviderStaticModel,
-} from './lib/providers';
+} from '@ptah-extension/shared';
 
 // CLI detector (Claude CLI availability check)
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
@@ -164,84 +164,6 @@ export {
 } from './lib/helpers';
 
 // ============================================================
-// Copilot Provider
-// GitHub Copilot integration via OAuth + translation proxy
-// ============================================================
-export {
-  CopilotAuthService,
-  VscodeCopilotAuthService,
-  CopilotTranslationProxy,
-  COPILOT_PROVIDER_ENTRY,
-  COPILOT_DEFAULT_TIERS,
-  COPILOT_PROXY_TOKEN_PLACEHOLDER,
-  readCopilotToken,
-  getCopilotHostsPath,
-  getCopilotAppsPath,
-  writeCopilotToken,
-} from './lib/providers';
-export type {
-  ICopilotAuthService,
-  ICopilotTranslationProxy,
-  CopilotAuthState,
-  CopilotHostsFile,
-} from './lib/providers';
-
-// ============================================================
-// Codex Provider
-// OpenAI Codex integration via file-based OAuth + translation proxy
-// ============================================================
-export {
-  CodexAuthService,
-  CodexTranslationProxy,
-  CODEX_PROVIDER_ENTRY,
-  CODEX_DEFAULT_TIERS,
-} from './lib/providers';
-export type { ICodexAuthService, CodexAuthFile } from './lib/providers';
-
-// ============================================================
-// OpenRouter Provider
-// Universal OpenRouter integration via API key + translation proxy.
-// Unlike the legacy /v1/messages passthrough (Anthropic-family only), this
-// routes all providers (OpenAI, Google, Meta, etc.) through the local proxy.
-// ============================================================
-export {
-  OpenRouterAuthService,
-  OpenRouterTranslationProxy,
-  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
-} from './lib/providers';
-export type { IOpenRouterAuthService } from './lib/providers';
-
-// ============================================================
-// Local Model Providers
-// Ollama (Anthropic-native) and LM Studio (translation proxy)
-// ============================================================
-export {
-  LmStudioTranslationProxy,
-  OllamaModelDiscoveryService,
-  OLLAMA_PROVIDER_ENTRY,
-  OLLAMA_CLOUD_PROVIDER_ENTRY,
-  LM_STUDIO_PROVIDER_ENTRY,
-  LOCAL_PROXY_TOKEN_PLACEHOLDER,
-  OLLAMA_AUTH_TOKEN_PLACEHOLDER,
-  isLocalProviderId,
-  isOllamaProviderId,
-} from './lib/providers';
-
-// ============================================================
-// OpenAI Translation Module
-// Shared Anthropic <-> OpenAI translation infrastructure
-// ============================================================
-export {
-  OpenAIResponseTranslator,
-  TranslationProxyBase,
-  translateAnthropicToOpenAI,
-} from './lib/providers';
-export type {
-  ITranslationProxy,
-  TranslationProxyConfig,
-} from './lib/providers';
-
-// ============================================================
 // Slash Command Interceptor
 // Detects and classifies follow-up slash commands
 // ============================================================
@@ -286,26 +208,6 @@ export type {
 // MCP Port Management
 // ============================================================
 export { PTAH_MCP_PORT, setPtahMcpPort } from './lib/constants';
-
-// ============================================================
-// Auth Strategy System
-// Clean auth abstraction replacing scattered if/else logic
-// ============================================================
-export { ModelResolver } from './lib/auth';
-export type {
-  IAuthStrategy,
-  AuthConfigureResult,
-  AuthConfigureContext,
-} from './lib/auth';
-
-// Effective auth-route resolver — pure function reused by
-// `ptah doctor` and the Electron / VS Code settings UIs.
-export {
-  resolveEffectiveAuthRoute,
-  type EffectiveRouteProvider,
-  type EffectiveRouteConfig,
-  type EffectiveRouteResult,
-} from './lib/auth';
 
 // ============================================================
 // RPC Wiring helpers

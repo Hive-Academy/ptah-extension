@@ -39,7 +39,6 @@ import {
   getAnthropicProvider,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
-  ModelResolver,
   assembleSystemPrompt,
   getActiveProviderId,
   buildSafeEnv,
@@ -62,6 +61,7 @@ import {
   type HookCallbackMatcher,
   type SdkBeta,
 } from '@ptah-extension/agent-sdk';
+import { ModelResolver } from '@ptah-extension/auth-providers';
 
 /**
  * Premium capabilities passed from the RPC handler layer.

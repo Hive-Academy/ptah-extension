@@ -1,4 +1,4 @@
-/**
+﻿/**
  * StreamTransformer specs _FOLLOWUP coverage.
  *
  * Targets the per-turn context-fill bookkeeping that drives the frontend's
@@ -7,17 +7,17 @@
  * these tests pin the fix in place.
  *
  * Coverage:
- *   1. compact_boundary clears `lastTurnContextByModel` — a result event
+ *   1. compact_boundary clears `lastTurnContextByModel` â€” a result event
  *      arriving after the boundary (without a fresh message_start) emits
  *      `lastTurnContextTokens: undefined`.
  *   2. cache_creation_input_tokens is included in the lastTurnContextTokens
  *      sum (first-cache-write turns must not under-report).
- *   3. Two consecutive message_starts for the same model — the second
+ *   3. Two consecutive message_starts for the same model â€” the second
  *      overwrites the first (no leak / no accumulation).
  *
  * Mocking posture:
  *   - Direct `new StreamTransformer(...)` with hand-rolled typed mocks.
- *   - SdkMessageTransformer.transform is stubbed to [] — we don't care about
+ *   - SdkMessageTransformer.transform is stubbed to [] â€” we don't care about
  *     downstream events, only the `onResultStats` callback payload.
  *   - The async iterable is built from a plain array of SDK messages.
  */
@@ -27,7 +27,7 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AuthEnv, SessionId } from '@ptah-extension/shared';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
-import type { ModelResolver } from '../auth/model-resolver';
+import type { IModelResolver } from '../auth-env.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
 import { StreamTransformer, ResultModelUsage } from './stream-transformer';
@@ -54,7 +54,7 @@ function makeMessageTransformer(): jest.Mocked<
 }
 
 function makeModelResolver(): jest.Mocked<
-  Pick<ModelResolver, 'resolveForPricing'>
+  Pick<IModelResolver, 'resolveForPricing'>
 > {
   return {
     resolveForPricing: jest.fn((m: string) => m || 'unknown'),
@@ -90,13 +90,13 @@ function makeHarness(): Harness {
     logger,
     messageTransformer as unknown as SdkMessageTransformer,
     authEnv,
-    modelResolver as unknown as ModelResolver,
+    modelResolver as unknown as IModelResolver,
   );
   return { transformer, messageTransformer, logger };
 }
 
 // ---------------------------------------------------------------------------
-// SDK message factories — minimal shapes that satisfy the type guards.
+// SDK message factories â€” minimal shapes that satisfy the type guards.
 // We cast through `unknown` to keep the test fixtures tight; the runtime
 // guards only inspect a handful of fields.
 // ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ function resultMessage(
 
 async function drain(iter: AsyncIterable<unknown>): Promise<void> {
   // Consume the iterator end-to-end so all callbacks fire.
-  // We don't care about the yielded events here — `onResultStats` is the
+  // We don't care about the yielded events here â€” `onResultStats` is the
   // observable signal under test.
 
   for await (const _e of iter) {
@@ -186,8 +186,8 @@ async function drain(iter: AsyncIterable<unknown>): Promise<void> {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)', () => {
-  it('clears lastTurnContextByModel on compact_boundary — next result without message_start emits lastTurnContextTokens=undefined', async () => {
+describe('StreamTransformer â€” lastTurnContextTokens (TASK_2026_109_FOLLOWUP)', () => {
+  it('clears lastTurnContextByModel on compact_boundary â€” next result without message_start emits lastTurnContextTokens=undefined', async () => {
     const { transformer } = makeHarness();
     const captured: ResultModelUsage[][] = [];
 
@@ -223,7 +223,7 @@ describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)',
     const { transformer } = makeHarness();
     const captured: ResultModelUsage[][] = [];
 
-    // First turn writes a fresh cache block — pre-fix this read as just
+    // First turn writes a fresh cache block â€” pre-fix this read as just
     // input_tokens + cache_read = 200, missing the 5000 cache_creation
     // tokens that are also part of the prompt the model actually saw.
     const messages: SDKMessage[] = [
@@ -260,7 +260,7 @@ describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)',
         cache_read_input_tokens: 500,
         cache_creation_input_tokens: 0,
       }),
-      // Second message_start for the SAME model — must replace, not add.
+      // Second message_start for the SAME model â€” must replace, not add.
       messageStart(MODEL, {
         input_tokens: 100,
         cache_read_input_tokens: 50,

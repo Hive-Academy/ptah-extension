@@ -9,21 +9,17 @@
  * - Plain Symbol('Name') !== Symbol('Name') — creates unique symbols per call
  * - Symbol.for('Name') === Symbol.for('Name') — always matches, even across modules
  *
- * Rules:
- * 1. Always use Symbol.for() for token values
- * 2. Never use string literals as DI tokens
- * 3. Never use plain Symbol() (without .for)
- * 4. Always inject via token constants (TOKENS.X, SDK_TOKENS.X), never hardcode strings
- *    in @inject() decorators
- * 5. Each Symbol.for() description must be globally unique across all token files
- *    (unless intentionally shared for cross-library resolution, e.g.,
- *    TOKENS.SDK_AGENT_ADAPTER and SDK_TOKENS.SDK_AGENT_ADAPTER both resolve to
- *    Symbol.for('SdkAgentAdapter') so they reference the same registration)
+ * Auth + provider tokens are owned by `@ptah-extension/auth-providers` as
+ * AUTH_PROVIDERS_TOKENS. They are MIRRORED here (byte-identical Symbol.for
+ * descriptions) so agent-sdk consumers can @inject() them without a runtime
+ * dependency on auth-providers. tsyringe resolves them to the same
+ * registration because Symbol.for() interns globally.
  *
  * Token files:
  * - vscode-core/src/di/tokens.ts    — core infrastructure tokens (TOKENS)
- * - agent-sdk/src/lib/di/tokens.ts  (this file) — SDK-specific tokens
- * - agent-generation/src/lib/di/tokens.ts — agent generation tokens (AGENT_GENERATION_TOKENS)
+ * - agent-sdk/src/lib/di/tokens.ts  (this file) — SDK + mirrored auth tokens
+ * - auth-providers/src/lib/di/tokens.ts — canonical AUTH_PROVIDERS_TOKENS
+ * - agent-generation/src/lib/di/tokens.ts — agent generation tokens
  *
  * @see libs/backend/vscode-core/src/di/tokens.ts for canonical convention reference
  */
@@ -37,7 +33,6 @@ export const SDK_TOKENS = {
   SDK_MESSAGE_TRANSFORMER: Symbol.for('SdkMessageTransformer'),
 
   // Helper services
-  SDK_AUTH_MANAGER: Symbol.for('SdkAuthManager'),
   SDK_SESSION_LIFECYCLE_MANAGER: Symbol.for('SdkSessionLifecycleManager'),
   SDK_CONFIG_WATCHER: Symbol.for('SdkConfigWatcher'),
   SDK_STREAM_TRANSFORMER: Symbol.for('SdkStreamTransformer'),
@@ -53,19 +48,8 @@ export const SDK_TOKENS = {
   // Compaction hook handler
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
-  /**
-   * Compaction callback registry.
-   * Fan-out registry of additional `CompactionStartCallback` subscribers
-   * (e.g. memory curator) invoked by `CompactionHookHandler` in addition
-   * to the chat-path's captured closure.
-   */
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
 
-  /**
-   * Session end callback registry.
-   * Fan-out registry for session-end subscribers (e.g. skill synthesis).
-   * Fired by SessionControl.endSession() after session is fully removed.
-   */
   SDK_SESSION_END_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionEndCallbackRegistry',
   ),
@@ -73,97 +57,57 @@ export const SDK_TOKENS = {
   // Worktree hook handler
   SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
 
-  // Provider models service
-  SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
-
   // Extracted services
   SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
   SDK_QUERY_RUNNER: Symbol.for('SdkQueryRunner'),
   SDK_MODULE_LOADER: Symbol.for('SdkModuleLoader'),
   SDK_MODEL_SERVICE: Symbol.for('SdkModelService'),
-  // History reader child services
   SDK_HISTORY_EVENT_FACTORY: Symbol.for('SdkHistoryEventFactory'),
   SDK_JSONL_READER: Symbol.for('SdkJsonlReader'),
   SDK_AGENT_CORRELATION: Symbol.for('SdkAgentCorrelation'),
   SDK_SESSION_REPLAY: Symbol.for('SdkSessionReplay'),
 
-  // Internal Query Service
-  // One-shot SDK query execution, separate from interactive chat path
   SDK_INTERNAL_QUERY_SERVICE: Symbol.for('SdkInternalQueryService'),
 
-  // Plugin Loader Service
-  // Manages plugin metadata and per-workspace plugin configuration
   SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader'),
 
-  /** Shared mutable AuthEnv singleton */
-  SDK_AUTH_ENV: Symbol.for('SdkAuthEnv'),
-
-  /** Slash Command Interceptor */
   SDK_SLASH_COMMAND_INTERCEPTOR: Symbol.for('SdkSlashCommandInterceptor'),
 
-  /** Copilot Provider Services */
-  SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
-  SDK_COPILOT_PROXY: Symbol.for('SdkCopilotProxy'),
-
-  /** Codex Provider Services */
-  SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
-  SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
-
-  /** OpenRouter Provider Services */
-  SDK_OPENROUTER_AUTH: Symbol.for('SdkOpenRouterAuth'),
-  SDK_OPENROUTER_PROXY: Symbol.for('SdkOpenRouterProxy'),
-
-  /** Local Model Provider Services */
-  SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
-  SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
-
-  /** Ollama Cloud metadata service — live tags + pricing */
-  SDK_OLLAMA_CLOUD_METADATA: Symbol.for('SdkOllamaCloudMetadata'),
-
-  /** Skill Junction Service */
   SDK_SKILL_JUNCTION: Symbol.for('SdkSkillJunction'),
 
-  /** Settings Export/Import Services */
   SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
   SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
 
-  /** Auth Strategy Services */
+  SDK_LIVE_USAGE_TRACKER: Symbol.for('SdkLiveUsageTracker'),
+
+  SDK_MEMORY_PROMPT_INJECTOR: Symbol.for('SdkMemoryPromptInjector'),
+
+  SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
+
+  SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
+
+  // Mirrored auth + provider tokens — byte-identical Symbol.for descriptions
+  // with AUTH_PROVIDERS_TOKENS so agent-sdk consumers can @inject() them
+  // without a runtime dependency on @ptah-extension/auth-providers.
+  SDK_AUTH_MANAGER: Symbol.for('SdkAuthManager'),
+  SDK_AUTH_ENV: Symbol.for('SdkAuthEnv'),
+  SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
+  SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
   SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
   SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),
   SDK_LOCAL_NATIVE_STRATEGY: Symbol.for('SdkLocalNativeStrategy'),
   SDK_LOCAL_PROXY_STRATEGY: Symbol.for('SdkLocalProxyStrategy'),
   SDK_CLI_STRATEGY: Symbol.for('SdkCliStrategy'),
-  SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
-
-  /**
-   * Live usage tracker.
-   * Holds the per-session cumulative pre-compaction token snapshot. Written
-   * by `SdkMessageTransformer` from streaming usage events and read by
-   * `CompactionHookHandler` at PreCompact firing time.
-   */
-  SDK_LIVE_USAGE_TRACKER: Symbol.for('SdkLiveUsageTracker'),
-
-  /**
-   * MemoryPromptInjector — recalls top-K memories and formats them for system prompt
-   * injection at session start. Registered as a singleton; depends on TOKENS.MEMORY_READER
-   * (cross-layer alias resolved by memory-curator DI registration, with a no-op fallback
-   * registered here for hosts where memory-curator is not loaded).
-   */
-  SDK_MEMORY_PROMPT_INJECTOR: Symbol.for('SdkMemoryPromptInjector'),
-
-  /**
-   * SdkInternalQueryCuratorLlm — implements ICuratorLLM by routing curator prompts
-   * through InternalQueryService. Symbol.for('PtahCuratorLlm') matches
-   * MEMORY_CONTRACT_TOKENS.CURATOR_LLM so memory-curator resolves the same registration.
-   */
-  SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
-
-  /**
-   * SubagentMessageDispatcher — bidirectional messaging + stop/interrupt for
-   * running subagents.
-   */
-  SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
+  SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
+  SDK_COPILOT_PROXY: Symbol.for('SdkCopilotProxy'),
+  SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
+  SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
+  SDK_OPENROUTER_AUTH: Symbol.for('SdkOpenRouterAuth'),
+  SDK_OPENROUTER_PROXY: Symbol.for('SdkOpenRouterProxy'),
+  SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
+  SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
+  SDK_OLLAMA_CLOUD_METADATA: Symbol.for('SdkOllamaCloudMetadata'),
 } as const;
 
 /**

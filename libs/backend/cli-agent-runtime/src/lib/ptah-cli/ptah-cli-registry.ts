@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Ptah CLI Registry - Manages lifecycle of PtahCliAdapter instances
  *
  * DI-injectable singleton that handles CRUD operations for Ptah CLI
@@ -42,19 +42,22 @@ import {
   SubagentHookHandler,
   CompactionHookHandler,
   CompactionConfigProvider,
-  ProviderModelsService,
-  ModelResolver,
   ANTHROPIC_PROVIDERS,
   getAnthropicProvider,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
-  OLLAMA_AUTH_TOKEN_PLACEHOLDER,
   buildSafeEnv,
   TIER_TO_MODEL_ID,
   type AnthropicProvider,
   type ModelTier,
   type Options,
 } from '@ptah-extension/agent-sdk';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  ProviderModelsService,
+  ModelResolver,
+  OLLAMA_AUTH_TOKEN_PLACEHOLDER,
+} from '@ptah-extension/auth-providers';
 import { PtahCliAdapter } from './ptah-cli-adapter';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
@@ -107,13 +110,13 @@ export class PtahCliRegistry {
     private readonly compactionHookHandler: CompactionHookHandler,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider,
-    @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE)
     private readonly configPersistence: PtahCliConfigPersistence,
     @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS)
     private readonly spawnOptionsService: PtahCliSpawnOptions,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
@@ -375,7 +378,7 @@ export class PtahCliRegistry {
    * Resolve a ProviderProfile for a Ptah CLI agent.
    *
    * Returns the value-type description of the agent's auth env, model, base
-   * URL, and cli.js path — consumed by `SdkAgentAdapter.startChatSession()`
+   * URL, and cli.js path â€” consumed by `SdkAgentAdapter.startChatSession()`
    * via the `providerProfile` parameter so third-party providers reuse the
    * unified interactive-chat code path instead of a parallel adapter.
    */
@@ -626,7 +629,7 @@ export class PtahCliRegistry {
 
     // Resolve SDK model.
     // Priority: agent-level selectedModel (the user's explicit pick in the
-    // CLI agent card) → per-tier mapping → hardcoded Anthropic fallback.
+    // CLI agent card) â†’ per-tier mapping â†’ hardcoded Anthropic fallback.
     // selectedModel must win so users see the model they configured (e.g.
     // kimi-k2.6:cloud) instead of the provider default (kimi-k2.5:cloud).
     const tier: ModelTier = options?.modelTier ?? 'sonnet';
@@ -691,7 +694,7 @@ export class PtahCliRegistry {
       options: {
         abortController,
         model,
-        // No maxTurns cap — let the agent work freely until done
+        // No maxTurns cap â€” let the agent work freely until done
         cwd,
         systemPrompt:
           assembly.systemPromptMode === 'standalone' &&
@@ -867,7 +870,7 @@ export class PtahCliRegistry {
     );
     return {
       permissionMode: sdkMode,
-      // CLI path: no tabId arg — tabId stays undefined on the wire per the
+      // CLI path: no tabId arg â€” tabId stays undefined on the wire per the
       // CLI contract (UC3). The frontend router falls through to agent-monitor
       // routing when tabId is absent.
       canUseTool: this.permissionHandler.createCallback(
@@ -978,7 +981,7 @@ export class PtahCliRegistry {
 
     /**
      * Dispose all callback arrays and buffers.
-     * Idempotent — safe to call multiple times.
+     * Idempotent â€” safe to call multiple times.
      * Called after the stream loop exits to release references held by closures.
      */
     const dispose = (): void => {
@@ -1018,7 +1021,7 @@ export class PtahCliRegistry {
   ): PtahCliConfig['tierMappings'] {
     // Read CLI-agent scope first (the user's per-agent tier overrides set via
     // the CLI agent config UI). Fall back to the main-agent scope only as a
-    // last resort — do not let mainTiers silently shadow cliAgent tiers.
+    // last resort â€” do not let mainTiers silently shadow cliAgent tiers.
     const mainTiers = this.providerModels.getModelTiers(
       agentConfig.providerId,
       'cliAgent',
@@ -1065,8 +1068,8 @@ export class PtahCliRegistry {
    * Build default tier mappings for a new agent.
    *
    * Returns undefined so the runtime cascade in resolveEffectiveTiers can
-   * resolve tiers in the right order: agentTiers → mainTiers → provider.defaultTiers
-   * → staticModels[0]. Pre-filling a partial mapping here would shadow the
+   * resolve tiers in the right order: agentTiers â†’ mainTiers â†’ provider.defaultTiers
+   * â†’ staticModels[0]. Pre-filling a partial mapping here would shadow the
    * user's globally-configured tier choices (e.g. Ollama defaults to
    * staticModels[0]='llama3.1:8b' even when the user has selected
    * 'qwen3:8b'/'devstral'/'qwen3:32b' via the model mapping modal).

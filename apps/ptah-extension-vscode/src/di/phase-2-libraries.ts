@@ -1,5 +1,5 @@
-/**
- * Phase 2 — Library Services (workspace-intelligence, vscode-lm-tools, agent-sdk,
+﻿/**
+ * Phase 2 â€” Library Services (workspace-intelligence, vscode-lm-tools, agent-sdk,
  *                             agent-generation)
  *
  * Runs AFTER `registerPhase3Handlers` in `DIContainer.setup`. RPC handlers are
@@ -17,7 +17,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 // NOTE: persistence-sqlite, memory-curator, skill-synthesis, cron-scheduler
 // are intentionally NOT imported here. SQLite-backed features (Cron, Gateway,
-// Memory, Skill Synthesis) are Electron-only by design — see
+// Memory, Skill Synthesis) are Electron-only by design â€” see
 // rpc-method-registration.service.ts ELECTRON_ONLY_METHODS. The VS Code build
 // must not register these tokens or the activation chain will eagerly load
 // better-sqlite3's native binary, which is not shipped with the marketplace
@@ -32,9 +32,13 @@ import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 import {
   registerSdkServices,
   SDK_TOKENS,
-  VscodeCopilotAuthService,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
+import {
+  registerAuthProvidersServices,
+  AUTH_PROVIDERS_TOKENS,
+  VscodeCopilotAuthService,
+} from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
@@ -74,7 +78,7 @@ export function registerPhase2Libraries(
     );
     container.register(BROWSER_CAPABILITIES_TOKEN, {
       useValue: new ChromeLauncherBrowserCapabilities(
-        // getRecordingDir — routed via file-based settings for Electron parity.
+        // getRecordingDir â€” routed via file-based settings for Electron parity.
         // Defaults to {workspace}/.ptah/recordings/ when no explicit dir is configured.
         () => {
           const configured =
@@ -92,7 +96,11 @@ export function registerPhase2Libraries(
     });
   }
 
-  // Agent SDK Integration — register Agent SDK services (adapter, storage,
+  // Auth + Providers â€” must run BEFORE registerSdkServices because agent-sdk
+  // consumers inject AUTH_PROVIDERS_TOKENS.* at construction time.
+  registerAuthProvidersServices(container, logger);
+
+  // Agent SDK Integration â€” register Agent SDK services (adapter, storage,
   // permission handler). SdkPermissionHandler handles permission emitter
   // directly. SDK services inject platform abstractions via PLATFORM_TOKENS
   // instead of receiving vscode.ExtensionContext.
@@ -103,7 +111,7 @@ export function registerPhase2Libraries(
   // VscodeCopilotAuthService adds native GitHub OAuth via vscode.authentication
   // (best UX in VS Code) before falling back to file-based/device-code flow.
   container.register(
-    SDK_TOKENS.SDK_COPILOT_AUTH,
+    AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
     { useClass: VscodeCopilotAuthService },
     { lifecycle: Lifecycle.Singleton },
   );
@@ -117,7 +125,7 @@ export function registerPhase2Libraries(
     useFactory: (c) => c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
   });
 
-  // Agent Generation Services — SetupStatusService, SetupWizardService, and
+  // Agent Generation Services â€” SetupStatusService, SetupWizardService, and
   // supporting services required for setup wizard functionality. Services
   // inject IPlatformInfo directly via PLATFORM_TOKENS.PLATFORM_INFO.
   registerAgentGenerationServices(container, logger);
@@ -147,7 +155,7 @@ export function registerPhase2Libraries(
   // CliPluginSyncService) are registered by registerSdkServices (called
   // earlier in this phase). The llm-abstraction library has been deleted.
 
-  // SQLite-backed services — INTENTIONALLY NOT REGISTERED.
+  // SQLite-backed services â€” INTENTIONALLY NOT REGISTERED.
   // Persistence-SQLite, Memory Curator, Skill Synthesis, Cron Scheduler, and
   // Messaging Gateway are Electron-only. The VS Code marketplace VSIX is a
   // single cross-platform package and does not ship `better-sqlite3` /
@@ -157,5 +165,7 @@ export function registerPhase2Libraries(
   // missing DI registrations and render a "desktop-only" placeholder. The
   // ELECTRON_ONLY_METHODS list in rpc-method-registration.service.ts
   // documents the corresponding RPC methods that are intentionally absent.
-  logger.info('[DI] SQLite-backed services skipped — Electron-only by design');
+  logger.info(
+    '[DI] SQLite-backed services skipped â€” Electron-only by design',
+  );
 }

@@ -72,11 +72,13 @@ import {
 } from '@ptah-extension/platform-core/testing';
 import type {
   ClaudeCliDetector,
+  SdkAgentAdapter,
+} from '@ptah-extension/agent-sdk';
+import type {
   CopilotAuthService,
   ICodexAuthService,
   ProviderModelsService,
-  SdkAgentAdapter,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/auth-providers';
 import {
   createMockLogger,
   type MockLogger,

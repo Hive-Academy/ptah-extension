@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Session Lifecycle Manager - Handles SDK session runtime management
  *
  * Responsibilities:
@@ -39,7 +39,7 @@ import type {
   WorktreeCreatedCallback,
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
-import type { ModelResolver } from '../auth/model-resolver';
+import type { IModelResolver } from '../auth-env.port';
 import {
   SessionRegistry,
   type SessionRecord,
@@ -163,7 +163,7 @@ export interface ExecuteQueryConfig {
   resumeSessionAt?: string;
   /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
-   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
+   * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
    * explicitly to opt out (e.g., performance-sensitive contexts).
    */
@@ -176,7 +176,7 @@ export interface ExecuteQueryConfig {
    */
   includePartialMessages?: boolean;
   /**
-   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
    * built map by the options builder (caller wins on key collision).
    * Reserved for the Anthropic-compatible HTTP proxy. When `undefined` or
    * empty, the SDK's `mcpServers` is identity-preserved.
@@ -198,13 +198,13 @@ export interface ExecuteQueryConfig {
   /**
    * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
    * provided, the executor uses `warm.query(prompt)` for the very first
-   * query of this session instead of the standard `queryFn(...)` call —
+   * query of this session instead of the standard `queryFn(...)` call â€”
    * skipping the spawn + initialize handshake.
    *
    * **Caller contract**: the caller MUST have already validated (via
    * `consumeWarmQuery(requirements)`) that this warm handle's option
    * fingerprint matches the options about to be built for this session.
-   * The executor does NOT re-validate — `WarmQuery.query` accepts only a
+   * The executor does NOT re-validate â€” `WarmQuery.query` accepts only a
    * prompt and silently inherits every other Option from the original
    * `startup()` call, so any mismatch produces a session running with the
    * wrong options. Callers that aren't sure must pass `undefined` here.
@@ -302,7 +302,7 @@ export class SessionLifecycleManager {
     @inject(SDK_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
-    private readonly modelResolver: ModelResolver,
+    private readonly modelResolver: IModelResolver,
     @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
     @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
@@ -376,7 +376,7 @@ export class SessionLifecycleManager {
    * the user most recently interacted with, which is critical for MCP tools
    * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
    *
-   * Delegates directly to the registry — single storage means the registry
+   * Delegates directly to the registry â€” single storage means the registry
    * owns all ordering and resolution logic.
    */
   getActiveSessionIds(): SessionId[] {
@@ -398,7 +398,7 @@ export class SessionLifecycleManager {
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
-   * The session remains active for continued use — the user's follow-up message
+   * The session remains active for continued use â€” the user's follow-up message
    * will start a new turn.
    *
    * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
@@ -562,7 +562,7 @@ export class SessionLifecycleManager {
    *
    * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
    * before passing to the SDK. The SDK's setModel() requires full model IDs
-   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
+   * like 'claude-opus-4-6' â€” bare tier names cause "can't access model" errors.
    *
    * @param sessionId - Session to update
    * @param model - Model ID or bare tier name to set

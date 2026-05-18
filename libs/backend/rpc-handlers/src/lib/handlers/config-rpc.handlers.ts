@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Config RPC Handlers
  *
  * Handles config-related RPC methods: config:model-*, config:autopilot-*.
@@ -22,12 +22,15 @@ import type {
 import {
   SdkAgentAdapter,
   SdkPermissionHandler,
-  ProviderModelsService,
   SDK_TOKENS,
   DEFAULT_FALLBACK_MODEL_ID,
   TIER_TO_MODEL_ID,
 } from '@ptah-extension/agent-sdk';
-import type { ModelResolver } from '@ptah-extension/agent-sdk';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  ProviderModelsService,
+} from '@ptah-extension/auth-providers';
+import type { ModelResolver } from '@ptah-extension/auth-providers';
 import {
   PermissionLevel,
   ConfigModelSwitchParams,
@@ -69,11 +72,11 @@ export class ConfigRpcHandlers {
     private readonly configManager: ConfigManager,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
-    @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private readonly permissionHandler: SdkPermissionHandler,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
@@ -105,7 +108,7 @@ export class ConfigRpcHandlers {
       'autopilot.enabled',
       false,
     );
-    // Use parsePermissionLevel to validate the stored value — getWithDefault's
+    // Use parsePermissionLevel to validate the stored value â€” getWithDefault's
     // generic parameter is unchecked; if the stored string is unrecognized
     // (e.g. future format or external edit), fall back to 'ask'.
     const savedLevel = parsePermissionLevel(
@@ -154,7 +157,7 @@ export class ConfigRpcHandlers {
         );
 
         // Frontend sends full model IDs from the normalized models list.
-        // No resolution needed — getSupportedModels() normalizes at source.
+        // No resolution needed â€” getSupportedModels() normalizes at source.
         await this.modelSettings.selectedModel.set(model);
 
         // Sync to active SDK session if provided
@@ -241,7 +244,7 @@ export class ConfigRpcHandlers {
 
           const stored = this.modelSettings.selectedModel.get() || '';
 
-          // 'default' is a valid SDK tier meaning "let the SDK choose" — preserve it as-is.
+          // 'default' is a valid SDK tier meaning "let the SDK choose" â€” preserve it as-is.
           if (stored === 'default') {
             return { model: stored };
           }
@@ -251,7 +254,7 @@ export class ConfigRpcHandlers {
           if (stored && !stored.startsWith('claude-')) {
             const resolved = this.modelResolver.resolve(stored);
             this.logger.info(
-              `RPC: config:model-get migrating legacy value '${stored}' → '${resolved}'`,
+              `RPC: config:model-get migrating legacy value '${stored}' â†’ '${resolved}'`,
             );
             await this.modelSettings.selectedModel.set(resolved);
             return { model: resolved };
@@ -270,7 +273,7 @@ export class ConfigRpcHandlers {
               const hasDateSuffix = /-\d{8}$/.test(stored);
               if (!hasDateSuffix && stored !== currentLatest) {
                 this.logger.info(
-                  `RPC: config:model-get migrating stale model '${stored}' → '${currentLatest}'`,
+                  `RPC: config:model-get migrating stale model '${stored}' â†’ '${currentLatest}'`,
                 );
                 await this.modelSettings.selectedModel.set(currentLatest);
                 return { model: currentLatest };
@@ -323,7 +326,7 @@ export class ConfigRpcHandlers {
           sessionId,
         });
 
-        // YOLO mode is a Pro-tier feature — it bypasses all permission prompts,
+        // YOLO mode is a Pro-tier feature â€” it bypasses all permission prompts,
         // which is a high-risk operation we only unlock for paid users.
         if (enabled && permissionLevel === 'yolo') {
           const isPro = await this.featureGate.isProTier();
@@ -352,7 +355,7 @@ export class ConfigRpcHandlers {
           : 'ask';
         this.permissionHandler.setPermissionLevel(effectiveLevel);
 
-        // Sync to active SDK session — ALWAYS, including when disabled.
+        // Sync to active SDK session â€” ALWAYS, including when disabled.
         // When disabled, reset SDK to 'default' so canUseTool is invoked again.
         // Without this, the SDK session stays in bypassPermissions/acceptEdits
         // and canUseTool is never called despite the UI showing "Manual".
@@ -438,8 +441,8 @@ export class ConfigRpcHandlers {
    * config:models-list - Get available models with metadata
    *
    * Merges two model sources:
-   * 1. SDK's supportedModels() — 3 tier slots (opus/sonnet/haiku) as recommended shortcuts
-   * 2. Anthropic /v1/models API — ALL available models for specific version selection
+   * 1. SDK's supportedModels() â€” 3 tier slots (opus/sonnet/haiku) as recommended shortcuts
+   * 2. Anthropic /v1/models API â€” ALL available models for specific version selection
    *
    * SDK tier models appear first (as "latest" recommended options), followed by
    * additional API models not already covered by a tier. The SDK accepts any model
@@ -452,7 +455,7 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:models-list called');
 
-          // Saved model preference — may be a full ID or a bare tier name (claudeCli auth
+          // Saved model preference â€” may be a full ID or a bare tier name (claudeCli auth
           // stores raw tier slots like 'opus'/'sonnet'). Resolve both sides when comparing
           // isSelected so full-ID config and tier-name dropdown entries match correctly.
           const savedModel =
@@ -521,7 +524,7 @@ export class ConfigRpcHandlers {
               isSelected:
                 m.value === savedModel ||
                 // Resolve check only when savedModel is a full Claude ID (e.g. 'claude-opus-4-7').
-                // Skipped when savedModel is a tier name like 'opus' or 'default' — direct
+                // Skipped when savedModel is a tier name like 'opus' or 'default' â€” direct
                 // string match is exact. Without this guard, savedModel='default' would resolve
                 // to opus and incorrectly mark both 'default' and 'opus' as selected.
                 (savedModel.startsWith('claude-') &&
@@ -550,7 +553,7 @@ export class ConfigRpcHandlers {
               isSelected:
                 m.value === savedModel ||
                 // Resolve check only when savedModel is a full Claude ID (e.g. 'claude-opus-4-7').
-                // Skipped when savedModel is a tier name like 'opus' or 'default' — direct
+                // Skipped when savedModel is a tier name like 'opus' or 'default' â€” direct
                 // string match is exact. Without this guard, savedModel='default' would resolve
                 // to opus and incorrectly mark both 'default' and 'opus' as selected.
                 (savedModel.startsWith('claude-') &&
@@ -613,7 +616,7 @@ export class ConfigRpcHandlers {
   /**
    * Get provider tier overrides for model mapping (OpenRouter etc.).
    *
-   * Returns null for direct Anthropic — tier→model-id remapping only applies
+   * Returns null for direct Anthropic â€” tierâ†’model-id remapping only applies
    * to third-party providers that use different model IDs (e.g., OpenRouter's
    * 'anthropic/claude-sonnet-4'). For api.anthropic.com, model IDs are valid
    * as-is and the CLI/SDK handles tier resolution natively.

@@ -1,10 +1,11 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import type { Logger, LicenseStatus } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
   type SettingsExportService,
   type SettingsImportService,
 } from '@ptah-extension/agent-sdk';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import {
   PLATFORM_TOKENS,
   ContentDownloadService,
@@ -49,7 +50,7 @@ export async function wireRuntimeVscode(
   activateSkillJunctions(contentDownload.getPluginsPath(), logger);
   // CLI Skill Sync and CLI Agent Sync are driven reactively by the
   // license:verified / license:expired events wired via bindLicenseReactivity()
-  // in post-init.ts — no tier snapshot needed here. licenseStatus is still
+  // in post-init.ts â€” no tier snapshot needed here. licenseStatus is still
   // accepted by the function signature for caller compatibility but is no
   // longer used here.
   void licenseStatus;
@@ -58,7 +59,7 @@ export async function wireRuntimeVscode(
   // pricing data for 200+ models, providing live pricing instead of hardcoded.
   try {
     const providerModels = DIContainer.getContainer().resolve(
-      SDK_TOKENS.SDK_PROVIDER_MODELS,
+      AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS,
     ) as { prefetchPricing: () => Promise<number> };
     // Fire-and-forget: prefetchPricing handles errors internally
     providerModels.prefetchPricing();
@@ -169,7 +170,7 @@ export async function wireRuntimeVscode(
   }
 
   // Code symbol indexer cold-start: fire-and-forget workspace index +
-  // onDidSaveTextDocument handler for incremental re-indexing. Non-fatal —
+  // onDidSaveTextDocument handler for incremental re-indexing. Non-fatal â€”
   // SQLite may be unavailable.
   try {
     const sqliteOk =
@@ -186,7 +187,7 @@ export async function wireRuntimeVscode(
         vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
 
       if (workspaceRoot) {
-        // Fire-and-forget full workspace index — must NOT block activation.
+        // Fire-and-forget full workspace index â€” must NOT block activation.
         void symbolIndexer.indexWorkspace(workspaceRoot).catch((err) => {
           logger.warn(
             '[wire-runtime] CodeSymbolIndexer.indexWorkspace failed (non-fatal)',
@@ -197,7 +198,7 @@ export async function wireRuntimeVscode(
         });
       }
 
-      // Incremental re-index on file save — debounced 500ms to prevent
+      // Incremental re-index on file save â€” debounced 500ms to prevent
       // concurrent delete+insert races on rapid saves.
       const allowedExts = new Set(['.ts', '.tsx', '.js', '.jsx']);
       const reindexDebounce = new Map<string, ReturnType<typeof setTimeout>>();

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SDK Message Transformer - Converts SDK messages to flat stream events
  *
  * Transforms messages from the official Claude Agent SDK into flat streaming events
@@ -41,7 +41,7 @@ import {
   type SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
-import type { ModelResolver } from './auth/model-resolver';
+import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import {
@@ -124,7 +124,7 @@ export class SdkMessageTransformer {
   private backgroundTaskToolUseIds: Set<string> = new Set();
 
   /**
-   * Maps SDK task_id → parent tool_use_id for task_* message routing.
+   * Maps SDK task_id â†’ parent tool_use_id for task_* message routing.
    * Populated when task_started fires; used by task_progress, task_updated,
    * and task_notification to recover the parentToolUseId for event emission.
    */
@@ -147,10 +147,10 @@ export class SdkMessageTransformer {
    * provides a reliable alternative to flag-based detection.
    *
    * Flow:
-   * 1. Assistant message has tool_use(name='Skill') → add toolCallId
-   * 2. User message with tool_result matching toolCallId → mark as seen
-   * 3. User messages without tool_result while set is non-empty → FILTER (skill content)
-   * 4. Next assistant message_start → clear the set (skill loading complete)
+   * 1. Assistant message has tool_use(name='Skill') â†’ add toolCallId
+   * 2. User message with tool_result matching toolCallId â†’ mark as seen
+   * 3. User messages without tool_result while set is non-empty â†’ FILTER (skill content)
+   * 4. Next assistant message_start â†’ clear the set (skill loading complete)
    */
   private activeSkillToolUseIds: Set<string> = new Set();
 
@@ -174,7 +174,7 @@ export class SdkMessageTransformer {
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
-    private readonly modelResolver: ModelResolver,
+    private readonly modelResolver: IModelResolver,
     // Active session correlator for compact_boundary fallback.
     // The SDK occasionally omits session_id on SDKSystemMessage{compact_boundary},
     // which causes compaction_complete to ship with sessionId='' and break
@@ -228,7 +228,7 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * Internal — record an observed cumulative usage frame for a session.
+   * Internal â€” record an observed cumulative usage frame for a session.
    * Cumulative semantics: each field overwrites the previous value when the
    * new value is greater (Anthropic API delivers monotonic cumulative counts
    * within a turn; cross-turn aggregation is handled by downstream stats
@@ -250,13 +250,13 @@ export class SdkMessageTransformer {
    * Transform SDK message to flat stream events
    *
    * A single SDK message may produce multiple flat events:
-   * - SDKAssistantMessage → message_start + content events + message_complete
-   * - SDKUserMessage → message_start + text_delta + message_complete
-   * - stream_event → various streaming events
+   * - SDKAssistantMessage â†’ message_start + content events + message_complete
+   * - SDKUserMessage â†’ message_start + text_delta + message_complete
+   * - stream_event â†’ various streaming events
    *
    * @param sdkMessage - SDK message to transform (uses structural typing to match SDK types)
    * @param sessionId - Optional session ID for event correlation. Accepts the
-   *   real SDK SessionId (UUID v4) OR the synthetic harness/wizard brands —
+   *   real SDK SessionId (UUID v4) OR the synthetic harness/wizard brands â€”
    *   harness streams and wizard phases mint non-UUID ids that flow through
    *   the same transform but must never reach UUID-validating consumers.
    * @returns Array of FlatStreamEventUnion (flat events with relationship IDs)
@@ -276,7 +276,7 @@ export class SdkMessageTransformer {
         // These are conversation context for Claude but should not be displayed in the UI.
         //
         // MULTI-LAYER FILTER with defense-in-depth:
-        //   1. isSynthetic flag - SDK maps internal isMeta → isSynthetic on emission
+        //   1. isSynthetic flag - SDK maps internal isMeta â†’ isSynthetic on emission
         //   2. isMeta flag (LEGACY) - may be set directly on some code paths
         //   3. Skill tool tracking - filters user messages during active Skill execution
         //   4. Content-based detection for known SDK meta patterns (LAST RESORT)
@@ -298,7 +298,7 @@ export class SdkMessageTransformer {
         // .md content injections. The tool_result itself is handled separately
         // (transformUserToFlatEvents returns tool_result events before reaching here).
         if (this.activeSkillToolUseIds.size > 0) {
-          // Check if this user message contains tool_result blocks — those are legitimate
+          // Check if this user message contains tool_result blocks â€” those are legitimate
           const hasToolResult = userMessageHasToolResult(sdkMessage);
           if (!hasToolResult) {
             this.logger.info(
@@ -339,7 +339,7 @@ export class SdkMessageTransformer {
         // Resolve session correlator with strict priority.
         // Prefer caller-provided sessionId (StreamTransformer threads the active
         // tracking id), then SessionLifecycleManager's most-recently-active id,
-        // and finally sdkMessage.session_id. NEVER fall back to '' — emitting a
+        // and finally sdkMessage.session_id. NEVER fall back to '' â€” emitting a
         // compaction_complete with empty sessionId routes nowhere and leaves the
         // banner stuck on the 120s safety timeout.
         const activeIds = this.sessionLifecycle.getActiveSessionIds();
@@ -350,7 +350,7 @@ export class SdkMessageTransformer {
 
         if (!resolvedSessionId) {
           this.logger.warn(
-            '[SdkMessageTransformer] compact_boundary received without resolvable sessionId — skipping compaction_complete emission. Banner will rely on safety timeout.',
+            '[SdkMessageTransformer] compact_boundary received without resolvable sessionId â€” skipping compaction_complete emission. Banner will rely on safety timeout.',
             {
               callerSessionId: sessionId,
               sdkSessionId: sdkMessage.session_id,
@@ -363,7 +363,7 @@ export class SdkMessageTransformer {
         }
 
         // Prune subagent entries and the live token snapshot for this session
-        // at the compaction boundary. Post-boundary tool-use ID space is fresh —
+        // at the compaction boundary. Post-boundary tool-use ID space is fresh â€”
         // stale entries would otherwise drift the AGENTS header counter and
         // re-poison cumulative token tracking. `clearStreamingState()` above
         // already clears the local `backgroundTaskToolUseIds` set
@@ -434,7 +434,7 @@ export class SdkMessageTransformer {
         return this.transformStreamEventToFlatEvents(sdkMessage, sessionId);
       }
 
-      // SDK task_* messages — subagent visibility surface.
+      // SDK task_* messages â€” subagent visibility surface.
       // These system messages carry authoritative lifecycle state for
       // subagents tracked via `agentProgressSummaries: true` Option.
 
@@ -947,7 +947,7 @@ export class SdkMessageTransformer {
     const messageId = message?.id || uuid;
 
     // Clear Skill tool tracking on new assistant message (complete path).
-    // Same logic as message_start in streaming path — skill loading is done.
+    // Same logic as message_start in streaming path â€” skill loading is done.
     if (this.activeSkillToolUseIds.size > 0) {
       this.logger.info(
         '[SdkMessageTransformer] Clearing activeSkillToolUseIds on complete assistant message',
@@ -1386,9 +1386,9 @@ export class SdkMessageTransformer {
   // ==========================================================================
 
   /**
-   * Handle SDK task_started — authoritative agent spawn notification.
+   * Handle SDK task_started â€” authoritative agent spawn notification.
    *
-   * Registers the taskId → parentToolUseId mapping in the local registry.
+   * Registers the taskId â†’ parentToolUseId mapping in the local registry.
    * Emits an AgentStartEvent enriched with taskId if one hasn't been emitted
    * yet for this parentToolUseId (dedupe guard against the legacy tool_result
    * correlation path). The existing tool_result path remains for non-Task agents.
@@ -1399,7 +1399,7 @@ export class SdkMessageTransformer {
   ): FlatStreamEventUnion[] {
     const toolUseId = msg.tool_use_id;
 
-    // Register task_id → tool_use_id mapping for later messages
+    // Register task_id â†’ tool_use_id mapping for later messages
     if (toolUseId) {
       this.taskIdToParentToolUseId.set(msg.task_id, toolUseId);
       // Associate the SDK task_id with the registry record so that
@@ -1412,7 +1412,7 @@ export class SdkMessageTransformer {
     // Skip transcript-only tasks that should not appear in the chat UI
     if (msg.skip_transcript) {
       this.logger.debug(
-        '[SdkMessageTransformer] task_started skip_transcript=true — skipping',
+        '[SdkMessageTransformer] task_started skip_transcript=true â€” skipping',
         { taskId: msg.task_id, toolUseId },
       );
       return [];
@@ -1420,7 +1420,7 @@ export class SdkMessageTransformer {
 
     if (!toolUseId) {
       this.logger.debug(
-        '[SdkMessageTransformer] task_started has no tool_use_id — skipping AgentStartEvent',
+        '[SdkMessageTransformer] task_started has no tool_use_id â€” skipping AgentStartEvent',
         { taskId: msg.task_id },
       );
       return [];
@@ -1452,7 +1452,7 @@ export class SdkMessageTransformer {
       taskId: msg.task_id,
     };
 
-    this.logger.debug('[SdkMessageTransformer] task_started → agent_start', {
+    this.logger.debug('[SdkMessageTransformer] task_started â†’ agent_start', {
       taskId: msg.task_id,
       toolUseId,
     });
@@ -1461,7 +1461,7 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * Handle SDK task_progress — rolling progress update with optional summary.
+   * Handle SDK task_progress â€” rolling progress update with optional summary.
    */
   private transformTaskProgress(
     msg: import('./types/sdk-types/claude-sdk.types').SDKTaskProgressMessage,
@@ -1501,7 +1501,7 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * Handle SDK task_updated — status patch for a running subagent.
+   * Handle SDK task_updated â€” status patch for a running subagent.
    */
   private transformTaskUpdated(
     msg: import('./types/sdk-types/claude-sdk.types').SDKTaskUpdatedMessage,
@@ -1519,7 +1519,7 @@ export class SdkMessageTransformer {
 
     const patch = msg.patch;
     if (!patch.status) {
-      // No status change — nothing useful for the frontend right now
+      // No status change â€” nothing useful for the frontend right now
       return [];
     }
 
@@ -1543,7 +1543,7 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * Handle SDK task_notification — definitive subagent completion.
+   * Handle SDK task_notification â€” definitive subagent completion.
    *
    * Cleans up the taskId registry entry and emits AgentCompletedEvent.
    */
@@ -1589,7 +1589,7 @@ export class SdkMessageTransformer {
     };
 
     this.logger.debug(
-      '[SdkMessageTransformer] task_notification → agent_completed',
+      '[SdkMessageTransformer] task_notification â†’ agent_completed',
       { taskId: msg.task_id, status: msg.status },
     );
 

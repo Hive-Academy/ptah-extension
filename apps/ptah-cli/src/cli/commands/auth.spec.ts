@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for `ptah auth` command dispatcher.
  *
  * Coverage:
@@ -18,15 +18,15 @@
  *   - RPC failure: bubbles up as task.error + exit 5
  */
 
-import type { ICopilotAuthService } from '@ptah-extension/agent-sdk';
+import type { ICopilotAuthService } from '@ptah-extension/auth-providers';
 
 // Stub the agent-sdk module so ts-jest does not have to compile the entire
 // SDK transitive graph (pre-existing Zod schema TS errors in libs/shared
 // otherwise prevent the import from resolving in jest). The auth command only
-// reads SDK_TOKENS.SDK_COPILOT_AUTH at runtime.
+// reads AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH at runtime.
 //
 // `ANTHROPIC_PROVIDERS` is consumed transitively by `auth-rpc.schema.ts`
-// (`ANTHROPIC_PROVIDERS.map(p => p.id)` at module load → Zod enum). The
+// (`ANTHROPIC_PROVIDERS.map(p => p.id)` at module load â†’ Zod enum). The
 // fixture lives in `test-utils/agent-sdk-mock.ts` so it stays in sync with
 // `settings.spec.ts` and is type-anchored against the real registry shape.
 // `require()` is used inside the factory because jest hoists `jest.mock`
@@ -39,7 +39,6 @@ jest.mock(
     } = require('../../test-utils/agent-sdk-mock');
     return {
       SDK_TOKENS: {
-        SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
         SDK_CLI_DETECTOR: Symbol.for('SdkCliDetector'),
       },
       ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
@@ -49,6 +48,16 @@ jest.mock(
       spawnCli: jest.fn(),
     };
   },
+  { virtual: true },
+);
+
+jest.mock(
+  '@ptah-extension/auth-providers',
+  () => ({
+    AUTH_PROVIDERS_TOKENS: {
+      SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
+    },
+  }),
   { virtual: true },
 );
 
@@ -143,14 +152,14 @@ function makeEngine(): MockEngine {
     }),
   } as unknown as CliMessageTransport;
 
-  // Container resolution stub — only `auth login copilot` reaches it. The
+  // Container resolution stub â€” only `auth login copilot` reaches it. The
   // hook system in auth.ts substitutes `runHeadlessLogin` so the real
-  // SDK_TOKENS lookup never executes in the spec — but we still satisfy
+  // SDK_TOKENS lookup never executes in the spec â€” but we still satisfy
   // the typing surface.
   const container = {
     resolve: jest.fn(() => {
       throw new Error(
-        'container.resolve was hit — test should override runHeadlessLogin',
+        'container.resolve was hit â€” test should override runHeadlessLogin',
       );
     }),
     clearInstances: jest.fn(),
@@ -194,7 +203,7 @@ function buildHooks(extra: Partial<AuthExecuteHooks> = {}): {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — `auth status`
+// Tests â€” `auth status`
 // ---------------------------------------------------------------------------
 
 describe('ptah auth status', () => {
@@ -224,7 +233,7 @@ describe('ptah auth status', () => {
     );
 
     expect(exit).toBe(ExitCode.Success);
-    // Default (non-verbose) — one notification with nested health+apiKey.
+    // Default (non-verbose) â€” one notification with nested health+apiKey.
     const methods = formatterTrace.notifications.map((n) => n.method);
     expect(methods).toEqual(['auth.status']);
 
@@ -311,7 +320,7 @@ describe('ptah auth status', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — `auth login`
+// Tests â€” `auth login`
 // ---------------------------------------------------------------------------
 
 describe('ptah auth login copilot', () => {
@@ -380,7 +389,7 @@ describe('ptah auth login copilot', () => {
 });
 
 describe('ptah auth login codex', () => {
-  // Helper — produces a fake CodexChildLike whose stdout emits a single
+  // Helper â€” produces a fake CodexChildLike whose stdout emits a single
   // chunk and which exits with the supplied code on the next tick.
   function makeCodexChild(opts: {
     stdoutChunks?: string[];
@@ -736,7 +745,7 @@ describe('ptah auth login (validation)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — `auth logout`
+// Tests â€” `auth logout`
 // ---------------------------------------------------------------------------
 
 describe('ptah auth logout copilot', () => {
@@ -859,7 +868,7 @@ describe('ptah auth logout (validation)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — `auth test <provider>`
+// Tests â€” `auth test <provider>`
 // ---------------------------------------------------------------------------
 
 describe('ptah auth test', () => {
