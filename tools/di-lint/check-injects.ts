@@ -21,10 +21,7 @@ const FIXTURE_PATH = path
   .join(__dirname, '__fixtures__', 'unregistered-inject.ts')
   .replace(/\\/g, '/');
 
-const TOKEN_FILE_GLOBS = [
-  'libs/**/src/**/*.ts',
-  'apps/**/src/**/*.ts',
-];
+const TOKEN_FILE_GLOBS = ['libs/**/src/**/*.ts', 'apps/**/src/**/*.ts'];
 
 const REGISTRATION_GLOBS = [
   'libs/**/{register,registration}*.ts',
@@ -39,10 +36,7 @@ const REGISTRATION_GLOBS = [
   'apps/**/di/*.ts',
 ];
 
-const INJECTION_GLOBS = [
-  'libs/**/src/**/*.ts',
-  'apps/**/src/**/*.ts',
-];
+const INJECTION_GLOBS = ['libs/**/src/**/*.ts', 'apps/**/src/**/*.ts'];
 
 const SCAN_IGNORE = [
   '**/node_modules/**',
@@ -64,7 +58,9 @@ function lastSegment(raw: string): string {
   return raw;
 }
 
-function extractSymbolForDescription(initializer: ts.Expression): string | null {
+function extractSymbolForDescription(
+  initializer: ts.Expression,
+): string | null {
   if (!ts.isCallExpression(initializer)) return null;
   if (!ts.isPropertyAccessExpression(initializer.expression)) return null;
   const obj = initializer.expression.expression;
@@ -101,10 +97,7 @@ function buildTokenAliasMap(sourceFiles: string[]): Map<string, string> {
           }
           if (ts.isObjectLiteralExpression(init)) {
             for (const prop of init.properties) {
-              if (
-                ts.isPropertyAssignment(prop) &&
-                ts.isIdentifier(prop.name)
-              ) {
+              if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
                 const propInit = unwrap(prop.initializer);
                 const desc2 = extractSymbolForDescription(propInit);
                 if (desc2) {
@@ -212,7 +205,12 @@ async function analyze(options: { selfTest: boolean }): Promise<Result> {
   if (options.selfTest) {
     const aliases = new Map<string, string>();
     const src = fs.readFileSync(FIXTURE_PATH, 'utf8');
-    const sf = ts.createSourceFile(FIXTURE_PATH, src, ts.ScriptTarget.ES2022, true);
+    const sf = ts.createSourceFile(
+      FIXTURE_PATH,
+      src,
+      ts.ScriptTarget.ES2022,
+      true,
+    );
     const localAliases = buildTokenAliasMap([FIXTURE_PATH]);
     for (const [k, v] of localAliases) aliases.set(k, v);
     findInjectionSites(sf, FIXTURE_PATH, injected, aliases);
@@ -290,20 +288,24 @@ async function main(): Promise<number> {
   const { registered, injected } = await analyze({ selfTest });
 
   if (selfTest) {
-    const violations = injected.filter((site) => !registered.has(site.resolved));
+    const violations = injected.filter(
+      (site) => !registered.has(site.resolved),
+    );
     if (violations.length === 0) {
       console.error(
-        'di-lint self-test FAILED: expected at least one violation from fixture, got 0',
+        'di-lint self-test BROKEN: fixture violation not detected (linter false-negative)',
       );
-      return 1;
+      return 2;
     }
-    console.log(
-      `di-lint self-test PASS: detected ${violations.length} violation(s) in fixture`,
+    console.error(
+      `di-lint self-test: ${violations.length} unregistered @inject token(s) in fixture (expected)`,
     );
     for (const v of violations) {
-      console.log(`  ${relPath(v.file)}:${v.line} injects ${v.token}`);
+      console.error(
+        `ERROR: ${relPath(v.file)}:${v.line} injects ${v.token} but no register*.ts registers it`,
+      );
     }
-    return 0;
+    return 1;
   }
 
   const violations = injected.filter((site) => !registered.has(site.resolved));
@@ -321,7 +323,9 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  console.error(`di-lint FAIL: ${violations.length} unregistered @inject token(s)`);
+  console.error(
+    `di-lint FAIL: ${violations.length} unregistered @inject token(s)`,
+  );
   for (const v of violations) {
     console.error(
       `ERROR: ${relPath(v.file)}:${v.line} injects ${v.token} but no register*.ts registers it`,

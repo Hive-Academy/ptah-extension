@@ -21,7 +21,7 @@
     "self-test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "npx ts-node --transpile-only tools/di-lint/check-injects.ts --self-test",
+        "command": "node tools/di-lint/run-self-test.js",
         "cwd": "{workspaceRoot}"
       }
     }
