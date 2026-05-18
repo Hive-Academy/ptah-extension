@@ -116,11 +116,7 @@ export class ElectronUserInteraction implements IUserInteraction {
     }
     if (params.userCode) {
       if (this.shellApi) {
-        try {
-          await this.shellApi.writeToClipboard(params.userCode);
-        } catch {
-          /* clipboard failure is non-fatal */
-        }
+        await this.shellApi.writeToClipboard(params.userCode);
       }
       const win = this.getWindow();
       void this.dialog.showMessageBox(win, {

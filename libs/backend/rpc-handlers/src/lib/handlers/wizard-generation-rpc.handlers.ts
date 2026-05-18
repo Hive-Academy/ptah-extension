@@ -397,23 +397,17 @@ export class WizardGenerationRpcHandlers {
           }
         }
         const onStreamEvent = (event: GenerationStreamPayload): void => {
-          try {
-            if (!webviewManager) return;
-            webviewManager
-              .broadcastMessage('setup-wizard:generation-stream', event)
-              .catch((broadcastError) => {
-                this.logger.warn(
-                  'Failed to broadcast generation stream event',
-                  {
-                    error:
-                      broadcastError instanceof Error
-                        ? broadcastError.message
-                        : String(broadcastError),
-                  },
-                );
+          if (!webviewManager) return;
+          webviewManager
+            .broadcastMessage('setup-wizard:generation-stream', event)
+            .catch((broadcastError) => {
+              this.logger.warn('Failed to broadcast generation stream event', {
+                error:
+                  broadcastError instanceof Error
+                    ? broadcastError.message
+                    : String(broadcastError),
               });
-          } catch {
-          }
+            });
         };
         const currentModel = params.model || undefined;
         const pluginPaths = this.resolvePluginPaths(isPremium);
@@ -611,8 +605,7 @@ export class WizardGenerationRpcHandlers {
               duration: Date.now() - startTime,
               errors: [`Agent generation failed: ${errorMessage}`],
             })
-            .catch(() => {
-            });
+            .catch(() => {});
         }
       })
       .finally(() => {
@@ -765,31 +758,23 @@ export class WizardGenerationRpcHandlers {
           'AgentGenerationOrchestratorService',
         );
         let webviewManager: WebviewBroadcaster | null = null;
-        try {
-          webviewManager = this.resolveService<WebviewBroadcaster>(
-            TOKENS.WEBVIEW_MANAGER,
-            'WebviewManager',
-          );
-        } catch {
-        }
+
+        webviewManager = this.resolveService<WebviewBroadcaster>(
+          TOKENS.WEBVIEW_MANAGER,
+          'WebviewManager',
+        );
         const onStreamEvent = (event: GenerationStreamPayload): void => {
-          try {
-            if (!webviewManager) return;
-            webviewManager
-              .broadcastMessage('setup-wizard:generation-stream', event)
-              .catch((broadcastError) => {
-                this.logger.warn(
-                  'Failed to broadcast generation stream event',
-                  {
-                    error:
-                      broadcastError instanceof Error
-                        ? broadcastError.message
-                        : String(broadcastError),
-                  },
-                );
+          if (!webviewManager) return;
+          webviewManager
+            .broadcastMessage('setup-wizard:generation-stream', event)
+            .catch((broadcastError) => {
+              this.logger.warn('Failed to broadcast generation stream event', {
+                error:
+                  broadcastError instanceof Error
+                    ? broadcastError.message
+                    : String(broadcastError),
               });
-          } catch {
-          }
+            });
         };
         const options: OrchestratorGenerationOptions = {
           ...(this.lastGenerationOptions ?? {}),

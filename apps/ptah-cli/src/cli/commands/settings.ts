@@ -224,11 +224,8 @@ async function atomicWriteSecret(target: string, data: string): Promise<void> {
     }
     throw error;
   }
-  try {
-    await fs.chmod(target, 0o600);
-  } catch {
-    /* best-effort — Windows refs do not honor POSIX bits */
-  }
+
+  await fs.chmod(target, 0o600);
 }
 
 async function readAllStream(stream: Readable): Promise<string> {

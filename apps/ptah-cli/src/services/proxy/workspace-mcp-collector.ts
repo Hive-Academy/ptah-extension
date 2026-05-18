@@ -106,36 +106,34 @@ export class WorkspaceMcpCollector {
     } catch {
       this.cache.delete(workspacePath);
     }
-    try {
-      const pluginsListResp = await this.rpcCall<
-        Record<string, never>,
-        { plugins?: Array<{ id?: string }> }
-      >('plugins:list', {});
-      const pluginIds: string[] = [];
-      if (
-        pluginsListResp.success &&
-        Array.isArray(pluginsListResp.data?.plugins)
-      ) {
-        for (const plugin of pluginsListResp.data.plugins) {
-          if (typeof plugin.id === 'string' && plugin.id.length > 0) {
-            pluginIds.push(plugin.id);
-          }
-        }
-      }
 
-      if (pluginIds.length > 0) {
-        const skillsResp = await this.rpcCall<
-          { pluginIds: string[] },
-          { skills?: PluginSkillEntryLike[] }
-        >('plugins:list-skills', { pluginIds });
-        if (skillsResp.success && Array.isArray(skillsResp.data?.skills)) {
-          for (const skill of skillsResp.data.skills) {
-            const tool = this.skillToTool(skill);
-            if (tool !== null) tools.push(tool);
-          }
+    const pluginsListResp = await this.rpcCall<
+      Record<string, never>,
+      { plugins?: Array<{ id?: string }> }
+    >('plugins:list', {});
+    const pluginIds: string[] = [];
+    if (
+      pluginsListResp.success &&
+      Array.isArray(pluginsListResp.data?.plugins)
+    ) {
+      for (const plugin of pluginsListResp.data.plugins) {
+        if (typeof plugin.id === 'string' && plugin.id.length > 0) {
+          pluginIds.push(plugin.id);
         }
       }
-    } catch {
+    }
+
+    if (pluginIds.length > 0) {
+      const skillsResp = await this.rpcCall<
+        { pluginIds: string[] },
+        { skills?: PluginSkillEntryLike[] }
+      >('plugins:list-skills', { pluginIds });
+      if (skillsResp.success && Array.isArray(skillsResp.data?.skills)) {
+        for (const skill of skillsResp.data.skills) {
+          const tool = this.skillToTool(skill);
+          if (tool !== null) tools.push(tool);
+        }
+      }
     }
 
     this.cache.set(workspacePath, {

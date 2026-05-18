@@ -326,10 +326,8 @@ async function defaultProbeLocal(url: string): Promise<LocalProbeVerdict> {
       method: 'GET',
       signal: controller.signal,
     });
-    try {
-      await res.text();
-    } catch {
-    }
+
+    await res.text();
     return res.ok ? 'reachable' : 'unreachable';
   } catch (err: unknown) {
     if (

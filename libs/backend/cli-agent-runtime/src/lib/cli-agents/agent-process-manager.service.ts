@@ -460,11 +460,8 @@ export class AgentProcessManager {
 
     const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
 
-    return this.trackSdkHandle(
-      sdkHandle,
-      infoWithSession,
-      timeout,
-      () => sdkHandle.getSessionId?.(),
+    return this.trackSdkHandle(sdkHandle, infoWithSession, timeout, () =>
+      sdkHandle.getSessionId?.(),
     );
   }
 
@@ -538,11 +535,8 @@ export class AgentProcessManager {
           ptahCliId: meta.ptahCliId,
         });
 
-        return this.trackSdkHandle(
-          sdkHandle,
-          infoWithSession,
-          timeout,
-          () => sdkHandle.getSessionId?.(),
+        return this.trackSdkHandle(sdkHandle, infoWithSession, timeout, () =>
+          sdkHandle.getSessionId?.(),
         );
       } finally {
         this.spawning--;
@@ -1153,11 +1147,7 @@ export class AgentProcessManager {
           process.kill(-childPid, signal);
           return true;
         } catch {
-          try {
-            child.kill(signal);
-          } catch {
-            /* already dead */
-          }
+          child.kill(signal);
           return false;
         }
       };
@@ -1334,14 +1324,10 @@ export class AgentProcessManager {
     } else {
       let realDir = dir;
       let realRoot = workspaceRoot;
-      try {
-        realDir = await fsPromises.realpath(dir);
-      } catch {
-      }
-      try {
-        realRoot = await fsPromises.realpath(workspaceRoot);
-      } catch {
-      }
+
+      realDir = await fsPromises.realpath(dir);
+
+      realRoot = await fsPromises.realpath(workspaceRoot);
       normalizedDir = realDir;
       normalizedRoot = realRoot;
     }

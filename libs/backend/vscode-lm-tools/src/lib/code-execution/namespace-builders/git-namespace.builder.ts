@@ -172,14 +172,11 @@ export function buildGitNamespace(
           };
         }
         if (onWorktreeChanged) {
-          try {
-            onWorktreeChanged({
-              action: 'created',
-              worktreePath,
-              branch: params.branch,
-            });
-          } catch {
-          }
+          onWorktreeChanged({
+            action: 'created',
+            worktreePath,
+            branch: params.branch,
+          });
         }
 
         return { success: true, worktreePath };
@@ -209,13 +206,10 @@ export function buildGitNamespace(
           };
         }
         if (onWorktreeChanged) {
-          try {
-            onWorktreeChanged({
-              action: 'removed',
-              worktreePath: params.path,
-            });
-          } catch {
-          }
+          onWorktreeChanged({
+            action: 'removed',
+            worktreePath: params.path,
+          });
         }
 
         return { success: true };

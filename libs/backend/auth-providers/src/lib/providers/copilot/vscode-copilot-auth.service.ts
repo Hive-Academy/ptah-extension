@@ -98,15 +98,13 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
   protected override async doRefreshToken(): Promise<boolean> {
     const baseResult = await super.doRefreshToken();
     if (baseResult) return true;
-    try {
-      const session = await this.getVscodeGitHubSession(false);
-      if (session) {
-        this.logger.info(
-          '[VscodeCopilotAuth] Refreshing via VS Code GitHub session',
-        );
-        return this.exchangeToken(session.accessToken);
-      }
-    } catch {
+
+    const session = await this.getVscodeGitHubSession(false);
+    if (session) {
+      this.logger.info(
+        '[VscodeCopilotAuth] Refreshing via VS Code GitHub session',
+      );
+      return this.exchangeToken(session.accessToken);
     }
 
     this.authState = null;
@@ -134,15 +132,12 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
   private async getVscodeGitHubSession(
     createIfNone: boolean,
   ): Promise<vscode.AuthenticationSession | undefined> {
-    try {
-      const session = await vscode.authentication.getSession(
-        'github',
-        ['copilot'],
-        { createIfNone },
-      );
-      if (session) return session;
-    } catch {
-    }
+    const session = await vscode.authentication.getSession(
+      'github',
+      ['copilot'],
+      { createIfNone },
+    );
+    if (session) return session;
     try {
       return await vscode.authentication.getSession('github', ['read:user'], {
         createIfNone,

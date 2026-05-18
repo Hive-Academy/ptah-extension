@@ -204,32 +204,27 @@ export class JsonlReaderService {
     const agentSessions: AgentSessionData[] = [];
     const agentFilePaths: { filePath: string; agentId: string }[] = [];
     const subagentsDir = path.join(sessionsDir, parentSessionId, 'subagents');
-    try {
-      const subagentFiles = await fs.readdir(subagentsDir);
-      const agentFiles = subagentFiles.filter(
+
+    const subagentFiles = await fs.readdir(subagentsDir);
+    const agentFiles = subagentFiles.filter(
+      (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
+    );
+    for (const file of agentFiles) {
+      agentFilePaths.push({
+        filePath: path.join(subagentsDir, file),
+        agentId: file.replace('.jsonl', ''),
+      });
+    }
+    if (agentFilePaths.length === 0) {
+      const files = await fs.readdir(sessionsDir);
+      const agentFiles = files.filter(
         (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
       );
       for (const file of agentFiles) {
         agentFilePaths.push({
-          filePath: path.join(subagentsDir, file),
+          filePath: path.join(sessionsDir, file),
           agentId: file.replace('.jsonl', ''),
         });
-      }
-    } catch {
-    }
-    if (agentFilePaths.length === 0) {
-      try {
-        const files = await fs.readdir(sessionsDir);
-        const agentFiles = files.filter(
-          (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
-        );
-        for (const file of agentFiles) {
-          agentFilePaths.push({
-            filePath: path.join(sessionsDir, file),
-            agentId: file.replace('.jsonl', ''),
-          });
-        }
-      } catch {
       }
     }
 

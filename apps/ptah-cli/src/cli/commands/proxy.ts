@@ -529,9 +529,5 @@ function writeStderrJson(
   stderrWrite: (chunk: string) => boolean,
   payload: Record<string, unknown>,
 ): void {
-  try {
-    stderrWrite(`${JSON.stringify(payload)}\n`);
-  } catch {
-    /* swallow — stderr write failure cannot be reported anywhere */
-  }
+  stderrWrite(`${JSON.stringify(payload)}\n`);
 }

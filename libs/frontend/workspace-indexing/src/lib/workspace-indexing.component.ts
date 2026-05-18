@@ -140,9 +140,7 @@ export class WorkspaceIndexingComponent {
   async onCopyErrorDetails(message: string): Promise<void> {
     if (!message) return;
     if (navigator?.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(message);
-      } catch {}
+      await navigator.clipboard.writeText(message);
     }
   }
 

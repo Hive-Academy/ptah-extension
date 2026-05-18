@@ -116,21 +116,16 @@ export async function readCopilotToken(): Promise<string | null> {
  * @param token - GitHub OAuth access token to persist
  */
 export async function writeCopilotToken(token: string): Promise<void> {
-  try {
-    const hostsPath = getCopilotHostsPath();
-    await mkdir(dirname(hostsPath), { recursive: true });
-    let hosts: CopilotHostsFile = {};
-    try {
-      const raw = await readFile(hostsPath, 'utf-8');
-      hosts = JSON.parse(raw) as CopilotHostsFile;
-    } catch {
-    }
-    hosts['github.com'] = {
-      ...hosts['github.com'],
-      oauth_token: token,
-    };
+  const hostsPath = getCopilotHostsPath();
+  await mkdir(dirname(hostsPath), { recursive: true });
+  let hosts: CopilotHostsFile = {};
 
-    await writeFile(hostsPath, JSON.stringify(hosts, null, 2), 'utf-8');
-  } catch {
-  }
+  const raw = await readFile(hostsPath, 'utf-8');
+  hosts = JSON.parse(raw) as CopilotHostsFile;
+  hosts['github.com'] = {
+    ...hosts['github.com'],
+    oauth_token: token,
+  };
+
+  await writeFile(hostsPath, JSON.stringify(hosts, null, 2), 'utf-8');
 }

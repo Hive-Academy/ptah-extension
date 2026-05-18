@@ -291,8 +291,6 @@ export class CliRunner {
     ]);
 
     rl.close();
-    if (killed && result.code === null && result.signal === null) {
-    }
 
     return {
       exitCode: result.code,
@@ -563,11 +561,8 @@ async function wireHandle(
     exitCode: () => resolvedExit,
     async shutdown(): Promise<number | null> {
       if (resolvedExit !== null) return resolvedExit;
-      try {
-        await request('session.shutdown', {}, 2_000).catch(() => undefined);
-      } catch {
-        /* ignore — child may already be tearing down */
-      }
+
+      await request('session.shutdown', {}, 2_000).catch(() => undefined);
       try {
         await withTimeout(
           new Promise<void>((resolve) => child.once('exit', () => resolve())),

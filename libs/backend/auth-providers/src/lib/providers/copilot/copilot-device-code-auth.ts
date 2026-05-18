@@ -257,10 +257,7 @@ export async function executeDeviceCodeFlow(
     deviceCodeResponse.verification_uri,
   );
   if (callbacks.openBrowser) {
-    try {
-      await callbacks.openBrowser(deviceCodeResponse.verification_uri);
-    } catch {
-    }
+    await callbacks.openBrowser(deviceCodeResponse.verification_uri);
   }
   const intervalMs = Math.max(deviceCodeResponse.interval, 5) * 1000;
   const startTime = Date.now();

@@ -228,21 +228,13 @@ export class AnthropicProxyService {
     if (this.stopped) return;
     this.stopped = true;
     for (const ctrl of this.inFlight.values()) {
-      try {
-        ctrl.abort();
-      } catch {
-        /* ignore */
-      }
+      ctrl.abort();
     }
     this.inFlight.clear();
 
     const port = this.handle?.port;
     if (this.handle) {
-      try {
-        await this.handle.close();
-      } catch {
-        /* swallow — caller is shutting down */
-      }
+      await this.handle.close();
       this.handle = null;
     }
 
@@ -598,24 +590,17 @@ export class AnthropicProxyService {
 
   private write500(res: ServerResponse, message: string): void {
     if (res.headersSent) {
-      try {
-        if (!res.writableEnded) res.end();
-      } catch {
-        /* ignore */
-      }
+      if (!res.writableEnded) res.end();
       return;
     }
-    try {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          type: 'error',
-          error: { type: 'api_error', message },
-        }),
-      );
-    } catch {
-      /* swallow — response already destroyed */
-    }
+
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        type: 'error',
+        error: { type: 'api_error', message },
+      }),
+    );
     emitFatalError('internal_failure', message, {
       command: 'proxy.dispatch',
     });

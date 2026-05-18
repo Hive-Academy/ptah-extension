@@ -239,13 +239,10 @@ export class ChatStreamBroadcaster {
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);
       if (streamExitedNormally && this.sdkAdapter.isSessionActive(sessionId)) {
-        try {
-          await this.sdkAdapter.endSession(sessionId);
-          this.logger.info(
-            `[RPC] Session ${sessionId} cleaned up after natural stream completion`,
-          );
-        } catch {
-        }
+        await this.sdkAdapter.endSession(sessionId);
+        this.logger.info(
+          `[RPC] Session ${sessionId} cleaned up after natural stream completion`,
+        );
       }
     }
   }

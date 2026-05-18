@@ -802,10 +802,7 @@ export class SkillsShRpcHandlers {
         }
       });
       const timer = setTimeout(() => {
-        try {
-          child.kill('SIGTERM');
-        } catch {
-        }
+        child.kill('SIGTERM');
         settle({
           stdout,
           stderr: `CLI timed out after ${timeout}ms`,
@@ -905,37 +902,34 @@ export class SkillsShRpcHandlers {
   ): Promise<InstalledSkill[]> {
     const skills: InstalledSkill[] = [];
 
-    try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
 
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
 
-        const skillMdPath = path.join(dirPath, entry.name, 'SKILL.md');
-        try {
-          const content = await fs.readFile(skillMdPath, 'utf8');
-          const metadata = this.parseSkillFrontmatter(content);
+      const skillMdPath = path.join(dirPath, entry.name, 'SKILL.md');
+      try {
+        const content = await fs.readFile(skillMdPath, 'utf8');
+        const metadata = this.parseSkillFrontmatter(content);
 
-          skills.push({
-            name: metadata.name || entry.name,
-            description: metadata.description || '',
-            source: metadata.source || entry.name,
-            path: path.join(dirPath, entry.name),
-            scope,
-            agents: [],
-          });
-        } catch {
-          skills.push({
-            name: entry.name,
-            description: '',
-            source: entry.name,
-            path: path.join(dirPath, entry.name),
-            scope,
-            agents: [],
-          });
-        }
+        skills.push({
+          name: metadata.name || entry.name,
+          description: metadata.description || '',
+          source: metadata.source || entry.name,
+          path: path.join(dirPath, entry.name),
+          scope,
+          agents: [],
+        });
+      } catch {
+        skills.push({
+          name: entry.name,
+          description: '',
+          source: entry.name,
+          path: path.join(dirPath, entry.name),
+          scope,
+          agents: [],
+        });
       }
-    } catch {
     }
 
     return skills;
@@ -1000,95 +994,75 @@ export class SkillsShRpcHandlers {
     const frameworks: string[] = [];
     const languages: string[] = [];
     const tools: string[] = [];
-    try {
-      const pkgJsonPath = path.join(workspaceRoot, 'package.json');
-      const pkgContent = await fs.readFile(pkgJsonPath, 'utf8');
-      const pkg = JSON.parse(pkgContent) as {
-        dependencies?: Record<string, string>;
-        devDependencies?: Record<string, string>;
-      };
 
-      const allDeps = {
-        ...(pkg.dependencies || {}),
-        ...(pkg.devDependencies || {}),
-      };
+    const pkgJsonPath = path.join(workspaceRoot, 'package.json');
+    const pkgContent = await fs.readFile(pkgJsonPath, 'utf8');
+    const pkg = JSON.parse(pkgContent) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
 
-      languages.push('javascript');
+    const allDeps = {
+      ...(pkg.dependencies || {}),
+      ...(pkg.devDependencies || {}),
+    };
 
-      const frameworkChecks: [string, string][] = [
-        ['react', 'react'],
-        ['@angular/core', 'angular'],
-        ['vue', 'vue'],
-        ['next', 'next'],
-        ['express', 'express'],
-        ['@nestjs/core', 'nestjs'],
-        ['@prisma/client', 'prisma'],
-        ['prisma', 'prisma'],
-        ['tailwindcss', 'tailwindcss'],
-        ['remotion', 'remotion'],
-      ];
+    languages.push('javascript');
 
-      for (const [dep, name] of frameworkChecks) {
-        if (dep in allDeps && !frameworks.includes(name)) {
-          frameworks.push(name);
-        }
+    const frameworkChecks: [string, string][] = [
+      ['react', 'react'],
+      ['@angular/core', 'angular'],
+      ['vue', 'vue'],
+      ['next', 'next'],
+      ['express', 'express'],
+      ['@nestjs/core', 'nestjs'],
+      ['@prisma/client', 'prisma'],
+      ['prisma', 'prisma'],
+      ['tailwindcss', 'tailwindcss'],
+      ['remotion', 'remotion'],
+    ];
+
+    for (const [dep, name] of frameworkChecks) {
+      if (dep in allDeps && !frameworks.includes(name)) {
+        frameworks.push(name);
       }
-    } catch {
     }
-    try {
-      await fs.access(path.join(workspaceRoot, 'tsconfig.json'));
-      if (!languages.includes('typescript')) {
-        languages.push('typescript');
+
+    await fs.access(path.join(workspaceRoot, 'tsconfig.json'));
+    if (!languages.includes('typescript')) {
+      languages.push('typescript');
+    }
+
+    await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
+    languages.push('rust');
+
+    await fs.access(path.join(workspaceRoot, 'go.mod'));
+    languages.push('go');
+
+    const pyFiles = ['requirements.txt', 'pyproject.toml', 'setup.py'];
+    for (const pyFile of pyFiles) {
+      await fs.access(path.join(workspaceRoot, pyFile));
+      if (!languages.includes('python')) {
+        languages.push('python');
       }
-    } catch {
+      break;
     }
-    try {
-      await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
-      languages.push('rust');
-    } catch {
-    }
-    try {
-      await fs.access(path.join(workspaceRoot, 'go.mod'));
-      languages.push('go');
-    } catch {
-    }
-    try {
-      const pyFiles = ['requirements.txt', 'pyproject.toml', 'setup.py'];
-      for (const pyFile of pyFiles) {
-        try {
-          await fs.access(path.join(workspaceRoot, pyFile));
-          if (!languages.includes('python')) {
-            languages.push('python');
-          }
-          break;
-        } catch {
-        }
+
+    const dockerFiles = [
+      'Dockerfile',
+      'docker-compose.yml',
+      'docker-compose.yaml',
+    ];
+    for (const dockerFile of dockerFiles) {
+      await fs.access(path.join(workspaceRoot, dockerFile));
+      if (!tools.includes('docker')) {
+        tools.push('docker');
       }
-    } catch {
+      break;
     }
-    try {
-      const dockerFiles = [
-        'Dockerfile',
-        'docker-compose.yml',
-        'docker-compose.yaml',
-      ];
-      for (const dockerFile of dockerFiles) {
-        try {
-          await fs.access(path.join(workspaceRoot, dockerFile));
-          if (!tools.includes('docker')) {
-            tools.push('docker');
-          }
-          break;
-        } catch {
-        }
-      }
-    } catch {
-    }
-    try {
-      await fs.access(path.join(workspaceRoot, 'nx.json'));
-      tools.push('nx');
-    } catch {
-    }
+
+    await fs.access(path.join(workspaceRoot, 'nx.json'));
+    tools.push('nx');
 
     return { frameworks, languages, tools };
   }
@@ -1140,15 +1114,11 @@ export class SkillsShRpcHandlers {
   private async enrichWithInstallStatus(
     skills: SkillShEntry[],
   ): Promise<SkillShEntry[]> {
-    try {
-      const installed = await this.getInstalledSkillNames();
+    const installed = await this.getInstalledSkillNames();
 
-      for (const skill of skills) {
-        skill.isInstalled =
-          installed.has(skill.skillId) ||
-          installed.has(skill.name.toLowerCase());
-      }
-    } catch {
+    for (const skill of skills) {
+      skill.isInstalled =
+        installed.has(skill.skillId) || installed.has(skill.name.toLowerCase());
     }
 
     return skills;
@@ -1161,14 +1131,11 @@ export class SkillsShRpcHandlers {
     const names = new Set<string>();
 
     const scanDir = async (dirPath: string) => {
-      try {
-        const entries = await fs.readdir(dirPath, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            names.add(entry.name.toLowerCase());
-          }
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          names.add(entry.name.toLowerCase());
         }
-      } catch {
       }
     };
 

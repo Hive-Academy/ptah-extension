@@ -289,10 +289,8 @@ export class SessionQueryExecutor {
       if (rec) {
         this.registry.remove(rec);
       }
-      try {
-        abortController.abort();
-      } catch {
-      }
+
+      abortController.abort();
       this.logger.error(
         `[SessionLifecycle] Query init failed for session ${sessionId}; rolling back pre-registration`,
         err instanceof Error ? err : new Error(String(err)),

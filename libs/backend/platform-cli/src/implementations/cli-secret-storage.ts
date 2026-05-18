@@ -213,9 +213,6 @@ export class CliSecretStorage implements ISecretStorage {
    * Delete the encrypted file if it exists (used on corruption recovery).
    */
   private deleteFileSync(): void {
-    try {
-      fs.unlinkSync(this.filePath);
-    } catch {
-    }
+    fs.unlinkSync(this.filePath);
   }
 }

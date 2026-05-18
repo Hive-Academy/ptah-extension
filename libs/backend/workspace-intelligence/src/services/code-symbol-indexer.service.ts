@@ -1,4 +1,3 @@
-
 import * as path from 'path';
 import picomatch from 'picomatch';
 import { inject, injectable } from 'tsyringe';
@@ -198,15 +197,12 @@ export class CodeSymbolIndexer {
       }
 
       if (options?.onProgress) {
-        try {
-          options.onProgress({
-            filesScanned: filesProcessed,
-            totalFiles: filteredPaths.length,
-            symbolsIndexed: totalSymbols,
-            currentFile: batch[batch.length - 1] ?? '',
-          });
-        } catch {
-        }
+        options.onProgress({
+          filesScanned: filesProcessed,
+          totalFiles: filteredPaths.length,
+          symbolsIndexed: totalSymbols,
+          currentFile: batch[batch.length - 1] ?? '',
+        });
       }
 
       if (i + batchSize < filteredPaths.length) {

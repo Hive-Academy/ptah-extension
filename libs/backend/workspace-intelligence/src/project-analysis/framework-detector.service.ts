@@ -164,14 +164,11 @@ export class FrameworkDetectorService {
     const requirementsExist = await this.fileSystem.exists(requirementsPath);
 
     if (requirementsExist) {
-      try {
-        const content = await this.fileSystem.readFile(requirementsPath);
-        const lowerContent = content.toLowerCase();
+      const content = await this.fileSystem.readFile(requirementsPath);
+      const lowerContent = content.toLowerCase();
 
-        if (lowerContent.includes('django')) {
-          return Framework.Django;
-        }
-      } catch (_error) {
+      if (lowerContent.includes('django')) {
+        return Framework.Django;
       }
     }
 
@@ -194,16 +191,13 @@ export class FrameworkDetectorService {
     const composerExists = await this.fileSystem.exists(composerPath);
 
     if (composerExists) {
-      try {
-        const content = await this.fileSystem.readFile(composerPath);
-        const composer = JSON.parse(content) as {
-          require?: Record<string, string>;
-        };
+      const content = await this.fileSystem.readFile(composerPath);
+      const composer = JSON.parse(content) as {
+        require?: Record<string, string>;
+      };
 
-        if (composer.require && composer.require['laravel/framework']) {
-          return Framework.Laravel;
-        }
-      } catch (_error) {
+      if (composer.require && composer.require['laravel/framework']) {
+        return Framework.Laravel;
       }
     }
 
@@ -226,12 +220,9 @@ export class FrameworkDetectorService {
     const gemfileExists = await this.fileSystem.exists(gemfilePath);
 
     if (gemfileExists) {
-      try {
-        const content = await this.fileSystem.readFile(gemfilePath);
-        if (content.includes('rails')) {
-          return Framework.Rails;
-        }
-      } catch (_error) {
+      const content = await this.fileSystem.readFile(gemfilePath);
+      if (content.includes('rails')) {
+        return Framework.Rails;
       }
     }
 

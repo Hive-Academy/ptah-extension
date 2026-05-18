@@ -193,11 +193,7 @@ export class SqliteMigrationRunner {
         this.db.exec(`PRAGMA user_version = ${migration.version}`);
         this.db.exec('COMMIT');
       } catch (err: unknown) {
-        try {
-          this.db.exec('ROLLBACK');
-        } catch {
-          /* ignore — original error is what matters */
-        }
+        this.db.exec('ROLLBACK');
         throw new Error(
           `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) bookkeeping failed: ` +
             stringifyError(err),
@@ -217,11 +213,7 @@ export class SqliteMigrationRunner {
       this.db.exec(`PRAGMA user_version = ${migration.version}`);
       this.db.exec('COMMIT');
     } catch (err: unknown) {
-      try {
-        this.db.exec('ROLLBACK');
-      } catch {
-        /* ignore — original error is what matters */
-      }
+      this.db.exec('ROLLBACK');
       throw new Error(
         `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) failed: ` +
           stringifyError(err),

@@ -114,11 +114,8 @@ export class ElectronSafeStorageVault implements ITokenVault {
 
   private resolveMachineSeed(): Buffer {
     for (const candidate of MACHINE_ID_PATHS) {
-      try {
-        const v = fs.readFileSync(candidate, 'utf8').trim();
-        if (v.length > 0) return Buffer.from(v, 'utf8');
-      } catch {
-      }
+      const v = fs.readFileSync(candidate, 'utf8').trim();
+      if (v.length > 0) return Buffer.from(v, 'utf8');
     }
     try {
       if (fs.existsSync(FALLBACK_UUID_FILE)) {

@@ -163,14 +163,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         this.logger.warn(
           `${this.logPrefix} Graceful shutdown timed out, forcing close`,
         );
-        try {
-          const serverWithConnections = server as unknown as {
-            closeAllConnections?: () => void;
-          };
-          if (typeof serverWithConnections.closeAllConnections === 'function') {
-            serverWithConnections.closeAllConnections();
-          }
-        } catch {
+
+        const serverWithConnections = server as unknown as {
+          closeAllConnections?: () => void;
+        };
+        if (typeof serverWithConnections.closeAllConnections === 'function') {
+          serverWithConnections.closeAllConnections();
         }
         resolve();
       }, 5_000);
@@ -842,13 +840,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       if (buffer.trim()) {
         const trimmed = buffer.trim();
         if (trimmed.startsWith('data: ') && trimmed.slice(6) !== '[DONE]') {
-          try {
-            const openaiChunk = JSON.parse(trimmed.slice(6));
-            const events = translator.translateChunk(openaiChunk);
-            for (const event of events) {
-              res.write(event);
-            }
-          } catch {
+          const openaiChunk = JSON.parse(trimmed.slice(6));
+          const events = translator.translateChunk(openaiChunk);
+          for (const event of events) {
+            res.write(event);
           }
         }
       }

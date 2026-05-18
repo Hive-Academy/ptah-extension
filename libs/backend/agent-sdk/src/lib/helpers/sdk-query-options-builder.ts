@@ -151,11 +151,8 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
     const provider = getAnthropicProvider(id);
     if (provider && provider.baseUrl) {
-      try {
-        if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-          return id;
-        }
-      } catch {
+      if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
+        return id;
       }
     }
   }

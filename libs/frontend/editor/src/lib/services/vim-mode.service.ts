@@ -57,16 +57,13 @@ export class VimModeService {
    * Called once on editor panel initialization.
    */
   async loadPreference(): Promise<void> {
-    try {
-      const result = await rpcCall<{ value: boolean }>(
-        this.vscodeService,
-        'editor:getSetting',
-        { key: 'editor.vimMode' },
-      );
-      if (result.success && result.data) {
-        this._enabled.set(result.data.value ?? false);
-      }
-    } catch {
+    const result = await rpcCall<{ value: boolean }>(
+      this.vscodeService,
+      'editor:getSetting',
+      { key: 'editor.vimMode' },
+    );
+    if (result.success && result.data) {
+      this._enabled.set(result.data.value ?? false);
     }
   }
 
@@ -82,13 +79,10 @@ export class VimModeService {
       this.detach();
     }
 
-    try {
-      await rpcCall(this.vscodeService, 'editor:updateSetting', {
-        key: 'editor.vimMode',
-        value: newValue,
-      });
-    } catch {
-    }
+    await rpcCall(this.vscodeService, 'editor:updateSetting', {
+      key: 'editor.vimMode',
+      value: newValue,
+    });
   }
 
   /**
@@ -163,10 +157,7 @@ export class VimModeService {
    */
   detach(): void {
     if (this.vimMode) {
-      try {
-        this.vimMode.dispose();
-      } catch {
-      }
+      this.vimMode.dispose();
       this.vimMode = null;
     }
   }

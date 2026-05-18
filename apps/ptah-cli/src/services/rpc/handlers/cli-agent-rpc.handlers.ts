@@ -627,33 +627,28 @@ export class CliAgentRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<boolean> {
-    try {
-      const projectsDir = path.join(os.homedir(), '.claude', 'projects');
-      const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-      const dirs = await fs.readdir(projectsDir);
+    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+    const dirs = await fs.readdir(projectsDir);
 
-      const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
-      const normalizedEscaped = normalize(escapedPath);
-      const matchedDir = dirs.find(
-        (d) =>
-          d === escapedPath ||
-          d.toLowerCase() === escapedPath.toLowerCase() ||
-          normalize(d) === normalizedEscaped,
+    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+    const normalizedEscaped = normalize(escapedPath);
+    const matchedDir = dirs.find(
+      (d) =>
+        d === escapedPath ||
+        d.toLowerCase() === escapedPath.toLowerCase() ||
+        normalize(d) === normalizedEscaped,
+    );
+
+    if (matchedDir) {
+      const sessionFile = path.join(
+        projectsDir,
+        matchedDir,
+        `${sessionId}.jsonl`,
       );
 
-      if (matchedDir) {
-        const sessionFile = path.join(
-          projectsDir,
-          matchedDir,
-          `${sessionId}.jsonl`,
-        );
-        try {
-          await fs.access(sessionFile);
-          return true;
-        } catch {
-        }
-      }
-    } catch {
+      await fs.access(sessionFile);
+      return true;
     }
 
     return false;

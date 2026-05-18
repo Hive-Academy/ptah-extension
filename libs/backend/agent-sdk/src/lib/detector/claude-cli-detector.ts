@@ -354,23 +354,20 @@ export class ClaudeCliDetector {
     const isWindows = os.platform() === 'win32';
     const command = isWindows ? 'where' : 'which';
 
-    try {
-      const result = await this.executeCommand(command, ['claude'], {
-        timeout: 5000,
-      });
-      if (result.success) {
-        const paths = result.stdout
-          .trim()
-          .split('\n')
-          .map((p) => p.trim())
-          .filter((p) => p);
-        for (const claudePath of paths) {
-          if (fs.existsSync(claudePath)) {
-            return { path: claudePath, source: 'which-where' };
-          }
+    const result = await this.executeCommand(command, ['claude'], {
+      timeout: 5000,
+    });
+    if (result.success) {
+      const paths = result.stdout
+        .trim()
+        .split('\n')
+        .map((p) => p.trim())
+        .filter((p) => p);
+      for (const claudePath of paths) {
+        if (fs.existsSync(claudePath)) {
+          return { path: claudePath, source: 'which-where' };
         }
       }
-    } catch {
     }
 
     return null;
@@ -384,23 +381,20 @@ export class ClaudeCliDetector {
       return null;
     }
 
-    try {
-      const result = await this.executeCommand('wsl', ['which', 'claude'], {
-        timeout: 5000,
-      });
+    const result = await this.executeCommand('wsl', ['which', 'claude'], {
+      timeout: 5000,
+    });
 
-      if (result.success) {
-        const wslPath = result.stdout.trim();
-        if (wslPath) {
-          return {
-            path: 'wsl',
-            version: undefined,
-            source: 'wsl',
-            isWSL: true,
-          };
-        }
+    if (result.success) {
+      const wslPath = result.stdout.trim();
+      if (wslPath) {
+        return {
+          path: 'wsl',
+          version: undefined,
+          source: 'wsl',
+          isWSL: true,
+        };
       }
-    } catch {
     }
 
     return null;

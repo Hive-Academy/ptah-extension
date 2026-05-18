@@ -630,17 +630,14 @@ export class PtahAPIBuilder {
    * or multiple sessions target different workspace folders.
    */
   private getWorkspaceRoot(): string {
-    try {
-      if (container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
-        const manager = container.resolve<{
-          getActiveSessionWorkspace(): string | undefined;
-        }>(SDK_SESSION_LIFECYCLE_MANAGER);
-        const sessionWorkspace = manager.getActiveSessionWorkspace();
-        if (sessionWorkspace) {
-          return sessionWorkspace;
-        }
+    if (container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
+      const manager = container.resolve<{
+        getActiveSessionWorkspace(): string | undefined;
+      }>(SDK_SESSION_LIFECYCLE_MANAGER);
+      const sessionWorkspace = manager.getActiveSessionWorkspace();
+      if (sessionWorkspace) {
+        return sessionWorkspace;
       }
-    } catch {
     }
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (workspaceRoot) {

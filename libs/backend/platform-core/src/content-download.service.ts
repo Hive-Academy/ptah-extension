@@ -263,20 +263,14 @@ export class ContentDownloadService {
    * is not in the manifest file list.
    */
   private pruneStaleFiles(localDir: string, manifestFiles: string[]): void {
-    try {
-      const manifestSet = new Set(manifestFiles);
-      const localFiles = this.walkLocalDir(localDir, localDir);
+    const manifestSet = new Set(manifestFiles);
+    const localFiles = this.walkLocalDir(localDir, localDir);
 
-      for (const relPath of localFiles) {
-        if (!manifestSet.has(relPath)) {
-          try {
-            const fullPath = path.join(localDir, ...relPath.split('/'));
-            fs.unlinkSync(fullPath);
-          } catch {
-          }
-        }
+    for (const relPath of localFiles) {
+      if (!manifestSet.has(relPath)) {
+        const fullPath = path.join(localDir, ...relPath.split('/'));
+        fs.unlinkSync(fullPath);
       }
-    } catch {
     }
   }
 
@@ -296,14 +290,12 @@ export class ContentDownloadService {
 
     for (const entry of entries) {
       const fullPath = path.join(dir, entry);
-      try {
-        const stat = fs.statSync(fullPath);
-        if (stat.isDirectory()) {
-          results.push(...this.walkLocalDir(fullPath, baseDir));
-        } else if (stat.isFile()) {
-          results.push(path.relative(baseDir, fullPath).replace(/\\/g, '/'));
-        }
-      } catch {
+
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        results.push(...this.walkLocalDir(fullPath, baseDir));
+      } else if (stat.isFile()) {
+        results.push(path.relative(baseDir, fullPath).replace(/\\/g, '/'));
       }
     }
 

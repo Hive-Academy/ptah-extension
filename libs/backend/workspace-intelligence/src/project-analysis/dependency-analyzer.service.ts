@@ -138,27 +138,21 @@ export class DependencyAnalyzerService {
     const requirementsExist = await this.fileSystem.exists(requirementsPath);
 
     if (requirementsExist) {
-      try {
-        const content = await this.fileSystem.readFile(requirementsPath);
-        const dependencies = this.parseRequirementsTxt(content);
+      const content = await this.fileSystem.readFile(requirementsPath);
+      const dependencies = this.parseRequirementsTxt(content);
 
-        return {
-          dependencies,
-          devDependencies: [],
-          totalCount: dependencies.length,
-        };
-      } catch {
-      }
+      return {
+        dependencies,
+        devDependencies: [],
+        totalCount: dependencies.length,
+      };
     }
     const pipfilePath = path.join(workspacePath, 'Pipfile');
     const pipfileExists = await this.fileSystem.exists(pipfilePath);
 
     if (pipfileExists) {
-      try {
-        const content = await this.fileSystem.readFile(pipfilePath);
-        return this.parsePipfile(content);
-      } catch {
-      }
+      const content = await this.fileSystem.readFile(pipfilePath);
+      return this.parsePipfile(content);
     }
 
     return this.emptyResult();
@@ -316,33 +310,27 @@ export class DependencyAnalyzerService {
     const pomExists = await this.fileSystem.exists(pomXmlPath);
 
     if (pomExists) {
-      try {
-        const content = await this.fileSystem.readFile(pomXmlPath);
-        const dependencies = this.parsePomXml(content);
+      const content = await this.fileSystem.readFile(pomXmlPath);
+      const dependencies = this.parsePomXml(content);
 
-        return {
-          dependencies,
-          devDependencies: [],
-          totalCount: dependencies.length,
-        };
-      } catch {
-      }
+      return {
+        dependencies,
+        devDependencies: [],
+        totalCount: dependencies.length,
+      };
     }
     const buildGradlePath = path.join(workspacePath, 'build.gradle');
     const gradleExists = await this.fileSystem.exists(buildGradlePath);
 
     if (gradleExists) {
-      try {
-        const content = await this.fileSystem.readFile(buildGradlePath);
-        const dependencies = this.parseBuildGradle(content);
+      const content = await this.fileSystem.readFile(buildGradlePath);
+      const dependencies = this.parseBuildGradle(content);
 
-        return {
-          dependencies,
-          devDependencies: [],
-          totalCount: dependencies.length,
-        };
-      } catch {
-      }
+      return {
+        dependencies,
+        devDependencies: [],
+        totalCount: dependencies.length,
+      };
     }
 
     return this.emptyResult();

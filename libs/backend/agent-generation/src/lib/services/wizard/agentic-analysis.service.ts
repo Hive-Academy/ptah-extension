@@ -399,20 +399,14 @@ export class AgenticAnalysisService {
     } catch {
       const jsonMatch = text.match(/```json\s*\n([\s\S]*?)\n```/);
       if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1]);
-          return this.normalizeStructuredOutput(parsed);
-        } catch {
-        }
+        const parsed = JSON.parse(jsonMatch[1]);
+        return this.normalizeStructuredOutput(parsed);
       }
       const firstBrace = text.indexOf('{');
       const lastBrace = text.lastIndexOf('}');
       if (firstBrace !== -1 && lastBrace > firstBrace) {
-        try {
-          const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
-          return this.normalizeStructuredOutput(parsed);
-        } catch {
-        }
+        const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+        return this.normalizeStructuredOutput(parsed);
       }
 
       return Result.err(

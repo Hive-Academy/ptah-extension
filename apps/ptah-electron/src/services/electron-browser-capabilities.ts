@@ -495,8 +495,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       const data = params.data as string;
       const sessionId = params.sessionId as number;
       this.sendCDP('Page.screencastFrameAck', { sessionId }).catch(
-        (_ackError: unknown) => {
-        },
+        (_ackError: unknown) => {},
       );
       this.recorder?.addFrame(data);
     }
@@ -517,11 +516,8 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
 
   private async cleanup(): Promise<void> {
     if (this.recorder?.isRecording()) {
-      try {
-        const recordingDir = this.getRecordingDir();
-        await this.recorder.stopRecording(recordingDir || undefined);
-      } catch {
-      }
+      const recordingDir = this.getRecordingDir();
+      await this.recorder.stopRecording(recordingDir || undefined);
     }
     this.recorder = null;
 
@@ -535,10 +531,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     }
 
     if (this.window && !this.window.isDestroyed()) {
-      try {
-        this.window.webContents.debugger.detach();
-      } catch {
-      }
+      this.window.webContents.debugger.detach();
       this.window.destroy();
     }
 
@@ -609,8 +602,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     try {
       if (this.connected && this.window && !this.window.isDestroyed()) {
         await this.sendCDP('Page.stopScreencast', {}).catch(
-          (_stopError: unknown) => {
-          },
+          (_stopError: unknown) => {},
         );
       }
       const recordingDir = this.getRecordingDir();

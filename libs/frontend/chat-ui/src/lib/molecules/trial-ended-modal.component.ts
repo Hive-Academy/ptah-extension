@@ -182,12 +182,9 @@ export class TrialEndedModalComponent {
    * User manages their plan there and gets a new license key.
    */
   async goToAccount(): Promise<void> {
-    try {
-      await this.rpcService.call('command:execute', {
-        command: 'ptah.openSignup',
-      });
-    } catch {
-    }
+    await this.rpcService.call('command:execute', {
+      command: 'ptah.openSignup',
+    });
     this.isOpen.set(false);
   }
 

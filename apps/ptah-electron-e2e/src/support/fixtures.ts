@@ -33,13 +33,13 @@ export interface PtahFixtures {
 }
 
 export const test = base.extend<PtahFixtures>({
+  // eslint-disable-next-line no-empty-pattern
   electronApp: async ({}, use) => {
     const app = await launchPtah();
     try {
       await use(app);
     } finally {
-      await app.close().catch(() => {
-      });
+      await app.close().catch(() => {});
     }
   },
 

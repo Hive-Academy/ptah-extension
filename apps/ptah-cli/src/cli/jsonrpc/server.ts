@@ -212,10 +212,8 @@ export class JsonRpcServer {
     if (!handler) {
       return;
     }
-    try {
-      await handler(notification.params);
-    } catch {
-    }
+
+    await handler(notification.params);
   }
 
   private dispatchResponse(response: JsonRpcResponse): void {

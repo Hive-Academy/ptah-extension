@@ -119,15 +119,12 @@ export class MonorepoDetectorService {
       }
       let packageCount: number | undefined;
       if (nxExists) {
-        try {
-          const content = await this.fileSystem.readFile(nxJsonPath);
-          const nxJson = JSON.parse(content) as {
-            projects?: Record<string, unknown>;
-          };
-          if (nxJson.projects) {
-            packageCount = Object.keys(nxJson.projects).length;
-          }
-        } catch {
+        const content = await this.fileSystem.readFile(nxJsonPath);
+        const nxJson = JSON.parse(content) as {
+          projects?: Record<string, unknown>;
+        };
+        if (nxJson.projects) {
+          packageCount = Object.keys(nxJson.projects).length;
         }
       }
 
@@ -153,30 +150,27 @@ export class MonorepoDetectorService {
 
     if (exists) {
       let packageCount: number | undefined;
-      try {
-        const content = await this.fileSystem.readFile(lernaJsonPath);
-        const lernaJson = JSON.parse(content) as {
-          packages?: string[];
-          useWorkspaces?: boolean;
-        };
-        if (lernaJson.useWorkspaces) {
-          const packageJsonPath = path.join(workspacePath, 'package.json');
-          const packageJsonExists =
-            await this.fileSystem.exists(packageJsonPath);
-          if (packageJsonExists) {
-            const packageContent =
-              await this.fileSystem.readFile(packageJsonPath);
-            const packageJson = JSON.parse(packageContent) as {
-              workspaces?: string[];
-            };
-            if (packageJson.workspaces) {
-              packageCount = packageJson.workspaces.length;
-            }
+
+      const content = await this.fileSystem.readFile(lernaJsonPath);
+      const lernaJson = JSON.parse(content) as {
+        packages?: string[];
+        useWorkspaces?: boolean;
+      };
+      if (lernaJson.useWorkspaces) {
+        const packageJsonPath = path.join(workspacePath, 'package.json');
+        const packageJsonExists = await this.fileSystem.exists(packageJsonPath);
+        if (packageJsonExists) {
+          const packageContent =
+            await this.fileSystem.readFile(packageJsonPath);
+          const packageJson = JSON.parse(packageContent) as {
+            workspaces?: string[];
+          };
+          if (packageJson.workspaces) {
+            packageCount = packageJson.workspaces.length;
           }
-        } else if (lernaJson.packages) {
-          packageCount = lernaJson.packages.length;
         }
-      } catch {
+      } else if (lernaJson.packages) {
+        packageCount = lernaJson.packages.length;
       }
 
       return {
@@ -201,15 +195,13 @@ export class MonorepoDetectorService {
 
     if (exists) {
       let packageCount: number | undefined;
-      try {
-        const content = await this.fileSystem.readFile(rushJsonPath);
-        const rushJson = JSON.parse(content) as {
-          projects?: Array<{ packageName: string }>;
-        };
-        if (rushJson.projects) {
-          packageCount = rushJson.projects.length;
-        }
-      } catch {
+
+      const content = await this.fileSystem.readFile(rushJsonPath);
+      const rushJson = JSON.parse(content) as {
+        projects?: Array<{ packageName: string }>;
+      };
+      if (rushJson.projects) {
+        packageCount = rushJson.projects.length;
       }
 
       return {
@@ -254,18 +246,14 @@ export class MonorepoDetectorService {
 
     if (exists) {
       let packageCount: number | undefined;
-      try {
-        const content = await this.fileSystem.readFile(pnpmWorkspacePath);
-        const packagesMatch = content.match(
-          /packages:\s*\n((?:\s+-\s+.+\n?)+)/,
-        );
-        if (packagesMatch) {
-          const packageLines = packagesMatch[1].trim().split('\n');
-          packageCount = packageLines.filter((line) =>
-            line.trim().startsWith('-'),
-          ).length;
-        }
-      } catch {
+
+      const content = await this.fileSystem.readFile(pnpmWorkspacePath);
+      const packagesMatch = content.match(/packages:\s*\n((?:\s+-\s+.+\n?)+)/);
+      if (packagesMatch) {
+        const packageLines = packagesMatch[1].trim().split('\n');
+        packageCount = packageLines.filter((line) =>
+          line.trim().startsWith('-'),
+        ).length;
       }
 
       return {
@@ -289,28 +277,25 @@ export class MonorepoDetectorService {
     const exists = await this.fileSystem.exists(packageJsonPath);
 
     if (exists) {
-      try {
-        const content = await this.fileSystem.readFile(packageJsonPath);
-        const packageJson = JSON.parse(content) as {
-          workspaces?: string[] | { packages?: string[] };
-        };
+      const content = await this.fileSystem.readFile(packageJsonPath);
+      const packageJson = JSON.parse(content) as {
+        workspaces?: string[] | { packages?: string[] };
+      };
 
-        if (packageJson.workspaces) {
-          let packageCount: number | undefined;
-          if (Array.isArray(packageJson.workspaces)) {
-            packageCount = packageJson.workspaces.length;
-          } else if (packageJson.workspaces.packages) {
-            packageCount = packageJson.workspaces.packages.length;
-          }
-
-          return {
-            isMonorepo: true,
-            type: MonorepoType.YarnWorkspaces,
-            workspaceFiles: ['package.json'],
-            packageCount,
-          };
+      if (packageJson.workspaces) {
+        let packageCount: number | undefined;
+        if (Array.isArray(packageJson.workspaces)) {
+          packageCount = packageJson.workspaces.length;
+        } else if (packageJson.workspaces.packages) {
+          packageCount = packageJson.workspaces.packages.length;
         }
-      } catch {
+
+        return {
+          isMonorepo: true,
+          type: MonorepoType.YarnWorkspaces,
+          workspaceFiles: ['package.json'],
+          packageCount,
+        };
       }
     }
 

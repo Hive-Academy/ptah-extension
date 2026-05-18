@@ -223,11 +223,7 @@ export class JobRunner {
         }
       }
     } finally {
-      try {
-        handle.close();
-      } catch {
-        /* swallow close errors — abort path already recorded */
-      }
+      handle.close();
     }
     return { summary: summary ?? 'ok' };
   }

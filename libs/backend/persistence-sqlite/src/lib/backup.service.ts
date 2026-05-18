@@ -116,16 +116,12 @@ export class SqliteBackupService implements IBackupService {
       const dir = path.dirname(dest);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
-        try {
-          fs.chmodSync(dir, 0o700);
-        } catch {
-        }
+
+        fs.chmodSync(dir, 0o700);
       }
       await db.backup(dest);
-      try {
-        fs.chmodSync(dest, 0o600);
-      } catch {
-      }
+
+      fs.chmodSync(dest, 0o600);
       this.logger.info('[persistence-sqlite] backup completed', { kind, dest });
       return dest;
     } catch (err: unknown) {

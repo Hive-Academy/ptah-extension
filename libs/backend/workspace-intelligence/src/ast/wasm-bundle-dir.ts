@@ -19,12 +19,9 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 function resolveBundleDir(): string {
-  try {
-    const metaUrl: string | undefined = import.meta?.url;
-    if (metaUrl) {
-      return path.dirname(fileURLToPath(metaUrl));
-    }
-  } catch {
+  const metaUrl: string | undefined = import.meta?.url;
+  if (metaUrl) {
+    return path.dirname(fileURLToPath(metaUrl));
   }
   return __dirname;
 }

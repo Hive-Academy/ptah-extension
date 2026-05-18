@@ -34,8 +34,6 @@ export async function registerPostInit(
   const ptahExtension = new PtahExtension(context);
 
   await ptahExtension.initialize();
-  if (!authInitialized) {
-  }
   await ptahExtension.registerAll();
   try {
     const container = DIContainer.getContainer();

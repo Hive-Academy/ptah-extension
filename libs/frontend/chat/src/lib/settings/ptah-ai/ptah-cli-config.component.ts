@@ -675,8 +675,7 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       );
       if (result.isSuccess()) {
         this.agents.set(result.data.agents);
-        this.ptahCliState.refresh().catch(() => {
-        });
+        this.ptahCliState.refresh().catch(() => {});
       } else {
         this.error.set(result.error ?? 'Failed to load Ptah CLI agents');
       }
@@ -886,8 +885,7 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
             a.id === agent.id ? { ...a, enabled: !a.enabled } : a,
           ),
         );
-        this.ptahCliState.refresh().catch(() => {
-        });
+        this.ptahCliState.refresh().catch(() => {});
         this.ptahCliChanged.emit();
       } else {
         this.error.set(
@@ -994,24 +992,21 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
 
     await Promise.all(
       uniqueProviderIds.map(async (providerId) => {
-        try {
-          const result = await this.rpcService.call('provider:getModelTiers', {
-            providerId,
-            scope: 'cliAgent',
-          });
-          if (result.isSuccess() && result.data) {
-            const data = result.data as unknown as {
-              sonnet?: string | null;
-              opus?: string | null;
-              haiku?: string | null;
-            };
-            mappings[providerId] = {
-              sonnet: data.sonnet ?? null,
-              opus: data.opus ?? null,
-              haiku: data.haiku ?? null,
-            };
-          }
-        } catch {
+        const result = await this.rpcService.call('provider:getModelTiers', {
+          providerId,
+          scope: 'cliAgent',
+        });
+        if (result.isSuccess() && result.data) {
+          const data = result.data as unknown as {
+            sonnet?: string | null;
+            opus?: string | null;
+            haiku?: string | null;
+          };
+          mappings[providerId] = {
+            sonnet: data.sonnet ?? null,
+            opus: data.opus ?? null,
+            haiku: data.haiku ?? null,
+          };
         }
       }),
     );

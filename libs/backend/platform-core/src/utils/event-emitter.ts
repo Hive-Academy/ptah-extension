@@ -29,10 +29,7 @@ export function createEvent<T>(): [IEvent<T>, (data: T) => void] {
 
   const fire = (data: T): void => {
     for (const listener of listeners) {
-      try {
-        listener(data);
-      } catch {
-      }
+      listener(data);
     }
   };
 

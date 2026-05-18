@@ -160,7 +160,6 @@ export class StreamRouter {
 
       if (convId && !boundConv) {
         this.binding.bind(originTabId, convId);
-      } else if (convId && boundConv && boundConv !== convId) {
       } else if (!convId && boundConv) {
         if (eventSessionId) {
           this.registry.appendSession(boundConv, eventSessionId);

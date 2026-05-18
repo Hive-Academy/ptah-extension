@@ -1,4 +1,3 @@
-
 import {
   Component,
   NgModule,
@@ -7,6 +6,7 @@ import {
 } from '@angular/core';
 
 @Component({
+  // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'markdown',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,

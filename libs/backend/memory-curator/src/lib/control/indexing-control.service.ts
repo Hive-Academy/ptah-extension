@@ -368,10 +368,7 @@ export class IndexingControlService {
 
     const progressHandler = (event: IndexingProgressEvent): void => {
       for (const listener of this.progressListeners) {
-        try {
-          listener(event);
-        } catch {
-        }
+        listener(event);
       }
       void this.webviewManager.broadcastMessage(
         'indexing:progress' as never,

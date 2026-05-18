@@ -63,9 +63,6 @@ export function emitFatalError(
       payload[k] = v;
     }
   }
-  try {
-    process.stderr.write(`${JSON.stringify(payload)}\n`);
-  } catch {
-    /* swallow — stderr write failure cannot be reported anywhere safer */
-  }
+
+  process.stderr.write(`${JSON.stringify(payload)}\n`);
 }

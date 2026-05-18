@@ -135,10 +135,8 @@ export async function runHeadlessLogin(
   let sigintReceived = false;
   const sigintHandler = (): void => {
     sigintReceived = true;
-    try {
-      copilotAuth.cancelLogin(deviceCode);
-    } catch {
-    }
+
+    copilotAuth.cancelLogin(deviceCode);
   };
   processRef.on('SIGINT', sigintHandler);
 

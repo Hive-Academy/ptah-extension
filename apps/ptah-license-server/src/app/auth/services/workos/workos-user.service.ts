@@ -258,10 +258,7 @@ export class WorkosUserService {
       const user = await this.findUserByEmail(email);
 
       if (user && !user.emailVerified) {
-        try {
-          await this.sendVerificationEmail(user.id);
-        } catch {
-        }
+        await this.sendVerificationEmail(user.id);
 
         return {
           type: 'email_verification_required',

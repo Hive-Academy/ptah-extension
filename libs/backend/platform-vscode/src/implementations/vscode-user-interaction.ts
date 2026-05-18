@@ -101,11 +101,7 @@ export class VscodeUserInteraction implements IUserInteraction {
       opened = false;
     }
     if (params.userCode) {
-      try {
-        await vscode.env.clipboard.writeText(params.userCode);
-      } catch {
-        /* clipboard failure is non-fatal */
-      }
+      await vscode.env.clipboard.writeText(params.userCode);
       void vscode.window.showInformationMessage(
         `Device code: ${params.userCode} (copied to clipboard). Paste at ${params.verificationUri}.`,
       );

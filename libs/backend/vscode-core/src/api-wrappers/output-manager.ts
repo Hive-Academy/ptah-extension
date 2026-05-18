@@ -82,7 +82,7 @@ export class OutputManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext
+    private readonly context: vscode.ExtensionContext,
   ) {}
 
   /**
@@ -129,7 +129,7 @@ export class OutputManager {
   write(
     channelName: string,
     message: string,
-    options: WriteOptions = {}
+    options: WriteOptions = {},
   ): void {
     const channel = this.outputChannels.get(channelName);
 
@@ -163,7 +163,7 @@ export class OutputManager {
   writeLines(
     channelName: string,
     messages: readonly string[],
-    options: WriteOptions = {}
+    options: WriteOptions = {},
   ): void {
     messages.forEach((message) => this.write(channelName, message, options));
   }
@@ -312,12 +312,9 @@ export class OutputManager {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    try {
-      this.outputChannels.forEach((channel) => channel.dispose());
-      this.outputChannels.clear();
-      this.channelMetrics.clear();
-    } catch {
-    }
+    this.outputChannels.forEach((channel) => channel.dispose());
+    this.outputChannels.clear();
+    this.channelMetrics.clear();
   }
 
   /**
@@ -327,7 +324,7 @@ export class OutputManager {
   private updateChannelMetrics(
     channelName: string,
     level: 'debug' | 'info' | 'warn' | 'error',
-    isError: boolean
+    isError: boolean,
   ): void {
     const metrics = this.channelMetrics.get(channelName);
 

@@ -238,34 +238,28 @@ export class AppStateManager implements MessageHandler {
       (windowWithState.ptahConfig?.initialView as ViewType) ||
       'chat';
     let savedLayoutMode: LayoutMode | null = null;
-    try {
-      savedLayoutMode = localStorage.getItem(
-        'ptah-layout-mode',
-      ) as LayoutMode | null;
-    } catch {
-      /* localStorage unavailable in restricted environments */
-    }
+
+    savedLayoutMode = localStorage.getItem(
+      'ptah-layout-mode',
+    ) as LayoutMode | null;
     if (savedLayoutMode === 'single' || savedLayoutMode === 'grid') {
       this._layoutMode.set(savedLayoutMode);
     }
-    try {
-      const newValue = localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY);
-      if (newValue === null) {
-        const legacyValue = localStorage.getItem(
-          LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY,
-        );
-        if (legacyValue !== null) {
-          localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, legacyValue);
-          localStorage.removeItem(LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY);
-          if (legacyValue === 'true') {
-            this._thothFirstRunDismissed.set(true);
-          }
+
+    const newValue = localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY);
+    if (newValue === null) {
+      const legacyValue = localStorage.getItem(
+        LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY,
+      );
+      if (legacyValue !== null) {
+        localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, legacyValue);
+        localStorage.removeItem(LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY);
+        if (legacyValue === 'true') {
+          this._thothFirstRunDismissed.set(true);
         }
-      } else if (newValue === 'true') {
-        this._thothFirstRunDismissed.set(true);
       }
-    } catch {
-      /* localStorage unavailable in restricted environments */
+    } else if (newValue === 'true') {
+      this._thothFirstRunDismissed.set(true);
     }
     initialView = this.normalizeView(initialView);
 
@@ -367,11 +361,8 @@ export class AppStateManager implements MessageHandler {
    */
   dismissThothFirstRun(): void {
     this._thothFirstRunDismissed.set(true);
-    try {
-      localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, 'true');
-    } catch {
-      /* localStorage unavailable in restricted environments */
-    }
+
+    localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, 'true');
   }
 
   getStateSnapshot(): AppState {
@@ -388,11 +379,8 @@ export class AppStateManager implements MessageHandler {
   /** Set the layout mode and persist to localStorage */
   setLayoutMode(mode: LayoutMode): void {
     this._layoutMode.set(mode);
-    try {
-      localStorage.setItem('ptah-layout-mode', mode);
-    } catch {
-      /* localStorage unavailable in restricted environments */
-    }
+
+    localStorage.setItem('ptah-layout-mode', mode);
   }
 
   /** Toggle between 'single' and 'grid' layout modes */

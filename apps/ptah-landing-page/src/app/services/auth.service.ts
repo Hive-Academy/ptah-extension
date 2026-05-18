@@ -69,7 +69,7 @@ export class AuthService {
       catchError(() => {
         this.clearAuthHint();
         return of(false);
-      })
+      }),
     );
   }
 
@@ -92,7 +92,7 @@ export class AuthService {
       catchError(() => {
         this.clearAuthHint();
         return of(null);
-      })
+      }),
     );
   }
 
@@ -108,7 +108,7 @@ export class AuthService {
       catchError(() => {
         this.clearAuthHint();
         return of(undefined);
-      })
+      }),
     );
   }
 
@@ -117,20 +117,14 @@ export class AuthService {
    * Call this after successful authentication (OAuth callback, magic link, etc.)
    */
   public setAuthHint(): void {
-    try {
-      localStorage.setItem(AUTH_HINT_KEY, 'true');
-    } catch {
-    }
+    localStorage.setItem(AUTH_HINT_KEY, 'true');
   }
 
   /**
    * Clear auth hint
    */
   public clearAuthHint(): void {
-    try {
-      localStorage.removeItem(AUTH_HINT_KEY);
-    } catch {
-    }
+    localStorage.removeItem(AUTH_HINT_KEY);
   }
 
   /**

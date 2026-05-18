@@ -84,10 +84,7 @@ function findSkillMdFiles(dir: string): string[] {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      try {
-        results.push(...findSkillMdFiles(fullPath));
-      } catch {
-      }
+      results.push(...findSkillMdFiles(fullPath));
     } else if (entry.isFile() && entry.name === 'SKILL.md') {
       results.push(fullPath);
     }

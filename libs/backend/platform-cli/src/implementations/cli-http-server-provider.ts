@@ -37,19 +37,16 @@ function writeFallback500(
   response: http.ServerResponse,
   message: string,
 ): void {
-  try {
-    if (!response.headersSent) {
-      response.writeHead(500, { 'Content-Type': 'application/json' });
-      response.end(
-        JSON.stringify({
-          type: 'error',
-          error: { type: 'internal_error', message },
-        }),
-      );
-    } else if (!response.writableEnded) {
-      response.end();
-    }
-  } catch {
+  if (!response.headersSent) {
+    response.writeHead(500, { 'Content-Type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        type: 'error',
+        error: { type: 'internal_error', message },
+      }),
+    );
+  } else if (!response.writableEnded) {
+    response.end();
   }
 }
 

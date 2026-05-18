@@ -109,24 +109,22 @@ async function runSet(
     }
     let expiryWarning: 'near_expiry' | 'critical' | null = null;
     let daysRemaining: number | null = null;
-    try {
-      const status = await callRpc<{
-        tier?: string;
-        daysRemaining?: number | null;
-        expiryWarning?: 'near_expiry' | 'critical' | null;
-      }>(ctx.transport, 'license:getStatus', {});
-      daysRemaining =
-        typeof status?.daysRemaining === 'number' ? status.daysRemaining : null;
-      if (status?.expiryWarning) {
-        expiryWarning = status.expiryWarning;
-      } else if (
-        status?.tier === 'pro' &&
-        typeof daysRemaining === 'number' &&
-        daysRemaining < 30
-      ) {
-        expiryWarning = daysRemaining < 7 ? 'critical' : 'near_expiry';
-      }
-    } catch {
+
+    const status = await callRpc<{
+      tier?: string;
+      daysRemaining?: number | null;
+      expiryWarning?: 'near_expiry' | 'critical' | null;
+    }>(ctx.transport, 'license:getStatus', {});
+    daysRemaining =
+      typeof status?.daysRemaining === 'number' ? status.daysRemaining : null;
+    if (status?.expiryWarning) {
+      expiryWarning = status.expiryWarning;
+    } else if (
+      status?.tier === 'pro' &&
+      typeof daysRemaining === 'number' &&
+      daysRemaining < 30
+    ) {
+      expiryWarning = daysRemaining < 7 ? 'critical' : 'near_expiry';
     }
 
     if (expiryWarning) {

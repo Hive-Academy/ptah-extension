@@ -797,6 +797,7 @@ export class ChatInputComponent implements OnInit {
    * Does NOT overwrite _currentQuery â€” handleQueryChanged already has the latest value.
    */
   handleSlashTriggered(): void {
+    console.log('ChatInputComponent.handleSlashTriggered called');
   }
 
   /**
@@ -874,6 +875,7 @@ export class ChatInputComponent implements OnInit {
    * so this handler is kept for any additional side-effects if needed.
    */
   onEffortChange(_effort: EffortLevel | undefined): void {
+    console.log('ChatInputComponent.onEffortChange called');
   }
 
   /**

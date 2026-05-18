@@ -70,62 +70,51 @@ export class HarnessWorkspaceContextService {
     let projectType = 'workspace';
     const frameworks: string[] = [];
     const languages: string[] = [];
-    try {
-      const pkgPath = path.join(workspaceRoot, 'package.json');
-      const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8')) as {
-        dependencies?: Record<string, string>;
-        devDependencies?: Record<string, string>;
-      };
-      const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
-      languages.push('TypeScript');
+    const pkgPath = path.join(workspaceRoot, 'package.json');
+    const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8')) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
-      if (allDeps['@angular/core']) {
-        frameworks.push('Angular');
-        projectType = 'angular';
-      }
-      if (allDeps['react']) {
-        frameworks.push('React');
-        if (projectType === 'workspace') projectType = 'react';
-      }
-      if (allDeps['next']) {
-        frameworks.push('Next.js');
-        projectType = 'nextjs';
-      }
-      if (allDeps['@nestjs/core']) {
-        frameworks.push('NestJS');
-        if (projectType === 'workspace') projectType = 'nestjs';
-      }
-      if (allDeps['vue']) {
-        frameworks.push('Vue');
-        if (projectType === 'workspace') projectType = 'vue';
-      }
-      if (allDeps['express']) {
-        frameworks.push('Express');
-      }
-      if (allDeps['nx'] || allDeps['@nx/workspace']) {
-        projectType = 'nx-monorepo';
-      }
-    } catch {
+    languages.push('TypeScript');
+
+    if (allDeps['@angular/core']) {
+      frameworks.push('Angular');
+      projectType = 'angular';
     }
-    try {
-      await fs.access(path.join(workspaceRoot, 'requirements.txt'));
-      languages.push('Python');
-    } catch {
-      /* ignore */
+    if (allDeps['react']) {
+      frameworks.push('React');
+      if (projectType === 'workspace') projectType = 'react';
     }
-    try {
-      await fs.access(path.join(workspaceRoot, 'go.mod'));
-      languages.push('Go');
-    } catch {
-      /* ignore */
+    if (allDeps['next']) {
+      frameworks.push('Next.js');
+      projectType = 'nextjs';
     }
-    try {
-      await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
-      languages.push('Rust');
-    } catch {
-      /* ignore */
+    if (allDeps['@nestjs/core']) {
+      frameworks.push('NestJS');
+      if (projectType === 'workspace') projectType = 'nestjs';
     }
+    if (allDeps['vue']) {
+      frameworks.push('Vue');
+      if (projectType === 'workspace') projectType = 'vue';
+    }
+    if (allDeps['express']) {
+      frameworks.push('Express');
+    }
+    if (allDeps['nx'] || allDeps['@nx/workspace']) {
+      projectType = 'nx-monorepo';
+    }
+
+    await fs.access(path.join(workspaceRoot, 'requirements.txt'));
+    languages.push('Python');
+
+    await fs.access(path.join(workspaceRoot, 'go.mod'));
+    languages.push('Go');
+
+    await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
+    languages.push('Rust');
 
     return { projectName, projectType, frameworks, languages };
   }

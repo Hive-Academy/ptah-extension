@@ -401,12 +401,9 @@ async function rollbackApplyHarness(
   for (const applied of args.appliedPaths) {
     if (!applied.endsWith('.bak')) continue;
     const target = applied.slice(0, -'.bak'.length);
-    try {
-      const backup = await args.readFile(applied);
-      await args.writeFile(target, backup);
-    } catch {
-      /* best-effort — the backup may already be gone */
-    }
+
+    const backup = await args.readFile(applied);
+    await args.writeFile(target, backup);
   }
 }
 

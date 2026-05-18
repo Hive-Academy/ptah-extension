@@ -514,11 +514,8 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
 
   private async cleanup(): Promise<void> {
     if (this.recorder?.isRecording()) {
-      try {
-        const recordingDir = this.getRecordingDir();
-        await this.recorder.stopRecording(recordingDir || undefined);
-      } catch {
-      }
+      const recordingDir = this.getRecordingDir();
+      await this.recorder.stopRecording(recordingDir || undefined);
     }
     this.recorder = null;
 
@@ -532,18 +529,12 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     }
 
     if (this.client) {
-      try {
-        await this.client.close();
-      } catch {
-      }
+      await this.client.close();
       this.client = null;
     }
 
     if (this.chrome) {
-      try {
-        await this.chrome.kill();
-      } catch {
-      }
+      await this.chrome.kill();
       this.chrome = null;
     }
 
@@ -591,8 +582,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
             sessionId: number;
           }) => {
             Page.screencastFrameAck({ sessionId: params.sessionId }).catch(
-              (_ackError: unknown) => {
-              },
+              (_ackError: unknown) => {},
             );
             if (this.recorder?.isRecording()) {
               this.recorder.addFrame(params.data);
@@ -633,8 +623,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       if (this._connected && this.client) {
         const { Page } = this.client;
-        await Page.stopScreencast().catch((_stopError: unknown) => {
-        });
+        await Page.stopScreencast().catch((_stopError: unknown) => {});
       }
       const recordingDir = this.getRecordingDir();
       return await this.recorder.stopRecording(recordingDir || undefined);

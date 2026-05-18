@@ -83,11 +83,8 @@ export async function deleteProxyTokenFile(
   userDataPath?: string,
 ): Promise<void> {
   const tokenPath = resolveProxyTokenPath(port, userDataPath);
-  try {
-    await unlink(tokenPath);
-  } catch {
-    /* swallow — file may already be gone or unwritable */
-  }
+
+  await unlink(tokenPath);
 }
 
 /**

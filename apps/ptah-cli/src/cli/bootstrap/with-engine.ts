@@ -372,16 +372,9 @@ function defaultBootstrap(options: CliBootstrapOptions): CliBootstrapResult {
  * scope cleanup to a sub-container.
  */
 function defaultDispose(ctx: EngineContext): void {
-  try {
-    ctx.pushAdapter.removeAllListeners();
-  } catch {
-    /* swallow — adapter cleanup is best-effort */
-  }
-  try {
-    ctx.container.clearInstances();
-  } catch {
-    /* swallow — container cleanup is best-effort */
-  }
+  ctx.pushAdapter.removeAllListeners();
+
+  ctx.container.clearInstances();
 }
 
 async function runDispose(

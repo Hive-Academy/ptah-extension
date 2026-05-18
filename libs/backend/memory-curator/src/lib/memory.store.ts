@@ -62,12 +62,9 @@ interface ChunkRow {
 function rowToMemory(row: MemoryRow): Memory {
   let sourceMessageIds: readonly string[] = [];
   if (row.source_message_ids) {
-    try {
-      const parsed = JSON.parse(row.source_message_ids);
-      if (Array.isArray(parsed))
-        sourceMessageIds = parsed.filter((x) => typeof x === 'string');
-    } catch {
-    }
+    const parsed = JSON.parse(row.source_message_ids);
+    if (Array.isArray(parsed))
+      sourceMessageIds = parsed.filter((x) => typeof x === 'string');
   }
   return {
     id: memoryId(row.id),

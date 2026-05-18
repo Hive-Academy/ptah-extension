@@ -235,10 +235,8 @@ export class SdkQueryRunner {
           `${SERVICE_TAG} warmQuery.query() threw â€” falling back to fresh query`,
           warmErr instanceof Error ? warmErr : new Error(String(warmErr)),
         );
-        try {
-          warmQuery.close();
-        } catch {
-        }
+
+        warmQuery.close();
         sdkQuery = queryFn({
           prompt,
           options,

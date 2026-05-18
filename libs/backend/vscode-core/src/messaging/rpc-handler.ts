@@ -356,12 +356,9 @@ export class RpcHandler {
     error: Error,
     context: { errorSource: string; extra: Record<string, unknown> },
   ): void {
-    try {
-      if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) return;
-      const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
-      sentry.captureException(error, context);
-    } catch {
-    }
+    if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) return;
+    const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+    sentry.captureException(error, context);
   }
 
   /**

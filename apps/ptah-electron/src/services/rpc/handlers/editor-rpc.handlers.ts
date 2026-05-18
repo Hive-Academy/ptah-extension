@@ -226,13 +226,11 @@ export class EditorRpcHandlers {
     }
     try {
       const content = await this.fs.readFile(filePath);
-      try {
-        const editorProvider = this.container.resolve<{
-          notifyFileOpened(filePath: string): void;
-        }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
-        editorProvider.notifyFileOpened(filePath);
-      } catch {
-      }
+
+      const editorProvider = this.container.resolve<{
+        notifyFileOpened(filePath: string): void;
+      }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
+      editorProvider.notifyFileOpened(filePath);
       return { success: true, content, filePath };
     } catch (error) {
       this.logger.error(`[Electron RPC] ${methodName} failed`, {

@@ -197,10 +197,7 @@ export class GitWatcherService {
     this.contentChangeTimers.clear();
 
     for (const watcher of this.watchers) {
-      try {
-        watcher.close();
-      } catch {
-      }
+      watcher.close();
     }
     this.watchers = [];
   }

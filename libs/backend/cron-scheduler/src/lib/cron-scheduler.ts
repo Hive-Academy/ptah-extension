@@ -120,11 +120,7 @@ export class CronScheduler {
   stop(): void {
     if (!this.started) return;
     for (const [, timer] of this.timers) {
-      try {
-        timer.stop();
-      } catch {
-        /* swallow */
-      }
+      timer.stop();
     }
     this.timers.clear();
     this.catchup.detach();
@@ -256,11 +252,8 @@ export class CronScheduler {
   private disarmTimer(id: string): void {
     const timer = this.timers.get(id);
     if (!timer) return;
-    try {
-      timer.stop();
-    } catch {
-      /* swallow */
-    }
+
+    timer.stop();
     this.timers.delete(id);
   }
 }

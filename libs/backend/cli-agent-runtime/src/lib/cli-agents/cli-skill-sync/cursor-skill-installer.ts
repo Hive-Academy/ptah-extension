@@ -128,15 +128,13 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
           );
         }
       }
-      try {
-        const existingEntries = await readdir(basePath);
-        for (const entry of existingEntries) {
-          if (entry.startsWith(folderPrefix) && !installedFolders.has(entry)) {
-            const entryPath = join(basePath, entry);
-            await rm(entryPath, { recursive: true, force: true });
-          }
+
+      const existingEntries = await readdir(basePath);
+      for (const entry of existingEntries) {
+        if (entry.startsWith(folderPrefix) && !installedFolders.has(entry)) {
+          const entryPath = join(basePath, entry);
+          await rm(entryPath, { recursive: true, force: true });
         }
-      } catch {
       }
       if (syncCommandsEnabled) {
         await this.syncCommands(pluginPaths, errors);
@@ -171,14 +169,12 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
     } catch {
       return;
     }
-    try {
-      const existing = await readdir(commandsDir);
-      for (const entry of existing) {
-        if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
-          await rm(join(commandsDir, entry), { force: true });
-        }
+
+    const existing = await readdir(commandsDir);
+    for (const entry of existing) {
+      if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
+        await rm(join(commandsDir, entry), { force: true });
       }
-    } catch {
     }
 
     for (const pluginPath of pluginPaths) {
@@ -211,28 +207,21 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
   }
 
   async uninstall(): Promise<void> {
-    try {
-      const basePath = this.getSkillsBasePath();
-      try {
-        const entries = await readdir(basePath);
-        for (const entry of entries) {
-          if (entry.startsWith('ptah-') || entry.startsWith('ptahsynth-')) {
-            await rm(join(basePath, entry), { recursive: true, force: true });
-          }
-        }
-      } catch {
+    const basePath = this.getSkillsBasePath();
+
+    const entries = await readdir(basePath);
+    for (const entry of entries) {
+      if (entry.startsWith('ptah-') || entry.startsWith('ptahsynth-')) {
+        await rm(join(basePath, entry), { recursive: true, force: true });
       }
-      const commandsPath = this.getCommandsBasePath();
-      try {
-        const commandEntries = await readdir(commandsPath);
-        for (const entry of commandEntries) {
-          if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
-            await rm(join(commandsPath, entry), { force: true });
-          }
-        }
-      } catch {
+    }
+    const commandsPath = this.getCommandsBasePath();
+
+    const commandEntries = await readdir(commandsPath);
+    for (const entry of commandEntries) {
+      if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
+        await rm(join(commandsPath, entry), { force: true });
       }
-    } catch {
     }
   }
 }

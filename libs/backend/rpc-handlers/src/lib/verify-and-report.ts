@@ -111,13 +111,10 @@ function reportDriftToSentry(
   missingMethods: readonly string[],
   platform: RpcRegistrationPlatform,
 ): void {
-  try {
-    if (!container.isRegistered(sentryToken)) return;
-    const sentry = container.resolve<SentryServiceLike>(sentryToken);
-    sentry.captureException(error, {
-      errorSource: 'rpc-registration-drift',
-      extra: { missingMethods: Array.from(missingMethods), platform },
-    });
-  } catch {
-  }
+  if (!container.isRegistered(sentryToken)) return;
+  const sentry = container.resolve<SentryServiceLike>(sentryToken);
+  sentry.captureException(error, {
+    errorSource: 'rpc-registration-drift',
+    extra: { missingMethods: Array.from(missingMethods), platform },
+  });
 }

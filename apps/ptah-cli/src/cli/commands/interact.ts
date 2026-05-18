@@ -487,11 +487,8 @@ export async function execute(
           if (turn_id !== currentTurnId || inFlightAbort === null) {
             return { cancelled: false, reason: 'no matching turn' };
           }
-          try {
-            await ctx.transport.call('chat:abort', { sessionId: tabId });
-          } catch {
-            /* swallow — backend may already be torn down */
-          }
+
+          await ctx.transport.call('chat:abort', { sessionId: tabId });
 
           inFlightAbort.abort();
           return { cancelled: true, turn_id };
@@ -592,18 +589,11 @@ export async function execute(
           }
         }
         if (embeddedProxyUnregister !== null) {
-          try {
-            embeddedProxyUnregister();
-          } catch {
-            /* swallow — JsonRpcServer is about to stop anyway */
-          }
+          embeddedProxyUnregister();
         }
         server.stop();
-        try {
-          await formatter.close();
-        } catch {
-          /* swallow — formatter may share the writer with the server */
-        }
+
+        await formatter.close();
         if (priorInteractActiveSet && priorInteractActive !== undefined) {
           process.env['PTAH_INTERACT_ACTIVE'] = priorInteractActive;
         } else {
@@ -616,16 +606,13 @@ export async function execute(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    try {
-      await formatter.writeNotification('task.error', {
-        ptah_code: 'internal_failure',
-        command: 'interact',
-        message,
-        ...(stack ? { stack } : {}),
-      });
-    } catch {
-      /* swallow — last-ditch reporting */
-    }
+
+    await formatter.writeNotification('task.error', {
+      ptah_code: 'internal_failure',
+      command: 'interact',
+      message,
+      ...(stack ? { stack } : {}),
+    });
     resolvedExitCode = ExitCode.InternalFailure;
   }
 

@@ -23,6 +23,7 @@ export { toMatchRpcError } from './to-match-rpc-error';
  * types.
  */
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace jest {
     interface Matchers<R> {
       toBeSessionId(): R;

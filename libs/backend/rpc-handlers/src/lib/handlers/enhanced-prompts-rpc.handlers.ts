@@ -698,20 +698,17 @@ export class EnhancedPromptsRpcHandlers {
     }
 
     return (event: AnalysisStreamPayload): void => {
-      try {
-        if (!webviewManager) return;
-        webviewManager
-          .broadcastMessage('setup-wizard:enhance-stream', event)
-          .catch((broadcastError) => {
-            this.logger.warn('Failed to broadcast enhance stream event', {
-              error:
-                broadcastError instanceof Error
-                  ? broadcastError.message
-                  : String(broadcastError),
-            });
+      if (!webviewManager) return;
+      webviewManager
+        .broadcastMessage('setup-wizard:enhance-stream', event)
+        .catch((broadcastError) => {
+          this.logger.warn('Failed to broadcast enhance stream event', {
+            error:
+              broadcastError instanceof Error
+                ? broadcastError.message
+                : String(broadcastError),
           });
-      } catch {
-      }
+        });
     };
   }
 

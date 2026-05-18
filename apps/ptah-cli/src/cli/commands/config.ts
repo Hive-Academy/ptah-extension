@@ -514,11 +514,7 @@ function parseValue(raw: string): unknown {
     (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
     (trimmed.startsWith('"') && trimmed.endsWith('"'))
   ) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      /* fall through to raw string */
-    }
+    return JSON.parse(trimmed);
   }
   return raw;
 }

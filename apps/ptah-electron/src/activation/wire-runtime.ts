@@ -1,4 +1,3 @@
-
 import type { DependencyContainer } from 'tsyringe';
 import type { BrowserWindow } from 'electron';
 import {
@@ -231,11 +230,8 @@ export async function wireRuntime(
         }
         let memoryEnabled = true;
         if (indexingControl && workspaceRoot) {
-          try {
-            const status = await indexingControl.getStatus(workspaceRoot);
-            memoryEnabled = status.memoryEnabled;
-          } catch {
-          }
+          const status = await indexingControl.getStatus(workspaceRoot);
+          memoryEnabled = status.memoryEnabled;
         }
 
         if (memoryEnabled) {

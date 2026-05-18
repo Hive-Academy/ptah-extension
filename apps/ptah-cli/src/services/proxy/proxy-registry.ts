@@ -247,23 +247,16 @@ async function readAllEntries(dir: string): Promise<ProxyRegistryEntry[]> {
       parsed = JSON.parse(raw);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      try {
-        process.stderr.write(
-          `[ptah] proxy registry: skipping malformed entry ${filePath}: ${detail}\n`,
-        );
-      } catch {
-        /* swallow stderr write failure */
-      }
+
+      process.stderr.write(
+        `[ptah] proxy registry: skipping malformed entry ${filePath}: ${detail}\n`,
+      );
       continue;
     }
     if (!isProxyRegistryEntry(parsed)) {
-      try {
-        process.stderr.write(
-          `[ptah] proxy registry: skipping malformed entry ${filePath}: shape mismatch\n`,
-        );
-      } catch {
-        /* swallow stderr write failure */
-      }
+      process.stderr.write(
+        `[ptah] proxy registry: skipping malformed entry ${filePath}: shape mismatch\n`,
+      );
       continue;
     }
     out.push(parsed);

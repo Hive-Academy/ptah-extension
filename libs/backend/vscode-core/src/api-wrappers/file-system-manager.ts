@@ -318,31 +318,27 @@ export class FileSystemManager {
     if (this.activeWatchers.has(config.id)) {
       return this.activeWatchers.get(config.id)!;
     }
-    try {
-      const watcher = vscode.workspace.createFileSystemWatcher(
-        config.pattern,
-        config.ignoreCreateEvents,
-        config.ignoreChangeEvents,
-        config.ignoreDeleteEvents,
-      );
-      watcher.onDidCreate((uri) => {
-        this.handleWatcherEvent(config.id, 'created', uri);
-      });
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      config.pattern,
+      config.ignoreCreateEvents,
+      config.ignoreChangeEvents,
+      config.ignoreDeleteEvents,
+    );
+    watcher.onDidCreate((uri) => {
+      this.handleWatcherEvent(config.id, 'created', uri);
+    });
 
-      watcher.onDidChange((uri) => {
-        this.handleWatcherEvent(config.id, 'changed', uri);
-      });
+    watcher.onDidChange((uri) => {
+      this.handleWatcherEvent(config.id, 'changed', uri);
+    });
 
-      watcher.onDidDelete((uri) => {
-        this.handleWatcherEvent(config.id, 'deleted', uri);
-      });
-      this.activeWatchers.set(config.id, watcher);
-      this.context.subscriptions.push(watcher);
+    watcher.onDidDelete((uri) => {
+      this.handleWatcherEvent(config.id, 'deleted', uri);
+    });
+    this.activeWatchers.set(config.id, watcher);
+    this.context.subscriptions.push(watcher);
 
-      return watcher;
-    } catch (error) {
-      throw error;
-    }
+    return watcher;
   }
 
   /**
@@ -397,12 +393,9 @@ export class FileSystemManager {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    try {
-      this.activeWatchers.forEach((watcher) => watcher.dispose());
-      this.activeWatchers.clear();
-      this.operationMetrics.clear();
-    } catch {
-    }
+    this.activeWatchers.forEach((watcher) => watcher.dispose());
+    this.activeWatchers.clear();
+    this.operationMetrics.clear();
   }
 
   /**
@@ -441,8 +434,6 @@ export class FileSystemManager {
   ): Promise<void> {
     if (!uri || !uri.scheme) {
       throw new Error(`Invalid URI for ${operation} operation`);
-    }
-    if (uri.scheme !== 'file' && uri.scheme !== 'untitled') {
     }
   }
 

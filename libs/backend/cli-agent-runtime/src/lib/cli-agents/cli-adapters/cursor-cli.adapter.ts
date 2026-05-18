@@ -81,16 +81,14 @@ export class CursorCliAdapter implements CliAdapter {
         return { cli: 'cursor', installed: false, supportsSteer: false };
       }
 
-      let version: string | undefined;
-      try {
-        const { stdout: versionOutput } = await execFileAsync(
-          binaryPath,
-          ['--version'],
-          { timeout: 5000 },
-        );
-        version = versionOutput.trim().split(/\r?\n/)[0];
-      } catch {
-      }
+      const { stdout: versionOutput } = await execFileAsync(
+        binaryPath,
+        ['--version'],
+        { timeout: 5000 },
+      );
+      const version: string | undefined = versionOutput
+        .trim()
+        .split(/\r?\n/)[0];
 
       return {
         cli: 'cursor',
@@ -154,35 +152,27 @@ export class CursorCliAdapter implements CliAdapter {
     workingDirectory: string,
     port: number,
   ): Promise<void> {
-    try {
-      const cursorDir = join(workingDirectory, '.cursor');
-      const mcpPath = join(cursorDir, 'mcp.json');
+    const cursorDir = join(workingDirectory, '.cursor');
+    const mcpPath = join(cursorDir, 'mcp.json');
 
-      let config: Record<string, unknown> = {};
-      try {
-        const content = await readFile(mcpPath, 'utf8');
-        config = JSON.parse(content) as Record<string, unknown>;
-      } catch {
-      }
+    let config: Record<string, unknown> = {};
 
-      const mcpServers =
-        (config['mcpServers'] as Record<string, unknown>) || {};
-      const existing = mcpServers['ptah'] as
-        | Record<string, unknown>
-        | undefined;
-      if (existing?.['url'] === `http://localhost:${port}`) {
-        return;
-      }
+    const content = await readFile(mcpPath, 'utf8');
+    config = JSON.parse(content) as Record<string, unknown>;
 
-      mcpServers['ptah'] = {
-        url: `http://localhost:${port}`,
-      };
-      config['mcpServers'] = mcpServers;
-
-      await mkdir(cursorDir, { recursive: true });
-      await writeFile(mcpPath, JSON.stringify(config, null, 2), 'utf8');
-    } catch {
+    const mcpServers = (config['mcpServers'] as Record<string, unknown>) || {};
+    const existing = mcpServers['ptah'] as Record<string, unknown> | undefined;
+    if (existing?.['url'] === `http://localhost:${port}`) {
+      return;
     }
+
+    mcpServers['ptah'] = {
+      url: `http://localhost:${port}`,
+    };
+    config['mcpServers'] = mcpServers;
+
+    await mkdir(cursorDir, { recursive: true });
+    await writeFile(mcpPath, JSON.stringify(config, null, 2), 'utf8');
   }
 
   /**
@@ -191,22 +181,19 @@ export class CursorCliAdapter implements CliAdapter {
    * Non-fatal: errors are silently caught.
    */
   private async cleanupMcpEntry(workingDirectory: string): Promise<void> {
-    try {
-      const mcpPath = join(workingDirectory, '.cursor', 'mcp.json');
-      const content = await readFile(mcpPath, 'utf8');
-      const config = JSON.parse(content) as Record<string, unknown>;
-      const mcpServers = config['mcpServers'] as
-        | Record<string, unknown>
-        | undefined;
-      if (!mcpServers?.['ptah']) return;
+    const mcpPath = join(workingDirectory, '.cursor', 'mcp.json');
+    const content = await readFile(mcpPath, 'utf8');
+    const config = JSON.parse(content) as Record<string, unknown>;
+    const mcpServers = config['mcpServers'] as
+      | Record<string, unknown>
+      | undefined;
+    if (!mcpServers?.['ptah']) return;
 
-      delete mcpServers['ptah'];
-      if (Object.keys(mcpServers).length === 0) {
-        delete config['mcpServers'];
-      }
-      await writeFile(mcpPath, JSON.stringify(config, null, 2), 'utf8');
-    } catch {
+    delete mcpServers['ptah'];
+    if (Object.keys(mcpServers).length === 0) {
+      delete config['mcpServers'];
     }
+    await writeFile(mcpPath, JSON.stringify(config, null, 2), 'utf8');
   }
 
   /**

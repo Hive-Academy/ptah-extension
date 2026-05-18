@@ -444,15 +444,13 @@ export class GitInfoService {
     };
     try {
       let current = '';
-      try {
-        const { stdout: symRefOut, exitCode: symRefCode } = await this.execGit(
-          ['symbolic-ref', '--short', 'HEAD'],
-          workspacePath,
-        );
-        if (symRefCode === 0) {
-          current = symRefOut.trim();
-        }
-      } catch {
+
+      const { stdout: symRefOut, exitCode: symRefCode } = await this.execGit(
+        ['symbolic-ref', '--short', 'HEAD'],
+        workspacePath,
+      );
+      if (symRefCode === 0) {
+        current = symRefOut.trim();
       }
       const fmt =
         '%(refname:short)%09%(objectname:short)%09%(upstream:short)%09%(ahead-behind:upstream)%09%(creatordate:unix)';
@@ -544,19 +542,16 @@ export class GitInfoService {
         if (!isNaN(parsedAhead)) ahead = parsedAhead;
         if (!isNaN(parsedBehind)) behind = parsedBehind;
       } else {
-        try {
-          const { stdout: rlOut, exitCode: rlCode } = await this.execGit(
-            ['rev-list', '--left-right', '--count', `${upstream}...${name}`],
-            workspacePath,
-          );
-          if (rlCode === 0) {
-            const [behindStr, aheadStr] = rlOut.trim().split('\t');
-            const parsedBehind = parseInt(behindStr ?? '0', 10);
-            const parsedAhead = parseInt(aheadStr ?? '0', 10);
-            if (!isNaN(parsedBehind)) behind = parsedBehind;
-            if (!isNaN(parsedAhead)) ahead = parsedAhead;
-          }
-        } catch {
+        const { stdout: rlOut, exitCode: rlCode } = await this.execGit(
+          ['rev-list', '--left-right', '--count', `${upstream}...${name}`],
+          workspacePath,
+        );
+        if (rlCode === 0) {
+          const [behindStr, aheadStr] = rlOut.trim().split('\t');
+          const parsedBehind = parseInt(behindStr ?? '0', 10);
+          const parsedAhead = parseInt(aheadStr ?? '0', 10);
+          if (!isNaN(parsedBehind)) behind = parsedBehind;
+          if (!isNaN(parsedAhead)) ahead = parsedAhead;
         }
       }
     }

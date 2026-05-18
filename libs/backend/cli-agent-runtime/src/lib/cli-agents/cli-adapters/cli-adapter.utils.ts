@@ -117,20 +117,17 @@ export async function resolveWindowsCmd(binaryPath: string): Promise<string> {
   if (process.platform !== 'win32') return binaryPath;
   if (!binaryPath.toLowerCase().endsWith('.cmd')) return binaryPath;
 
-  try {
-    const content = await readFile(binaryPath, 'utf8');
-    const dir = path.dirname(binaryPath);
-    const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
-    let lastMatch: string | null = null;
-    let m;
-    while ((m = regex.exec(content)) !== null) {
-      lastMatch = m[1];
-    }
+  const content = await readFile(binaryPath, 'utf8');
+  const dir = path.dirname(binaryPath);
+  const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
+  let lastMatch: string | null = null;
+  let m;
+  while ((m = regex.exec(content)) !== null) {
+    lastMatch = m[1];
+  }
 
-    if (lastMatch) {
-      return path.join(dir, lastMatch);
-    }
-  } catch {
+  if (lastMatch) {
+    return path.join(dir, lastMatch);
   }
 
   return binaryPath;

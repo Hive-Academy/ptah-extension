@@ -59,14 +59,11 @@ export class HarnessConfigStore {
     await fs.mkdir(claudeDir, { recursive: true });
 
     const claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
-    let backupPath: string | undefined;
-    try {
-      await fs.access(claudeMdPath);
-      backupPath = claudeMdPath + '.bak';
-      await fs.copyFile(claudeMdPath, backupPath);
-      this.logger.info('Backed up existing CLAUDE.md', { backupPath });
-    } catch {
-    }
+
+    await fs.access(claudeMdPath);
+    const backupPath = claudeMdPath + '.bak';
+    await fs.copyFile(claudeMdPath, backupPath);
+    this.logger.info('Backed up existing CLAUDE.md', { backupPath });
     const content = config.claudeMd.previewContent
       ? config.claudeMd.previewContent
       : this.promptBuilder.buildClaudeMdContent(config);
@@ -92,11 +89,9 @@ export class HarnessConfigStore {
     const settingsPath = path.join(getPtahHome(), 'settings.json');
 
     let existingSettings: Record<string, unknown> = {};
-    try {
-      const raw = await fs.readFile(settingsPath, 'utf-8');
-      existingSettings = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-    }
+
+    const raw = await fs.readFile(settingsPath, 'utf-8');
+    existingSettings = JSON.parse(raw) as Record<string, unknown>;
     const agentConfig: Record<string, unknown> = {};
     for (const [agentId, override] of Object.entries(
       config.agents.enabledAgents,

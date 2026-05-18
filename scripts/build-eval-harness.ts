@@ -232,19 +232,17 @@ function evaluate(): void {
   for (const line of lines) {
     const escaped = escapeFtsQuery(line.query);
     let results: FtsResultRow[] = [];
-    try {
-      results = db
-        .prepare(
-          `SELECT mc.id AS chunk_id
-             FROM memory_chunks_fts fts
-             JOIN memory_chunks mc ON mc.rowid = fts.rowid
-             WHERE memory_chunks_fts MATCH ?
-             ORDER BY bm25(memory_chunks_fts) ASC
-             LIMIT 10`,
-        )
-        .all(escaped) as FtsResultRow[];
-    } catch {
-    }
+
+    results = db
+      .prepare(
+        `SELECT mc.id AS chunk_id
+           FROM memory_chunks_fts fts
+           JOIN memory_chunks mc ON mc.rowid = fts.rowid
+           WHERE memory_chunks_fts MATCH ?
+           ORDER BY bm25(memory_chunks_fts) ASC
+           LIMIT 10`,
+      )
+      .all(escaped) as FtsResultRow[];
 
     const returnedIds = results.map((r) => r.chunk_id);
     const positiveSet = new Set(line.positives);

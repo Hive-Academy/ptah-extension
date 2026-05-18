@@ -199,19 +199,16 @@ export class McpPortConfigComponent implements OnInit {
   }
 
   private async loadCurrentPort(): Promise<void> {
-    try {
-      const result = await this.rpcService.call('agent:getConfig', undefined);
-      if (result.isSuccess()) {
-        if (result.data.mcpPort) {
-          this.portValue.set(result.data.mcpPort);
-          this.savedPort.set(result.data.mcpPort);
-        }
-        if (result.data.disabledMcpNamespaces) {
-          this.disabledNamespaces.set(result.data.disabledMcpNamespaces);
-          this.savedDisabledNamespaces.set(result.data.disabledMcpNamespaces);
-        }
+    const result = await this.rpcService.call('agent:getConfig', undefined);
+    if (result.isSuccess()) {
+      if (result.data.mcpPort) {
+        this.portValue.set(result.data.mcpPort);
+        this.savedPort.set(result.data.mcpPort);
       }
-    } catch {
+      if (result.data.disabledMcpNamespaces) {
+        this.disabledNamespaces.set(result.data.disabledMcpNamespaces);
+        this.savedDisabledNamespaces.set(result.data.disabledMcpNamespaces);
+      }
     }
   }
 

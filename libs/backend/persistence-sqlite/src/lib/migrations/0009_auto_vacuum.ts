@@ -60,11 +60,9 @@ export function run(db: SqliteDatabase, dbPath?: string): void {
 
   if (useVacuumInto) {
     const vacuumedPath = dbPath + '.vacuumed';
-    try {
-      if (fs.existsSync(vacuumedPath)) {
-        fs.unlinkSync(vacuumedPath);
-      }
-    } catch {
+
+    if (fs.existsSync(vacuumedPath)) {
+      fs.unlinkSync(vacuumedPath);
     }
     const escapedPath = vacuumedPath.replace(/'/g, "''");
     const vacuumSql = "VACUUM INTO '" + escapedPath + "'";

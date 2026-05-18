@@ -30,11 +30,7 @@ function createEmitter<T>(): {
     },
     fire: (data) => {
       for (const l of [...listeners]) {
-        try {
-          l(data);
-        } catch {
-          /* swallow */
-        }
+        l(data);
       }
     },
     listenerCount: () => listeners.size,
@@ -109,7 +105,6 @@ class InMemoryFs {
           ctime: Date.now(),
           mtime: Date.now(),
         });
-      } else if (this.entries.get(dir)?.type !== FileType.Directory) {
       }
     }
   }

@@ -71,23 +71,20 @@ export class ToolOutputFormatterService {
    * @returns Markdown-formatted string with code blocks
    */
   public formatToolInput(content: string, rawJson: string): string {
-    try {
-      const parsed = JSON.parse(rawJson);
-      if (parsed && typeof parsed === 'object') {
-        const filePath = parsed.file_path || parsed.path || '';
-        if (filePath) {
-          const language = this.getLanguageFromPath(filePath);
-          if (language) {
-            const codeContent =
-              parsed.content || parsed.command || parsed.pattern || '';
-            if (codeContent) {
-              return '```' + language + '\n' + codeContent + '\n```';
-            }
+    const parsed = JSON.parse(rawJson);
+    if (parsed && typeof parsed === 'object') {
+      const filePath = parsed.file_path || parsed.path || '';
+      if (filePath) {
+        const language = this.getLanguageFromPath(filePath);
+        if (language) {
+          const codeContent =
+            parsed.content || parsed.command || parsed.pattern || '';
+          if (codeContent) {
+            return '```' + language + '\n' + codeContent + '\n```';
           }
         }
-        return '```json\n' + JSON.stringify(parsed, null, 2) + '\n```';
       }
-    } catch {
+      return '```json\n' + JSON.stringify(parsed, null, 2) + '\n```';
     }
     return '```\n' + content + '\n```';
   }
@@ -111,7 +108,7 @@ export class ToolOutputFormatterService {
   public formatToolResult(
     content: string,
     toolName?: string,
-    toolInput?: string
+    toolInput?: string,
   ): string {
     if (!content) return '_No output_';
     if (toolName === 'execute_code') {
@@ -141,7 +138,7 @@ export class ToolOutputFormatterService {
           item !== null &&
           'type' in item &&
           (item as { type: string }).type === 'text' &&
-          'text' in item
+          'text' in item,
       );
 
       if (isMCPContent) {
@@ -226,7 +223,7 @@ export class ToolOutputFormatterService {
    */
   public getToolGroupLabel(
     toolName: string,
-    toolInputContent?: string
+    toolInputContent?: string,
   ): string {
     if (toolInputContent) {
       const match = toolInputContent.match(this.ptahApiCallPattern);
@@ -266,11 +263,8 @@ export class ToolOutputFormatterService {
     processed = this.unescapeStringLiterals(processed);
     const language = this.detectLanguageFromToolInput(toolInput);
     if (processed.trim().startsWith('{') || processed.trim().startsWith('[')) {
-      try {
-        JSON.parse(processed);
-        return '```json\n' + processed + '\n```';
-      } catch {
-      }
+      JSON.parse(processed);
+      return '```json\n' + processed + '\n```';
     }
     if (language) {
       return '```' + language + '\n' + processed + '\n```';
@@ -295,11 +289,8 @@ export class ToolOutputFormatterService {
     processed = this.stripLineNumbers(processed);
     processed = this.unescapeStringLiterals(processed);
     if (processed.trim().startsWith('{') || processed.trim().startsWith('[')) {
-      try {
-        JSON.parse(processed);
-        return '```json\n' + processed + '\n```';
-      } catch {
-      }
+      JSON.parse(processed);
+      return '```json\n' + processed + '\n```';
     }
     if (
       processed.includes('\n') &&
@@ -322,7 +313,7 @@ export class ToolOutputFormatterService {
   private detectLanguageFromToolInput(toolInput?: string): string {
     if (!toolInput) return '';
     const readFileMatch = toolInput.match(
-      /ptah\.files\.readFile\s*\(\s*['"]([^'"]+)['"]/
+      /ptah\.files\.readFile\s*\(\s*['"]([^'"]+)['"]/,
     );
     if (readFileMatch) {
       return this.getLanguageFromPath(readFileMatch[1]);

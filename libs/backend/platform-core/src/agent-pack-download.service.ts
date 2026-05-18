@@ -347,6 +347,7 @@ export class AgentPackDownloadService {
       if (!file.endsWith('.md')) {
         return `Invalid file type: "${file}" -- only .md files are allowed`;
       }
+      // eslint-disable-next-line no-control-regex
       if (/[\x00-\x1f]/.test(file)) {
         return `Invalid file name: "${file}" -- control characters not allowed`;
       }

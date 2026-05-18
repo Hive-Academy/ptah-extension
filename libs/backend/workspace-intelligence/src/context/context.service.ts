@@ -781,12 +781,9 @@ export class ContextService {
     const threshold = 50000; // 50KB threshold
 
     for (const filePath of this.includedFiles) {
-      try {
-        const stats = fs.statSync(filePath);
-        if (stats.size > threshold) {
-          largeFiles.push(filePath);
-        }
-      } catch {
+      const stats = fs.statSync(filePath);
+      if (stats.size > threshold) {
+        largeFiles.push(filePath);
       }
     }
 
@@ -837,11 +834,8 @@ export class ContextService {
     let totalChars = 0;
 
     for (const filePath of files) {
-      try {
-        const content = fs.readFileSync(filePath, 'utf8');
-        totalChars += content.length;
-      } catch {
-      }
+      const content = fs.readFileSync(filePath, 'utf8');
+      totalChars += content.length;
     }
 
     return Math.ceil(totalChars / this.CHARS_PER_TOKEN);
@@ -885,14 +879,11 @@ export class ContextService {
   }
 
   private async notifyContextChanged(): Promise<void> {
-    try {
-      await this.commandRegistry.executeCommand(
-        'setContext',
-        'ptah.contextFilesCount',
-        this.includedFiles.size,
-      );
-    } catch {
-    }
+    await this.commandRegistry.executeCommand(
+      'setContext',
+      'ptah.contextFilesCount',
+      this.includedFiles.size,
+    );
   }
 
   private async performFileSearch(
@@ -941,29 +932,26 @@ export class ContextService {
     const results: FileSearchResult[] = [];
 
     for (const filePath of filePaths) {
-      try {
-        const stat = await this.fsProvider.stat(filePath);
-        const relativePath = path.relative(workspaceRoot, filePath);
-        const fileName = path.basename(filePath);
-        const fileType = this.detectFileType(fileName);
-        const relevanceScore = this.calculateRelevanceScore(
-          fileName,
-          relativePath,
-          query,
-        );
+      const stat = await this.fsProvider.stat(filePath);
+      const relativePath = path.relative(workspaceRoot, filePath);
+      const fileName = path.basename(filePath);
+      const fileType = this.detectFileType(fileName);
+      const relevanceScore = this.calculateRelevanceScore(
+        fileName,
+        relativePath,
+        query,
+      );
 
-        results.push({
-          path: filePath,
-          relativePath,
-          fileName,
-          fileType,
-          size: stat.size,
-          lastModified: stat.mtime,
-          isDirectory: stat.type === FileType.Directory,
-          relevanceScore,
-        });
-      } catch {
-      }
+      results.push({
+        path: filePath,
+        relativePath,
+        fileName,
+        fileType,
+        size: stat.size,
+        lastModified: stat.mtime,
+        isDirectory: stat.type === FileType.Directory,
+        relevanceScore,
+      });
     }
     results.sort((a, b) => {
       const scoreA = a.relevanceScore || 0;

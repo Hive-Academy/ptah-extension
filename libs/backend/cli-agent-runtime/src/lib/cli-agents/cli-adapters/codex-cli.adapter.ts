@@ -241,29 +241,25 @@ function resolveCodexNativeBinary(
   if (resourcesPath) {
     candidates.push(path.join(resourcesPath, 'app.asar.unpacked', relFromBin));
   }
-  try {
-    const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
-    candidates.push(
-      path.join(
-        path.dirname(platformPkgJson),
-        'vendor',
-        targetTriple,
-        'codex',
-        binaryName,
-      ),
-    );
-  } catch {
-  }
-  try {
-    const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
-    const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
-    const candidate = path.join(nodeModulesRoot, relFromNodeModules);
-    candidates.push(candidate);
-    candidates.push(
-      candidate.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked'),
-    );
-  } catch {
-  }
+
+  const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
+  candidates.push(
+    path.join(
+      path.dirname(platformPkgJson),
+      'vendor',
+      targetTriple,
+      'codex',
+      binaryName,
+    ),
+  );
+
+  const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
+  const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
+  const candidate = path.join(nodeModulesRoot, relFromNodeModules);
+  candidates.push(candidate);
+  candidates.push(
+    candidate.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked'),
+  );
   if (process.platform === 'win32') {
     const appData = process.env['APPDATA'];
     if (appData) {
@@ -308,10 +304,7 @@ function resolveCodexNativeBinary(
   }
 
   for (const candidate of candidates) {
-    try {
-      if (existsSync(candidate)) return candidate;
-    } catch {
-    }
+    if (existsSync(candidate)) return candidate;
   }
 
   return undefined;
@@ -341,33 +334,29 @@ export class CodexCliAdapter implements CliAdapter {
       if (!binaryPath) {
         return { cli: 'codex', installed: false, supportsSteer: false };
       }
-      let version: string | undefined;
-      try {
-        version = await new Promise<string | undefined>((resolve) => {
-          let stdout = '';
-          const child = spawnCli(binaryPath, ['--version'], {});
+      const version = await new Promise<string | undefined>((resolve) => {
+        let stdout = '';
+        const child = spawnCli(binaryPath, ['--version'], {});
 
-          const timer = setTimeout(() => {
-            child.kill();
-            resolve(undefined);
-          }, 5000);
+        const timer = setTimeout(() => {
+          child.kill();
+          resolve(undefined);
+        }, 5000);
 
-          child.stdout?.setEncoding('utf8');
-          child.stdout?.on('data', (data: string) => {
-            stdout += data;
-          });
-          child.on('close', () => {
-            clearTimeout(timer);
-            const trimmed = stdout.trim().split(/\r?\n/)[0];
-            resolve(trimmed || undefined);
-          });
-          child.on('error', () => {
-            clearTimeout(timer);
-            resolve(undefined);
-          });
+        child.stdout?.setEncoding('utf8');
+        child.stdout?.on('data', (data: string) => {
+          stdout += data;
         });
-      } catch {
-      }
+        child.on('close', () => {
+          clearTimeout(timer);
+          const trimmed = stdout.trim().split(/\r?\n/)[0];
+          resolve(trimmed || undefined);
+        });
+        child.on('error', () => {
+          clearTimeout(timer);
+          resolve(undefined);
+        });
+      });
 
       return {
         cli: 'codex',
@@ -453,16 +442,13 @@ export class CodexCliAdapter implements CliAdapter {
    * Reads the token from ~/.codex/auth.json. No refresh is attempted.
    */
   private async resolveAccessToken(): Promise<string | null> {
-    try {
-      const raw = await readFile(CodexCliAdapter.getAuthPath(), 'utf-8');
-      const auth = JSON.parse(raw) as CodexAuthFile;
-      const apiKey = auth.openai_api_key || auth.OPENAI_API_KEY;
-      if (apiKey) return apiKey;
-      if (!auth.tokens?.access_token) return null;
+    const raw = await readFile(CodexCliAdapter.getAuthPath(), 'utf-8');
+    const auth = JSON.parse(raw) as CodexAuthFile;
+    const apiKey = auth.openai_api_key || auth.OPENAI_API_KEY;
+    if (apiKey) return apiKey;
+    if (!auth.tokens?.access_token) return null;
 
-      return auth.tokens.access_token;
-    } catch {
-    }
+    return auth.tokens.access_token;
     return null;
   }
 
@@ -653,8 +639,7 @@ export class CodexCliAdapter implements CliAdapter {
       onOutput,
       onSegment,
       getSessionId: () => capturedThreadId,
-      setAgentId: () => {
-      },
+      setAgentId: () => {},
     };
   }
 

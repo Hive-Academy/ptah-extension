@@ -533,10 +533,7 @@ async function runCodexLogin(
   }
   const sigintSource: NodeJS.EventEmitter = hooks.processRefForCodex ?? process;
   const onSigint = (): void => {
-    try {
-      child.kill('SIGINT');
-    } catch {
-    }
+    child.kill('SIGINT');
   };
   sigintSource.on('SIGINT', onSigint);
 

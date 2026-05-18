@@ -178,11 +178,8 @@ export class MemorySearchService implements IMemoryReader {
         bm25Rank: entry.bm25Rank,
         vecRank: entry.vecRank,
       });
-      try {
-        this.store.recordHit(memory.id);
-      } catch {
-        /* ignore — store may be a stub in tests */
-      }
+
+      this.store.recordHit(memory.id);
     }
 
     const response: MemorySearchResponse = { hits, bm25Only };

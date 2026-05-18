@@ -102,10 +102,7 @@ export class PtahFileSettingsManager {
     );
     await this.writePromise;
     this.listeners.get(key)?.forEach((cb) => {
-      try {
-        cb(value);
-      } catch {
-      }
+      cb(value);
     });
   }
 
@@ -182,10 +179,7 @@ export class PtahFileSettingsManager {
       this.debounceTimer = null;
     }
     if (this.crossProcessWatcher !== null) {
-      try {
-        this.crossProcessWatcher.close();
-      } catch {
-      }
+      this.crossProcessWatcher.close();
       this.crossProcessWatcher = null;
     }
     this.crossProcessWatchMode = null;
@@ -228,10 +222,8 @@ export class PtahFileSettingsManager {
    */
   private startWatcher(): void {
     this.closeCurrentWatcher();
-    try {
-      fs.mkdirSync(this.dirPath, { recursive: true });
-    } catch {
-    }
+
+    fs.mkdirSync(this.dirPath, { recursive: true });
     if (this.tryStartFileWatch()) {
       return;
     }
@@ -364,10 +356,7 @@ export class PtahFileSettingsManager {
    */
   private closeCurrentWatcher(): void {
     if (this.crossProcessWatcher !== null) {
-      try {
-        this.crossProcessWatcher.close();
-      } catch {
-      }
+      this.crossProcessWatcher.close();
       this.crossProcessWatcher = null;
     }
     this.crossProcessWatchMode = null;
@@ -458,10 +447,7 @@ export class PtahFileSettingsManager {
     for (const key of changedKeys) {
       const newVal = freshSettings[key];
       this.listeners.get(key)?.forEach((cb) => {
-        try {
-          cb(newVal);
-        } catch {
-        }
+        cb(newVal);
       });
     }
   }

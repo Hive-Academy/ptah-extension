@@ -843,13 +843,10 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
           },
         ];
         for (const pf of phaseFiles) {
-          try {
-            files[pf.key] = readFileSync(
-              path.join(analysisDir, pf.file),
-              'utf-8',
-            );
-          } catch {
-          }
+          files[pf.key] = readFileSync(
+            path.join(analysisDir, pf.file),
+            'utf-8',
+          );
         }
         this.phaseFileCache = { dir: analysisDir, files };
       }

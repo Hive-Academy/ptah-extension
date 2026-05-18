@@ -511,66 +511,52 @@ export class SessionRpcHandlers {
     }
     let deletedSubagents = 0;
     const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
-    try {
-      const subagentFiles = await fs.readdir(subagentsDir);
-      for (const file of subagentFiles) {
-        if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
-          try {
-            await fs.unlink(path.join(subagentsDir, file));
-            deletedSubagents++;
-          } catch {
-          }
-        }
+
+    const subagentFiles = await fs.readdir(subagentsDir);
+    for (const file of subagentFiles) {
+      if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
+        await fs.unlink(path.join(subagentsDir, file));
+        deletedSubagents++;
       }
-      try {
-        await fs.rmdir(subagentsDir);
-      } catch {
-      }
-      try {
-        await fs.rmdir(path.join(sessionsDir, sessionId));
-      } catch {
-      }
-    } catch {
     }
+
+    await fs.rmdir(subagentsDir);
+
+    await fs.rmdir(path.join(sessionsDir, sessionId));
     if (deletedSubagents === 0) {
-      try {
-        const allFiles = await fs.readdir(sessionsDir);
-        const agentFiles = allFiles.filter(
-          (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
-        );
-        for (const file of agentFiles) {
-          const filePath = path.join(sessionsDir, file);
+      const allFiles = await fs.readdir(sessionsDir);
+      const agentFiles = allFiles.filter(
+        (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
+      );
+      for (const file of agentFiles) {
+        const filePath = path.join(sessionsDir, file);
+
+        const content = await fs.readFile(filePath, 'utf-8');
+        const firstLine = content.split('\n')[0];
+        if (firstLine) {
+          let parsed: unknown;
           try {
-            const content = await fs.readFile(filePath, 'utf-8');
-            const firstLine = content.split('\n')[0];
-            if (firstLine) {
-              let parsed: unknown;
-              try {
-                parsed = JSON.parse(firstLine);
-              } catch {
-                this.logger.debug(
-                  'session:delete — skipping unreadable JSONL (malformed JSON)',
-                  { filePath },
-                );
-                continue;
-              }
-              const result = AgentJsonlFirstLineSchema.safeParse(parsed);
-              if (!result.success) {
-                this.logger.debug(
-                  'session:delete — skipping JSONL with unexpected first-line shape',
-                  { filePath, issues: result.error.issues },
-                );
-                continue;
-              }
-              if (result.data.sessionId === sessionId) {
-                await fs.unlink(filePath);
-                deletedSubagents++;
-              }
-            }
+            parsed = JSON.parse(firstLine);
           } catch {
+            this.logger.debug(
+              'session:delete — skipping unreadable JSONL (malformed JSON)',
+              { filePath },
+            );
+            continue;
+          }
+          const result = AgentJsonlFirstLineSchema.safeParse(parsed);
+          if (!result.success) {
+            this.logger.debug(
+              'session:delete — skipping JSONL with unexpected first-line shape',
+              { filePath, issues: result.error.issues },
+            );
+            continue;
+          }
+          if (result.data.sessionId === sessionId) {
+            await fs.unlink(filePath);
+            deletedSubagents++;
           }
         }
-      } catch {
       }
     }
 

@@ -404,11 +404,8 @@ export class SkillsSynthesisRpcHandlers {
   private report(error: unknown, errorSource: string): void {
     const err = error instanceof Error ? error : new Error(String(error));
     this.logger.error(`RPC ${errorSource} failed`, err);
-    try {
-      this.sentryService.captureException(err, { errorSource });
-    } catch {
-      /* sentry must never throw */
-    }
+
+    this.sentryService.captureException(err, { errorSource });
   }
 }
 

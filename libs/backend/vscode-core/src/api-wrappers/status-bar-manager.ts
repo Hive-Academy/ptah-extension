@@ -95,7 +95,7 @@ export class StatusBarManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext
+    private readonly context: vscode.ExtensionContext,
   ) {}
 
   /**
@@ -112,7 +112,7 @@ export class StatusBarManager {
     const item = vscode.window.createStatusBarItem(
       config.id,
       config.alignment || vscode.StatusBarAlignment.Right,
-      config.priority || 0
+      config.priority || 0,
     );
     if (config.text) item.text = config.text;
     if (config.tooltip) item.tooltip = config.tooltip;
@@ -331,12 +331,9 @@ export class StatusBarManager {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    try {
-      this.statusBarItems.forEach((item) => item.dispose());
-      this.statusBarItems.clear();
-      this.itemMetrics.clear();
-    } catch {
-    }
+    this.statusBarItems.forEach((item) => item.dispose());
+    this.statusBarItems.clear();
+    this.itemMetrics.clear();
   }
 
   /**
@@ -346,7 +343,7 @@ export class StatusBarManager {
   private updateItemMetrics(
     itemId: string,
     operation: 'update' | 'click',
-    isError: boolean
+    isError: boolean,
   ): void {
     const metrics = this.itemMetrics.get(itemId);
 

@@ -63,10 +63,7 @@ export class SdkWarmQueryManager {
       });
 
       if (this._warmQuery) {
-        try {
-          this._warmQuery.close();
-        } catch {
-        }
+        this._warmQuery.close();
       }
       this._warmQuery = warm;
       this._warmQueryCreatedAt = Date.now();

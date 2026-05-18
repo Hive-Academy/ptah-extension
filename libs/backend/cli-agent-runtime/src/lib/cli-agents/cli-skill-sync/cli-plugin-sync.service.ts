@@ -273,11 +273,8 @@ export class CliPluginSyncService {
         let removedCount = 0;
         for (const entry of entries) {
           if (entry.startsWith(PTAH_AGENT_PREFIX)) {
-            try {
-              await rm(join(agentsDir, entry), { force: true });
-              removedCount++;
-            } catch {
-            }
+            await rm(join(agentsDir, entry), { force: true });
+            removedCount++;
           }
         }
 

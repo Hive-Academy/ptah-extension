@@ -129,17 +129,14 @@ export class McpInstallService {
     const allServers: InstalledMcpServer[] = [];
 
     for (const installer of this.installers.values()) {
-      try {
-        const servers = await installer.listInstalled(workspaceRoot);
-        for (const server of servers) {
-          server.managedByPtah = this.manifestTracker.isManagedByPtah(
-            server.serverKey,
-          );
-        }
-
-        allServers.push(...servers);
-      } catch {
+      const servers = await installer.listInstalled(workspaceRoot);
+      for (const server of servers) {
+        server.managedByPtah = this.manifestTracker.isManagedByPtah(
+          server.serverKey,
+        );
       }
+
+      allServers.push(...servers);
     }
 
     return allServers;

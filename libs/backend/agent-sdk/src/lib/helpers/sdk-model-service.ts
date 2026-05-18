@@ -387,8 +387,7 @@ export class SdkModelService {
 
     try {
       const query = await this.moduleLoader.getQueryFunction();
-      const emptyPrompt = (async function* () {
-      })();
+      const emptyPrompt = (async function* () {})();
       const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
       const isThirdParty =
         baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
@@ -469,10 +468,7 @@ export class SdkModelService {
       );
       return [];
     } finally {
-      try {
-        tempQuery?.close();
-      } catch {
-      }
+      tempQuery?.close();
       abortController.abort();
     }
   }

@@ -50,6 +50,7 @@ export interface WebviewWorkerFixtures {
  */
 export const test = baseTest.extend<WebviewFixtures, WebviewWorkerFixtures>({
   fixtureServer: [
+    // eslint-disable-next-line no-empty-pattern
     async ({}, use) => {
       const server = await startFixtureServer();
       try {

@@ -160,14 +160,12 @@ export class RpcBridge {
           patchable.send = (sendChannel: string, ...sendArgs: unknown[]) => {
             if (sendChannel === 'to-renderer') {
               const message = sendArgs[0];
-              try {
-                if (predicate(message)) {
-                  clearTimeout(timer);
-                  patchable.send = originalSend;
-                  resolve(message);
-                  return;
-                }
-              } catch {
+
+              if (predicate(message)) {
+                clearTimeout(timer);
+                patchable.send = originalSend;
+                resolve(message);
+                return;
               }
             }
             originalSend(sendChannel, ...sendArgs);

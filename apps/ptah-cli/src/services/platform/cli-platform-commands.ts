@@ -10,11 +10,14 @@ import type { IPlatformCommands } from '@ptah-extension/rpc-handlers';
 
 export class CliPlatformCommands implements IPlatformCommands {
   async reloadWindow(): Promise<void> {
+    console.log('CliPlatformCommands.reloadWindow called');
   }
 
   openTerminal(_name: string, _command: string): void {
+    console.log('CliPlatformCommands.openTerminal called');
   }
 
   async focusChat(): Promise<void> {
+    console.log('CliPlatformCommands.focusChat called');
   }
 }

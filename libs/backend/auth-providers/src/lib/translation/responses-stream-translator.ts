@@ -192,12 +192,9 @@ export class ResponsesStreamTranslator {
           continue;
         }
 
-        try {
-          const parsed = JSON.parse(data) as ResponsesStreamEvent;
-          const eventType = parsed.type || currentEventType;
-          events.push(...this.handleEvent(eventType, parsed));
-        } catch {
-        }
+        const parsed = JSON.parse(data) as ResponsesStreamEvent;
+        const eventType = parsed.type || currentEventType;
+        events.push(...this.handleEvent(eventType, parsed));
         currentEventType = '';
         continue;
       }

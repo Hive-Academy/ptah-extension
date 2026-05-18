@@ -605,5 +605,6 @@ export class ScanProgressComponent implements OnInit {
    * Handle modal cancellation (user declined cancellation)
    */
   protected onDeclineCancellation(): void {
+    console.log('ScanProgressComponent.onDeclineCancellation called');
   }
 }

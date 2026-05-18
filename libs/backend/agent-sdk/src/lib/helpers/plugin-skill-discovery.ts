@@ -34,40 +34,35 @@ export function discoverPluginSkills(pluginPaths: string[]): PluginSkillInfo[] {
   const skills: PluginSkillInfo[] = [];
 
   for (const pluginPath of pluginPaths) {
-    try {
-      const pluginId = pluginPath.split(/[\\/]/).pop() || 'unknown';
-      const skillsDir = join(pluginPath, 'skills');
+    const pluginId = pluginPath.split(/[\\/]/).pop() || 'unknown';
+    const skillsDir = join(pluginPath, 'skills');
 
-      let entries: string[];
+    let entries: string[];
+    try {
+      entries = readdirSync(skillsDir);
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryPath = join(skillsDir, entry);
       try {
-        entries = readdirSync(skillsDir);
+        if (!statSync(entryPath).isDirectory()) continue;
       } catch {
         continue;
       }
 
-      for (const entry of entries) {
-        const entryPath = join(skillsDir, entry);
-        try {
-          if (!statSync(entryPath).isDirectory()) continue;
-        } catch {
-          continue;
-        }
+      const skillMdPath = join(entryPath, 'SKILL.md');
 
-        const skillMdPath = join(entryPath, 'SKILL.md');
-        try {
-          const content = readFileSync(skillMdPath, 'utf-8');
-          const { name, description } = parseFrontmatter(content);
-          if (name) {
-            skills.push({
-              pluginId,
-              skillName: name,
-              description: description || name,
-            });
-          }
-        } catch {
-        }
+      const content = readFileSync(skillMdPath, 'utf-8');
+      const { name, description } = parseFrontmatter(content);
+      if (name) {
+        skills.push({
+          pluginId,
+          skillName: name,
+          description: description || name,
+        });
       }
-    } catch {
     }
   }
 
@@ -85,7 +80,7 @@ export function formatSkillsForPrompt(skills: PluginSkillInfo[]): string {
 
   return skills
     .map(
-      (s) => `- **${s.skillName}** (plugin: ${s.pluginId}): ${s.description}`
+      (s) => `- **${s.skillName}** (plugin: ${s.pluginId}): ${s.description}`,
     )
     .join('\n');
 }

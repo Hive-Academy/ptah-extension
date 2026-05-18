@@ -313,14 +313,11 @@ export class WebSearchConfigComponent implements OnInit {
    * Check if the current provider has an API key configured
    */
   async loadApiKeyStatus(): Promise<void> {
-    try {
-      const result = await this.rpcService.call('webSearch:getApiKeyStatus', {
-        provider: this.selectedProvider(),
-      });
-      if (result.isSuccess()) {
-        this.apiKeyConfigured.set(result.data.configured);
-      }
-    } catch {
+    const result = await this.rpcService.call('webSearch:getApiKeyStatus', {
+      provider: this.selectedProvider(),
+    });
+    if (result.isSuccess()) {
+      this.apiKeyConfigured.set(result.data.configured);
     }
   }
 

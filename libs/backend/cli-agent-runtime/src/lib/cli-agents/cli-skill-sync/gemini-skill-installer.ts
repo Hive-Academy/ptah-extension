@@ -129,15 +129,13 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
           );
         }
       }
-      try {
-        const existingEntries = await readdir(basePath);
-        for (const entry of existingEntries) {
-          if (entry.startsWith(folderPrefix) && !installedFolders.has(entry)) {
-            const entryPath = join(basePath, entry);
-            await rm(entryPath, { recursive: true, force: true });
-          }
+
+      const existingEntries = await readdir(basePath);
+      for (const entry of existingEntries) {
+        if (entry.startsWith(folderPrefix) && !installedFolders.has(entry)) {
+          const entryPath = join(basePath, entry);
+          await rm(entryPath, { recursive: true, force: true });
         }
-      } catch {
       }
       if (syncCommandsEnabled) {
         await this.syncCommands(pluginPaths, errors);
@@ -172,14 +170,12 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
     } catch {
       return;
     }
-    try {
-      const existing = await readdir(commandsDir);
-      for (const entry of existing) {
-        if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
-          await rm(join(commandsDir, entry), { force: true });
-        }
+
+    const existing = await readdir(commandsDir);
+    for (const entry of existing) {
+      if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
+        await rm(join(commandsDir, entry), { force: true });
       }
-    } catch {
     }
 
     for (const pluginPath of pluginPaths) {
@@ -212,22 +208,19 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
   }
 
   async uninstall(): Promise<void> {
+    const basePath = this.getSkillsBasePath();
+    let entries;
     try {
-      const basePath = this.getSkillsBasePath();
-      let entries;
-      try {
-        entries = await readdir(basePath);
-      } catch {
-        return; // Skills directory doesn't exist
-      }
-
-      for (const entry of entries) {
-        if (entry.startsWith('ptah-') || entry.startsWith('ptahsynth-')) {
-          const entryPath = join(basePath, entry);
-          await rm(entryPath, { recursive: true, force: true });
-        }
-      }
+      entries = await readdir(basePath);
     } catch {
+      return; // Skills directory doesn't exist
+    }
+
+    for (const entry of entries) {
+      if (entry.startsWith('ptah-') || entry.startsWith('ptahsynth-')) {
+        const entryPath = join(basePath, entry);
+        await rm(entryPath, { recursive: true, force: true });
+      }
     }
   }
 }

@@ -32,20 +32,17 @@ async function resolveWindowsCmd(binaryPath: string): Promise<string> {
   if (process.platform !== 'win32') return binaryPath;
   if (!binaryPath.toLowerCase().endsWith('.cmd')) return binaryPath;
 
-  try {
-    const content = await readFile(binaryPath, 'utf8');
-    const dir = path.dirname(binaryPath);
-    const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
-    let lastMatch: string | null = null;
-    let m;
-    while ((m = regex.exec(content)) !== null) {
-      lastMatch = m[1];
-    }
+  const content = await readFile(binaryPath, 'utf8');
+  const dir = path.dirname(binaryPath);
+  const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
+  let lastMatch: string | null = null;
+  let m;
+  while ((m = regex.exec(content)) !== null) {
+    lastMatch = m[1];
+  }
 
-    if (lastMatch) {
-      return path.join(dir, lastMatch);
-    }
-  } catch {
+  if (lastMatch) {
+    return path.join(dir, lastMatch);
   }
 
   return binaryPath;
@@ -61,7 +58,7 @@ async function testCodexSdk(codexPathOverride?: string): Promise<void> {
   try {
     console.log('  [1] Importing @openai/codex-sdk (ESM dynamic import)...');
     const sdk = await (Function(
-      'return import("@openai/codex-sdk")'
+      'return import("@openai/codex-sdk")',
     )() as Promise<any>);
     console.log('  [OK] SDK imported successfully');
     console.log('  [1a] SDK exports:', Object.keys(sdk).join(', '));
@@ -119,7 +116,7 @@ async function testCodexSdk(codexPathOverride?: string): Promise<void> {
       console.log('  [DIAGNOSIS] spawn EINVAL — the SDK is trying to spawn a');
       console.log('    .cmd wrapper file directly via child_process.spawn().');
       console.log(
-        '    On Windows, .cmd files require shell: true or the actual'
+        '    On Windows, .cmd files require shell: true or the actual',
       );
       console.log('    Node.js script path must be used instead.');
     }
@@ -176,7 +173,7 @@ async function main(): Promise<void> {
 
   if (!codexPath) {
     console.log(
-      '\nCodex CLI not found. Install with: npm install -g @openai/codex'
+      '\nCodex CLI not found. Install with: npm install -g @openai/codex',
     );
     process.exit(1);
   }
@@ -199,13 +196,13 @@ async function main(): Promise<void> {
   await testCodexSdk();
   if (isCmd) {
     console.log(
-      '\n[NOTE] Test 2 demonstrates the EINVAL bug when .cmd path is passed'
+      '\n[NOTE] Test 2 demonstrates the EINVAL bug when .cmd path is passed',
     );
     await testCodexSdk(codexPath);
   }
   if (resolvedPath && resolvedPath !== codexPath) {
     console.log(
-      '\n[NOTE] Test 3 demonstrates EFTYPE when .js script path is passed'
+      '\n[NOTE] Test 3 demonstrates EFTYPE when .js script path is passed',
     );
     await testCodexSdk(resolvedPath);
   }

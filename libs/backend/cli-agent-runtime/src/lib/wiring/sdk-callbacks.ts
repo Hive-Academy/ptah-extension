@@ -159,45 +159,38 @@ function wireSessionIdResolvedCallback(
       );
 
       if (tabId) {
-        try {
-          if (container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
-            const agentProcessManager = container.resolve<AgentProcessManager>(
-              TOKENS.AGENT_PROCESS_MANAGER,
-            );
-            agentProcessManager.resolveParentSessionId(tabId, realSessionId);
+        if (container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+          const agentProcessManager = container.resolve<AgentProcessManager>(
+            TOKENS.AGENT_PROCESS_MANAGER,
+          );
+          agentProcessManager.resolveParentSessionId(tabId, realSessionId);
 
-            try {
-              if (container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
-                const subagentRegistry =
-                  container.resolve<SubagentRegistryLike>(
-                    TOKENS.SUBAGENT_REGISTRY_SERVICE,
-                  );
-                subagentRegistry.resolveParentSessionId(tabId, realSessionId);
-              }
-            } catch {
-            }
-            const allAgents =
-              agentProcessManager.getStatus() as AgentProcessInfo[];
-            const exitedWithParent = allAgents.filter(
-              (a) =>
-                a.parentSessionId === realSessionId && a.status !== 'running',
+          if (container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
+            const subagentRegistry = container.resolve<SubagentRegistryLike>(
+              TOKENS.SUBAGENT_REGISTRY_SERVICE,
             );
-            if (exitedWithParent.length > 0) {
-              logger.info(
-                `${tag} Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`,
-              );
-            }
-            for (const exitedInfo of exitedWithParent) {
-              persistCliSessionReference(
-                container,
-                logger,
-                tag,
-                exitedInfo,
-                getSdkSessionId,
-              );
-            }
+            subagentRegistry.resolveParentSessionId(tabId, realSessionId);
           }
-        } catch {
+          const allAgents =
+            agentProcessManager.getStatus() as AgentProcessInfo[];
+          const exitedWithParent = allAgents.filter(
+            (a) =>
+              a.parentSessionId === realSessionId && a.status !== 'running',
+          );
+          if (exitedWithParent.length > 0) {
+            logger.info(
+              `${tag} Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`,
+            );
+          }
+          for (const exitedInfo of exitedWithParent) {
+            persistCliSessionReference(
+              container,
+              logger,
+              tag,
+              exitedInfo,
+              getSdkSessionId,
+            );
+          }
         }
       }
 

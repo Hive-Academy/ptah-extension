@@ -300,9 +300,8 @@ export class TabWorkspacePartitionService {
     }
     this._backendEncodedPaths.delete(workspacePath);
     const storageKey = this._getWorkspaceStorageKey(workspacePath);
-    try {
-      localStorage.removeItem(storageKey);
-    } catch {}
+
+    localStorage.removeItem(storageKey);
     const wasActive = this._activeWorkspacePath === workspacePath;
     if (wasActive) {
       this._activeWorkspacePath = null;

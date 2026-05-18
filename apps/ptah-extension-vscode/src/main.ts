@@ -1,35 +1,21 @@
 import 'reflect-metadata';
-try {
-  process.on('unhandledRejection', (reason: unknown) => {
-    try {
-      const msg =
-        reason instanceof Error ? String(reason.message) : String(reason);
-      const stack =
-        reason instanceof Error && typeof reason.stack === 'string'
-          ? reason.stack
-          : '';
-      console.error('[Ptah VS Code] UNHANDLED_REJECTION:', msg);
-      if (stack)
-        console.error('[Ptah VS Code] UNHANDLED_REJECTION stack:', stack);
-    } catch {
-      /* ignore */
-    }
-  });
-  process.on('uncaughtException', (err: unknown) => {
-    try {
-      const msg = err instanceof Error ? String(err.message) : String(err);
-      const stack =
-        err instanceof Error && typeof err.stack === 'string' ? err.stack : '';
-      console.error('[Ptah VS Code] UNCAUGHT_EXCEPTION:', msg);
-      if (stack)
-        console.error('[Ptah VS Code] UNCAUGHT_EXCEPTION stack:', stack);
-    } catch {
-      /* ignore */
-    }
-  });
-} catch {
-  /* process listeners are best-effort */
-}
+
+process.on('unhandledRejection', (reason: unknown) => {
+  const msg = reason instanceof Error ? String(reason.message) : String(reason);
+  const stack =
+    reason instanceof Error && typeof reason.stack === 'string'
+      ? reason.stack
+      : '';
+  console.error('[Ptah VS Code] UNHANDLED_REJECTION:', msg);
+  if (stack) console.error('[Ptah VS Code] UNHANDLED_REJECTION stack:', stack);
+});
+process.on('uncaughtException', (err: unknown) => {
+  const msg = err instanceof Error ? String(err.message) : String(err);
+  const stack =
+    err instanceof Error && typeof err.stack === 'string' ? err.stack : '';
+  console.error('[Ptah VS Code] UNCAUGHT_EXCEPTION:', msg);
+  if (stack) console.error('[Ptah VS Code] UNCAUGHT_EXCEPTION stack:', stack);
+});
 
 import * as vscode from 'vscode';
 import {
@@ -83,80 +69,56 @@ export async function activate(
     } catch {
       safeStack = '<stack inspection failed>';
     }
-    try {
-      console.error('===== PTAH ACTIVATION FAILED =====');
-    } catch {
-    }
-    try {
-      console.error('[Activate] message:', safeMessage);
-    } catch {
-      /* ignore */
-    }
-    try {
-      if (safeStack) console.error('[Activate] stack:', safeStack);
-    } catch {
-      /* ignore */
-    }
-    try {
-      const errorCtor =
-        error && typeof error === 'object' && error.constructor
-          ? error.constructor.name
-          : typeof error;
-      console.error('[Activate] errorType:', errorCtor);
-    } catch {
-      /* ignore */
-    }
-    try {
-      const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-      logger.error(
-        'Failed to activate Ptah extension',
-        error instanceof Error ? error : new Error(safeMessage),
-      );
-    } catch {
-    }
-    try {
-      const sentry = DIContainer.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
-      sentry.captureException(
-        error instanceof Error ? error : new Error(safeMessage),
-        { errorSource: 'activate' },
-      );
-    } catch {
-    }
-    try {
-      vscode.window.showErrorMessage(`Ptah activation failed: ${safeMessage}`);
-    } catch {
-      /* ignore */
-    }
+
+    console.error('===== PTAH ACTIVATION FAILED =====');
+
+    console.error('[Activate] message:', safeMessage);
+
+    if (safeStack) console.error('[Activate] stack:', safeStack);
+
+    const errorCtor =
+      error && typeof error === 'object' && error.constructor
+        ? error.constructor.name
+        : typeof error;
+    console.error('[Activate] errorType:', errorCtor);
+
+    const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
+    logger.error(
+      'Failed to activate Ptah extension',
+      error instanceof Error ? error : new Error(safeMessage),
+    );
+
+    const sentry = DIContainer.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+    sentry.captureException(
+      error instanceof Error ? error : new Error(safeMessage),
+      { errorSource: 'activate' },
+    );
+
+    vscode.window.showErrorMessage(`Ptah activation failed: ${safeMessage}`);
   }
 }
 
 export async function deactivate(): Promise<void> {
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Deactivating Ptah extension');
-  try {
-    const skillJunction = DIContainer.resolve<SkillJunctionService>(
-      SDK_TOKENS.SDK_SKILL_JUNCTION,
-    );
-    skillJunction.deactivateSync();
-  } catch {
-  }
-  try {
-    const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
-      CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
-    );
-    ptahCliRegistry.disposeAll();
-  } catch {
-  }
+
+  const skillJunction = DIContainer.resolve<SkillJunctionService>(
+    SDK_TOKENS.SDK_SKILL_JUNCTION,
+  );
+  skillJunction.deactivateSync();
+
+  const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
+    CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
+  );
+  ptahCliRegistry.disposeAll();
 
   ptahExtension?.dispose();
   ptahExtension = undefined;
-  try {
-    const sentryService = DIContainer.resolve<SentryService>(
-      TOKENS.SENTRY_SERVICE,
-    );
-    await sentryService.flush(2000);
-  } catch {
-  }
+
+  const sentryService = DIContainer.resolve<SentryService>(
+    TOKENS.SENTRY_SERVICE,
+  );
+  await sentryService.flush(2000);
 
   DIContainer.clear();
 }

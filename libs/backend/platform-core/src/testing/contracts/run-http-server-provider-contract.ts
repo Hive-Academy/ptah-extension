@@ -58,11 +58,7 @@ export function runHttpServerProviderContract(
 
     afterEach(async () => {
       for (const handle of openHandles) {
-        try {
-          await handle.close();
-        } catch {
-          /* ignore teardown errors */
-        }
+        await handle.close();
       }
       openHandles = [];
       await teardown?.();
@@ -155,11 +151,8 @@ export function runHttpServerProviderContract(
         (res as http.ServerResponse).end();
       });
       openHandles.push(handle);
-      try {
-        await sendRequest(`http://127.0.0.1:${handle.port}/`);
-      } catch {
-        /* expected: connection may be reset when handler throws */
-      }
+
+      await sendRequest(`http://127.0.0.1:${handle.port}/`);
       await sendRequest(`http://127.0.0.1:${handle.port}/`);
 
       await handle.close();

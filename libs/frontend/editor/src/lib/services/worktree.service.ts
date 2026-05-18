@@ -160,25 +160,22 @@ export class WorktreeService {
    */
   private setupWorktreeChangeListener(): void {
     const handler = (event: MessageEvent) => {
-      try {
-        const data = event.data;
-        if (!data || typeof data !== 'object') return;
-        if (data.type !== 'git:worktreeChanged') return;
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.type !== 'git:worktreeChanged') return;
 
-        const payload = data.payload as
-          | GitWorktreeChangedNotification
-          | undefined;
-        if (!payload || !payload.action) return;
+      const payload = data.payload as
+        | GitWorktreeChangedNotification
+        | undefined;
+      if (!payload || !payload.action) return;
 
-        if (payload.action === 'created') {
-          if (payload.path) {
-            void this.layoutService.addFolderByPath(payload.path);
-          }
-          this.loadWorktrees();
-        } else if (payload.action === 'removed') {
-          this.loadWorktrees();
+      if (payload.action === 'created') {
+        if (payload.path) {
+          void this.layoutService.addFolderByPath(payload.path);
         }
-      } catch {
+        this.loadWorktrees();
+      } else if (payload.action === 'removed') {
+        this.loadWorktrees();
       }
     };
 

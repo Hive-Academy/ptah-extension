@@ -602,17 +602,11 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   }
 
   async loadCliModels(): Promise<void> {
-    try {
-      const result = await this.rpcService.call(
-        'agent:listCliModels',
-        undefined,
-      );
-      if (result.isSuccess()) {
-        this.geminiModels.set(result.data.gemini);
-        this.codexModels.set(result.data.codex);
-        this.copilotModels.set(result.data.copilot);
-      }
-    } catch {
+    const result = await this.rpcService.call('agent:listCliModels', undefined);
+    if (result.isSuccess()) {
+      this.geminiModels.set(result.data.gemini);
+      this.codexModels.set(result.data.codex);
+      this.copilotModels.set(result.data.copilot);
     }
   }
 

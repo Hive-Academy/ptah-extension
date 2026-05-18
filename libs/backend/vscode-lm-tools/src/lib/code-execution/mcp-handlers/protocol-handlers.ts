@@ -1365,12 +1365,8 @@ async function resolveScreenshotPath(
     return filePath;
   }
 
-  let workspaceRoot: string | undefined;
-  try {
-    const info = await ptahAPI.workspace.getInfo();
-    workspaceRoot = info?.path;
-  } catch {
-  }
+  const info = await ptahAPI.workspace.getInfo();
+  const workspaceRoot = info?.path;
 
   return path.join(
     workspaceRoot || process.cwd(),

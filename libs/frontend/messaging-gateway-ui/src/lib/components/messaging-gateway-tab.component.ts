@@ -534,7 +534,6 @@ export class MessagingGatewayTabComponent implements OnInit {
       } else {
         await this.state.setToken(platform, bot);
       }
-    } catch {
     } finally {
       this.tokenInputs.update((current) => {
         const next = { ...current };
@@ -579,10 +578,7 @@ export class MessagingGatewayTabComponent implements OnInit {
   }
 
   protected async onSendTest(platform: GatewayPlatformId): Promise<void> {
-    try {
-      await this.state.sendTest(platform);
-    } catch {
-    }
+    await this.state.sendTest(platform);
   }
 
   protected bindingCodeFor(bindingId: string): string {

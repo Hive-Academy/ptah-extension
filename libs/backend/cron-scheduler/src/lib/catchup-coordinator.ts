@@ -69,11 +69,7 @@ export class CatchupCoordinator {
 
   detach(): void {
     if (this.disposeResume) {
-      try {
-        this.disposeResume();
-      } catch {
-        /* swallow */
-      }
+      this.disposeResume();
       this.disposeResume = null;
     }
   }

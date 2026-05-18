@@ -225,20 +225,16 @@ export class AnthropicNonStreamingAccumulator {
     const block = this.currentToolBlock;
     this.currentToolBlock = null;
     if (block.partialJson.length > 0) {
-      try {
-        const parsed: unknown = JSON.parse(block.partialJson);
-        if (
-          typeof parsed === 'object' &&
-          parsed !== null &&
-          !Array.isArray(parsed)
-        ) {
-          block.input = {
-            ...block.input,
-            ...(parsed as Record<string, unknown>),
-          };
-        }
-      } catch {
-        /* keep upfront input on parse failure */
+      const parsed: unknown = JSON.parse(block.partialJson);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        !Array.isArray(parsed)
+      ) {
+        block.input = {
+          ...block.input,
+          ...(parsed as Record<string, unknown>),
+        };
       }
     }
     this.content.push({

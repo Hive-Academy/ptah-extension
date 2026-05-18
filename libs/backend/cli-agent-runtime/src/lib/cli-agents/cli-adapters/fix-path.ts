@@ -43,14 +43,12 @@ function getCommonFallbackDirs(): string[] {
     path.join(home, '.deno', 'bin'),
   ];
   const nvmRoot = path.join(home, '.nvm', 'versions', 'node');
-  try {
-    const entries = fs.readdirSync(nvmRoot, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        dirs.push(path.join(nvmRoot, entry.name, 'bin'));
-      }
+
+  const entries = fs.readdirSync(nvmRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      dirs.push(path.join(nvmRoot, entry.name, 'bin'));
     }
-  } catch {
   }
   dirs.push(path.join(home, 'n', 'bin'));
 

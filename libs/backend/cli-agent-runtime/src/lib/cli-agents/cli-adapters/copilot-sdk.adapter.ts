@@ -164,16 +164,12 @@ export class CopilotSdkAdapter implements CliAdapter {
         return { cli: 'copilot', installed: false, supportsSteer: false };
       }
 
-      let version: string | undefined;
-      try {
-        const { stdout: versionOutput } = await execFileAsync(
-          binaryPath,
-          ['--version'],
-          { timeout: 5000 },
-        );
-        version = versionOutput.trim().split(/\r?\n/)[0];
-      } catch {
-      }
+      const { stdout: versionOutput } = await execFileAsync(
+        binaryPath,
+        ['--version'],
+        { timeout: 5000 },
+      );
+      const version = versionOutput.trim().split(/\r?\n/)[0];
 
       return {
         cli: 'copilot',

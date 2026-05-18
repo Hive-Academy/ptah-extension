@@ -73,5 +73,6 @@ export class CliStrategy implements IAuthStrategy {
   }
 
   async teardown(): Promise<void> {
+    console.log('CliStrategy.teardown called');
   }
 }

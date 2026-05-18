@@ -319,40 +319,35 @@ export class PluginLoaderService {
     const skills: PluginSkillEntry[] = [];
 
     for (const pluginPath of pluginPaths) {
-      try {
-        const pluginId = path.basename(pluginPath);
-        const skillsDir = path.join(pluginPath, 'skills');
+      const pluginId = path.basename(pluginPath);
+      const skillsDir = path.join(pluginPath, 'skills');
 
-        let entries: string[];
+      let entries: string[];
+      try {
+        entries = fs.readdirSync(skillsDir);
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const entryPath = path.join(skillsDir, entry);
         try {
-          entries = fs.readdirSync(skillsDir);
+          if (!fs.statSync(entryPath).isDirectory()) continue;
         } catch {
           continue;
         }
 
-        for (const entry of entries) {
-          const entryPath = path.join(skillsDir, entry);
-          try {
-            if (!fs.statSync(entryPath).isDirectory()) continue;
-          } catch {
-            continue;
-          }
+        const skillMdPath = path.join(entryPath, 'SKILL.md');
 
-          const skillMdPath = path.join(entryPath, 'SKILL.md');
-          try {
-            const content = fs.readFileSync(skillMdPath, 'utf-8');
-            const { name, description } = this.parseFrontmatter(content);
+        const content = fs.readFileSync(skillMdPath, 'utf-8');
+        const { name, description } = this.parseFrontmatter(content);
 
-            skills.push({
-              skillId: entry,
-              displayName: name || entry,
-              description: description || name || entry,
-              pluginId,
-            });
-          } catch {
-          }
-        }
-      } catch {
+        skills.push({
+          skillId: entry,
+          displayName: name || entry,
+          description: description || name || entry,
+          pluginId,
+        });
       }
     }
 

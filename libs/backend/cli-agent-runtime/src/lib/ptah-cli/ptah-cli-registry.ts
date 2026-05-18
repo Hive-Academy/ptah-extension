@@ -578,11 +578,8 @@ export class PtahCliRegistry {
       },
     });
     const done = streamLoop.run(sdkQuery).then((exitCode) => {
-      try {
-        disposeCallbacks();
-        sessionResolvedCallbacks.length = 0;
-      } catch {
-      }
+      disposeCallbacks();
+      sessionResolvedCallbacks.length = 0;
       return exitCode;
     });
 

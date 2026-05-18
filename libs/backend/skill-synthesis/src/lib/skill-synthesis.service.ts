@@ -306,16 +306,13 @@ export class SkillSynthesisService {
       createdAt: Date.now(),
     });
     if (!result.reused && contextId) {
-      try {
-        this.store.recordInvocation({
-          skillId: result.candidate.id,
-          sessionId,
-          succeeded: true,
-          invokedAt: Date.now(),
-          contextId,
-        });
-      } catch {
-      }
+      this.store.recordInvocation({
+        skillId: result.candidate.id,
+        sessionId,
+        succeeded: true,
+        invokedAt: Date.now(),
+        contextId,
+      });
     }
     this.logger.info('[skill-synthesis] candidate registered', {
       candidateId: result.candidate.id,

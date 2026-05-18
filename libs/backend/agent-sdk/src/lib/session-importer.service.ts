@@ -350,16 +350,13 @@ export class SessionImporterService {
       const fileInfos: SessionFileInfo[] = [];
 
       for (const filename of sessionFiles) {
-        try {
-          const filePath = path.join(sessionsDir, filename);
-          const stats = await fs.promises.stat(filePath);
-          fileInfos.push({
-            path: filePath,
-            filename,
-            mtime: stats.mtimeMs,
-          });
-        } catch {
-        }
+        const filePath = path.join(sessionsDir, filename);
+        const stats = await fs.promises.stat(filePath);
+        fileInfos.push({
+          path: filePath,
+          filename,
+          mtime: stats.mtimeMs,
+        });
       }
       return fileInfos.sort((a, b) => b.mtime - a.mtime).slice(0, limit);
     } catch (error) {
@@ -407,25 +404,18 @@ export class SessionImporterService {
       let sessionName: string | null = null;
 
       for (const line of lines) {
-        try {
-          const msg = JSON.parse(line);
-          if (
-            msg.type === 'system' &&
-            msg.subtype === 'init' &&
-            msg.session_id
-          ) {
-            sessionId = msg.session_id;
-          }
-          if (msg.type === 'user' && !sessionName) {
-            const text = this.extractUserMessageText(msg);
-            if (text) {
-              sessionName = text.substring(0, 50).trim();
-              if (text.length > 50) sessionName += '...';
-            }
-          }
-          if (sessionId && sessionName) break;
-        } catch {
+        const msg = JSON.parse(line);
+        if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
+          sessionId = msg.session_id;
         }
+        if (msg.type === 'user' && !sessionName) {
+          const text = this.extractUserMessageText(msg);
+          if (text) {
+            sessionName = text.substring(0, 50).trim();
+            if (text.length > 50) sessionName += '...';
+          }
+        }
+        if (sessionId && sessionName) break;
       }
       if (!sessionId) {
         sessionId = this.extractSessionIdFromFilename(path.basename(filePath));

@@ -203,17 +203,15 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-    try {
-      const diContainer = ElectronDIContainer.getContainer();
-      if (
-        diContainer.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
-      ) {
-        const cliRegistry = diContainer.resolve<{ disposeAll(): void }>(
-          CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
-        );
-        cliRegistry.disposeAll();
-      }
-    } catch {
+
+    const diContainer = ElectronDIContainer.getContainer();
+    if (
+      diContainer.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    ) {
+      const cliRegistry = diContainer.resolve<{ disposeAll(): void }>(
+        CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
+      );
+      cliRegistry.disposeAll();
     }
   });
 } // end of gotLock guard

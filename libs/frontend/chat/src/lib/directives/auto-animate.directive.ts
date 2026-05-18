@@ -35,6 +35,7 @@ import autoAnimate, {
  *   media query at init and react to runtime changes via the `change` event.
  */
 @Directive({
+  // eslint-disable-next-line @angular-eslint/directive-selector
   selector: '[auto-animate]',
   standalone: true,
 })

@@ -197,19 +197,14 @@ export class CopilotAuthService implements ICopilotAuthService {
     userCode: string,
     verificationUri: string,
   ): Promise<void> {
-    try {
-      await this.userInteraction.writeToClipboard(userCode);
-      this.logger.info('[CopilotAuth] Device code copied to clipboard');
-    } catch {
-    }
+    await this.userInteraction.writeToClipboard(userCode);
+    this.logger.info('[CopilotAuth] Device code copied to clipboard');
     void this.userInteraction.showInformationMessage(
       `Code "${userCode}" copied to clipboard.\nPaste it at ${verificationUri} to complete authentication.`,
       'OK',
     );
-    try {
-      await this.userInteraction.openExternal(verificationUri);
-    } catch {
-    }
+
+    await this.userInteraction.openExternal(verificationUri);
   }
 
   /**

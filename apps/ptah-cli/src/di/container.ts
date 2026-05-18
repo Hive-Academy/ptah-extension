@@ -567,17 +567,15 @@ export class CliDIContainer {
       registerSharedRpcHandlers(container);
 
       logger.info('[CLI DI] Shared RPC handler classes registered (18)');
-      try {
-        const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-          AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
-        );
-        const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
-          AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-        );
-        enhancedPrompts.setAnalysisReader(analysisStorage);
-        logger.info('[CLI DI] EnhancedPrompts analysis reader wired');
-      } catch {
-      }
+
+      const enhancedPrompts = container.resolve<EnhancedPromptsService>(
+        AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
+      );
+      const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+      );
+      enhancedPrompts.setAnalysisReader(analysisStorage);
+      logger.info('[CLI DI] EnhancedPrompts analysis reader wired');
       try {
         const contentDownload = container.resolve<ContentDownloadService>(
           PLATFORM_TOKENS.CONTENT_DOWNLOAD,

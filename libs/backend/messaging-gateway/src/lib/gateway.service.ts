@@ -729,11 +729,8 @@ export class GatewayService extends EventEmitter {
     const stale = this.messages.listVoicePathsOlderThan(cutoff);
     let deleted = 0;
     for (const p of stale) {
-      try {
-        await fs.unlink(p);
-        deleted++;
-      } catch {
-      }
+      await fs.unlink(p);
+      deleted++;
     }
     if (deleted > 0) {
       this.logger.info('[gateway] voice GC removed stale files', {

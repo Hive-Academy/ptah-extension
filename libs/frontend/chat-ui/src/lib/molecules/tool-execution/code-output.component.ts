@@ -141,12 +141,9 @@ export class CodeOutputComponent {
     const str = typeof output === 'string' ? output : '';
     const trimmed = str.trim();
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (typeof parsed === 'object') {
-          language = 'json';
-        }
-      } catch {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'object') {
+        language = 'json';
       }
     }
 
@@ -159,6 +156,7 @@ export class CodeOutputComponent {
    * These render as garbled text in the webview if not stripped
    */
   private stripAnsiCodes(content: string): string {
+    // eslint-disable-next-line no-control-regex
     return content.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
   }
 

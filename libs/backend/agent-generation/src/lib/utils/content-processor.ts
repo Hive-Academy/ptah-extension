@@ -25,7 +25,7 @@ export function stripMarkdownCodeBlock(content: string): Result<string, Error> {
     return Result.err(
       error instanceof Error
         ? error
-        : new Error(`Failed to strip markdown code blocks: ${String(error)}`)
+        : new Error(`Failed to strip markdown code blocks: ${String(error)}`),
     );
   }
 }
@@ -58,7 +58,7 @@ export function stripHtmlComments(content: string): Result<string, Error> {
     return Result.err(
       error instanceof Error
         ? error
-        : new Error(`Failed to strip HTML comments: ${String(error)}`)
+        : new Error(`Failed to strip HTML comments: ${String(error)}`),
     );
   }
 }
@@ -81,7 +81,7 @@ export function stripHtmlComments(content: string): Result<string, Error> {
  */
 export function processTemplate(
   template: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): Result<string, Error> {
   try {
     let processed = template;
@@ -94,7 +94,7 @@ export function processTemplate(
     return Result.err(
       error instanceof Error
         ? error
-        : new Error(`Failed to process template: ${String(error)}`)
+        : new Error(`Failed to process template: ${String(error)}`),
     );
   }
 }
@@ -135,10 +135,7 @@ function parseSimpleYaml(yamlContent: string): Record<string, unknown> {
       (value as string).startsWith('[') &&
       (value as string).endsWith(']')
     ) {
-      try {
-        value = JSON.parse(value as string);
-      } catch {
-      }
+      value = JSON.parse(value as string);
     } else if (
       ((value as string).startsWith('"') && (value as string).endsWith('"')) ||
       ((value as string).startsWith("'") && (value as string).endsWith("'"))
@@ -190,14 +187,14 @@ export function extractFrontmatter(content: string): Result<
       return Result.err(
         error instanceof Error
           ? error
-          : new Error(`Failed to parse YAML frontmatter: ${String(error)}`)
+          : new Error(`Failed to parse YAML frontmatter: ${String(error)}`),
       );
     }
   } catch (error) {
     return Result.err(
       error instanceof Error
         ? error
-        : new Error(`Failed to extract frontmatter: ${String(error)}`)
+        : new Error(`Failed to extract frontmatter: ${String(error)}`),
     );
   }
 }

@@ -1,4 +1,3 @@
-
 import { BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -75,32 +74,28 @@ export async function registerPostWindow(
   ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
     let isLicensed = baseStartupConfig.isLicensed;
     let initialView = baseStartupConfig.initialView;
-    try {
-      const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
-        getCachedStatus: () => {
-          valid: boolean;
-          tier?: string;
-        } | null;
-      };
-      const cached = licenseService.getCachedStatus();
-      if (cached) {
-        isLicensed = cached.valid;
-        initialView = cached.valid ? null : 'welcome';
-      }
-    } catch {
+
+    const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
+      getCachedStatus: () => {
+        valid: boolean;
+        tier?: string;
+      } | null;
+    };
+    const cached = licenseService.getCachedStatus();
+    if (cached) {
+      isLicensed = cached.valid;
+      initialView = cached.valid ? null : 'welcome';
     }
     let workspaceRoot = '';
     let workspaceName = '';
-    try {
-      const workspaceProvider = container.resolve<IWorkspaceProvider>(
-        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-      );
-      const resolvedRoot = workspaceProvider.getWorkspaceRoot();
-      if (resolvedRoot) {
-        workspaceRoot = resolvedRoot;
-        workspaceName = path.basename(resolvedRoot);
-      }
-    } catch {
+
+    const workspaceProvider = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    const resolvedRoot = workspaceProvider.getWorkspaceRoot();
+    if (resolvedRoot) {
+      workspaceRoot = resolvedRoot;
+      workspaceName = path.basename(resolvedRoot);
     }
 
     event.returnValue = {
@@ -143,27 +138,22 @@ export async function registerPostWindow(
     );
     await messagingGateway.start();
     console.log('[Ptah Electron] Messaging gateway started');
-    try {
-      const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
-        broadcastMessage(type: string, payload: unknown): Promise<void>;
-      };
-      const status = messagingGateway.status();
-      void webviewManager.broadcastMessage(
-        MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
-        {
-          status: {
-            enabled: status.enabled,
-            adapters: status.adapters.map((a) => ({
-              platform: a.platform,
-              running: a.running,
-              ...(a.lastError ? { lastError: a.lastError } : {}),
-            })),
-          },
-          origin: null,
-        },
-      );
-    } catch {
-    }
+
+    const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
+      broadcastMessage(type: string, payload: unknown): Promise<void>;
+    };
+    const status = messagingGateway.status();
+    void webviewManager.broadcastMessage(MESSAGE_TYPES.GATEWAY_STATUS_CHANGED, {
+      status: {
+        enabled: status.enabled,
+        adapters: status.adapters.map((a) => ({
+          platform: a.platform,
+          running: a.running,
+          ...(a.lastError ? { lastError: a.lastError } : {}),
+        })),
+      },
+      origin: null,
+    });
   } catch (error) {
     console.warn(
       '[Ptah Electron] Messaging gateway start skipped (non-fatal):',

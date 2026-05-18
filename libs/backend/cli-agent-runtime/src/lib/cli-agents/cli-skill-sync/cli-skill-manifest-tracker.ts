@@ -127,11 +127,8 @@ export class CliSkillManifestTracker {
     const entries: string[] = [];
 
     for (const pluginPath of pluginPaths.sort()) {
-      try {
-        const skillsDir = join(pluginPath, 'skills');
-        await this.collectFileEntries(skillsDir, pluginPath, entries);
-      } catch {
-      }
+      const skillsDir = join(pluginPath, 'skills');
+      await this.collectFileEntries(skillsDir, pluginPath, entries);
     }
     return createHash('sha256')
       .update(`v${SYNC_PIPELINE_VERSION}|${entries.join('|')}`)
@@ -158,20 +155,18 @@ export class CliSkillManifestTracker {
 
     for (const entry of dirEntries.sort()) {
       const fullPath = join(dirPath, entry);
-      try {
-        const fileStat = await lstat(fullPath);
 
-        if (fileStat.isSymbolicLink()) {
-          continue; // Skip symlinks
-        }
+      const fileStat = await lstat(fullPath);
 
-        if (fileStat.isDirectory()) {
-          await this.collectFileEntries(fullPath, pluginRoot, entries);
-        } else if (fileStat.isFile()) {
-          const relPath = relative(pluginRoot, fullPath);
-          entries.push(`${relPath}:${fileStat.size}`);
-        }
-      } catch {
+      if (fileStat.isSymbolicLink()) {
+        continue; // Skip symlinks
+      }
+
+      if (fileStat.isDirectory()) {
+        await this.collectFileEntries(fullPath, pluginRoot, entries);
+      } else if (fileStat.isFile()) {
+        const relPath = relative(pluginRoot, fullPath);
+        entries.push(`${relPath}:${fileStat.size}`);
       }
     }
   }
