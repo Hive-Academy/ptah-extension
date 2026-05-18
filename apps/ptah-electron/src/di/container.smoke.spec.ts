@@ -20,7 +20,7 @@
 import 'reflect-metadata';
 
 import { container as rootContainer } from 'tsyringe';
-import type { DependencyContainer } from 'tsyringe';
+import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -29,11 +29,10 @@ import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
   SetupRpcHandlers,
-  WizardGenerationRpcHandlers,
-  EnhancedPromptsRpcHandlers,
-  LlmRpcHandlers,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
+
+import { EXPECTED_RESOLVABLE } from './expected-resolvable';
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -106,32 +105,26 @@ describe('Electron DI — shared RPC handler resolution', () => {
     c = buildMinimalContainer();
   });
 
-  it('resolves SetupRpcHandlers and wires ModelSettings into slot 3', () => {
-    let instance: SetupRpcHandlers | undefined;
+  it.each(
+    EXPECTED_RESOLVABLE.map(
+      (token) => [token.name, token as InjectionToken<unknown>] as const,
+    ),
+  )('resolves %s', (_name, token) => {
+    let instance: unknown;
     expect(() => {
-      instance = c.resolve(SetupRpcHandlers);
+      instance = c.resolve(token);
     }).not.toThrow();
     expect(instance).toBeDefined();
-    // The bug class this whole refactor exists to prevent: slot 3 must be a
-    // real ModelSettings, not a ConfigManager. Concretely we check that the
-    // resolved instance has a working `modelSettings.selectedModel.get`.
-    const ms = (
-      instance as unknown as {
-        modelSettings: { selectedModel: { get: () => unknown } };
-      }
-    ).modelSettings;
-    expect(typeof ms.selectedModel.get).toBe('function');
-  });
-
-  it('resolves WizardGenerationRpcHandlers', () => {
-    expect(() => c.resolve(WizardGenerationRpcHandlers)).not.toThrow();
-  });
-
-  it('resolves EnhancedPromptsRpcHandlers', () => {
-    expect(() => c.resolve(EnhancedPromptsRpcHandlers)).not.toThrow();
-  });
-
-  it('resolves LlmRpcHandlers', () => {
-    expect(() => c.resolve(LlmRpcHandlers)).not.toThrow();
+    if (token === SetupRpcHandlers) {
+      // The bug class this whole refactor exists to prevent: slot 3 must be a
+      // real ModelSettings, not a ConfigManager. Concretely we check that the
+      // resolved instance has a working `modelSettings.selectedModel.get`.
+      const ms = (
+        instance as unknown as {
+          modelSettings: { selectedModel: { get: () => unknown } };
+        }
+      ).modelSettings;
+      expect(typeof ms.selectedModel.get).toBe('function');
+    }
   });
 });
