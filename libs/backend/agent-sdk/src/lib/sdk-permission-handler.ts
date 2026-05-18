@@ -1,28 +1,3 @@
-/**
- * SDK Permission Handler Service
- *
- * Bridges SDK's canUseTool callback to VS Code webview permission UI.
- * Implements the SDK permission interface with RPC-based user approval.
- *
- * Key Features:
- * - Auto-approve safe tools (Read, Grep, Glob, TodoWrite, Task, etc.) - no latency
- * - Emit RPC events for dangerous tools (Write, Edit, Bash, NotebookEdit)
- * - Prompt for network tools (WebFetch, WebSearch)
- * - Handle AskUserQuestion with specialized question UI
- * - Blocks indefinitely until user responds or session is aborted via AbortSignal
- * - Input sanitization (redact API keys, tokens)
- * - Support parameter modification (user edits before approval)
- * - Unknown tools prompt user rather than silently denying
- *
- * requests now block indefinitely until the user responds (matching Claude Code CLI
- * behavior). Cancellation is handled via the SDK's AbortSignal, which fires on
- * session abort or extension deactivation.
- *
- * input sanitization, and the "always allow" rule store are extracted into
- * sibling modules under `./permission/`. This class remains the DI-resolved
- * coordinator with an unchanged public surface.
- */
-
 import { v4 as uuidv4 } from 'uuid';
 import { injectable, inject } from 'tsyringe';
 import {
@@ -31,14 +6,11 @@ import {
   type SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import {
-  isAskUserQuestionToolInput,
-  isExitPlanModeToolInput,
   MESSAGE_TYPES,
   UNKNOWN_AGENT_TOOL_CALL_ID,
   SessionId,
   TabId,
   type AgentPermissionRequest,
-  type QuestionItem,
   type PermissionRequest,
   type PermissionResponse,
   type PermissionRule,
@@ -64,94 +36,25 @@ import {
   generateRequestId,
 } from './permission/permission-description';
 import { PermissionRuleStore } from './permission/permission-rule-store';
+import { PendingResponseRegistry } from './permission/pending-response-registry';
+import {
+  AskUserQuestionService,
+  type AskUserQuestionResponse,
+  type WebviewManagerLike,
+} from './permission/ask-user-question.service';
+import { ExitPlanModeService } from './permission/exit-plan-mode.service';
 
-// PermissionRequest and PermissionResponse are imported from @ptah-extension/shared
-// See: libs/shared/src/lib/types/permission.types.ts
-
-/**
- * Pending request tracking
- */
 interface PendingRequest {
   resolve: (response: PermissionResponse) => void;
-  /** Real SDK UUID — used for CLI-path cleanup (no tab exists). */
   sessionId?: SessionId;
-  /** Frontend tab UUID — used for interactive-path cleanup. */
   tabId?: TabId;
 }
 
-/**
- * AskUserQuestion request payload
- * Sent to webview to prompt user with clarifying questions
- */
-interface AskUserQuestionRequest {
-  id: string;
-  toolName: 'AskUserQuestion';
-  questions: QuestionItem[];
-  toolUseId?: string;
-  timestamp: number;
-  timeoutAt: number;
-  /** Session ID this question belongs to (for UI routing to correct tab) */
-  sessionId?: string;
-  /** Frontend tab ID for direct tab routing (authoritative over sessionId) */
-  tabId?: string;
-}
-
-/**
- * AskUserQuestion response from webview
- * Contains user-selected answers
- */
-interface AskUserQuestionResponse {
-  id: string;
-  answers: Record<string, string>;
-}
-
-/**
- * Pending question request tracking
- */
-interface PendingQuestionRequest {
-  resolve: (response: AskUserQuestionResponse | null) => void;
-  /** Real SDK UUID — used for CLI-path cleanup (no tab exists). */
-  sessionId?: SessionId;
-  /** Frontend tab UUID — used for interactive-path cleanup. */
-  tabId?: TabId;
-  /** Idle-timeout timer that auto-picks the recommended option after
-   *  ASK_USER_QUESTION_IDLE_TIMEOUT_MS. Cleared when a real response or
-   *  abort arrives first. Null when timeout is disabled. */
-  idleTimer?: ReturnType<typeof setTimeout> | null;
-}
-
-/**
- * Idle timeout for AskUserQuestion. After this long with no user response,
- * the handler auto-picks the recommended (first) option for every question
- * so the agent can continue instead of hanging forever. Set to 0 to disable.
- */
-const ASK_USER_QUESTION_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-
-/**
- * WebviewManager interface (avoid circular import)
- */
-interface WebviewManager {
-  sendMessage<T = unknown>(
-    viewType: string,
-    type: string,
-    payload: T,
-  ): Promise<boolean>;
-}
-
-/**
- * SDK Permission Handler
- *
- * Implements SDK canUseTool callback interface with webview coordination.
- */
 @injectable()
 export class SdkPermissionHandler implements ISdkPermissionHandler {
-  /**
-   * Current permission level controlling auto-approval behavior.
-   */
   private _permissionLevel: PermissionLevel = 'ask';
 
   private pendingRequests = new Map<string, PendingRequest>();
-  private pendingQuestionRequests = new Map<string, PendingQuestionRequest>();
   private readonly ruleStore: PermissionRuleStore;
 
   private pendingRequestContext = new Map<
@@ -161,14 +64,31 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
   private emitterInitialized = false;
 
+  private readonly askUserQuestion: AskUserQuestionService;
+  private readonly exitPlanMode: ExitPlanModeService;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager,
+    private readonly webviewManager: WebviewManagerLike,
   ) {
     this.ruleStore = new PermissionRuleStore(this.logger);
+
+    const questionRegistry =
+      new PendingResponseRegistry<AskUserQuestionResponse>(this.logger);
+    this.askUserQuestion = new AskUserQuestionService(
+      this.webviewManager,
+      this.logger,
+      questionRegistry,
+    );
+    this.exitPlanMode = new ExitPlanModeService(
+      this.webviewManager,
+      this.logger,
+      this.requestUserPermission.bind(this),
+    );
+
     this.initializePermissionEmitter();
   }
 
@@ -333,20 +253,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       });
   }
 
-  /**
-   * Create a `canUseTool` callback bound to a routing context.
-   *
-   * @param sessionId - The real SDK session UUID for this query. Used to store
-   *   on `PendingRequest.sessionId` for CLI-path cleanup. For the main
-   *   interactive path, pass the frontend `tabId` separately.
-   * @param cliAgentResolver - Optional resolver that maps the active call to a
-   *   CLI agent ID for agent-monitor routing.
-   * @param tabId - Authoritative frontend tab UUID. When provided, it is
-   *   stamped onto `PermissionRequest.tabId` and `AskUserQuestionRequest.tabId`
-   *   so the frontend stream router resolves `tabId → conversation → tabs[]`
-   *   directly. CLI paths omit this arg — `tabId` stays `undefined` on the wire
-   *   so the router correctly falls through to agent-monitor routing.
-   */
   createCallback(
     sessionId?: SessionId,
     cliAgentResolver?: () => string | undefined,
@@ -378,7 +284,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         },
       );
 
-      // Auto-approve safe tools
       if (SAFE_TOOLS.includes(toolName)) {
         if (toolName === 'EnterPlanMode') {
           this.logger.info(`[SdkPermissionHandler] Agent entered plan mode`);
@@ -403,14 +308,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         };
       }
 
-      // AskUserQuestion bypasses all auto-approval.
       if (toolName === 'AskUserQuestion') {
         this.logger.info(
           `[SdkPermissionHandler] Handling AskUserQuestion tool request (bypasses all auto-approval)`,
         );
-        // Pass the raw tabId arg — handleAskUserQuestion recomputes the resolved
-        // tabId internally (applying its own tabId ?? sessionId fallback logic).
-        return await this.handleAskUserQuestion(
+        return await this.askUserQuestion.handleAskUserQuestion(
           input,
           options.toolUseID,
           sessionId,
@@ -419,12 +321,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         );
       }
 
-      // ExitPlanMode bypasses all auto-approval.
       if (toolName === 'ExitPlanMode') {
         this.logger.info(
           `[SdkPermissionHandler] Handling ExitPlanMode tool request (bypasses all auto-approval)`,
         );
-        return await this.handleExitPlanMode(
+        return await this.exitPlanMode.handleExitPlanMode(
           input,
           options.toolUseID,
           sessionId,
@@ -433,7 +334,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         );
       }
 
-      // 'yolo' mode: auto-approve everything.
       if (this._permissionLevel === 'yolo') {
         this.logger.info(
           `[SdkPermissionHandler] YOLO mode: auto-approved tool: ${toolName}`,
@@ -444,7 +344,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         };
       }
 
-      // 'auto-edit' mode: auto-approve file editing tools.
       if (this._permissionLevel === 'auto-edit') {
         if (AUTO_EDIT_TOOLS.includes(toolName)) {
           this.logger.info(
@@ -457,7 +356,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         }
       }
 
-      // Background agent auto-approval for file edits.
       if (options.agentID) {
         const bgToolCallId = this.subagentRegistry.getToolCallIdByAgentId(
           options.agentID,
@@ -483,7 +381,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         }
       }
 
-      // "Always Allow" rule lookup.
       const storedRule = this.ruleStore.getRule(toolName);
       if (storedRule && storedRule.action === 'allow') {
         this.logger.info(
@@ -605,10 +502,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       );
     }
 
-    // Wire types are plain string — branded → string is a structural up-cast.
-    // Only stamp tabId when an explicit tabId was passed. CLI paths pass only
-    // sessionId (no tabId) — leave prompt.tabId undefined so the frontend
-    // router correctly falls through to agent-monitor routing.
     const request: PermissionRequest = {
       id: requestId,
       toolName,
@@ -800,286 +693,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     );
   }
 
-  private async handleAskUserQuestion(
-    input: Record<string, unknown>,
-    toolUseId: string,
-    sessionId?: SessionId,
-    signal?: AbortSignal,
-    tabId?: TabId,
-  ): Promise<PermissionResult> {
-    if (!isAskUserQuestionToolInput(input)) {
-      this.logger.warn('[SdkPermissionHandler] Invalid AskUserQuestion input', {
-        input,
-      });
-      return {
-        behavior: 'deny' as const,
-        message: 'Invalid AskUserQuestion input format',
-      };
-    }
-
-    const requestId = generateRequestId();
-    const now = Date.now();
-
-    // Always stamp `tabId` when we have a routing identity. Prefer the explicit
-    // `tabId` argument; fall back to `sessionId` because the main session path
-    // passes `routingId` (which is the frontend tabId — see
-    // `sdk-query-options-builder.ts`). The frontend stream router uses tabId to
-    // narrow question delivery to the originating tab; missing tabId causes the
-    // regression where the question card appears on every tile bound to the
-    // conversation.
-    const resolvedTabId = tabId ?? sessionId;
-
-    const request: AskUserQuestionRequest = {
-      id: requestId,
-      toolName: 'AskUserQuestion',
-      questions: input.questions,
-      toolUseId,
-      timestamp: now,
-      timeoutAt: 0,
-      sessionId,
-      tabId: resolvedTabId,
-    };
-
-    if (!request.tabId) {
-      // Genuinely no originating tab (sub-agent / CLI flow with no UI).
-      // Frontend will fall back to broadcasting to every tab bound to the
-      // session — surface this so it's traceable when users report the
-      // "question on every tile" symptom in production.
-      this.logger.warn(
-        '[SdkPermissionHandler] AskUserQuestion emitted without tabId — frontend will fall back to all tabs bound to session',
-        { questionId: request.id, sessionId: request.sessionId },
-      );
-    }
-
-    this.logger.info('[SdkPermissionHandler] Sending AskUserQuestion request', {
-      requestId,
-      questionCount: input.questions.length,
-      toolUseId,
-    });
-
-    this.webviewManager
-      .sendMessage(
-        'ptah.main',
-        MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
-        request,
-      )
-      .then(() => {
-        this.logger.info(
-          `[SdkPermissionHandler] AskUserQuestion request sent to webview`,
-          { requestId },
-        );
-      })
-      .catch((error) => {
-        this.logger.error(
-          `[SdkPermissionHandler] Failed to send AskUserQuestion request`,
-          { error },
-        );
-        const pending = this.pendingQuestionRequests.get(request.id);
-        if (pending) {
-          this.pendingQuestionRequests.delete(request.id);
-          pending.resolve(null);
-        }
-      });
-
-    const response = await this.awaitQuestionResponse(
-      requestId,
-      signal,
-      sessionId,
-      input.questions,
-      resolvedTabId,
-      tabId,
-    );
-
-    if (!response) {
-      this.logger.warn('[SdkPermissionHandler] AskUserQuestion aborted', {
-        requestId,
-      });
-      return {
-        behavior: 'deny' as const,
-        message: 'Question request was aborted',
-      };
-    }
-
-    this.logger.info('[SdkPermissionHandler] AskUserQuestion answered', {
-      requestId,
-      answerCount: Object.keys(response.answers).length,
-    });
-
-    return {
-      behavior: 'allow' as const,
-      updatedInput: {
-        ...input,
-        answers: response.answers,
-      },
-    };
-  }
-
-  private async handleExitPlanMode(
-    input: Record<string, unknown>,
-    toolUseId: string,
-    sessionId?: SessionId,
-    signal?: AbortSignal,
-    tabId?: TabId,
-  ): Promise<PermissionResult> {
-    if (!isExitPlanModeToolInput(input)) {
-      this.logger.warn(
-        '[SdkPermissionHandler] Invalid ExitPlanMode input — missing plan field',
-        { input },
-      );
-      return {
-        behavior: 'deny' as const,
-        message: 'Invalid ExitPlanMode input format — plan field is required',
-      };
-    }
-
-    this.logger.info(
-      '[SdkPermissionHandler] Requesting user approval for ExitPlanMode (plan review)',
-      {
-        toolUseId,
-        planLength: input.plan.length,
-      },
-    );
-
-    const result = await this.requestUserPermission(
-      'ExitPlanMode',
-      input,
-      toolUseId,
-      sessionId,
-      undefined,
-      signal,
-      undefined,
-      tabId,
-    );
-
-    if (result.behavior === 'allow') {
-      this.logger.info(
-        '[SdkPermissionHandler] ExitPlanMode approved — SDK will clear context and begin execution',
-      );
-      this.webviewManager
-        .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
-          active: false,
-        })
-        .catch((error) => {
-          this.logger.error(
-            `[SdkPermissionHandler] Failed to send plan mode exited event`,
-            { error },
-          );
-        });
-    } else {
-      this.logger.info(
-        '[SdkPermissionHandler] ExitPlanMode denied — agent stays in plan mode',
-      );
-    }
-
-    return result;
-  }
-
-  private async awaitQuestionResponse(
-    requestId: string,
-    signal?: AbortSignal,
-    sessionId?: SessionId,
-    questions?: QuestionItem[],
-    resolvedTabId?: string,
-    tabId?: TabId,
-  ): Promise<AskUserQuestionResponse | null> {
-    return new Promise<AskUserQuestionResponse | null>((resolve) => {
-      if (signal?.aborted) {
-        this.pendingQuestionRequests.delete(requestId);
-        resolve(null);
-        return;
-      }
-
-      // Idle-timeout fallback — after ASK_USER_QUESTION_IDLE_TIMEOUT_MS with
-      // no response, auto-pick the recommended (first) option for every
-      // question so the agent continues instead of hanging forever.
-      // The agent's next turn naturally surfaces the choice via the tool
-      // result it receives.
-      let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      if (
-        ASK_USER_QUESTION_IDLE_TIMEOUT_MS > 0 &&
-        questions &&
-        questions.length > 0
-      ) {
-        idleTimer = setTimeout(() => {
-          const pending = this.pendingQuestionRequests.get(requestId);
-          if (!pending) return;
-          const answers: Record<string, string> = {};
-          for (const q of questions) {
-            const recommended = q.options?.[0]?.label;
-            // Key by q.question (full text) to match the frontend's
-            // question-card.component.ts answer map and the manual-flow
-            // response consumer (ASK_USER_QUESTION_RESPONSE). Using q.header
-            // (the short chip label) caused a key mismatch that produced an
-            // effectively empty answer set.
-            if (recommended) answers[q.question] = recommended;
-          }
-          this.logger.warn(
-            '[SdkPermissionHandler] AskUserQuestion idle-timeout reached — auto-picking recommended options',
-            {
-              requestId,
-              timeoutMs: ASK_USER_QUESTION_IDLE_TIMEOUT_MS,
-              answers,
-            },
-          );
-          this.pendingQuestionRequests.delete(requestId);
-          signal?.removeEventListener('abort', onAbort);
-          // Notify the webview to remove the now-stale question card so the
-          // user sees what was auto-answered. handleQuestionResponse on the
-          // frontend already filters the request out of `_questionRequests`.
-          // Stamp resolvedTabId (tabId ?? sessionId) so the auto-resolution
-          // lands on the originating tab, mirroring the routing applied to
-          // the original AskUserQuestion request.
-          this.webviewManager
-            .sendMessage(
-              'ptah.main',
-              MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
-              { id: requestId, answers, sessionId, tabId: resolvedTabId },
-            )
-            .catch((error) => {
-              this.logger.error(
-                '[SdkPermissionHandler] Failed to broadcast AskUserQuestion auto-resolution',
-                { error },
-              );
-            });
-          resolve({ id: requestId, answers });
-        }, ASK_USER_QUESTION_IDLE_TIMEOUT_MS);
-      }
-
-      const onAbort = () => {
-        if (idleTimer) clearTimeout(idleTimer);
-        this.pendingQuestionRequests.delete(requestId);
-        resolve(null);
-      };
-      signal?.addEventListener('abort', onAbort, { once: true });
-
-      this.pendingQuestionRequests.set(requestId, {
-        resolve: (response) => {
-          if (idleTimer) clearTimeout(idleTimer);
-          signal?.removeEventListener('abort', onAbort);
-          resolve(response);
-        },
-        sessionId,
-        tabId,
-        idleTimer,
-      });
-    });
-  }
-
   handleQuestionResponse(response: AskUserQuestionResponse): void {
-    const pending = this.pendingQuestionRequests.get(response.id);
-    if (!pending) {
-      this.logger.warn(
-        `[SdkPermissionHandler] Received question response for unknown request: ${response.id}`,
-      );
-      return;
-    }
-
-    this.pendingQuestionRequests.delete(response.id);
-    pending.resolve(response);
-
-    this.logger.debug(
-      `[SdkPermissionHandler] Handled question response for request ${response.id}`,
-    );
+    this.askUserQuestion.handleQuestionResponse(response);
   }
 
   private async awaitResponse(
@@ -1116,7 +731,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
   dispose(): void {
     this.logger.info(
-      `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests, ${this.pendingQuestionRequests.size} pending question requests, and ${this.ruleStore.size} permission rules`,
+      `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests, ${this.askUserQuestion.pendingCount} pending question requests, and ${this.ruleStore.size} permission rules`,
     );
 
     for (const [requestId, pending] of this.pendingRequests.entries()) {
@@ -1130,13 +745,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     this.pendingRequestContext.clear();
 
-    for (const [
-      _requestId,
-      pending,
-    ] of this.pendingQuestionRequests.entries()) {
-      pending.resolve(null);
-    }
-    this.pendingQuestionRequests.clear();
+    this.askUserQuestion.disposeAll();
 
     this.ruleStore.clearAll();
   }
@@ -1145,13 +754,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     this.logger.info(`[SdkPermissionHandler] Cleaning up pending permissions`, {
       sessionId: sessionId ?? 'all',
       pendingPermissionCount: this.pendingRequests.size,
-      pendingQuestionCount: this.pendingQuestionRequests.size,
+      pendingQuestionCount: this.askUserQuestion.pendingCount,
     });
 
     if (sessionId) {
       for (const [requestId, pending] of this.pendingRequests.entries()) {
-        // Match on tabId (interactive path) OR sessionId (CLI path) so the
-        // caller can pass either ID and cleanup correctly finds the records.
         if (pending.tabId === sessionId || pending.sessionId === sessionId) {
           pending.resolve({
             id: requestId,
@@ -1163,16 +770,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         }
       }
 
-      for (const [
-        requestId,
-        pending,
-      ] of this.pendingQuestionRequests.entries()) {
-        // Same dual-match for question requests.
-        if (pending.tabId === sessionId || pending.sessionId === sessionId) {
-          pending.resolve(null);
-          this.pendingQuestionRequests.delete(requestId);
-        }
-      }
+      this.askUserQuestion.cleanupBySession(sessionId);
 
       this.webviewManager
         .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP, {
@@ -1195,10 +793,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       this.pendingRequests.clear();
       this.pendingRequestContext.clear();
 
-      for (const [, pending] of this.pendingQuestionRequests.entries()) {
-        pending.resolve(null);
-      }
-      this.pendingQuestionRequests.clear();
+      this.askUserQuestion.disposeAll();
     }
 
     this.webviewManager
