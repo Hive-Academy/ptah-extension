@@ -18,10 +18,7 @@
  * 3. Never use plain Symbol() (without .for)
  * 4. Always inject via token constants (TOKENS.X, SDK_TOKENS.X), never hardcode strings
  *    in @inject() decorators
- * 5. Each Symbol.for() description must be globally unique across all token files
- *    (unless intentionally shared for cross-library resolution, e.g.,
- *    TOKENS.SDK_AGENT_ADAPTER and SDK_TOKENS.SDK_AGENT_ADAPTER both resolve to
- *    Symbol.for('SdkAgentAdapter') so they reference the same registration)
+ * 5. Each Symbol.for() description must be globally unique across all token files.
  *
  * Token files:
  * - vscode-core/src/di/tokens.ts    (this file) — core infrastructure tokens
@@ -184,15 +181,6 @@ export const PRICING_SERVICE = Symbol.for('PricingService');
 // VS Code Memento for pricing cache
 export const GLOBAL_STATE = Symbol.for('GlobalState');
 
-// Agent SDK adapter token
-export const SDK_AGENT_ADAPTER = Symbol.for('SdkAgentAdapter');
-
-/**
- * AgentAdapter facade token — resolves to SdkAgentAdapter.
- * (deep-agent runtime is no longer present.)
- *
- * All consumers should inject TOKENS.AGENT_ADAPTER typed as IAgentAdapter.
- */
 export const AGENT_ADAPTER = Symbol.for('AgentAdapter');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
@@ -428,7 +416,6 @@ export const TOKENS = {
   GLOBAL_STATE,
   STORAGE_SERVICE,
   // CONFIGURATION_PROVIDER - DELETED
-  SDK_AGENT_ADAPTER,
   AGENT_ADAPTER,
   // PERMISSION_SERVICE - DELETED (over-engineered, unused)
   // DELETED: SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
