@@ -79,6 +79,7 @@ export const SDK_TOKENS = {
   // Extracted services
   SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
+  SDK_QUERY_RUNNER: Symbol.for('SdkQueryRunner'),
   SDK_MODULE_LOADER: Symbol.for('SdkModuleLoader'),
   SDK_MODEL_SERVICE: Symbol.for('SdkModelService'),
   // History reader child services

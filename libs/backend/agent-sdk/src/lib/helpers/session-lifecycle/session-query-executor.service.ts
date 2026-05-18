@@ -40,6 +40,7 @@ import type {
 import type { SessionRegistry } from './session-registry.service';
 import type { SessionStreamPump } from './session-stream-pump.service';
 import { PERMISSION_MODE_MAP } from './permission-mode-map';
+import type { SdkQueryRunner } from '../sdk-query-runner.service';
 
 export class SessionQueryExecutor {
   constructor(
@@ -51,6 +52,7 @@ export class SessionQueryExecutor {
     private readonly queryOptionsBuilder: SdkQueryOptionsBuilder,
     private readonly messageFactory: SdkMessageFactory,
     private readonly authEnv: AuthEnv,
+    private readonly queryRunner: SdkQueryRunner,
   ) {}
 
   /**
@@ -299,7 +301,6 @@ export class SessionQueryExecutor {
       // to the standard `queryFn` path on any failure. If the warm handle
       // is supplied but unusable for this session, we close it so the
       // subprocess doesn't leak.
-      let sdkQuery: Query;
       const canUseWarmQuery =
         !!warmQuery &&
         typeof (warmQuery as { query?: unknown }).query === 'function' &&
@@ -307,8 +308,6 @@ export class SessionQueryExecutor {
         !forkSession &&
         !isSlashCommand;
       if (warmQuery && !canUseWarmQuery) {
-        // Caller passed a warm handle but this session can't use it
-        // (resume/fork/slash-command). Close to avoid subprocess leak.
         try {
           warmQuery.close();
           this.logger.info(
@@ -324,45 +323,18 @@ export class SessionQueryExecutor {
         }
       }
 
-      if (canUseWarmQuery && warmQuery) {
-        try {
-          // Cast through unknown — the WarmQuery shape is dynamically loaded;
-          // we narrowed `query` to `function` in `canUseWarmQuery`.
-          const warmQueryFn = (
-            warmQuery as unknown as {
-              query: (prompt: string | AsyncIterable<SDKUserMessage>) => Query;
-            }
-          ).query;
-          sdkQuery = warmQueryFn(effectivePrompt);
-          this.logger.info(
-            `[SessionLifecycle] Used warm subprocess for session ${sessionId} ` +
-              `(skipped spawn+handshake)`,
-          );
-        } catch (warmErr) {
-          // Warm query call failed — log and fall back to a fresh query.
-          // Close the warm handle defensively (it may already be in a bad
-          // state, but `close()` is idempotent enough that swallowing here
-          // is safer than leaving a half-broken subprocess around).
-          this.logger.warn(
-            `[SessionLifecycle] warmQuery.query() threw for session ${sessionId} ` +
-              `— falling back to fresh query`,
-            warmErr instanceof Error ? warmErr : new Error(String(warmErr)),
-          );
-          try {
-            warmQuery.close();
-          } catch {
-            // ignore — already failing, don't compound
-          }
-          sdkQuery = queryFn({
-            prompt: effectivePrompt,
-            options: queryOptions.options as Options,
-          });
-        }
-      } else {
-        sdkQuery = queryFn({
-          prompt: effectivePrompt,
-          options: queryOptions.options as Options,
-        });
+      const runResult = this.queryRunner.invokeWithLoadedQuery(
+        queryFn,
+        effectivePrompt,
+        queryOptions.options as Options,
+        canUseWarmQuery && warmQuery ? warmQuery : null,
+      );
+      const sdkQuery: Query = runResult.sdkQuery;
+      if (runResult.usedWarmQuery) {
+        this.logger.info(
+          `[SessionLifecycle] Used warm subprocess for session ${sessionId} ` +
+            `(skipped spawn+handshake)`,
+        );
       }
       // options.model is optional in the SDK's Options type; fall back to empty
       // string to keep ExecuteQueryResult.initialModel typed as string.

@@ -257,6 +257,47 @@ function makeHarness(
   // tests that care about session-end notifications can assert on this mock.
   const sessionEndRegistryStub = { notifyAll: jest.fn() };
 
+  // Minimal SdkQueryRunner stub — the executor delegates the warm-query +
+  // queryFn invocation through `invokeWithLoadedQuery`. The stub forwards the
+  // call to the captured `queryFn` jest.fn so the existing assertions on its
+  // invocations continue to hold.
+  const queryRunnerStub = {
+    invokeWithLoadedQuery: (
+      fn: QueryFunction,
+      prompt: string | AsyncIterable<SDKUserMessage>,
+      options: SdkQueryOptions,
+      warmQuery: { close: () => void; query?: unknown } | null,
+    ) => {
+      if (
+        warmQuery &&
+        typeof (warmQuery as { query?: unknown }).query === 'function'
+      ) {
+        const warmFn = (
+          warmQuery as unknown as {
+            query: (prompt: string | AsyncIterable<SDKUserMessage>) => Query;
+          }
+        ).query;
+        try {
+          return { sdkQuery: warmFn(prompt), usedWarmQuery: true };
+        } catch {
+          try {
+            warmQuery.close();
+          } catch {
+            // ignore
+          }
+          return {
+            sdkQuery: fn({ prompt, options }),
+            usedWarmQuery: false,
+          };
+        }
+      }
+      return {
+        sdkQuery: fn({ prompt, options }),
+        usedWarmQuery: false,
+      };
+    },
+  };
+
   const manager = new SessionLifecycleManager(
     asLogger(logger),
     permissionHandler,
@@ -267,6 +308,7 @@ function makeHarness(
     authEnv,
     modelResolver as unknown as ModelResolver,
     sessionEndRegistryStub as unknown as import('./session-end-callback-registry').SessionEndCallbackRegistry,
+    queryRunnerStub as unknown as import('./sdk-query-runner.service').SdkQueryRunner,
   );
 
   return {
@@ -1173,6 +1215,31 @@ describe('SessionLifecycleManager', () => {
       },
     );
 
+    const queryRunnerStub = {
+      invokeWithLoadedQuery: (
+        fn: QueryFunction,
+        prompt: string | AsyncIterable<SDKUserMessage>,
+        options: SdkQueryOptions,
+        warmQuery: { close: () => void; query?: unknown } | null,
+      ) => {
+        if (
+          warmQuery &&
+          typeof (warmQuery as { query?: unknown }).query === 'function'
+        ) {
+          const warmFn = (
+            warmQuery as unknown as {
+              query: (prompt: string | AsyncIterable<SDKUserMessage>) => Query;
+            }
+          ).query;
+          return { sdkQuery: warmFn(prompt), usedWarmQuery: true };
+        }
+        return {
+          sdkQuery: fn({ prompt, options }),
+          usedWarmQuery: false,
+        };
+      },
+    };
+
     const manager = new SessionLifecycleManager(
       asLogger(logger),
       permissionHandler,
@@ -1183,6 +1250,7 @@ describe('SessionLifecycleManager', () => {
       authEnv,
       modelResolver as unknown as ModelResolver,
       sessionEndRegistryMock as unknown as import('./session-end-callback-registry').SessionEndCallbackRegistry,
+      queryRunnerStub as unknown as import('./sdk-query-runner.service').SdkQueryRunner,
     );
 
     return {

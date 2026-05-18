@@ -74,6 +74,14 @@ export {
   type QueryConfig,
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
+// SDK Query Runner — unified one-shot + interactive SDK invocation primitive
+export {
+  SdkQueryRunner,
+  type OneShotRunInput,
+  type OneShotRunResult,
+  type InteractiveRunInput,
+  type InteractiveRunResult,
+} from './sdk-query-runner.service';
 // Memory prompt injector
 export { MemoryPromptInjector } from './memory-prompt-injector';
 // Curator LLM adapter (moved from memory-curator to break circular dependency)

@@ -48,6 +48,7 @@ import { SessionStreamPump } from './session-lifecycle/session-stream-pump.servi
 import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
 import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
+import type { SdkQueryRunner } from './sdk-query-runner.service';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -304,6 +305,8 @@ export class SessionLifecycleManager {
     private readonly modelResolver: ModelResolver,
     @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
+    private readonly queryRunner: SdkQueryRunner,
   ) {
     // Sub-services are constructed eagerly inside the facade because the spec
     // bypasses tsyringe and uses `new SessionLifecycleManager(...)` directly
@@ -325,6 +328,7 @@ export class SessionLifecycleManager {
       this.queryOptionsBuilder,
       this.messageFactory,
       this.authEnv,
+      this.queryRunner,
     );
     this._control = new SessionControl(
       this.logger,

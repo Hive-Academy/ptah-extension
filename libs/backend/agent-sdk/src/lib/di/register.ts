@@ -35,6 +35,7 @@ import {
   SubagentMessageDispatcher,
   SdkMessageFactory,
   SdkQueryOptionsBuilder,
+  SdkQueryRunner,
   SdkModuleLoader,
   SdkModelService,
   MemoryPromptInjector,
@@ -213,6 +214,16 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY,
     { useClass: SessionEndCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // SDK query runner — unified one-shot (InternalQueryService façade) and
+  // interactive (SessionQueryExecutor) SDK invocation primitive. Must be
+  // registered BEFORE SessionLifecycleManager (injects it) and before
+  // InternalQueryService (constructs it internally from shared deps).
+  container.register(
+    SDK_TOKENS.SDK_QUERY_RUNNER,
+    { useClass: SdkQueryRunner },
     { lifecycle: Lifecycle.Singleton },
   );
 
