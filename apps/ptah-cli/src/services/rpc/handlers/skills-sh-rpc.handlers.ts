@@ -24,6 +24,7 @@
 import { injectable, inject } from 'tsyringe';
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -686,7 +687,12 @@ export class SkillsShRpcHandlers {
   ): Promise<InstalledSkill[]> {
     const skills: InstalledSkill[] = [];
 
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dirPath, { withFileTypes: true });
+    } catch {
+      return skills; // Dir missing — treat as empty.
+    }
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const skillMdPath = path.join(dirPath, entry.name, 'SKILL.md');
@@ -853,7 +859,12 @@ export class SkillsShRpcHandlers {
   private async getInstalledSkillNames(): Promise<Set<string>> {
     const names = new Set<string>();
     const scanDir = async (dirPath: string) => {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      let entries: Dirent[];
+      try {
+        entries = await fs.readdir(dirPath, { withFileTypes: true });
+      } catch {
+        return; // Dir missing on first-run users — treat as empty set.
+      }
       for (const entry of entries) {
         if (entry.isDirectory()) names.add(entry.name.toLowerCase());
       }

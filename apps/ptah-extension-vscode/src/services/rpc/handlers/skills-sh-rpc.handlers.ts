@@ -13,6 +13,7 @@
 import { injectable, inject } from 'tsyringe';
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
@@ -902,7 +903,12 @@ export class SkillsShRpcHandlers {
   ): Promise<InstalledSkill[]> {
     const skills: InstalledSkill[] = [];
 
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dirPath, { withFileTypes: true });
+    } catch {
+      return skills; // Dir missing — treat as empty.
+    }
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -1150,7 +1156,12 @@ export class SkillsShRpcHandlers {
     const names = new Set<string>();
 
     const scanDir = async (dirPath: string) => {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      let entries: Dirent[];
+      try {
+        entries = await fs.readdir(dirPath, { withFileTypes: true });
+      } catch {
+        return; // Dir missing on first-run users — treat as empty set.
+      }
       for (const entry of entries) {
         if (entry.isDirectory()) {
           names.add(entry.name.toLowerCase());
