@@ -320,17 +320,9 @@ export class BranchPickerDropdownComponent {
   protected readonly gitBranches = inject(GitBranchesService);
   private readonly elementRef = inject(ElementRef);
 
-  // ============================================================================
-  // INPUTS / OUTPUTS
-  // ============================================================================
-
   readonly isOpen = input.required<boolean>();
   readonly closed = output<void>();
   readonly branchCheckedOut = output<string>();
-
-  // ============================================================================
-  // ICONS
-  // ============================================================================
 
   protected readonly GitBranchIcon = GitBranch;
   protected readonly SearchIcon = Search;
@@ -339,10 +331,6 @@ export class BranchPickerDropdownComponent {
   protected readonly ChevronRightIcon = ChevronRight;
   protected readonly PlusIcon = Plus;
   protected readonly XIcon = X;
-
-  // ============================================================================
-  // STATE
-  // ============================================================================
 
   protected readonly searchQuery = signal('');
   protected readonly isCheckingOut = signal(false);
@@ -353,10 +341,6 @@ export class BranchPickerDropdownComponent {
   protected readonly remoteExpanded = signal(false);
   protected readonly creatingBranch = signal(false);
   protected readonly newBranchName = signal('');
-
-  // ============================================================================
-  // FILTERED VIEWS
-  // ============================================================================
 
   /**
    * Lower-case search query used for case-insensitive substring matching.
@@ -407,10 +391,6 @@ export class BranchPickerDropdownComponent {
     }));
   });
 
-  // ============================================================================
-  // OUTSIDE-CLICK
-  // ============================================================================
-
   /**
    * Close the dropdown when the user clicks anywhere outside its host element.
    * The host listener fires on every document click so we only act when the
@@ -426,10 +406,6 @@ export class BranchPickerDropdownComponent {
       this.closed.emit();
     }
   }
-
-  // ============================================================================
-  // CHECKOUT FLOW
-  // ============================================================================
 
   protected async onCheckoutClick(branchName: string): Promise<void> {
     if (!branchName) return;

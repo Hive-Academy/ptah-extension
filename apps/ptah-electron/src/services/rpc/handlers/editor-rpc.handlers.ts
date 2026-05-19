@@ -7,7 +7,7 @@
  * - editor:getFileTree - Build recursive file tree from workspace root
  */
 
-import { injectable, inject, DependencyContainer } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import * as nodePath from 'path';
 import * as nodeFs from 'fs/promises';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -17,6 +17,10 @@ import type {
   IFileSystemProvider,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+
+interface EditorOpenedNotifier {
+  notifyFileOpened(filePath: string): void;
+}
 import type {
   FileOpenParams,
   EditorRevertFilesParams,
@@ -145,8 +149,8 @@ export class EditorRpcHandlers {
     private readonly fs: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(PLATFORM_TOKENS.DI_CONTAINER)
-    private readonly container: DependencyContainer,
+    @inject(PLATFORM_TOKENS.EDITOR_PROVIDER)
+    private readonly editorProvider: EditorOpenedNotifier,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewBroadcaster,
   ) {}
@@ -226,14 +230,8 @@ export class EditorRpcHandlers {
     }
     try {
       const content = await this.fs.readFile(filePath);
-      try {
-        const editorProvider = this.container.resolve<{
-          notifyFileOpened(filePath: string): void;
-        }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
-        editorProvider.notifyFileOpened(filePath);
-      } catch {
-        // Editor provider may not be registered
-      }
+
+      this.editorProvider.notifyFileOpened(filePath);
       return { success: true, content, filePath };
     } catch (error) {
       this.logger.error(`[Electron RPC] ${methodName} failed`, {
@@ -286,7 +284,6 @@ export class EditorRpcHandlers {
         if (!root) {
           return { success: true, tree: [] };
         }
-        // Validate that the requested root is within the workspace
         if (params?.rootPath) {
           const pathError = this.validatePathInWorkspace(params.rootPath);
           if (pathError) {
@@ -388,7 +385,6 @@ export class EditorRpcHandlers {
         if (!params?.key) {
           return { success: false, error: 'key is required' };
         }
-        // Only allow updating keys registered in the file-based settings allowlist
         if (!isFileBasedSettingKey(params.key)) {
           return {
             success: false,
@@ -442,8 +438,6 @@ export class EditorRpcHandlers {
             totalMatches: 0,
           };
         }
-
-        // ReDoS protection: limit regex pattern length
         if (params.isRegex && params.query.length > 500) {
           return {
             success: false,
@@ -467,8 +461,6 @@ export class EditorRpcHandlers {
             totalMatches: 0,
           };
         }
-
-        // Build the search regex, handling both literal and regex modes
         let searchRegex: RegExp;
         try {
           const flags = params.caseSensitive ? 'g' : 'gi';
@@ -476,9 +468,6 @@ export class EditorRpcHandlers {
             ? params.query
             : escapeRegex(params.query);
           searchRegex = new RegExp(pattern, flags);
-
-          // ReDoS canary test: run the regex against a short adversarial string
-          // to detect catastrophic backtracking before processing files
           if (params.isRegex) {
             const canary = 'a'.repeat(50);
             const start = Date.now();
@@ -504,8 +493,6 @@ export class EditorRpcHandlers {
         }
 
         try {
-          // Discover files, excluding generated/binary directories.
-          // Single-element array — the brace pattern is one valid fast-glob ignore glob.
           const excludePattern = ['**/{node_modules,dist,.git,.nx,.cache}/**'];
           const filePaths = await this.fs.findFiles(
             wsRoot.replace(/\\/g, '/') + '/**/*',
@@ -521,14 +508,10 @@ export class EditorRpcHandlers {
               truncated = true;
               break;
             }
-
-            // Skip binary files by extension
             const ext = nodePath.extname(filePath).toLowerCase();
             if (BINARY_EXTENSIONS.has(ext)) {
               continue;
             }
-
-            // Skip files larger than 1MB
             try {
               const stat = await this.fs.stat(filePath);
               if (stat.size > 1_048_576) {
@@ -556,7 +539,6 @@ export class EditorRpcHandlers {
               const line = lines[i];
               const linePreview =
                 line.length > 200 ? line.substring(0, 200) : line;
-              // Reset regex state for each line and find all matches
               searchRegex.lastIndex = 0;
               let match: RegExpExecArray | null;
               while ((match = searchRegex.exec(line)) !== null) {
@@ -569,7 +551,6 @@ export class EditorRpcHandlers {
                 if (matches.length >= maxMatchesPerFile) {
                   break;
                 }
-                // Prevent infinite loop on zero-length matches
                 if (match[0].length === 0) {
                   searchRegex.lastIndex++;
                 }
@@ -761,7 +742,6 @@ export class EditorRpcHandlers {
       }
 
       try {
-        // Single-element array — the brace pattern is one valid fast-glob ignore glob.
         const excludePattern = ['**/{node_modules,dist,.git,.nx,.cache}/**'];
         const filePaths = await this.fs.findFiles(
           wsRoot.replace(/\\/g, '/') + '/**/*',
@@ -861,8 +841,6 @@ export class EditorRpcHandlers {
     try {
       const entries = await this.fs.readDirectory(dirPath);
       const result: FileTreeEntry[] = [];
-
-      // Sort: directories first, then alphabetically
       const sorted = entries.sort(
         (
           a: { name: string; type: number },
@@ -874,8 +852,6 @@ export class EditorRpcHandlers {
       );
 
       for (const entry of sorted) {
-        // Skip truly hidden/noisy directories while allowing config dirs
-        // (.claude, .agent, .vscode, .github, .husky, etc.)
         if (entry.name === 'node_modules' || entry.name === 'dist') {
           continue;
         }
@@ -887,7 +863,6 @@ export class EditorRpcHandlers {
         const isDir = (entry.type & 2) !== 0;
 
         if (isDir) {
-          // At the depth boundary, mark directories as needing lazy load
           if (currentDepth + 1 >= maxDepth) {
             result.push({
               name: entry.name,

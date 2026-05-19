@@ -678,4 +678,212 @@ describe('SessionRegistry', () => {
       expect(ids).not.toContain('tab_a');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Pushed down from session-lifecycle-manager.spec.ts (TASK_2026_123 Win 6d).
+  // These describes exercise pure-registry behavior that the facade spec
+  // previously asserted through delegating manager methods. Moved here so they
+  // run directly against the SUT they actually test.
+  // ---------------------------------------------------------------------------
+
+  describe('getActiveSessionIds (push-down from facade)', () => {
+    it('returns empty array when no sessions are registered', () => {
+      const { registry } = makeRegistry();
+      expect(registry.getActiveSessionIds()).toEqual([]);
+    });
+
+    it('returns a single session ID after pre-registration', () => {
+      const { registry } = makeRegistry();
+      registry.register('tab_1', makeConfig(), new AbortController());
+
+      const ids = registry.getActiveSessionIds();
+      expect(ids).toHaveLength(1);
+      expect(ids[0]).toBe('tab_1');
+    });
+
+    it('returns the real UUID after resolveRealSessionId', () => {
+      const { registry } = makeRegistry();
+      registry.register('tab_1', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_1', 'real-uuid-123');
+
+      const ids = registry.getActiveSessionIds();
+      expect(ids[0]).toBe('real-uuid-123');
+    });
+
+    it('orders most-recently-registered session first', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: '/workspace/a' }),
+        new AbortController(),
+      );
+      registry.register(
+        'tab_2',
+        makeConfig({ projectPath: '/workspace/b' }),
+        new AbortController(),
+      );
+
+      expect(registry.getActiveSessionIds()[0]).toBe('tab_2');
+    });
+
+    it('replaces tab IDs with real UUIDs once resolved, preserving ordering', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: '/workspace/a' }),
+        new AbortController(),
+      );
+      registry.register(
+        'tab_2',
+        makeConfig({ projectPath: '/workspace/b' }),
+        new AbortController(),
+      );
+      registry.bindRealSessionId('tab_1', 'uuid-aaa');
+      registry.bindRealSessionId('tab_2', 'uuid-bbb');
+
+      const ids = registry.getActiveSessionIds();
+      expect(ids[0]).toBe('uuid-bbb');
+      expect(ids[1]).toBe('uuid-aaa');
+    });
+  });
+
+  describe('getActiveSessionWorkspace (push-down from facade)', () => {
+    it('returns undefined when no sessions exist', () => {
+      const { registry } = makeRegistry();
+      expect(registry.getActiveSessionWorkspace()).toBeUndefined();
+    });
+
+    it('returns workspace of the most-recently-active session', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: '/workspace/a' }),
+        new AbortController(),
+      );
+      registry.register(
+        'tab_2',
+        makeConfig({ projectPath: '/workspace/b' }),
+        new AbortController(),
+      );
+
+      expect(registry.getActiveSessionWorkspace()).toBe('/workspace/b');
+    });
+
+    it('falls back to any session when the last active has no projectPath', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: '/workspace/a' }),
+        new AbortController(),
+      );
+      registry.register(
+        'tab_2',
+        makeConfig({ projectPath: undefined }),
+        new AbortController(),
+      );
+
+      expect(registry.getActiveSessionWorkspace()).toBe('/workspace/a');
+    });
+
+    it('returns undefined when no session has a projectPath', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: undefined }),
+        new AbortController(),
+      );
+
+      expect(registry.getActiveSessionWorkspace()).toBeUndefined();
+    });
+  });
+
+  describe('resolveRealSessionId (push-down from facade)', () => {
+    it('does not affect workspace resolution', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_1',
+        makeConfig({ projectPath: '/workspace/a' }),
+        new AbortController(),
+      );
+      registry.bindRealSessionId('tab_1', 'real-uuid-123');
+
+      expect(registry.getActiveSessionWorkspace()).toBe('/workspace/a');
+    });
+  });
+
+  describe('find() dual-index identity (TASK_2026_118, push-down from facade)', () => {
+    it('returns the same object reference by tabId and realId after bindRealSessionId', () => {
+      const { registry } = makeRegistry();
+      registry.register('tab_find_id', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_find_id', 'real-uuid-find-id');
+
+      const byTab = registry.find('tab_find_id');
+      const byReal = registry.find('real-uuid-find-id');
+
+      expect(byTab).toBeDefined();
+      expect(byReal).toBeDefined();
+      expect(byTab).toBe(byReal);
+    });
+
+    it('mutation via one lookup is visible via the other (shared record)', () => {
+      const { registry } = makeRegistry();
+      registry.register('tab_shared_mut', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_shared_mut', 'real-shared-mut');
+
+      const byTab = registry.find('tab_shared_mut');
+      const byReal = registry.find('real-shared-mut');
+
+      (byTab as { currentModel: string }).currentModel = 'mutated-model';
+
+      expect(byReal?.currentModel).toBe('mutated-model');
+    });
+  });
+
+  describe('getActiveSessionIds() ordering preservation (TASK_2026_118, push-down from facade)', () => {
+    it('most-recently-registered session appears first before any bind', () => {
+      const { registry } = makeRegistry();
+      registry.register(
+        'tab_ord_1',
+        makeConfig({ projectPath: '/ws/1' }),
+        new AbortController(),
+      );
+      registry.register(
+        'tab_ord_2',
+        makeConfig({ projectPath: '/ws/2' }),
+        new AbortController(),
+      );
+      registry.register(
+        'tab_ord_3',
+        makeConfig({ projectPath: '/ws/3' }),
+        new AbortController(),
+      );
+
+      const ids = registry.getActiveSessionIds();
+      expect(ids[0]).toBe('tab_ord_3');
+    });
+
+    it('returns realUUIDs after bind, preserving most-recent ordering', () => {
+      const { registry } = makeRegistry();
+      registry.register('tab_ord_a', makeConfig(), new AbortController());
+      registry.register('tab_ord_b', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_ord_a', 'uuid-ord-aaa');
+      registry.bindRealSessionId('tab_ord_b', 'uuid-ord-bbb');
+
+      const ids = registry.getActiveSessionIds();
+      expect(ids[0]).toBe('uuid-ord-bbb');
+      expect(ids[1]).toBe('uuid-ord-aaa');
+    });
+
+    it('returns tabId (not realId) for sessions where bindRealSessionId has not yet fired', () => {
+      const { registry } = makeRegistry();
+      registry.register('tab_unbound', makeConfig(), new AbortController());
+      registry.register('tab_bound', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_bound', 'real-bound-uuid');
+
+      const ids = registry.getActiveSessionIds();
+      expect(ids).toContain('tab_unbound');
+      expect(ids).toContain('real-bound-uuid');
+      expect(ids).not.toContain('tab_bound');
+    });
+  });
 });

@@ -137,13 +137,9 @@ export class ResumeNotificationBannerComponent {
     effect(() => {
       const subagents = this.resumableSubagents();
       const currentCount = subagents.length;
-
-      // Reset dismissed if we have NEW subagents (count increased)
       if (currentCount > this.previousCount && currentCount > 0) {
         untracked(() => this.dismissed.set(false));
       }
-
-      // Update previous count for next comparison
       this.previousCount = currentCount;
     });
   }

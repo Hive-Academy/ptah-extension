@@ -440,8 +440,6 @@ export class ScanProgressComponent implements OnInit {
   protected readonly hasStreamMessages = computed(() => {
     return this.wizardState.analysisStream().length > 0;
   });
-
-  // Component-local state
   protected readonly isCanceling = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly statusText = signal('Initializing workspace scan...');
@@ -521,10 +519,8 @@ export class ScanProgressComponent implements OnInit {
     this.errorMessage.set(null);
 
     try {
-      // Check if we already have a multi-phase result cached
       const existingMultiPhase = this.wizardState.multiPhaseResult();
       if (existingMultiPhase) {
-        // Skip to recommendations with cached multi-phase result
         let recommendations = this.wizardState.recommendations();
         if (recommendations.length === 0) {
           this.statusText.set('Calculating agent recommendations...');
@@ -536,15 +532,11 @@ export class ScanProgressComponent implements OnInit {
         this.wizardState.setCurrentStep('analysis');
         return;
       }
-
-      // Run multi-phase deep analysis (premium + MCP required)
       this.statusText.set('Analyzing project structure...');
       const multiPhaseResult = await this.wizardRpc.deepAnalyze();
       if (this.isDestroyed) return;
 
       this.wizardState.setMultiPhaseResult(multiPhaseResult);
-
-      // Get recommendations
       this.statusText.set('Calculating agent recommendations...');
       const recommendations =
         await this.wizardRpc.recommendAgents(multiPhaseResult);
@@ -600,16 +592,9 @@ export class ScanProgressComponent implements OnInit {
    * to 90 seconds after the user has already cancelled in the UI.
    */
   protected onConfirmCancellation(): void {
-    // Show cancellation feedback
     this.isCanceling.set(true);
     this.statusText.set('Canceling analysis...');
-
-    // Fire-and-forget: cancel the backend analysis (best-effort, non-blocking).
-    // Intentionally not awaited — the user should not wait for the backend
-    // cancellation RPC to complete before the wizard resets. The `void` operator
-    // makes the fire-and-forget intent explicit and suppresses floating-promise lints.
     void this.wizardRpc.cancelAnalysis().finally(() => {
-      // Reset wizard state after cancellation completes
       if (!this.isDestroyed) {
         this.wizardState.reset();
       }
@@ -620,6 +605,6 @@ export class ScanProgressComponent implements OnInit {
    * Handle modal cancellation (user declined cancellation)
    */
   protected onDeclineCancellation(): void {
-    // Modal auto-closes, no action needed
+    console.log('ScanProgressComponent.onDeclineCancellation called');
   }
 }

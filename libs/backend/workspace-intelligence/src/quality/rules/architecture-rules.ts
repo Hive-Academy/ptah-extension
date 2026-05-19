@@ -25,10 +25,6 @@ import type {
 import type { SupportedLanguage } from '../../ast/tree-sitter.config';
 import { EXTENSION_LANGUAGE_MAP } from '../../ast/tree-sitter.config';
 
-// ============================================
-// Module-Level Parser Configuration
-// ============================================
-
 /**
  * Module-scoped tree-sitter parser used by {@link functionTooLargeRule}.
  *
@@ -86,10 +82,6 @@ export function resetArchitectureRulesForTests(): void {
   hasWarnedAboutMissingParser = false;
 }
 
-// ============================================
-// Helpers
-// ============================================
-
 /**
  * Maps a file path extension to a tree-sitter supported language.
  * Returns `undefined` for extensions we don't have a grammar for.
@@ -145,8 +137,6 @@ function matchToAntiPattern(
   if (!declarationCapture) {
     return null;
   }
-
-  // tree-sitter positions are 0-indexed rows; AntiPatternMatch.location.line is 1-indexed.
   const startLine = declarationCapture.startPosition.row + 1;
   const endLine = declarationCapture.endPosition.row + 1;
   const lineCount = endLine - startLine + 1;
@@ -172,10 +162,6 @@ function matchToAntiPattern(
     },
   };
 }
-
-// ============================================
-// Architecture Rules
-// ============================================
 
 /**
  * Detects files that exceed recommended line counts.
@@ -208,8 +194,6 @@ export const fileTooLargeRule: AntiPatternRule = createHeuristicRule({
   check: (content: string, filePath: string): AntiPatternMatch[] => {
     const lines = content.split('\n');
     const lineCount = lines.length;
-
-    // Error threshold: >1000 lines
     if (lineCount > 1000) {
       return [
         {
@@ -223,8 +207,6 @@ export const fileTooLargeRule: AntiPatternRule = createHeuristicRule({
         },
       ];
     }
-
-    // Warning threshold: >500 lines
     if (lineCount > 500) {
       return [
         {
@@ -278,8 +260,6 @@ export const tooManyImportsRule: AntiPatternRule = createHeuristicRule({
   category: 'architecture',
   fileExtensions: ['.ts', '.tsx', '.js', '.jsx'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Count lines starting with 'import ' (not 'import type' in some analyses)
-    // We count all import statements including type imports
     const importMatches = content.match(/^import\s+/gm) || [];
     const importCount = importMatches.length;
 
@@ -382,10 +362,6 @@ export const functionTooLargeRule: AntiPatternRule = createHeuristicRule({
     'Break this function into smaller, single-responsibility functions. ' +
     'Extract logical blocks into helper functions with descriptive names.',
 });
-
-// ============================================
-// Exports
-// ============================================
 
 /**
  * All architecture anti-pattern detection rules.

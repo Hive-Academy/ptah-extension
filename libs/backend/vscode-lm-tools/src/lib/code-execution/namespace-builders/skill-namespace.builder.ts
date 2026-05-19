@@ -10,10 +10,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-// ========================================
-// Public Interfaces
-// ========================================
-
 /**
  * Represents a promoted skill record discovered in the skills root.
  */
@@ -54,10 +50,6 @@ export interface SkillNamespace {
   ): Promise<{ slug: string; content: string } | { error: string }>;
 }
 
-// ========================================
-// Builder
-// ========================================
-
 /**
  * Build the skill namespace with list() and describe() methods.
  *
@@ -70,15 +62,12 @@ export function buildSkillNamespace(
   return {
     async list(): Promise<{ skills: PromotedSkillRecord[] }> {
       const skillsRoot = deps.getSkillsRoot();
-
-      // Check if the skills root exists; return empty list rather than an error
       try {
         const stat = fs.statSync(skillsRoot);
         if (!stat.isDirectory()) {
           return { skills: [] };
         }
       } catch {
-        // Directory does not exist or is inaccessible — not an error condition
         return { skills: [] };
       }
 
@@ -92,7 +81,6 @@ export function buildSkillNamespace(
       const skills: PromotedSkillRecord[] = [];
 
       for (const entry of entries) {
-        // Only process directories; skip _candidates (synthesis staging area)
         if (!entry.isDirectory()) {
           continue;
         }
@@ -102,25 +90,19 @@ export function buildSkillNamespace(
 
         const skillDir = path.join(skillsRoot, entry.name);
         const skillMdPath = path.join(skillDir, 'SKILL.md');
-
-        // Verify SKILL.md exists at the directory root
         try {
           const skillMdStat = fs.statSync(skillMdPath);
           if (!skillMdStat.isFile()) {
             continue;
           }
         } catch {
-          // SKILL.md does not exist or is inaccessible — skip this directory
           continue;
         }
-
-        // Parse frontmatter fields from SKILL.md
         let description = '';
         try {
           const content = fs.readFileSync(skillMdPath, 'utf-8');
           description = parseFrontmatterDescription(content);
         } catch {
-          // Could not read SKILL.md — include the skill with empty description
           description = '';
         }
 
@@ -149,7 +131,6 @@ export function buildSkillNamespace(
         return { slug: skillId, content };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
-        // Distinguish "not found" from other read errors for better agent UX
         const isNotFound =
           message.includes('ENOENT') || message.includes('no such file');
         if (isNotFound) {
@@ -160,10 +141,6 @@ export function buildSkillNamespace(
     },
   };
 }
-
-// ========================================
-// Frontmatter Parser (pure helper)
-// ========================================
 
 /**
  * Parse the `description:` field from a SKILL.md frontmatter block.
@@ -177,8 +154,6 @@ export function buildSkillNamespace(
  */
 function parseFrontmatterDescription(content: string): string {
   const lines = content.split(/\r?\n/);
-
-  // First line must be opening ---
   if (lines.length === 0 || lines[0].trim() !== '---') {
     return '';
   }
@@ -190,18 +165,15 @@ function parseFrontmatterDescription(content: string): string {
     const line = lines[i];
 
     if (i === 0) {
-      // Opening ---
       inFrontmatter = true;
       continue;
     }
 
     if (inFrontmatter && line.trim() === '---') {
-      // Closing --- — stop scanning
       break;
     }
 
     if (inFrontmatter) {
-      // Match description: <value>
       const descriptionMatch = /^description:\s*(.+)/.exec(line);
       if (descriptionMatch) {
         description = descriptionMatch[1].trim();

@@ -40,7 +40,6 @@ export function parseWorktreeList(output: string): GitWorktreeInfo[] {
         head = line.substring('HEAD '.length).substring(0, 8);
       } else if (line.startsWith('branch ')) {
         const ref = line.substring('branch '.length);
-        // Strip refs/heads/ prefix
         branch = ref.startsWith('refs/heads/')
           ? ref.substring('refs/heads/'.length)
           : ref;

@@ -492,8 +492,6 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
 export class AgentSelectionComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
-
-  // Lucide icon references
   protected readonly XCircleIcon = XCircle;
   protected readonly CheckIcon = Check;
   protected readonly UsersIcon = Users;
@@ -508,8 +506,6 @@ export class AgentSelectionComponent {
   protected readonly GlobeIcon = Globe;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
-
-  // === Community Agent Pack State ===
 
   /** Local signal controlling the active agent source tab. */
   protected readonly activeTab = signal<'project' | 'community'>('project');
@@ -544,8 +540,6 @@ export class AgentSelectionComponent {
     'creative',
     'other',
   ];
-
-  // Component-local loading and error state
   protected readonly isGenerating = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
@@ -718,8 +712,6 @@ export class AgentSelectionComponent {
     this.wizardState.setCurrentStep('analysis');
   }
 
-  // === Community Agent Pack Methods ===
-
   /**
    * Check if a pack is currently expanded.
    */
@@ -785,7 +777,6 @@ export class AgentSelectionComponent {
    * Install all agents from a community pack.
    */
   protected async onInstallAllAgents(pack: AgentPackInfoDto): Promise<void> {
-    // Only install agents that aren't already installed
     const pendingFiles = pack.agents
       .filter((a) => this.getAgentStatus(pack.source, a.file) !== 'installed')
       .map((a) => a.file);
@@ -907,14 +898,10 @@ export class AgentSelectionComponent {
             'No analysis data available. Please re-run the wizard scan.',
           );
         }
-
-        // Submit selection with multi-phase analysisDir
         const response = await this.wizardRpc.submitAgentSelection(
           selectedAgents,
           multiPhase.analysisDir,
         );
-
-        // Verify backend acknowledgment before transitioning
         if (!response?.success) {
           throw new Error(
             response?.error ?? 'Backend did not acknowledge selection',
@@ -934,9 +921,6 @@ export class AgentSelectionComponent {
     );
 
     if (result) {
-      // Initialize generation progress items from selected agents.
-      // This MUST happen before transitioning so handleGenerationProgress()
-      // can update per-item status (it silently ignores updates when items.length === 0).
       const selectedAgentIds = Object.entries(
         this.wizardState.selectedAgentsMap(),
       )
@@ -959,14 +943,8 @@ export class AgentSelectionComponent {
       );
 
       this.wizardState.setSkillGenerationProgress(progressItems);
-
-      // Transition to generation step. Backend generation runs and the user
-      // sees real-time progress. After generation completes, they proceed
-      // to the enhance step for Enhanced Prompts.
       this.wizardState.setCurrentStep('generation');
     }
-
-    // Always reset loading state
     this.isGenerating.set(false);
   }
 }

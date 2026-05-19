@@ -20,10 +20,6 @@ import * as https from 'https';
 import * as http from 'http';
 import * as crypto from 'crypto';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 /** Agent pack manifest structure (hosted at repo: agent-pack-manifest.json) */
 interface AgentPackManifest {
   name: string;
@@ -76,10 +72,6 @@ interface AgentPackCacheMetadata {
 /** Progress callback for UI integration */
 type AgentPackProgressCallback = (downloaded: number, total: number) => void;
 
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
-
 export class AgentPackDownloadService {
   private readonly ptahDir: string;
   private readonly cacheMetadataPath: string;
@@ -105,10 +97,6 @@ export class AgentPackDownloadService {
     this.ptahDir = path.join(homedir(), '.ptah');
     this.cacheMetadataPath = path.join(this.ptahDir, '.agent-pack-cache.json');
   }
-
-  // -------------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------------
 
   /**
    * Fetch information about an agent pack from its manifest URL.
@@ -164,10 +152,7 @@ export class AgentPackDownloadService {
     targetDir: string,
     onProgress?: AgentPackProgressCallback,
   ): Promise<AgentPackDownloadResult> {
-    // Create a cache key combining manifest URL and specific agent selection
     const cacheKey = this.buildCacheKey(manifestUrl, agentFiles);
-
-    // Deduplicate concurrent calls for the same manifest URL
     const existing = this.inFlightPromises.get(cacheKey);
     if (existing) {
       return existing;
@@ -216,10 +201,6 @@ export class AgentPackDownloadService {
     return results;
   }
 
-  // -------------------------------------------------------------------------
-  // Internal implementation
-  // -------------------------------------------------------------------------
-
   /**
    * Core download logic, separated from the public deduplication wrapper.
    */
@@ -262,8 +243,6 @@ export class AgentPackDownloadService {
         error: `Files not found in manifest: ${missingFiles.join(', ')}`,
       };
     }
-
-    // Skip cache when contentHash is empty — forces re-download.
     const cacheEntry = this.getCacheEntry(manifestUrl);
     if (
       cacheEntry &&
@@ -271,7 +250,6 @@ export class AgentPackDownloadService {
       cacheEntry.contentHash === manifest.contentHash &&
       cacheEntry.agentCount === agentFiles.length
     ) {
-      // Verify that all requested files actually exist on disk
       const allExist = agentFiles.every((file) => {
         const localPath = path.join(targetDir, path.basename(file));
         return fs.existsSync(localPath);
@@ -293,8 +271,6 @@ export class AgentPackDownloadService {
     let completed = 0;
 
     onProgress?.(0, totalFiles);
-
-    // Process files in chunks of MAX_CONCURRENCY
     for (
       let i = 0;
       i < agentFiles.length;
@@ -309,8 +285,6 @@ export class AgentPackDownloadService {
         chunk.map(async (file) => {
           const url = `${manifest.baseUrl}/${file}`;
           const localPath = path.resolve(targetDir, path.basename(file));
-
-          // Guard against path traversal
           if (!localPath.startsWith(path.resolve(targetDir) + path.sep)) {
             throw new Error(
               `Path traversal detected: "${file}" resolves outside target directory`,
@@ -367,17 +341,12 @@ export class AgentPackDownloadService {
     }
 
     for (const file of agentFiles) {
-      // Reject path traversal attempts
       if (file.includes('..') || path.isAbsolute(file)) {
         return `Invalid file path: "${file}" -- path traversal not allowed`;
       }
-
-      // Only allow .md files
       if (!file.endsWith('.md')) {
         return `Invalid file type: "${file}" -- only .md files are allowed`;
       }
-
-      // Reject control characters and suspicious patterns
       // eslint-disable-next-line no-control-regex
       if (/[\x00-\x1f]/.test(file)) {
         return `Invalid file name: "${file}" -- control characters not allowed`;
@@ -393,8 +362,6 @@ export class AgentPackDownloadService {
   private async fetchManifest(manifestUrl: string): Promise<AgentPackManifest> {
     const json = await this.fetchJson(manifestUrl);
     const manifest = json as AgentPackManifest;
-
-    // Basic structural validation
     if (
       !manifest.name ||
       !manifest.version ||
@@ -423,17 +390,12 @@ export class AgentPackDownloadService {
    */
   private async downloadFile(url: string, destPath: string): Promise<void> {
     const content = await this.downloadText(url);
-
-    // Ensure parent directory exists
     await this.ensureDir(path.dirname(destPath));
-
-    // Atomic write: write to temp file, then rename
     const tmpPath = destPath + '.tmp';
     await fsPromises.writeFile(tmpPath, content, 'utf-8');
     try {
       await fsPromises.rename(tmpPath, destPath);
     } catch (renameErr) {
-      // Clean up orphaned tmp file
       await fsPromises.unlink(tmpPath).catch(() => undefined);
       throw renameErr;
     }
@@ -461,7 +423,6 @@ export class AgentPackDownloadService {
       const client = url.startsWith('https:') ? https : http;
 
       const req = client.get(url, (res) => {
-        // Follow redirects
         if (
           (res.statusCode === 301 || res.statusCode === 302) &&
           res.headers.location
@@ -471,13 +432,11 @@ export class AgentPackDownloadService {
             resolve,
             reject,
           );
-          // Consume the response to free up the socket
           res.resume();
           return;
         }
 
         if (res.statusCode !== 200) {
-          // Consume the response to free up the socket
           res.resume();
           reject(new Error(`HTTP ${res.statusCode} for ${url}`));
           return;
@@ -504,8 +463,6 @@ export class AgentPackDownloadService {
       });
 
       req.on('error', reject);
-
-      // Timeout after 30 seconds per request
       req.setTimeout(30_000, () => {
         req.destroy(new Error(`Request timeout for ${url}`));
       });
@@ -542,15 +499,12 @@ export class AgentPackDownloadService {
     try {
       const raw = fs.readFileSync(this.cacheMetadataPath, 'utf-8');
       const parsed = JSON.parse(raw) as AgentPackCacheMetadata;
-
-      // Validate structure
       if (parsed && typeof parsed.packs === 'object' && parsed.packs !== null) {
         return parsed;
       }
 
       return { packs: {} };
     } catch {
-      // File doesn't exist or is corrupted -- treat as no cache
       return { packs: {} };
     }
   }
@@ -567,12 +521,9 @@ export class AgentPackDownloadService {
 
       const json = JSON.stringify(metadata, null, 2);
       const tmpPath = this.cacheMetadataPath + '.tmp';
-
-      // Atomic write: write to temp file, then rename
       await fsPromises.writeFile(tmpPath, json, 'utf-8');
       await fsPromises.rename(tmpPath, this.cacheMetadataPath);
     } catch (error: unknown) {
-      // Swallow persist errors -- matches ContentDownloadService convention
       console.warn(
         `[AgentPackDownloadService] Failed to persist cache metadata: ${error instanceof Error ? error.message : String(error)}`,
       );

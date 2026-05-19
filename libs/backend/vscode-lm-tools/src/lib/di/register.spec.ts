@@ -49,6 +49,7 @@ jest.mock('../permission/permission-prompt.service', () => ({
 
 import { container, type DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { registerVsCodeLmToolsServices } from './register';
 
 interface MockLogger {
@@ -96,7 +97,7 @@ describe('registerVsCodeLmToolsServices', () => {
       seedPrerequisites(child, logger);
     });
 
-    it('registers PTAH_API_BUILDER, CODE_EXECUTION_MCP, PERMISSION_PROMPT_SERVICE', () => {
+    it('registers PTAH_API_BUILDER, CODE_EXECUTION_MCP, MCP_SERVER_STATUS, PERMISSION_PROMPT_SERVICE', () => {
       registerVsCodeLmToolsServices(
         child,
         logger as unknown as Parameters<
@@ -106,6 +107,7 @@ describe('registerVsCodeLmToolsServices', () => {
 
       expect(child.isRegistered(TOKENS.PTAH_API_BUILDER)).toBe(true);
       expect(child.isRegistered(TOKENS.CODE_EXECUTION_MCP)).toBe(true);
+      expect(child.isRegistered(PLATFORM_TOKENS.MCP_SERVER_STATUS)).toBe(true);
       expect(child.isRegistered(TOKENS.PERMISSION_PROMPT_SERVICE)).toBe(true);
     });
 
@@ -126,6 +128,7 @@ describe('registerVsCodeLmToolsServices', () => {
           services: [
             'PTAH_API_BUILDER',
             'CODE_EXECUTION_MCP',
+            'MCP_SERVER_STATUS',
             'PERMISSION_PROMPT_SERVICE',
           ],
         }),

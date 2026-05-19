@@ -146,13 +146,8 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PermissionRequestCardComponent {
-  // Inputs
   readonly request = input.required<PermissionRequest>();
-
-  // Outputs
   readonly responded = output<PermissionResponse>();
-
-  // Icons
   protected readonly ShieldAlertIcon = ShieldAlert;
   protected readonly FileIcon = File;
   protected readonly TerminalIcon = Terminal;
@@ -163,11 +158,7 @@ export class PermissionRequestCardComponent {
   protected readonly XIcon = X;
   protected readonly CheckCircleIcon = CheckCircle;
   protected readonly ClockIcon = Clock;
-
-  // Timer state
   private readonly _currentTime = signal(Date.now());
-
-  // Deny with message popover state
   private readonly _isDenyPopoverOpen = signal(false);
   readonly isDenyPopoverOpen = this._isDenyPopoverOpen.asReadonly();
 
@@ -179,8 +170,6 @@ export class PermissionRequestCardComponent {
   readonly remainingTime = computed(() => {
     const current = this._currentTime();
     const timeout = this.request().timeoutAt;
-
-    // No timeout: block indefinitely
     if (timeout <= 0) {
       return 'No timeout';
     }
@@ -190,8 +179,6 @@ export class PermissionRequestCardComponent {
     if (remaining <= 0) {
       return 'expired';
     }
-
-    // Convert to human-readable format
     const seconds = Math.floor(remaining / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
@@ -219,25 +206,17 @@ export class PermissionRequestCardComponent {
   private timerInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    // Start countdown timer on component initialization (only when timeout is set)
     effect((onCleanup) => {
-      // No timeout: skip interval entirely
       if (this.request().timeoutAt <= 0) {
         return;
       }
-
-      // Update current time every second
       this.timerInterval = setInterval(() => {
         this._currentTime.set(Date.now());
-
-        // Auto-deny if expired
         const timeout = this.request().timeoutAt;
         if (timeout > 0 && Date.now() >= timeout) {
           this.respond('deny', 'Request timeout');
         }
       }, 1000);
-
-      // Cleanup interval on component destruction
       onCleanup(() => {
         if (this.timerInterval) {
           clearInterval(this.timerInterval);
@@ -325,8 +304,6 @@ export class PermissionRequestCardComponent {
   protected getFormattedDescription(): string {
     const description = this.request().description;
     const toolInput = this.request().toolInput;
-
-    // Format based on tool type using type guards
     if (isBashToolInput(toolInput)) {
       const command = toolInput.command;
       return `Execute bash command: \`${command}\``;
@@ -351,9 +328,6 @@ export class PermissionRequestCardComponent {
       const pattern = toolInput.pattern;
       return `Search content for: \`${pattern}\``;
     }
-
-    // Fallback to original description
-    // Try to extract and format any quoted content
     const colonIndex = description.indexOf(':');
     if (colonIndex > 0) {
       const prefix = description.substring(0, colonIndex + 1);
@@ -370,8 +344,6 @@ export class PermissionRequestCardComponent {
    */
   protected getFormattedDescriptionPlain(): string {
     const toolInput = this.request().toolInput;
-
-    // Format based on tool type using type guards - return short plain text
     if (isBashToolInput(toolInput)) {
       const cmd = toolInput.command;
       return cmd.length > 40 ? cmd.substring(0, 40) + '...' : cmd;
@@ -393,8 +365,6 @@ export class PermissionRequestCardComponent {
       const pattern = toolInput.pattern;
       return pattern.length > 30 ? pattern.substring(0, 30) + '...' : pattern;
     }
-
-    // Fallback to original description
     const description = this.request().description;
     return description.length > 50
       ? description.substring(0, 50) + '...'
@@ -418,23 +388,16 @@ export class PermissionRequestCardComponent {
     decision: 'allow' | 'deny' | 'always_allow' | 'deny_with_message',
     reason?: string,
   ): void {
-    // Clear timer before responding
     if (this.timerInterval) {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
     }
-
-    // Emit response
     this.responded.emit({
       id: this.request().id,
       decision,
       reason,
     });
   }
-
-  // ============================================================================
-  // Deny with Message Popover Methods
-  // ============================================================================
 
   /**
    * Open the deny message popover
@@ -459,16 +422,11 @@ export class PermissionRequestCardComponent {
    * @param message - The message to send to Claude explaining the denial
    */
   handleDenyWithMessage(message: string): void {
-    // Clear timer before responding
     if (this.timerInterval) {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
     }
-
-    // Close popover
     this._isDenyPopoverOpen.set(false);
-
-    // Emit response with deny_with_message decision
     this.responded.emit({
       id: this.request().id,
       decision: 'deny_with_message',

@@ -47,7 +47,6 @@ export class SubscriptionEventListener {
         expiresAt: event.expiresAt,
       });
     } catch (error) {
-      // Log but don't throw - SSE failures shouldn't affect business logic
       this.logger.error(
         `Failed to emit SSE for license update: ${
           error instanceof Error ? error.message : 'Unknown error'
@@ -93,10 +92,5 @@ export class SubscriptionEventListener {
         `license=${event.changes.licenseUpdated}, ` +
         `status: ${event.changes.statusBefore} -> ${event.changes.statusAfter}`,
     );
-
-    // Could add additional notifications here:
-    // - Send email notification
-    // - Track analytics event
-    // - Update external systems
   }
 }

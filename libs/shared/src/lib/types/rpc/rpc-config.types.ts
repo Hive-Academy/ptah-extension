@@ -9,10 +9,6 @@ import type { SessionId } from '../branded.types';
 import type { PermissionLevel } from '../model-autopilot.types';
 import type { EffortLevel } from '../ai-provider.types';
 
-// ============================================================
-// Config RPC Types
-// ============================================================
-
 /** Parameters for config:model-switch RPC method */
 export interface ConfigModelSwitchParams {
   /** Model API name to switch to (e.g., 'claude-sonnet-4-20250514') */

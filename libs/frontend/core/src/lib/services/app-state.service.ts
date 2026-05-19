@@ -69,7 +69,6 @@ export interface AppState {
  */
 @Injectable({ providedIn: 'root' })
 export class AppStateManager implements MessageHandler {
-  // MessageHandler implementation
   readonly handledMessageTypes = [MESSAGE_TYPES.SWITCH_VIEW] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -96,8 +95,6 @@ export class AppStateManager implements MessageHandler {
       );
     }
   }
-
-  // Core state signals
   private readonly _currentView = signal<ViewType>('chat');
   private readonly _isLoading = signal(false);
   private readonly _statusMessage = signal('Ready');
@@ -107,8 +104,6 @@ export class AppStateManager implements MessageHandler {
   private readonly _isLicensed = signal(true);
   /** Tracks which views are currently "open" as tab pills (Electron navbar). Chat is always present. */
   private readonly _openViews = signal<Set<ViewType>>(new Set(['chat']));
-
-  // Layout mode signals (canvas-first layout)
   private readonly _layoutMode = signal<LayoutMode>('grid');
   /** Signal bridge: request to open/focus a session in a canvas tile (from sidebar click in grid mode) */
   private readonly _canvasSessionRequest = signal<CanvasSessionRequest | null>(
@@ -146,8 +141,6 @@ export class AppStateManager implements MessageHandler {
     }
     return view;
   }
-
-  // Public readonly signals
   readonly currentView = this._currentView.asReadonly();
   readonly isLoading = this._isLoading.asReadonly();
   readonly statusMessage = this._statusMessage.asReadonly();
@@ -159,8 +152,6 @@ export class AppStateManager implements MessageHandler {
   readonly openViews = computed(() =>
     Array.from(this._openViews()).filter((v) => v !== 'welcome'),
   );
-
-  // Layout mode public readonly signals
   /** Current layout mode: 'single' (tab view) or 'grid' (canvas view) */
   readonly layoutMode = this._layoutMode.asReadonly();
   /** Pending request to open a session in a canvas tile (consumed by OrchestraCanvasComponent) */
@@ -171,13 +162,9 @@ export class AppStateManager implements MessageHandler {
   readonly thothActiveTab = this._thothActiveTab.asReadonly();
   /** Whether the Thoth first-run hint has been dismissed. */
   readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
-
-  // Computed signals
-  // Users on welcome view (unlicensed) cannot navigate to other views
   readonly canSwitchViews = computed(() => {
     const onWelcomeView = this._currentView() === 'welcome';
     if (onWelcomeView) {
-      // Block navigation from welcome view - license gate enforcement
       return false;
     }
     return !this._isLoading() && this._isConnected();
@@ -229,12 +216,8 @@ export class AppStateManager implements MessageHandler {
         workspaceName?: string;
       };
     };
-
-    // Read license status from ptahConfig (set by backend)
     const isLicensed = windowWithState.ptahConfig?.isLicensed ?? true;
     this._isLicensed.set(isLicensed);
-
-    // Read workspace info from ptahConfig (injected by webview HTML generator)
     const workspaceRoot = windowWithState.ptahConfig?.workspaceRoot;
     const workspaceName = windowWithState.ptahConfig?.workspaceName;
     if (
@@ -254,52 +237,30 @@ export class AppStateManager implements MessageHandler {
       windowWithState.initialView ||
       (windowWithState.ptahConfig?.initialView as ViewType) ||
       'chat';
-
-    // Restore layout mode from localStorage BEFORE normalizeView,
-    // so that explicit normalizeView overrides (e.g. 'orchestra-canvas' → grid)
-    // take precedence over the saved preference.
     let savedLayoutMode: LayoutMode | null = null;
-    try {
-      savedLayoutMode = localStorage.getItem(
-        'ptah-layout-mode',
-      ) as LayoutMode | null;
-    } catch {
-      /* localStorage unavailable in restricted environments */
-    }
+
+    savedLayoutMode = localStorage.getItem(
+      'ptah-layout-mode',
+    ) as LayoutMode | null;
     if (savedLayoutMode === 'single' || savedLayoutMode === 'grid') {
       this._layoutMode.set(savedLayoutMode);
     }
 
-    // Restore Thoth first-run hint dismissal flag from localStorage.
-    // Stored as the literal string 'true' on dismissal; any other value
-    // (missing, '', 'false') keeps the default `false` so the hint shows.
-    //
-    // Migration shim (post-Thoth rename): if the new key is absent, fall
-    // back to the legacy `ptah-hermes-first-run-dismissed` key, copy the
-    // value forward, and remove the old entry. This preserves the user's
-    // dismissed state across the rename upgrade.
-    try {
-      const newValue = localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY);
-      if (newValue === null) {
-        const legacyValue = localStorage.getItem(
-          LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY,
-        );
-        if (legacyValue !== null) {
-          localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, legacyValue);
-          localStorage.removeItem(LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY);
-          if (legacyValue === 'true') {
-            this._thothFirstRunDismissed.set(true);
-          }
+    const newValue = localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY);
+    if (newValue === null) {
+      const legacyValue = localStorage.getItem(
+        LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY,
+      );
+      if (legacyValue !== null) {
+        localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, legacyValue);
+        localStorage.removeItem(LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY);
+        if (legacyValue === 'true') {
+          this._thothFirstRunDismissed.set(true);
         }
-      } else if (newValue === 'true') {
-        this._thothFirstRunDismissed.set(true);
       }
-    } catch {
-      /* localStorage unavailable in restricted environments */
+    } else if (newValue === 'true') {
+      this._thothFirstRunDismissed.set(true);
     }
-
-    // Backward compat: normalizeView() maps 'orchestra-canvas' → 'chat' + grid layout.
-    // This runs AFTER localStorage restore so it can override saved preference when needed.
     initialView = this.normalizeView(initialView);
 
     this._currentView.set(initialView);
@@ -311,8 +272,6 @@ export class AppStateManager implements MessageHandler {
       });
     }
   }
-
-  // State update methods
   setCurrentView(view: ViewType): void {
     if (this.canSwitchViews()) {
       view = this.normalizeView(view);
@@ -402,11 +361,8 @@ export class AppStateManager implements MessageHandler {
    */
   dismissThothFirstRun(): void {
     this._thothFirstRunDismissed.set(true);
-    try {
-      localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, 'true');
-    } catch {
-      /* localStorage unavailable in restricted environments */
-    }
+
+    localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, 'true');
   }
 
   getStateSnapshot(): AppState {
@@ -420,18 +376,11 @@ export class AppStateManager implements MessageHandler {
     };
   }
 
-  // ============================================================================
-  // LAYOUT MODE METHODS
-  // ============================================================================
-
   /** Set the layout mode and persist to localStorage */
   setLayoutMode(mode: LayoutMode): void {
     this._layoutMode.set(mode);
-    try {
-      localStorage.setItem('ptah-layout-mode', mode);
-    } catch {
-      /* localStorage unavailable in restricted environments */
-    }
+
+    localStorage.setItem('ptah-layout-mode', mode);
   }
 
   /** Toggle between 'single' and 'grid' layout modes */
@@ -439,10 +388,6 @@ export class AppStateManager implements MessageHandler {
     const next = this._layoutMode() === 'grid' ? 'single' : 'grid';
     this.setLayoutMode(next);
   }
-
-  // ============================================================================
-  // CANVAS SESSION REQUEST METHODS (Signal Bridge)
-  // ============================================================================
 
   /** Request that the canvas opens/focuses a tile for the given session */
   requestCanvasSession(sessionId: string, name?: string): void {

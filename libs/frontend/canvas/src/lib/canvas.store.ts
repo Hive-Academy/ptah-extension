@@ -74,8 +74,6 @@ export class CanvasStore {
     if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const tabId = this.tabManager.createTab(name);
-
-    // Guard against duplicate tabIds (defensive — createTab should always be unique)
     if (this._tiles().some((t) => t.tabId === tabId)) return tabId;
 
     this.appendTile(tabId);
@@ -145,10 +143,6 @@ export class CanvasStore {
     this._focusedTabId.set(tabId);
     this.tabManager.switchTab(tabId);
   }
-
-  // ============================================================================
-  // PRIVATE HELPERS
-  // ============================================================================
 
   /**
    * Append a tile for the given tabId at the next available grid position.

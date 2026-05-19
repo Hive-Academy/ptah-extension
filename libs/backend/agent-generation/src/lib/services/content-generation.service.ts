@@ -119,8 +119,6 @@ export class ContentGenerationService implements IContentGenerationService {
 
       let content = template.content;
       let description = '';
-
-      // 1. Extract dynamic sections (LLM and VAR markers)
       const dynamicSections = this.extractDynamicSections(content);
 
       this.logger.debug('Dynamic sections identified', {
@@ -128,8 +126,6 @@ export class ContentGenerationService implements IContentGenerationService {
         sectionCount: dynamicSections.length,
         sections: dynamicSections.map((s) => `${s.type}:${s.id}`),
       });
-
-      // 2. Generate content for dynamic sections via SDK
       if (dynamicSections.length > 0) {
         const fillResult = await this.fillDynamicSections(
           content,
@@ -141,9 +137,6 @@ export class ContentGenerationService implements IContentGenerationService {
         content = fillResult.content;
         description = fillResult.description;
       }
-
-      // 3. Final pass: substitute remaining {{VARS}} outside section markers
-      // Values come from analysis context, not hardcoded defaults.
       content = this.substituteRemainingVars(content, context);
 
       this.logger.info('Content generation complete', {
@@ -185,8 +178,6 @@ export class ContentGenerationService implements IContentGenerationService {
     template: AgentTemplate,
     context: AgentProjectContext,
   ): Promise<Result<LlmCustomization[], Error>> {
-    // LLM sections are handled directly in generateContent() via fillDynamicSections().
-    // This method is retained for interface compatibility.
     this.logger.debug(
       'generateLlmSections called — sections are handled inline in generateContent()',
       { templateId: template.id },
@@ -211,14 +202,11 @@ export class ContentGenerationService implements IContentGenerationService {
     sdkConfig?: ContentGenerationSdkConfig,
   ): Promise<{ content: string; description: string }> {
     try {
-      // Build the prompt describing all sections to fill
       const prompt = this.buildAllSectionsPrompt(
         sections,
         context,
         templateName,
       );
-
-      // Build JSON Schema for structured output: { description: string, sections: { [sectionId]: string } }
       const sectionIds = sections.map((s) => s.id);
       const sectionProperties: Record<string, unknown> = {};
       for (const section of sections) {
@@ -247,13 +235,9 @@ export class ContentGenerationService implements IContentGenerationService {
         },
         required: ['description', 'sections'],
       };
-
-      // Resolve model from typed repository
       const model =
         sdkConfig?.model ??
         (this.modelSettings.selectedModel.get() || 'default');
-
-      // Build system prompt with optional enhanced prompt content
       let systemPrompt = `You are a content generation specialist for developer tooling configuration files.
 
 CRITICAL CONSTRAINTS:
@@ -271,8 +255,6 @@ OUTPUT FORMAT:
       if (sdkConfig?.enhancedPromptContent) {
         systemPrompt += `\n\n--- Enhanced Project Guidance ---\n${sdkConfig.enhancedPromptContent}`;
       }
-
-      // Add plugin skill context when available
       if (sdkConfig?.pluginPaths && sdkConfig.pluginPaths.length > 0) {
         const skills = discoverPluginSkills(sdkConfig.pluginPaths);
         if (skills.length > 0) {
@@ -281,11 +263,6 @@ OUTPUT FORMAT:
           )}`;
         }
       }
-
-      // Execute SDK call with structured output.
-      // MCP is explicitly DISABLED here — the analysis data is already embedded
-      // in the prompt, so the LLM should NOT re-explore the workspace via MCP tools.
-      // Allowing MCP access wastes tokens/time and can produce inconsistent results.
       const handle = await this.internalQueryService.execute({
         cwd: context.rootPath,
         model,
@@ -300,7 +277,6 @@ OUTPUT FORMAT:
 
       let structuredOutput: unknown | null;
       try {
-        // Process stream to extract structured output
         structuredOutput = await this.processGenerationStream(
           handle.stream,
           sdkConfig?.onStreamEvent,
@@ -324,8 +300,6 @@ OUTPUT FORMAT:
           typeof typedOutput.description === 'string'
             ? typedOutput.description.trim()
             : '';
-
-        // Inject results into template content
         let processed = content;
         for (const section of sections) {
           const generated = generatedSections[section.id];
@@ -337,7 +311,6 @@ OUTPUT FORMAT:
               contentLength: replacement.length,
             });
           } else {
-            // Fallback: use original template content (without markers)
             replacement = section.content;
             this.logger.warn(
               `Section ${section.id}: SDK returned empty, using template fallback`,
@@ -349,8 +322,6 @@ OUTPUT FORMAT:
 
         return { content: processed, description: llmDescription };
       }
-
-      // Structured output not available — fall through to fallback
       this.logger.warn(
         'SDK did not return structured output, using template fallback for all sections',
       );
@@ -362,9 +333,6 @@ OUTPUT FORMAT:
         },
       );
     }
-
-    // Fallback: strip section markers but keep original template content.
-    // Return empty description so the orchestrator uses its own fallback chain.
     let processed = content;
     for (const section of sections) {
       processed = processed.replace(section.fullMatch, section.content);
@@ -380,7 +348,6 @@ OUTPUT FORMAT:
     context: AgentProjectContext,
     templateName: string,
   ): string {
-    // Use multi-phase analysis if available, otherwise fall back to formatAnalysisData
     let analysisData: string;
     if (context.analysisDir) {
       const phaseContext = this.readPhaseContextForRole(
@@ -441,7 +408,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
     onStreamEvent?: (event: GenerationStreamPayload) => void,
     agentId?: string,
   ): Promise<unknown | null> {
-    // Conversion context for FlatStreamEventUnion generation
     const sessionId = WizardPhaseId.fromAgent(agentId);
     const messageId = sessionId;
     let counter = 0;
@@ -460,7 +426,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
             thinkingBlockIndex,
             activeToolCallId,
           });
-          // Update mutable context after conversion
           if (event.kind === 'tool_start') {
             textBlockIndex++;
             thinkingBlockIndex++;
@@ -475,8 +440,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
         }
       },
     };
-
-    // Emit message_start so the frontend can create the execution tree root
     if (onStreamEvent) {
       onStreamEvent({
         kind: 'status',
@@ -504,8 +467,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
 
     try {
       const result = await processor.process(stream);
-
-      // Emit message_complete so the frontend knows the tree is done
       if (onStreamEvent) {
         onStreamEvent({
           kind: 'status',
@@ -625,8 +586,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
    */
   private extractDynamicSections(content: string): DynamicSection[] {
     const sections: DynamicSection[] = [];
-
-    // LLM sections: <!-- LLM:ID -->...<!-- /LLM:ID -->
     const llmRegex = /<!-- LLM:(\w+) -->([\s\S]*?)<!-- \/LLM:\1 -->/g;
     for (const match of content.matchAll(llmRegex)) {
       sections.push({
@@ -636,8 +595,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
         fullMatch: match[0],
       });
     }
-
-    // VAR sections: <!-- VAR:ID -->...<!-- /VAR:ID -->
     const varRegex = /<!-- VAR:(\w+) -->([\s\S]*?)<!-- \/VAR:\1 -->/g;
     for (const match of content.matchAll(varRegex)) {
       sections.push({
@@ -699,8 +656,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
           .join(', ')}`,
       );
     }
-
-    // Include full analysis data when available (from wizard deep analysis)
     const analysis = context.fullAnalysis;
     if (analysis) {
       if (analysis.projectTypeDescription) {
@@ -769,7 +724,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
     content: string,
     context: AgentProjectContext,
   ): string {
-    // Build variable values from analysis context
     const varMap: Record<string, string> = {
       PROJECT_TYPE: context.projectType.toString(),
       PROJECT_NAME: path.basename(context.rootPath),
@@ -792,17 +746,12 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
 
     let result = content;
     for (const [key, value] of Object.entries(varMap)) {
-      // Match {{KEY}} with optional whitespace: {{ KEY }}
       result = result.replace(
         new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'),
         value,
       );
     }
-
-    // Process simple conditionals that may remain outside sections
     result = this.processSimpleConditionals(result, varMap);
-
-    // Log any remaining unsubstituted variables (debug, not error)
     const remaining = result.match(/\{\{\s*[A-Z_]+\s*\}\}/g);
     if (remaining && remaining.length > 0) {
       this.logger.debug('Remaining unsubstituted variables (non-critical)', {
@@ -832,10 +781,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
       },
     );
   }
-
-  // ==========================================================================
-  // Multi-Phase Analysis Integration
-  // ==========================================================================
 
   /**
    * Cache for raw phase file reads per analysisDir.
@@ -870,7 +815,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
     templateName: string,
   ): string {
     try {
-      // Read and cache all phase files
       let files: Record<string, string>;
       if (this.phaseFileCache?.dir === analysisDir) {
         files = this.phaseFileCache.files;
@@ -899,19 +843,13 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
           },
         ];
         for (const pf of phaseFiles) {
-          try {
-            files[pf.key] = readFileSync(
-              path.join(analysisDir, pf.file),
-              'utf-8',
-            );
-          } catch {
-            // Phase file not available - skip
-          }
+          files[pf.key] = readFileSync(
+            path.join(analysisDir, pf.file),
+            'utf-8',
+          );
         }
         this.phaseFileCache = { dir: analysisDir, files };
       }
-
-      // Determine which phases to include based on role
       const name = templateName.toLowerCase();
       const phasesToInclude: Array<{
         key: string;
@@ -943,8 +881,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
           budget: 5_000,
         });
       }
-
-      // Build combined context with per-phase truncation
       const sections: string[] = [];
       for (const phase of phasesToInclude) {
         const content = files[phase.key];
@@ -960,7 +896,6 @@ Return a JSON object: { "description": "<concise description>", "sections": { "<
 
       return sections.join('\n\n');
     } catch {
-      // Directory not available - caller falls back to formatAnalysisData()
       return '';
     }
   }

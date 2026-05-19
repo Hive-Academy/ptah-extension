@@ -119,9 +119,6 @@ function tokenLabel(token: InjectionToken): string {
  * exported and compatible. We read `self:paramtypes` / `design:paramtypes`.
  */
 function resolveClassDeps(cls: Type<unknown>): InjectionToken[] {
-  // Nest stores `@Inject()` overrides at `self:paramtypes` as
-  //   [{ index: number, param: InjectionToken }, ...]
-  // and the default reflected types at `design:paramtypes`.
   const injectMetadata: Array<{ index: number; param: InjectionToken }> =
     Reflect.getMetadata('self:paramtypes', cls) ?? [];
   const designTypes: Array<Type<unknown> | undefined> =
@@ -171,8 +168,6 @@ export async function createTestingNestModule(
       return defaultValue as T;
     },
   };
-
-  // Canonicalise providers — class shorthand becomes { provide, useClass }.
   const providers: Array<ValueProvider | ClassProvider | FactoryProvider> = [
     { provide: PrismaService, useValue: prisma },
     { provide: ConfigService, useValue: mockConfigService },
@@ -183,13 +178,9 @@ export async function createTestingNestModule(
       return p;
     }),
   ];
-
-  // Apply overrides — append a new value provider for each to shadow prior.
   for (const override of options.overrides ?? []) {
     providers.push({ provide: override.token, useValue: override.useValue });
   }
-
-  // Build a token -> provider map (last write wins).
   const providerByToken = new Map<InjectionToken, Provider>();
   for (const p of providers) {
     providerByToken.set((p as { provide: InjectionToken }).provide, p);

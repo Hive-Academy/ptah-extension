@@ -67,11 +67,8 @@ export class VscodeMasterKeyProvider implements IMasterKeyProvider {
       if (keyBuf.length === 32) {
         return keyBuf;
       }
-      // Stored value is corrupt or wrong length — notify and regenerate.
       await this.notifyCorruption();
     }
-
-    // Generate a new 32-byte random master key and persist it.
     const newKey = crypto.randomBytes(32);
     await this.secretStorage.store(
       SECRET_STORAGE_KEY,
@@ -89,12 +86,9 @@ export class VscodeMasterKeyProvider implements IMasterKeyProvider {
       try {
         await this.userInteraction.showErrorMessage(CORRUPT_KEY_MESSAGE);
       } catch {
-        // Notification failure must not block key regeneration.
         console.error('[ptah-vscode] ERROR:', CORRUPT_KEY_MESSAGE);
       }
     } else {
-      // IUserInteraction not provided — log to console as fallback.
-      // Production code always passes userInteraction via registerVscodeSettings.
       console.error('[ptah-vscode] ERROR:', CORRUPT_KEY_MESSAGE);
     }
   }

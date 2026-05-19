@@ -13,7 +13,7 @@ import type {
   AgentProcessManager,
   CliDetectionService,
   SdkHandle,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentProcessInfo,
   CliDetectionResult,
@@ -125,15 +125,11 @@ export function buildAgentNamespace(
 
   return {
     spawn: async (request) => {
-      // Inject parentSessionId and projectGuidance at spawn time.
-      // Prefer parentSessionId from the request (set by MCP URL path) over the global fallback.
       const rawSessionId = request.parentSessionId ?? getActiveSessionId?.();
       const activeSessionId = rawSessionId
         ? (resolveSessionId?.(rawSessionId) ?? rawSessionId)
         : undefined;
       const projectGuidance = await getProjectGuidance?.();
-
-      // Route Ptah CLI agent spawn through PtahCliRegistry
       if (request.ptahCliId) {
         const registry = getPtahCliRegistry?.();
         if (!registry) {
@@ -141,9 +137,6 @@ export function buildAgentNamespace(
             'Ptah CLI registry not available. Ptah CLI agents require the Agent SDK.',
           );
         }
-
-        // Resolve working directory early — passed to both SDK (for cwd/sandbox)
-        // and AgentProcessManager (for metadata tracking)
         const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
 
         const result = await registry.spawnAgent(
@@ -178,14 +171,10 @@ export function buildAgentNamespace(
             resumeSessionId: request.resumeSessionId,
           },
         );
-
-        // Wire agentId so CLI permission requests route to agent monitor panel
         result.setAgentId(spawnResult.agentId);
 
         return spawnResult;
       }
-
-      // Check if the requested CLI type is disabled by the user
       if (request.cli) {
         const disabledClis = getDisabledClis?.() ?? [];
         if (disabledClis.includes(request.cli)) {
@@ -201,12 +190,6 @@ export function buildAgentNamespace(
         getSystemPrompt?.() ?? Promise.resolve(undefined),
         getPluginPaths?.() ?? Promise.resolve(undefined),
       ]);
-
-      // Resolve workingDirectory at spawn time using the same lazy resolver
-      // as the ptah-cli path. Without this, CLI agents (gemini, codex,
-      // copilot) inherit the app install directory in VS Code/Electron
-      // because AgentProcessManager.getWorkspaceRoot() returns '' when no
-      // folder is provided.
       const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
 
       const enrichedRequest = {
@@ -237,10 +220,7 @@ export function buildAgentNamespace(
     },
 
     list: async () => {
-      // Merge CLI agents with Ptah CLI agents
       const cliResults = await cliDetectionService.detectAll();
-
-      // Filter out disabled CLIs
       const disabledClis = getDisabledClis?.() ?? [];
       const enabledCliResults =
         disabledClis.length > 0
@@ -267,23 +247,15 @@ export function buildAgentNamespace(
 
           merged = [...enabledCliResults, ...ptahCliResults];
         } catch {
-          // If listing Ptah CLI agents fails, still return CLI agents
           merged = enabledCliResults;
         }
       }
-
-      // Sort by preferred agent order and add preferredRank
       const preferredOrder = getPreferredAgentOrder?.() ?? [];
       if (preferredOrder.length > 0) {
-        // Build a lookup: entry identifier -> 1-based rank
         const rankMap = new Map<string, number>();
         preferredOrder.forEach((entry, idx) => rankMap.set(entry, idx + 1));
-
-        // Determine the identifier for a CLI result (ptahCliId for Ptah CLI agents, cli type for system CLIs)
         const getIdentifier = (r: CliDetectionResult): string =>
           r.cli === 'ptah-cli' && r.ptahCliId ? r.ptahCliId : r.cli;
-
-        // Sort: preferred agents first (by rank), then unranked agents
         merged.sort((a, b) => {
           const rankA =
             rankMap.get(getIdentifier(a)) ?? Number.MAX_SAFE_INTEGER;
@@ -291,15 +263,11 @@ export function buildAgentNamespace(
             rankMap.get(getIdentifier(b)) ?? Number.MAX_SAFE_INTEGER;
           return rankA - rankB;
         });
-
-        // Add preferredRank to each result
         return merged.map((r) => ({
           ...r,
           preferredRank: rankMap.get(getIdentifier(r)) ?? 0,
         }));
       }
-
-      // No preferred order — return as-is with preferredRank: 0
       return merged.map((r) => ({ ...r, preferredRank: 0 }));
     },
 
@@ -331,8 +299,6 @@ export function buildAgentNamespace(
               resolve(status);
               return;
             }
-
-            // Check timeout
             if (Date.now() - startTime > timeout) {
               cleanup();
               reject(

@@ -75,10 +75,6 @@ export class SkillCandidateStore {
     return this.connection.db;
   }
 
-  // ────────────────────────────────────────────────────────────────────
-  // Candidate CRUD
-  // ────────────────────────────────────────────────────────────────────
-
   /**
    * Insert a new candidate (status='candidate'). If a row with the same
    * `trajectory_hash` already exists, returns the existing row with
@@ -162,21 +158,16 @@ export class SkillCandidateStore {
   ): SkillCandidateRow[] {
     const promoted = this.listByStatus('promoted').filter((r) => !r.pinned);
     if (promoted.length === 0) return [];
-
-    // Compute decay scores in-process (avoids SQLite POWER() availability issues).
     const scored: Array<{ row: SkillCandidateRow; score: number }> = [];
     for (const row of promoted) {
       const invocations = this.listInvocations(row.id, 1000);
       let score = 0;
       for (const inv of invocations) {
-        // Clamp to 0 to guard against clock skew producing negative ages,
-        // which would flip Math.pow(decayRate < 1, negative) above 1.0.
         const ageDays = Math.max(0, (now - inv.invokedAt) / 86400000);
         score += Math.pow(decayRate, ageDays);
       }
       scored.push({ row, score });
     }
-    // Ascending order — lowest score first (evict these first).
     scored.sort((a, b) => a.score - b.score);
     return scored.map((s) => s.row);
   }
@@ -186,9 +177,6 @@ export class SkillCandidateStore {
    * activity for LRU eviction (most-active first → eviction takes the tail).
    */
   listActiveOrderedByActivity(now: number): SkillCandidateRow[] {
-    // recency_factor = 1 / (1 + days_since_last_invocation)
-    // score = success_count * recency_factor
-    // Skills never invoked use created_at as a fallback timestamp.
     const stmt = this.db.prepare(
       `SELECT c.*,
               (
@@ -331,10 +319,6 @@ export class SkillCandidateStore {
     return row?.cnt ?? 0;
   }
 
-  // ────────────────────────────────────────────────────────────────────
-  // Invocation CRUD
-  // ────────────────────────────────────────────────────────────────────
-
   recordInvocation(input: {
     skillId: CandidateId;
     sessionId: string;
@@ -380,10 +364,6 @@ export class SkillCandidateStore {
     return rows.map((r) => this.toInvocationRow(r));
   }
 
-  // ────────────────────────────────────────────────────────────────────
-  // Vector search
-  // ────────────────────────────────────────────────────────────────────
-
   /**
    * Read a stored embedding by rowid. Returns null if sqlite-vec is not
    * loaded or the rowid does not exist.
@@ -403,10 +383,6 @@ export class SkillCandidateStore {
     limit = 5,
   ): Array<{ row: SkillCandidateRow; similarity: number }> {
     if (!this.connection.vecExtensionLoaded) return [];
-    // vec0 distance is L2; we convert to cosine via normalized vectors stored
-    // by `insertEmbedding`. Simpler approach: ask vec for distance, then
-    // re-rank manually using cosine on the in-memory vector. Pragmatic
-    // implementation: do an in-memory scan of all promoted candidates.
     const promoted = this.listByStatus('promoted');
     if (promoted.length === 0) return [];
     const scored: Array<{ row: SkillCandidateRow; similarity: number }> = [];
@@ -419,10 +395,6 @@ export class SkillCandidateStore {
     scored.sort((a, b) => b.similarity - a.similarity);
     return scored.slice(0, limit);
   }
-
-  // ────────────────────────────────────────────────────────────────────
-  // Stats
-  // ────────────────────────────────────────────────────────────────────
 
   getStats(): {
     candidates: number;
@@ -451,10 +423,6 @@ export class SkillCandidateStore {
     }
     return { candidates, promoted, rejected, invocations };
   }
-
-  // ────────────────────────────────────────────────────────────────────
-  // Internals
-  // ────────────────────────────────────────────────────────────────────
 
   private insertEmbedding(vec: Float32Array): number {
     const stmt = this.db.prepare(

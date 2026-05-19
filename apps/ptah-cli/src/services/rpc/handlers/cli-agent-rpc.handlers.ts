@@ -20,7 +20,7 @@
  * parity spec (`cli-agent-rpc.handlers.spec.ts`).
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -35,12 +35,10 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
-} from '@ptah-extension/agent-sdk';
-import {
-  SDK_TOKENS,
+  CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
-  SessionMetadataStore,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
+import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -76,7 +74,7 @@ export class CliAgentRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
-    @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,
@@ -86,6 +84,8 @@ export class CliAgentRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
     private readonly stateStorage: IStateStorage,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly runtimeContainer: DependencyContainer,
   ) {}
 
   register(): void {
@@ -98,11 +98,6 @@ export class CliAgentRpcHandlers {
     this.registerPermissionResponse();
     this.registerAgentStop();
     this.registerResumeCliSession();
-
-    // Initialize Copilot auto-approve from saved config (default: true).
-    // Read via workspace provider so file-based key routes to ~/.ptah/settings.json
-    // — parity with Electron AgentRpcHandlers and the gate in
-    // agent-process-manager.service.ts.
     const copilotAutoApprove = this.getAgentCfg<boolean>(
       'copilotAutoApprove',
       true,
@@ -140,9 +135,6 @@ export class CliAgentRpcHandlers {
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            // agentOrchestration.* settings are read via IWorkspaceProvider so
-            // file-based keys route to ~/.ptah/settings.json — parity with the
-            // Electron handler and the gate in agent-process-manager.service.ts.
             preferredAgentOrder: this.getAgentCfg<string[]>(
               'preferredAgentOrder',
               [],
@@ -170,8 +162,6 @@ export class CliAgentRpcHandlers {
               'copilotReasoningEffort',
               '',
             ),
-            // mcpPort lives under the `ptah` namespace (non-file-based);
-            // intentionally kept on stateStorage for parity with Electron.
             mcpPort:
               this.stateStorage.get<number>(
                 'agentOrchestration.mcpPort',
@@ -262,8 +252,6 @@ export class CliAgentRpcHandlers {
           );
         }
         if (params.mcpPort !== undefined) {
-          // mcpPort lives under `ptah` (not agentOrchestration) — kept on
-          // stateStorage to match Electron.
           await this.stateStorage.update(
             'agentOrchestration.mcpPort',
             Math.max(1024, Math.min(65535, params.mcpPort)),
@@ -278,8 +266,6 @@ export class CliAgentRpcHandlers {
             params.disabledMcpNamespaces,
           );
         }
-        // Browser settings — write via workspace provider (FILE_BASED_SETTINGS_KEYS routes
-        // through PtahFileSettingsManager → ~/.ptah/settings.json).
         if (params.browserAllowLocalhost !== undefined) {
           await this.workspace.setConfiguration(
             'ptah',
@@ -383,10 +369,13 @@ export class CliAgentRpcHandlers {
 
         let handled = false;
 
-        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
-          const permissionHandler = container.resolve<ISdkPermissionHandler>(
-            SDK_TOKENS.SDK_PERMISSION_HANDLER,
-          );
+        if (
+          this.runtimeContainer.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+        ) {
+          const permissionHandler =
+            this.runtimeContainer.resolve<ISdkPermissionHandler>(
+              SDK_TOKENS.SDK_PERMISSION_HANDLER,
+            );
           const response: PermissionResponse = {
             id: params.requestId,
             decision: params.decision,
@@ -643,35 +632,28 @@ export class CliAgentRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<boolean> {
-    try {
-      const projectsDir = path.join(os.homedir(), '.claude', 'projects');
-      const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-      const dirs = await fs.readdir(projectsDir);
+    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+    const dirs = await fs.readdir(projectsDir);
 
-      const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
-      const normalizedEscaped = normalize(escapedPath);
-      const matchedDir = dirs.find(
-        (d) =>
-          d === escapedPath ||
-          d.toLowerCase() === escapedPath.toLowerCase() ||
-          normalize(d) === normalizedEscaped,
+    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+    const normalizedEscaped = normalize(escapedPath);
+    const matchedDir = dirs.find(
+      (d) =>
+        d === escapedPath ||
+        d.toLowerCase() === escapedPath.toLowerCase() ||
+        normalize(d) === normalizedEscaped,
+    );
+
+    if (matchedDir) {
+      const sessionFile = path.join(
+        projectsDir,
+        matchedDir,
+        `${sessionId}.jsonl`,
       );
 
-      if (matchedDir) {
-        const sessionFile = path.join(
-          projectsDir,
-          matchedDir,
-          `${sessionId}.jsonl`,
-        );
-        try {
-          await fs.access(sessionFile);
-          return true;
-        } catch {
-          // JSONL file not found
-        }
-      }
-    } catch {
-      // Projects dir doesn't exist
+      await fs.access(sessionFile);
+      return true;
     }
 
     return false;

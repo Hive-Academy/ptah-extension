@@ -61,7 +61,6 @@ export function runEditorProviderContract(
       );
       setup.trigger?.({ kind: 'activate', filePath: '/tmp/foo.ts' });
       sub.dispose();
-      // Skip assertion if no trigger hook — contract still validates shape.
       if (setup.trigger) expect(seen).toContain('/tmp/foo.ts');
     });
 

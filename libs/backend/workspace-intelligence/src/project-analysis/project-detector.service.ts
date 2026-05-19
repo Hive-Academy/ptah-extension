@@ -51,8 +51,6 @@ export class ProjectDetectorService {
     if (workspaceFolders.length === 0) {
       return results;
     }
-
-    // Detect project type for each workspace folder
     for (const folder of workspaceFolders) {
       const projectType = await this.detectProjectType(folder);
       results.set(folder, projectType);
@@ -77,16 +75,12 @@ export class ProjectDetectorService {
     try {
       const entries = await this.fileSystem.readDirectory(workspacePath);
       const fileNames = new Set(entries.map((entry) => entry.name));
-
-      // Node.js/JavaScript projects - highest priority
       if (fileNames.has('package.json')) {
         const nodeType = await this.detectNodeProjectType(workspacePath);
         if (nodeType !== ProjectType.Node) {
           return nodeType; // Specific framework detected
         }
       }
-
-      // Python projects
       if (
         fileNames.has('requirements.txt') ||
         fileNames.has('pyproject.toml') ||
@@ -95,41 +89,27 @@ export class ProjectDetectorService {
       ) {
         return ProjectType.Python;
       }
-
-      // Java projects
       if (fileNames.has('pom.xml')) {
         return ProjectType.Java; // Maven
       }
       if (fileNames.has('build.gradle') || fileNames.has('build.gradle.kts')) {
         return ProjectType.Java; // Gradle
       }
-
-      // .NET projects
       if (this.hasDotNetProject(fileNames)) {
         return ProjectType.DotNet;
       }
-
-      // Rust projects
       if (fileNames.has('Cargo.toml')) {
         return ProjectType.Rust;
       }
-
-      // Go projects
       if (fileNames.has('go.mod')) {
         return ProjectType.Go;
       }
-
-      // PHP projects
       if (fileNames.has('composer.json')) {
         return ProjectType.PHP;
       }
-
-      // Ruby projects
       if (fileNames.has('Gemfile')) {
         return ProjectType.Ruby;
       }
-
-      // Framework-specific configuration files
       if (fileNames.has('angular.json')) {
         return ProjectType.Angular;
       }
@@ -151,15 +131,12 @@ export class ProjectDetectorService {
       ) {
         return ProjectType.Node; // Webpack is build tool, not framework
       }
-
-      // Default fallback - return package.json project type or general
       if (fileNames.has('package.json')) {
         return ProjectType.Node;
       }
 
       return ProjectType.General;
     } catch (_error) {
-      // Never throw - always return a valid project type
       console.warn(
         `Failed to detect project type for ${workspacePath}:`,
         _error instanceof Error ? _error.message : String(_error),
@@ -194,35 +171,24 @@ export class ProjectDetectorService {
         ...packageJson.dependencies,
         ...packageJson.devDependencies,
       };
-
-      // Check for Next.js first (it includes React)
       if (allDeps.next) {
         return ProjectType.NextJS;
       }
-
-      // Check for React
       if (allDeps.react) {
         return ProjectType.React;
       }
-
-      // Check for Angular
       if (allDeps['@angular/core'] || allDeps.angular) {
         return ProjectType.Angular;
       }
-
-      // Check for Vue
       if (allDeps.vue) {
         return ProjectType.Vue;
       }
-
-      // Check for Express
       if (allDeps.express) {
         return ProjectType.Node; // Express is just Node.js backend
       }
 
       return ProjectType.Node;
     } catch {
-      // If package.json can't be read or parsed, return generic node
       return ProjectType.Node;
     }
   }
@@ -250,6 +216,5 @@ export class ProjectDetectorService {
    * Cleanup resources (currently no-op, reserved for future use).
    */
   dispose(): void {
-    // No resources to clean up currently
   }
 }

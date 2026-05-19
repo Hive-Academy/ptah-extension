@@ -1,13 +1,3 @@
-// Jest mock for ngx-markdown to avoid loading the `.mjs` ESM bundle + `marked`
-// dependency during setup-wizard tests. The MarkdownBlockComponent from
-// @ptah-extension/chat is pulled in through the chat barrel (transitively
-// imported by setup-wizard via the @ptah-extension/chat-streaming + chat-routing
-// re-exports), but Jest still loads the real
-// ngx-markdown module at runtime and fails on `ɵcmp` resolution because its
-// Angular metadata is not registered. This stub provides a minimal,
-// standalone `MarkdownComponent` and `MarkdownModule` that compile cleanly
-// with Angular's testing harness.
-
 import {
   Component,
   NgModule,
@@ -16,7 +6,7 @@ import {
 } from '@angular/core';
 
 @Component({
-  // eslint-disable-next-line @angular-eslint/component-selector -- must match real ngx-markdown selector for mock to work
+  // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'markdown',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -119,16 +119,12 @@ import { NgClass } from '@angular/common';
 export class ConfirmationModalComponent {
   public readonly modal =
     viewChild.required<ElementRef<HTMLDialogElement>>('modal');
-
-  // Inputs
   public readonly title = input.required<string>();
   public readonly message = input.required<string>();
   public readonly confirmText = input<string>('Confirm');
   public readonly cancelText = input<string>('Cancel');
   public readonly mode = input<'confirm' | 'alert'>('confirm');
   public readonly confirmClass = input<string>('btn-primary');
-
-  // Outputs
   public readonly confirmed = output<void>();
   public readonly cancelled = output<void>();
 

@@ -7,14 +7,10 @@
  *
  * @module @ptah-extension/agent-generation/errors
  */
-
-// Base error and error codes
 export {
   AgentGenerationError,
   type AgentGenerationErrorCode,
 } from './agent-generation.error';
-
-// Specialized error classes
 export { TemplateError } from './template.error';
 export { ContentGenerationError } from './generation.error';
 export { ValidationError } from './validation.error';

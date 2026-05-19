@@ -211,7 +211,6 @@ export class CommunityPlanCardComponent {
   public readonly isCurrentPlan = computed(() => {
     const ctx = this.subscriptionContext();
     if (!ctx?.isAuthenticated) return false;
-    // Community users, or users with no plan tier (default to community)
     return ctx.currentPlanTier === 'community' || ctx.currentPlanTier === null;
   });
 
@@ -269,8 +268,6 @@ export class CommunityPlanCardComponent {
    */
   public handleClick(): void {
     if (this.isProUser()) return;
-
-    // Open VS Code marketplace
     window.open(
       'https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra',
       '_blank',

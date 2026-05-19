@@ -33,10 +33,6 @@ export class CompletionHandlerService {
    */
   handleChatError(data: { sessionId: string; error: string }): void {
     console.error('[CompletionHandlerService] Chat error:', data);
-
-    // Fan out to all tabs bound to this session.
-    // Canvas grid: when both tiles share a session, both must reset on error
-    // or one tile remains stuck in `streaming` status forever.
     let targetTabs: readonly TabState[] = [];
 
     if (data.sessionId) {
@@ -44,12 +40,8 @@ export class CompletionHandlerService {
         SessionId.from(data.sessionId),
       );
     }
-
-    // Fall back to active tab if no matching tab found
     if (targetTabs.length === 0) {
       const activeTab = this.tabManager.activeTab();
-
-      // Warn if session ID doesn't match active tab
       if (
         data.sessionId &&
         activeTab?.claudeSessionId &&
@@ -69,15 +61,10 @@ export class CompletionHandlerService {
 
       targetTabs = [activeTab];
     }
-
-    // Reset streaming state for every bound tab.
     for (const tab of targetTabs) {
       this.tabManager.applyStatusErrorReset(tab.id);
-      // Hide streaming indicator (visual only - no side effects)
       this.tabManager.markTabIdle(tab.id);
     }
-
-    // Session status is global to the SDK session — set once.
     this.sessionManager.setStatus('loaded');
 
     console.log(

@@ -182,10 +182,10 @@ const AGENT_GENERATION_TOKENS = {
     'AgentGenerationOrchestratorService',
   ),
   SETUP_WIZARD_SERVICE: Symbol.for('SetupWizardService'),
+  ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
 } as const;
 
 const SDK_TOKENS = {
-  SDK_ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
   SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader'),
 } as const;
 

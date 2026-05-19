@@ -41,16 +41,12 @@ export class ErrorHandler {
     const fullMessage = context
       ? `${context.service}.${context.operation}: ${errorMessage}`
       : errorMessage;
-
-    // Log with context
     this.logger.error(fullMessage, {
       service: context?.service,
       operation: context?.operation,
       metadata: context?.metadata,
       error: error instanceof Error ? error : undefined,
     });
-
-    // Show to user if requested
     if (showToUser) {
       const userMessage = context
         ? `${context.service} error: ${errorMessage}`
@@ -167,16 +163,12 @@ export class ErrorHandler {
     const fullMessage = context
       ? `${context.service} error: ${errorMessage}`
       : `Error: ${errorMessage}`;
-
-    // Log the error
     this.logger.error(fullMessage, {
       service: context?.service,
       operation: context?.operation,
       metadata: context?.metadata,
       error: error instanceof Error ? error : undefined,
     });
-
-    // Show notification with actions
     if (actions && actions.length > 0) {
       const actionTitles = actions.map((a) => a.title);
       const result = await vscode.window.showErrorMessage(

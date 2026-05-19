@@ -21,8 +21,6 @@ export interface LicenseUpdatedEvent extends SSEBaseEvent {
     plan: string;
     status: 'active' | 'expired' | 'revoked' | 'trialing';
     expiresAt: string | null;
-    // NOTE: licenseKey is intentionally NOT included for security
-    // License keys are sent via email only
   };
 }
 
@@ -191,11 +189,9 @@ export class SSEEventsService implements OnDestroy {
    */
   public async connect(): Promise<void> {
     if (this.eventSource) {
-      // Already connected or connecting
       if (this.connectionState() === 'connected') {
         return;
       }
-      // If in error state, disconnect and try again
       this.disconnect();
     }
 
@@ -203,11 +199,7 @@ export class SSEEventsService implements OnDestroy {
     this.errorMessage.set(null);
 
     try {
-      // Step 1: Get authentication ticket
       const ticket = await this.getTicket();
-
-      // Step 2: Open SSE connection with ticket
-      // EventSource bypasses HttpClient interceptors, so we must prepend apiBaseUrl manually
       const url = `${environment.apiBaseUrl}${
         this.sseBaseUrl
       }/subscribe?ticket=${encodeURIComponent(ticket)}`;
@@ -219,8 +211,6 @@ export class SSEEventsService implements OnDestroy {
         this.reconnectAttempts = 0;
         console.log('[SSE] Connection established');
       };
-
-      // Listen for all event types
       this.setupEventListeners();
 
       this.eventSource.onerror = (error) => {
@@ -228,10 +218,8 @@ export class SSEEventsService implements OnDestroy {
 
         if (this.eventSource?.readyState === EventSource.CLOSED) {
           this.connectionState.set('disconnected');
-          // EventSource is closed, try to reconnect with new ticket
           this.scheduleReconnect();
         } else {
-          // EventSource is reconnecting
           this.connectionState.set('connecting');
         }
       };
@@ -329,13 +317,9 @@ export class SSEEventsService implements OnDestroy {
    */
   private setupEventListeners(): void {
     if (!this.eventSource) return;
-
-    // Generic message handler for events sent without event type
     this.eventSource.onmessage = (event) => {
       this.handleEventData(event.data);
     };
-
-    // Specific event type handlers
     const eventTypes = [
       'connected',
       'heartbeat',
@@ -358,8 +342,6 @@ export class SSEEventsService implements OnDestroy {
   private handleEventData(data: string): void {
     try {
       const parsed = JSON.parse(data) as SSEEvent;
-
-      // Log for debugging (except heartbeats to reduce noise)
       if (parsed.type !== 'heartbeat') {
         console.log('[SSE] Event received:', parsed.type, parsed);
       }

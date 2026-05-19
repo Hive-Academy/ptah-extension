@@ -1,5 +1,3 @@
-// NOTE: backend cron:create is the trust boundary. Client-side
-// cron-expression validation here is preview-only.
 import {
   ChangeDetectionStrategy,
   Component,

@@ -1,7 +1,3 @@
-// Network domain tool types and guards.
-// Tools: WebFetch, WebSearch.
-
-// --- TOOL INPUT TYPES ---
 /** WebFetch tool input — Tool: WebFetch (fetch web content). */
 export interface WebFetchToolInput {
   /** The URL to fetch content from */
@@ -18,8 +14,6 @@ export interface WebSearchToolInput {
   /** Never include results from these domains */
   blocked_domains?: string[];
 }
-
-// --- TOOL OUTPUT TYPES ---
 /** WebFetch tool output interface */
 export interface WebFetchToolOutput {
   /** AI model's response to the prompt */
@@ -46,8 +40,6 @@ export interface WebSearchToolOutput {
   /** The query that was searched */
   query: string;
 }
-
-// --- TOOL INPUT TYPE GUARDS ---
 /** Type guard for WebFetch tool input */
 export function isWebFetchToolInput(
   input: unknown,
@@ -72,8 +64,6 @@ export function isWebSearchToolInput(
     typeof (input as WebSearchToolInput).query === 'string'
   );
 }
-
-// --- TOOL OUTPUT TYPE GUARDS ---
 /** Type guard for WebFetch tool output */
 export function isWebFetchToolOutput(
   output: unknown,

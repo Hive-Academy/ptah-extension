@@ -17,8 +17,6 @@ import { Result } from '@ptah-extension/shared';
  */
 export function stripMarkdownCodeBlock(content: string): Result<string, Error> {
   try {
-    // Remove ^ and $ anchors to match code blocks anywhere in the string
-    // Also match and discard optional language identifier after ```
     const processed = content
       .replace(/```markdown\s*([\s\S]*?)\s*```/im, '$1') // Specific markdown block
       .replace(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/im, '$1'); // Generic block with optional language
@@ -27,7 +25,7 @@ export function stripMarkdownCodeBlock(content: string): Result<string, Error> {
     return Result.err(
       error instanceof Error
         ? error
-        : new Error(`Failed to strip markdown code blocks: ${String(error)}`)
+        : new Error(`Failed to strip markdown code blocks: ${String(error)}`),
     );
   }
 }
@@ -49,8 +47,6 @@ export function stripMarkdownCodeBlock(content: string): Result<string, Error> {
  */
 export function stripHtmlComments(content: string): Result<string, Error> {
   try {
-    // Regex to match HTML comments: <!-- ... -->
-    // [\s\S]*? matches any character (including newline) non-greedily
     let previous: string;
     let processed = content;
     do {
@@ -62,7 +58,7 @@ export function stripHtmlComments(content: string): Result<string, Error> {
     return Result.err(
       error instanceof Error
         ? error
-        : new Error(`Failed to strip HTML comments: ${String(error)}`)
+        : new Error(`Failed to strip HTML comments: ${String(error)}`),
     );
   }
 }
@@ -85,7 +81,7 @@ export function stripHtmlComments(content: string): Result<string, Error> {
  */
 export function processTemplate(
   template: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): Result<string, Error> {
   try {
     let processed = template;
@@ -98,7 +94,7 @@ export function processTemplate(
     return Result.err(
       error instanceof Error
         ? error
-        : new Error(`Failed to process template: ${String(error)}`)
+        : new Error(`Failed to process template: ${String(error)}`),
     );
   }
 }
@@ -115,12 +111,9 @@ function parseSimpleYaml(yamlContent: string): Record<string, unknown> {
   const lines = yamlContent.split('\n').filter((line) => line.trim());
 
   for (const line of lines) {
-    // Skip comments
     if (line.trim().startsWith('#')) {
       continue;
     }
-
-    // Parse key-value pairs
     const match = line.match(/^(\s*)([^:]+):\s*(.*)$/);
     if (!match) {
       continue;
@@ -128,8 +121,6 @@ function parseSimpleYaml(yamlContent: string): Record<string, unknown> {
 
     const key = match[2].trim();
     let value: unknown = match[3].trim();
-
-    // Parse value types
     if (value === 'true') {
       value = true;
     } else if (value === 'false') {
@@ -144,17 +135,11 @@ function parseSimpleYaml(yamlContent: string): Record<string, unknown> {
       (value as string).startsWith('[') &&
       (value as string).endsWith(']')
     ) {
-      // Parse simple arrays
-      try {
-        value = JSON.parse(value as string);
-      } catch {
-        // If JSON parsing fails, keep as string
-      }
+      value = JSON.parse(value as string);
     } else if (
       ((value as string).startsWith('"') && (value as string).endsWith('"')) ||
       ((value as string).startsWith("'") && (value as string).endsWith("'"))
     ) {
-      // Remove quotes
       value = (value as string).slice(1, -1);
     }
 
@@ -202,14 +187,14 @@ export function extractFrontmatter(content: string): Result<
       return Result.err(
         error instanceof Error
           ? error
-          : new Error(`Failed to parse YAML frontmatter: ${String(error)}`)
+          : new Error(`Failed to parse YAML frontmatter: ${String(error)}`),
       );
     }
   } catch (error) {
     return Result.err(
       error instanceof Error
         ? error
-        : new Error(`Failed to extract frontmatter: ${String(error)}`)
+        : new Error(`Failed to extract frontmatter: ${String(error)}`),
     );
   }
 }

@@ -85,10 +85,6 @@ export function bindLicenseReactivity(opts: LicenseReactivityOptions): {
     return { dispose: () => undefined };
   }
 
-  // -------------------------------------------------------------------------
-  // Event handlers
-  // -------------------------------------------------------------------------
-
   const onVerified = (_status: LicenseStatus): void => {
     logger.info(
       '[LicenseReactivityBinder] license:verified — bringing up premium subsystems',
@@ -119,12 +115,6 @@ export function bindLicenseReactivity(opts: LicenseReactivityOptions): {
 
   licenseService.on('license:verified', onVerified);
   licenseService.on('license:expired', onExpired);
-
-  // -------------------------------------------------------------------------
-  // Initial dispatch — eliminates the stale-snapshot race at startup.
-  // -------------------------------------------------------------------------
-  // Perform verification asynchronously so we don't block the caller. Wrap in
-  // try/catch so a verification failure at startup never crashes activation.
   (async () => {
     try {
       const status = await licenseService.verifyLicense();
@@ -154,10 +144,6 @@ export function bindLicenseReactivity(opts: LicenseReactivityOptions): {
       );
     }
   })();
-
-  // -------------------------------------------------------------------------
-  // Disposable
-  // -------------------------------------------------------------------------
   return {
     dispose: () => {
       try {
@@ -167,7 +153,6 @@ export function bindLicenseReactivity(opts: LicenseReactivityOptions): {
           '[LicenseReactivityBinder] License event listeners removed',
         );
       } catch (disposeError: unknown) {
-        // Non-fatal — process is shutting down anyway
         logger.warn('[LicenseReactivityBinder] dispose error (non-fatal)', {
           error:
             disposeError instanceof Error

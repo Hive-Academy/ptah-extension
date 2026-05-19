@@ -429,12 +429,6 @@ export class SetupRpcHandlers {
           .map(([id]) => id),
         phaseContentCount: Object.keys(phaseContents).length,
       });
-
-      // Seed memory from finalized analysis (non-blocking, non-fatal).
-      // MUST run after phaseContents is built so seed content can pull from
-      // phase markdown. MUST run before `return response` so the seed observes
-      // the same data the frontend sees. NO exception escapes `seedWizardMemory`
-      // — analysis response always reaches the RPC caller.
       try {
         await this.seedWizardMemory(workspaceRoot, manifest, phaseContents);
       } catch (error) {
@@ -835,8 +829,6 @@ export class SetupRpcHandlers {
         source: params.source,
         agentFileCount: params.agentFiles.length,
       });
-
-      // Validate source URL against curated pack list to prevent arbitrary downloads
       const packService = this.getAgentPackService();
       const curatedPacks = await packService.listCuratedPacks();
       const isAllowedSource = curatedPacks.some(
@@ -877,10 +869,6 @@ export class SetupRpcHandlers {
     });
   }
 
-  // ============================================================
-  // New Project Chat Handoff
-  // ============================================================
-
   /**
    * wizard:start-new-project-chat — hand the New Project flow off to the
    * chat view with the saas-workspace-initializer skill primed.
@@ -905,7 +893,6 @@ export class SetupRpcHandlers {
       this.logger.debug('RPC: wizard:start-new-project-chat called');
 
       try {
-        // ---- Step 1: enable ptah-nx-saas plugin if not already enabled ----
         const config = this.pluginLoader.getWorkspacePluginConfig();
         const enabled = new Set(config.enabledPluginIds);
         let pluginConfigChanged = false;
@@ -920,8 +907,6 @@ export class SetupRpcHandlers {
             '[wizard:start-new-project-chat] Enabled ptah-nx-saas plugin for workspace',
           );
         }
-
-        // ---- Step 2: refresh skill junctions when plugin set changed ----
         if (pluginConfigChanged) {
           try {
             const skillJunction = this.resolveService<SkillJunctionService>(
@@ -955,8 +940,6 @@ export class SetupRpcHandlers {
             );
           }
         }
-
-        // ---- Step 3: focus the chat view via the platform port ----
         try {
           await this.platformCommands.focusChat();
         } catch (error: unknown) {
@@ -967,8 +950,6 @@ export class SetupRpcHandlers {
             },
           );
         }
-
-        // ---- Step 4: broadcast the seed-message envelope to the webview ----
         try {
           const webviewManager = this.resolveService<WebviewBroadcaster>(
             TOKENS.WEBVIEW_MANAGER,
@@ -979,9 +960,6 @@ export class SetupRpcHandlers {
             { prompt: NEW_PROJECT_CHAT_SEED_PROMPT },
           );
         } catch (error: unknown) {
-          // Without a webview broadcaster (e.g. CLI) the seed turn cannot be
-          // delivered automatically — surface as a soft failure so callers
-          // can retry, but do not throw.
           this.logger.warn(
             '[wizard:start-new-project-chat] Failed to broadcast seed prompt',
             {
@@ -989,8 +967,6 @@ export class SetupRpcHandlers {
             },
           );
         }
-
-        // ---- Step 5: dispose the wizard webview panel ----
         try {
           const wizardLifecycle =
             this.resolveService<WizardWebviewLifecycleLike>(
@@ -1024,10 +1000,6 @@ export class SetupRpcHandlers {
       }
     });
   }
-
-  // ============================================================
-  // Wizard memory seeding
-  // ============================================================
 
   /**
    * Seed three memory entries (project-profile, code-conventions, key-files)
@@ -1129,7 +1101,6 @@ export class SetupRpcHandlers {
           subject: req.subject,
           workspaceRoot,
         });
-        // Continue to next seed; one failure does not abort the others.
       }
     }
 
@@ -1158,11 +1129,6 @@ export class SetupRpcHandlers {
     }
   }
 
-  // ----- Content builders (plan §3.6) ---------------------------------------
-  // Multi-phase output is LLM-authored markdown — not structured JSON. The
-  // builders use tolerant regex/section extraction with safe fallbacks; if a
-  // section is missing they emit `(not detected)` rather than throw.
-
   private buildProjectProfileContent(
     manifest: MultiPhaseManifest,
     phaseContents: Record<string, string>,
@@ -1182,12 +1148,8 @@ export class SetupRpcHandlers {
         sourceLine;
       return capUtf8(out, 1500);
     }
-
-    // H1 → Type
     const h1 = /^#\s+(.+?)\s*$/m.exec(md);
     const typeLine = h1 ? h1[1].trim() : '(not detected)';
-
-    // Bold-prefix lines: **Frameworks**: …
     const grabBoldLine = (label: string): string | null => {
       const re = new RegExp(
         `^\\s*[*-]?\\s*\\*\\*${label}\\*\\*\\s*:\\s*(.+?)\\s*$`,
@@ -1205,14 +1167,11 @@ export class SetupRpcHandlers {
     const frameworksLine = truncateList(frameworksRaw) ?? '(not detected)';
     const monorepoLine = monorepoRaw ?? 'none';
     const techStackLine = truncateList(techStackRaw) ?? '(not detected)';
-
-    // First paragraph after `## Architecture` → Architecture patterns
     let archLine = '(not detected)';
     const archHeadMatch =
       /^##\s+Architecture\b[^\n]*\n+([\s\S]*?)(?:\n#{1,6}\s|$)/m.exec(md);
     if (archHeadMatch) {
       const body = archHeadMatch[1].trim();
-      // First non-empty paragraph
       const firstPara = body.split(/\n\s*\n/)[0]?.trim() ?? '';
       if (firstPara) {
         const oneLine = firstPara.replace(/\s+/g, ' ').trim();
@@ -1236,7 +1195,6 @@ export class SetupRpcHandlers {
     manifest: MultiPhaseManifest,
     phaseContents: Record<string, string>,
   ): string {
-    // Search quality-audit first, then architecture-assessment.
     const candidates: Array<{ phase: string; file: string; md: string }> = [
       {
         phase: 'quality-audit',
@@ -1279,7 +1237,6 @@ export class SetupRpcHandlers {
     manifest: MultiPhaseManifest,
     phaseContents: Record<string, string>,
   ): string {
-    // Categorisation heuristics — order-stable.
     type Category =
       | 'Entry points'
       | 'Configs'
@@ -1298,10 +1255,6 @@ export class SetupRpcHandlers {
       Services: new Set(),
       Models: new Set(),
     };
-
-    // A token counts as path-like if it either contains a slash or matches a
-    // bare well-known config filename (package.json, tsconfig*.json, etc.)
-    // that conventionally lives at the workspace root.
     const isBareConfigName = (s: string): boolean =>
       /^(package\.json|tsconfig[^\s]*\.json|nx\.json|jest\.config[^\s]*|webpack\.config[^\s]*|vite\.config[^\s]*|astro\.config[^\s]*|eslint\.config[^\s]*|\.eslintrc[^\s]*|\.prettierrc[^\s]*|docker-compose[^\s]*\.ya?ml|electron-builder\.ya?ml|tailwind\.config[^\s]*|content-manifest\.json|agent-pack-manifest\.json|skills-lock\.json|\.mcp\.json)$/i.test(
         s,
@@ -1309,9 +1262,7 @@ export class SetupRpcHandlers {
 
     const isPathLike = (s: string): boolean =>
       (/[/\\]/.test(s) || isBareConfigName(s)) &&
-      // looks like a relative-ish path with at least one path component
       /^[A-Za-z0-9._@/\\-]{2,}$/.test(s) &&
-      // not a URL
       !/^https?:/i.test(s);
 
     const classify = (p: string): Category | null => {
@@ -1376,16 +1327,12 @@ export class SetupRpcHandlers {
 
     for (const md of Object.values(phaseContents)) {
       if (!md) continue;
-      // Declare regexes inside the loop so each iteration gets a fresh
-      // lastIndex=0 — avoids the stateful-g-flag gotcha across phase strings.
       const fenceRe = /```(?:text|json|yaml|yml)?\n([\s\S]*?)```/gi;
       const bulletPathRe = /^\s*[-*]\s+`([^`\n]+)`/gm;
-      // Fenced code blocks
       let m: RegExpExecArray | null;
       while ((m = fenceRe.exec(md)) !== null) {
         const block = m[1];
         for (const line of block.split(/\r?\n/)) {
-          // Permit list-y blocks (` ├── name`, `- path`, plain `path`)
           const tokens = line
             .replace(/^[\s│├└─*-]+/, '')
             .split(/\s+#|\s{2,}|\s+\/\//)[0]
@@ -1393,7 +1340,6 @@ export class SetupRpcHandlers {
           if (tokens) consume(tokens);
         }
       }
-      // Inline `- \`path\`` bullets
       let b: RegExpExecArray | null;
       while ((b = bulletPathRe.exec(md)) !== null) {
         consume(b[1]);
@@ -1433,18 +1379,12 @@ export class SetupRpcHandlers {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers — kept in this file because they are only used by the wizard
-// memory-seed content builders above and have no reuse value elsewhere.
-// ---------------------------------------------------------------------------
-
 /**
  * Truncate a string to fit within `maxBytes` UTF-8 bytes. Adds an ellipsis
  * marker when truncation actually occurs.
  */
 function capUtf8(s: string, maxBytes: number): string {
   if (Buffer.byteLength(s, 'utf8') <= maxBytes) return s;
-  // Conservative cut: reduce by characters until under cap, leaving a marker.
   const marker = '\n…(truncated)';
   const markerBytes = Buffer.byteLength(marker, 'utf8');
   let cut = s.length;
@@ -1463,7 +1403,6 @@ function capUtf8(s: string, maxBytes: number): string {
  */
 function truncateList(raw: string | null): string | null {
   if (!raw) return null;
-  // Split on commas, but tolerate ` and ` joiners and pipes.
   const parts = raw
     .split(/\s*(?:,|\||;| and )\s*/)
     .map((p) => p.trim())

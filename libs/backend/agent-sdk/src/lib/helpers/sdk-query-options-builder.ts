@@ -23,6 +23,7 @@ import {
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError, ModelNotAvailableError } from '../errors';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
@@ -49,12 +50,14 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
-} from '../providers/_shared/provider-registry';
+} from '@ptah-extension/shared';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
-import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot/copilot-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider.types';
-import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../providers/openrouter/openrouter-provider.types';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
+import {
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+  OLLAMA_AUTH_TOKEN_PLACEHOLDER,
+} from '@ptah-extension/shared';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
 
@@ -64,7 +67,7 @@ import { PTAH_MCP_PORT } from '../constants';
  * The SDK sometimes logs HTTP / API errors to stderr without forwarding them
  * through the message stream, which causes the UI to hang. These patterns
  * cover the common cases we've seen from Anthropic-compatible providers
- * (Moonshot, Z.AI, OpenRouter) — HTTP status codes, Anthropic error type
+ * (Moonshot, Z.AI, OpenRouter) â€” HTTP status codes, Anthropic error type
  * strings, and common auth/model keywords.
  */
 function isUpstreamProviderError(stderrChunk: string): boolean {
@@ -107,20 +110,14 @@ export function buildModelIdentityPrompt(
   if (!provider) {
     return undefined;
   }
-
-  // Get the actual model being used from AuthEnv.
-  // The SDK uses ANTHROPIC_DEFAULT_*_MODEL to map tiers to actual model IDs.
   const actualModel =
     authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
     authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
     authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
   if (!actualModel) {
-    // No tier mapping set - likely using Anthropic directly
     return undefined;
   }
-
-  // Build a clear identity prompt
   return `# Model Identity Clarification
 
 IMPORTANT: You are running as **${actualModel}** provided by **${provider.name}**, NOT Claude by Anthropic.
@@ -142,8 +139,6 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
     return null;
   }
-
-  // Detect proxy providers via their token placeholders (baseUrl is dynamic localhost)
   if (authEnv.ANTHROPIC_AUTH_TOKEN === COPILOT_PROXY_TOKEN_PLACEHOLDER) {
     return 'github-copilot';
   }
@@ -153,17 +148,11 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   if (authEnv.ANTHROPIC_AUTH_TOKEN === OPENROUTER_PROXY_TOKEN_PLACEHOLDER) {
     return 'openrouter';
   }
-
-  // Check which provider matches this base URL (derived from registry to prevent ID mismatches)
   for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
     const provider = getAnthropicProvider(id);
     if (provider && provider.baseUrl) {
-      try {
-        if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-          return id;
-        }
-      } catch {
-        // Skip providers with invalid/empty baseUrl
+      if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
+        return id;
       }
     }
   }
@@ -196,7 +185,7 @@ export interface AssembleSystemPromptInput {
 /**
  * Result of system prompt assembly.
  *
- * Always uses 'preset-append' mode — the SDK's claude_code preset is the base,
+ * Always uses 'preset-append' mode â€” the SDK's claude_code preset is the base,
  * and our content is appended on top. This preserves the SDK's critical MCP
  * handling, tool routing, and environment context instructions.
  */
@@ -208,7 +197,7 @@ export interface SystemPromptAssemblyResult {
 /**
  * Assemble the system prompt from its constituent parts.
  *
- * Always uses the SDK's `claude_code` preset as the base — this provides critical
+ * Always uses the SDK's `claude_code` preset as the base â€” this provides critical
  * built-in behavioral guidance, MCP server handling, tool routing, and environment
  * context that the agent needs to function correctly.
  *
@@ -216,7 +205,7 @@ export interface SystemPromptAssemblyResult {
  * Ptah-specific MCP mandates, formatting rules, AskUserQuestion enforcement,
  * orchestration workflows, CLI agent hierarchy, and git/PR safety. Enhanced prompts
  * (project-specific guidance from the setup wizard) are also appended when available.
- * Some behavioral sections overlap with the preset — this is intentional as it
+ * Some behavioral sections overlap with the preset â€” this is intentional as it
  * reinforces the instructions without contradicting them.
  *
  * **Free tier**: Only basic top-ups appended (identity, user prompt). No Ptah-specific
@@ -237,32 +226,17 @@ export function assembleSystemPrompt(
     isPremium,
     enhancedPromptsContent,
   } = input;
-
-  // Build append parts layered on top of the SDK's claude_code preset.
-  // The preset provides foundational behavioral guidance and MCP handling —
-  // we NEVER replace it, only append to it.
   const appendParts: string[] = [];
-
-  // 1. Model identity clarification for third-party providers
   const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
   if (identityPrompt) {
     appendParts.push(identityPrompt);
   }
-
-  // 2. PTAH_CORE_SYSTEM_PROMPT for all premium users — MCP mandates, orchestration,
-  // formatting, AskUserQuestion, CLI agent hierarchy, git/PR workflows.
-  // Appended to (not replacing) the SDK's claude_code preset so the agent gets BOTH
-  // the SDK's built-in MCP handling instructions AND our Ptah-specific directives.
   if (isPremium) {
     appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
   }
-
-  // 3. User's custom system prompt
   if (userSystemPrompt) {
     appendParts.push(userSystemPrompt);
   }
-
-  // 4. Enhanced prompts — project-specific guidance (from setup wizard)
   if (isPremium && enhancedPromptsContent?.trim()) {
     appendParts.push(enhancedPromptsContent);
   }
@@ -343,7 +317,7 @@ export interface QueryOptionsInput {
    * Optional callback invoked when the SDK's stderr stream contains an
    * obvious upstream provider error (HTTP 4xx, model_not_found,
    * invalid_request_error, authentication failures). The callee is
-   * responsible for surfacing the error to the UI — typically by aborting
+   * responsible for surfacing the error to the UI â€” typically by aborting
    * the query's AbortController with a descriptive Error, which then
    * causes the stream iterator to throw. Without this hook, stderr-only
    * errors (e.g., Moonshot returning model_not_found for an unsupported
@@ -363,7 +337,7 @@ export interface QueryOptionsInput {
   resumeSessionAt?: string;
   /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
-   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
+   * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
    * explicitly to opt out (e.g., performance-sensitive contexts).
    */
@@ -372,14 +346,14 @@ export interface QueryOptionsInput {
    * When true, the SDK emits `SDKPartialAssistantMessage` events
    * (`subtype: 'stream_event'`) for finer-grained streaming deltas. Mirrors
    * `Options.includePartialMessages` from the Claude Agent SDK. Defaults to
-   * ON when unspecified to preserve historical Ptah behavior — the existing
+   * ON when unspecified to preserve historical Ptah behavior â€” the existing
    * stream consumers (StreamTransformer, SdkMessageTransformer) already
    * handle these events. Pass `false` to opt out (reduces event volume on
    * bandwidth-sensitive paths).
    */
   includePartialMessages?: boolean;
   /**
-   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
    * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
    * for the Anthropic-compatible HTTP proxy. When `undefined` or an empty
    * object, the builder's `mcpServers` output is byte-identical to the prior
@@ -393,10 +367,18 @@ export interface QueryOptionsInput {
    * non-empty. Multi-turn sessions should pass the most recent user message.
    */
   initialUserQuery?: string;
+  /**
+   * Per-call AuthEnv override (sourced from a ProviderProfile). When provided,
+   * the builder uses these values instead of the DI-singleton AuthEnv for
+   * base URL, auth tokens, tier env vars, and provider-identity prompt
+   * resolution. Reserved for the Ptah CLI unified-adapter path where the
+   * profile carries third-party provider auth.
+   */
+  authEnvOverride?: AuthEnv;
 }
 
 /**
- * SDK query options structure — directly aliased from the SDK's canonical
+ * SDK query options structure â€” directly aliased from the SDK's canonical
  * `Options` type. The hand-rolled `SdkQueryOptions` interface previously
  * masked phantom fields like `forwardSubagentText` that the SDK silently
  * ignored. Using `Options` directly surfaces compile errors when we attempt
@@ -442,7 +424,8 @@ export class SdkQueryOptionsBuilder {
     private readonly compactionHookHandler: CompactionHookHandler,
     @inject(SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER)
     private readonly worktreeHookHandler: WorktreeHookHandler,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
     @inject(SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR)
@@ -490,59 +473,36 @@ export class SdkQueryOptionsBuilder {
       includePartialMessages,
       mcpServersOverride,
       initialUserQuery,
+      authEnvOverride,
     } = input;
 
-    // Model is required - SDK sets default in config at startup
+    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
     if (!sessionConfig?.model) {
       throw new SdkError('Model not provided - ensure SDK is initialized');
     }
-
-    // Observability: log when fork/resume-at are requested without a resume id
-    // (these get silently dropped to `undefined` further down — see end of build()).
     this.warnIfForkOptionsDroppedSilently(input);
-
-    // Resolve bare tier names ('opus', 'sonnet', 'haiku') to full model IDs.
-    // The SDK's query() requires full model IDs like 'claude-opus-4-6' —
-    // bare tier names cause "can't access model named opus" errors.
     const model = this.modelService.resolveModelId(sessionConfig.model);
     if (!sessionConfig?.projectPath) {
       throw new SdkError(
-        'projectPath is required — cannot start an SDK session without a workspace folder. ' +
+        'projectPath is required â€” cannot start an SDK session without a workspace folder. ' +
           'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
       );
     }
     const cwd = sessionConfig.projectPath;
-
-    // Log resolved model and tier env vars for debugging (reads from AuthEnv)
-    const envSonnet = this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
-    const envOpus = this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default';
-    const envHaiku = this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default';
+    const envSonnet =
+      effectiveAuthEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
+    const envOpus = effectiveAuthEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default';
+    const envHaiku =
+      effectiveAuthEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default';
     this.logger.info(`[SdkQueryOptionsBuilder] SDK call with model: ${model}`, {
       model,
       envSonnet,
       envOpus,
       envHaiku,
-      baseUrl: this.authEnv.ANTHROPIC_BASE_URL || 'default',
+      baseUrl: effectiveAuthEnv.ANTHROPIC_BASE_URL || 'default',
     });
-
-    // Validate that non-Anthropic providers have ANTHROPIC_BASE_URL configured.
-    // Without this check, empty/missing base URL causes the SDK to silently fall
-    // back to api.anthropic.com while the auth token is a provider-specific
-    // placeholder (e.g., OLLAMA_AUTH_TOKEN_PLACEHOLDER), which Anthropic's API
-    // drops without responding — causing the UI to hang forever. Surface the
-    // misconfiguration immediately so the user sees a clear, actionable error.
-    this.validateBaseUrlForProvider();
-
-    // Pre-flight model existence check (cache-only, never blocks the query path
-    // with a fresh fetch). Only runs when models are already cached from a
-    // previous getSupportedModels() call — avoids adding latency on first query.
-    // Catches provider-reported "model not found" failures (e.g. kimi-k2.6 /
-    // devstral on Moonshot) before the SDK starts the subprocess, so the UI
-    // gets a typed ModelNotAvailableError rather than a raw SDK error result.
-    await this.validateModelAvailability(model);
-
-    // Warn when main model is non-Claude but tier env vars still point to Claude.
-    // This means subagents will silently use Claude models at higher premium rates.
+    this.validateBaseUrlForProvider(effectiveAuthEnv);
+    await this.validateModelAvailability(model, effectiveAuthEnv);
     if (!model.startsWith('claude-')) {
       const claudeTiers = [envSonnet, envOpus, envHaiku].filter(
         (t) => t !== 'default' && t.startsWith('claude-'),
@@ -555,8 +515,6 @@ export class SdkQueryOptionsBuilder {
         );
       }
     }
-
-    // Build system prompt configuration
     const systemPrompt = await this.buildSystemPrompt(
       sessionConfig,
       isPremium,
@@ -564,51 +522,31 @@ export class SdkQueryOptionsBuilder {
       mcpServerRunning,
       initialUserQuery,
       cwd,
+      effectiveAuthEnv,
     );
-
-    // `routingId` is the first arg to `createCallback` (treated as the real SDK
-    // session UUID for cleanup purposes). For new sessions tabId == sessionId;
-    // for resumed sessions sessionId is the real SDK UUID.
     const routingId = sessionConfig?.tabId ?? sessionId;
-
-    // NODE-NESTJS-3Y hardening: previously these branches called
-    // `SessionId.from(routingId)` / `TabId.from(sessionConfig.tabId)`, which
-    // THROW on a non-UUID input. The chat RPC schema now rejects malformed
-    // ids at the boundary, but defense-in-depth here keeps any other caller
-    // (CLI, MCP proxy, IPC) from crashing the adapter. We `safeParse`
-    // instead — on a bad id the permission callback simply omits the
-    // routing key and falls back to broadcasting permissions, which the
-    // permission handler already tolerates (`createCallback` accepts
-    // `undefined` for both routing args).
     const routingSessionId = routingId ? SessionId.safeParse(routingId) : null;
     const routingTabId = sessionConfig?.tabId
       ? TabId.safeParse(sessionConfig.tabId)
       : null;
     if (routingId && routingSessionId === null) {
       this.logger.warn(
-        '[SdkQueryOptionsBuilder] Permission routing id is not a UUID — falling back to broadcast',
+        '[SdkQueryOptionsBuilder] Permission routing id is not a UUID â€” falling back to broadcast',
         { routingId },
       );
     }
     if (sessionConfig?.tabId && routingTabId === null) {
       this.logger.warn(
-        '[SdkQueryOptionsBuilder] Permission tabId is not a UUID — falling back to broadcast',
+        '[SdkQueryOptionsBuilder] Permission tabId is not a UUID â€” falling back to broadcast',
         { tabId: sessionConfig.tabId },
       );
     }
-
-    // Pass `sessionConfig?.tabId` as the explicit third arg (TabId) so the
-    // permission handler stamps the authoritative tab ID on every emitted
-    // `PermissionRequest` and `AskUserQuestionRequest`. The frontend stream
-    // router prefers `prompt.tabId` over `prompt.sessionId` for routing.
     const canUseToolCallback: CanUseTool =
       this.permissionHandler.createCallback(
         routingSessionId ?? undefined,
         undefined,
         routingTabId ?? undefined,
       );
-
-    // Create merged hooks (subagent + compaction + worktree)
     const hooks = this.createHooks(
       cwd,
       sessionId,
@@ -616,11 +554,7 @@ export class SdkQueryOptionsBuilder {
       onWorktreeCreated,
       onWorktreeRemoved,
     );
-
-    // Get compaction configuration
     const compactionConfig = this.compactionConfigProvider.getConfig();
-
-    // Log query options
     this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
       cwd,
       model,
@@ -632,7 +566,6 @@ export class SdkQueryOptionsBuilder {
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
-      // Premium feature status
       isPremium,
       mcpEnabled: isPremium,
       hasEnhancedPrompts: !!enhancedPromptsContent,
@@ -656,57 +589,27 @@ export class SdkQueryOptionsBuilder {
           this.buildMcpServers(isPremium, mcpServerRunning, sessionId),
           mcpServersOverride,
         ),
-        // Set SDK permission mode based on current autopilot config.
-        // SDK evaluation order: Hooks → Rules → Permission Mode → canUseTool.
-        // When 'default': all tools fall through to canUseTool callback.
-        // When 'bypassPermissions'/'acceptEdits'/'plan': SDK resolves at step 3.
         permissionMode,
         canUseTool: canUseToolCallback,
-        // Default ON preserves historical behavior — partial stream events
-        // are already consumed by StreamTransformer/SdkMessageTransformer.
-        // Callers can opt out via QueryOptionsInput.includePartialMessages.
         includePartialMessages: includePartialMessages ?? true,
-        // Load settings from project and local directories.
-        // IMPORTANT: Exclude 'user' when using a translation proxy OR local provider
-        // (Ollama uses localhost, not 127.0.0.1) because ~/.claude/settings.json may
-        // contain auth from a previous `claude login` that overrides ANTHROPIC_BASE_URL
-        // and routes requests to api.anthropic.com instead of our local endpoint.
         settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
-          this.authEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
+          effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
         )
           ? ['project', 'local']
           : ['user', 'project', 'local'],
-        // Merge AuthEnv with process.env — AuthEnv values override process.env
-        // Guarantee tier env vars (ANTHROPIC_DEFAULT_*_MODEL) are always present so the
-        // SDK can resolve bare tier names ('haiku', 'sonnet', 'opus') in subagent
-        // subprocesses. Without these, direct Anthropic users get "model not found" errors
-        // when subagents specify a tier name instead of a full model ID.
-        // Set NO_PROXY to prevent corporate proxy interception of localhost requests
-        // Disable experimental betas for any non-Anthropic base URL — the SDK
-        // enables context-management-2025-06-27 for "firstParty" providers, which
-        // third-party endpoints (OpenRouter, Moonshot, unknown proxies, etc.)
-        // don't support, causing 400 errors. Check the URL directly instead of
-        // relying on provider registry detection, which misses unknown providers.
         env: {
           ...process.env,
-          ...buildTierEnvDefaults(this.authEnv),
-          ...this.authEnv,
+          ...buildTierEnvDefaults(effectiveAuthEnv),
+          ...effectiveAuthEnv,
           NO_PROXY: '127.0.0.1,localhost',
           ...(() => {
-            const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+            const baseUrl = effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim();
             return baseUrl &&
               !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
               ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
               : {};
           })(),
         } as Record<string, string | undefined>,
-        // Capture stderr — the SDK writes debug/info/warn/error to stderr;
-        // parse the level and route to the appropriate logger method.
-        // When stderr carries an upstream provider error (HTTP 4xx,
-        // model_not_found, invalid_request_error, etc.) the SDK sometimes
-        // fails to forward it through the message stream, leaving the UI
-        // spinning. Detect those signatures and notify the caller via
-        // onProviderError so it can abort the query with a clear message.
         stderr: (data: string) => {
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
@@ -728,45 +631,16 @@ export class SdkQueryOptionsBuilder {
           }
         },
         hooks,
-        // Plugins disabled here — skills are loaded via .claude/skills/ junctions
-        // created by SkillJunctionService. Passing plugins via SDK option caused
-        // duplication in slash command autocomplete.
-        // NOTE: compactionControl was a phantom field not present in the SDK's
-        // Options type. It was silently ignored by the SDK. The compaction
-        // threshold is handled by SDK-internal heuristics; our hook-based
-        // approach (PreCompact hook in CompactionHookHandler) remains intact.
-        // Reasoning configuration passthrough.
-        // undefined values are omitted by SDK, preserving default behavior.
         thinking: sessionConfig?.thinking,
         effort: sessionConfig?.effort,
-        // Override baked-in import.meta.url path with runtime-resolved cli.js
         pathToClaudeCodeExecutable,
-        // Enable 1M context window for direct Anthropic connections.
-        // The SDK doesn't auto-enable this beta like the CLI does — we must
-        // pass it explicitly. Only for first-party (api.anthropic.com);
-        // third-party providers don't support this beta header.
-        betas: this.buildBetas(),
-        // File checkpointing — defaults ON so Query.rewindFiles() works.
-        // Callers can opt out by passing enableFileCheckpointing: false.
+        betas: this.buildBetas(effectiveAuthEnv),
         enableFileCheckpointing: enableFileCheckpointing ?? true,
-        // Pair file checkpointing with --replay-user-messages so the SDK
-        // emits `checkpointUuid` on user-message stream events. Without
-        // this CLI flag, `Query.rewindFiles()` has no UUID to rewind to
-        // and the rewind feature silently no-ops.
         ...((enableFileCheckpointing ?? true)
           ? { extraArgs: { 'replay-user-messages': null } }
           : {}),
-        // Request AI-generated progress summaries for subagents. Subagent
-        // visibility now flows via this Option + task_* system messages
-        // (task_started, task_progress, task_updated, task_notification)
-        // handled by SdkMessageTransformer. Set unconditionally — cheap,
-        // prompt-cache-reusing, harmless when no subagents run.
         agentProgressSummaries: true,
-        // Fork-on-resume — only meaningful when resumeSessionId is also set.
-        // The SDK creates a brand-new session UUID seeded from the resumed
-        // transcript instead of mutating the original session.
         forkSession: resumeSessionId ? forkSession : undefined,
-        // Resume from a specific message UUID (branching point).
         resumeSessionAt: resumeSessionId ? resumeSessionAt : undefined,
       },
     };
@@ -775,7 +649,7 @@ export class SdkQueryOptionsBuilder {
   /**
    * Emit a structured warning when fork/resume-at are requested without a
    * resumeSessionId. Behavior is intentionally preserved (silent drop into
-   * `undefined`) — but observability is added so misconfigured callers
+   * `undefined`) â€” but observability is added so misconfigured callers
    * surface in logs instead of silently producing fresh sessions.
    *
    * Called inline below; extracted for readability and to keep the main
@@ -786,13 +660,12 @@ export class SdkQueryOptionsBuilder {
     if (resumeSessionId) return;
     if (forkSession === undefined && resumeSessionAt === undefined) return;
     this.logger.warn(
-      '[SdkQueryOptionsBuilder] forkSession/resumeSessionAt were set without a resumeSessionId — both options will be dropped because they only apply to resumed sessions.',
+      '[SdkQueryOptionsBuilder] forkSession/resumeSessionAt were set without a resumeSessionId â€” both options will be dropped because they only apply to resumed sessions.',
       {
         sessionId: sessionId ? `${sessionId.slice(0, 8)}...` : undefined,
         hasForkSession: forkSession !== undefined,
         hasResumeSessionAt: resumeSessionAt !== undefined,
         forkSession,
-        // Truncate the message UUID like the rest of the file does
         resumeSessionAt: resumeSessionAt
           ? `${resumeSessionAt.slice(0, 8)}...`
           : undefined,
@@ -807,25 +680,21 @@ export class SdkQueryOptionsBuilder {
    * Background: providers like Ollama, Copilot, Codex, and OpenRouter write a
    * known placeholder string into `ANTHROPIC_AUTH_TOKEN` (e.g. 'ollama',
    * 'copilot-proxy-managed') and point `ANTHROPIC_BASE_URL` at their local
-   * endpoint. If the strategy's `configure()` never ran — typically because the
-   * user hasn't selected the provider yet — `ANTHROPIC_BASE_URL` stays empty
+   * endpoint. If the strategy's `configure()` never ran â€” typically because the
+   * user hasn't selected the provider yet â€” `ANTHROPIC_BASE_URL` stays empty
    * while the placeholder token remains, and the SDK silently falls back to
    * api.anthropic.com. Anthropic rejects/drops the request and the UI hangs.
    *
    * Throw here so the error surfaces to the UI with clear remediation.
    */
-  private validateBaseUrlForProvider(): void {
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
-    const authToken = this.authEnv.ANTHROPIC_AUTH_TOKEN;
+  private validateBaseUrlForProvider(authEnvOverride?: AuthEnv): void {
+    const env: AuthEnv = authEnvOverride ?? this.authEnv;
+    const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
+    const authToken = env.ANTHROPIC_AUTH_TOKEN;
 
     if (baseUrl) {
-      // Base URL is set — SDK will route there, no hang risk.
       return;
     }
-
-    // Map of placeholder token → human-readable provider name.
-    // If the auth token matches any of these, the user has selected a
-    // non-Anthropic provider but its base URL isn't configured yet.
     const placeholderToProvider: Record<string, string> = {
       [OLLAMA_AUTH_TOKEN_PLACEHOLDER]: 'Ollama',
       [COPILOT_PROXY_TOKEN_PLACEHOLDER]: 'GitHub Copilot',
@@ -839,7 +708,7 @@ export class SdkQueryOptionsBuilder {
 
     if (providerName) {
       const message =
-        `Provider '${providerName}' is not configured — ANTHROPIC_BASE_URL is missing. ` +
+        `Provider '${providerName}' is not configured â€” ANTHROPIC_BASE_URL is missing. ` +
         `Select the provider in settings to configure it, or switch to Anthropic direct.`;
       this.logger.error(`[SdkQueryOptionsBuilder] ${message}`, {
         providerName,
@@ -858,17 +727,15 @@ export class SdkQueryOptionsBuilder {
    */
   private async validateModelAvailability(
     resolvedModel: string,
+    authEnvOverride?: AuthEnv,
   ): Promise<void> {
-    // Only validate for third-party providers — Anthropic's list is authoritative
-    // and may include models added after the cache was last populated.
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+    const env: AuthEnv = authEnvOverride ?? this.authEnv;
+    const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
     const isDirectAnthropic =
       !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
     if (isDirectAnthropic) {
       return;
     }
-
-    // Cache-only: don't trigger a fresh model fetch on the query hot path.
     if (!this.modelService.hasCachedModels()) {
       this.logger.debug(
         '[SdkQueryOptionsBuilder] Skipping model pre-flight: no cached models yet',
@@ -881,10 +748,8 @@ export class SdkQueryOptionsBuilder {
     try {
       supportedModels = await this.modelService.getSupportedModels();
     } catch {
-      // If the model service throws, don't block the query — fall through
-      // and let the SDK surface any real error.
       this.logger.warn(
-        '[SdkQueryOptionsBuilder] Model pre-flight: getSupportedModels() threw — skipping check',
+        '[SdkQueryOptionsBuilder] Model pre-flight: getSupportedModels() threw â€” skipping check',
         { resolvedModel },
       );
       return;
@@ -898,8 +763,6 @@ export class SdkQueryOptionsBuilder {
     if (modelIds.includes(resolvedModel)) {
       return;
     }
-
-    // Model not found in cached list — throw a typed error the UI can handle.
     this.logger.error(
       `[SdkQueryOptionsBuilder] Model pre-flight failed: '${resolvedModel}' not in cached model list`,
       {
@@ -916,7 +779,7 @@ export class SdkQueryOptionsBuilder {
    *
    * The Claude CLI automatically enables the `context-1m-2025-08-07` beta for
    * first-party (api.anthropic.com) connections, unlocking 1M token context for
-   * Opus and Sonnet 4.6 models. The SDK module does NOT auto-enable this — we
+   * Opus and Sonnet 4.6 models. The SDK module does NOT auto-enable this â€” we
    * must pass it explicitly via the `betas` query option.
    *
    * Skipped for third-party providers (OpenRouter, Moonshot, Z.AI, proxies) as
@@ -924,10 +787,9 @@ export class SdkQueryOptionsBuilder {
    *
    * @returns Array of beta strings, or undefined if no betas should be sent
    */
-  private buildBetas(): SdkBeta[] | undefined {
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
-
-    // Only enable for direct Anthropic connections (no base URL, or explicitly api.anthropic.com)
+  private buildBetas(authEnvOverride?: AuthEnv): SdkBeta[] | undefined {
+    const env: AuthEnv = authEnvOverride ?? this.authEnv;
+    const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
     const isFirstParty =
       !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
 
@@ -969,8 +831,10 @@ export class SdkQueryOptionsBuilder {
     mcpServerRunning = true,
     initialUserQuery?: string,
     cwd?: string,
+    authEnvOverride?: AuthEnv,
   ): Promise<SdkQueryOptions['systemPrompt']> {
-    const activeProviderId = getActiveProviderId(this.authEnv);
+    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
+    const activeProviderId = getActiveProviderId(effectiveAuthEnv);
 
     if (activeProviderId) {
       this.logger.info(
@@ -980,15 +844,13 @@ export class SdkQueryOptionsBuilder {
 
     const result = assembleSystemPrompt({
       providerId: activeProviderId,
-      authEnv: this.authEnv,
+      authEnv: effectiveAuthEnv,
       userSystemPrompt: sessionConfig?.systemPrompt,
       isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
     });
-
-    // Memory recall — premium only, requires user query
     let memoryBlock = '';
     if (isPremium && initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
@@ -996,8 +858,6 @@ export class SdkQueryOptionsBuilder {
         cwd,
       );
     }
-
-    // Combine base content with memory block (memory first for highest visibility)
     const finalContent = memoryBlock
       ? memoryBlock + (result.content ? '\n\n' + result.content : '')
       : result.content;
@@ -1015,9 +875,6 @@ export class SdkQueryOptionsBuilder {
       memoryBlockLength: memoryBlock.length,
       totalAppendLength: finalContent?.length ?? 0,
     });
-
-    // Always use claude_code preset as base — it provides critical MCP handling,
-    // tool routing, and environment context. Our content is appended on top.
     return {
       type: 'preset' as const,
       preset: 'claude_code' as const,
@@ -1036,7 +893,6 @@ export class SdkQueryOptionsBuilder {
     mcpServerRunning = true,
     sessionId?: string,
   ): Record<string, McpHttpServerConfig> {
-    // Free tier - disable MCP servers
     if (!isPremium) {
       this.logger.info(
         '[SdkQueryOptionsBuilder] MCP servers disabled (not premium)',
@@ -1052,10 +908,6 @@ export class SdkQueryOptionsBuilder {
       );
       return {};
     }
-
-    // Premium user - enable Ptah HTTP MCP server
-    // Uses HTTP MCP server from vscode-lm-tools/CodeExecutionMCP
-    // Provides execute_code tool with 11 Ptah API namespaces
     const mcpConfig = {
       ptah: {
         type: 'http' as const,
@@ -1077,7 +929,7 @@ export class SdkQueryOptionsBuilder {
    * Caller wins on key collision (matches the proxy tool-merger contract).
    *
    * Returns the original `base` reference unchanged when `override` is
-   * `undefined` or empty — preserves identity for the existing chat path so
+   * `undefined` or empty â€” preserves identity for the existing chat path so
    * the merge is a no-op on every non-proxy call site.
    */
   private mergeMcpOverride(
@@ -1087,11 +939,6 @@ export class SdkQueryOptionsBuilder {
     if (!override || Object.keys(override).length === 0) {
       return base;
     }
-    // McpHttpServerOverride is structurally a subset of McpHttpServerConfig —
-    // both share { type: 'http', url, headers? }. The widening cast lets the
-    // SDK consume the override entries without a runtime conversion. This is
-    // the SINGLE documented widening cast for this path; do NOT add
-    // additional `as` casts elsewhere in the threading path.
     return { ...base, ...(override as Record<string, McpHttpServerConfig>) };
   }
 
@@ -1099,12 +946,12 @@ export class SdkQueryOptionsBuilder {
    * Calculate max turns from session config.
    *
    * Safety limit: returns a default cap when no explicit maxTokens is set.
-   * Without this, the SDK runs unlimited agentic turns — each turn is an
+   * Without this, the SDK runs unlimited agentic turns â€” each turn is an
    * API round-trip that consumes provider quota. On metered providers like
    * Copilot (premium requests) or pay-per-token APIs, runaway sessions can
    * exhaust budgets quickly.
    *
-   * Default: 200 turns — generous enough for complex multi-step tasks,
+   * Default: 200 turns â€” generous enough for complex multi-step tasks,
    * but prevents infinite loops from burning through quota.
    */
   private calculateMaxTurns(
@@ -1113,7 +960,6 @@ export class SdkQueryOptionsBuilder {
     if (sessionConfig?.maxTokens) {
       return Math.floor(sessionConfig.maxTokens / 1000);
     }
-    // Safety cap: prevent unlimited agentic turns on metered providers
     return 200;
   }
 
@@ -1125,13 +971,7 @@ export class SdkQueryOptionsBuilder {
     onWorktreeCreated?: WorktreeCreatedCallback,
     onWorktreeRemoved?: WorktreeRemovedCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // Pass sessionId so SubagentStart hook registers subagents in the registry.
-    // Without this, markAllInterrupted() and markParentSubagentsAsCliAgent() cannot
-    // find subagent records.
     const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
-
-    // Even without sessionId, create hooks with empty string — SDK provides session_id
-    // in hook input.
     const compactionHooks = this.compactionHookHandler.createHooks(
       sessionId ?? '',
       cwd,
@@ -1142,8 +982,6 @@ export class SdkQueryOptionsBuilder {
       onWorktreeCreated,
       onWorktreeRemoved,
     );
-
-    // Merge hooks safely — concatenate arrays for same event key to prevent overwrites
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [subagentHooks, compactionHooks, worktreeHooks]) {
       for (const [event, matchers] of Object.entries(hooks)) {
@@ -1151,8 +989,6 @@ export class SdkQueryOptionsBuilder {
         mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];
       }
     }
-
-    // Log hook registration for debugging
     this.logger.info('[SdkQueryOptionsBuilder] SDK hooks created for session', {
       cwd,
       sessionId: sessionId ? `${sessionId.slice(0, 8)}...` : 'not-provided',

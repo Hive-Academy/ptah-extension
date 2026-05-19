@@ -43,10 +43,6 @@ export function registerMessagingGatewayServices(
     GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER,
     WhisperTranscriber,
   );
-
-  // Adapters are registered as concrete-class singletons — GatewayService
-  // injects them by class (not by token), so only the class registrations
-  // are needed.
   container.registerSingleton(GrammyTelegramAdapter);
   container.registerSingleton(DiscordAdapter);
   container.registerSingleton(BoltSlackAdapter);

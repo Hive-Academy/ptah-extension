@@ -30,10 +30,6 @@ import type {
   BrowserRecordStopResult,
 } from '../types';
 
-// ============================================================
-// Workspace & Search Tools
-// ============================================================
-
 /**
  * Recursively render a DirectoryStructure as an indented bullet list.
  */
@@ -85,11 +81,7 @@ export function formatWorkspaceAnalysis(result: unknown): string {
 
     const projectType = info['projectType'] ?? info['type'] ?? 'Unknown';
     const rootPath = info['rootPath'] ?? info['path'] ?? '';
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = [{ h2: 'Workspace Analysis' }];
-
-    // --- Project Info section ---
     const projectLines: string[] = [
       `**Project Type:** ${projectType}`,
       `**Root:** ${rootPath}`,
@@ -109,8 +101,6 @@ export function formatWorkspaceAnalysis(result: unknown): string {
     }
 
     blocks.push({ p: projectLines.join('  \n') });
-
-    // --- Frameworks ---
     const frameworks = (info['frameworks'] ??
       info['detectedFrameworks'] ??
       []) as Array<Record<string, unknown>>;
@@ -125,8 +115,6 @@ export function formatWorkspaceAnalysis(result: unknown): string {
       });
       blocks.push({ ul: fwItems });
     }
-
-    // --- Dependencies (from projectInfo) ---
     if (projectInfo) {
       const deps = projectInfo['dependencies'] as string[] | undefined;
       const devDeps = projectInfo['devDependencies'] as string[] | undefined;
@@ -149,8 +137,6 @@ export function formatWorkspaceAnalysis(result: unknown): string {
         blocks.push({ ul: cappedDevDeps });
       }
     }
-
-    // --- File Statistics (from projectInfo) ---
     if (projectInfo) {
       const fileStats = projectInfo['fileStatistics'] as
         | Record<string, number>
@@ -164,8 +150,6 @@ export function formatWorkspaceAnalysis(result: unknown): string {
         blocks.push({ table: { headers: ['Extension', 'Count'], rows } });
       }
     }
-
-    // --- Directory Structure ---
     const structureData = structure['structure'] ?? structure;
     const hasDirs =
       Array.isArray(
@@ -187,8 +171,6 @@ export function formatWorkspaceAnalysis(result: unknown): string {
         blocks.push({ p: tree });
       }
     }
-
-    // --- Recommendations ---
     const recommendations = (structure['recommendations'] ?? []) as string[];
     if (Array.isArray(recommendations) && recommendations.length > 0) {
       blocks.push({ h3: 'Recommendations' });
@@ -229,10 +211,6 @@ export function formatSearchFiles(files: unknown): string {
   }
 }
 
-// ============================================================
-// Diagnostics & LSP Tools
-// ============================================================
-
 /**
  * Format ptah_get_diagnostics result
  */
@@ -261,8 +239,6 @@ export function formatDiagnostics(diagnostics: unknown): string {
       (d: Record<string, unknown>) =>
         !errors.includes(d) && !warnings.includes(d),
     );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = [
       { h2: 'Diagnostics' },
       {
@@ -388,10 +364,6 @@ export function formatLspDefinitions(defs: unknown): string {
   }
 }
 
-// ============================================================
-// File & Token Tools
-// ============================================================
-
 /**
  * Format ptah_get_dirty_files result
  */
@@ -437,10 +409,6 @@ export function formatTokenCount(result: unknown): string {
     return fallbackJson(result);
   }
 }
-
-// ============================================================
-// Agent Orchestration Tools
-// ============================================================
 
 /**
  * Format CLI label for display: shows Ptah CLI agent name when applicable.
@@ -536,8 +504,6 @@ export function formatAgentStatus(
     const agents = Array.isArray(result) ? result : [result];
     if (agents.length === 0)
       return json2md([{ h2: 'Agent Status' }, { p: 'No agents found.' }]);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = [
       { h2: 'Agent Status' },
       { p: `**Total:** ${agents.length}` },
@@ -574,7 +540,6 @@ export function formatAgentStatus(
  */
 export function formatAgentRead(result: AgentOutput): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = [
       { h2: `Agent Output: ${result.agentId}` },
       {
@@ -652,10 +617,6 @@ export function formatAgentSteer(result: {
   }
 }
 
-// ============================================================
-// Web Search Tools
-// ============================================================
-
 /**
  * Format ptah_web_search result (multi-provider)
  */
@@ -668,7 +629,6 @@ export function formatWebSearch(result: {
   resultCount: number;
 }): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = [
       { h2: 'Web Search Results' },
       {
@@ -680,14 +640,10 @@ export function formatWebSearch(result: {
         ].join('  \n'),
       },
     ];
-
-    // Summary section
     if (result.summary) {
       blocks.push({ h3: 'Summary' });
       blocks.push({ p: result.summary });
     }
-
-    // Individual results
     if (result.results && result.results.length > 0) {
       blocks.push({ h3: 'Results' });
       const items = result.results.map(
@@ -702,10 +658,6 @@ export function formatWebSearch(result: {
   }
 }
 
-// ============================================================
-// Git Worktree Tools
-// ============================================================
-
 /**
  * Format ptah_git_worktree_list result as a markdown table.
  * Accepts a result object with both a worktrees array and an optional error,
@@ -716,7 +668,6 @@ export function formatWorktreeList(result: {
   error?: string;
 }): string {
   try {
-    // If there's an error, surface it clearly so the AI agent knows git failed
     if (result.error) {
       return json2md([
         { h2: 'Git Worktrees' },
@@ -806,10 +757,6 @@ export function formatWorktreeRemove(result: {
   }
 }
 
-// ============================================================
-// JSON Validation Tool
-// ============================================================
-
 /**
  * Format ptah_json_validate result as readable Markdown.
  * On success: shows file path, repairs applied, file overwritten confirmation.
@@ -824,7 +771,6 @@ export function formatJsonValidate(result: {
 }): string {
   try {
     if (result.success) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const blocks: any[] = [
         { h2: 'JSON Validation Passed' },
         { p: `**File:** ${result.file}  \n**Status:** Valid JSON` },
@@ -843,9 +789,6 @@ export function formatJsonValidate(result: {
 
       return json2md(blocks);
     }
-
-    // Failure case — provide errors for agent self-correction
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = [
       { h2: 'JSON Validation Failed' },
       { p: `**File:** ${result.file}` },
@@ -867,10 +810,6 @@ export function formatJsonValidate(result: {
     return fallbackJson(result);
   }
 }
-
-// ============================================================
-// Browser Automation Tools
-// ============================================================
 
 /**
  * Format ptah_browser_navigate result
@@ -943,8 +882,6 @@ export function formatBrowserEvaluate(result: BrowserEvaluateResult): string {
       typeof result.value === 'object'
         ? JSON.stringify(result.value, null, 2)
         : String(result.value);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = [
       { h2: 'JavaScript Evaluation Result' },
       { p: `**Type:** ${result.type}` },
@@ -1121,8 +1058,6 @@ export function formatBrowserStatus(result: BrowserStatusResult): string {
     const autoCloseMin = result.autoCloseInMs
       ? Math.round(result.autoCloseInMs / 60000)
       : 0;
-
-    // Include headless and recording status
     let statusText =
       `**Connected:** Yes  \n**URL:** ${result.url ?? 'N/A'}  \n` +
       `**Title:** ${result.title ?? 'N/A'}  \n` +
@@ -1144,10 +1079,6 @@ export function formatBrowserStatus(result: BrowserStatusResult): string {
     return fallbackJson(result);
   }
 }
-
-// ============================================================
-// Browser Enhancement Tools
-// ============================================================
 
 /**
  * Format ptah_browser_record_start result
@@ -1189,8 +1120,6 @@ export function formatBrowserRecordStop(
 
     const sizeKB = Math.round(result.fileSizeBytes / 1024);
     const durationSec = Math.round(result.durationMs / 1000);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocks: any[] = [
       { h2: 'Recording Saved' },
       {
@@ -1213,10 +1142,6 @@ export function formatBrowserRecordStop(
     return fallbackJson(result);
   }
 }
-
-// ============================================================
-// Fallback
-// ============================================================
 
 function fallbackJson(data: unknown): string {
   try {

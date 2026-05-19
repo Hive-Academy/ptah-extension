@@ -10,8 +10,6 @@ export default {
   moduleNameMapper: {
     '^vscode$': '<rootDir>/../../../__mocks__/vscode.ts',
   },
-  // Coverage floor rounded down to the nearest 5, never exceeding actual
-  // measured baseline (S 88.04 / B 73.69 / F 87.69 / L 88.87).
   coverageThreshold: {
     global: {
       statements: 85,

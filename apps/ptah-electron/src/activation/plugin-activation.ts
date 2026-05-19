@@ -1,4 +1,3 @@
-// Phase 4.55 + 4.56 plugin loader + skill junction activation.
 
 import * as os from 'os';
 import * as path from 'path';
@@ -29,9 +28,6 @@ export function initPluginLoader(
     const pluginPaths = pluginLoader.resolvePluginPaths(
       pluginConfig.enabledPluginIds,
     );
-
-    // Command discovery reads from .claude/commands/ and .claude/skills/
-    // (junctioned by SkillJunctionService) — no plugin path wiring needed.
     console.log(
       `[Ptah Electron] Plugin loader initialized (${pluginPaths.length} plugin paths)`,
     );

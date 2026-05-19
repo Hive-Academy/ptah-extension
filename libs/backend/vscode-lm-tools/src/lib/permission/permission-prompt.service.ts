@@ -75,17 +75,12 @@ export class PermissionPromptService {
     toolInput: Record<string, unknown>,
   ): 'allow' | 'deny' | 'ask' {
     const rules = this.getRules();
-
-    // Build pattern match string: "ToolName:JSON"
     const matchString = `${toolName}:${JSON.stringify(toolInput)}`;
 
     for (const rule of rules) {
-      // Only check rules for matching tool name
       if (rule.toolName !== toolName) {
         continue;
       }
-
-      // Use minimatch for pattern matching
       if (minimatch(matchString, rule.pattern)) {
         this.logger.debug('Permission rule matched', {
           toolName,
@@ -95,8 +90,6 @@ export class PermissionPromptService {
         return rule.action;
       }
     }
-
-    // No matching rule found
     return 'ask';
   }
 
@@ -109,8 +102,6 @@ export class PermissionPromptService {
   createRequest(params: ApprovalPromptParams): PermissionRequest {
     const requestId = crypto.randomUUID();
     const timestamp = Date.now();
-
-    // Build human-readable description
     const description = this.buildDescription(
       params.tool_name,
       params.input as Record<string, unknown>,
@@ -150,7 +141,6 @@ export class PermissionPromptService {
     resolve: (response: PermissionResponse) => void,
     request: PermissionRequest,
   ): void {
-    // Store resolver (no timeout -- blocks until user responds or cleanup)
     this.pendingRequests.set(id, { resolve, request });
 
     this.logger.debug('Pending resolver stored (blocks indefinitely)', { id });
@@ -193,11 +183,7 @@ export class PermissionPromptService {
       });
       return false;
     }
-
-    // Remove from pending map
     this.pendingRequests.delete(response.id);
-
-    // If "always_allow", create a permission rule
     if (response.decision === 'always_allow') {
       this.createRuleFromRequest(pending.request);
       this.logger.info('Created "Always Allow" rule from request', {
@@ -205,8 +191,6 @@ export class PermissionPromptService {
         toolName: pending.request.toolName,
       });
     }
-
-    // Resolve the Promise
     pending.resolve(response);
 
     this.logger.info('Permission request resolved', {
@@ -229,14 +213,8 @@ export class PermissionPromptService {
       id: crypto.randomUUID(),
       createdAt: Date.now(),
     };
-
-    // Get existing rules
     const rules = this.getRules();
-
-    // Add new rule
     rules.push(completeRule);
-
-    // Save to workspace state
     this.saveRules(rules);
 
     this.logger.info('Permission rule added', {
@@ -287,10 +265,6 @@ export class PermissionPromptService {
     this.logger.info('All permission rules cleared');
   }
 
-  // ========================================
-  // Private Helper Methods
-  // ========================================
-
   /**
    * Save permission rules to workspace state
    *
@@ -308,8 +282,6 @@ export class PermissionPromptService {
    * @param request - Original permission request
    */
   private createRuleFromRequest(request: PermissionRequest): void {
-    // Build pattern: "ToolName:*" for broad match
-    // For more specific matching, could use JSON.stringify(request.toolInput)
     const pattern = `${request.toolName}:*`;
 
     this.addRule({
@@ -333,7 +305,6 @@ export class PermissionPromptService {
     toolName: string,
     toolInput: Record<string, unknown>,
   ): string {
-    // Extract key parameters for common tools
     switch (toolName) {
       case 'Bash': {
         if (isBashToolInput(toolInput)) {
@@ -372,7 +343,6 @@ export class PermissionPromptService {
         return `Search content: unknown`;
       }
       default:
-        // Generic description for unknown tools
         return `Execute ${toolName} with ${
           Object.keys(toolInput).length
         } parameters`;

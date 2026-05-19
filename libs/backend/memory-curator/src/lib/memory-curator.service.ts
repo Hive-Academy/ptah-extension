@@ -120,8 +120,6 @@ export class MemoryCuratorService {
     if (drafts.length === 0) {
       return { extracted: 0, merged: 0, created: 0, skipped: 0 };
     }
-
-    // Build the related-memory list from existing rows that share a subject.
     const subjects = new Set(
       drafts.map((d) => d.subject).filter((s): s is string => !!s),
     );

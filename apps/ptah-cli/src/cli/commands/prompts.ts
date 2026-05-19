@@ -100,10 +100,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-commands
-// ---------------------------------------------------------------------------
-
 async function runStatus(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -232,10 +228,6 @@ async function runDownload(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — kept module-private.
-// ---------------------------------------------------------------------------
 
 async function callRpc<T = unknown>(
   transport: CliMessageTransport,

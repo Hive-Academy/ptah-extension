@@ -6,10 +6,6 @@
 
 import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
 
-// ============================================================
-// Setup Status RPC Types
-// ============================================================
-
 /** Parameters for setup-status:get-status RPC method */
 export type SetupStatusGetParams = Record<string, never>;
 
@@ -107,10 +103,6 @@ export interface WizardCancelAnalysisResponse {
   cancelled: boolean;
 }
 
-// ============================================================
-// Wizard Generation RPC Types
-// ============================================================
-
 /** Parameters for wizard:submit-selection RPC method */
 export interface WizardSubmitSelectionParams {
   /** Array of agent IDs to generate (from AgentRecommendation.agentId) */
@@ -164,14 +156,6 @@ export interface WizardRetryItemResponse {
   /** Error message if retry failed */
   error?: string;
 }
-
-// Multi-Phase Analysis RPC Types removed:
-// wizard:start-multi-phase-analysis and wizard:cancel-multi-phase-analysis
-// are now integrated into wizard:deep-analyze and wizard:cancel-analysis.
-
-// ============================================================
-// Enhanced Prompts RPC Types
-// ============================================================
 
 /**
  * Detected technology stack from workspace analysis.
@@ -311,10 +295,6 @@ export interface EnhancedPromptsRegenerateResponse {
   status?: EnhancedPromptsGetStatusResponse;
 }
 
-// ============================================================
-// Agent Pack Browser RPC Types
-// ============================================================
-
 /** A single agent entry within a pack (frontend-facing DTO) */
 export interface AgentPackEntryDto {
   file: string;
@@ -355,10 +335,6 @@ export interface WizardInstallPackAgentsResult {
   fromCache: boolean;
   error?: string;
 }
-
-// ============================================================
-// New Project Chat Handoff RPC Types
-// ============================================================
 
 /** Parameters for wizard:start-new-project-chat RPC method */
 export type WizardStartNewProjectChatParams = Record<string, never>;

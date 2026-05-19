@@ -361,8 +361,6 @@ export class SqliteConnectionService {
   close(): void {
     if (!this.database) return;
     if (this.database.open) {
-      // Truncate the WAL before closing so the DB file is self-contained.
-      // Non-fatal — a checkpoint failure must not prevent the close.
       try {
         this.database.pragma('wal_checkpoint(TRUNCATE)');
         this.logger.debug(
@@ -455,7 +453,6 @@ export class SqliteConnectionService {
    * or marking the connection unavailable.
    */
   private runBootChecks(db: SqliteDatabase): void {
-    // quick_check
     try {
       const result = db.pragma('quick_check', { simple: true }) as string;
       if (result === 'ok') {
@@ -464,15 +461,12 @@ export class SqliteConnectionService {
         this.logger.error('[persistence-sqlite] quick_check FAILED', {
           result,
         });
-        // Non-fatal: log only; do NOT throw; do NOT set unavailableReason.
       }
     } catch (err: unknown) {
       this.logger.warn('[persistence-sqlite] quick_check error', {
         error: err instanceof Error ? err.message : String(err),
       });
     }
-
-    // foreign_key_check
     try {
       const rows = db.pragma('foreign_key_check') as Array<{
         table: string;
@@ -486,7 +480,6 @@ export class SqliteConnectionService {
           sample: rows.slice(0, 3),
         });
       }
-      // else: silent on a clean DB
     } catch (err: unknown) {
       this.logger.warn('[persistence-sqlite] foreign_key_check error', {
         error: err instanceof Error ? err.message : String(err),

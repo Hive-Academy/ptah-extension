@@ -748,7 +748,6 @@ export class SessionStatsSummaryComponent {
   readonly summary = computed(() => {
     const preloaded = this.preloadedStats();
     if (preloaded) {
-      // Use preloaded stats from backend (old sessions)
       return {
         totalCost: preloaded.totalCost,
         totalTokens: preloaded.tokens,
@@ -756,7 +755,6 @@ export class SessionStatsSummaryComponent {
         agentCount: preloaded.agentSessionCount ?? 0,
       };
     }
-    // Calculate from messages (live sessions)
     return calculateSessionCostSummary([...this.messages()]);
   });
 
@@ -798,8 +796,6 @@ export class SessionStatsSummaryComponent {
   readonly contextTooltip = computed(() => {
     const stats = this.liveModelStats();
     if (!stats) return '';
-    // When the context window is unknown,
-    // explain why the badge is "—" instead of showing misleading numbers.
     if (stats.contextWindow <= 0) {
       return 'Context window unknown for this model.';
     }

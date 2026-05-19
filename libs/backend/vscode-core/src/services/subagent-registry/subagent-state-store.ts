@@ -69,10 +69,6 @@ export class SubagentStateStore {
 
   constructor(private readonly logger: Logger) {}
 
-  // ==========================================================================
-  // Registry CRUD
-  // ==========================================================================
-
   /** Get the record for a toolCallId without touching expiration state. */
   getRaw(toolCallId: string): SubagentRecord | undefined {
     return this.registry.get(toolCallId);
@@ -117,10 +113,6 @@ export class SubagentStateStore {
     this.pendingBackgroundToolCallIds.clear();
   }
 
-  // ==========================================================================
-  // Pending background ids
-  // ==========================================================================
-
   /** Record a toolCallId as pre-marked background. */
   markPendingBackground(toolCallId: string): void {
     this.pendingBackgroundToolCallIds.add(toolCallId);
@@ -143,10 +135,6 @@ export class SubagentStateStore {
     return had;
   }
 
-  // ==========================================================================
-  // Cleared (injected) tool call ids
-  // ==========================================================================
-
   /** Remember that a toolCallId was injected into context and removed. */
   markInjected(toolCallId: string): void {
     this.clearedToolCallIds.set(toolCallId, Date.now());
@@ -161,10 +149,6 @@ export class SubagentStateStore {
   wasInjected(toolCallId: string): boolean {
     return this.clearedToolCallIds.has(toolCallId);
   }
-
-  // ==========================================================================
-  // TTL + lazy cleanup
-  // ==========================================================================
 
   /**
    * Check if a record is expired (older than TTL).
@@ -212,9 +196,6 @@ export class SubagentStateStore {
     for (const toolCallId of toRemove) {
       this.registry.delete(toolCallId);
     }
-
-    // Also prune expired entries from clearedToolCallIds.
-    // Uses the same TTL_MS (24h) as the registry records.
     const now = Date.now();
     const clearedToRemove: string[] = [];
     for (const [toolCallId, timestamp] of this.clearedToolCallIds) {

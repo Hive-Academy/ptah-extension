@@ -20,7 +20,6 @@ export class VsCodePlatformAuth implements IPlatformAuthProvider {
       );
       return session?.account.label;
     } catch {
-      // Fallback: try read:user scope
       try {
         const session = await vscode.authentication.getSession(
           'github',

@@ -73,8 +73,6 @@ export function createMockRpcHandler(
           const data = await handler(params);
           return { success: true, data, correlationId };
         } catch (err: unknown) {
-          // Mirror the real RpcHandler: RpcUserError propagates errorCode and
-          // skips Sentry. Plain errors stay as-is.
           if (err instanceof RpcUserError) {
             return {
               success: false,

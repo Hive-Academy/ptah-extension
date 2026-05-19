@@ -253,20 +253,15 @@ export class AgentGenerationOrchestratorService {
         isPremium: options.isPremium,
         mcpServerRunning: options.mcpServerRunning,
       });
-
-      // Phase 1: Workspace Analysis (0% → 20%)
       let projectContext: AgentProjectContext;
 
       if (options.preComputedAnalysis) {
-        // Build AgentProjectContext from full wizard analysis data
         const analysis = options.preComputedAnalysis;
         const languages = analysis.languageDistribution?.length
           ? analysis.languageDistribution
               .sort((a, b) => b.percentage - a.percentage)
               .map((l) => l.language)
           : analysis.languages;
-
-        // Use workspace-intelligence for build tools and package manager detection
         let projectInfo: ProjectInfo | null = null;
         try {
           projectInfo = await this.workspaceAnalyzer.getProjectInfo();
@@ -344,7 +339,6 @@ export class AgentGenerationOrchestratorService {
         }
 
         projectContext = contextResult.value!;
-        // Propagate analysisDir even when using fresh workspace analysis
         if (options.analysisDir) {
           projectContext.analysisDir = options.analysisDir;
         }
@@ -354,8 +348,6 @@ export class AgentGenerationOrchestratorService {
           hasAnalysisDir: !!options.analysisDir,
         });
       }
-
-      // Phase 2: Agent Selection (20% → 30%)
       this.logger.info('Phase 2: Selecting agents');
       progressCallback?.({
         phase: 'selection',
@@ -388,8 +380,6 @@ export class AgentGenerationOrchestratorService {
           agents: [],
         });
       }
-
-      // Phase 3: Template Rendering with LLM Content Generation (30% → 95%)
       this.logger.info(`Phase 3: Rendering ${selections.length} agents`);
       progressCallback?.({
         phase: 'rendering',
@@ -414,16 +404,11 @@ export class AgentGenerationOrchestratorService {
 
       const renderedAgents = renderedResult.value!;
       this.logger.info(`Rendered ${renderedAgents.length} agents`);
-
-      // Phase 4: Per-agent file writing with progress (95% → 100%)
       this.logger.info('Phase 4: Writing agent files');
       let writeFailures = 0;
 
       for (let i = 0; i < renderedAgents.length; i++) {
         const agent = renderedAgents[i];
-
-        // Signal which agent file is being written — use sourceTemplateId
-        // to match the frontend's item.id for per-agent progress tracking.
         progressCallback?.({
           phase: 'writing',
           percentComplete:
@@ -451,8 +436,6 @@ export class AgentGenerationOrchestratorService {
       if (writeFailures === renderedAgents.length) {
         return Result.err(new Error('All agent file writes failed'));
       }
-
-      // Phase 5: Multi-CLI Agent Distribution
       let cliResults: CliGenerationResult[] | undefined;
       if (options.targetClis && options.targetClis.length > 0) {
         this.logger.info('Phase 5: Distributing agents to CLI targets', {
@@ -465,8 +448,6 @@ export class AgentGenerationOrchestratorService {
             renderedAgents,
             options.targetClis,
           );
-
-          // Append CLI-specific warnings (non-fatal)
           for (const result of cliResults) {
             if (result.errors.length > 0) {
               warnings.push(
@@ -475,7 +456,6 @@ export class AgentGenerationOrchestratorService {
             }
           }
         } catch (cliError) {
-          // Phase 5 failure is non-fatal
           this.logger.warn('Phase 5 failed (non-fatal)', {
             error:
               cliError instanceof Error ? cliError.message : String(cliError),
@@ -487,8 +467,6 @@ export class AgentGenerationOrchestratorService {
           );
         }
       }
-
-      // Success
       const durationMs = Date.now() - startTime;
       progressCallback?.({
         phase: 'complete',
@@ -547,8 +525,6 @@ export class AgentGenerationOrchestratorService {
       this.logger.debug('Starting workspace analysis', {
         workspace: workspacePath,
       });
-
-      // Get comprehensive project info from workspace-intelligence
       const projectInfo = await this.workspaceAnalyzer.getProjectInfo();
 
       if (!projectInfo) {
@@ -556,24 +532,16 @@ export class AgentGenerationOrchestratorService {
           new Error('Could not analyze workspace - no project info available'),
         );
       }
-
-      // Get monorepo detection (services now use string paths)
       const monorepoResult =
         await this.monorepoDetector.detectMonorepo(workspacePath);
-
-      // Get framework detection (from project type)
       const detectedFramework = await this.frameworkDetector.detectFramework(
         workspacePath,
         projectInfo.type,
       );
-
-      // Convert framework enum to arrays (Framework[] for context, string[] for techStack)
       const frameworksEnum = detectedFramework ? [detectedFramework] : [];
       const frameworksString = detectedFramework
         ? [detectedFramework as string]
         : [];
-
-      // Report progress
       progressCallback?.({
         phase: 'analysis',
         percentComplete: 50,
@@ -586,8 +554,6 @@ export class AgentGenerationOrchestratorService {
             : 'Single package',
         ],
       });
-
-      // Map ProjectInfo to AgentProjectContext
       const context: AgentProjectContext = {
         rootPath: projectInfo.path,
         projectType: projectInfo.type, // Already correct ProjectType enum
@@ -660,14 +626,11 @@ export class AgentGenerationOrchestratorService {
     >
   > {
     try {
-      // User overrides skip automatic selection
       if (userOverrides && userOverrides.length > 0) {
         this.logger.info('Using user-provided agent selection', {
           count: userOverrides.length,
           agents: userOverrides,
         });
-
-        // Load user-selected templates
         const selections = [];
         const loadErrors: string[] = [];
 
@@ -692,16 +655,12 @@ export class AgentGenerationOrchestratorService {
             );
           }
         }
-
-        // Log summary
         this.logger.info('User agent selection loading complete', {
           requested: userOverrides.length,
           successful: selections.length,
           failed: loadErrors.length,
           errors: loadErrors,
         });
-
-        // If no templates loaded successfully, return error
         if (selections.length === 0 && loadErrors.length > 0) {
           return Result.err(
             new Error(
@@ -711,8 +670,6 @@ export class AgentGenerationOrchestratorService {
             ),
           );
         }
-
-        // If some failed but others succeeded, log warning but continue
         if (loadErrors.length > 0) {
           this.logger.warn(
             `Some agent templates failed to load, continuing with ${selections.length} successful agents`,
@@ -722,8 +679,6 @@ export class AgentGenerationOrchestratorService {
 
         return Result.ok(selections);
       }
-
-      // Automatic selection via AgentSelectionService
       const selectResult = await this.agentSelector.selectAgents(
         context,
         threshold,
@@ -766,8 +721,6 @@ export class AgentGenerationOrchestratorService {
   ): Promise<Result<GeneratedAgent[], Error>> {
     try {
       const rendered: GeneratedAgent[] = [];
-
-      // Build SDK config from options
       const sdkConfig = {
         isPremium: options.isPremium ?? false,
         mcpServerRunning: options.mcpServerRunning ?? false,
@@ -781,10 +734,6 @@ export class AgentGenerationOrchestratorService {
       for (let i = 0; i < agentIds.length; i++) {
         const agentId = agentIds[i];
         this.logger.debug(`Rendering agent: ${agentId}`);
-
-        // Signal "starting" for this agent — frontend uses currentOperation
-        // to match against item.id for per-agent progress tracking.
-        // MUST be the raw agentId (e.g., "backend-developer") to match frontend items.
         progressCallback?.({
           phase: 'rendering',
           percentComplete: 30 + Math.floor((i / agentIds.length) * 65),
@@ -792,8 +741,6 @@ export class AgentGenerationOrchestratorService {
           agentsProcessed: i,
           totalAgents: agentIds.length,
         });
-
-        // Load template
         const templateResult = await this.templateStorage.loadTemplate(agentId);
         if (templateResult.isErr()) {
           this.logger.warn(`Failed to load template for ${agentId}, skipping`);
@@ -804,8 +751,6 @@ export class AgentGenerationOrchestratorService {
         }
 
         const template = templateResult.value!;
-
-        // Generate content (handles variable substitution and LLM sections via SDK)
         const contentResult = await this.contentGenerator.generateContent(
           template,
           context,
@@ -813,9 +758,6 @@ export class AgentGenerationOrchestratorService {
         );
 
         if (contentResult.isOk()) {
-          // Strip any template output frontmatter from the generated content
-          // and replace with properly constructed frontmatter from actual data.
-          // This ensures correctness regardless of template processing or LLM behavior.
           const { content: rawContent, description: llmDescription } =
             contentResult.value!;
           const finalContent = this.buildAgentFileContent(
@@ -824,10 +766,6 @@ export class AgentGenerationOrchestratorService {
             context,
             llmDescription,
           );
-
-          // Validate generated content before writing to disk. Critical safety
-          // issues (malicious patterns, sensitive data) block the write; lower
-          // severity issues are surfaced as warnings but don't abort.
           const validationResult = await this.outputValidation.validate(
             finalContent,
             context,
@@ -862,10 +800,6 @@ export class AgentGenerationOrchestratorService {
               }
             }
           }
-
-          // Construct GeneratedAgent object with absolute workspace path.
-          // Using context.rootPath (workspace URI) ensures files are written
-          // to the user's workspace, NOT process.cwd() (VS Code install dir).
           const generatedAgent: GeneratedAgent = {
             sourceTemplateId: template.id,
             sourceTemplateVersion: template.version,
@@ -929,36 +863,21 @@ export class AgentGenerationOrchestratorService {
     context: AgentProjectContext,
     llmDescription?: string,
   ): string {
-    // Strip leading template output frontmatter if present.
-    // The template content starts with \n---\n...---\n (the second YAML block
-    // from the dual-block template format). Remove it so we can replace with
-    // a programmatically constructed version.
     const strippedContent = rawContent.replace(
       /^\s*---\s*\n[\s\S]*?\n---\s*\n/,
       '',
     );
-
-    // Triple fallback chain for description:
-    // 1. LLM-generated description (project-specific, best quality)
-    // 2. Template's static description from its second frontmatter block
-    // 3. Humanized formula as last resort
     const description =
       (llmDescription && llmDescription.trim()) ||
       this.extractTemplateDescription(template) ||
       `${this.humanizeName(template.name)} for ${context.projectType} projects`;
-
-    // Cap at 120 characters
     const cappedDescription =
       description.length > 120
         ? description.substring(0, 117) + '...'
         : description;
-
-    // Sanitize description for YAML safety (escape quotes, strip newlines)
     const safeDescription = cappedDescription
       .replace(/\n/g, ' ')
       .replace(/"/g, '\\"');
-
-    // Build frontmatter with only the fields Claude recognizes: name and description
     const frontmatter = [
       '---',
       `name: ${template.name}`,
@@ -996,15 +915,12 @@ export class AgentGenerationOrchestratorService {
   private extractTemplateDescription(
     template: AgentTemplate,
   ): string | undefined {
-    // Match the second frontmatter block at the start of template.content
     const frontmatterMatch = template.content.match(
       /^\s*---\s*\n([\s\S]*?)\n---/,
     );
     if (!frontmatterMatch) {
       return undefined;
     }
-
-    // Extract the description field from the frontmatter YAML
     const descriptionMatch = frontmatterMatch[1].match(
       /^description:\s*(.+)$/m,
     );
@@ -1013,7 +929,6 @@ export class AgentGenerationOrchestratorService {
     }
 
     const desc = descriptionMatch[1].trim();
-    // Skip descriptions that contain template variables -- they are not useful as fallbacks
     if (desc.includes('{{')) {
       return undefined;
     }
@@ -1062,11 +977,7 @@ export class AgentGenerationOrchestratorService {
   ): string[] {
     const languages: string[] = [];
     const typeStr = projectType.toString();
-
-    // Use project type as primary language hint
     languages.push(typeStr);
-
-    // Check for TypeScript in dependencies
     if (projectInfo) {
       const allDeps = [
         ...projectInfo.dependencies,
@@ -1093,8 +1004,6 @@ export class AgentGenerationOrchestratorService {
       ...(projectInfo.dependencies ?? []),
       ...(projectInfo.devDependencies ?? []),
     ];
-
-    // Pattern-based detection — matches dependency names containing these substrings
     const buildToolPatterns = [
       'webpack',
       'vite',
@@ -1148,13 +1057,10 @@ export class AgentGenerationOrchestratorService {
    * @private
    */
   private detectPackageManager(workspacePath: string): string {
-    // Check for lock files
     if (existsSync(path.join(workspacePath, 'pnpm-lock.yaml'))) return 'pnpm';
     if (existsSync(path.join(workspacePath, 'yarn.lock'))) return 'yarn';
     if (existsSync(path.join(workspacePath, 'package-lock.json'))) return 'npm';
     if (existsSync(path.join(workspacePath, 'bun.lockb'))) return 'bun';
-
-    // Fallbacks based on project type
     if (existsSync(path.join(workspacePath, 'requirements.txt'))) return 'pip';
     if (existsSync(path.join(workspacePath, 'Cargo.toml'))) return 'cargo';
     if (existsSync(path.join(workspacePath, 'go.mod'))) return 'go mod';

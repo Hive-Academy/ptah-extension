@@ -95,14 +95,12 @@ export class StreamingQuotesComponent implements OnInit, OnDestroy {
         const currentQuote = this.quotes[this.currentQuoteIndex];
 
         if (!this.isDeleting) {
-          // Typing phase
           if (this.currentCharIndex < currentQuote.length) {
             this.currentCharIndex++;
             this.displayedText.set(
               currentQuote.slice(0, this.currentCharIndex),
             );
           } else {
-            // Finished typing, pause then start deleting
             if (this.typingInterval !== null) {
               clearInterval(this.typingInterval);
             }
@@ -112,14 +110,12 @@ export class StreamingQuotesComponent implements OnInit, OnDestroy {
             }, pauseDuration);
           }
         } else {
-          // Deleting phase
           if (this.currentCharIndex > 0) {
             this.currentCharIndex--;
             this.displayedText.set(
               currentQuote.slice(0, this.currentCharIndex),
             );
           } else {
-            // Finished deleting, move to next quote
             this.isDeleting = false;
             this.currentQuoteIndex =
               (this.currentQuoteIndex + 1) % this.quotes.length;

@@ -38,8 +38,6 @@ const CLI_CONFIGS: CliTestConfig[] = [
   {
     name: 'Copilot CLI',
     binary: 'copilot',
-    // cross-spawn passes args directly without shell — no cmd.exe mangling.
-    // Disable MCP servers and custom instructions to avoid invalid schema errors.
     args: [
       '-p',
       TEST_PROMPT,
@@ -60,7 +58,6 @@ const CLI_CONFIGS: CliTestConfig[] = [
   {
     name: 'Codex CLI',
     binary: 'codex',
-    // `exec` subcommand for non-interactive mode
     args: ['exec', '--full-auto', '--ephemeral', TEST_PROMPT],
     useStdin: false,
   },
@@ -116,21 +113,16 @@ async function testCli(config: CliTestConfig): Promise<{
 
     child.stdout?.on('data', (data: string) => {
       stdout += data;
-      // Show progress dots
       process.stdout.write('.');
     });
 
     child.stderr?.on('data', (data: string) => {
       stderr += data;
     });
-
-    // Pipe prompt via stdin if configured
     if (config.useStdin) {
       child.stdin?.write(TEST_PROMPT + '\n');
       child.stdin?.end();
     }
-
-    // Timeout guard
     const timer = setTimeout(() => {
       console.log(`\n  [${config.name}] TIMEOUT after ${TIMEOUT_MS / 1000}s`);
       child.kill('SIGTERM');
@@ -178,8 +170,6 @@ async function main(): Promise<void> {
   console.log(`CWD: ${process.cwd()}`);
   console.log(`Prompt: "${TEST_PROMPT}"`);
   console.log(`Timeout: ${TIMEOUT_MS / 1000}s per CLI\n`);
-
-  // Phase 1: Detection
   console.log('--- Phase 1: CLI Detection ---\n');
   const detected: CliTestConfig[] = [];
 
@@ -200,8 +190,6 @@ async function main(): Promise<void> {
     console.log('  npm install -g @openai/codex');
     process.exit(1);
   }
-
-  // Phase 2: Headless spawn test
   console.log('\n--- Phase 2: Headless Spawn Test ---\n');
   const results = [];
 
@@ -228,8 +216,6 @@ async function main(): Promise<void> {
     }
     console.log('');
   }
-
-  // Summary
   console.log('--- Summary ---\n');
   const passed = results.filter((r) => r.success).length;
   const failed = results.filter((r) => !r.success).length;

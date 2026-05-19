@@ -30,8 +30,6 @@ export class VscodeDiskStateStorage implements IStateStorage {
     } else {
       this.data[key] = value;
     }
-    // Serialize writes to prevent corruption from concurrent updates.
-    // Catch errors to prevent a single failure from breaking the chain permanently.
     this.writePromise = this.writePromise.then(
       () => this.persist(),
       () => this.persist()
@@ -47,14 +45,12 @@ export class VscodeDiskStateStorage implements IStateStorage {
     try {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw);
-      // Guard against corrupted files containing null, arrays, or primitives
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         this.data = parsed;
       } else {
         this.data = {};
       }
     } catch {
-      // File doesn't exist or is corrupted — start fresh
       this.data = {};
     }
   }
@@ -63,7 +59,6 @@ export class VscodeDiskStateStorage implements IStateStorage {
     try {
       const dir = path.dirname(this.filePath);
       await fsPromises.mkdir(dir, { recursive: true });
-      // Atomic write: write to temp file then rename to prevent partial writes
       const tmpPath = this.filePath + '.tmp';
       await fsPromises.writeFile(
         tmpPath,
@@ -72,8 +67,6 @@ export class VscodeDiskStateStorage implements IStateStorage {
       );
       await fsPromises.rename(tmpPath, this.filePath);
     } catch (err) {
-      // Log but don't throw — in-memory state remains authoritative.
-      // Next successful persist() will reconcile.
       console.error(
         `[VscodeDiskStateStorage] Failed to persist state to ${this.filePath}:`,
         err

@@ -12,8 +12,6 @@ import type { IPlatformAuthProvider } from '@ptah-extension/rpc-handlers';
 
 export class CliPlatformAuth implements IPlatformAuthProvider {
   async getGitHubUsername(): Promise<string | undefined> {
-    // CLI has no GitHub authentication session.
-    // Could be extended to read from `git config user.name` or env vars.
     return undefined;
   }
 }

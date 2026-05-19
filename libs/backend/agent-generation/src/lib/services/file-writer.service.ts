@@ -78,8 +78,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         templateId: agent.sourceTemplateId,
         contentLength: agent.content.length,
       });
-
-      // Validate content is non-empty
       if (!agent.content || agent.content.trim().length === 0) {
         return Result.err(
           new FileWriteError(
@@ -90,24 +88,15 @@ export class AgentFileWriterService implements IAgentFileWriterService {
           ),
         );
       }
-
-      // Security: Validate file path
       const pathValidation = this.validateFilePath(agent.filePath);
       if (pathValidation.isErr()) {
         return Result.err(pathValidation.error!);
       }
-
-      // Resolve to absolute path
       const absolutePath = this.resolveAbsolutePath(agent.filePath);
-
-      // Create directory if it doesn't exist
       const dirResult = await this.ensureDirectoryExists(absolutePath);
       if (dirResult.isErr()) {
         return Result.err(dirResult.error!);
       }
-
-      // Write new content (overwrite if exists — no backup to avoid
-      // duplicate .md files being read as agents in .claude/agents/)
       try {
         await writeFile(absolutePath, agent.content, 'utf-8');
         this.logger.info('Agent written successfully', {
@@ -165,7 +154,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
   async writeAgentsBatch(
     agents: GeneratedAgent[],
   ): Promise<Result<string[], Error>> {
-    // Handle empty array
     if (agents.length === 0) {
       this.logger.debug('Empty agents array provided, returning empty result');
       return Result.ok([]);
@@ -176,7 +164,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
     const writtenPaths: string[] = [];
 
     try {
-      // Phase 1: Validate all agents
       for (const agent of agents) {
         if (!agent.content || agent.content.trim().length === 0) {
           return Result.err(
@@ -194,8 +181,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
           return Result.err(pathValidation.error!);
         }
       }
-
-      // Phase 2: Create all directories
       const absolutePaths = agents.map((agent) =>
         this.resolveAbsolutePath(agent.filePath),
       );
@@ -206,9 +191,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
           return Result.err(dirResult.error!);
         }
       }
-
-      // Phase 3: Write all files (overwrite if exists — no backup to avoid
-      // duplicate .md files being read as agents in .claude/agents/)
       for (let i = 0; i < agents.length; i++) {
         const agent = agents[i];
         const absolutePath = absolutePaths[i];
@@ -222,7 +204,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
             total: agents.length,
           });
         } catch (error) {
-          // On failure, delete any files we already wrote in this batch
           for (const written of writtenPaths) {
             try {
               await unlink(written);
@@ -273,10 +254,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    */
   private validateFilePath(filePath: string): Result<void, Error> {
     try {
-      // Normalize path (convert backslashes to forward slashes, resolve ..)
       const normalizedPath = normalize(filePath);
-
-      // Check for path traversal attempts
       if (normalizedPath.includes('..')) {
         this.logger.warn('Path traversal attempt detected', { filePath });
         return Result.err(
@@ -288,9 +266,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
           ),
         );
       }
-
-      // Ensure path is within .claude/ directory
-      // (relative paths should start with .claude/, absolute paths will be resolved)
       if (!normalizedPath.includes('.claude')) {
         this.logger.warn('Attempt to write outside .claude directory', {
           filePath,
@@ -304,8 +279,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
           ),
         );
       }
-
-      // Check path length (Windows limit)
       if (normalizedPath.length > this.MAX_PATH_LENGTH) {
         return Result.err(
           new FileWriteError(
@@ -337,13 +310,9 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    * @returns Absolute file path
    */
   private resolveAbsolutePath(filePath: string): string {
-    // If already absolute, return as-is
     if (filePath.startsWith('/') || /^[A-Za-z]:/.test(filePath)) {
       return normalize(filePath);
     }
-
-    // Otherwise, resolve relative to home directory as safe fallback.
-    // In production, filePath should already be absolute (orchestrator uses context.rootPath).
     this.logger.warn(
       `[FileWriter] Relative path "${filePath}" — resolving against homedir. Caller should provide absolute path.`,
     );
@@ -390,8 +359,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
     message: string,
   ): Result<never, Error> {
     const nodeError = error as NodeJS.ErrnoException;
-
-    // Map Node.js error codes to descriptive messages
     let errorMessage = message;
     const context: Record<string, unknown> = { code: nodeError.code };
 

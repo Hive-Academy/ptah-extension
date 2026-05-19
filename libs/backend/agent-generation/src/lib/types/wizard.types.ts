@@ -275,10 +275,6 @@ export interface AgentSelectionUpdate {
   };
 }
 
-// =============================================================================
-// Wizard RPC Message Types
-// =============================================================================
-
 /**
  * Base interface for all wizard RPC messages.
  */

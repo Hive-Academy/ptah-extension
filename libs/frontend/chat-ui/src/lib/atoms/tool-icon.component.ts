@@ -34,8 +34,6 @@ import {
 })
 export class ToolIconComponent {
   readonly toolName = input.required<string>();
-
-  // Icon references
   private readonly FileIcon = File;
   private readonly TerminalIcon = Terminal;
   private readonly SearchIcon = Search;

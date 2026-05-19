@@ -6,8 +6,6 @@ import { injectCampaignFooter } from '../utils/footer-injector';
 @Injectable()
 export class TemplateRenderService {
   private readonly postalAddress: string;
-
-  // Implementation plan Â§8.3 whitelist
   public static readonly SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     allowedTags: [
       'h1',
@@ -82,8 +80,6 @@ export class TemplateRenderService {
     unsubscribeUrl: string;
   }): { html: string; subject: string } {
     const { htmlBody, subject, user, unsubscribeUrl } = params;
-
-    // 1. Substitution (variable allowlist)
     const firstName = user.firstName || user.email.split('@')[0];
 
     const renderedHtml = htmlBody
@@ -94,14 +90,10 @@ export class TemplateRenderService {
     const renderedSubject = subject
       .replace(/{{firstName}}/g, firstName)
       .replace(/{{email}}/g, user.email);
-
-    // 2. Sanitize
     const sanitizedHtml = sanitizeHtml(
       renderedHtml,
       TemplateRenderService.SANITIZE_OPTIONS,
     );
-
-    // 3. Append Footer
     const finalHtml = injectCampaignFooter(
       sanitizedHtml,
       this.postalAddress,

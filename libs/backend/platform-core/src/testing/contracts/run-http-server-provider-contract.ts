@@ -57,21 +57,12 @@ export function runHttpServerProviderContract(
     });
 
     afterEach(async () => {
-      // Close any handles left open by failed tests.
       for (const handle of openHandles) {
-        try {
-          await handle.close();
-        } catch {
-          /* ignore teardown errors */
-        }
+        await handle.close();
       }
       openHandles = [];
       await teardown?.();
     });
-
-    // -----------------------------------------------------------------------
-    // Port and host shape
-    // -----------------------------------------------------------------------
 
     it('listen(host, 0, noop) returns a handle', async () => {
       const handle = await setup.provider.listen('127.0.0.1', 0, () => {
@@ -85,7 +76,6 @@ export function runHttpServerProviderContract(
     it('listen with port 0 returns a handle with port > 0 (OS-assigned)', async () => {
       const sendsReal = setup.sendsRealRequests !== false;
       if (!sendsReal) {
-        // Stub: port value is implementation-defined; only check it's a number.
         const handle = await setup.provider.listen('127.0.0.1', 0, () => {
           /* noop */
         });
@@ -112,10 +102,6 @@ export function runHttpServerProviderContract(
       await handle.close();
     });
 
-    // -----------------------------------------------------------------------
-    // close() idempotency
-    // -----------------------------------------------------------------------
-
     it('handle.close() resolves without throwing', async () => {
       const handle = await setup.provider.listen('127.0.0.1', 0, () => {
         /* noop */
@@ -131,13 +117,8 @@ export function runHttpServerProviderContract(
       await expect(handle.close()).resolves.not.toThrow();
     });
 
-    // -----------------------------------------------------------------------
-    // Handler invocation and error isolation — real TCP only
-    // -----------------------------------------------------------------------
-
     it('handler is invoked when an HTTP request arrives (real TCP only)', async () => {
       if (setup.sendsRealRequests === false) {
-        // Stub implementation — skip.
         return;
       }
 
@@ -164,45 +145,28 @@ export function runHttpServerProviderContract(
       const handle = await setup.provider.listen('127.0.0.1', 0, (req, res) => {
         if (!secondHandlerCalled) {
           secondHandlerCalled = true;
-          // First request: throw — the listener MUST survive.
           throw new Error('intentional handler error');
         }
-        // Second request: succeed normally.
         (res as http.ServerResponse).writeHead(200);
         (res as http.ServerResponse).end();
       });
       openHandles.push(handle);
 
-      // First request — handler throws; the server should NOT crash.
-      try {
-        await sendRequest(`http://127.0.0.1:${handle.port}/`);
-      } catch {
-        /* expected: connection may be reset when handler throws */
-      }
-
-      // Server is still alive — second request succeeds.
+      await sendRequest(`http://127.0.0.1:${handle.port}/`);
       await sendRequest(`http://127.0.0.1:${handle.port}/`);
 
       await handle.close();
     });
 
-    // -----------------------------------------------------------------------
-    // EADDRINUSE — real TCP only
-    // -----------------------------------------------------------------------
-
     it('listen on an already-in-use port throws (EADDRINUSE, real TCP only)', async () => {
       if (setup.sendsRealRequests === false) {
         return;
       }
-
-      // Grab a free port first.
       const handle = await setup.provider.listen('127.0.0.1', 0, () => {
         /* noop */
       });
       openHandles.push(handle);
       const { port } = handle;
-
-      // Attempting to bind the same port again must throw.
       await expect(
         setup.provider.listen('127.0.0.1', port, () => {
           /* noop */
@@ -213,10 +177,6 @@ export function runHttpServerProviderContract(
     });
   });
 }
-
-// ---------------------------------------------------------------------------
-// Internal helper: fire a single HTTP GET and resolve when the response ends.
-// ---------------------------------------------------------------------------
 
 function sendRequest(url: string): Promise<void> {
   return new Promise((resolve, reject) => {

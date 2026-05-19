@@ -57,7 +57,6 @@ export class AgentStatsService {
     cost?: number;
     duration?: number;
   } {
-    // Check per-build cache to avoid redundant scans
     const cached = this.agentStatsCache.get(toolCallId);
     if (cached) return cached;
 
@@ -70,37 +69,27 @@ export class AgentStatsService {
     let latestEnd: number | undefined;
 
     for (const event of state.events.values()) {
-      // Only look at events linked to this agent's tool call
       if (event.parentToolUseId !== toolCallId) continue;
 
       if (event.eventType === 'message_complete') {
         const complete = event as MessageCompleteEvent;
-
-        // Capture model from first message_complete that has it
         if (!model && complete.model) {
           model = complete.model;
         }
-
-        // Accumulate token usage
         if (complete.tokenUsage) {
           totalInputTokens += complete.tokenUsage.input;
           totalOutputTokens += complete.tokenUsage.output;
           hasTokenData = true;
         }
-
-        // Accumulate cost
         if (complete.cost) {
           totalCost += complete.cost;
         }
-
-        // Track latest timestamp for duration calculation
         if (!latestEnd || complete.timestamp > latestEnd) {
           latestEnd = complete.timestamp;
         }
       }
 
       if (event.eventType === 'message_start') {
-        // Track earliest timestamp for duration calculation
         if (!earliestStart || event.timestamp < earliestStart) {
           earliestStart = event.timestamp;
         }
@@ -109,9 +98,6 @@ export class AgentStatsService {
 
     const result = {
       agentModel: model,
-      // Note: MessageCompleteEvent.tokenUsage only carries input/output.
-      // Cache token fields (cacheRead, cacheCreation) are not available
-      // at the per-message event level from the SDK.
       tokenUsage: hasTokenData
         ? {
             input: totalInputTokens,
@@ -124,8 +110,6 @@ export class AgentStatsService {
           ? latestEnd - earliestStart
           : undefined,
     };
-
-    // Cache for subsequent calls within this build cycle
     this.agentStatsCache.set(toolCallId, result);
     return result;
   }

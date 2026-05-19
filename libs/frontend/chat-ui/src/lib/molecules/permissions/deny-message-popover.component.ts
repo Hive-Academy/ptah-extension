@@ -86,26 +86,15 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
   `,
 })
 export class DenyMessagePopoverComponent {
-  // Inputs
   readonly disabled = input<boolean>(false);
-
-  // Internal state - component manages its own open state
   protected readonly _isOpen = signal(false);
   protected readonly _isSubmitting = signal(false);
-
-  // Outputs
   readonly opened = output<void>();
   readonly messageSent = output<string>();
   readonly closed = output<void>();
-
-  // Icons
   protected readonly SendIcon = Send;
   protected readonly MessageSquareIcon = MessageSquare;
-
-  // Local state for ngModel binding
   protected messageText = '';
-
-  // ViewChild for focus management
   private readonly messageInputRef =
     viewChild<ElementRef<HTMLInputElement>>('messageInput');
 
@@ -123,7 +112,6 @@ export class DenyMessagePopoverComponent {
    * Handle popover opened - focus input
    */
   handleOpened(): void {
-    // Small delay to ensure DOM is ready after @if renders content
     setTimeout(() => {
       this.messageInputRef()?.nativeElement?.focus();
     }, 50);
@@ -135,19 +123,14 @@ export class DenyMessagePopoverComponent {
    * Includes double-submit protection
    */
   handleSubmit(): void {
-    // Double-submit protection
     if (this._isSubmitting()) {
       return;
     }
 
     this._isSubmitting.set(true);
-
-    // Use default message if empty
     const message =
       this.messageText.trim() || 'User denied without explanation';
     this.messageSent.emit(message);
-
-    // Reset state
     this.messageText = '';
     this._isOpen.set(false);
     this._isSubmitting.set(false);

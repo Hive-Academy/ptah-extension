@@ -104,10 +104,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-commands
-// ---------------------------------------------------------------------------
-
 async function runList(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -335,8 +331,6 @@ async function runSkillsList(
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // Default: list skills for currently-enabled plugins. Caller may override
-    // via --plugins to inspect a different subset.
     let pluginIds: string[];
     if (opts.plugins && opts.plugins.length > 0) {
       pluginIds = opts.plugins;
@@ -361,10 +355,6 @@ async function runSkillsList(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — kept module-private.
-// ---------------------------------------------------------------------------
 
 /**
  * Order-insensitive equality check for two string arrays. Used by

@@ -278,29 +278,17 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   /** Timeout IDs for cleanup on destroy */
   private syncSuccessTimeoutId?: ReturnType<typeof setTimeout>;
   private syncErrorTimeoutId?: ReturnType<typeof setTimeout>;
-
-  // Tab state
   public readonly activeTab = signal<ProfileTab>('account');
-
-  // State signals
   public readonly license = signal<LicenseData | null>(null);
   public readonly isLoading = signal(true);
   public readonly errorMessage = signal('');
-
-  // Sync state signals
   public readonly isSyncing = signal(false);
   public readonly syncError = signal<string | null>(null);
   public readonly syncSuccess = signal(false);
-
-  // License key reveal state signals
   public readonly licenseKey = signal<string | null>(null);
   public readonly isRevealingKey = signal(false);
   public readonly revealKeyError = signal<string | null>(null);
-
-  // TASK_2025_143: Downgrade state
   public readonly isDowngrading = signal(false);
-
-  // Animation config for actions
   public readonly actionsConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.4,
@@ -316,15 +304,12 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   public ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
-    // Clear any pending timeouts to prevent memory leaks
     if (this.syncSuccessTimeoutId) {
       clearTimeout(this.syncSuccessTimeoutId);
     }
     if (this.syncErrorTimeoutId) {
       clearTimeout(this.syncErrorTimeoutId);
     }
-    // Keep SSE connection alive for other components
-    // Disconnect is handled by logout or auth service
   }
 
   public loadLicense(): void {
@@ -335,9 +320,6 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
       next: (data) => {
         this.license.set(data);
         this.isLoading.set(false);
-
-        // Connect to SSE for real-time updates
-        // The service handles authentication via ticket (obtained from JWT session)
         this.sseService.connect();
       },
       error: (error) => {
@@ -354,25 +336,18 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
    * Refreshes license data when server emits license.updated or subscription status changes
    */
   private setupSSEListeners(): void {
-    // Listen for license updates (plan changes, status updates)
     this.sseService.licenseUpdated$
       .pipe(takeUntil(this.destroy$))
       .subscribe((event) => {
         console.log('[Profile] License updated event received:', event);
-        // Refresh license data from server to get complete updated info
         this.refreshLicenseData();
       });
-
-    // Listen for subscription status changes
     this.sseService.subscriptionStatus$
       .pipe(takeUntil(this.destroy$))
       .subscribe((event) => {
         console.log('[Profile] Subscription status changed:', event);
-        // Refresh license data to update UI
         this.refreshLicenseData();
       });
-
-    // Listen for reconciliation completed events
     this.sseService.reconciliationCompleted$
       .pipe(takeUntil(this.destroy$))
       .subscribe((event) => {
@@ -380,13 +355,9 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
           '[Profile] Reconciliation completed event received:',
           event,
         );
-        // Refresh license data to reflect synced state
         this.refreshLicenseData();
-
-        // Show success feedback if sync was successful
         if (event.data.success) {
           this.syncSuccess.set(true);
-          // Clear any previous timeout before setting a new one
           if (this.syncSuccessTimeoutId) {
             clearTimeout(this.syncSuccessTimeoutId);
           }
@@ -395,8 +366,6 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
           }, 5000);
         }
       });
-
-    // Log connection events for debugging
     this.sseService.connected$.pipe(takeUntil(this.destroy$)).subscribe(() => {
       console.log('[Profile] SSE connection established');
     });
@@ -410,7 +379,6 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
     this.http.get<LicenseData>('/api/v1/licenses/me').subscribe({
       next: (data) => {
         this.license.set(data);
-        // Clear revealed license key if license is no longer active
         if (data.status !== 'active') {
           this.licenseKey.set(null);
         }
@@ -422,7 +390,6 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
       },
       error: (error) => {
         console.error('[Profile] Failed to refresh license data:', error);
-        // Don't show error to user for background refresh
       },
     });
   }
@@ -456,12 +423,7 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
           if (response.success) {
             this.syncSuccess.set(true);
             console.log('[Profile] Sync completed:', response.changes);
-
-            // Refresh license data to get updated information
             this.refreshLicenseData();
-
-            // Clear success message after 5 seconds
-            // Clear any previous timeout before setting a new one
             if (this.syncSuccessTimeoutId) {
               clearTimeout(this.syncSuccessTimeoutId);
             }
@@ -469,7 +431,6 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
               this.syncSuccess.set(false);
             }, 5000);
           } else {
-            // Reconciliation returned errors
             const errorMsg =
               response.errors?.join(', ') || 'Sync completed with errors';
             this.syncError.set(errorMsg);
@@ -501,20 +462,15 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
       }>('/api/v1/subscriptions/portal-session', {})
       .subscribe({
         next: (response) => {
-          // Open customer portal in new tab
           window.open(response.url, '_blank', 'noopener,noreferrer');
           console.log('[Profile] Opened customer portal');
         },
         error: (error) => {
-          // Show error to user
           const errorMsg =
             error.error?.message ||
             'Failed to open subscription management. Please try again.';
           this.syncError.set(errorMsg);
           console.error('[Profile] Failed to get portal session:', error);
-
-          // Clear error after 5 seconds
-          // Clear any previous timeout before setting a new one
           if (this.syncErrorTimeoutId) {
             clearTimeout(this.syncErrorTimeoutId);
           }
@@ -600,25 +556,16 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
         next: (response) => {
           console.log('[Profile] Downgrade successful:', response);
           this.isDowngrading.set(false);
-
-          // SSE listener will auto-refresh license data when backend emits license.updated event
-          // No need to manually call refreshLicenseData() here
         },
         error: (error) => {
           console.error('[Profile] Downgrade failed:', error);
           this.isDowngrading.set(false);
-
-          // Show user-friendly error message
           const errorMsg =
             error.error?.message ||
             'Failed to downgrade. Please try again or contact support.';
-
-          // For validation errors (trial not ended yet), just log
-          // The user shouldn't see this error since modal validates daysRemaining
           if (error.status === 400) {
             console.warn('[Profile] Validation error:', errorMsg);
           } else {
-            // For other errors, could show toast/alert (future enhancement)
             console.error('[Profile] Unexpected error:', errorMsg);
           }
         },

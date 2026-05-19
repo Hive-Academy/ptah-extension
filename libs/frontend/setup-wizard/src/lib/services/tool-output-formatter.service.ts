@@ -71,31 +71,21 @@ export class ToolOutputFormatterService {
    * @returns Markdown-formatted string with code blocks
    */
   public formatToolInput(content: string, rawJson: string): string {
-    // Try to parse as JSON to detect file paths for language detection
-    try {
-      const parsed = JSON.parse(rawJson);
-      if (parsed && typeof parsed === 'object') {
-        // Check for file_path parameter to detect language
-        const filePath = parsed.file_path || parsed.path || '';
-        if (filePath) {
-          const language = this.getLanguageFromPath(filePath);
-          if (language) {
-            // If there's a content/command field, wrap it with detected language
-            const codeContent =
-              parsed.content || parsed.command || parsed.pattern || '';
-            if (codeContent) {
-              return '```' + language + '\n' + codeContent + '\n```';
-            }
+    const parsed = JSON.parse(rawJson);
+    if (parsed && typeof parsed === 'object') {
+      const filePath = parsed.file_path || parsed.path || '';
+      if (filePath) {
+        const language = this.getLanguageFromPath(filePath);
+        if (language) {
+          const codeContent =
+            parsed.content || parsed.command || parsed.pattern || '';
+          if (codeContent) {
+            return '```' + language + '\n' + codeContent + '\n```';
           }
         }
-        // Default: format entire JSON with syntax highlighting
-        return '```json\n' + JSON.stringify(parsed, null, 2) + '\n```';
       }
-    } catch {
-      // Not JSON, fall through to generic wrapping
+      return '```json\n' + JSON.stringify(parsed, null, 2) + '\n```';
     }
-
-    // Fallback: wrap in generic code block
     return '```\n' + content + '\n```';
   }
 
@@ -118,16 +108,12 @@ export class ToolOutputFormatterService {
   public formatToolResult(
     content: string,
     toolName?: string,
-    toolInput?: string
+    toolInput?: string,
   ): string {
     if (!content) return '_No output_';
-
-    // Route based on tool type
     if (toolName === 'execute_code') {
       return this.formatExecuteCodeResult(content, toolInput);
     }
-
-    // Default processing pipeline
     return this.formatDefaultResult(content);
   }
 
@@ -152,7 +138,7 @@ export class ToolOutputFormatterService {
           item !== null &&
           'type' in item &&
           (item as { type: string }).type === 'text' &&
-          'text' in item
+          'text' in item,
       );
 
       if (isMCPContent) {
@@ -237,7 +223,7 @@ export class ToolOutputFormatterService {
    */
   public getToolGroupLabel(
     toolName: string,
-    toolInputContent?: string
+    toolInputContent?: string,
   ): string {
     if (toolInputContent) {
       const match = toolInputContent.match(this.ptahApiCallPattern);
@@ -259,8 +245,6 @@ export class ToolOutputFormatterService {
     if (!content) return '';
 
     const processed = this.unescapeStringLiterals(content);
-
-    // If the content looks like it's already in a code block format, preserve it
     if (processed.trim().startsWith('```')) {
       return processed;
     }
@@ -273,31 +257,18 @@ export class ToolOutputFormatterService {
    * Attempts to determine syntax highlighting language from tool input.
    */
   private formatExecuteCodeResult(content: string, toolInput?: string): string {
-    // Apply MCP extraction first
     let processed = this.extractMCPContent(content);
     processed = this.stripSystemReminders(processed);
     processed = this.stripLineNumbers(processed);
     processed = this.unescapeStringLiterals(processed);
-
-    // Try to detect language from tool input (e.g., ptah.files.readFile('path.ts'))
     const language = this.detectLanguageFromToolInput(toolInput);
-
-    // JSON auto-detect
     if (processed.trim().startsWith('{') || processed.trim().startsWith('[')) {
-      try {
-        JSON.parse(processed);
-        return '```json\n' + processed + '\n```';
-      } catch {
-        // Not valid JSON
-      }
+      JSON.parse(processed);
+      return '```json\n' + processed + '\n```';
     }
-
-    // If we detected a language, wrap with it
     if (language) {
       return '```' + language + '\n' + processed + '\n```';
     }
-
-    // Code detection heuristic
     if (
       processed.includes('\n') &&
       (processed.includes('{') ||
@@ -306,8 +277,6 @@ export class ToolOutputFormatterService {
     ) {
       return '```\n' + processed + '\n```';
     }
-
-    // Otherwise render as markdown
     return processed;
   }
 
@@ -319,18 +288,10 @@ export class ToolOutputFormatterService {
     processed = this.stripSystemReminders(processed);
     processed = this.stripLineNumbers(processed);
     processed = this.unescapeStringLiterals(processed);
-
-    // JSON auto-detect
     if (processed.trim().startsWith('{') || processed.trim().startsWith('[')) {
-      try {
-        JSON.parse(processed);
-        return '```json\n' + processed + '\n```';
-      } catch {
-        // Not valid JSON
-      }
+      JSON.parse(processed);
+      return '```json\n' + processed + '\n```';
     }
-
-    // Code detection heuristic
     if (
       processed.includes('\n') &&
       (processed.includes('{') ||
@@ -339,8 +300,6 @@ export class ToolOutputFormatterService {
     ) {
       return '```\n' + processed + '\n```';
     }
-
-    // Otherwise render as markdown
     return processed;
   }
 
@@ -353,16 +312,12 @@ export class ToolOutputFormatterService {
    */
   private detectLanguageFromToolInput(toolInput?: string): string {
     if (!toolInput) return '';
-
-    // Match ptah.files.readFile('some/path.ext') or similar patterns
     const readFileMatch = toolInput.match(
-      /ptah\.files\.readFile\s*\(\s*['"]([^'"]+)['"]/
+      /ptah\.files\.readFile\s*\(\s*['"]([^'"]+)['"]/,
     );
     if (readFileMatch) {
       return this.getLanguageFromPath(readFileMatch[1]);
     }
-
-    // Match generic file path arguments in ptah API calls
     const filePathMatch = toolInput.match(/['"]([^'"]+\.\w{1,10})['"]/);
     if (filePathMatch) {
       return this.getLanguageFromPath(filePathMatch[1]);

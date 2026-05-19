@@ -87,13 +87,7 @@ export class SubagentRegistryService {
    * @param registration - Subagent data from SubagentStart hook
    */
   register(registration: SubagentRegistration): void {
-    // Run lazy cleanup periodically
     this.store.lazyCleanup();
-
-    // Check if this toolCallId was pre-marked as background by
-    // SdkMessageTransformer (detected run_in_background: true in Task input).
-    // This eliminates the race condition where the agent starts executing tools
-    // before the background_agent_started stream event arrives.
     const isPendingBackground = this.store.consumePendingBackground(
       registration.toolCallId,
     );
@@ -156,9 +150,6 @@ export class SubagentRegistryService {
       );
       return;
     }
-
-    // FIX: If marking as 'completed' or 'background_completed', delete immediately
-    // to prevent memory accumulation. Completed subagents cannot be resumed.
     if (
       updates.status === 'completed' ||
       updates.status === 'background_completed'
@@ -174,8 +165,6 @@ export class SubagentRegistryService {
       );
       return;
     }
-
-    // Apply updates for non-completed status (e.g., 'interrupted', 'running', 'background')
     if (updates.status !== undefined) {
       record.status = updates.status;
     }
@@ -217,15 +206,12 @@ export class SubagentRegistryService {
    * @returns SubagentRecord or null
    */
   get(toolCallId: string): SubagentRecord | null {
-    // Run lazy cleanup periodically
     this.store.lazyCleanup();
 
     const record = this.store.getRaw(toolCallId);
     if (!record) {
       return null;
     }
-
-    // Check if expired
     if (this.store.isExpired(record)) {
       this.store.delete(toolCallId);
       this.logger.debug(
@@ -286,7 +272,6 @@ export class SubagentRegistryService {
    * Returns subagents that can be resumed via SDK's resume parameter.
    */
   getResumable(): SubagentRecord[] {
-    // Run lazy cleanup periodically
     this.store.lazyCleanup();
 
     const resumable: SubagentRecord[] = [];
@@ -469,11 +454,9 @@ export class SubagentRegistryService {
 
     for (const [toolCallId, record] of this.store.entries()) {
       if (record.agentId === agentId) {
-        // Prefer running agents (most relevant for in-flight permission denies)
         if (record.status === 'running') {
           return toolCallId;
         }
-        // Keep first match as fallback
         if (!fallback) {
           fallback = toolCallId;
         }
@@ -639,10 +622,6 @@ export class SubagentRegistryService {
       clearedToolCallIdsAlsoCleared: true,
     });
   }
-
-  // ============================================================================
-  // HISTORY-BASED REGISTRATION
-  // ============================================================================
 
   /**
    * Register incomplete/interrupted agents from loaded session history.

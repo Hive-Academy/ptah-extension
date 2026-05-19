@@ -209,7 +209,6 @@ export class PremiumUpsellComponent {
    * Opens the upgrade page in an external browser with loading feedback.
    */
   protected async onUpgradeClick(): Promise<void> {
-    // Prevent double-click
     if (this.isOpeningUrl()) {
       return;
     }
@@ -218,17 +217,13 @@ export class PremiumUpsellComponent {
     this.urlFeedback.set(null);
 
     try {
-      // Use ptah.openPricing command which resolves environment-aware URLs
       await this.rpcService.call('command:execute', {
         command: 'ptah.openPricing',
       });
-
-      // Clear loading state after short delay (assume success)
       setTimeout(() => {
         this.isOpeningUrl.set(false);
       }, PremiumUpsellComponent.LOADING_CLEAR_TIMEOUT_MS);
     } catch {
-      // Handle error gracefully
       this.isOpeningUrl.set(false);
       this.urlFeedback.set('Failed to open pricing page. Please try again.');
     }

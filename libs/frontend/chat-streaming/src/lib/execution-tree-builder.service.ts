@@ -28,9 +28,6 @@ import type {
 } from '@ptah-extension/shared';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import { BackgroundAgentStore } from './background-agent.store';
-// Pure execution-tree helpers extracted to
-// `@ptah-extension/chat-execution-tree`. The orchestrating service +
-// BackgroundAgentStore stay here.
 import {
   AgentStatsService,
   type BuilderDeps,
@@ -201,13 +198,9 @@ export class ExecutionTreeBuilderService {
     ) {
       return cached.tree;
     }
-
-    // Clear per-build aggregation cache to avoid stale stats
     this.agentStats.resetPerBuildCache();
 
     const rootNodes: ExecutionNode[] = [];
-
-    // Merge consecutive assistant messages into one root.
     let lastAssistantNode: ExecutionNode | null = null;
 
     for (const messageId of streamingState.messageEventIds) {
@@ -216,7 +209,6 @@ export class ExecutionTreeBuilderService {
         messageId,
       );
       if (msgStartEvent?.parentToolUseId) {
-        // Nested messages render inside agent bubbles, not at root.
         continue;
       }
 
@@ -227,7 +219,6 @@ export class ExecutionTreeBuilderService {
         (msgStartEvent as MessageStartEvent | undefined)?.role === 'assistant';
 
       if (isAssistant && lastAssistantNode) {
-        // MERGE: append children to previous assistant node (immutable).
         if (messageNode.children && messageNode.children.length > 0) {
           const mergedChildren = [
             ...(lastAssistantNode.children || []),
@@ -246,13 +237,6 @@ export class ExecutionTreeBuilderService {
         lastAssistantNode = isAssistant ? messageNode : null;
       }
     }
-
-    // Structural reuse pass + diagnostic.
-    // Walk the freshly-built tree bottom-up; for each node compute a content
-    // fingerprint (id + key fields + children fingerprints). If the previous
-    // build had a node at the same id with an identical fingerprint, reuse
-    // the previous reference. This eliminates the OnPush re-render cascade in
-    // unchanged subtrees (the highest-impact identity-churn fix).
     const reuseStats = { reused: 0, fresh: 0 };
     const newNodesById = new Map<string, ExecutionNode>();
     const newFingerprintsById = new Map<string, string>();
@@ -286,9 +270,6 @@ export class ExecutionTreeBuilderService {
       nodesById: newNodesById,
       fingerprintsById: newFingerprintsById,
     });
-
-    // Diagnostic: dev-only identity-churn log.
-    // Useful to catch identity-churn regressions. Off in production.
     if (isDevMode()) {
       console.debug(
         `[TreeBuilder] reused: ${reuseStats.reused} / new: ${reuseStats.fresh} nodes (key: ${cacheKey})`,
@@ -331,8 +312,6 @@ export class ExecutionTreeBuilderService {
       if (reusedChild !== incomingChildren[i]) childrenChanged = true;
       reusedChildren[i] = reusedChild;
     }
-
-    // Use freshly-built node, but with reused children if any swapped.
     const candidate: ExecutionNode = childrenChanged
       ? { ...node, children: reusedChildren }
       : node;
@@ -342,8 +321,6 @@ export class ExecutionTreeBuilderService {
     const prev = prevNodesById?.get(candidate.id);
 
     if (prev && prevFingerprint === fingerprint) {
-      // Structurally equal — reuse the previous reference. Cache it under
-      // its id and propagate the (identical) fingerprint forward.
       outNodesById.set(prev.id, prev);
       outFingerprintsById.set(prev.id, fingerprint);
       stats.reused++;
@@ -370,13 +347,8 @@ export class ExecutionTreeBuilderService {
     for (let i = 0; i < node.children.length; i++) {
       const child = node.children[i];
       const fp = fingerprintsById.get(child.id);
-      // Children are visited first, so their fingerprint is always populated.
       childFps[i] = fp ?? `${child.id}:?`;
     }
-
-    // Hash key surface area: fields that affect rendering. Stringify only
-    // primitives/small payloads; nested children are represented by their ids
-    // + fingerprints (already content-addressable).
     return [
       node.id,
       node.type,

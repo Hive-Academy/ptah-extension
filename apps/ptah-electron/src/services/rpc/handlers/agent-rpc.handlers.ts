@@ -14,7 +14,7 @@
  * (IStateStorage, IWorkspaceProvider) instead of VS Code APIs.
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -29,12 +29,10 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
-} from '@ptah-extension/agent-sdk';
-import {
-  SDK_TOKENS,
+  CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
-  SessionMetadataStore,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
+import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -71,7 +69,7 @@ export class AgentRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
-    @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,
@@ -81,15 +79,11 @@ export class AgentRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
     private readonly stateStorage: IStateStorage,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly runtimeContainer: DependencyContainer,
   ) {}
 
   register(): void {
-    // One-shot migration: copy any pre-existing agentOrchestration.* values
-    // from IStateStorage (legacy {userDataPath}/global-state.json) into the
-    // IWorkspaceProvider (which routes file-based keys to ~/.ptah/settings.json
-    // and writes the rest to {globalStoragePath}/config.json). The agent
-    // process manager gate reads via workspace provider, so values stuck in
-    // global-state.json were silently ignored before this fix.
     void this.migrateAgentOrchestrationSettings();
 
     this.registerGetConfig();
@@ -99,10 +93,6 @@ export class AgentRpcHandlers {
     this.registerPermissionResponse();
     this.registerAgentStop();
     this.registerResumeCliSession();
-
-    // Initialize Copilot auto-approve from saved config (default: true).
-    // Read via workspace provider so file-based key routes to ~/.ptah/settings.json
-    // (parity with VS Code handler and with agent-process-manager.service.ts gate).
     const copilotAutoApprove = this.getAgentCfg<boolean>(
       'copilotAutoApprove',
       true,
@@ -140,13 +130,6 @@ export class AgentRpcHandlers {
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            // agentOrchestration.* settings are read via IWorkspaceProvider so
-            // file-based keys (codexModel, copilotModel, *AutoApprove,
-            // *ReasoningEffort, disabledClis) route to ~/.ptah/settings.json
-            // — matching the read path in agent-process-manager.service.ts and
-            // the VS Code handler. Non-file-based keys (preferredAgentOrder,
-            // maxConcurrentAgents, geminiModel, disabledMcpNamespaces) fall
-            // through to {globalStoragePath}/config.json via the same provider.
             preferredAgentOrder: this.getAgentCfg<string[]>(
               'preferredAgentOrder',
               [],
@@ -174,9 +157,6 @@ export class AgentRpcHandlers {
               'copilotReasoningEffort',
               '',
             ),
-            // mcpPort lives under the `ptah` namespace (not agentOrchestration)
-            // and is non-file-based; intentionally kept on stateStorage in
-            // Electron — only agentOrchestration.* was migrated for this fix.
             mcpPort:
               this.stateStorage.get<number>(
                 'agentOrchestration.mcpPort',
@@ -187,10 +167,6 @@ export class AgentRpcHandlers {
               'disabledMcpNamespaces',
               [],
             ),
-            // Browser settings — read from workspace provider (not stateStorage) because
-            // browser.allowLocalhost is in FILE_BASED_SETTINGS_KEYS and must route through
-            // PtahFileSettingsManager (~/.ptah/settings.json) for parity with the MCP
-            // browser namespace read path in PtahApiBuilderService.
             browserAllowLocalhost:
               this.workspace.getConfiguration<boolean>(
                 'ptah',
@@ -223,12 +199,6 @@ export class AgentRpcHandlers {
     >('agent:setConfig', async (params) => {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
-
-        // agentOrchestration.* writes go through IWorkspaceProvider so the
-        // gate in agent-process-manager.service.ts (which reads via the same
-        // provider) actually sees user toggles. File-based keys land in
-        // ~/.ptah/settings.json; non-file-based keys land in
-        // {globalStoragePath}/config.json. See VS Code handler for parity.
         if (params.preferredAgentOrder !== undefined) {
           await this.setAgentCfg(
             'preferredAgentOrder',
@@ -276,8 +246,6 @@ export class AgentRpcHandlers {
           );
         }
         if (params.mcpPort !== undefined) {
-          // mcpPort is under the `ptah` namespace directly (non-file-based),
-          // not agentOrchestration — kept on stateStorage for this fix.
           await this.stateStorage.update(
             'agentOrchestration.mcpPort',
             Math.max(1024, Math.min(65535, params.mcpPort)),
@@ -292,8 +260,6 @@ export class AgentRpcHandlers {
             params.disabledMcpNamespaces,
           );
         }
-        // Browser settings — write via workspace provider (not stateStorage) because
-        // browser.allowLocalhost routes through FILE_BASED_SETTINGS_KEYS to ~/.ptah/settings.json.
         if (params.browserAllowLocalhost !== undefined) {
           await this.workspace.setConfiguration(
             'ptah',
@@ -353,7 +319,6 @@ export class AgentRpcHandlers {
 
           const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
-          // Electron has no VS Code LM API — use adapter's curated list
           const copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
 
           const result: AgentListCliModelsResult = { gemini, codex, copilot };
@@ -397,13 +362,13 @@ export class AgentRpcHandlers {
         });
 
         let handled = false;
-
-        // Try SdkPermissionHandler first (handles Ptah CLI agent permissions)
-        // Uses lazy container resolution (same pattern as webview-message-handler.service.ts:464)
-        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
-          const permissionHandler = container.resolve<ISdkPermissionHandler>(
-            SDK_TOKENS.SDK_PERMISSION_HANDLER,
-          );
+        if (
+          this.runtimeContainer.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+        ) {
+          const permissionHandler =
+            this.runtimeContainer.resolve<ISdkPermissionHandler>(
+              SDK_TOKENS.SDK_PERMISSION_HANDLER,
+            );
           const response: PermissionResponse = {
             id: params.requestId,
             decision: params.decision,
@@ -412,8 +377,6 @@ export class AgentRpcHandlers {
           permissionHandler.handleResponse(params.requestId, response);
           handled = true;
         }
-
-        // Also try Copilot bridge (existing flow, idempotent for unknown requestIds)
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
           const bridge = (
@@ -631,8 +594,6 @@ export class AgentRpcHandlers {
         resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
       },
     );
-
-    // Wire agentId so CLI permission requests route to agent monitor panel
     spawnResult.setAgentId(result.agentId);
 
     return result;
@@ -698,10 +659,6 @@ export class AgentRpcHandlers {
     if (this.stateStorage.get<boolean>(FLAG_KEY, false) === true) {
       return;
     }
-
-    // The only agentOrchestration.* keys that this handler ever wrote to
-    // stateStorage in the legacy code path. Listed explicitly to keep the
-    // migration narrow and predictable.
     const KEYS_TO_MIGRATE = [
       'preferredAgentOrder',
       'maxConcurrentAgents',
@@ -724,9 +681,6 @@ export class AgentRpcHandlers {
         if (stateValue === undefined) {
           continue;
         }
-
-        // Don't overwrite a value already present in the workspace provider —
-        // the user may have written via the new path before this migration ran.
         const existing = this.workspace.getConfiguration<unknown>(
           'ptah',
           stateKey,
@@ -749,8 +703,6 @@ export class AgentRpcHandlers {
         );
       }
     } catch (error) {
-      // Migration failures must not block handler registration. Log and
-      // proceed — settings will fall back to defaults until the next launch.
       this.logger.warn(
         `[AgentRpc] agentOrchestration migration failed: ${
           error instanceof Error ? error.message : String(error)
@@ -767,35 +719,28 @@ export class AgentRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<boolean> {
-    try {
-      const projectsDir = path.join(os.homedir(), '.claude', 'projects');
-      const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-      const dirs = await fs.readdir(projectsDir);
+    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+    const dirs = await fs.readdir(projectsDir);
 
-      const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
-      const normalizedEscaped = normalize(escapedPath);
-      const matchedDir = dirs.find(
-        (d) =>
-          d === escapedPath ||
-          d.toLowerCase() === escapedPath.toLowerCase() ||
-          normalize(d) === normalizedEscaped,
+    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+    const normalizedEscaped = normalize(escapedPath);
+    const matchedDir = dirs.find(
+      (d) =>
+        d === escapedPath ||
+        d.toLowerCase() === escapedPath.toLowerCase() ||
+        normalize(d) === normalizedEscaped,
+    );
+
+    if (matchedDir) {
+      const sessionFile = path.join(
+        projectsDir,
+        matchedDir,
+        `${sessionId}.jsonl`,
       );
 
-      if (matchedDir) {
-        const sessionFile = path.join(
-          projectsDir,
-          matchedDir,
-          `${sessionId}.jsonl`,
-        );
-        try {
-          await fs.access(sessionFile);
-          return true;
-        } catch {
-          // JSONL file not found
-        }
-      }
-    } catch {
-      // Projects dir doesn't exist
+      await fs.access(sessionFile);
+      return true;
     }
 
     return false;

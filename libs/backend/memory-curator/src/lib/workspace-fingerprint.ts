@@ -32,68 +32,52 @@ export async function deriveWorkspaceFingerprint(
   workspaceRoot: string,
   fs: IFileSystemProvider,
 ): Promise<FingerprintResult> {
-  // 1. Git: read .git/config + HEAD
-  try {
-    const cfg = await safeReadText(fs, join(workspaceRoot, '.git', 'config'));
-    if (cfg) {
-      const remoteMatch = /\[remote "origin"\][\s\S]*?url\s*=\s*(.+)/.exec(cfg);
-      const headRaw = await safeReadText(
+  const cfg = await safeReadText(fs, join(workspaceRoot, '.git', 'config'));
+  if (cfg) {
+    const remoteMatch = /\[remote "origin"\][\s\S]*?url\s*=\s*(.+)/.exec(cfg);
+    const headRaw = await safeReadText(fs, join(workspaceRoot, '.git', 'HEAD'));
+    const refMatch = headRaw && /ref:\s*(refs\/heads\/.+)/.exec(headRaw.trim());
+    let headSha: string | null = null;
+    if (refMatch) {
+      const refContent = await safeReadText(
         fs,
-        join(workspaceRoot, '.git', 'HEAD'),
+        join(workspaceRoot, '.git', refMatch[1].trim()),
       );
-      const refMatch =
-        headRaw && /ref:\s*(refs\/heads\/.+)/.exec(headRaw.trim());
-      let headSha: string | null = null;
-      if (refMatch) {
-        const refContent = await safeReadText(
-          fs,
-          join(workspaceRoot, '.git', refMatch[1].trim()),
-        );
-        headSha = refContent?.trim().slice(0, 40) ?? null;
-      } else if (headRaw && /^[a-f0-9]{40}$/i.test(headRaw.trim())) {
-        headSha = headRaw.trim();
-      }
-      if (remoteMatch && headSha) {
-        const url = remoteMatch[1]
-          .trim()
-          .toLowerCase()
-          .replace(/\.git$/, '');
-        return { fp: HEX16(`git:${url}:${headSha}`), source: 'git' };
-      }
-      if (remoteMatch) {
-        const url = remoteMatch[1]
-          .trim()
-          .toLowerCase()
-          .replace(/\.git$/, '');
-        return { fp: HEX16(`git-remote:${url}`), source: 'git' };
-      }
+      headSha = refContent?.trim().slice(0, 40) ?? null;
+    } else if (headRaw && /^[a-f0-9]{40}$/i.test(headRaw.trim())) {
+      headSha = headRaw.trim();
     }
-  } catch {
-    /* fall through to package.json */
+    if (remoteMatch && headSha) {
+      const url = remoteMatch[1]
+        .trim()
+        .toLowerCase()
+        .replace(/\.git$/, '');
+      return { fp: HEX16(`git:${url}:${headSha}`), source: 'git' };
+    }
+    if (remoteMatch) {
+      const url = remoteMatch[1]
+        .trim()
+        .toLowerCase()
+        .replace(/\.git$/, '');
+      return { fp: HEX16(`git-remote:${url}`), source: 'git' };
+    }
   }
 
-  // 2. package.json
-  try {
-    const pkgRaw = await safeReadText(fs, join(workspaceRoot, 'package.json'));
-    if (pkgRaw) {
-      const pkg = JSON.parse(pkgRaw) as {
-        name?: string;
-        repository?: { url?: string } | string;
-      };
-      const name = pkg.name ?? '';
-      const repo =
-        typeof pkg.repository === 'string'
-          ? pkg.repository
-          : (pkg.repository?.url ?? '');
-      if (name || repo) {
-        return { fp: HEX16(`pkg:${name}:${repo}`), source: 'package' };
-      }
+  const pkgRaw = await safeReadText(fs, join(workspaceRoot, 'package.json'));
+  if (pkgRaw) {
+    const pkg = JSON.parse(pkgRaw) as {
+      name?: string;
+      repository?: { url?: string } | string;
+    };
+    const name = pkg.name ?? '';
+    const repo =
+      typeof pkg.repository === 'string'
+        ? pkg.repository
+        : (pkg.repository?.url ?? '');
+    if (name || repo) {
+      return { fp: HEX16(`pkg:${name}:${repo}`), source: 'package' };
     }
-  } catch {
-    /* fall through to path */
   }
-
-  // 3. Path fallback — does NOT survive moves; caller should log a warning.
   return { fp: HEX16(`path:${workspaceRoot}`), source: 'path' };
 }
 

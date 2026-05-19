@@ -71,8 +71,6 @@ export function registerPhase1Infra(
   context: vscode.ExtensionContext,
   logger: Logger,
 ): void {
-  // Platform Abstraction Implementations.
-  // Must be registered BEFORE handler classes that depend on these tokens.
   container.registerSingleton(TOKENS.PLATFORM_COMMANDS, VsCodePlatformCommands);
   container.registerSingleton(
     TOKENS.PLATFORM_AUTH_PROVIDER,
@@ -80,15 +78,7 @@ export function registerPhase1Infra(
   );
   container.registerSingleton(TOKENS.SAVE_DIALOG_PROVIDER, VsCodeSaveDialog);
   container.registerSingleton(TOKENS.MODEL_DISCOVERY, VsCodeModelDiscovery);
-
-  // Register remaining vscode-core infrastructure services. Also registers
-  // the platform-agnostic block via `registerVsCodeCorePlatformAgnostic`.
   registerVsCodeCoreServices(container, context, logger);
-
-  // Wire file-based settings into ConfigManager. ConfigManager must route
-  // FILE_BASED_SETTINGS_KEYS to PtahFileSettingsManager (~/.ptah/settings.json)
-  // instead of VS Code workspace config. These keys were removed from
-  // package.json contributes.configuration.
   const configManager = container.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
   const workspaceProvider = container.resolve(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
@@ -98,8 +88,4 @@ export function registerPhase1Infra(
     workspaceProvider.fileSettings,
     isFileBasedSettingKey,
   );
-
-  // SUBAGENT_REGISTRY_SERVICE is registered guardedly by
-  // registerVsCodeCorePlatformAgnostic (invoked above), so no explicit
-  // registration is needed here.
 }

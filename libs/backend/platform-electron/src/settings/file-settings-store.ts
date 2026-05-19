@@ -33,10 +33,6 @@ export class FileSettingsStore implements ISettingsStore {
     this.secretsStore = secretsStore;
   }
 
-  // ---------------------------------------------------------------------------
-  // Global settings — backed by PtahFileSettingsManager (~/.ptah/settings.json)
-  // ---------------------------------------------------------------------------
-
   readGlobal<T>(key: string): T | undefined {
     return this.fileSettings.get<T>(key);
   }
@@ -44,10 +40,6 @@ export class FileSettingsStore implements ISettingsStore {
   async writeGlobal<T>(key: string, value: T): Promise<void> {
     await this.fileSettings.set(key, value);
   }
-
-  // ---------------------------------------------------------------------------
-  // Secret storage — AES-256-GCM via SecretsFileStore
-  // ---------------------------------------------------------------------------
 
   /**
    * Read a secret from the encrypted secrets file.
@@ -74,10 +66,6 @@ export class FileSettingsStore implements ISettingsStore {
     await this.secretsStore.delete(key);
   }
 
-  // ---------------------------------------------------------------------------
-  // Watchers
-  // ---------------------------------------------------------------------------
-
   /**
    * Subscribe to in-process changes for a global setting key.
    *
@@ -91,15 +79,9 @@ export class FileSettingsStore implements ISettingsStore {
   /**
    * Subscribe to changes on a secret key.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   watchSecret(_key: string, _cb: () => void): IDisposable {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
     return { dispose: () => {} };
   }
-
-  // ---------------------------------------------------------------------------
-  // Flush
-  // ---------------------------------------------------------------------------
 
   /**
    * Flush both the global settings file and the secrets file synchronously.
@@ -112,15 +94,10 @@ export class FileSettingsStore implements ISettingsStore {
   flushSync(): void {
     this.fileSettings.flushSync();
     if (this.cachedMasterKey === null) {
-      // Secrets were not accessed — nothing to flush.
       return;
     }
     this.secretsStore.flushSync(this.cachedMasterKey);
   }
-
-  // ---------------------------------------------------------------------------
-  // Internal
-  // ---------------------------------------------------------------------------
 
   private async getAndCacheMasterKey(): Promise<Buffer> {
     if (!this.cachedMasterKey) {

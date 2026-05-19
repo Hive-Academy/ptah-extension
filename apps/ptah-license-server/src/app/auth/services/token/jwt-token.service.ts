@@ -120,7 +120,6 @@ export class JwtTokenService {
   ): Promise<RequestUser> {
     const roles = this.extractValidatedRoles(user);
     const permissions = this.derivePermissionsFromRoles(roles);
-    // Use database UUID if provided, otherwise fall back to WorkOS ID
     const userId = databaseUserId || user.id;
     const tier = await this.determineTier(userId);
     const tenantId = organizationId || `user_${userId}`;
@@ -150,13 +149,9 @@ export class JwtTokenService {
       metadata?.['roles'] && Array.isArray(metadata['roles'])
         ? (metadata['roles'] as string[])
         : ['user'];
-
-    // Filter against allowlist — reject any role not in VALID_ROLES
     const validatedRoles = rawRoles.filter((role): role is ValidRole =>
       (VALID_ROLES as readonly string[]).includes(role),
     );
-
-    // Ensure at least the default 'user' role
     if (validatedRoles.length === 0) {
       validatedRoles.push('user');
     }
@@ -201,10 +196,6 @@ export class JwtTokenService {
   private async determineTier(
     databaseUserId: string,
   ): Promise<'community' | 'pro' | 'trial_pro' | 'expired'> {
-    // Check for an active subscription first (most authoritative source)
-    // NOTE: DB errors are intentionally NOT caught here — a Pro user should
-    // never silently degrade to 'community' on a transient DB failure.
-    // Let the error propagate so the auth flow returns 500 and the user retries.
     const subscription = await this.prisma.subscription.findFirst({
       where: {
         userId: databaseUserId,
@@ -220,11 +211,8 @@ export class JwtTokenService {
       if (subscription.status === 'past_due') {
         return 'expired';
       }
-      // status === 'active'
       return 'pro';
     }
-
-    // Fall back to license record if no subscription found
     const license = await this.prisma.license.findFirst({
       where: {
         userId: databaseUserId,
@@ -234,7 +222,6 @@ export class JwtTokenService {
 
     if (license) {
       if (license.status === 'active' && license.plan === 'pro') {
-        // Check if license has expired by date
         if (license.expiresAt && license.expiresAt < new Date()) {
           return 'expired';
         }
@@ -247,13 +234,10 @@ export class JwtTokenService {
       ) {
         return 'expired';
       }
-      // Active community license
       if (license.status === 'active' && license.plan === 'community') {
         return 'community';
       }
     }
-
-    // No subscription or license found — default to community (free tier)
     return 'community';
   }
 }

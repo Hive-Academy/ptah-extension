@@ -36,21 +36,14 @@ export class GeminiAgentTransformer implements ICliAgentTransformer {
   readonly target = 'gemini' as const;
 
   transform(agent: GeneratedAgent): CliAgentTransformResult {
-    // Extract agent ID using cross-platform path.basename()
     const agentId = extractAgentId(agent.filePath);
-
-    // Extract description from agent variables
     const description = agent.variables['description'] || `${agentId} agent`;
-
-    // Apply all transformations
     const content = transformAgentContent(
       agent.content,
       'gemini',
       agentId,
       description,
     );
-
-    // Target path: ~/.gemini/agents/ptah-{agent-id}.md (prefixed for cleanup)
     const filePath = join(homedir(), '.gemini', 'agents', `ptah-${agentId}.md`);
 
     return {

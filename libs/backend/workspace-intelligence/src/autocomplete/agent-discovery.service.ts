@@ -120,20 +120,14 @@ export class AgentDiscoveryService {
   async discoverAgents(): Promise<AgentDiscoveryResult> {
     try {
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-
-      // Get built-in agents (always available)
       const builtinAgents = this.getBuiltinAgents();
 
       if (!workspaceRoot) {
         return { success: true, agents: builtinAgents };
       }
-
-      // Scan project agents
       const projectAgents = await this.scanAgentDirectory(
         path.join(workspaceRoot, '.claude/agents')
       );
-
-      // Scan user agents
       const userAgents = await this.scanAgentDirectory(
         path.join(os.homedir(), '.claude/agents')
       );
@@ -143,8 +137,6 @@ export class AgentDiscoveryService {
         ...projectAgents.map((a) => ({ ...a, scope: 'project' as const })),
         ...userAgents.map((a) => ({ ...a, scope: 'user' as const })),
       ];
-
-      // Update cache
       this.cache = allAgents;
       this.cacheTimestamp = Date.now();
 
@@ -166,7 +158,6 @@ export class AgentDiscoveryService {
     request: AgentSearchRequest
   ): Promise<AgentDiscoveryResult> {
     try {
-      // Ensure cache is populated
       if (this.cache.length === 0) {
         await this.discoverAgents();
       }
@@ -201,8 +192,6 @@ export class AgentDiscoveryService {
   initializeWatchers(): void {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (!workspaceRoot) return;
-
-    // Watch project agents using platform file watcher
     const projectWatcher = this.fsProvider.createFileWatcher(
       '.claude/agents/*.md'
     );
@@ -239,7 +228,6 @@ export class AgentDiscoveryService {
 
       return agents.filter(Boolean) as AgentInfo[];
     } catch (error) {
-      // Directory doesn't exist or not accessible
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       console.debug(
@@ -257,16 +245,12 @@ export class AgentDiscoveryService {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const { data: frontmatter, content: prompt } = matter(content);
-
-      // Validate required fields
       if (!frontmatter['name'] || !frontmatter['description']) {
         console.warn(
           `[AgentDiscovery] Invalid agent file (missing name/description): ${filePath}`
         );
         return null;
       }
-
-      // Validate name format
       if (!/^[a-z0-9-]+$/.test(frontmatter['name'])) {
         console.warn(
           `[AgentDiscovery] Invalid agent name format: ${frontmatter['name']}`

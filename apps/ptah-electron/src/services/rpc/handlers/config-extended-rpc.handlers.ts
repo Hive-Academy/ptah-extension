@@ -22,10 +22,6 @@ export class ConfigExtendedRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     private readonly container: DependencyContainer,
   ) {
-    // `rpcHandler` is intentionally retained as a constructor field for
-    // future Electron-only handlers; the current implementation only needs
-    // `container` + `logger`. Reference it once so unused-field linters
-    // do not flag it.
     void this.rpcHandler;
   }
 
@@ -59,7 +55,6 @@ export class ConfigExtendedRpcHandlers {
         );
       }
     } catch {
-      // Permission handler may not be registered yet -- best-effort
       this.logger.debug(
         '[Electron RPC] Permission handler initialization skipped (best-effort)',
       );

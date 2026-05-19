@@ -13,8 +13,6 @@
 import { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-
-// Import quality assessment services
 import { AntiPatternDetectionService } from './services/anti-pattern-detection.service';
 import { FileHashCacheService } from './services/file-hash-cache.service';
 import { CodeQualityAssessmentService } from './services/code-quality-assessment.service';
@@ -40,50 +38,26 @@ export function registerQualityServices(
   logger: Logger,
 ): void {
   logger.info('[Quality Services] Registering quality assessment services...');
-
-  // ============================================================
-  // Tier 1: Base detection service (no quality service dependencies)
-  // ============================================================
   container.registerSingleton(
     TOKENS.ANTI_PATTERN_DETECTION_SERVICE,
     AntiPatternDetectionService,
   );
-
-  // ============================================================
-  // Tier 1.5: File hash cache service
-  // ============================================================
   container.registerSingleton(
     TOKENS.FILE_HASH_CACHE_SERVICE,
     FileHashCacheService,
   );
-
-  // ============================================================
-  // Tier 2: Quality assessment service (depends on anti-pattern detection, file hash cache)
-  // ============================================================
   container.registerSingleton(
     TOKENS.CODE_QUALITY_ASSESSMENT_SERVICE,
     CodeQualityAssessmentService,
   );
-
-  // ============================================================
-  // Tier 3: Guidance generation service (no quality service dependencies)
-  // ============================================================
   container.registerSingleton(
     TOKENS.PRESCRIPTIVE_GUIDANCE_SERVICE,
     PrescriptiveGuidanceService,
   );
-
-  // ============================================================
-  // Tier 4: Unified facade (depends on quality assessment and guidance)
-  // ============================================================
   container.registerSingleton(
     TOKENS.PROJECT_INTELLIGENCE_SERVICE,
     ProjectIntelligenceService,
   );
-
-  // ============================================================
-  // Tier 5: History and export services
-  // ============================================================
   container.registerSingleton(
     TOKENS.QUALITY_HISTORY_SERVICE,
     QualityHistoryService,

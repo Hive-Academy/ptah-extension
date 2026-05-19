@@ -76,30 +76,19 @@ export class WorkspacePathEncoder {
    * ```
    */
   static encode(workspacePath: string): string {
-    // Step 1: Validate input
     const validation = this.validate(workspacePath);
     if (!validation.isValid) {
       throw new Error(`Path encoding failed: ${validation.error}`);
     }
-
-    // Step 2: Use normalized path from validation (type guard for safety)
     if (!validation.normalized) {
       throw new Error('Path normalization failed');
     }
     const normalized = validation.normalized;
-
-    // Step 3: Remove drive letters (C: → c-, D: → d-)
-    // Match drive letter at start: "C:" or "c:"
     const withoutDrive = normalized.replace(/^([a-z]):/, '$1-');
-
-    // Step 4: Replace path separators and special chars with hyphens
-    // This handles: / \ : and other unsafe chars
     const encoded = withoutDrive
       .replace(/[\\/:*?"<>|]/g, '-')
       .replace(/\s+/g, '-') // Replace whitespace with hyphen
       .toLowerCase();
-
-    // Step 5: Validate encoded result
     if (encoded.length > this.MAX_PATH_LENGTH) {
       throw new Error(
         `Encoded path exceeds maximum length (${encoded.length} > ${this.MAX_PATH_LENGTH})`
@@ -136,34 +125,20 @@ export class WorkspacePathEncoder {
    * ```
    */
   static validate(workspacePath: string): PathValidationResult {
-    // Check 1: Empty path
     if (!workspacePath || workspacePath.trim().length === 0) {
       return {
         isValid: false,
         error: 'Path cannot be empty',
       };
     }
-
-    // Check 2: Path traversal detection
-    // Reject any path containing ".." (parent directory)
     if (workspacePath.includes('..')) {
       return {
         isValid: false,
         error: 'Path traversal detected (.. not allowed)',
       };
     }
-
-    // Step 3: Normalize path separators (\ → /)
     const normalized = workspacePath.replace(/\\/g, '/');
-
-    // Check 4: Reject absolute paths (security risk)
-    // Allow drive letters (C:/) for workspace roots but reject /etc, /home, etc.
-    // This is acceptable because we're encoding the workspace root itself
-    // The actual security is that we reject ".." traversal above
-
-    // Check 5: Length validation (before encoding)
     if (normalized.length > this.MAX_PATH_LENGTH * 2) {
-      // Allow 2x before encoding
       return {
         isValid: false,
         error: `Path too long (${normalized.length} chars)`,

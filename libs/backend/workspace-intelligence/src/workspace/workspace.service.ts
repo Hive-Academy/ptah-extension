@@ -164,12 +164,9 @@ export class WorkspaceService implements IDisposable {
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {
-    // Initialize workspace analysis on construction
     this.updateWorkspaceAnalysis().catch((error) => {
       console.error('Failed to initialize workspace analysis:', error);
     });
-
-    // Setup event handlers for workspace changes
     this.setupEventHandlers();
   }
 
@@ -211,37 +208,23 @@ export class WorkspaceService implements IDisposable {
     try {
       const workspacePath = workspaceRoot;
       const workspaceName = path.basename(workspacePath);
-
-      // Detect project type
       const projectType =
         await this.projectDetector.detectProjectType(workspacePath);
-
-      // Detect framework (if applicable)
       const framework = await this.frameworkDetector.detectFramework(
         workspacePath,
         projectType,
       );
-
-      // Detect monorepo
       const monorepoResult =
         await this.monorepoDetector.detectMonorepo(workspacePath);
       const isMonorepo = monorepoResult.isMonorepo;
       const monorepoType = isMonorepo ? monorepoResult.type : undefined;
-
-      // Analyze dependencies
       const dependencyInfo = await this.dependencyAnalyzer.analyzeDependencies(
         workspacePath,
         projectType,
       );
-
-      // Count files
       const totalFiles = await this.countAllFiles(workspacePath);
-
-      // Check for git repository
       const gitPath = path.join(workspacePath, '.git');
       const hasGitRepository = await this.fileSystem.exists(gitPath);
-
-      // Get version and description (project-type specific)
       let version: string | undefined;
       let description: string | undefined;
 
@@ -254,8 +237,6 @@ export class WorkspaceService implements IDisposable {
         version = cargoInfo?.version;
         description = cargoInfo?.description;
       }
-
-      // Create analysis result
       this.currentAnalysis = {
         info: {
           name: workspaceName,
@@ -338,8 +319,6 @@ export class WorkspaceService implements IDisposable {
     if (!this.currentAnalysis) {
       return 'general';
     }
-
-    // Map project types to context templates
     const templateMap: Record<ProjectType, string> = {
       [ProjectType.React]: 'react',
       [ProjectType.Vue]: 'vue',
@@ -512,7 +491,6 @@ export class WorkspaceService implements IDisposable {
       const structure: DirectoryStructure = { directories: [], files: [] };
 
       for (const entry of entries) {
-        // Skip directories we should ignore
         if (
           entry.type === FileType.Directory &&
           this.shouldSkipDirectory(entry.name)
@@ -693,8 +671,6 @@ export class WorkspaceService implements IDisposable {
     try {
       const cargoTomlPath = path.join(workspacePath, 'Cargo.toml');
       const content = await this.fileSystem.readFile(cargoTomlPath);
-
-      // Simple TOML parsing for [package] section
       const packageMatch = content.match(/\[package\]([\s\S]*?)(\[|$)/);
       if (!packageMatch) {
         return undefined;

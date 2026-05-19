@@ -271,13 +271,10 @@ export class SubscriptionDbService {
     const licenseKey = this.generateLicenseKey();
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // Revoke any existing active licenses
       await tx.license.updateMany({
         where: { userId: subscriptionData.userId, status: 'active' },
         data: { status: 'revoked' },
       });
-
-      // Create new license
       const license = await tx.license.create({
         data: {
           userId: licenseData.userId,
@@ -288,8 +285,6 @@ export class SubscriptionDbService {
           createdBy: licenseData.createdBy,
         },
       });
-
-      // Create subscription record
       const subscription = await tx.subscription.create({
         data: {
           userId: subscriptionData.userId,

@@ -41,8 +41,6 @@ export function buildAgentNode(
     );
     return null;
   }
-
-  // Only collect ASSISTANT messages, not user messages.
   const agentMessageStarts = [...state.events.values()].filter(
     (e) =>
       e.eventType === 'message_start' &&
@@ -58,18 +56,12 @@ export function buildAgentNode(
       depth + 1,
     );
     if (messageNode) {
-      // Unwrap message node — agent shows its content directly
       agentChildren.push(...messageNode.children);
     }
   }
-
-  // If agentStart doesn't have agentId (complete events often don't),
-  // try to find a matching hook-based agent_start event by agentType and use its agentId.
   let effectiveAgentId = agentStart.agentId;
 
   if (!effectiveAgentId) {
-    // BUGFIX: When multiple agents of the same type exist in a session,
-    // we must find the CLOSEST hook agent_start by timestamp, not just the first.
     let bestHookMatch: AgentStartEvent | undefined;
     let bestTimeDiff = Infinity;
 
@@ -92,24 +84,12 @@ export function buildAgentNode(
       effectiveAgentId = bestHookMatch.agentId;
     }
   }
-
-  // Get structured content blocks for proper interleaving
   const contentBlocks = effectiveAgentId
     ? state.agentContentBlocksMap.get(effectiveAgentId) || []
     : [];
-
-  // Legacy: Get summaryContent (fallback if no content blocks)
   const summaryContent = effectiveAgentId
     ? state.agentSummaryAccumulators.get(effectiveAgentId) || undefined
     : undefined;
-
-  // Use a stable id derived from toolCallId for the agent node itself AND
-  // as the prefix for child text-block ids. Without this, the placeholder
-  // agent (`agent-placeholder-${toolCallId}`) and the real agent
-  // (`agentStart.id`, an event uuid) would have different ids, forcing a
-  // full remount when `agent_start` arrived. Sharing `agent:${toolCallId}`
-  // makes streaming → real a stable in-place update, and child text ids
-  // `${stableAgentId}-text-${i}` stay stable across builds.
   const stableAgentId = `agent:${toolCallId}`;
 
   let finalChildren: ExecutionNode[];
@@ -122,7 +102,6 @@ export function buildAgentNode(
       agentChildren,
     );
   } else if (summaryContent && summaryContent.trim()) {
-    // Fallback: Use legacy summaryContent as single text node at beginning
     finalChildren = [...agentChildren];
     const summaryTextNode = createExecutionNode({
       id: `${stableAgentId}-summary-text`,
@@ -136,11 +115,7 @@ export function buildAgentNode(
   } else {
     finalChildren = [...agentChildren];
   }
-
-  // Aggregate stats from child message events for this agent
   const stats = deps.agentStats.aggregateAgentStats(toolCallId, state);
-
-  // BUGFIX: Determine agent status from Task tool_result, not children count.
   const hasTaskToolResult = [...state.events.values()].some(
     (e) =>
       e.eventType === 'tool_result' &&
@@ -217,8 +192,6 @@ export function buildInterleavedChildren(
       }
     }
   }
-
-  // Add any remaining tools that weren't in content blocks
   for (const tool of toolChildren) {
     if (tool.toolCallId && !addedToolIds.has(tool.toolCallId)) {
       result.push(tool);

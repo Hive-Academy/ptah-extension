@@ -127,10 +127,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-commands
-// ---------------------------------------------------------------------------
-
 async function runSearch(
   opts: McpOptions,
   globals: GlobalOptions,
@@ -206,16 +202,12 @@ async function runInstall(
 
   return engine(globals, { mode: 'full' }, async (ctx) => {
     const serverKey = deriveServerKey(name);
-
-    // 1. Pull current installed list to compute idempotency.
     const before = await callRpc<McpDirectoryListInstalledResult>(
       ctx.transport,
       'mcpDirectory:listInstalled',
       {},
     );
     const beforeMatch = findInstalled(before?.servers ?? [], serverKey, target);
-
-    // 2. Resolve registry details so we can derive a McpServerConfig.
     const entry = await callRpc<McpDirectoryGetDetailsResult>(
       ctx.transport,
       'mcpDirectory:getDetails',
@@ -232,9 +224,6 @@ async function runInstall(
         `Cannot derive an MCP server config for "${name}" — no usable transport found in version_detail`,
       );
     }
-
-    // 3. If an entry already exists at the target with the same config,
-    //    short-circuit and emit `changed: false`.
     if (beforeMatch && configsEqual(beforeMatch.config, config)) {
       await formatter.writeNotification('mcp.installed', {
         serverName: name,
@@ -251,8 +240,6 @@ async function runInstall(
       });
       return ExitCode.Success;
     }
-
-    // 4. Run the install.
     const result = await callRpc<McpDirectoryInstallResult>(
       ctx.transport,
       'mcpDirectory:install',
@@ -270,10 +257,6 @@ async function runInstall(
         failure.error ?? `mcpDirectory:install failed for target ${target}`,
       );
     }
-
-    // 5. Determine `changed` — false only if registry entry was already there
-    //    AND configs differed (re-install with new config still counts as
-    //    `changed: true`). When `beforeMatch` was null we always changed.
     const changed =
       beforeMatch === null ? true : !configsEqual(beforeMatch.config, config);
 
@@ -309,8 +292,6 @@ async function runUninstall(
   }
 
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // Idempotency: if the server isn't installed at the target, return
-    // `changed: false` without hitting the install service.
     const before = await callRpc<McpDirectoryListInstalledResult>(
       ctx.transport,
       'mcpDirectory:listInstalled',
@@ -384,11 +365,6 @@ async function runPopular(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — kept module-private. Mirrors webview `mcp-directory-browser` so
-// the derivation is identical regardless of which surface drives the install.
-// ---------------------------------------------------------------------------
 
 /**
  * Coerce a raw `--target` string into a strongly-typed `McpInstallTarget`,

@@ -199,8 +199,6 @@ export class HeroFloatingImagesComponent implements OnDestroy {
   public constructor() {
     afterNextRender(() => {
       if (!isPlatformBrowser(this.platformId)) return;
-
-      // Check for reduced motion preference
       const prefersReducedMotion = window.matchMedia(
         '(prefers-reduced-motion: reduce)'
       ).matches;
@@ -208,10 +206,8 @@ export class HeroFloatingImagesComponent implements OnDestroy {
 
       if (!prefersReducedMotion) {
         this.initializeMouseTracking();
-        // Start entrance animation which leads to orbit
         this.playEntranceAnimation();
       } else {
-        // For reduced motion, just set final positions
         this.setInitialOrbitPositions();
       }
     });
@@ -260,14 +256,10 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     const container = this.elementRef.nativeElement as HTMLElement;
     const orbitItems = container.querySelectorAll('.orbit-item');
     const entranceDistance = 400;
-
-    // Set initial state: hidden and offset based on slide direction
     orbitItems.forEach((item, index) => {
       const element = item as HTMLElement;
       const image = this.floatingImages[index];
       const targetPos = this.getOrbitPosition(index, 0);
-
-      // Calculate start position (off-screen based on direction)
       const offsetX =
         image.slideDirection === 'slideRight'
           ? -entranceDistance
@@ -279,8 +271,6 @@ export class HeroFloatingImagesComponent implements OnDestroy {
         opacity: 0,
       });
     });
-
-    // Animate each image to its orbital position with stagger
     orbitItems.forEach((item, index) => {
       const element = item as HTMLElement;
       const targetPos = this.getOrbitPosition(index, 0);
@@ -309,11 +299,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
 
     const container = this.elementRef.nativeElement as HTMLElement;
     const orbitItems = container.querySelectorAll('.orbit-item');
-
-    // Set initial positions
     this.updateOrbitPositions(orbitItems, 0);
-
-    // Create continuous rotation animation
     this.orbitTimeline = gsap.timeline({ repeat: -1 });
 
     this.orbitTimeline.to(
@@ -322,15 +308,12 @@ export class HeroFloatingImagesComponent implements OnDestroy {
         duration: this.ROTATION_DURATION,
         ease: 'none',
         onUpdate: () => {
-          // Calculate current angle based on timeline progress
           const progress = this.orbitTimeline?.progress() || 0;
           this.currentAngle = progress * 360;
           this.updateOrbitPositions(orbitItems, this.currentAngle);
         },
       }
     );
-
-    // Create quickTo for smooth radius changes
     const radiusProxy = { value: this.currentRadius() };
     this.radiusQuickTo = gsap.quickTo(radiusProxy, 'value', {
       duration: 0.8,
@@ -353,14 +336,8 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     items.forEach((item, index) => {
       const element = item as HTMLElement;
       const image = this.floatingImages[index];
-
-      // Calculate position: base angle + individual offset
-      // Clockwise: we add angles (in standard math, this would be counter-clockwise,
-      // but since Y-axis is inverted in screen coordinates, it becomes clockwise)
       const angle = baseAngle + image.angleOffset;
       const radians = (angle * Math.PI) / 180;
-
-      // Calculate x, y position on the circle
       const x = Math.sin(radians) * radius;
       const y = -Math.cos(radians) * radius; // Negative because Y is inverted
 
@@ -375,32 +352,23 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     if (!isPlatformBrowser(this.platformId)) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Calculate mouse distance from viewport center
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
 
       const deltaX = e.clientX - centerX;
       const deltaY = e.clientY - centerY;
-
-      // Normalized distance from center (0 at center, 1 at corners)
       const maxDistance = Math.sqrt(centerX * centerX + centerY * centerY);
       const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
       const normalizedDistance = Math.min(distance / maxDistance, 1);
-
-      // Interpolate radius based on mouse distance from center
       const targetRadius =
         this.MIN_RADIUS +
         normalizedDistance * (this.MAX_RADIUS - this.MIN_RADIUS);
-
-      // Use quickTo for smooth transition
       if (this.radiusQuickTo) {
         this.radiusQuickTo(targetRadius);
       } else {
         this.currentRadius.set(targetRadius);
       }
     };
-
-    // Throttled mouse move listener
     let ticking = false;
     const throttledHandler = (e: MouseEvent) => {
       if (!ticking) {
@@ -423,13 +391,10 @@ export class HeroFloatingImagesComponent implements OnDestroy {
    * Clean up all animations and listeners
    */
   private cleanup(): void {
-    // Kill orbit timeline
     if (this.orbitTimeline) {
       this.orbitTimeline.kill();
       this.orbitTimeline = null;
     }
-
-    // Remove mouse listener
     if (this.mouseMoveCleanup) {
       this.mouseMoveCleanup();
       this.mouseMoveCleanup = null;

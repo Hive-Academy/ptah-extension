@@ -22,15 +22,10 @@ async function testContextUsageDuringStream(tier: string): Promise<void> {
         maxTurns: 1,
       },
     });
-
-    // Call getContextUsage() immediately — the session should be initialized
-    // before the first message arrives
     let contextFetched = false;
 
     for await (const msg of conversation) {
       const m = msg as Record<string, unknown>;
-
-      // Try to get context usage as soon as we see the first message_start
       if (!contextFetched && m.type === 'assistant') {
         try {
           const ctx = await conversation.getContextUsage();
@@ -48,7 +43,6 @@ async function testContextUsageDuringStream(tier: string): Promise<void> {
       }
 
       if (m.type === 'result') {
-        // Also try modelUsage for comparison
         if (m.modelUsage) {
           for (const [modelId, usage] of Object.entries(
             m.modelUsage as Record<string, { contextWindow: number }>,
@@ -58,8 +52,6 @@ async function testContextUsageDuringStream(tier: string): Promise<void> {
             );
           }
         }
-
-        // Try getContextUsage right at result time (before loop exits)
         if (!contextFetched) {
           try {
             const ctx = await conversation.getContextUsage();

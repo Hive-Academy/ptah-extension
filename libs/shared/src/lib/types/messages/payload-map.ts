@@ -185,11 +185,7 @@ export interface MessagePayloadMap {
   switchView: ViewChangedPayload;
   workspaceChanged: WorkspaceChangedPayload;
   'gateway:statusChanged': GatewayStatusChangedPayload;
-  // Electron auto-update UX
   'update:statusChanged': UpdateStatusChangedPayload;
-
-  // Response event types (MessageHandlerService appends :response suffix)
-  // These allow EventBus to emit response events that WebviewMessageBridge forwards to webview
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

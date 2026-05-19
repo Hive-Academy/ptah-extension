@@ -85,8 +85,6 @@ export class TrajectoryExtractor {
       });
       return null;
     }
-
-    // Count total raw turns (sessionTurnCount) before filtering for trajectory.
     let sessionTurnCount = 0;
     const turns: Array<{ role: 'user' | 'assistant'; text: string }> = [];
     for (const m of messages) {
@@ -156,8 +154,6 @@ export class TrajectoryExtractor {
   private hasSuccessMarker(
     turns: ReadonlyArray<{ role: 'user' | 'assistant'; text: string }>,
   ): boolean {
-    // Look for markers in the trailing 25% of the conversation (i.e. recent
-    // assistant output). Keeps early "I'll get this done" false positives out.
     const tailStart = Math.max(0, Math.floor(turns.length * 0.75));
     for (let i = tailStart; i < turns.length; i++) {
       const t = turns[i];
@@ -175,7 +171,6 @@ export class TrajectoryExtractor {
       const escaped = workspaceRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       out = out.replace(new RegExp(escaped, 'gi'), '<WORKSPACE>');
     }
-    // Strip ISO timestamps + epoch millis to keep hashes stable.
     out = out.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '<TS>');
     out = out.replace(/\b\d{13}\b/g, '<EPOCH>');
     return out.trim();

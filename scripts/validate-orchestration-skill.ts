@@ -15,10 +15,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-// ============================================================================
-// Type Definitions
-// ============================================================================
-
 /**
  * Represents a validation error found during checks.
  */
@@ -79,10 +75,6 @@ interface RequiredSection {
   pattern: RegExp;
   name: string;
 }
-
-// ============================================================================
-// Constants
-// ============================================================================
 
 /** ANSI color codes for console output */
 const colors: ColorCodes = {
@@ -145,8 +137,6 @@ const REQUIRED_REFERENCES: readonly string[] = [
 
 /** Target line count for SKILL.md */
 const TARGET_SKILL_LINES = 300;
-
-// Skill directory paths
 const SKILL_ROOT: string = path.join(
   process.cwd(),
   '.claude',
@@ -155,10 +145,6 @@ const SKILL_ROOT: string = path.join(
 );
 const AGENTS_DIR: string = path.join(process.cwd(), '.claude', 'agents');
 const REFERENCES_DIR: string = path.join(SKILL_ROOT, 'references');
-
-// ============================================================================
-// Logging Functions
-// ============================================================================
 
 /**
  * Logs a colored message to console.
@@ -201,10 +187,6 @@ function logWarning(warning: ValidationError): void {
   );
 }
 
-// ============================================================================
-// File Discovery Functions
-// ============================================================================
-
 /**
  * Gets all markdown files in the skill directory recursively.
  * @returns Array of absolute file paths to markdown files
@@ -234,10 +216,6 @@ function getSkillMarkdownFiles(): string[] {
   return files;
 }
 
-// ============================================================================
-// Validation Functions
-// ============================================================================
-
 /**
  * Validates markdown syntax by checking for common issues.
  * @param filePath - Path to the file being validated
@@ -250,9 +228,6 @@ function validateMarkdownSyntax(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const lines = content.split('\n');
-
-  // Check for unclosed code blocks
-  // Track code blocks with proper nesting (4-backtick fences can contain 3-backtick fences)
   let depth3 = 0;
   let depth4 = 0;
   let lastCodeBlockLine = 0;
@@ -260,11 +235,9 @@ function validateMarkdownSyntax(
   lines.forEach((line, index) => {
     const trimmed = line.trim();
     if (trimmed.startsWith('````')) {
-      // 4-backtick fence: toggles depth4, 3-tick fences inside are literal content
       depth4 = depth4 === 0 ? 1 : 0;
       lastCodeBlockLine = index + 1;
     } else if (trimmed.startsWith('```') && depth4 === 0) {
-      // 3-backtick fence only counts when NOT inside a 4-backtick block
       depth3 = depth3 === 0 ? 1 : 0;
       lastCodeBlockLine = index + 1;
     }
@@ -279,10 +252,7 @@ function validateMarkdownSyntax(
       line: lastCodeBlockLine,
     });
   }
-
-  // Check for broken heading syntax
   lines.forEach((line, index) => {
-    // Headings should have space after #
     if (/^#{1,6}[^#\s]/.test(line)) {
       errors.push({
         file: path.relative(process.cwd(), filePath),
@@ -293,8 +263,6 @@ function validateMarkdownSyntax(
       });
     }
   });
-
-  // Check for empty file
   if (content.trim().length === 0) {
     errors.push({
       file: path.relative(process.cwd(), filePath),
@@ -315,15 +283,12 @@ function validateMarkdownSyntax(
 function extractMarkdownLinks(content: string): ExtractedLink[] {
   const links: ExtractedLink[] = [];
   const lines = content.split('\n');
-
-  // Match [text](link) pattern, excluding external URLs
   const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
 
   lines.forEach((line, index) => {
     let match: RegExpExecArray | null;
     while ((match = linkRegex.exec(line)) !== null) {
       const link = match[2];
-      // Skip external URLs and anchors
       if (
         link !== undefined &&
         !link.startsWith('http://') &&
@@ -353,11 +318,8 @@ function validateInternalReferences(
   const fileDir = path.dirname(filePath);
 
   for (const { link, line } of links) {
-    // Remove anchor from link
     const linkPath = link.split('#')[0];
     if (!linkPath) continue;
-
-    // Resolve the path relative to the current file
     const resolvedPath = path.resolve(fileDir, linkPath);
 
     if (!fs.existsSync(resolvedPath)) {
@@ -390,7 +352,6 @@ function validateStrategiesDocumented(
   const errors: ValidationError[] = [];
 
   for (const strategy of REQUIRED_STRATEGIES) {
-    // Look for strategy heading (## STRATEGY_NAME)
     const headingPattern = new RegExp(`##\\s+${strategy}`, 'i');
     if (!headingPattern.test(content)) {
       errors.push({
@@ -418,7 +379,6 @@ function validateAgentsDocumented(
   const errors: ValidationError[] = [];
 
   for (const agent of REQUIRED_AGENTS) {
-    // Look for agent heading (### agent-name)
     const headingPattern = new RegExp(
       `###\\s+${agent.replace(/-/g, '[- ]?')}`,
       'i'
@@ -496,8 +456,6 @@ function validateInvocationPatterns(
   content: string
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-
-  // Extract subagent_type values from code blocks
   const subagentPattern = /subagent_type:\s*['"]([^'"]+)['"]/g;
   let match: RegExpExecArray | null;
 
@@ -567,10 +525,6 @@ function validateSkillLineCount(
   return warnings;
 }
 
-// ============================================================================
-// Main Validation Function
-// ============================================================================
-
 /**
  * Main validation function that orchestrates all checks.
  * @returns Complete validation result
@@ -586,8 +540,6 @@ function validateOrchestrationSkill(): ValidationResult {
   log('bold', '\n========================================');
   log('bold', '  Orchestration Skill Validation');
   log('bold', '========================================\n');
-
-  // Check skill directory exists
   if (!fs.existsSync(SKILL_ROOT)) {
     result.errors.push({
       file: SKILL_ROOT,
@@ -599,26 +551,16 @@ function validateOrchestrationSkill(): ValidationResult {
     result.passed = false;
     return result;
   }
-
-  // Get all markdown files
   const files = getSkillMarkdownFiles();
   result.filesChecked = files.length;
 
   log('cyan', `Found ${files.length} markdown files to validate\n`);
-
-  // Validate each file
   for (const file of files) {
     const content = fs.readFileSync(file, 'utf-8');
-
-    // Syntax validation
     const syntaxErrors = validateMarkdownSyntax(file, content);
     result.errors.push(...syntaxErrors);
-
-    // Reference validation
     const refErrors = validateInternalReferences(file, content);
     result.errors.push(...refErrors);
-
-    // Special validations for specific files
     const fileName = path.basename(file);
 
     if (fileName === 'SKILL.md') {
@@ -635,29 +577,18 @@ function validateOrchestrationSkill(): ValidationResult {
       result.errors.push(...validateInvocationPatterns(file, content));
     }
   }
-
-  // Validate agent files exist
   result.errors.push(...validateAgentFilesExist());
-
-  // Validate reference files exist
   result.errors.push(...validateReferenceFilesExist());
-
-  // Determine pass/fail
   result.passed = result.errors.length === 0;
 
   return result;
 }
-
-// ============================================================================
-// Results Printing
-// ============================================================================
 
 /**
  * Prints validation summary and results.
  * @param result - Validation result to print
  */
 function printResults(result: ValidationResult): void {
-  // Print errors
   if (result.errors.length > 0) {
     log(
       'red',
@@ -668,8 +599,6 @@ function printResults(result: ValidationResult): void {
       console.log('');
     }
   }
-
-  // Print warnings
   if (result.warnings.length > 0) {
     log(
       'yellow',
@@ -680,8 +609,6 @@ function printResults(result: ValidationResult): void {
       console.log('');
     }
   }
-
-  // Print summary
   log('bold', '\n========================================');
   log('bold', '  Validation Summary');
   log('bold', '========================================');
@@ -701,14 +628,6 @@ function printResults(result: ValidationResult): void {
 
   console.log('');
 }
-
-// ============================================================================
-// Main Execution
-// ============================================================================
-
-// Run validation
 const result = validateOrchestrationSkill();
 printResults(result);
-
-// Exit with appropriate code
 process.exit(result.passed ? 0 : 1);

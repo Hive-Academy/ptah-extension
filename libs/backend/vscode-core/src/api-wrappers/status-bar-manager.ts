@@ -95,7 +95,7 @@ export class StatusBarManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext
+    private readonly context: vscode.ExtensionContext,
   ) {}
 
   /**
@@ -106,20 +106,14 @@ export class StatusBarManager {
    * @returns Created status bar item
    */
   createStatusBarItem(config: StatusBarItemConfig): vscode.StatusBarItem {
-    // Check if item already exists
     if (this.statusBarItems.has(config.id)) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.statusBarItems.get(config.id)!;
     }
-
-    // Create status bar item with alignment and priority
     const item = vscode.window.createStatusBarItem(
       config.id,
       config.alignment || vscode.StatusBarAlignment.Right,
-      config.priority || 0
+      config.priority || 0,
     );
-
-    // Configure initial properties
     if (config.text) item.text = config.text;
     if (config.tooltip) item.tooltip = config.tooltip;
     if (config.color) item.color = config.color;
@@ -128,11 +122,7 @@ export class StatusBarManager {
     if (config.accessibilityInformation) {
       item.accessibilityInformation = config.accessibilityInformation;
     }
-
-    // Store item reference
     this.statusBarItems.set(config.id, item);
-
-    // Initialize metrics tracking
     this.itemMetrics.set(config.id, {
       createdAt: Date.now(),
       updateCount: 0,
@@ -142,8 +132,6 @@ export class StatusBarManager {
       isVisible: false, // Items start hidden by default
       errorCount: 0,
     });
-
-    // Add to extension subscriptions for proper cleanup
     this.context.subscriptions.push(item);
 
     return item;
@@ -166,8 +154,6 @@ export class StatusBarManager {
 
     try {
       const updatedProperties: string[] = [];
-
-      // Update properties and track changes
       if (update.text !== undefined) {
         item.text = update.text;
         updatedProperties.push('text');
@@ -192,13 +178,10 @@ export class StatusBarManager {
         item.accessibilityInformation = update.accessibilityInformation;
         updatedProperties.push('accessibilityInformation');
       }
-
-      // Update metrics
       this.updateItemMetrics(itemId, 'update', false);
 
       return true;
     } catch {
-      // Update error metrics
       this.updateItemMetrics(itemId, 'update', true);
 
       return false;
@@ -221,8 +204,6 @@ export class StatusBarManager {
 
     try {
       item.show();
-
-      // Update visibility in metrics
       const metrics = this.itemMetrics.get(itemId);
       if (metrics) {
         metrics.isVisible = true;
@@ -250,8 +231,6 @@ export class StatusBarManager {
 
     try {
       item.hide();
-
-      // Update visibility in metrics
       const metrics = this.itemMetrics.get(itemId);
       if (metrics) {
         metrics.isVisible = false;
@@ -275,8 +254,6 @@ export class StatusBarManager {
     if (!this.statusBarItems.has(itemId)) {
       return;
     }
-
-    // Update click metrics
     this.updateItemMetrics(itemId, 'click', false);
   }
 
@@ -354,13 +331,9 @@ export class StatusBarManager {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    try {
-      this.statusBarItems.forEach((item) => item.dispose());
-      this.statusBarItems.clear();
-      this.itemMetrics.clear();
-    } catch {
-      // Silently handle disposal errors
-    }
+    this.statusBarItems.forEach((item) => item.dispose());
+    this.statusBarItems.clear();
+    this.itemMetrics.clear();
   }
 
   /**
@@ -370,7 +343,7 @@ export class StatusBarManager {
   private updateItemMetrics(
     itemId: string,
     operation: 'update' | 'click',
-    isError: boolean
+    isError: boolean,
   ): void {
     const metrics = this.itemMetrics.get(itemId);
 

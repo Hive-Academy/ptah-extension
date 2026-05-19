@@ -13,10 +13,6 @@ import { EditorWorkspaceHelper } from './editor/editor-workspace';
 import { EditorTabsHelper } from './editor/editor-tabs';
 import { EditorFileOpsHelper } from './editor/editor-file-ops';
 import { EditorDiffSplitHelper } from './editor/editor-diff-split';
-
-// Re-exported so existing consumers (`from '@ptah-extension/editor'`)
-// keep resolving without changes; declaration lives in a sibling file
-// to break the cycle with editor helpers.
 export type { EditorTab } from './editor/editor-tab.types';
 
 /**
@@ -40,10 +36,6 @@ export type { EditorTab } from './editor/editor-tab.types';
 export class EditorService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
 
-  // ============================================================================
-  // WORKSPACE STATE
-  // ============================================================================
-
   /**
    * Map of workspace path to editor state. Contains cached editor state
    * for all workspaces (active and background) so switching back is instant.
@@ -56,10 +48,6 @@ export class EditorService implements MessageHandler {
   /** Currently active workspace path. Null when no workspace is active. */
   private _activeWorkspacePath: string | null = null;
 
-  // ============================================================================
-  // SIGNAL STATE — owned by the coordinator (identity preserved across helpers)
-  // ============================================================================
-
   private readonly _fileTree = signal<FileTreeNode[]>([]);
   private readonly _activeFilePath = signal<string | undefined>(undefined);
   private readonly _activeFileContent = signal<string>('');
@@ -71,9 +59,6 @@ export class EditorService implements MessageHandler {
   private readonly _splitFilePath = signal<string | undefined>(undefined);
   private readonly _splitFileContent = signal('');
   private readonly _focusedPane = signal<'left' | 'right'>('left');
-  // Terminal panel state — promoted from EditorPanelComponent so the
-  // status-bar terminal toggle and other consumers can read/write a
-  // single source of truth.
   private readonly _terminalVisible = signal(false);
   private readonly _terminalHeight = signal(200);
   private errorTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -122,10 +107,6 @@ export class EditorService implements MessageHandler {
     return tab?.isDiff ? tab : null;
   });
 
-  // ============================================================================
-  // HELPER COMPOSITION — constructed in constructor (forward refs resolve)
-  // ============================================================================
-
   private readonly internalState: EditorInternalState;
   private readonly tabsHelper: EditorTabsHelper;
   private readonly diffSplitHelper: EditorDiffSplitHelper;
@@ -153,11 +134,6 @@ export class EditorService implements MessageHandler {
       showError: (message: string): void => this.showError(message),
       clearError: (): void => this.clearError(),
     };
-
-    // Order matters: tabs first, then diffSplit (needs tabs), then fileOps
-    // (needs tabs), then workspace (needs fileOps + diffSplit). Callbacks
-    // referencing later helpers are arrow functions, so the reference is
-    // resolved lazily when the callback fires.
     this.tabsHelper = new EditorTabsHelper(this.internalState, {
       clearActiveFile: (): void => this.fileOpsHelper.clearActiveFile(),
       closeSplit: (): void => this.diffSplitHelper.closeSplit(),
@@ -184,10 +160,6 @@ export class EditorService implements MessageHandler {
     });
   }
 
-  // ============================================================================
-  // WORKSPACE OPERATIONS — delegated to EditorWorkspaceHelper
-  // ============================================================================
-
   /**
    * Switch the active workspace, saving current editor state and restoring target state.
    */
@@ -205,10 +177,6 @@ export class EditorService implements MessageHandler {
     return this._activeWorkspacePath;
   }
 
-  // ============================================================================
-  // FILE TREE WATCHING — delegated to EditorWorkspaceHelper
-  // ============================================================================
-
   /** Start listening for file:tree-changed push events from the backend. */
   startFileTreeWatcher(): void {
     this.workspaceHelper.startFileTreeWatcher();
@@ -218,10 +186,6 @@ export class EditorService implements MessageHandler {
   stopFileTreeWatcher(): void {
     this.workspaceHelper.stopFileTreeWatcher();
   }
-
-  // ============================================================================
-  // FILE OPERATIONS — delegated to EditorFileOpsHelper / EditorWorkspaceHelper
-  // ============================================================================
 
   /** Load the file tree from the backend. */
   async loadFileTree(rootPath?: string): Promise<void> {
@@ -248,10 +212,6 @@ export class EditorService implements MessageHandler {
   clearTargetLine(): void {
     this._targetLine.set(undefined);
   }
-
-  // ============================================================================
-  // TERMINAL PANEL STATE
-  // ============================================================================
 
   /** Flip the integrated terminal panel visibility. */
   toggleTerminal(): void {
@@ -283,10 +243,6 @@ export class EditorService implements MessageHandler {
     this.fileOpsHelper.clearActiveFile();
   }
 
-  // ============================================================================
-  // FILE CRUD OPERATIONS — delegated to EditorFileOpsHelper
-  // ============================================================================
-
   /** Create a new file at the given path. Refreshes the file tree on success. */
   async createFile(filePath: string): Promise<boolean> {
     return this.fileOpsHelper.createFile(filePath);
@@ -307,10 +263,6 @@ export class EditorService implements MessageHandler {
     return this.fileOpsHelper.deleteItem(itemPath, isDirectory);
   }
 
-  // ============================================================================
-  // SPLIT PANE OPERATIONS — delegated to EditorDiffSplitHelper
-  // ============================================================================
-
   /** Open a file in the split (right) pane. */
   async openFileInSplit(filePath: string): Promise<void> {
     return this.diffSplitHelper.openFileInSplit(filePath);
@@ -330,10 +282,6 @@ export class EditorService implements MessageHandler {
   updateSplitContent(content: string): void {
     this.diffSplitHelper.updateSplitContent(content);
   }
-
-  // ============================================================================
-  // TAB OPERATIONS — delegated to EditorTabsHelper
-  // ============================================================================
 
   /** Close a tab by file path. */
   closeTab(filePath: string): void {
@@ -398,10 +346,6 @@ export class EditorService implements MessageHandler {
     return this.internalState;
   }
 
-  // ============================================================================
-  // ERROR HANDLING — coordinator-owned (helpers delegate back here)
-  // ============================================================================
-
   /** Clear the current error state. */
   clearError(): void {
     if (this.errorTimeout) {
@@ -419,10 +363,6 @@ export class EditorService implements MessageHandler {
     }, 5000);
   }
 
-  // ============================================================================
-  // MessageHandler — receives editor:tabContentReverted push from Electron
-  // ============================================================================
-
   readonly handledMessageTypes = [
     MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED,
   ] as const;
@@ -437,8 +377,6 @@ export class EditorService implements MessageHandler {
     if (files.length === 0) return;
 
     const fileMap = new Map(files.map((f) => [f.filePath, f.content]));
-
-    // Update any open tabs whose path was reverted.
     this._openTabs.update((tabs) =>
       tabs.map((tab) => {
         const newContent = fileMap.get(tab.filePath);
@@ -446,8 +384,6 @@ export class EditorService implements MessageHandler {
         return { ...tab, content: newContent, isDirty: false };
       }),
     );
-
-    // If the active file was reverted, update its content signal too.
     const activePath = this._activeFilePath();
     if (activePath !== undefined) {
       const newContent = fileMap.get(activePath);

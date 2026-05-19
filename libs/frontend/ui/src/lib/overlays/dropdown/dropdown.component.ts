@@ -68,14 +68,11 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
   `,
 })
 export class DropdownComponent {
-  // Inputs
   readonly isOpen = input.required<boolean>();
   readonly positions = input<ConnectedPosition[]>(DROPDOWN_POSITIONS);
   readonly hasBackdrop = input(true);
   readonly backdropClass = input('cdk-overlay-transparent-backdrop');
   readonly closeOnBackdropClick = input(true);
-
-  // Outputs
   readonly opened = output<void>();
   readonly closed = output<void>();
   readonly backdropClicked = output<void>();

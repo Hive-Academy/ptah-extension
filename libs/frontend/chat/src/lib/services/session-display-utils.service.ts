@@ -40,24 +40,16 @@ export class SessionDisplayUtils {
     if (diffMin < 1) return 'Just now';
     if (diffMin < 60) return `${diffMin}m ago`;
     if (diffHr < 24) return `${diffHr}h ago`;
-
-    // Check if yesterday
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-
-    // Current week: show day name
     const diffDays = Math.floor(diffMs / 86400000);
     if (diffDays < 7) {
       return d.toLocaleDateString('en-US', { weekday: 'short' });
     }
-
-    // Current year: "Jan 15"
     if (d.getFullYear() === now.getFullYear()) {
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
-
-    // Previous year: "Jan 15, 2025"
     return d.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -72,24 +64,16 @@ export class SessionDisplayUtils {
    */
   getSessionDisplayName(session: ChatSessionSummary): string {
     const name = session.name;
-
-    // Check if name is a UUID (fallback case)
     if (this.UUID_PATTERN.test(name)) {
-      // Return truncated UUID with "Session" prefix
       return `Session ${name.substring(0, 8)}...`;
     }
-
-    // Check if name starts with "<command-message>" (Claude CLI system output)
     if (name.startsWith('<command-message>')) {
-      // Extract meaningful content or use fallback
       const cleaned = name.replace(/<\/?command-message>/g, '').trim();
       if (cleaned.length > 0 && cleaned.length < 80) {
         return cleaned;
       }
       return `Session ${session.id.substring(0, 8)}...`;
     }
-
-    // Return the name, truncated if too long
     if (name.length > 50) {
       return name.substring(0, 47) + '...';
     }

@@ -112,10 +112,6 @@ export interface GitWorktreeChangedNotification {
   path?: string;
 }
 
-// ============================================================================
-// Source Control RPC Types
-// ============================================================================
-
 /** Parameters for git:stage RPC method */
 export interface GitStageParams {
   /** File paths to stage (relative to workspace root) */
@@ -179,10 +175,6 @@ export interface GitShowFileResult {
   /** Whether the file is binary */
   isBinary?: boolean;
 }
-
-// ============================================================================
-// Branch, Checkout, Stash, Tag, Remote, and Last-Commit RPC Types
-// ============================================================================
 
 /** Single branch reference returned by git:branches */
 export interface BranchRef {

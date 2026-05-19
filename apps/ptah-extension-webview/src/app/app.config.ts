@@ -45,16 +45,11 @@ import {
   SetupHubComponent,
 } from '@ptah-extension/harness-builder';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
-
-// Custom error handler for webview-specific issues
 class WebviewErrorHandler implements ErrorHandler {
   public handleError(error: unknown): void {
-    // Type guard for error objects with name and message
     const isError = (e: unknown): e is { name: string; message?: string } => {
       return typeof e === 'object' && e !== null && 'name' in e;
     };
-
-    // Check if it's a History API error in webview context (should not occur now)
     if (
       isError(error) &&
       error.name === 'SecurityError' &&
@@ -67,8 +62,6 @@ class WebviewErrorHandler implements ErrorHandler {
       );
       return;
     }
-
-    // Check for CSP violations and provide helpful guidance
     if (isError(error) && error.message?.includes('Content Security Policy')) {
       console.error('CSP Violation detected:', error.message);
       console.error(
@@ -76,8 +69,6 @@ class WebviewErrorHandler implements ErrorHandler {
       );
       return;
     }
-
-    // Log other errors normally
     console.error('Angular Error:', error);
   }
 }
@@ -85,14 +76,9 @@ class WebviewErrorHandler implements ErrorHandler {
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    // SWITCHED TO ZONE-BASED: Using Zone.js for automatic change detection
-    // This will automatically trigger change detection for async operations,
-    // window.addEventListener, setTimeout, etc.
     provideZoneChangeDetection({ eventCoalescing: true }),
     { provide: ErrorHandler, useClass: WebviewErrorHandler },
-    // CRITICAL: Eager initialization of VSCodeService before app starts
     provideVSCodeService(),
-    // Message routing: handler registration pattern (replaces VSCodeService routing)
     provideMessageRouter(),
     { provide: MESSAGE_HANDLERS, useExisting: VSCodeService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ClaudeRpcService, multi: true },
@@ -108,90 +94,45 @@ export const appConfig: ApplicationConfig = {
       useExisting: AgentMonitorMessageHandler,
       multi: true,
     },
-    // Session data provider: breaks circular dependency between dashboard and chat.
-    // ChatStore is already providedIn: 'root', so useExisting reuses the singleton.
     { provide: SESSION_DATA_PROVIDER, useExisting: ChatStore },
-    // Workspace coordinator: breaks circular dependency between core and chat/editor.
-    // WorkspaceCoordinatorService orchestrates TabManager + Editor during workspace ops.
     {
       provide: WORKSPACE_COORDINATOR,
       useExisting: WorkspaceCoordinatorService,
     },
-    // Wizard view component: breaks circular dependency between chat and setup-wizard.
-    // AppShellComponent renders this via NgComponentOutlet instead of importing directly.
     { provide: WIZARD_VIEW_COMPONENT, useValue: WizardViewComponent },
-    // Orchestra canvas component: breaks circular dependency between chat and canvas.
-    // canvas imports TabManagerService from chat, so chat cannot import canvas directly.
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
-    // Harness builder component: breaks circular dependency between chat and harness-builder.
     {
       provide: HARNESS_BUILDER_COMPONENT,
       useValue: HarnessBuilderViewComponent,
     },
-    // Setup hub component: breaks circular dependency between chat and harness-builder.
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
-    // `provideStreamingControl()` removed. The STREAMING_CONTROL inversion
-    // was the source of the NG0200 cycle — token inversion + a useExisting
-    // impl that injected the consumer back formed the same runtime cycle the
-    // import inversion was meant to prevent. The router
-    // (`@ptah-extension/chat-routing/StreamRouter`) now owns cleanup,
-    // reacting to `TabManagerService.closedTab` via `effect()`. No DI
-    // registration needed — `StreamRouter` is `providedIn: 'root'` and
-    // self-wires through the chat-message-handler import chain.
-    // ModelRefreshControl: inverted-dependency contract that lets
-    // TabManagerService (in @ptah-extension/chat-state, type:data-access)
-    // refresh the available-models list after createTab() without statically
-    // importing ModelStateService from @ptah-extension/core (type:core),
-    // which Nx module-boundary rules forbid for type:data-access libs.
     ...provideModelRefreshControl(),
-    // WizardInternalState: inverted-dependency contract that lets external
-    // consumers read/write wizard signals without statically importing
-    // SetupWizardStateService (which would re-form a cycle with the
-    // in-process wizard helpers).
     ...provideWizardInternalState(),
-    // EditorInternalState: same pattern, applied to EditorService.
     ...provideEditorInternalState(),
-    // EditorService handles editor:tabContentReverted push events (Electron Monaco revert).
     { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
-    // ElectronLayoutService listens for WORKSPACE_CHANGED so that "Open Folder"
-    // from the native menu (and any future main-process trigger) re-syncs the
-    // renderer folder list via a workspace:getInfo roundtrip.
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ElectronLayoutService,
       multi: true,
     },
-    // WorkspaceIndexingService listens for `indexing:progress` push events
-    // broadcast from IndexingControlService during active indexing runs.
-    // Required for live progress streaming.
     {
       provide: MESSAGE_HANDLERS,
       useExisting: WorkspaceIndexingService,
       multi: true,
     },
-    // GatewayStateService listens for GATEWAY_STATUS_CHANGED push events (Electron-only)
-    // to update adapter running/error state without polling.
     {
       provide: MESSAGE_HANDLERS,
       useExisting: GatewayStateService,
       multi: true,
     },
-    // UpdateBannerService listens for UPDATE_STATUS_CHANGED push events
-    // (Electron-only) emitted by the main-process UpdateManager. Drives the
-    // sticky top-bar update banner in the renderer.
     {
       provide: MESSAGE_HANDLERS,
       useExisting: UpdateBannerService,
       multi: true,
     },
-    // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',
       onMonacoLoad: () => {
-        // Fix Monaco web workers for Electron's file:// protocol.
-        // Electron 35+ (Chromium 135+) defaults data: URL workers to type: 'module',
-        // which doesn't support importScripts(). Use getWorker() with a Blob URL
-        // and explicit { type: 'classic' } to ensure importScripts() works.
         const monacoVsUrl = new URL('./assets/monaco/vs', window.location.href)
           .href;
         const monacoSelf = self as typeof self & {
@@ -212,8 +153,6 @@ export const appConfig: ApplicationConfig = {
         };
       },
     }),
-    // Markdown rendering for chat messages (required for ngx-markdown)
-    // Includes custom extensions for callout cards and collapsible code blocks
     provideMarkdownRendering({ extensions: 'full' }),
   ],
 };

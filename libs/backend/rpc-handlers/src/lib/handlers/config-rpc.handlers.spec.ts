@@ -64,11 +64,13 @@ import {
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
 import type {
-  ModelResolver,
-  ProviderModelsService,
   SdkAgentAdapter,
   SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
+import type {
+  ModelResolver,
+  ProviderModelsService,
+} from '@ptah-extension/auth-providers';
 import {
   createMockLogger,
   type MockLogger,

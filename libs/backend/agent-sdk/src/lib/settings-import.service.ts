@@ -64,8 +64,6 @@ export class SettingsImportService {
       source: data.source,
       overwrite,
     });
-
-    // Step 1: Validate schema version
     const validationError = this.validateExportData(data);
     if (validationError) {
       this.logger.error('[SettingsImport] Validation failed', {
@@ -83,8 +81,6 @@ export class SettingsImportService {
       skipped: [],
       errors: [],
     };
-
-    // Step 2: Import secrets
     await this.importSecret(
       SECRET_KEYS.LICENSE_KEY,
       data.licenseKey,
@@ -97,8 +93,6 @@ export class SettingsImportService {
       overwrite,
       result,
     );
-
-    // Step 3: Import per-provider keys (validated against known provider IDs)
     if (data.auth.providerKeys) {
       for (const [providerId, value] of Object.entries(
         data.auth.providerKeys,
@@ -114,11 +108,6 @@ export class SettingsImportService {
         await this.importSecret(secretKey, value, overwrite, result);
       }
     }
-
-    // Step 4: Skip config values (IWorkspaceProvider is read-only)
-    // Config import is not supported because IWorkspaceProvider does not
-    // expose a write/update method. Config keys are reported as skipped
-    // so the user is aware they need to reconfigure manually.
     if (data.config && Object.keys(data.config).length > 0) {
       const configKeys = Object.keys(data.config);
       for (const key of configKeys) {
@@ -137,10 +126,6 @@ export class SettingsImportService {
 
     return result;
   }
-
-  // ------------------------------------------------------------------
-  // Validation
-  // ------------------------------------------------------------------
 
   /**
    * Validate the export data structure and version.
@@ -186,10 +171,6 @@ export class SettingsImportService {
 
     return undefined;
   }
-
-  // ------------------------------------------------------------------
-  // Secret import
-  // ------------------------------------------------------------------
 
   /**
    * Import a single secret key.

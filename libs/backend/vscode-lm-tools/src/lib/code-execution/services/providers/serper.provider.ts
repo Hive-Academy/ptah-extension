@@ -84,7 +84,6 @@ export class SerperSearchProvider implements IWebSearchProvider {
 
       return {
         results,
-        // Serper does not provide a native summary
         summary: undefined,
       };
     } catch (error: unknown) {
@@ -93,8 +92,6 @@ export class SerperSearchProvider implements IWebSearchProvider {
           `Serper API error: request timed out after ${SERPER_FETCH_TIMEOUT_MS / 1000}s.`,
         );
       }
-
-      // Re-throw errors we already formatted
       if (
         error instanceof Error &&
         error.message.startsWith('Serper API error:')

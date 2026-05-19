@@ -102,8 +102,6 @@ export class MemorySearchService implements IMemoryReader {
     const trimmed = query.trim();
     if (!trimmed)
       return { hits: [], bm25Only: !this.connection.vecExtensionLoaded };
-
-    // LRU cache — short-circuit the full pipeline on repeated identical queries.
     const cacheKey = this.makeCacheKey(trimmed, workspaceRoot);
     const cached = this.cache.get(cacheKey);
     if (cached) {
@@ -127,28 +125,14 @@ export class MemorySearchService implements IMemoryReader {
         bm25Only = true;
       }
     }
-
-    // Token-count-based weight heuristic.
-    // Short queries (< 4 tokens) favour exact BM25 term matching;
-    // longer queries with context favour semantic vector similarity.
     const tokenCount = trimmed.split(/\s+/).filter((t) => t.length > 0).length;
     const bm25Weight = tokenCount < 4 ? 0.6 : 0.3;
     const weights = { bm25: bm25Weight, vec: 1 - bm25Weight };
-
-    // Reranker — skip if too few candidates, fall back to RRF order on error.
-    // EmbedderWorkerClient is registered as the concrete impl under EMBEDDER;
-    // cast once here instead of widening IEmbedder (VS Code + CLI environments
-    // may use a non-worker embedder that has no rerank capability).
-    //
-    // Pass limit * 4 to rrfFuse so the reranker receives 4× the final topK as
-    // candidates, then slice back to limit after reranking.
     let fused = this.rrfFuse(bm25Rows, vecRows, limit * 4, { k: 25, weights });
     if (fused.length >= 5) {
       const workerClient = this.workerClient;
       if (workerClient !== null) {
         try {
-          // Cap candidate text at 512 chars before sending to the worker to
-          // guard against OOM on unexpectedly large chunks (defense-in-depth).
           const MAX_CANDIDATE_CHARS = 512;
           const rerankInput = fused.slice(0, limit * 4).map((e) => ({
             id: String(e.row.rowid),
@@ -172,7 +156,6 @@ export class MemorySearchService implements IMemoryReader {
               error: err instanceof Error ? err.message : String(err),
             },
           );
-          // fused unchanged — fall through with RRF order
         }
       }
     }
@@ -195,11 +178,8 @@ export class MemorySearchService implements IMemoryReader {
         bm25Rank: entry.bm25Rank,
         vecRank: entry.vecRank,
       });
-      try {
-        this.store.recordHit(memory.id);
-      } catch {
-        /* ignore — store may be a stub in tests */
-      }
+
+      this.store.recordHit(memory.id);
     }
 
     const response: MemorySearchResponse = { hits, bm25Only };
@@ -380,13 +360,9 @@ export class MemorySearchService implements IMemoryReader {
 
     const tokens = rawQuery
       .toLowerCase()
-      // Strip all FTS5 metacharacters: quotes, glob, parens, column-qualifier,
-      // prefix-require/exclude, initial-token, proximity, tilde.
       .replace(/["*()^:+\-~]/g, ' ')
       .split(/\s+/)
       .filter((t) => t.length > 1)
-      // Drop FTS5 boolean keywords (defence-in-depth — quoting already handles
-      // them, but a future grammar change could re-expose them).
       .filter((t) => !FTS5_KEYWORDS.has(t));
 
     if (tokens.length === 0) return '""';

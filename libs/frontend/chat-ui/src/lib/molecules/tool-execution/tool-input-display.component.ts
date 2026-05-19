@@ -138,8 +138,6 @@ export class ToolInputDisplayComponent {
       ? param.fullValue
       : String(param.fullValue);
   }
-
-  // Language extension mapping for Write tool content
   private readonly languageMap: Record<string, string> = {
     '.ts': 'typescript',
     '.tsx': 'tsx',
@@ -174,21 +172,13 @@ export class ToolInputDisplayComponent {
     if (!toolInput) return false;
 
     const toolName = node.toolName;
-
-    // Hide input for TodoWrite - it has specialized display in ToolOutputDisplayComponent
     if (toolName === 'TodoWrite') {
       return false;
     }
-
-    // Hide input for Edit tool - DiffDisplayComponent already shows old/new visually
-    // Showing raw old_string/new_string in input section is redundant
     if (toolName === 'Edit') {
       return false;
     }
-
-    // Hide input for simple tools where description shows the key info
     if (['Read'].includes(toolName || '')) {
-      // Only show if there are extra params besides file_path
       const keys = Object.keys(toolInput).filter((k) => k !== 'file_path');
       return keys.length > 0;
     }
@@ -238,23 +228,15 @@ export class ToolInputDisplayComponent {
       typeof param.fullValue === 'string'
         ? param.fullValue
         : JSON.stringify(param.fullValue, null, 2);
-
-    // Strip system-reminder tags
     content = this.stripSystemReminders(content);
-
-    // For Write tool, detect language from file_path using type guard
     const node = this.node();
     if (param.key === 'content' && isWriteToolInput(node?.toolInput)) {
       const language = this.getLanguageFromPath(node.toolInput.file_path);
-      // For markdown files, render as markdown (no code block)
       if (language === 'markdown') {
         return content;
       }
-      // Wrap in code block with detected language
       return '```' + language + '\n' + content + '\n```';
     }
-
-    // Default: wrap in generic code block
     return '```\n' + content + '\n```';
   }
 

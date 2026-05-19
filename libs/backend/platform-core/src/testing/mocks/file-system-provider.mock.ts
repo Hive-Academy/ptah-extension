@@ -104,9 +104,6 @@ export function createMockFileSystemProvider(
     readDirectory: jest.fn(async (path: string): Promise<DirectoryEntry[]> => {
       const normalized = path.replace(/\\/g, '/').replace(/\/$/, '');
       if (!directories.has(normalized) && normalized !== '') {
-        // Allow reading a directory that only exists because files live under
-        // it. For tests, treat missing dir as empty if not seeded.
-        // But if no descendants, throw.
         const hasDescendant =
           [...files.keys()].some((k) =>
             k.replace(/\\/g, '/').startsWith(`${normalized}/`),
@@ -203,9 +200,6 @@ export function createMockFileSystemProvider(
         _exclude?: string[],
         maxResults?: number,
       ): Promise<string[]> => {
-        // Minimal glob: treat `**/*` as match-all, else suffix match on the
-        // trailing literal segment. Consumers who need richer matching should
-        // override this method via the `overrides` argument.
         const matchAll = pattern.includes('**/*') || pattern === '*';
         const suffix = pattern.replace(/^.*\*/, '');
         const results: string[] = [];

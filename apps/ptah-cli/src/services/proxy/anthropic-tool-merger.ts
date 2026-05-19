@@ -73,8 +73,6 @@ export function mergeAnthropicTools(
       continue;
     }
     merged.push(tool);
-    // Defend against duplicate workspace tools (shouldn't happen, but if it
-    // does we'd drop them silently rather than re-flag as a caller collision).
     callerNames.add(tool.name);
   }
 

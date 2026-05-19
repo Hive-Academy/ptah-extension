@@ -41,8 +41,6 @@ export class ClaudeCliPathResolver {
     installationPath: string,
   ): Promise<ResolvedClaudeCliPath | null> {
     const platform = os.platform();
-
-    // Strategy 1: Parse wrapper script (Windows .cmd, Unix bash)
     if (this.isWrapperScript(installationPath)) {
       const parsed = await this.parseWrapperScript(installationPath);
       if (parsed) {
@@ -54,8 +52,6 @@ export class ClaudeCliPathResolver {
         };
       }
     }
-
-    // Strategy 2: Infer from npm installation structure
     const inferred = this.inferFromNpmStructure(installationPath);
     if (inferred && fs.existsSync(inferred)) {
       return {
@@ -65,9 +61,6 @@ export class ClaudeCliPathResolver {
         requiresDirectExecution: platform === 'win32',
       };
     }
-
-    // Strategy 3: Fallback - use wrapper as-is (shell spawning required)
-    // This is for Unix systems or when we can't resolve
     if (fs.existsSync(installationPath)) {
       return {
         cliJsPath: installationPath,
@@ -101,7 +94,6 @@ export class ClaudeCliPathResolver {
     wrapperPath: string,
   ): Promise<string | null> {
     try {
-      // If it's a command name (not a path), try to resolve it
       if (!wrapperPath.includes('\\') && !wrapperPath.includes('/')) {
         const resolved = await this.resolveCommandPath(wrapperPath);
         if (!resolved) {
@@ -132,9 +124,6 @@ export class ClaudeCliPathResolver {
    * Example: "%_prog%" "%dp0%\node_modules\@anthropic-ai\claude-code\cli.js" %*
    */
   private parseWindowsCmd(content: string, wrapperPath: string): string | null {
-    // Look for patterns like:
-    // "%dp0%\node_modules\@anthropic-ai\claude-code\cli.js"
-    // "%dp0%\..\lib\node_modules\@anthropic-ai\claude-code\cli.js"
 
     const patterns = [
       /%dp0%\\(.+?\.js)/, // %dp0%\path\to\cli.js
@@ -147,8 +136,6 @@ export class ClaudeCliPathResolver {
       if (match) {
         const relativePath = match[1];
         const wrapperDir = path.dirname(wrapperPath);
-
-        // Replace %dp0% with wrapper directory
         const resolvedPath = path.resolve(wrapperDir, relativePath);
 
         if (fs.existsSync(resolvedPath)) {
@@ -165,9 +152,6 @@ export class ClaudeCliPathResolver {
    * Example: exec node "$basedir/../lib/node_modules/@anthropic-ai/claude-code/cli.js" "$@"
    */
   private parseUnixBash(content: string, wrapperPath: string): string | null {
-    // Look for patterns like:
-    // "$basedir/../lib/node_modules/@anthropic-ai/claude-code/cli.js"
-    // "${basedir}/../lib/node_modules/@anthropic-ai/claude-code/cli.js"
 
     const patterns = [
       /\$\{?basedir\}?\/(.+?\.js)/, // $basedir/path/to/cli.js
@@ -180,8 +164,6 @@ export class ClaudeCliPathResolver {
       if (match) {
         const relativePath = match[1];
         const wrapperDir = path.dirname(wrapperPath);
-
-        // Replace basedir with wrapper directory
         const resolvedPath = path.resolve(wrapperDir, relativePath);
 
         if (fs.existsSync(resolvedPath)) {
@@ -199,9 +181,6 @@ export class ClaudeCliPathResolver {
    */
   private inferFromNpmStructure(wrapperPath: string): string | null {
     const platform = os.platform();
-
-    // Windows: C:\Users\<user>\AppData\Roaming\npm\claude.cmd
-    // Expect: C:\Users\<user>\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js
     if (platform === 'win32' && wrapperPath.endsWith('.cmd')) {
       const npmDir = path.dirname(wrapperPath);
       return path.join(
@@ -212,9 +191,6 @@ export class ClaudeCliPathResolver {
         'cli.js',
       );
     }
-
-    // Unix: /usr/local/bin/claude
-    // Expect: /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js
     if (platform !== 'win32') {
       const binDir = path.dirname(wrapperPath);
       const baseDir = path.dirname(binDir); // /usr/local
@@ -273,8 +249,6 @@ export class ClaudeCliPathResolver {
    * Used for spawning with direct execution
    */
   getNodeBinaryPath(): string {
-    // process.execPath gives us the current Node.js binary
-    // This is reliable across platforms and node versions
     return process.execPath;
   }
 }

@@ -111,13 +111,9 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
 export class AnalysisTranscriptComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
-
-  // Icons
   protected readonly TerminalIcon = Terminal;
   protected readonly ChevronUpIcon = ChevronUp;
   protected readonly ChevronDownIcon = ChevronDown;
-
-  // UI state
   protected readonly isExpanded = signal(true);
   private readonly userHasScrolledUp = signal(false);
   protected readonly scrollContainer =
@@ -166,8 +162,6 @@ export class AnalysisTranscriptComponent {
   });
 
   public constructor() {
-    // Auto-scroll effect: scroll to bottom when execution trees change
-    // unless the user has manually scrolled up
     effect(() => {
       const phases = this.allPhaseTrees();
       if (phases.length === 0) return;
@@ -186,7 +180,6 @@ export class AnalysisTranscriptComponent {
   /** Toggle expand/collapse state */
   protected toggleExpanded(): void {
     this.isExpanded.update((v) => !v);
-    // Reset scroll tracking when re-expanding
     if (this.isExpanded()) {
       this.userHasScrolledUp.set(false);
     }
@@ -196,8 +189,6 @@ export class AnalysisTranscriptComponent {
   protected onUserScroll(): void {
     const container = this.scrollContainer()?.nativeElement;
     if (!container) return;
-
-    // Consider "scrolled to bottom" if within 30px of the bottom
     const isAtBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight <
       30;

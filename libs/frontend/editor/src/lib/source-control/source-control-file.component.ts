@@ -116,8 +116,6 @@ export class SourceControlFileComponent {
   readonly discard = output<string>();
   readonly openDiff = output<string>();
   readonly openFile = output<string>();
-
-  // Icons
   readonly PlusIcon = Plus;
   readonly MinusIcon = Minus;
   readonly Undo2Icon = Undo2;

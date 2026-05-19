@@ -23,8 +23,6 @@ export default {
     'jest-preset-angular/build/serializers/ng-snapshot',
     'jest-preset-angular/build/serializers/html-comment',
   ],
-  // Floors rounded DOWN to nearest 5 to catch regressions without
-  // flapping on minor refactors.
   coverageThreshold: {
     global: {
       statements: 35,

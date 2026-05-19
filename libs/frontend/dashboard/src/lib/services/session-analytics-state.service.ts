@@ -65,14 +65,10 @@ export interface AggregateTotals {
 export class SessionAnalyticsStateService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly appState = inject(AppStateManager);
-
-  // -- Private writable signals --
   private readonly _allSessions = signal<DashboardSessionEntry[]>([]);
   private readonly _displayCount = signal<5 | 10>(5);
   private readonly _isLoading = signal(false);
   private readonly _loadError = signal<string | null>(null);
-
-  // -- Public readonly signals --
   readonly isLoading = this._isLoading.asReadonly();
   readonly loadError = this._loadError.asReadonly();
   readonly displayCount = this._displayCount.asReadonly();
@@ -127,8 +123,6 @@ export class SessionAnalyticsStateService {
     };
   });
 
-  // -- Actions --
-
   /** Toggle between showing 5 and 10 sessions. */
   setDisplayCount(count: 5 | 10): void {
     this._displayCount.set(count);
@@ -158,8 +152,6 @@ export class SessionAnalyticsStateService {
         );
         return;
       }
-
-      // Step 1: Get session list (metadata: ids, names, dates)
       const listResult = await this.rpc.call('session:list', {
         workspacePath,
         limit: 30,
@@ -175,8 +167,6 @@ export class SessionAnalyticsStateService {
         this._allSessions.set([]);
         return;
       }
-
-      // Step 2: Get real stats for all sessions from JSONL files
       const sessionIds = sessionList.map((s) => s.id);
       const statsResult = await this.rpc.call('session:stats-batch', {
         sessionIds,
@@ -186,8 +176,6 @@ export class SessionAnalyticsStateService {
       if (!statsResult.isSuccess() || !statsResult.data) {
         throw new Error(statsResult.error || 'Failed to load session stats');
       }
-
-      // Step 3: Merge metadata + stats using Map for O(1) lookups
       const statsMap = new Map<string, SessionStatsEntry>();
       for (const stat of statsResult.data.sessionStats) {
         statsMap.set(stat.sessionId, stat);

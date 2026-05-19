@@ -113,7 +113,6 @@ export class WorkspaceAnalyzerService implements IDisposable {
    * Initialize workspace analyzer
    */
   private initialize(): void {
-    // Update workspace info when workspace changes
     const workspaceWatcher = this.workspaceProvider.onDidChangeWorkspaceFolders(
       () => {
         this.updateWorkspaceInfo();
@@ -121,8 +120,6 @@ export class WorkspaceAnalyzerService implements IDisposable {
     );
 
     this.disposables.push(workspaceWatcher);
-
-    // Initial update
     this.updateWorkspaceInfo();
   }
 
@@ -196,15 +193,9 @@ export class WorkspaceAnalyzerService implements IDisposable {
         frameworkSpecific: [],
       };
     }
-
-    // Get project info for framework-specific recommendations
     const info = await this.getProjectInfo();
-
-    // Build recommendations based on project type
     const criticalFiles = this.getCriticalFiles(info);
     const frameworkSpecific = await this.getFrameworkSpecificFiles();
-
-    // Get additional recommended files from context service
     const contextFiles = await this.contextService.getAllFiles(false, 0, 100);
 
     return {
@@ -226,8 +217,6 @@ export class WorkspaceAnalyzerService implements IDisposable {
 
     try {
       const info = await this.getProjectInfo();
-
-      // Detect project types and frameworks for this workspace
       const projectType =
         await this.projectDetector.detectProjectType(workspacePath);
       const projectTypesMap = new Map<string, ProjectType>();
@@ -236,8 +225,6 @@ export class WorkspaceAnalyzerService implements IDisposable {
       const frameworksMap =
         await this.frameworkDetector.detectFrameworks(projectTypesMap);
       const framework = frameworksMap.get(workspacePath);
-
-      // Check for TypeScript by looking at dependencies or file statistics
       const hasTypeScript =
         info.dependencies.some((dep) => dep === 'typescript') ||
         info.devDependencies.some((dep) => dep === 'typescript') ||
@@ -262,13 +249,9 @@ export class WorkspaceAnalyzerService implements IDisposable {
    */
   private getCriticalFiles(info: ProjectInfo): string[] {
     const critical: string[] = ['README.md'];
-
-    // Add package.json if we have dependencies (indicates it exists)
     if (info.dependencies.length > 0 || info.devDependencies.length > 0) {
       critical.push('package.json');
     }
-
-    // Check for TypeScript by looking at dependencies
     const hasTypeScript =
       info.dependencies.some((dep) => dep === 'typescript') ||
       info.devDependencies.some((dep) => dep === 'typescript');
@@ -276,8 +259,6 @@ export class WorkspaceAnalyzerService implements IDisposable {
     if (hasTypeScript) {
       critical.push('tsconfig.json');
     }
-
-    // Use ProjectType enum values
     if (info.type === ProjectType.Node) {
       critical.push('package.json', 'tsconfig.json');
     } else if (info.type === ProjectType.React) {
@@ -297,14 +278,10 @@ export class WorkspaceAnalyzerService implements IDisposable {
    */
   private async getFrameworkSpecificFiles(): Promise<string[]> {
     const files: string[] = [];
-
-    // Get frameworks from framework detector
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (!workspaceRoot) {
       return files;
     }
-
-    // Detect project type and frameworks
     const projectType =
       await this.projectDetector.detectProjectType(workspaceRoot);
     const projectTypesMap = new Map<string, ProjectType>();
@@ -361,10 +338,7 @@ export class WorkspaceAnalyzerService implements IDisposable {
    */
   async extractCodeInsights(filePath: string): Promise<CodeInsights | null> {
     try {
-      // Read file content
       const content = await this.fileSystemService.readFile(filePath);
-
-      // Detect language from extension
       const language: SupportedLanguage =
         filePath.endsWith('.ts') || filePath.endsWith('.tsx')
           ? 'typescript'
@@ -373,8 +347,6 @@ export class WorkspaceAnalyzerService implements IDisposable {
       this.logger.debug(
         `Extracting code insights from ${filePath} (language: ${language})`,
       );
-
-      // Analyze source directly using query-based extraction
       const insightsResult = await this.astAnalyzer.analyzeSource(
         content,
         language,

@@ -15,7 +15,6 @@ export function createMockMasterKeyProvider(
   /** Optional fixed key bytes. Defaults to a non-zero 32-byte pattern. */
   fixedKey?: Buffer,
 ): MockMasterKeyProvider {
-  // Generate a deterministic but non-zero key if none is provided.
   const key: Buffer =
     fixedKey ??
     Buffer.from(Array.from({ length: 32 }, (_, i) => (i + 1) & 0xff));

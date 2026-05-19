@@ -32,11 +32,6 @@ export const FatalErrorCode = {
   WorkspaceMissing: 'workspace_missing',
   AuthRequired: 'auth_required',
   LicenseRequired: 'license_required',
-  // Anthropic-compatible HTTP proxy.
-  // Surfaced from `ptah proxy start` so supervisors that monitor stderr see a
-  // deterministic NDJSON line for fatal proxy startup / runtime failures even
-  // when the JSON-RPC stdout channel is unavailable (CLI invoked outside
-  // `ptah interact`).
   ProxyBindFailed: 'proxy_bind_failed',
   ProxyInvalidRequest: 'proxy_invalid_request',
   PermissionGateUnavailable: 'permission_gate_unavailable',
@@ -64,14 +59,10 @@ export function emitFatalError(
   const payload: Record<string, unknown> = { error: code, message };
   if (details) {
     for (const [k, v] of Object.entries(details)) {
-      // Don't allow callers to clobber the canonical `error` / `message` keys.
       if (k === 'error' || k === 'message') continue;
       payload[k] = v;
     }
   }
-  try {
-    process.stderr.write(`${JSON.stringify(payload)}\n`);
-  } catch {
-    /* swallow — stderr write failure cannot be reported anywhere safer */
-  }
+
+  process.stderr.write(`${JSON.stringify(payload)}\n`);
 }

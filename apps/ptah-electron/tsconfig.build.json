@@ -7,6 +7,15 @@
         "libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/auth-providers": [
+        "libs/backend/auth-providers/src/index.ts"
+      ],
+      "@ptah-extension/auth-providers-tokens": [
+        "libs/backend/auth-providers-tokens/src/index.ts"
+      ],
+      "@ptah-extension/cli-agent-runtime": [
+        "libs/backend/cli-agent-runtime/src/index.ts"
+      ],
       "@ptah-extension/deep-agent-sdk": [
         "libs/backend/deep-agent-sdk/src/index.ts"
       ],

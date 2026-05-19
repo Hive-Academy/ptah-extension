@@ -121,10 +121,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Allowlist enforcement (locked).
-// ---------------------------------------------------------------------------
-
 /**
  * Returns the requested CLI id when it is in the allowlist, otherwise `null`.
  *
@@ -164,10 +160,6 @@ async function emitCliAgentUnavailable(
   return ExitCode.AuthRequired;
 }
 
-// ---------------------------------------------------------------------------
-// detect — RPC `agent:detectClis`
-// ---------------------------------------------------------------------------
-
 async function runDetect(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -185,10 +177,6 @@ async function runDetect(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// config get — RPC `agent:getConfig`
-// ---------------------------------------------------------------------------
 
 async function runConfigGet(
   globals: GlobalOptions,
@@ -208,10 +196,6 @@ async function runConfigGet(
   });
 }
 
-// ---------------------------------------------------------------------------
-// config set — RPC `agent:setConfig`
-// ---------------------------------------------------------------------------
-
 async function runConfigSet(
   opts: AgentCliOptions,
   globals: GlobalOptions,
@@ -227,10 +211,6 @@ async function runConfigSet(
     stderr.write('ptah agent-cli config set: --value is required\n');
     return ExitCode.UsageError;
   }
-
-  // Coerce string → typed value for the small set of known boolean/number
-  // keys. Unknown keys pass through as strings; the backend handler will
-  // ignore unknown keys silently.
   const params = buildSetConfigParams(opts.key, opts.value);
 
   return engine(globals, { mode: 'full' }, async (ctx) => {
@@ -250,17 +230,12 @@ async function runConfigSet(
   });
 }
 
-// ---------------------------------------------------------------------------
-// models list [--cli] — RPC `agent:listCliModels`
-// ---------------------------------------------------------------------------
-
 async function runModelsList(
   opts: AgentCliOptions,
   globals: GlobalOptions,
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  // Allowlist is OPTIONAL here — `--cli` is optional. Only enforce when set.
   let scoped: AllowlistedCli | null = null;
   if (opts.cli !== undefined) {
     scoped = validateCliAgent(opts.cli);
@@ -277,7 +252,6 @@ async function runModelsList(
     );
 
     if (scoped === null) {
-      // No --cli filter — return all curated lists.
       await formatter.writeNotification('agent_cli.models', {
         gemini: result?.gemini ?? [],
         codex: result?.codex ?? [],
@@ -285,11 +259,6 @@ async function runModelsList(
       });
       return ExitCode.Success;
     }
-
-    // Scope to a single allowlisted CLI. `glm` is not present in the curated
-    // `agent:listCliModels` payload (which carries gemini/codex/copilot),
-    // so we emit an empty list for glm — the contract is preserved without
-    // surfacing models from other providers.
     if (scoped === 'gemini') {
       await formatter.writeNotification('agent_cli.models', {
         cli: 'gemini',
@@ -304,10 +273,6 @@ async function runModelsList(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// stop <id> --cli — RPC `agent:stop` (allowlist enforced)
-// ---------------------------------------------------------------------------
 
 async function runStop(
   opts: AgentCliOptions,
@@ -341,10 +306,6 @@ async function runStop(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// resume <id> --cli — RPC `agent:resumeCliSession` (allowlist enforced)
-// ---------------------------------------------------------------------------
 
 async function runResume(
   opts: AgentCliOptions,
@@ -383,10 +344,6 @@ async function runResume(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 /**
  * Build the `AgentSetConfigParams` payload for a single key/value pair.
@@ -436,7 +393,6 @@ function buildSetConfigParams(
       break;
     }
     default:
-      // Pass through as string for model/effort keys.
       (params as unknown as Record<string, string>)[key] = rawValue;
   }
   return params;

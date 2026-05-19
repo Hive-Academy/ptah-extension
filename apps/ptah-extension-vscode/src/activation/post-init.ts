@@ -31,38 +31,12 @@ export async function registerPostInit(
   licenseStatus: LicenseStatus,
   authInitialized: boolean,
 ): Promise<PtahExtension> {
-  // Initialize main extension controller
   const ptahExtension = new PtahExtension(context);
 
   await ptahExtension.initialize();
-
-  // Auth not configured is a normal state on first install — no popup needed.
-  // Users can configure authentication via Ptah Settings > Authentication tab.
-  if (!authInitialized) {
-    // Auth not configured — normal on first install
-  }
-
-  // Register all providers, commands, and services
   await ptahExtension.registerAll();
-
-  // Note: MCP config (.mcp.json) writing removed - SDK tools are now native
-  // and don't require external MCP server registration. The Code Execution
-  // MCP server runs locally and Ptah tools (help, executeCode) are registered
-  // directly with the SDK via mcpServers option in SdkAgentAdapter.
-
-  // ========================================
-  // LICENSE REACTIVITY BINDER
-  // ========================================
-  // The binder:
-  //   - Performs an initial dispatch based on current license state
-  //   - Subscribes to license:verified → starts MCP, CLI syncs, invalidates FGS cache
-  //   - Subscribes to license:expired  → stops MCP, cleans up CLI, invalidates FGS cache
-  // Fixes the race where a user activates a license mid-session and premium
-  // subsystems were never started (they would otherwise read a stale community tier).
   try {
     const container = DIContainer.getContainer();
-
-    // Resolve plugins path for skill sync callback.
     let pluginsPathForSync: string;
     try {
       const contentDownload = DIContainer.resolve<ContentDownloadService>(
@@ -103,8 +77,6 @@ export async function registerPostInit(
         }
       },
     });
-
-    // Register binder disposal in extension context so it's cleaned up on deactivate.
     context.subscriptions.push(binderDisposable);
 
     logger.info('[post-init] License reactivity binder initialized');
@@ -119,13 +91,6 @@ export async function registerPostInit(
       },
     );
   }
-
-  // ========================================
-  // Background revalidation (every 24 hours)
-  // ========================================
-  // The revalidate() call emits license:verified / license:expired events
-  // which route through the bindLicenseReactivity binder above, keeping
-  // subsystem state in sync on periodic checks.
   try {
     const licenseService = DIContainer.resolve<LicenseService>(
       TOKENS.LICENSE_SERVICE,
@@ -146,16 +111,11 @@ export async function registerPostInit(
       },
     );
   }
-
-  // Show welcome message for first-time users
   const isFirstTime = context.globalState.get('ptah.firstActivation', true);
   if (isFirstTime) {
     await ptahExtension.showWelcome();
     await context.globalState.update('ptah.firstActivation', false);
   }
-
-  // licenseStatus is still used by the caller for initial UI state decisions —
-  // keep the parameter signature intact.
   void licenseStatus;
 
   return ptahExtension;

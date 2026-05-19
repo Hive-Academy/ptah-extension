@@ -36,8 +36,6 @@ export function extractTokenUsage(
   if (!usage) {
     return undefined;
   }
-
-  // Validate required fields
   if (
     typeof usage.input_tokens !== 'number' ||
     typeof usage.output_tokens !== 'number'

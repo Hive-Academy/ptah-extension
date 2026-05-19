@@ -23,10 +23,6 @@
 
 import type { RunnerHandle } from './cli-runner.js';
 
-// Mirror the wire shapes from `src/cli/commands/interact.ts` and
-// `src/cli/session/chat-bridge.ts`. We don't import the source types directly
-// because the harness drives the BUILT bundle (no source coupling).
-
 export interface TaskSubmitParams {
   task: string;
   cwd?: string;

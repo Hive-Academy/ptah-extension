@@ -58,8 +58,6 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
   private resizeObserver: ResizeObserver | null = null;
 
   ngAfterViewInit(): void {
-    // Initialize xterm outside Angular zone to avoid triggering change detection
-    // for every terminal render frame and cursor blink
     this.ngZone.runOutsideAngular(() => {
       this.initTerminal();
     });
@@ -119,38 +117,23 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
       scrollback: 5000,
       allowProposedApi: true,
     });
-
-    // Load FitAddon for responsive terminal sizing
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
-
-    // Try WebGL renderer for GPU-accelerated rendering, fallback to canvas
     try {
       this.webglAddon = new WebglAddon();
       this.terminal.loadAddon(this.webglAddon);
-      // Handle WebGL context loss gracefully (GPU driver reset, etc.)
       this.webglAddon.onContextLoss(() => {
         this.webglAddon?.dispose();
         this.webglAddon = null;
       });
     } catch {
-      // WebGL not available in this environment, canvas renderer is the fallback
       this.webglAddon = null;
     }
-
-    // Open terminal in the DOM container
     this.terminal.open(container);
-
-    // Initial fit to container dimensions
     this.fitAddon.fit();
-
-    // Forward user input to the main process via binary IPC
     this.terminal.onData((data: string) => {
       this.terminalService.writeToTerminal(this.terminalId(), data);
     });
-
-    // Register this terminal's write callback so incoming data from main process
-    // is written to this xterm instance
     this.terminalService.registerXtermWriter(
       this.terminalId(),
       (data: string) => {
@@ -159,8 +142,6 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
     );
 
     this.setupClipboardHandlers(container);
-
-    // Auto-resize terminal when container dimensions change
     this.resizeObserver = new ResizeObserver(() => {
       if (this.fitAddon && this.terminal) {
         this.fitAddon.fit();
@@ -181,14 +162,10 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
       if (event.type !== 'keydown') return true;
 
       const isCtrl = event.ctrlKey && !event.altKey && !event.metaKey;
-
-      // Ctrl+Shift+C: copy selection
       if (isCtrl && event.shiftKey && event.key === 'C') {
         this.copySelection();
         return false;
       }
-
-      // Ctrl+C with active selection: copy instead of sending SIGINT
       if (
         isCtrl &&
         !event.shiftKey &&
@@ -198,8 +175,6 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
         this.copySelection();
         return false;
       }
-
-      // Ctrl+Shift+V: paste from clipboard
       if (isCtrl && event.shiftKey && event.key === 'V') {
         this.pasteFromClipboard();
         return false;
@@ -207,8 +182,6 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
 
       return true;
     });
-
-    // Right-click: paste from clipboard (standard terminal behavior)
     container.addEventListener('contextmenu', (event: MouseEvent) => {
       event.preventDefault();
       this.pasteFromClipboard();

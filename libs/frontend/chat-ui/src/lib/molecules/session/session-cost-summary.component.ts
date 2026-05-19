@@ -88,13 +88,10 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SessionCostSummaryComponent {
-  // Signal inputs (all required)
   readonly totalCost = input.required<number>();
   readonly totalTokensInput = input.required<number>();
   readonly totalTokensOutput = input.required<number>();
   readonly messageCount = input.required<number>();
-
-  // Local state for expand/collapse
   protected readonly isExpanded = signal(false);
 
   /**

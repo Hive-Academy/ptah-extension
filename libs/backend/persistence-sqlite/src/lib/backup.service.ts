@@ -116,20 +116,12 @@ export class SqliteBackupService implements IBackupService {
       const dir = path.dirname(dest);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
-        // Restrict the directory to owner-only on POSIX (no-op on Windows).
-        try {
-          fs.chmodSync(dir, 0o700);
-        } catch {
-          // Non-fatal on platforms that do not support chmod.
-        }
+
+        fs.chmodSync(dir, 0o700);
       }
       await db.backup(dest);
-      // Restrict the backup file to owner-only on POSIX (no-op on Windows).
-      try {
-        fs.chmodSync(dest, 0o600);
-      } catch {
-        // Non-fatal on platforms that do not support chmod.
-      }
+
+      fs.chmodSync(dest, 0o600);
       this.logger.info('[persistence-sqlite] backup completed', { kind, dest });
       return dest;
     } catch (err: unknown) {

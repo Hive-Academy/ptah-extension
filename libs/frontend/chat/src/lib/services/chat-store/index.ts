@@ -18,10 +18,6 @@
  * - ChatLifecycleService: Bootstrap, license fetch, agent-summary routing,
  *   session-ID resolution, chat-error handling
  */
-
-// StreamingHandlerService + PermissionHandlerService moved to
-// @ptah-extension/chat-streaming. Re-exported here for backwards
-// compatibility — new code should import directly from '@ptah-extension/chat-streaming'.
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 export { CompletionHandlerService } from './completion-handler.service';

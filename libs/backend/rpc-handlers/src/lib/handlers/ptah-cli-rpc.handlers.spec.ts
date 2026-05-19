@@ -48,6 +48,90 @@
 
 import 'reflect-metadata';
 
+// ---------------------------------------------------------------------------
+// Jest transitive-import guard.
+//
+// The SUT imports `PtahCliSpawnOptions` from `@ptah-extension/cli-agent-runtime`,
+// which imports `AGENT_GENERATION_TOKENS` from `@ptah-extension/agent-generation`.
+// That barrel re-exports `@ptah-extension/workspace-intelligence`, whose
+// `TreeSitterParserService` module evaluates
+// `path.dirname(fileURLToPath(import.meta.url))` at top level — a construct
+// Jest's ts-jest CJS transform cannot parse. Mirrors the pattern used in
+// `wizard-generation-rpc.handlers.spec.ts`.
+// ---------------------------------------------------------------------------
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: {
+    Node: 'node',
+    React: 'react',
+    Vue: 'vue',
+    Angular: 'angular',
+    NextJS: 'nextjs',
+    Python: 'python',
+    Java: 'java',
+    Rust: 'rust',
+    Go: 'go',
+    DotNet: 'dotnet',
+    PHP: 'php',
+    Ruby: 'ruby',
+    General: 'general',
+    Unknown: 'unknown',
+  },
+  Framework: {
+    React: 'react',
+    Vue: 'vue',
+    Angular: 'angular',
+    NextJS: 'nextjs',
+    Nuxt: 'nuxt',
+    Express: 'express',
+    Django: 'django',
+    Laravel: 'laravel',
+    Rails: 'rails',
+    Svelte: 'svelte',
+    Astro: 'astro',
+    NestJS: 'nestjs',
+    Fastify: 'fastify',
+    Flask: 'flask',
+    FastAPI: 'fastapi',
+    Spring: 'spring',
+  },
+  MonorepoType: {
+    Nx: 'nx',
+    Lerna: 'lerna',
+    Rush: 'rush',
+    Turborepo: 'turborepo',
+    PnpmWorkspaces: 'pnpm-workspaces',
+    YarnWorkspaces: 'yarn-workspaces',
+  },
+  FileType: {
+    Source: 'source',
+    Test: 'test',
+    Config: 'config',
+    Documentation: 'docs',
+    Asset: 'asset',
+  },
+  TreeSitterParserService: class TreeSitterParserServiceStub {},
+  AstAnalysisService: class AstAnalysisServiceStub {},
+  DependencyGraphService: class DependencyGraphServiceStub {},
+  WorkspaceAnalyzerService: class WorkspaceAnalyzerServiceStub {},
+  ContextService: class ContextServiceStub {},
+  ContextOrchestrationService: class ContextOrchestrationServiceStub {},
+  WorkspaceService: class WorkspaceServiceStub {},
+  TokenCounterService: class TokenCounterServiceStub {},
+  FileSystemService: class FileSystemServiceStub {},
+  FileSystemError: class FileSystemErrorStub extends Error {},
+  ProjectDetectorService: class ProjectDetectorServiceStub {},
+  FrameworkDetectorService: class FrameworkDetectorServiceStub {},
+  DependencyAnalyzerService: class DependencyAnalyzerServiceStub {},
+  MonorepoDetectorService: class MonorepoDetectorServiceStub {},
+  PatternMatcherService: class PatternMatcherServiceStub {},
+  IgnorePatternResolverService: class IgnorePatternResolverServiceStub {},
+  WorkspaceIndexerService: class WorkspaceIndexerServiceStub {},
+  FileTypeClassifierService: class FileTypeClassifierServiceStub {},
+  FileRelevanceScorerService: class FileRelevanceScorerServiceStub {},
+  ContextSizeOptimizerService: class ContextSizeOptimizerServiceStub {},
+  ContextEnrichmentService: class ContextEnrichmentServiceStub {},
+}));
+
 import type { Logger, SentryService } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
@@ -55,7 +139,7 @@ import {
   type MockRpcHandler,
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
-import type { PtahCliRegistry } from '@ptah-extension/agent-sdk';
+import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
 import type { PtahCliSummary } from '@ptah-extension/shared';
 import {
   createMockLogger,

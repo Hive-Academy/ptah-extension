@@ -18,43 +18,29 @@ import type { IPowerMonitor } from '@ptah-extension/cron-scheduler';
 export class ElectronPowerMonitor implements IPowerMonitor {
   onResume(cb: () => void): () => void {
     const listener = () => {
-      try {
-        cb();
-      } catch {
-        // Listener errors must never crash powerMonitor — the caller logs.
-      }
+      cb();
     };
     powerMonitor.on('resume', listener);
     let disposed = false;
     return () => {
       if (disposed) return;
       disposed = true;
-      try {
-        powerMonitor.off('resume', listener);
-      } catch {
-        // electron in tests may not expose `off`; safe to ignore.
-      }
+
+      powerMonitor.off('resume', listener);
     };
   }
 
   onSuspend(cb: () => void): () => void {
     const listener = () => {
-      try {
-        cb();
-      } catch {
-        // Listener errors must never crash powerMonitor — the caller logs.
-      }
+      cb();
     };
     powerMonitor.on('suspend', listener);
     let disposed = false;
     return () => {
       if (disposed) return;
       disposed = true;
-      try {
-        powerMonitor.off('suspend', listener);
-      } catch {
-        // ignore.
-      }
+
+      powerMonitor.off('suspend', listener);
     };
   }
 }

@@ -7,19 +7,17 @@
  * - agent:detectClis - Re-detect installed CLI agents (invalidates cache)
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
-} from '@ptah-extension/agent-sdk';
-import {
-  SDK_TOKENS,
+  CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
-  SessionMetadataStore,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
+import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
@@ -52,7 +50,7 @@ export class AgentRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
-    @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,
@@ -62,6 +60,8 @@ export class AgentRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly runtimeContainer: DependencyContainer,
   ) {}
 
   /**
@@ -75,9 +75,6 @@ export class AgentRpcHandlers {
     this.registerPermissionResponse();
     this.registerAgentStop();
     this.registerResumeCliSession();
-
-    // Initialize Copilot auto-approve from saved config (default: true).
-    // Read via IWorkspaceProvider so file-based keys route to ~/.ptah/settings.json.
     const copilotAutoApprove =
       this.workspaceProvider.getConfiguration<boolean>(
         'ptah',
@@ -120,12 +117,7 @@ export class AgentRpcHandlers {
           this.logger.debug('RPC: agent:getConfig called');
 
           const cliResults = await this.cliDetection.detectAll();
-
-          // Merge Ptah CLI agents as CLI entries alongside gemini/codex/copilot
           const detectedClis = await this.mergePtahCliAgents(cliResults);
-
-          // Helper to read agentOrchestration settings via IWorkspaceProvider.
-          // Uses flat key format: 'agentOrchestration.codexModel'
           const getCfg = <T>(key: string, defaultValue: T): T =>
             this.workspaceProvider.getConfiguration<T>(
               'ptah',
@@ -135,11 +127,9 @@ export class AgentRpcHandlers {
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            // Non-file-based keys (stay in package.json)
             preferredAgentOrder: getCfg<string[]>('preferredAgentOrder', []),
             maxConcurrentAgents: getCfg<number>('maxConcurrentAgents', 5),
             geminiModel: getCfg<string>('geminiModel', ''),
-            // File-based keys (routed to ~/.ptah/settings.json by VscodeWorkspaceProvider)
             codexModel: getCfg<string>('codexModel', ''),
             copilotModel: getCfg<string>('copilotModel', ''),
             codexAutoApprove: getCfg<boolean>('codexAutoApprove', true),
@@ -154,14 +144,12 @@ export class AgentRpcHandlers {
               'disabledMcpNamespaces',
               [],
             ),
-            // MCP port is under ptah namespace (not agentOrchestration), non-file-based
             mcpPort:
               this.workspaceProvider.getConfiguration<number>(
                 'ptah',
                 'mcpPort',
                 51820,
               ) ?? 51820,
-            // Browser settings (file-based, under ptah.browser namespace)
             browserAllowLocalhost:
               this.workspaceProvider.getConfiguration<boolean>(
                 'ptah',
@@ -240,7 +228,6 @@ export class AgentRpcHandlers {
       await this.doApplyConfigUpdates(params);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // Detect the specific "unsaved changes" error from VS Code config API
       const hasDirtySettings = vscode.workspace.textDocuments.some(
         (doc) =>
           doc.isDirty &&
@@ -251,11 +238,8 @@ export class AgentRpcHandlers {
         this.logger.info(
           'RPC: agent:setConfig retrying after saving dirty settings file',
         );
-        // Save only the dirty settings document (not all open files)
         await this.saveDirtySettingsDocument();
-        // Delay to let VS Code process the save
         await new Promise((resolve) => setTimeout(resolve, 200));
-        // Retry once
         await this.doApplyConfigUpdates(params);
       } else {
         throw error;
@@ -268,7 +252,6 @@ export class AgentRpcHandlers {
    * Falls back to saving the active editor if the settings document isn't found directly.
    */
   private async saveDirtySettingsDocument(): Promise<void> {
-    // Try to find the settings document among open text documents
     const settingsDoc = vscode.workspace.textDocuments.find(
       (doc) =>
         doc.isDirty &&
@@ -279,7 +262,6 @@ export class AgentRpcHandlers {
       await settingsDoc.save();
       return;
     }
-    // Fallback: save the active text editor if it's a settings file
     const activeEditor = vscode.window.activeTextEditor;
     if (
       activeEditor?.document.isDirty &&
@@ -301,7 +283,6 @@ export class AgentRpcHandlers {
   private async doApplyConfigUpdates(
     params: AgentSetConfigParams,
   ): Promise<void> {
-    // Helper for writing agentOrchestration settings via IWorkspaceProvider
     const setCfg = async (key: string, value: unknown): Promise<void> => {
       await this.workspaceProvider.setConfiguration(
         'ptah',
@@ -309,8 +290,6 @@ export class AgentRpcHandlers {
         value,
       );
     };
-
-    // Non-file-based keys (stay in package.json / VS Code settings)
     if (params.preferredAgentOrder !== undefined) {
       await setCfg(
         'preferredAgentOrder',
@@ -328,8 +307,6 @@ export class AgentRpcHandlers {
     if (params.geminiModel !== undefined) {
       await setCfg('geminiModel', params.geminiModel || undefined);
     }
-
-    // File-based keys (routed to ~/.ptah/settings.json by VscodeWorkspaceProvider)
     if (params.codexModel !== undefined) {
       await setCfg('codexModel', params.codexModel || undefined);
     }
@@ -338,13 +315,8 @@ export class AgentRpcHandlers {
       await setCfg('copilotModel', params.copilotModel || undefined);
     }
 
-    // codexAutoApprove is ignored — Codex always runs in full-auto headless mode.
-    // The SDK has no runtime permission hooks, so this config has no effect.
-
     if (params.copilotAutoApprove !== undefined) {
       await setCfg('copilotAutoApprove', params.copilotAutoApprove);
-
-      // Sync to the live CopilotPermissionBridge
       const copilotAdapter = this.cliDetection.getAdapter('copilot');
       if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
         const bridge = (
@@ -383,8 +355,6 @@ export class AgentRpcHandlers {
           : undefined,
       );
     }
-
-    // Browser settings (file-based, under ptah.browser namespace)
     if (params.browserAllowLocalhost !== undefined) {
       await this.workspaceProvider.setConfiguration(
         'ptah',
@@ -392,8 +362,6 @@ export class AgentRpcHandlers {
         params.browserAllowLocalhost,
       );
     }
-
-    // MCP port lives under ptah namespace (not ptah.agentOrchestration), non-file-based
     if (params.mcpPort !== undefined) {
       const clampedPort = Math.max(1024, Math.min(65535, params.mcpPort));
       await this.workspaceProvider.setConfiguration(
@@ -419,8 +387,6 @@ export class AgentRpcHandlers {
 
           this.cliDetection.invalidateCache();
           const cliResults = await this.cliDetection.detectAll();
-
-          // Merge Ptah CLI agents alongside detected CLIs (same logic as getConfig)
           const detectedClis = await this.mergePtahCliAgents(cliResults);
 
           this.logger.debug('RPC: agent:detectClis success', {
@@ -462,17 +428,10 @@ export class AgentRpcHandlers {
           this.logger.debug('RPC: agent:listCliModels called');
 
           const modelMap = await this.cliDetection.listModelsForAll();
-
-          // Gemini: use adapter's curated list
           const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
-
-          // Codex: use adapter's curated list
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
-
-          // Copilot: try VS Code LM API first for dynamic models
           let copilot = await this.getCopilotModelsFromVsCodeLm();
           if (copilot.length === 0) {
-            // Fallback to adapter's curated list
             copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
           }
 
@@ -534,14 +493,10 @@ export class AgentRpcHandlers {
   private async getCopilotModelsFromVsCodeLm(): Promise<CliModelOption[]> {
     try {
       const models = await vscode.lm.selectChatModels();
-
-      // Filter to copilot vendor models only
       const copilotModels = models.filter((m) => m.vendor === 'copilot');
       if (copilotModels.length === 0) return [];
 
       return copilotModels.map((m) => ({
-        // The CLI model ID is the family name without vendor prefix
-        // e.g. "copilot/claude-opus-4.6" → "claude-opus-4.6"
         id: m.family,
         name: this.formatModelDisplayName(m.family),
       }));
@@ -560,12 +515,9 @@ export class AgentRpcHandlers {
     return family
       .split('-')
       .map((part) => {
-        // Preserve version numbers as-is (e.g., "4.6", "5.3")
         if (/^\d/.test(part)) return part;
-        // Uppercase known acronyms
         const upper = part.toUpperCase();
         if (['GPT', 'AI'].includes(upper)) return upper;
-        // Title-case everything else
         return part.charAt(0).toUpperCase() + part.slice(1);
       })
       .join(' ');
@@ -595,13 +547,13 @@ export class AgentRpcHandlers {
         });
 
         let handled = false;
-
-        // Try SdkPermissionHandler first (handles Ptah CLI agent permissions)
-        // using lazy container resolution.
-        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
-          const permissionHandler = container.resolve<ISdkPermissionHandler>(
-            SDK_TOKENS.SDK_PERMISSION_HANDLER,
-          );
+        if (
+          this.runtimeContainer.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+        ) {
+          const permissionHandler =
+            this.runtimeContainer.resolve<ISdkPermissionHandler>(
+              SDK_TOKENS.SDK_PERMISSION_HANDLER,
+            );
           const response: PermissionResponse = {
             id: params.requestId,
             decision: params.decision,
@@ -610,8 +562,6 @@ export class AgentRpcHandlers {
           permissionHandler.handleResponse(params.requestId, response);
           handled = true;
         }
-
-        // Also try Copilot bridge (existing flow, idempotent for unknown requestIds)
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
           const bridge = (
@@ -716,25 +666,18 @@ export class AgentRpcHandlers {
         });
 
         let result;
-
-        // Resolve ptahCliId for backward compatibility: old sessions may not
-        // have ptahCliId persisted. Fall back to the first enabled agent.
         let ptahCliId = params.ptahCliId;
         if (params.cli === 'ptah-cli' && !ptahCliId) {
           ptahCliId = await this.resolveDefaultPtahCliId();
         }
 
         if (params.cli === 'ptah-cli' && ptahCliId) {
-          // Ptah CLI: route through PtahCliRegistry (SDK adapter, not a real CLI binary)
           result = await this.resumePtahCliSession({ ...params, ptahCliId });
         } else if (params.cli === 'ptah-cli') {
-          // No ptah-cli agents available
           throw new Error(
             'No Ptah CLI agents configured. Add one in Agent Orchestration settings.',
           );
         } else {
-          // Real CLIs: route through AgentProcessManager.spawn()
-          // Validate session file exists before resume to avoid "No conversation found" errors
           const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? '';
           const cliSessionExists = await this.sessionFileExists(
             params.cliSessionId,
@@ -793,10 +736,6 @@ export class AgentRpcHandlers {
     previousAgentId?: string;
   }): Promise<import('@ptah-extension/shared').SpawnAgentResult> {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? '';
-
-    // Validate session file exists before attempting resume.
-    // Ptah CLI sessions (third-party providers) may not persist a .jsonl file,
-    // causing the SDK to fail with "No conversation found with session ID".
     const sessionFileExists = await this.sessionFileExists(
       params.cliSessionId,
       workspaceRoot,
@@ -807,7 +746,6 @@ export class AgentRpcHandlers {
       params.task,
       {
         workingDirectory: workspaceRoot,
-        // Only pass resumeSessionId if the session file actually exists on disk
         resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
       },
     );
@@ -821,9 +759,6 @@ export class AgentRpcHandlers {
     if ('status' in spawnResult) {
       throw new Error(`Ptah CLI agent resume failed: ${spawnResult.message}`);
     }
-
-    // Mark the SDK session as a child session when its ID is resolved,
-    // preventing it from appearing in the sidebar session list.
     if (spawnResult.handle.onSessionResolved) {
       spawnResult.handle.onSessionResolved((sessionId: string) => {
         const sessionName = `CLI Agent: ${spawnResult.agentName}`;
@@ -850,8 +785,6 @@ export class AgentRpcHandlers {
         resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
       },
     );
-
-    // Wire agentId so CLI permission requests route to agent monitor panel.
     spawnResult.setAgentId(result.agentId);
 
     return result;
@@ -886,35 +819,28 @@ export class AgentRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<boolean> {
-    try {
-      const projectsDir = path.join(os.homedir(), '.claude', 'projects');
-      const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-      const dirs = await fs.readdir(projectsDir);
+    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+    const dirs = await fs.readdir(projectsDir);
 
-      const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
-      const normalizedEscaped = normalize(escapedPath);
-      const matchedDir = dirs.find(
-        (d) =>
-          d === escapedPath ||
-          d.toLowerCase() === escapedPath.toLowerCase() ||
-          normalize(d) === normalizedEscaped,
+    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+    const normalizedEscaped = normalize(escapedPath);
+    const matchedDir = dirs.find(
+      (d) =>
+        d === escapedPath ||
+        d.toLowerCase() === escapedPath.toLowerCase() ||
+        normalize(d) === normalizedEscaped,
+    );
+
+    if (matchedDir) {
+      const sessionFile = path.join(
+        projectsDir,
+        matchedDir,
+        `${sessionId}.jsonl`,
       );
 
-      if (matchedDir) {
-        const sessionFile = path.join(
-          projectsDir,
-          matchedDir,
-          `${sessionId}.jsonl`,
-        );
-        try {
-          await fs.access(sessionFile);
-          return true;
-        } catch {
-          // JSONL file not found
-        }
-      }
-    } catch {
-      // Projects dir doesn't exist
+      await fs.access(sessionFile);
+      return true;
     }
 
     return false;

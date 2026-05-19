@@ -53,7 +53,6 @@ export class PkceService implements OnModuleDestroy {
   private readonly cleanupIntervalId: NodeJS.Timeout;
 
   constructor() {
-    // Periodic cleanup of expired states
     this.cleanupIntervalId = setInterval(() => {
       this.cleanupExpiredStates();
     }, 60 * 1000);
@@ -76,18 +75,11 @@ export class PkceService implements OnModuleDestroy {
     codeChallenge: string;
     state: string;
   } {
-    // Generate code verifier (43-128 chars per RFC 7636)
     const codeVerifier = randomBytes(32).toString('base64url');
-
-    // Generate code challenge (SHA256 hash)
     const codeChallenge = createHash('sha256')
       .update(codeVerifier)
       .digest('base64url');
-
-    // Generate state for CSRF protection
     const state = randomBytes(16).toString('hex');
-
-    // Store verifier mapped to state (with optional returnUrl and plan)
     this.states.set(state, {
       verifier: codeVerifier,
       expiresAt: Date.now() + this.STATE_TTL_MS,
@@ -123,8 +115,6 @@ export class PkceService implements OnModuleDestroy {
       this.logger.warn(`Expired PKCE state: ${state.substring(0, 8)}...`);
       return null;
     }
-
-    // Single-use: delete after consumption
     this.states.delete(state);
     this.logger.debug(
       `Consumed PKCE state: ${state.substring(0, 8)}... (remaining: ${

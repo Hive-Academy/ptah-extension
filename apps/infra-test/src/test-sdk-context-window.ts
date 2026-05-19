@@ -103,16 +103,11 @@ async function testGetContextUsage(): Promise<void> {
           maxTurns: 1,
         },
       });
-
-      // We need to send a message first to initialize the session,
-      // then call getContextUsage()
       for await (const msg of conversation) {
         if ((msg as Record<string, unknown>).type === 'result') {
           break;
         }
       }
-
-      // Now query context usage from the active session
       const contextUsage = await conversation.getContextUsage();
       console.log(`    model: ${contextUsage.model}`);
       console.log(`    maxTokens: ${contextUsage.maxTokens.toLocaleString()}`);
@@ -178,8 +173,6 @@ async function main(): Promise<void> {
   console.log('==========================================================\n');
   console.log(`Platform: ${process.platform}`);
   console.log(`Node: ${process.version}`);
-
-  // Check SDK version
   try {
     const pkg = require('@anthropic-ai/claude-agent-sdk/package.json');
     console.log(`SDK: @anthropic-ai/claude-agent-sdk@${pkg.version}`);

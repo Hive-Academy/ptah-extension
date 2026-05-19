@@ -1,8 +1,3 @@
-// CLI Agent Sync on activation: distributes existing .claude/agents/*.md to
-// all installed CLI targets. Ensures agents are present after fresh install
-// without re-running the wizard. Pro/trial_pro-only fire-and-forget dispatcher.
-// Caller is responsible for the tier gate and workspace-root presence.
-// Mirrors the Electron sibling (apps/ptah-electron/src/activation/cli-agent-sync.ts).
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -24,7 +19,6 @@ export function syncCliAgentsOnActivation(
     let agentFileNames: string[];
     try {
       const entries = await readdir(agentsDir);
-      // Sort for deterministic hash regardless of readdir order on non-NTFS filesystems
       agentFileNames = entries
         .filter((f) => f.endsWith('.md') && !f.startsWith('.backup-'))
         .sort();
@@ -36,8 +30,6 @@ export function syncCliAgentsOnActivation(
       logger.debug('CLI agent sync skipped (no agent files found)');
       return;
     }
-
-    // Read files individually — skip unreadable files rather than aborting all
     const agentFiles = (
       await Promise.all(
         agentFileNames.map(async (name) => {
@@ -104,7 +96,6 @@ export function syncCliAgentsOnActivation(
     }
 
     const agents = agentFiles.map((f) => {
-      // Extract description from frontmatter for quality parity with wizard-generated agents
       const descMatch = /^description:\s*(.+)$/m.exec(f.content);
       const description =
         descMatch?.[1]?.trim() ?? `${f.name.replace(/\.md$/, '')} agent`;
@@ -115,7 +106,6 @@ export function syncCliAgentsOnActivation(
         variables: { description } as Record<string, string>,
         customizations: [],
         generatedAt: new Date(),
-        // filePath is the source path; transformers derive their own target paths via homedir()
         filePath: f.filePath,
       };
     });
@@ -139,9 +129,6 @@ export function syncCliAgentsOnActivation(
       agents,
       staleTargets,
     );
-
-    // Only mark CLIs as up-to-date when all agents were written successfully.
-    // CLIs with write failures retain their stale hash so the next activation retries.
     const successfulClis = writeResults
       .filter((r) => r.agentsFailed === 0)
       .map((r) => r.cli);

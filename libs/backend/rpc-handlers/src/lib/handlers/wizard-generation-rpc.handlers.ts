@@ -42,7 +42,7 @@ import type {
   GenerationSummary,
   OrchestratorGenerationOptions,
 } from '@ptah-extension/agent-generation';
-import { CliDetectionService } from '@ptah-extension/agent-sdk';
+import { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import { Result } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -68,8 +68,6 @@ interface GenerationProgress {
   totalAgents?: number;
   detectedCharacteristics?: string[];
 }
-
-// OrchestratorGenerationOptions imported from @ptah-extension/agent-generation barrel
 
 /**
  * Interface for the SetupWizardService methods we need.
@@ -239,7 +237,6 @@ export class WizardGenerationRpcHandlers {
       WizardSubmitSelectionParams,
       WizardSubmitSelectionResponse
     >('wizard:submit-selection', async (params) => {
-      // Validate selectedAgentIds is non-empty
       if (!params?.selectedAgentIds?.length) {
         this.logger.warn(
           'RPC: wizard:submit-selection called with empty agent selection',
@@ -249,8 +246,6 @@ export class WizardGenerationRpcHandlers {
           error: 'No agents selected. Please select at least one agent.',
         };
       }
-
-      // Concurrent generation guard
       if (this.isGenerating) {
         this.logger.warn(
           'RPC: wizard:submit-selection rejected - generation already in progress',
@@ -261,8 +256,6 @@ export class WizardGenerationRpcHandlers {
             'Agent generation is already in progress. Please wait for it to complete or cancel it first.',
         };
       }
-
-      // Get workspace folder
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         return {
@@ -281,14 +274,10 @@ export class WizardGenerationRpcHandlers {
           agents: params.selectedAgentIds,
           workspace: workspaceRoot,
         });
-
-        // Resolve orchestrator from DI container
         const orchestrator = this.resolveService<OrchestratorServiceInterface>(
           AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
           'AgentGenerationOrchestratorService',
         );
-
-        // Resolve WebviewManager for progress broadcasting (best-effort)
         let webviewManager: WebviewBroadcaster | null = null;
         try {
           webviewManager = this.resolveService<WebviewBroadcaster>(
@@ -301,13 +290,11 @@ export class WizardGenerationRpcHandlers {
               'Generation will proceed without progress updates.',
           );
         }
-
-        // Resolve enhanced prompt content (best-effort, non-blocking)
         let enhancedPromptContent: string | undefined;
         try {
           const enhancedPromptsService =
             this.resolveService<EnhancedPromptsServiceInterface>(
-              SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+              AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
               'EnhancedPromptsService',
             );
           const content =
@@ -329,10 +316,6 @@ export class WizardGenerationRpcHandlers {
               'Generation will proceed without enhanced prompt context.',
           );
         }
-
-        // Pass analysis data to generation pipeline
-        // Multi-phase: use analysisDir (markdown files on disk)
-        // Legacy: use preComputedAnalysis (JSON blob)
         const preComputedAnalysis = params.analysisData ?? undefined;
         const analysisDir = params.analysisDir ?? undefined;
         if (analysisDir) {
@@ -349,8 +332,6 @@ export class WizardGenerationRpcHandlers {
             },
           );
         }
-
-        // Resolve license + MCP status for SDK config
         let isPremium = false;
         let mcpServerRunning = false;
         let mcpPort: number | undefined;
@@ -378,9 +359,6 @@ export class WizardGenerationRpcHandlers {
             },
           );
         }
-
-        // Detect installed CLI targets for multi-CLI agent generation.
-        // Only premium users get cross-CLI sync; includes all supported CLI targets.
         let targetClis: CliTarget[] | undefined;
         if (isPremium) {
           try {
@@ -418,37 +396,21 @@ export class WizardGenerationRpcHandlers {
             );
           }
         }
-
-        // Stream event broadcaster -- broadcasts real-time generation events
-        // (text deltas, tool calls, thinking) to the frontend for live transcript
         const onStreamEvent = (event: GenerationStreamPayload): void => {
-          try {
-            if (!webviewManager) return;
-            webviewManager
-              .broadcastMessage('setup-wizard:generation-stream', event)
-              .catch((broadcastError) => {
-                this.logger.warn(
-                  'Failed to broadcast generation stream event',
-                  {
-                    error:
-                      broadcastError instanceof Error
-                        ? broadcastError.message
-                        : String(broadcastError),
-                  },
-                );
+          if (!webviewManager) return;
+          webviewManager
+            .broadcastMessage('setup-wizard:generation-stream', event)
+            .catch((broadcastError) => {
+              this.logger.warn('Failed to broadcast generation stream event', {
+                error:
+                  broadcastError instanceof Error
+                    ? broadcastError.message
+                    : String(broadcastError),
               });
-          } catch {
-            // Swallow synchronous errors to avoid crashing generation pipeline
-          }
+            });
         };
-
-        // Resolve model from frontend selection (consistent with chat:start pattern)
         const currentModel = params.model || undefined;
-
-        // Resolve plugin paths for premium users
         const pluginPaths = this.resolvePluginPaths(isPremium);
-
-        // Build orchestrator options
         const options: OrchestratorGenerationOptions = {
           workspacePath: workspaceRoot,
           userOverrides: params.selectedAgentIds,
@@ -465,14 +427,8 @@ export class WizardGenerationRpcHandlers {
           pluginPaths,
           targetClis,
         };
-
-        // Store options for retry handler to reuse rich context
         this.lastGenerationOptions = options;
-
-        // Progress callback - broadcasts progress to frontend
         const progressCallback = (progress: GenerationProgress): void => {
-          // CRITICAL: Wrap in try/catch to prevent broadcasting errors
-          // from crashing the generation pipeline
           try {
             if (!webviewManager) {
               return;
@@ -486,9 +442,6 @@ export class WizardGenerationRpcHandlers {
                 currentAgent: progress.currentOperation,
               },
             };
-
-            // Fire-and-forget broadcast. Do not await to avoid blocking
-            // the generation pipeline. Errors are caught by the .catch handler.
             webviewManager
               .broadcastMessage('setup-wizard:generation-progress', payload)
               .catch((broadcastError) => {
@@ -502,7 +455,6 @@ export class WizardGenerationRpcHandlers {
                 });
               });
           } catch (callbackError) {
-            // This catch handles synchronous errors in the callback body
             this.logger.warn('Error in generation progress callback', {
               error:
                 callbackError instanceof Error
@@ -512,10 +464,6 @@ export class WizardGenerationRpcHandlers {
             });
           }
         };
-
-        // Fire-and-forget: Run generation pipeline in the background.
-        // Return the RPC response immediately so the frontend can transition
-        // to the generation progress step. Progress/completion are sent via broadcasts.
         this.runGenerationInBackground(
           orchestrator,
           options,
@@ -559,9 +507,6 @@ export class WizardGenerationRpcHandlers {
     webviewManager: WebviewBroadcaster | null,
     startTime: number,
   ): void {
-    // Cap background generation at 10 minutes. Without this, a stuck LLM call
-    // leaves isGenerating=true forever, blocking all future wizard submissions
-    // until extension reload.
     const GENERATION_TIMEOUT_MS = 10 * 60 * 1000;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
@@ -660,9 +605,7 @@ export class WizardGenerationRpcHandlers {
               duration: Date.now() - startTime,
               errors: [`Agent generation failed: ${errorMessage}`],
             })
-            .catch(() => {
-              // Swallow broadcast errors
-            });
+            .catch(() => {});
         }
       })
       .finally(() => {
@@ -698,22 +641,17 @@ export class WizardGenerationRpcHandlers {
         const saveProgress = params?.saveProgress ?? true;
 
         try {
-          // Resolve SetupWizardService to access session management
           const setupWizardService =
             this.resolveService<SetupWizardServiceInterface>(
               AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
               'SetupWizardService',
             );
-
-          // Get current session
           const currentSession = setupWizardService.getCurrentSession();
 
           if (!currentSession) {
             this.logger.debug(
               'RPC: wizard:cancel - no active session to cancel',
             );
-
-            // Still reset the generation flag if it was stuck
             if (this.isGenerating) {
               this.isGenerating = false;
               this.logger.info(
@@ -723,14 +661,10 @@ export class WizardGenerationRpcHandlers {
 
             return { cancelled: false };
           }
-
-          // Cancel the wizard session
           const cancelResult = await setupWizardService.cancelWizard(
             currentSession.id,
             saveProgress,
           );
-
-          // Reset generation flag to unlock future submissions
           this.isGenerating = false;
 
           if (cancelResult.isErr()) {
@@ -738,9 +672,6 @@ export class WizardGenerationRpcHandlers {
               sessionId: currentSession.id,
               error: cancelResult.error?.message,
             });
-
-            // Return cancelled: true anyway since we reset the flag
-            // The session may have already completed
             return {
               cancelled: true,
               sessionId: currentSession.id,
@@ -768,11 +699,7 @@ export class WizardGenerationRpcHandlers {
             error instanceof Error ? error : new Error(errorMessage),
             { errorSource: 'WizardGenerationRpcHandlers.registerCancel' },
           );
-
-          // Reset generation flag even on error to prevent deadlock
           this.isGenerating = false;
-
-          // Return cancelled: false since we could not perform the cancellation
           return { cancelled: false };
         }
       },
@@ -798,15 +725,12 @@ export class WizardGenerationRpcHandlers {
       WizardRetryItemParams,
       WizardRetryItemResponse
     >('wizard:retry-item', async (params) => {
-      // Validate itemId
       if (!params?.itemId) {
         return {
           success: false,
           error: 'Item ID is required for retry.',
         };
       }
-
-      // Concurrent generation guard
       if (this.isGenerating) {
         return {
           success: false,
@@ -814,8 +738,6 @@ export class WizardGenerationRpcHandlers {
             'Agent generation is already in progress. Please wait for it to complete before retrying.',
         };
       }
-
-      // Get workspace folder
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         return {
@@ -831,49 +753,29 @@ export class WizardGenerationRpcHandlers {
           itemId: params.itemId,
           workspace: workspaceRoot,
         });
-
-        // Resolve orchestrator
         const orchestrator = this.resolveService<OrchestratorServiceInterface>(
           AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
           'AgentGenerationOrchestratorService',
         );
-
-        // Resolve WebviewManager for progress broadcasting (best-effort)
         let webviewManager: WebviewBroadcaster | null = null;
-        try {
-          webviewManager = this.resolveService<WebviewBroadcaster>(
-            TOKENS.WEBVIEW_MANAGER,
-            'WebviewManager',
-          );
-        } catch {
-          // Progress broadcasting will be skipped
-        }
 
-        // Stream event broadcaster -- broadcasts real-time generation events
-        // (text deltas, tool calls, thinking) to the frontend for live transcript
+        webviewManager = this.resolveService<WebviewBroadcaster>(
+          TOKENS.WEBVIEW_MANAGER,
+          'WebviewManager',
+        );
         const onStreamEvent = (event: GenerationStreamPayload): void => {
-          try {
-            if (!webviewManager) return;
-            webviewManager
-              .broadcastMessage('setup-wizard:generation-stream', event)
-              .catch((broadcastError) => {
-                this.logger.warn(
-                  'Failed to broadcast generation stream event',
-                  {
-                    error:
-                      broadcastError instanceof Error
-                        ? broadcastError.message
-                        : String(broadcastError),
-                  },
-                );
+          if (!webviewManager) return;
+          webviewManager
+            .broadcastMessage('setup-wizard:generation-stream', event)
+            .catch((broadcastError) => {
+              this.logger.warn('Failed to broadcast generation stream event', {
+                error:
+                  broadcastError instanceof Error
+                    ? broadcastError.message
+                    : String(broadcastError),
               });
-          } catch {
-            // Swallow synchronous errors to avoid crashing generation pipeline
-          }
+            });
         };
-
-        // Reuse stored options from original generation to preserve rich context
-        // (analysis data, premium status, MCP config, enhanced prompts)
         const options: OrchestratorGenerationOptions = {
           ...(this.lastGenerationOptions ?? {}),
           workspacePath: workspaceRoot,
@@ -889,8 +791,6 @@ export class WizardGenerationRpcHandlers {
             itemId: params.itemId,
             successful: summary.successful,
           });
-
-          // Broadcast completion for the retried item
           if (webviewManager) {
             const completePayload: GenerationCompletePayload = {
               success: true,
@@ -944,8 +844,4 @@ export class WizardGenerationRpcHandlers {
       }
     });
   }
-
-  // wizard:start-multi-phase-analysis and wizard:cancel-multi-phase-analysis
-  // removed. Multi-phase analysis is now integrated into wizard:deep-analyze
-  // (SetupRpcHandlers) and wizard:cancel-analysis (SetupRpcHandlers).
 }

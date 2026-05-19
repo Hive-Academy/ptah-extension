@@ -190,13 +190,9 @@ export class ContextSizeOptimizerService {
     if (request.mode === 'structural') {
       return this.optimizeContextStructural(request);
     }
-
-    // Full mode (default): identical to original behavior
     const maxTokens = request.maxTokens ?? 200_000;
     const responseReserve = request.responseReserve ?? 50_000;
     const availableTokens = maxTokens - responseReserve;
-
-    // Rank files by relevance, passing symbol index when dependency graph is available
     const symbolIndex = this.dependencyGraph?.isBuilt()
       ? this.dependencyGraph.getSymbolIndex()
       : undefined;
@@ -205,8 +201,6 @@ export class ContextSizeOptimizerService {
       request.query,
       symbolIndex,
     );
-
-    // Select files within budget using greedy algorithm
     const selectedFiles: IndexedFile[] = [];
     const excludedFiles: IndexedFile[] = [];
     let currentTokens = 0;
@@ -221,8 +215,6 @@ export class ContextSizeOptimizerService {
         excludedFiles.push(file);
       }
     }
-
-    // Calculate statistics
     const totalFiles = request.files.length;
     const totalTokensBeforeOptimization = request.files.reduce(
       (sum, f) => sum + f.estimatedTokens,
@@ -284,8 +276,6 @@ export class ContextSizeOptimizerService {
     const maxTokens = request.maxTokens ?? 200_000;
     const responseReserve = request.responseReserve ?? 50_000;
     const availableTokens = maxTokens - responseReserve;
-
-    // Rank files by relevance, passing symbol index when dependency graph is available
     const symbolIndex = this.dependencyGraph?.isBuilt()
       ? this.dependencyGraph.getSymbolIndex()
       : undefined;
@@ -297,8 +287,6 @@ export class ContextSizeOptimizerService {
 
     const rankedEntries = Array.from(rankedFiles.entries());
     const totalRanked = rankedEntries.length;
-
-    // Split: top 20% get full content, remaining 80% get structural summaries
     const fullContentCount = Math.max(1, Math.ceil(totalRanked * 0.2));
 
     const selectedFiles: IndexedFile[] = [];
@@ -306,8 +294,6 @@ export class ContextSizeOptimizerService {
     const fileContextModes = new Map<string, FileContextMode>();
     const contentOverrides = new Map<string, string>();
     let currentTokens = 0;
-
-    // Phase 1: Add top 20% files with full content
     for (let i = 0; i < fullContentCount && i < totalRanked; i++) {
       const [file] = rankedEntries[i];
       const fileTokens = file.estimatedTokens;
@@ -320,8 +306,6 @@ export class ContextSizeOptimizerService {
         excludedFiles.push(file);
       }
     }
-
-    // Phase 2: Add remaining 80% as structural summaries
     for (let i = fullContentCount; i < totalRanked; i++) {
       const [file] = rankedEntries[i];
       const language = this.detectLanguage(file.path);
@@ -335,8 +319,6 @@ export class ContextSizeOptimizerService {
         const summaryTokens = summary.tokenCount;
 
         if (currentTokens + summaryTokens <= availableTokens) {
-          // Update the file's estimated tokens to reflect the summary size
-          // so downstream consumers know the actual token cost
           const summaryFile: IndexedFile = {
             ...file,
             estimatedTokens: summaryTokens,
@@ -346,9 +328,6 @@ export class ContextSizeOptimizerService {
 
           const mode = summary.mode === 'structural' ? 'structural' : 'full';
           fileContextModes.set(file.path, mode);
-
-          // Store structural summary content so downstream consumers
-          // can use it instead of reading the original file from disk
           if (mode === 'structural') {
             contentOverrides.set(file.path, summary.content);
           }
@@ -361,8 +340,6 @@ export class ContextSizeOptimizerService {
         this.logger.warn(
           `ContextSizeOptimizer.optimizeContextStructural() - Failed to generate structural summary for ${file.path}: ${errorMessage}. Falling back to full content.`,
         );
-
-        // Fallback: try to include with full content
         const fileTokens = file.estimatedTokens;
         if (currentTokens + fileTokens <= availableTokens) {
           selectedFiles.push(file);
@@ -373,19 +350,12 @@ export class ContextSizeOptimizerService {
         }
       }
     }
-
-    // Calculate statistics
     const totalFiles = request.files.length;
     const totalTokensBeforeOptimization = request.files.reduce(
       (sum, f) => sum + f.estimatedTokens,
       0,
     );
-
-    // Look up the actual relevance score for each selected file from the
-    // ranked map, rather than slicing the scores array by index (which can
-    // mismatch when files are excluded in Phase 1 or fallback in Phase 2).
     const selectedRelevanceScores = selectedFiles.map((f) => {
-      // Find the original file entry in rankedFiles (keyed by IndexedFile ref)
       for (const [rankedFile, score] of rankedFiles) {
         if (rankedFile.path === f.path) {
           return score;
@@ -482,17 +452,13 @@ export class ContextSizeOptimizerService {
   ): number {
     switch (projectType) {
       case 'monorepo':
-        // Monorepos: use full Claude budget (large codebases)
         return 200_000;
       case 'library':
-        // Libraries: moderate budget (focused codebase)
         return 150_000;
       case 'application':
-        // Applications: standard budget
         return 175_000;
       case 'unknown':
       default:
-        // Conservative default
         return 150_000;
     }
   }
@@ -504,10 +470,7 @@ export class ContextSizeOptimizerService {
    * @returns Recommended response reserve tokens
    */
   async getRecommendedResponseReserve(query: string): Promise<number> {
-    // Ensure token counter is available (we don't use the count, just validate service works)
     await this.tokenCounter.countTokens(query);
-
-    // Reserve more tokens for complex queries (code generation, refactoring)
     if (
       query.includes('generate') ||
       query.includes('create') ||
@@ -516,8 +479,6 @@ export class ContextSizeOptimizerService {
     ) {
       return 75_000; // Complex response expected
     }
-
-    // Standard reserve for explanations/questions
     if (
       query.includes('how') ||
       query.includes('what') ||
@@ -525,8 +486,6 @@ export class ContextSizeOptimizerService {
     ) {
       return 50_000; // Moderate response expected
     }
-
-    // Minimal reserve for simple queries
     return 30_000; // Short response expected
   }
 
@@ -543,7 +502,6 @@ export class ContextSizeOptimizerService {
     files: IndexedFile[],
     query: string,
   ): Promise<OptimizedContext> {
-    // Determine project type (simplified - could use MonorepoDetector)
     const projectType: 'monorepo' | 'library' | 'application' | 'unknown' =
       files.length > 500 ? 'monorepo' : 'application';
 

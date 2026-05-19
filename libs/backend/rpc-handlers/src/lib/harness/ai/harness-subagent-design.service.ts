@@ -163,8 +163,6 @@ Return ONLY the JSON object matching the schema.`;
           if (!output?.subagents || !Array.isArray(output.subagents)) {
             throw new Error('LLM did not return valid subagent designs');
           }
-
-          // Validate and sanitize each subagent
           const subagents: HarnessSubagentDefinition[] = output.subagents
             .filter((s) => s.id && s.name && s.description)
             .map((s) => ({
@@ -190,8 +188,6 @@ Return ONLY the JSON object matching the schema.`;
           };
         },
       });
-
-    // postProcessed is non-undefined when postProcess is supplied.
     return postProcessed as HarnessDesignAgentsResponse;
   }
 }

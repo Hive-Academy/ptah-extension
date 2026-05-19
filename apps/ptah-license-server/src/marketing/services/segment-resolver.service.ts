@@ -42,11 +42,8 @@ export class SegmentResolverService {
     }
 
     if (userIds && userIds.length > 0) {
-      // Add explicitly provided user IDs to the set (union)
       resolvedUserIds = Array.from(new Set([...resolvedUserIds, ...userIds]));
     }
-
-    // Final opt-in check (double check for explicitly provided IDs)
     const finalUsers = await this.prisma.user.findMany({
       where: {
         id: { in: resolvedUserIds },

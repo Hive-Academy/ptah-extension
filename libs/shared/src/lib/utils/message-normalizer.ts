@@ -27,7 +27,6 @@ export class MessageNormalizer {
   static normalize(message: { role: string; content: string | unknown[] }): {
     contentBlocks: ContentBlock[];
   } {
-    // Case 1: String content (legacy format)
     if (typeof message.content === 'string') {
       return {
         contentBlocks: [
@@ -38,8 +37,6 @@ export class MessageNormalizer {
         ],
       };
     }
-
-    // Case 2: Array content (Claude CLI format)
     if (Array.isArray(message.content)) {
       return {
         contentBlocks: message.content.map((block) =>
@@ -47,8 +44,6 @@ export class MessageNormalizer {
         ),
       };
     }
-
-    // Case 3: Empty/null/undefined content
     return {
       contentBlocks: [
         {
@@ -70,13 +65,9 @@ export class MessageNormalizer {
     }
 
     const obj = block as Record<string, unknown>;
-
-    // Text block
     if (obj['type'] === 'text' && typeof obj['text'] === 'string') {
       return { type: 'text', text: obj['text'] } as TextContentBlock;
     }
-
-    // Tool use block
     if (obj['type'] === 'tool_use') {
       return {
         type: 'tool_use',
@@ -85,16 +76,12 @@ export class MessageNormalizer {
         input: obj['input'] as Record<string, unknown>,
       } as ToolUseContentBlock;
     }
-
-    // Thinking block
     if (obj['type'] === 'thinking' && typeof obj['thinking'] === 'string') {
       return {
         type: 'thinking',
         thinking: obj['thinking'],
       } as ThinkingContentBlock;
     }
-
-    // Tool result block
     if (obj['type'] === 'tool_result') {
       return {
         type: 'tool_result',
@@ -105,8 +92,6 @@ export class MessageNormalizer {
         is_error: Boolean(obj['is_error']),
       } as ToolResultContentBlock;
     }
-
-    // Unknown type - default to text
     return {
       type: 'text',
       text: JSON.stringify(block),

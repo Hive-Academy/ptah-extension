@@ -12,5 +12,4 @@
  *
  */
 export async function runV1Migration(_ptahDir: string): Promise<void> {
-  // No-op. See module doc for rationale.
 }

@@ -17,11 +17,6 @@ import type {
   PrescriptiveGuidance,
   QualityHistoryEntry,
 } from '@ptah-extension/shared';
-// No vscode dependency -- all interfaces use string paths
-
-// ============================================
-// Supporting Types
-// ============================================
 
 /**
  * Represents a sampled source file with its content and metadata.
@@ -37,10 +32,6 @@ export interface SampledFile {
   /** Estimated token count for the file content */
   estimatedTokens: number;
 }
-
-// ============================================
-// Service Interfaces
-// ============================================
 
 /**
  * Service for assessing code quality through intelligent file sampling
@@ -292,10 +283,6 @@ export interface IPrescriptiveGuidanceService {
   ): PrescriptiveGuidance;
 }
 
-// ============================================
-// File Hash Cache Service Interface
-// ============================================
-
 /**
  * Cache entry for storing file analysis state.
  * Tracks content hash, analysis timestamp, and detected patterns per file.
@@ -399,10 +386,6 @@ export interface IFileHashCacheService {
   getStats(): { totalCached: number; cacheHitRate: number };
 }
 
-// ============================================
-// Quality History Service Interface
-// ============================================
-
 /**
  * Service for storing quality assessment snapshots for historical tracking.
  *
@@ -441,10 +424,6 @@ export interface IQualityHistoryService {
    */
   clearHistory(): Promise<void>;
 }
-
-// ============================================
-// Quality Export Service Interface
-// ============================================
 
 /**
  * Service for generating quality reports in multiple formats.

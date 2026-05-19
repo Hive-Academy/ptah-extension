@@ -34,10 +34,6 @@ export function runPlatformCommandsContract(
       await teardown?.();
     });
 
-    // -------------------------------------------------------------------------
-    // reloadWindow
-    // -------------------------------------------------------------------------
-
     it('reloadWindow() resolves without throwing', async () => {
       await expect(provider.reloadWindow()).resolves.not.toThrow();
     });
@@ -52,10 +48,6 @@ export function runPlatformCommandsContract(
       await expect(provider.reloadWindow()).resolves.not.toThrow();
     });
 
-    // -------------------------------------------------------------------------
-    // openTerminal
-    // -------------------------------------------------------------------------
-
     it('openTerminal() does not throw when called with name and command', () => {
       expect(() =>
         provider.openTerminal('test-terminal', 'echo hello'),
@@ -65,10 +57,6 @@ export function runPlatformCommandsContract(
     it('openTerminal() can be called with an empty command string without throwing', () => {
       expect(() => provider.openTerminal('test-terminal', '')).not.toThrow();
     });
-
-    // -------------------------------------------------------------------------
-    // focusChat
-    // -------------------------------------------------------------------------
 
     it('focusChat() resolves without throwing', async () => {
       await expect(provider.focusChat()).resolves.not.toThrow();

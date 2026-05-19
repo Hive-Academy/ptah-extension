@@ -47,7 +47,6 @@ function walk(
   }
 
   if (seen.has(value as object)) {
-    // Cycle — leave the back-reference alone rather than infinite-loop.
     return value;
   }
   seen.add(value as object);
@@ -59,9 +58,6 @@ function walk(
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     if (SENSITIVE_KEY_PATTERN.test(key)) {
-      // Always mask sensitive keys, regardless of child type. Empty string
-      // and null still get masked — the caller asked for redaction, not
-      // "redact non-empty".
       out[key] = replacement;
       continue;
     }

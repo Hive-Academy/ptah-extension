@@ -32,23 +32,11 @@ export interface ConfirmationDialogOptions {
  */
 @Injectable({ providedIn: 'root' })
 export class ConfirmationDialogService {
-  // ============================================================================
-  // STATE SIGNALS
-  // ============================================================================
-
   private readonly _isOpen = signal(false);
   private readonly _options = signal<ConfirmationDialogOptions | null>(null);
-
-  // Public readonly signals
   readonly isOpen = this._isOpen.asReadonly();
   readonly options = this._options.asReadonly();
-
-  // Promise resolver for async confirmation
   private resolvePromise: ((value: boolean) => void) | null = null;
-
-  // ============================================================================
-  // PUBLIC API
-  // ============================================================================
 
   /**
    * Show a confirmation dialog and wait for user response

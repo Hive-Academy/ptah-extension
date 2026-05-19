@@ -110,7 +110,6 @@ export class IpcBridge {
   private setupRpcHandler(): void {
     ipcMain.on('rpc', async (event: IpcMainEvent, message: unknown) => {
       try {
-        // Validate message structure
         if (!message || typeof message !== 'object') {
           console.warn(
             '[IpcBridge] Received invalid RPC message (not an object)',
@@ -119,10 +118,6 @@ export class IpcBridge {
         }
 
         const msg = message as Record<string, unknown>;
-
-        // The frontend wraps RPC data in { type: 'rpc:call', payload: {...} }
-        // or { type: 'rpc:request', payload: {...} }
-        // We need to unwrap the payload to get the actual RPC data.
         const rpcData = (msg['payload'] || msg) as Record<string, unknown>;
 
         const method = rpcData['method'] as string | undefined;
@@ -133,26 +128,17 @@ export class IpcBridge {
           '';
 
         if (!method) {
-          // Not an RPC call — check for fire-and-forget messages from the frontend.
-          // In VS Code these are handled by WebviewMessageHandlerService; in Electron
-          // they arrive on the same 'rpc' channel but without a method field.
           const messageType = msg['type'] as string | undefined;
           if (messageType) {
             this.handleFireAndForgetMessage(messageType, msg);
           }
           return;
         }
-
-        // Route to RpcHandler
         const response = await this.rpcHandler.handleMessage({
           method,
           params,
           correlationId,
         });
-
-        // Send response back to renderer in the format MessageRouterService expects.
-        // This matches the VS Code WebviewMessageHandlerService response format.
-        // RPC hardening: error is always a string at the dispatcher boundary.
         event.sender.send('to-renderer', {
           type: MESSAGE_TYPES.RPC_RESPONSE,
           correlationId,
@@ -162,15 +148,12 @@ export class IpcBridge {
           errorCode: response.errorCode,
         });
       } catch (error) {
-        // Catch unexpected errors to prevent main process crash
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         console.error(
           '[IpcBridge] Unexpected error handling RPC message:',
           errorMessage,
         );
-
-        // Attempt to send error response
         try {
           const msg = message as Record<string, unknown>;
           const rpcData = (msg?.['payload'] || msg || {}) as Record<
@@ -191,7 +174,6 @@ export class IpcBridge {
             });
           }
         } catch {
-          // Last-resort: log and swallow to prevent cascading crashes
           console.error(
             '[IpcBridge] Failed to send error response to renderer',
           );
@@ -219,7 +201,6 @@ export class IpcBridge {
 
     switch (type) {
       case MESSAGE_TYPES.SDK_PERMISSION_RESPONSE: {
-        // Frontend sends: { type, response: { id, decision, reason?, modifiedInput? } }
         const response = (msg['response'] || msg['payload']) as
           | {
               id: string;
@@ -296,14 +277,10 @@ export class IpcBridge {
           '[IpcBridge] Setup wizard complete — switching to chat and reloading',
         );
         try {
-          // Navigate back to chat view (Electron equivalent of disposing the wizard panel)
           this.sendToRenderer({
             type: MESSAGE_TYPES.SWITCH_VIEW,
             payload: { view: 'orchestra-canvas' },
           });
-
-          // Reload after a short delay so the view switch reaches the renderer first,
-          // matching the same pattern used by command:execute → reloadWindow in auth flow
           const platformCommands = this.container.resolve<{
             reloadWindow(): Promise<void>;
           }>(TOKENS.PLATFORM_COMMANDS);
@@ -318,7 +295,6 @@ export class IpcBridge {
       }
 
       default:
-        // Unknown message type — log for debugging but don't error
         console.debug('[IpcBridge] Unhandled message type from renderer', {
           type,
         });
@@ -336,8 +312,6 @@ export class IpcBridge {
    *   Used by the preload's window.vscode.setState().
    */
   private setupStateHandlers(): void {
-    // Synchronous state retrieval
-    // The preload uses ipcRenderer.sendSync('get-state') which blocks until we set returnValue.
     ipcMain.on('get-state', (event: IpcMainEvent) => {
       try {
         const state =
@@ -351,8 +325,6 @@ export class IpcBridge {
         event.returnValue = {};
       }
     });
-
-    // Async state persistence
     ipcMain.on('set-state', async (_event: IpcMainEvent, state: unknown) => {
       try {
         await this.stateStorage.update('webview-state', state);
@@ -379,32 +351,24 @@ export class IpcBridge {
   private setupTerminalHandlers(): void {
     const ptyManager = this.ptyManager;
     if (!ptyManager) return;
-
-    // Renderer -> Main: terminal keyboard input
     ipcMain.on(
       'terminal:data-in',
       (_event: IpcMainEvent, id: string, data: string) => {
         ptyManager.write(id, data);
       },
     );
-
-    // Renderer -> Main: terminal resize
     ipcMain.on(
       'terminal:resize',
       (_event: IpcMainEvent, id: string, cols: number, rows: number) => {
         ptyManager.resize(id, cols, rows);
       },
     );
-
-    // Main -> Renderer: PTY output data
     ptyManager.onData((id: string, data: string) => {
       const win = this.getWindow();
       if (win) {
         win.webContents.send('terminal:data-out', id, data);
       }
     });
-
-    // Main -> Renderer: PTY exit notification
     ptyManager.onExit((id: string, exitCode: number) => {
       const win = this.getWindow();
       if (win) {

@@ -151,16 +151,10 @@ export class ModelSelectorComponent {
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
-
-  // Lucide icons
   readonly ChevronDownIcon = ChevronDown;
   readonly CheckIcon = Check;
-
-  // Local state for dropdown visibility
   private readonly _isOpen = signal(false);
   readonly isOpen = this._isOpen.asReadonly();
-
-  // Keyboard navigation - expose activeIndex for template
   readonly activeIndex = this.keyboardNav.activeIndex;
 
   /**

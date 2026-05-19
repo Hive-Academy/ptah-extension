@@ -47,23 +47,7 @@ export function registerPhase1Infra(
   logger: Logger,
 ): void {
   logger.info('[Electron DI] Starting service registration...');
-
-  // ========================================
-  // PHASE 1.0b + 1.1 + 1.1b + 1.2: Platform-agnostic vscode-core services
-  // ========================================
-  // Centralized helper registers SENTRY_SERVICE, LICENSE_SERVICE, AUTH_SECRETS_SERVICE,
-  // RPC_HANDLER, MESSAGE_VALIDATOR, AGENT_SESSION_WATCHER_SERVICE,
-  // SUBAGENT_REGISTRY_SERVICE, FEATURE_GATE_SERVICE.
-  // Each registration is idempotent (isRegistered-guarded inside the helper).
   registerVsCodeCorePlatformAgnostic(container, logger);
-
-  // ========================================
-  // PHASE 1.3: FILE_SYSTEM_MANAGER shim (required by workspace-intelligence)
-  // ========================================
-  // registerWorkspaceIntelligenceServices() checks container.isRegistered(TOKENS.FILE_SYSTEM_MANAGER)
-  // and throws if missing. The real FileSystemManager imports vscode, so we provide
-  // a shim that delegates to the platform-agnostic IFileSystemProvider already
-  // registered in Phase 0 via platform-electron.
   try {
     const fileSystemProvider = container.resolve(
       PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
@@ -80,17 +64,6 @@ export function registerPhase1Infra(
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
-
-  // ========================================
-  // PHASE 1.4: CONFIG_MANAGER — real ConfigManager wired to ElectronWorkspaceProvider.fileSettings
-  // ========================================
-  // WORKSPACE_PROVIDER was registered in Phase 0 via registerPlatformElectronServices.
-  // We resolve the already-registered ElectronWorkspaceProvider to reuse its
-  // PtahFileSettingsManager instance (no second instance created).
-  //
-  // ConfigManager uses the vscode-shim's workspace.getConfiguration (no-op in
-  // Electron) for non-file-based keys. All provider/AI keys in FILE_BASED_SETTINGS_KEYS
-  // are routed to PtahFileSettingsManager (~/.ptah/settings.json) via setFileSettingsStore.
   try {
     container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
     const configManager = container.resolve<ConfigManager>(
@@ -112,12 +85,6 @@ export function registerPhase1Infra(
       error: error instanceof Error ? error.message : String(error),
     });
   }
-
-  // ========================================
-  // PHASE 1.5: EXTENSION_CONTEXT shim (required by agent-sdk + llm-abstraction)
-  // ========================================
-  // Many services inject TOKENS.EXTENSION_CONTEXT for globalState.get/update
-  // and secrets.get/store/delete. Provide a shim that delegates to platform abstractions.
   try {
     const globalState = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
@@ -155,9 +122,6 @@ export function registerPhase1Infra(
         scheme: 'file',
       },
       extensionPath: options.appPath,
-      // vscode.ExtensionMode: 0 = Test, 1 = Production, 2 = Development
-      // Use NODE_ENV to match the VS Code extension's behavior:
-      // Development mode uses localhost:3000 for the license server.
       extensionMode: process.env['NODE_ENV'] === 'development' ? 2 : 1,
     };
     container.register(TOKENS.EXTENSION_CONTEXT, {
@@ -172,19 +136,6 @@ export function registerPhase1Infra(
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
-
-  // ========================================
-  // PHASE 1.6: WorkspaceAwareStateStorage + WorkspaceContextManager
-  // ========================================
-  // WorkspaceAwareStateStorage is a proxy implementing IStateStorage that
-  // delegates to per-workspace ElectronStateStorage instances based on the
-  // active workspace. This replaces the child container approach which didn't
-  // work because RPC handler singletons inject WORKSPACE_STATE_STORAGE at
-  // construction time.
-  //
-  // By registering this proxy as PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
-  // (overriding Phase 0's plain ElectronStateStorage), all services that
-  // inject workspace-scoped storage automatically get workspace-aware routing.
   const defaultWorkspaceStoragePath = path.join(
     options.userDataPath,
     'workspace-storage',
@@ -195,8 +146,6 @@ export function registerPhase1Infra(
     (storageDirPath) =>
       new ElectronStateStorage(storageDirPath, 'workspace-state.json'),
   );
-
-  // Override Phase 0's WORKSPACE_STATE_STORAGE with the workspace-aware proxy
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
     useValue: workspaceAwareStorage,
   });
@@ -208,12 +157,6 @@ export function registerPhase1Infra(
   container.register(TOKENS.WORKSPACE_CONTEXT_MANAGER, {
     useValue: workspaceContextManager,
   });
-
-  // Create initial workspace context for the startup workspace folder (if provided).
-  // NOTE: createWorkspace/switchWorkspace are async.
-  // Container setup is synchronous, so we fire-and-forget with error logging.
-  // The workspace will be available before any RPC calls arrive because
-  // the IPC bridge + renderer are initialized later in main.ts.
   if (options.initialFolders && options.initialFolders.length > 0) {
     const initialPath = options.initialFolders[0];
     workspaceContextManager.createWorkspace(initialPath).then(

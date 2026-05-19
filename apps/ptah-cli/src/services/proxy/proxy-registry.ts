@@ -34,11 +34,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as fsPromises from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
-
-// Bind named methods through the namespace so ESM importers can `jest.spyOn`
-// the original `fsPromises` exports without our re-export shadowing the
-// binding. (jest.spyOn requires the property to be writable on the target —
-// re-exported `import { rename }` bindings are read-only in ESM mode.)
 const { mkdir, readFile, readdir, unlink, writeFile } = fsPromises;
 
 /**
@@ -110,16 +105,9 @@ export async function register(
   const finalPath = resolveRegistryPath(entry.port, userDataPath);
   const dir = path.dirname(finalPath);
   await mkdir(dir, { recursive: true, mode: 0o700 });
-
-  // Random tmp suffix prevents two simultaneous registers from clobbering
-  // each other's tmp file before the rename. 8 hex chars = 32 bits of entropy
-  // — collision-free for any realistic concurrency.
   const tmpPath = `${finalPath}.tmp.${randomBytes(4).toString('hex')}`;
   const payload = JSON.stringify(entry);
   await writeFile(tmpPath, payload, { encoding: 'utf8', mode: 0o600 });
-  // Call rename via the namespace (`fsPromises.rename`) so `jest.spyOn` on
-  // the namespace's `rename` property intercepts the call. A direct
-  // destructured `rename` binding would be read-only in ESM and unspyable.
   await fsPromises.rename(tmpPath, finalPath);
 }
 
@@ -171,8 +159,6 @@ export async function list(
       dead.push(entry);
     }
   }
-  // Auto-GC dead entries inline. Failures are swallowed — the file may have
-  // already been removed by another supervisor calling list() concurrently.
   for (const entry of dead) {
     await unregister(entry.port, userDataPath).catch(() => {
       /* swallow — concurrent unregister is benign */
@@ -208,10 +194,6 @@ export async function findStale(
 export function tokenFingerprint(token: string): string {
   return createHash('sha256').update(token).digest('hex').slice(0, 16);
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Probe whether a process is alive without sending a real signal.
@@ -258,8 +240,6 @@ async function readAllEntries(dir: string): Promise<ProxyRegistryEntry[]> {
     try {
       raw = await readFile(filePath, 'utf8');
     } catch {
-      // File might have been removed mid-readdir (concurrent unregister) —
-      // skip silently.
       continue;
     }
     let parsed: unknown;
@@ -267,25 +247,16 @@ async function readAllEntries(dir: string): Promise<ProxyRegistryEntry[]> {
       parsed = JSON.parse(raw);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      // Single-line warning to stderr; don't auto-delete (a partial write
-      // that another process is still rewriting would be wrongly clobbered).
-      try {
-        process.stderr.write(
-          `[ptah] proxy registry: skipping malformed entry ${filePath}: ${detail}\n`,
-        );
-      } catch {
-        /* swallow stderr write failure */
-      }
+
+      process.stderr.write(
+        `[ptah] proxy registry: skipping malformed entry ${filePath}: ${detail}\n`,
+      );
       continue;
     }
     if (!isProxyRegistryEntry(parsed)) {
-      try {
-        process.stderr.write(
-          `[ptah] proxy registry: skipping malformed entry ${filePath}: shape mismatch\n`,
-        );
-      } catch {
-        /* swallow stderr write failure */
-      }
+      process.stderr.write(
+        `[ptah] proxy registry: skipping malformed entry ${filePath}: shape mismatch\n`,
+      );
       continue;
     }
     out.push(parsed);

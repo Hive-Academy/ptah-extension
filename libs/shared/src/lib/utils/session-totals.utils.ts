@@ -63,20 +63,15 @@ export function calculateSessionTotals(
   let messagesWithCost = 0;
 
   for (const message of messages) {
-    // Sum token counts if tokens field exists
     if (message.tokens) {
       totalTokensInput += message.tokens.input;
       totalTokensOutput += message.tokens.output;
     }
-
-    // Sum cost if cost field exists
     if (message.cost !== undefined) {
       totalCost += message.cost;
       messagesWithCost++;
     }
   }
-
-  // Round total cost to 4 decimal places to avoid floating-point accumulation errors
   totalCost = Math.round(totalCost * 10000) / 10000;
 
   return {

@@ -152,8 +152,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
       templateId,
       projectType: projectContext.projectType,
     });
-
-    // Get template path from storage service
     const templateResult = await this.templateStorage.loadTemplate(templateId);
     if (templateResult.isErr()) {
       this.logger.error(
@@ -166,24 +164,17 @@ export class AgentCustomizationService implements IAgentCustomizationService {
         )
       );
     }
-
-    // Retry loop with exponential backoff
     for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt++) {
       try {
         this.logger.debug(
           `Customization attempt ${attempt + 1}/${this.MAX_RETRIES + 1}`,
           { sectionTopic, templateId }
         );
-
-        // Build customization task (simplified on retries)
         const task = this.buildCustomizationTask(
           sectionTopic,
           projectContext,
           attempt > 0 // Simplify task on retry
         );
-
-        // Execute via InternalQueryService (Agent SDK)
-        // Uses the template as system prompt context + task as user prompt
         const handle = await this.internalQueryService.execute({
           cwd: projectContext.rootPath ?? '.',
           model: this.DEFAULT_MODEL,
@@ -193,17 +184,12 @@ export class AgentCustomizationService implements IAgentCustomizationService {
           mcpServerRunning: false,
           maxTurns: 1,
         });
-
-        // Collect response text from the stream
         const response = await this.collectStreamResponse(handle.stream);
 
         this.logger.debug('LLM response received', {
           responseLength: response.length,
           sectionTopic,
         });
-
-        // Validate LLM output (3-tier: schema, safety, factual)
-        // CRITICAL: Distinguish infrastructure errors from content validation failures
         let validationResult;
         try {
           validationResult = await this.validator.validate(
@@ -211,7 +197,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
             projectContext
           );
         } catch (error) {
-          // Unexpected error in validation service (infrastructure failure)
           this.logger.error(
             'Validation service threw unexpected error',
             error as Error
@@ -220,8 +205,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
             new Error(`Validation service error: ${(error as Error).message}`)
           );
         }
-
-        // Check if validation service returned an error (infrastructure failure)
         if (validationResult.isErr()) {
           this.logger.error(
             'Validation service unavailable',
@@ -235,8 +218,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
             )
           );
         }
-
-        // Validation service succeeded, check content quality
         const validation = validationResult.value!;
 
         if (validation.isValid && validation.score >= 70) {
@@ -247,7 +228,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
           });
           return Result.ok(response);
         } else {
-          // Content validation failed (not infrastructure failure) - retry is appropriate
           this.logger.warn('Content validation failed', {
             sectionTopic,
             attempt: attempt + 1,
@@ -255,15 +235,12 @@ export class AgentCustomizationService implements IAgentCustomizationService {
             issueCount: validation.issues.length,
             issues: validation.issues.map((i) => i.message),
           });
-
-          // Retry if attempts remaining
           if (attempt < this.MAX_RETRIES) {
             const backoffMs = this.calculateBackoff(attempt);
             this.logger.debug(`Retrying after ${backoffMs}ms backoff...`);
             await this.delay(backoffMs);
             continue;
           } else {
-            // Max retries exhausted - return fallback error
             this.logger.error('Max retries exhausted - validation failed', {
               sectionTopic,
               finalScore: validation.score,
@@ -291,8 +268,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
           await this.delay(backoffMs);
           continue;
         } else {
-          // Max retries exhausted - return error (not fallback)
-          // API errors are different from validation failures
           return Result.err(
             new Error(
               `LLM invocation failed after ${this.MAX_RETRIES + 1} attempts: ${
@@ -303,8 +278,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
         }
       }
     }
-
-    // Should not reach here, but safety net
     this.logger.error(
       'Unexpected: reached end of retry loop without returning',
       { sectionTopic }
@@ -365,8 +338,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
     );
 
     const results = new Map<string, Result<string, Error>>();
-
-    // Process sections in chunks to respect concurrency limit
     const chunks = this.chunk(sections, concurrency);
 
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
@@ -376,8 +347,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
           chunk.length
         } sections)...`
       );
-
-      // Process chunk concurrently
       const promises = chunk.map(async (section) => {
         const result = await this.customizeSection(
           section.sectionTopic,
@@ -388,8 +357,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
       });
 
       const chunkResults = await Promise.all(promises);
-
-      // Collect results
       for (const { sectionId, result } of chunkResults) {
         results.set(sectionId, result);
       }
@@ -455,7 +422,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
     const buildTools = projectContext.techStack.buildTools.join(', ');
 
     if (isRetry) {
-      // Simplified task for retry attempts
       return `
 Customize the "${sectionTopic}" section for this project:
 
@@ -470,8 +436,6 @@ Focus on actionable guidance. NO generic advice.
 Return ONLY markdown bullet points. NO code fences. NO section headers.
       `.trim();
     }
-
-    // Full task for initial attempt
     return `
 Customize the "${sectionTopic}" section for this project:
 
@@ -508,7 +472,6 @@ Return ONLY markdown content. NO section headers. NO code fences around the enti
    * @private
    */
   private getTemplatePath(templateId: string): string {
-    // Template paths follow Claude convention: .claude/agents/{id}.md
     return `.claude/agents/${templateId}.md`;
   }
 
@@ -532,7 +495,6 @@ Return ONLY markdown content. NO section headers. NO code fences around the enti
         'subtype' in message &&
         message.subtype === 'success'
       ) {
-        // Extract text from result message content blocks
         const resultMsg = message as {
           content?: Array<{ type: string; text?: string }>;
         };
@@ -544,7 +506,6 @@ Return ONLY markdown content. NO section headers. NO code fences around the enti
           }
         }
       } else if (message.type === 'assistant') {
-        // Extract from assistant messages
         const assistantMsg = message as {
           message?: { content?: Array<{ type: string; text?: string }> };
         };

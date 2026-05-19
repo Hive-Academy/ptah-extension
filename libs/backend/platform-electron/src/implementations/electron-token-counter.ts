@@ -17,8 +17,6 @@ export class ElectronTokenCounter implements ITokenCounter {
   }
 
   async getMaxInputTokens(): Promise<number | null> {
-    // No model discovery available outside VS Code.
-    // Return null — callers already handle null (use default budget).
     return null;
   }
 }

@@ -552,11 +552,9 @@ export class NavigationComponent implements OnInit {
       .subscribe({
         next: () => {
           this.isAuthenticated.set(false);
-          // Optionally redirect to home
           window.location.href = '/';
         },
         error: () => {
-          // Even on error, clear local state
           this.isAuthenticated.set(false);
         },
       });

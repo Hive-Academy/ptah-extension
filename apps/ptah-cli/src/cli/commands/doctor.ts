@@ -28,13 +28,12 @@
  * "what would happen if I ran an agent right now?" stays in lockstep.
  */
 
+import { SDK_TOKENS, type ClaudeCliDetector } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
   resolveEffectiveAuthRoute,
-  type ClaudeCliDetector,
   type EffectiveRouteProvider,
   type EffectiveRouteResult,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/auth-providers';
 
 import { withEngine } from '../bootstrap/with-engine.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
@@ -110,11 +109,7 @@ export interface DoctorReport {
   effective: EffectiveRouteResult;
   timestamp: string;
 }
-
-// Re-export the resolver so existing CLI consumers (and the doctor spec) can
-// import it from `./doctor.js` for backwards compatibility. The canonical
-// home is `@ptah-extension/agent-sdk`.
-export { resolveEffectiveAuthRoute } from '@ptah-extension/agent-sdk';
+export { resolveEffectiveAuthRoute } from '@ptah-extension/auth-providers';
 
 /** Optional collaborators — tests inject; production omits. */
 export interface DoctorExecuteHooks {
@@ -150,8 +145,6 @@ export async function execute(
       { mode: 'full', requireSdk: false },
       async (ctx) => {
         const transport = ctx.transport;
-
-        // 1. License snapshot.
         const licenseRaw = await safeCall<{
           tier?: string;
           valid?: boolean;
@@ -167,10 +160,6 @@ export async function execute(
               : null,
           expiryWarning: licenseRaw?.expiryWarning ?? null,
         };
-
-        // 2. Auth snapshot. `auth:getAuthStatus` carries `authMethod` and
-        // `anthropicProviderId`; `defaultProvider` lives on
-        // `llm:getDefaultProvider` (LLM provider registry, not auth config).
         const authStatus = await safeCall<{
           authMethod?: string | null;
           anthropicProviderId?: string | null;
@@ -187,8 +176,6 @@ export async function execute(
             null,
           anthropicProviderId: authStatus?.anthropicProviderId ?? null,
         };
-
-        // 3. Provider probe.
         const providerStatus = await safeCall<{
           providers?: Array<{
             name?: string;
@@ -199,9 +186,6 @@ export async function execute(
             baseUrl?: string | null;
           }>;
         }>(transport, 'llm:getProviderStatus', {});
-
-        // OAuth providers need a single round-trip; cache the result so the
-        // copilot+codex slots share one health call.
         const oauthHealth = await safeCall<{
           copilotAuthenticated?: boolean;
           codexAuthenticated?: boolean;
@@ -214,11 +198,6 @@ export async function execute(
           const entry = await probeProvider(p, oauthHealth, probeLocal);
           providers.push(entry);
         }
-
-        // 4. Claude CLI slot — always probed regardless of authMethod so the
-        // operator can see whether the CLI is available before switching.
-        // Guard against duplicates in case the registry ever exposes a
-        // 'claude-cli' entry directly.
         if (!providers.find((p) => p.id === 'claude-cli')) {
           try {
             const detector = ctx.container.resolve<ClaudeCliDetector>(
@@ -241,8 +220,6 @@ export async function execute(
             });
           }
         }
-
-        // 5. Effective route resolution (pure).
         const effective = resolveEffectiveAuthRoute(auth, providers);
 
         const report: DoctorReport = {
@@ -270,10 +247,6 @@ export async function execute(
     return ExitCode.InternalFailure;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface ProviderStatusRaw {
   name?: string;
@@ -353,13 +326,8 @@ async function defaultProbeLocal(url: string): Promise<LocalProbeVerdict> {
       method: 'GET',
       signal: controller.signal,
     });
-    // Drain the body so the connection can close cleanly. Some local
-    // servers (LM Studio) hold the connection open until the body is read.
-    try {
-      await res.text();
-    } catch {
-      // Best-effort drain; ignore.
-    }
+
+    await res.text();
     return res.ok ? 'reachable' : 'unreachable';
   } catch (err: unknown) {
     if (

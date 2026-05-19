@@ -102,17 +102,13 @@ function resolveGlobals(program: Command): GlobalOptions {
 function readPackageVersion(): string {
   const candidates = ['./package.json', '../../package.json'];
   for (const candidate of candidates) {
-    try {
-      const require = createRequireSafely();
-      if (!require) {
-        continue;
-      }
-      const pkg = require(candidate) as { version?: string };
-      if (pkg.version) {
-        return pkg.version;
-      }
-    } catch {
-      /* try the next candidate */
+    const require = createRequireSafely();
+    if (!require) {
+      continue;
+    }
+    const pkg = require(candidate) as { version?: string };
+    if (pkg.version) {
+      return pkg.version;
     }
   }
   return '0.0.0';

@@ -36,21 +36,14 @@ export class CursorAgentTransformer implements ICliAgentTransformer {
   readonly target = 'cursor' as const;
 
   transform(agent: GeneratedAgent): CliAgentTransformResult {
-    // Extract agent ID using cross-platform path.basename()
     const agentId = extractAgentId(agent.filePath);
-
-    // Extract description from agent variables
     const description = agent.variables['description'] || `${agentId} agent`;
-
-    // Apply all transformations
     const content = transformAgentContent(
       agent.content,
       'cursor',
       agentId,
       description,
     );
-
-    // Target path: ~/.cursor/agents/ptah-{agent-id}.md (prefixed for cleanup)
     const filePath = join(homedir(), '.cursor', 'agents', `ptah-${agentId}.md`);
 
     return {

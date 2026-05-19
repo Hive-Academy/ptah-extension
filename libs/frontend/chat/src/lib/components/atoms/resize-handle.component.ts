@@ -53,10 +53,7 @@ export class ResizeHandleComponent {
   }
 
   onDragMoved(event: CdkDragMove): void {
-    // Reset CDK's built-in transform — we resize the panel, not translate the handle
     event.source.element.nativeElement.style.transform = 'none';
-
-    // Panel width = distance from pointer to right edge of viewport
     const newWidth = window.innerWidth - event.pointerPosition.x;
     this.resizeService.setCustomWidth(newWidth);
   }

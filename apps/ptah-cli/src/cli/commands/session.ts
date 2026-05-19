@@ -66,10 +66,6 @@ import type {
   ISdkPermissionHandler,
 } from '@ptah-extension/shared';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type SessionSubcommand =
   | 'start'
   | 'resume'
@@ -138,10 +134,6 @@ export interface PersistedSession {
   /** Workspace path that owns this session. Used as the auth check on resumes. */
   readonly workspacePath: string;
 }
-
-// ---------------------------------------------------------------------------
-// Public entry points
-// ---------------------------------------------------------------------------
 
 /**
  * Convenience entry — wraps `execute` for the `start` sub-subcommand. Used by
@@ -232,11 +224,6 @@ export async function execute(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    // Distinguish SDK-init failures from generic internal failures so JSON-RPC
-    // clients see a deterministic `sdk_init_failed` code. The structured
-    // stderr breadcrumb was already emitted by `withEngine` for SDK-init;
-    // for internal_failure we emit it here so supervisors monitoring stderr
-    // don't have to parse stdout.
     const isSdkInit = error instanceof SdkInitFailedError;
     const ptahCode: PtahErrorCode = isSdkInit
       ? 'sdk_init_failed'
@@ -254,10 +241,6 @@ export async function execute(
     return ExitCode.InternalFailure;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Storage helpers
-// ---------------------------------------------------------------------------
 
 const SESSIONS_NAMESPACE = 'sessions';
 
@@ -286,10 +269,6 @@ async function deletePersistedSession(
   await storage.update(storageKey(tabId), undefined);
 }
 
-// ---------------------------------------------------------------------------
-// Streaming sub-subcommands — start / resume / send
-// ---------------------------------------------------------------------------
-
 async function runStart(
   opts: SessionOptions,
   globals: GlobalOptions,
@@ -310,9 +289,6 @@ async function runStart(
     );
     const workspacePath =
       workspaceProvider.getWorkspaceRoot() ?? globals.cwd ?? process.cwd();
-
-    // Persist BEFORE the RPC fires so `resume` can find the entry even if the
-    // process dies mid-turn.
     const entry: PersistedSession = {
       tabId,
       createdAt: Date.now(),
@@ -340,9 +316,6 @@ async function runStart(
         workspacePath,
         options: opts.profile ? { preset: opts.profile } : undefined,
       }),
-      // If --task was not given, the start RPC fires but no streaming turn is
-      // expected — we just persist the synthetic id and return success. The
-      // backend's chat:start with no prompt is effectively a session bootstrap.
       requireTask: false,
       onSessionResolved: async (sdkSessionId) => {
         const current = loadPersistedSession(storage, tabId);
@@ -358,8 +331,6 @@ async function runStart(
   });
 
   if (opts.once === true) {
-    // Windows pipes are async — without flushing the formatter writer and
-    // draining stdout, the tail event is lost on `--once` exit.
     await formatter.close();
 
     const drainTimeoutMs = hooks.drainTimeoutMs ?? 5_000;
@@ -414,13 +385,8 @@ async function runResume(
       workspaceProvider.getWorkspaceRoot() ?? globals.cwd ?? process.cwd();
 
     const persisted = loadPersistedSession(storage, id);
-    // If the persisted entry has a real SDK session id, use it; otherwise
-    // treat the supplied `id` as the SDK session id directly. This permits
-    // resuming an externally-known session UUID without prior `start`.
     const tabId = persisted?.tabId ?? id;
     const sdkSessionId = persisted?.sdkSessionId ?? id;
-
-    // Always issue chat:resume first — backend re-hydrates the conversation.
     await callRpc(ctx.transport, 'chat:resume', {
       sessionId: sdkSessionId,
       tabId,
@@ -428,8 +394,6 @@ async function runResume(
     });
 
     if (!opts.task || opts.task.trim().length === 0) {
-      // Resume without a follow-up turn — emit ready and exit. This mirrors
-      // the spec § 4.1.1 `session.ready` semantic for the non-streaming case.
       await formatter.writeNotification('session.ready', {
         session_id: sdkSessionId,
         tab_id: tabId,
@@ -529,10 +493,6 @@ async function runSend(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Streaming turn driver — shared by start/resume/send.
-// ---------------------------------------------------------------------------
-
 interface StreamingTurnArgs {
   readonly ctx: {
     readonly container: import('tsyringe').DependencyContainer;
@@ -566,8 +526,6 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
     buildParams,
     onSessionResolved,
   } = args;
-
-  // No-task fast path — fire the RPC, don't wire bridges, exit 0.
   if (!task || task.trim().length === 0) {
     try {
       await callRpc(ctx.transport, rpcMethod, buildParams());
@@ -582,19 +540,9 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
       return ExitCode.GeneralError;
     }
   }
-
-  // Build a thin notify shim around the formatter so the bridges see the
-  // same JSON-RPC notify surface they receive in `interact` mode (where a
-  // real `JsonRpcServer.notify` is wired). This keeps B10b unchanged while
-  // letting non-interactive `session *` emit the same agent.* and
-  // permission.request payloads.
   const jsonrpcShim = makeFormatterNotifyShim(formatter);
 
   const chatBridge = new ChatBridge(ctx.pushAdapter, jsonrpcShim);
-
-  // ApprovalBridge needs ISdkPermissionHandler; resolve from the SDK module.
-  // If the permission handler isn't registered (older bootstrap), we skip
-  // approval wiring — the backend will time out at its own cap.
   let approvalBridge: ApprovalBridge | undefined;
   try {
     const permissionHandler = ctx.container.resolve<ISdkPermissionHandler>(
@@ -607,7 +555,6 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
     );
     approvalBridge.attach();
   } catch (resolveError) {
-    // Non-fatal — log to stderr and proceed without approval round-trip.
     const message =
       resolveError instanceof Error
         ? resolveError.message
@@ -616,8 +563,6 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
       `[ptah] approval bridge unavailable (continuing without permission round-trip): ${message}\n`,
     );
   }
-
-  // SIGINT — issue chat:abort then detach + exit 130. One-shot listener.
   const installSigint =
     hooks.installSigint ??
     ((handler: () => void) => {
@@ -629,8 +574,6 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
   let aborted = false;
   const onSigint = (): void => {
     aborted = true;
-    // Best-effort abort. We don't wait for the response — the bridge will
-    // observe the chat:error or close the listeners on detach.
     void ctx.transport
       .call('chat:abort', { sessionId: tabId })
       .catch(() => undefined);
@@ -648,18 +591,12 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
     });
 
     if (result.success === true) {
-      // The bridge resolved with a real SDK session id (post-message_start).
-      // Persist it for follow-up resume/send.
       if (onSessionResolved && result.sessionId !== tabId) {
         await onSessionResolved(result.sessionId);
       }
       return ExitCode.Success;
     }
-
-    // result.success === false — narrowed branch. The terminal `task.error`
-    // notification was already emitted by ChatBridge.settle() before resolving.
     if (aborted || result.cancelled === true) {
-      // SIGINT path — exit 130 (matching the conventional Ctrl+C exit code).
       return 130;
     }
 
@@ -706,11 +643,6 @@ function makeFormatterNotifyShim(formatter: Formatter): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Non-streaming sub-subcommands — list / stop / delete / rename / load /
-// stats / validate.
-// ---------------------------------------------------------------------------
-
 async function runList(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -728,9 +660,6 @@ async function runList(
       'session:list',
       { workspacePath },
     );
-
-    // Best-effort enrichment: per-session running agents + background agents.
-    // Errors per session are swallowed to keep the listing usable.
     const sessions = await Promise.all(
       (result?.sessions ?? []).map(async (s) => {
         const enriched: Record<string, unknown> = {
@@ -1014,10 +943,6 @@ async function runValidate(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 function parseCsv(raw: string | undefined): string[] {
   if (!raw) return [];

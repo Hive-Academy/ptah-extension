@@ -80,7 +80,6 @@ export class ContextEnrichmentService {
     language: SupportedLanguage | undefined,
     fullContent?: string,
   ): Promise<StructuralSummaryResult> {
-    // Read file content if not provided
     let content: string;
     if (fullContent !== undefined) {
       content = fullContent;
@@ -96,8 +95,6 @@ export class ContextEnrichmentService {
         return this.createFullContentResult('', 0);
       }
     }
-
-    // Handle empty files
     if (!content.trim()) {
       this.logger.debug(
         `ContextEnrichmentService.generateStructuralSummary() - Empty file: ${filePath}`,
@@ -117,16 +114,12 @@ export class ContextEnrichmentService {
         reductionPercentage: this.calcReduction(originalTokens, headerTokens),
       };
     }
-
-    // Unsupported language: return full content
     if (!language) {
       this.logger.debug(
         `ContextEnrichmentService.generateStructuralSummary() - Unsupported language for ${filePath}, using full content`,
       );
       return this.createFullContentResult(content);
     }
-
-    // Analyze source using AST
     const insightsResult = await this.astAnalysis.analyzeSource(
       content,
       language,
@@ -174,32 +167,22 @@ export class ContextEnrichmentService {
   formatAsDeclaration(insights: CodeInsights, filePath: string): string {
     const lines: string[] = [];
     const relativePath = this.toRelativePath(filePath);
-
-    // Build export lookup for determining which functions/classes are exported
     const exportedNames = this.buildExportedNamesSet(insights.exports);
-
-    // Header comment with stats
     const stats = this.buildStatsLine(insights);
     lines.push(`// Structural summary: ${relativePath}`);
     lines.push(`// ${stats}`);
     lines.push('');
-
-    // Imports (listed verbatim as they are already compact)
     if (insights.imports.length > 0) {
       for (const imp of insights.imports) {
         lines.push(this.formatImport(imp));
       }
       lines.push('');
     }
-
-    // Classes with method signatures
     for (const cls of insights.classes) {
       const isExported = cls.isExported || exportedNames.has(cls.name);
       lines.push(this.formatClass(cls, isExported));
       lines.push('');
     }
-
-    // Standalone functions (not class methods)
     const standaloneFunctions = insights.functions.filter(
       (fn) => !this.isMemberOfAnyClass(fn, insights.classes),
     );
@@ -208,8 +191,6 @@ export class ContextEnrichmentService {
       const isExported = fn.isExported || exportedNames.has(fn.name);
       lines.push(this.formatFunction(fn, isExported));
     }
-
-    // Re-exports
     if (insights.exports) {
       const reExports = insights.exports.filter((e) => e.isReExport);
       if (reExports.length > 0) {
@@ -221,8 +202,6 @@ export class ContextEnrichmentService {
         }
       }
     }
-
-    // Clean up trailing whitespace
     let result = lines.join('\n').trimEnd();
     if (result) {
       result += '\n';
@@ -230,8 +209,6 @@ export class ContextEnrichmentService {
 
     return result;
   }
-
-  // --- Private Helpers ---
 
   /**
    * Build a set of exported symbol names for quick lookup.
@@ -304,7 +281,6 @@ export class ContextEnrichmentService {
    */
   private formatImport(imp: ImportInfo): string {
     if (!imp.importedSymbols || imp.importedSymbols.length === 0) {
-      // Side-effect import
       return `import '${imp.source}';`;
     }
 
@@ -316,8 +292,6 @@ export class ContextEnrichmentService {
     if (imp.isDefault && imp.importedSymbols.length === 1) {
       return `import ${imp.importedSymbols[0]} from '${imp.source}';`;
     }
-
-    // Named imports (may include a default import alongside named ones)
     const defaultImports = imp.isDefault ? [imp.importedSymbols[0]] : [];
     const namedImports = imp.isDefault
       ? imp.importedSymbols.slice(1)
@@ -415,7 +389,6 @@ export class ContextEnrichmentService {
         return relative.startsWith('/') ? relative.slice(1) : relative;
       }
     }
-    // Fallback: return filename from path
     const parts = filePath.replace(/\\/g, '/').split('/');
     return parts.slice(-3).join('/');
   }

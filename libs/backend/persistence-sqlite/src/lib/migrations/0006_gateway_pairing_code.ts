@@ -1,6 +1,3 @@
-// SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
-// Enforced by ESLint (no-template-curly-in-migration) + Semgrep
-// (sql-injection-in-migration). Adding interpolation = SQL injection by design.
 export const sql = `
 -- 0006_gateway_pairing_code.sql — Messaging Gateway pairing code column.
 -- Architecture §4.4 specifies a 6-digit pairing code on the gateway_bindings

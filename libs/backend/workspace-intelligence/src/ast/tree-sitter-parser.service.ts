@@ -63,8 +63,6 @@ export interface QueryMatch {
   captures: QueryCapture[];
 }
 
-// --- Service Implementation ---
-
 @injectable()
 export class TreeSitterParserService {
   private readonly parserCache: Map<SupportedLanguage, Parser> = new Map();
@@ -80,8 +78,6 @@ export class TreeSitterParserService {
       'TreeSitterParserService created. Initialization required.',
     );
   }
-
-  // --- Initialization ---
 
   /**
    * Initializes the service by loading the web-tree-sitter WASM runtime and
@@ -123,12 +119,9 @@ export class TreeSitterParserService {
     const runtimeWasmPath = resolveWasmPath('tree-sitter.wasm');
 
     try {
-      // Initialize the WASM runtime, passing through the requested filename
       await Parser.init({
         locateFile: (file: string) => resolveWasmPath(file),
       });
-
-      // Load language grammars from WASM files
       const jsLanguage = await Language.load(jsWasmPath);
       const tsLanguage = await Language.load(tsWasmPath);
 
@@ -150,8 +143,6 @@ export class TreeSitterParserService {
       return Result.err(initError);
     }
   }
-
-  // --- Language & Grammar Handling ---
 
   /**
    * Retrieves the pre-loaded language grammar. Ensures service is initialized.
@@ -202,8 +193,6 @@ export class TreeSitterParserService {
     );
     return Result.ok(grammar);
   }
-
-  // --- Parser Caching & Creation ---
 
   /**
    * Attempts to retrieve a parser from the cache.
@@ -282,8 +271,6 @@ export class TreeSitterParserService {
     return this._createAndCacheParser(language);
   }
 
-  // --- AST Conversion ---
-
   /**
    * Recursively converts a Tree-sitter SyntaxNode to a GenericAstNode.
    * Includes an optional depth limit to prevent excessive recursion.
@@ -299,7 +286,6 @@ export class TreeSitterParserService {
     maxDepth: number | null = null, // Optional depth limit
   ): GenericAstNode {
     if (maxDepth !== null && currentDepth > maxDepth) {
-      // Return a minimal node if depth limit is exceeded
       return {
         type: node.type,
         text: '... [Max Depth Reached]', // Indicate truncation
@@ -316,8 +302,6 @@ export class TreeSitterParserService {
         children: [], // No children beyond max depth
       };
     }
-
-    // Ensure children is an array, default to empty array if null/undefined
     const children = node.children ?? [];
 
     return {
@@ -338,8 +322,6 @@ export class TreeSitterParserService {
       ),
     };
   }
-
-  // --- Public API ---
 
   async parse(
     content: string,
@@ -377,8 +359,6 @@ export class TreeSitterParserService {
       this.logger.debug(
         `Successfully created syntax tree for language: ${language}. Root node type: ${tree.rootNode.type}`,
       );
-
-      // Convert tree to generic AST
       const genericAstRoot = this._convertNodeToGenericAst(
         tree.rootNode,
         0,
@@ -396,7 +376,6 @@ export class TreeSitterParserService {
         ),
       );
     } finally {
-      // Free WASM heap memory -- Tree objects are NOT garbage collected
       tree?.delete();
     }
   }
@@ -458,12 +437,8 @@ export class TreeSitterParserService {
       if (!tree?.rootNode) {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
       }
-
-      // Create query via the Query constructor (web-tree-sitter 0.26 API)
       tsQuery = new Query(grammar, queryString);
       const matches = tsQuery.matches(tree.rootNode);
-
-      // Convert matches to our QueryMatch format
       const results: QueryMatch[] = matches.map((match: TsQueryMatch) => ({
         pattern: match.patternIndex,
         captures: match.captures.map((capture: TsQueryCapture) => ({
@@ -493,7 +468,6 @@ export class TreeSitterParserService {
         ),
       );
     } finally {
-      // Free WASM heap memory -- Query and Tree objects are NOT garbage collected
       tsQuery?.delete();
       tree?.delete();
     }
@@ -630,8 +604,6 @@ export class TreeSitterParserService {
     }
 
     let tree: Tree | null = null;
-    // Collect all Query objects so the finally block can delete each one,
-    // even if an exception is thrown mid-loop.
     const createdQueries: (Query | undefined)[] = [];
 
     try {
@@ -683,15 +655,12 @@ export class TreeSitterParserService {
         ),
       );
     } finally {
-      // Free WASM heap memory for every Query object created before the error.
       for (const tsQuery of createdQueries) {
         tsQuery?.delete();
       }
       tree?.delete();
     }
   }
-
-  // --- Incremental Parsing ---
 
   /**
    * Parses source code and caches the raw tree-sitter tree for future incremental re-parses.
@@ -735,17 +704,11 @@ export class TreeSitterParserService {
       if (!tree?.rootNode) {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
       }
-
-      // Evict oldest entry if cache is full before adding
       this.evictLRUTreeCache();
-
-      // Delete the previous tree for this file path if it exists (WASM heap cleanup)
       const previousEntry = this.treeCache.get(filePath);
       if (previousEntry?.tree) {
         previousEntry.tree.delete();
       }
-
-      // Store the raw tree in the tree cache for incremental re-parsing
       this.treeCache.set(filePath, {
         tree,
         language,
@@ -800,9 +763,6 @@ export class TreeSitterParserService {
       );
       return this.parseAndCache(filePath, content, language);
     }
-
-    // If the cached tree was parsed with a different language, the old tree is
-    // not compatible for incremental re-parsing. Fall back to a full parse.
     if (cachedEntry.language !== language) {
       this.logger.debug(
         `parseIncremental: Language mismatch for ${filePath} (cached: ${cachedEntry.language}, requested: ${language}), falling back to full parse`,
@@ -834,8 +794,6 @@ export class TreeSitterParserService {
     }
 
     try {
-      // Apply the edit delta to the cached tree so tree-sitter knows what changed.
-      // web-tree-sitter 0.26+ requires an Edit class instance (not a plain object).
       cachedEntry.tree.edit(
         new Edit({
           startIndex: editDelta.startIndex,
@@ -846,19 +804,13 @@ export class TreeSitterParserService {
           newEndPosition: editDelta.newEndPosition,
         }),
       );
-
-      // Incremental parse: tree-sitter reuses unchanged subtrees from the old tree
       const newTree = parser.parse(content, cachedEntry.tree);
       if (!newTree?.rootNode) {
         throw new Error(
           'Incremental parsing resulted in an undefined tree or rootNode.',
         );
       }
-
-      // Delete the old tree from WASM heap now that the new tree is created
       cachedEntry.tree.delete();
-
-      // Update the cache with the new tree
       this.treeCache.set(filePath, {
         tree: newTree,
         language,
@@ -877,7 +829,6 @@ export class TreeSitterParserService {
       );
       return Result.ok(genericAstRoot);
     } catch (error: unknown) {
-      // On failure, delete the potentially corrupted cached tree and fall back
       const corruptedEntry = this.treeCache.get(filePath);
       if (corruptedEntry?.tree) {
         corruptedEntry.tree.delete();
@@ -913,7 +864,6 @@ export class TreeSitterParserService {
       this.logger.debug(
         `evictLRUTreeCache: Evicting cached tree for ${oldestKey}`,
       );
-      // Free WASM heap memory before removing the Map entry
       const evicted = this.treeCache.get(oldestKey);
       if (evicted?.tree) {
         evicted.tree.delete();
@@ -945,20 +895,14 @@ export class TreeSitterParserService {
     this.logger.info(
       'Disposing TreeSitterParserService: freeing all WASM resources.',
     );
-
-    // Delete all cached trees
     for (const [, entry] of this.treeCache) {
       entry.tree.delete();
     }
     this.treeCache.clear();
-
-    // Delete all cached parsers
     for (const [, parser] of this.parserCache) {
       parser.delete();
     }
     this.parserCache.clear();
-
-    // Clear grammar references (Language objects are managed by the WASM runtime)
     this.languageGrammars.clear();
 
     this.isInitialized = false;

@@ -126,11 +126,7 @@ export class DiffDisplayComponent {
 
     const oldStr = input.old_string || '';
     const newStr = input.new_string || '';
-
-    // Generate unified diff format
     const diffLines = this.generateUnifiedDiff(oldStr, newStr);
-
-    // Wrap in diff code block for Prism.js highlighting
     return '```diff\n' + diffLines + '\n```';
   });
 
@@ -143,16 +139,10 @@ export class DiffDisplayComponent {
     const newLines = newStr.split('\n');
 
     const result: string[] = [];
-
-    // Add header showing file context
     result.push(`@@ Edit @@`);
-
-    // Show removed lines (old_string)
     for (const line of oldLines) {
       result.push(`- ${line}`);
     }
-
-    // Show added lines (new_string)
     for (const line of newLines) {
       result.push(`+ ${line}`);
     }

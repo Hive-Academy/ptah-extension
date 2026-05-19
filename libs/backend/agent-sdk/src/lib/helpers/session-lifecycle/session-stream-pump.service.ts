@@ -62,8 +62,6 @@ export class SessionStreamPump {
             );
             return;
           }
-
-          // Drain all queued messages
           while (session.messageQueue.length > 0) {
             const message = session.messageQueue.shift();
             if (message) {
@@ -74,8 +72,6 @@ export class SessionStreamPump {
             }
             if (abortController.signal.aborted) return;
           }
-
-          // Wait for next message (no timeout - sessions run indefinitely)
           const waitResult = await new Promise<'message' | 'aborted'>(
             (resolve) => {
               const abortHandler = () => resolve('aborted');
@@ -86,8 +82,6 @@ export class SessionStreamPump {
                 resolve('aborted');
                 return;
               }
-
-              // Check queue again before waiting
               if (currentSession.messageQueue.length > 0) {
                 abortController.signal.removeEventListener(
                   'abort',
@@ -96,8 +90,6 @@ export class SessionStreamPump {
                 resolve('message');
                 return;
               }
-
-              // Set wake callback - called when new message arrives
               currentSession.resolveNext = () => {
                 abortController.signal.removeEventListener(
                   'abort',
@@ -177,9 +169,6 @@ export class SessionStreamPump {
     if (!session) {
       throw new SdkError(`Session not found: ${sessionId}`);
     }
-
-    // Mark this session as the most recently active so MCP tool calls
-    // (e.g., ptah_agent_spawn) attribute agents to the correct session.
     this.registry.markActive(sessionId as string);
 
     this.logger.info(`[SessionLifecycle] Sending message to ${sessionId}`, {
@@ -195,8 +184,6 @@ export class SessionStreamPump {
       images,
     });
     session.messageQueue.push(sdkUserMessage);
-
-    // Wake iterator
     if (session.resolveNext) {
       session.resolveNext();
       session.resolveNext = null;

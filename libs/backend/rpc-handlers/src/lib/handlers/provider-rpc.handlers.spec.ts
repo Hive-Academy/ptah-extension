@@ -65,12 +65,12 @@ import {
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
+import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type {
   OllamaModelDiscoveryService,
   ProviderModelsService,
-  SdkAgentAdapter,
-} from '@ptah-extension/agent-sdk';
-import type { CliDetectionService } from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/auth-providers';
+import type { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import type { AuthEnv } from '@ptah-extension/shared';
 import {
   createMockLogger,

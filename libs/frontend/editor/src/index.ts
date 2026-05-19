@@ -29,8 +29,6 @@
  * - TerminalTab: Terminal tab state for multi-tab UI
  * - PtahTerminalApi: Window extension for terminal binary IPC
  */
-
-// Models
 export type { FileTreeNode } from './lib/models/file-tree.model';
 export type {
   SearchMatch,
@@ -38,8 +36,6 @@ export type {
   SearchInFilesParams,
   SearchInFilesResult,
 } from './lib/models/search.model';
-
-// Components
 export { FileTreeComponent } from './lib/file-tree/file-tree.component';
 export { FileTreeNodeComponent } from './lib/file-tree/file-tree-node.component';
 export { FileTreeContextMenuComponent } from './lib/file-tree/file-tree-context-menu.component';
@@ -61,13 +57,8 @@ export { SearchPanelComponent } from './lib/search/search-panel.component';
 export { QuickOpenComponent } from './lib/quick-open/quick-open.component';
 export { BranchPickerDropdownComponent } from './lib/branch-picker/branch-picker-dropdown.component';
 export { BranchDetailsPopoverComponent } from './lib/branch-picker/branch-details-popover.component';
-
-// Services
 export { EditorService } from './lib/services/editor.service';
 export type { EditorTab } from './lib/services/editor/editor-tab.types';
-
-// Inverted-dependency contract for the editor internal-state map.
-// Composition root binds the token via `provideEditorInternalState()`.
 export {
   EDITOR_INTERNAL_STATE,
   type EditorInternalState,
@@ -79,6 +70,4 @@ export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
 export { VimModeService } from './lib/services/vim-mode.service';
 export { SourceControlService } from './lib/services/source-control.service';
-
-// Types
 export type { TerminalTab, PtahTerminalApi } from './lib/types/terminal.types';

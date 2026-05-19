@@ -1,41 +1,22 @@
 /**
- * SdkAgentAdapter — unit specs.
+ * SdkAgentAdapter — facade-level unit specs (Win 6c).
  *
- * Surface under test:
- *   - Query dispatch: startChatSession() and resumeSession() MUST delegate
- *     to SessionLifecycleManager.executeQuery() and then hand the returned
- *     sdkQuery off to StreamTransformer.transform() with the *same*
- *     AbortController threaded through. The adapter is a thin orchestration
- *     layer — it owns callback wiring, nothing else.
- *   - AbortSignal propagation: the AbortController returned by executeQuery()
- *     MUST flow unchanged into StreamTransformer.transform(). Losing this
- *     coupling would mean UI cancellations (user hits Stop) can't reach the
- *     underlying SDK query.
- *   - Error propagation: calls into query paths before initialize() MUST
- *     throw SdkError (never a generic Error) so RPC handlers can classify
- *     the failure correctly. Downstream errors from executeQuery() MUST
- *     bubble up unchanged.
- *   - Initialization flow: registers a config watcher BEFORE auth
- *     configuration, so token changes are still detected when auth fails;
- *     falls back to bundled cli.js when the CLI detector returns null;
- *     persists the default model on first init.
+ * After the Win 6c extraction, this spec covers ONLY the adapter's facade /
+ * orchestration surface:
+ *   - initialize / dispose / reset / preloadSdk
+ *   - startChatSession / resumeSession / executeSlashCommand dispatch
+ *   - Callback wiring from adapter setters into executeQuery() options
+ *   - Warm-query handle threading into executeQuery() (consumeWarmQuery is
+ *     called THROUGH the SdkWarmQueryManager port)
+ *   - includePartialMessages passthrough
  *
- * Mocking posture:
- *   - `fs.existsSync` and `../helpers/sdk-module-loader` are mocked at the
- *     module level so the adapter runs in full isolation.
- *   - All DI collaborators are constructed directly as `jest.Mocked<T>`
- *     (NO tsyringe container), matching the pattern used in
- *     `copilot-auth.service.spec.ts`.
- *
- * Source-under-test:
- *   `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`
+ * The pushed-down behavior lives in:
+ *   - helpers/sdk-warm-query-manager.spec.ts (prewarm/consume/fingerprint)
+ *   - helpers/session-fork.service.spec.ts  (forkSession + rewindFiles)
+ *   - helpers/sdk-adapter-callback-registry.spec.ts (registry semantics)
  */
 
 import 'reflect-metadata';
-
-// ---------------------------------------------------------------------------
-// Module mocks — MUST precede source imports so ts-jest hoists them above.
-// ---------------------------------------------------------------------------
 
 jest.mock('fs', () => {
   const actual = jest.requireActual('fs');
@@ -45,32 +26,9 @@ jest.mock('fs', () => {
   };
 });
 
-// Mock the SdkModuleLoader module — the adapter is wired with a constructor
-// injection but downstream services (InternalQueryService) also reach into
-// this module. Mocking it here prevents accidental real imports when other
-// specs share the module registry.
 jest.mock('./helpers/sdk-module-loader', () => ({
   SdkModuleLoader: jest.fn(),
 }));
-
-// Mock the SDK's standalone forkSession export so adapter.forkSession() can
-// be unit-tested without the real SDK. The mock factory returns a jest.fn()
-// for `forkSession`; tests grab the reference via `getMockedForkSession()`.
-jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  forkSession: jest.fn(),
-  startup: jest.fn(),
-}));
-
-const sdkModuleMock = require('@anthropic-ai/claude-agent-sdk') as {
-  forkSession: jest.Mock;
-  startup: jest.Mock;
-};
-function getMockedForkSession(): jest.Mock {
-  return sdkModuleMock.forkSession;
-}
-function getMockedStartup(): jest.Mock {
-  return sdkModuleMock.startup;
-}
 
 import { existsSync } from 'fs';
 import type {
@@ -91,44 +49,36 @@ import {
 import {
   PlatformType,
   type IPlatformInfo,
-  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 
 import { SdkAgentAdapter } from './sdk-agent-adapter';
-import { SdkError, SessionNotActiveError } from './errors';
+import { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
+import { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
+import { SdkError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
-import type { SessionHistoryReaderService } from './session-history-reader.service';
 import type {
-  AuthManager,
   SessionLifecycleManager,
-  ConfigWatcher,
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
+  SdkWarmQueryManager,
+  SessionForkService,
   ExecuteQueryResult,
   Query,
+  WarmQueryHandle,
 } from './helpers';
+import type { IAuthEnvProvider } from './auth-env.port';
 import type {
   ClaudeCliDetector,
   ClaudeInstallation,
 } from './detector/claude-cli-detector';
 import type { SDKMessage } from './types/sdk-types/claude-sdk.types';
 
-// ---------------------------------------------------------------------------
-// Typed bridges — production classes have private fields so a structural
-// duck-type match fails nominal typing. We cast at the module handle only.
-// ---------------------------------------------------------------------------
-
 const mockedExistsSync = existsSync as jest.MockedFunction<typeof existsSync>;
 
 function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
 }
-
-// ---------------------------------------------------------------------------
-// Dependency factories — each returns a `jest.Mocked<T>`-shaped stub with
-// sensible defaults so individual specs only override what they care about.
-// ---------------------------------------------------------------------------
 
 interface MockConfigManager {
   get: jest.Mock;
@@ -150,30 +100,11 @@ function createMockConfigManager(
 function createMockSentry(): jest.Mocked<
   Pick<SentryService, 'captureException'>
 > {
-  return {
-    captureException: jest.fn(),
-  };
+  return { captureException: jest.fn() };
 }
 
-function createMockWorkspaceProvider(): jest.Mocked<
-  Pick<
-    IWorkspaceProvider,
-    | 'getWorkspaceRoot'
-    | 'getWorkspaceFolders'
-    | 'getConfiguration'
-    | 'setConfiguration'
-  >
-> {
-  return {
-    getWorkspaceRoot: jest.fn().mockReturnValue('/fake/workspace'),
-    getWorkspaceFolders: jest.fn().mockReturnValue(['/fake/workspace']),
-    getConfiguration: jest.fn().mockReturnValue(undefined),
-    setConfiguration: jest.fn().mockResolvedValue(undefined),
-  };
-}
-
-function createMockAuthManager(): jest.Mocked<
-  Pick<AuthManager, 'configureAuthentication' | 'clearAuthentication'>
+function createMockIAuthEnvProvider(): jest.Mocked<
+  Pick<IAuthEnvProvider, 'configureAuthentication' | 'clearAuthentication'>
 > {
   return {
     configureAuthentication: jest.fn().mockResolvedValue({
@@ -211,15 +142,6 @@ function createMockModelService(): jest.Mocked<
     getApiModelsNormalized: jest.fn().mockResolvedValue([]),
     clearCache: jest.fn(),
     resolveModelId: jest.fn((m: string) => m),
-  };
-}
-
-function createMockConfigWatcher(): jest.Mocked<
-  Pick<ConfigWatcher, 'registerWatchers' | 'dispose'>
-> {
-  return {
-    registerWatchers: jest.fn(),
-    dispose: jest.fn(),
   };
 }
 
@@ -272,21 +194,9 @@ function createMockSessionLifecycle(): jest.Mocked<
   };
 }
 
-function createMockHistoryReader(): jest.Mocked<
-  Pick<SessionHistoryReaderService, 'resolveNativeMessageId'>
-> {
-  return {
-    resolveNativeMessageId: jest
-      .fn()
-      .mockImplementation((_, __, id: string) => Promise.resolve(id)),
-  };
-}
-
 function createMockStreamTransformer(): jest.Mocked<
   Pick<StreamTransformer, 'transform'>
 > {
-  // Typed as a jest.Mock matching StreamTransformer.transform(config) —
-  // default implementation returns an empty fake async iterable.
   const transform = jest.fn<
     AsyncIterable<FlatStreamEventUnion>,
     Parameters<StreamTransformer['transform']>
@@ -300,6 +210,25 @@ function createMockStreamTransformer(): jest.Mocked<
   return { transform };
 }
 
+function createMockWarmQueryManager(): jest.Mocked<
+  Pick<SdkWarmQueryManager, 'prewarm' | 'consumeWarmQuery' | 'dispose'>
+> {
+  return {
+    prewarm: jest.fn().mockResolvedValue(undefined),
+    consumeWarmQuery: jest.fn().mockReturnValue(null),
+    dispose: jest.fn(),
+  };
+}
+
+function createMockForkService(): jest.Mocked<
+  Pick<SessionForkService, 'forkSession' | 'rewindFiles'>
+> {
+  return {
+    forkSession: jest.fn().mockResolvedValue({ sessionId: 'fork-id' }),
+    rewindFiles: jest.fn().mockResolvedValue({ canRewind: true }),
+  };
+}
+
 function createMockPlatformInfo(
   overrides: Partial<IPlatformInfo> = {},
 ): IPlatformInfo {
@@ -311,13 +240,6 @@ function createMockPlatformInfo(
     ...overrides,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Fake Query object — satisfies the Query interface for use as sdkQuery in
-// executeQuery() results. None of its methods are exercised by the adapter
-// path; they exist only so StreamTransformer.transform() receives the exact
-// reference passed in.
-// ---------------------------------------------------------------------------
 
 function createFakeQuery(): Query {
   const gen = createFakeAsyncGenerator<SDKMessage>([]);
@@ -335,27 +257,22 @@ function createFakeQuery(): Query {
   return q as unknown as Query;
 }
 
-// ---------------------------------------------------------------------------
-// Harness — creates a fresh adapter wired up with all mocks so each spec is
-// hermetic.
-// ---------------------------------------------------------------------------
-
 interface AdapterHarness {
   adapter: SdkAgentAdapter;
   logger: MockLogger;
   config: MockConfigManager;
   sentry: ReturnType<typeof createMockSentry>;
   metadataStore: ReturnType<typeof createMockMetadataStore>;
-  authManager: ReturnType<typeof createMockAuthManager>;
+  authManager: ReturnType<typeof createMockIAuthEnvProvider>;
   sessionLifecycle: ReturnType<typeof createMockSessionLifecycle>;
-  configWatcher: ReturnType<typeof createMockConfigWatcher>;
   cliDetector: ReturnType<typeof createMockCliDetector>;
   streamTransformer: ReturnType<typeof createMockStreamTransformer>;
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
   modelService: ReturnType<typeof createMockModelService>;
   platformInfo: IPlatformInfo;
-  workspaceProvider: ReturnType<typeof createMockWorkspaceProvider>;
-  historyReader: ReturnType<typeof createMockHistoryReader>;
+  warmQueryManager: ReturnType<typeof createMockWarmQueryManager>;
+  forkService: ReturnType<typeof createMockForkService>;
+  events: SdkAdapterEvents;
 }
 
 function makeAdapter(
@@ -368,32 +285,35 @@ function makeAdapter(
   const config = createMockConfigManager(options.config);
   const sentry = createMockSentry();
   const metadataStore = createMockMetadataStore();
-  const authManager = createMockAuthManager();
+  const authManager = createMockIAuthEnvProvider();
   const sessionLifecycle = createMockSessionLifecycle();
-  const configWatcher = createMockConfigWatcher();
   const cliDetector = createMockCliDetector();
   const streamTransformer = createMockStreamTransformer();
   const moduleLoader = createMockModuleLoader();
   const modelService = createMockModelService();
   const platformInfo = createMockPlatformInfo(options.platformInfo);
-  const workspaceProvider = createMockWorkspaceProvider();
-  const historyReader = createMockHistoryReader();
+  const warmQueryManager = createMockWarmQueryManager();
+  const forkService = createMockForkService();
+
+  const runtimeState = new SdkRuntimeStateService(asLogger(logger));
+  const events = new SdkAdapterEvents(asLogger(logger));
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
     config as unknown as ConfigManager,
+    runtimeState,
     metadataStore as unknown as SessionMetadataStore,
-    authManager as unknown as AuthManager,
+    authManager as unknown as IAuthEnvProvider,
     sessionLifecycle as unknown as SessionLifecycleManager,
-    configWatcher as unknown as ConfigWatcher,
     cliDetector as unknown as ClaudeCliDetector,
     streamTransformer as unknown as StreamTransformer,
     moduleLoader as unknown as SdkModuleLoader,
     modelService as unknown as SdkModelService,
     platformInfo,
-    workspaceProvider as unknown as IWorkspaceProvider,
+    warmQueryManager as unknown as SdkWarmQueryManager,
+    forkService as unknown as SessionForkService,
     sentry as unknown as SentryService,
-    historyReader as unknown as SessionHistoryReaderService,
+    events,
   );
 
   return {
@@ -404,19 +324,17 @@ function makeAdapter(
     metadataStore,
     authManager,
     sessionLifecycle,
-    configWatcher,
     cliDetector,
     streamTransformer,
     moduleLoader,
     modelService,
     platformInfo,
-    workspaceProvider,
-    historyReader,
+    warmQueryManager,
+    forkService,
+    events,
   };
 }
 
-// Build a minimal AISessionConfig + tabId. projectPath is required by the
-// chat-session path; other fields default to reasonable empties.
 function makeSessionConfig(
   overrides: Partial<AISessionConfig> & { tabId?: string } = {},
 ): AISessionConfig & { tabId: string } {
@@ -434,22 +352,32 @@ describe('SdkAgentAdapter', () => {
     mockedExistsSync.mockReturnValue(true);
   });
 
-  // -------------------------------------------------------------------------
-  // initialize()
-  // -------------------------------------------------------------------------
-
   describe('initialize()', () => {
-    it('registers config watchers BEFORE attempting authentication', async () => {
+    it('emits initialized=true on the events bus after a successful init', async () => {
       const h = makeAdapter();
-      let registeredBeforeAuth = false;
-      h.configWatcher.registerWatchers.mockImplementationOnce(() => {
-        // If auth has not been called yet, we're in the expected ordering.
-        registeredBeforeAuth =
-          h.authManager.configureAuthentication.mock.calls.length === 0;
-      });
+      const listener = jest.fn();
+      h.events.onInitialized(listener);
 
       await h.adapter.initialize();
-      expect(registeredBeforeAuth).toBe(true);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener.mock.calls[0][0]).toMatchObject({ success: true });
+    });
+
+    it('emits initialized=false when authentication fails', async () => {
+      const h = makeAdapter();
+      h.authManager.configureAuthentication.mockResolvedValueOnce({
+        configured: false,
+        details: [],
+        errorMessage: 'no key',
+      });
+      const listener = jest.fn();
+      h.events.onInitialized(listener);
+
+      await h.adapter.initialize();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener.mock.calls[0][0]).toMatchObject({ success: false });
     });
 
     it('returns false and records errorMessage when auth is not configured', async () => {
@@ -475,12 +403,9 @@ describe('SdkAgentAdapter', () => {
 
       await h.adapter.initialize();
 
-      // path.join is OS-specific (backslashes on Windows, forward slashes
-      // elsewhere) so match on the filename rather than an exact string.
       expect(h.adapter.getCliJsPath()).toEqual(
         expect.stringContaining('cli.js'),
       );
-      // Verify the bundled-fallback branch was taken.
       expect(mockedExistsSync).toHaveBeenCalled();
     });
 
@@ -528,31 +453,13 @@ describe('SdkAgentAdapter', () => {
       expect(h.adapter.getHealth().status).toBe('available');
     });
 
-    // Two-level catalog fallback test.
-    //
-    // NOTE: SdkAgentAdapter.initialize() still reads/writes 'model.selected'
-    // via ConfigManager (this.config.get/set) — it was NOT migrated to
-    // modelSettings.selectedModel despite earlier task descriptions claiming
-    // it was (lines 632, 635, 648).  The test below verifies the ACTUAL
-    // behaviour of the fallback path and explicitly documents the defect so
-    // a follow-up can complete the migration.
-    //
-    // Expected behaviour: when the stored model is a valid full ID
-    // it is left unchanged. When it is stale (not starting with 'claude-'
-    // and not 'default'), resolveModelId() is called to migrate the tier name.
-    // There is no getSupportedModels() catalog validation in initialize() —
-    // that two-level catalog check described in the task is NOT PRESENT in
-    // the current code. The test documents what the code actually does.
     it('[WP-3T] leaves a valid full model ID unchanged (no catalog validation in initialize)', async () => {
       const validModel = 'claude-opus-4-5';
       const h = makeAdapter({ config: { 'model.selected': validModel } });
 
       await h.adapter.initialize();
 
-      // resolveModelId should not have been called because 'claude-opus-4-5'
-      // starts with 'claude-' — the adapter treats it as already resolved.
       expect(h.modelService.resolveModelId).not.toHaveBeenCalled();
-      // No set() call for model.selected (value was not changed).
       const modelSetCalls = h.config.set.mock.calls.filter(
         ([key]: [string, unknown]) => key === 'model.selected',
       );
@@ -560,15 +467,11 @@ describe('SdkAgentAdapter', () => {
     });
 
     it('[WP-3T] falls back to default model when model.selected is empty (first-run path)', async () => {
-      // Arrange: no saved model → first-run path
       const h = makeAdapter({ config: { 'model.selected': '' } });
       h.modelService.getDefaultModel.mockResolvedValueOnce('valid-model-1');
 
-      // Act
       await h.adapter.initialize();
 
-      // Assert: warning NOT logged (this is the normal first-run, not a stale ID).
-      // config.set IS called with the default model.
       expect(h.config.set).toHaveBeenCalledWith(
         'model.selected',
         'valid-model-1',
@@ -576,16 +479,13 @@ describe('SdkAgentAdapter', () => {
     });
 
     it('[WP-3T] resolves stale bare tier name via resolveModelId and persists the result', async () => {
-      // Arrange: stale model (bare tier name, legacy format)
       const h = makeAdapter({ config: { 'model.selected': 'haiku' } });
       h.modelService.resolveModelId.mockImplementationOnce((m: string) =>
         m === 'haiku' ? 'valid-model-2' : m,
       );
 
-      // Act
       await h.adapter.initialize();
 
-      // Assert: the resolved model is persisted via config.set
       expect(h.config.set).toHaveBeenCalledWith(
         'model.selected',
         'valid-model-2',
@@ -593,10 +493,6 @@ describe('SdkAgentAdapter', () => {
       expect(h.modelService.resolveModelId).toHaveBeenCalledWith('haiku');
     });
   });
-
-  // -------------------------------------------------------------------------
-  // startChatSession()
-  // -------------------------------------------------------------------------
 
   describe('startChatSession()', () => {
     it('throws SdkError before initialize()', async () => {
@@ -657,8 +553,6 @@ describe('SdkAgentAdapter', () => {
 
       expect(h.streamTransformer.transform).toHaveBeenCalledTimes(1);
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
-      // CRITICAL: the same AbortController instance must flow through so UI
-      // cancellations reach the underlying SDK query.
       expect(transformArg.abortController).toBe(abortController);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.sessionId).toBe('tab_1');
@@ -676,7 +570,6 @@ describe('SdkAgentAdapter', () => {
       await expect(
         h.adapter.startChatSession(makeSessionConfig()),
       ).rejects.toBe(failure);
-      // StreamTransformer MUST NOT be reached when the query fails.
       expect(h.streamTransformer.transform).not.toHaveBeenCalled();
     });
 
@@ -701,10 +594,6 @@ describe('SdkAgentAdapter', () => {
       expect(callArg.pathToClaudeCodeExecutable).toBe('/bin/cli.js');
     });
   });
-
-  // -------------------------------------------------------------------------
-  // SdkAgentAdapter.startChatSession (mcpServersOverride threading)
-  // -------------------------------------------------------------------------
 
   describe('SdkAgentAdapter.startChatSession (mcpServersOverride threading)', () => {
     it('forwards mcpServersOverride to sessionLifecycle.executeQuery', async () => {
@@ -735,7 +624,6 @@ describe('SdkAgentAdapter', () => {
 
       expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledTimes(1);
       const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
-      // Strict identity — the same reference must flow through unchanged.
       expect(callArg.mcpServersOverride).toBe(override);
     });
 
@@ -752,16 +640,9 @@ describe('SdkAgentAdapter', () => {
       await h.adapter.startChatSession(makeSessionConfig());
 
       const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
-      // Identity-preserving no-op for non-proxy callers — undefined must
-      // remain undefined so SdkQueryOptionsBuilder.mergeMcpOverride returns
-      // the registry-built map unchanged (toBe identity).
       expect(callArg.mcpServersOverride).toBeUndefined();
     });
   });
-
-  // -------------------------------------------------------------------------
-  // resumeSession()
-  // -------------------------------------------------------------------------
 
   describe('resumeSession()', () => {
     it('throws SdkError before initialize()', async () => {
@@ -794,7 +675,6 @@ describe('SdkAgentAdapter', () => {
         } as AISessionConfig & { tabId: string },
       );
 
-      // executeQuery is NOT called when a live session already exists.
       expect(h.sessionLifecycle.executeQuery).not.toHaveBeenCalled();
       expect(h.streamTransformer.transform).toHaveBeenCalledTimes(1);
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
@@ -828,10 +708,6 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.sdkQuery).toBe(sdkQuery);
     });
   });
-
-  // -------------------------------------------------------------------------
-  // executeSlashCommand()
-  // -------------------------------------------------------------------------
 
   describe('executeSlashCommand()', () => {
     it('throws SdkError before initialize()', async () => {
@@ -868,10 +744,6 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.tabId).toBe('tab-1');
     });
   });
-
-  // -------------------------------------------------------------------------
-  // Callback wiring
-  // -------------------------------------------------------------------------
 
   describe('callback wiring', () => {
     it('passes registered callbacks through into executeQuery() options', async () => {
@@ -917,28 +789,24 @@ describe('SdkAgentAdapter', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // dispose() / reset()
-  // -------------------------------------------------------------------------
-
   describe('dispose()', () => {
-    it('disposes config watcher, clears auth, and clears the model cache', async () => {
+    it('emits disposed on the events bus, clears auth, clears the model cache, and disposes the warm-query manager', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
+      const disposedListener = jest.fn();
+      h.events.onDisposed(disposedListener);
+
       h.adapter.dispose();
 
-      expect(h.configWatcher.dispose).toHaveBeenCalled();
+      expect(disposedListener).toHaveBeenCalledTimes(1);
       expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalled();
       expect(h.authManager.clearAuthentication).toHaveBeenCalled();
       expect(h.modelService.clearCache).toHaveBeenCalled();
+      expect(h.warmQueryManager.dispose).toHaveBeenCalled();
       expect(h.adapter.getCliJsPath()).toBeNull();
     });
   });
-
-  // -------------------------------------------------------------------------
-  // preloadSdk() — delegates to moduleLoader
-  // -------------------------------------------------------------------------
 
   describe('preloadSdk()', () => {
     it('delegates to the SdkModuleLoader', async () => {
@@ -948,483 +816,8 @@ describe('SdkAgentAdapter', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // forkSession() — calls SDK's standalone forkSession export
-  // -------------------------------------------------------------------------
-
-  describe('forkSession()', () => {
-    beforeEach(() => {
-      getMockedForkSession().mockReset();
-    });
-
-    it('throws SdkError if not initialized', async () => {
-      const h = makeAdapter();
-      await expect(
-        h.adapter.forkSession('source-id' as SessionId),
-      ).rejects.toBeInstanceOf(SdkError);
-      expect(getMockedForkSession()).not.toHaveBeenCalled();
-    });
-
-    it('delegates to SDK forkSession with upToMessageId and title', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      getMockedForkSession().mockResolvedValueOnce({
-        sessionId: 'forked-uuid-123',
-      });
-
-      const result = await h.adapter.forkSession(
-        'source-uuid' as SessionId,
-        'msg-uuid-50',
-        'My Fork',
-      );
-
-      expect(result).toEqual({ sessionId: 'forked-uuid-123' });
-      expect(getMockedForkSession()).toHaveBeenCalledTimes(1);
-      expect(getMockedForkSession()).toHaveBeenCalledWith('source-uuid', {
-        upToMessageId: 'msg-uuid-50',
-        title: 'My Fork',
-      });
-    });
-
-    it('passes undefined upToMessageId/title when omitted (full copy)', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      getMockedForkSession().mockResolvedValueOnce({ sessionId: 'fork-2' });
-
-      await h.adapter.forkSession('src' as SessionId);
-
-      expect(getMockedForkSession()).toHaveBeenCalledWith('src', {
-        upToMessageId: undefined,
-        title: undefined,
-      });
-    });
-
-    it('wraps SDK errors as SdkError with context and reports to Sentry', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      getMockedForkSession().mockRejectedValueOnce(
-        new Error('boom: source not found'),
-      );
-
-      await expect(
-        h.adapter.forkSession('src' as SessionId),
-      ).rejects.toMatchObject({
-        message: expect.stringContaining('Failed to fork session src'),
-      });
-      expect(h.sentry.captureException).toHaveBeenCalledWith(
-        expect.any(Error),
-        expect.objectContaining({
-          errorSource: 'SdkAgentAdapter.forkSession',
-        }),
-      );
-    });
-
-    // -----------------------------------------------------------------------
-    // Message ID resolution (Fix: NODE-NESTJS-3A/39)
-    // -----------------------------------------------------------------------
-
-    it('resolves Ptah-internal upToMessageId to native SDK UUID before calling fork()', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      // Ptah-generated ID format: msg_<timestamp>_<random>
-      const ptahId = 'msg_1778055502540_cegogbr';
-      const nativeId = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz';
-
-      // historyReader resolves the Ptah ID to the native UUID
-      h.historyReader.resolveNativeMessageId.mockResolvedValueOnce(nativeId);
-      getMockedForkSession().mockResolvedValueOnce({
-        sessionId: 'forked-uuid-native',
-      });
-
-      await h.adapter.forkSession(
-        'source-session-id' as SessionId,
-        ptahId,
-        'Branch',
-      );
-
-      // historyReader.resolveNativeMessageId must be called with the Ptah ID
-      expect(h.historyReader.resolveNativeMessageId).toHaveBeenCalledWith(
-        'source-session-id',
-        expect.any(String), // workspace path
-        ptahId,
-      );
-
-      // SDK fork must be called with the RESOLVED native UUID, not the Ptah ID
-      expect(getMockedForkSession()).toHaveBeenCalledWith('source-session-id', {
-        upToMessageId: nativeId,
-        title: 'Branch',
-      });
-    });
-
-    it('passes native UUID through unchanged without calling historyReader', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      const nativeId = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz01';
-      getMockedForkSession().mockResolvedValueOnce({
-        sessionId: 'forked-uuid',
-      });
-
-      await h.adapter.forkSession('src-session' as SessionId, nativeId);
-
-      // historyReader is still called for native IDs (fast path returns same value)
-      // — this is fine because resolveNativeMessageId returns immediately for native UUIDs
-      expect(getMockedForkSession()).toHaveBeenCalledWith('src-session', {
-        upToMessageId: nativeId,
-        title: undefined,
-      });
-    });
-
-    it('throws SdkError (not the raw SDK error) when historyReader cannot resolve the Ptah ID', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      const ptahId = 'msg_1778055502540_notfound';
-      h.historyReader.resolveNativeMessageId.mockRejectedValueOnce(
-        new Error(
-          "upToMessageId 'msg_1778055502540_notfound' not found in session history",
-        ),
-      );
-      // SDK fork should NOT be called if resolution fails
-      getMockedForkSession().mockResolvedValueOnce({
-        sessionId: 'should-not-be-reached',
-      });
-
-      await expect(
-        h.adapter.forkSession('src' as SessionId, ptahId),
-      ).rejects.toMatchObject({
-        message: expect.stringContaining('Failed to fork session src'),
-      });
-
-      expect(getMockedForkSession()).not.toHaveBeenCalled();
-      expect(h.sentry.captureException).toHaveBeenCalledWith(
-        expect.any(Error),
-        expect.objectContaining({ errorSource: 'SdkAgentAdapter.forkSession' }),
-      );
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // rewindFiles() — delegates to active Query handle
-  // -------------------------------------------------------------------------
-
-  describe('rewindFiles()', () => {
-    it('throws SdkError if not initialized', async () => {
-      const h = makeAdapter();
-      await expect(
-        h.adapter.rewindFiles('s' as SessionId, 'msg-1'),
-      ).rejects.toBeInstanceOf(SdkError);
-    });
-
-    it('throws SdkError when the session has no live Query handle', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      // Default find returns undefined → no live query.
-      h.sessionLifecycle.find.mockReturnValueOnce(undefined);
-
-      await expect(
-        h.adapter.rewindFiles('dead-session' as SessionId, 'msg-1'),
-      ).rejects.toMatchObject({
-        message: expect.stringContaining(
-          'session dead-session is not active or has no live Query handle',
-        ),
-      });
-    });
-
-    it('throws SdkError when session exists but query is null (pre-registered)', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      h.sessionLifecycle.find.mockReturnValueOnce({
-        sessionId: 'preregistered' as SessionId,
-        query: null,
-        config: makeSessionConfig(),
-        abortController: new AbortController(),
-        messageQueue: [],
-        resolveNext: null,
-        currentModel: 'claude-sonnet-4-20250514',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-
-      await expect(
-        h.adapter.rewindFiles('preregistered' as SessionId, 'msg-1'),
-      ).rejects.toBeInstanceOf(SdkError);
-    });
-
-    it('delegates to query.rewindFiles with userMessageId and dryRun', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      const fakeQuery = createFakeQuery();
-      const rewindMock = fakeQuery.rewindFiles as jest.Mock;
-      rewindMock.mockResolvedValueOnce({
-        canRewind: true,
-        filesChanged: ['/a.ts', '/b.ts'],
-        insertions: 12,
-        deletions: 3,
-      });
-
-      h.sessionLifecycle.find.mockReturnValueOnce({
-        sessionId: 'live' as SessionId,
-        query: fakeQuery,
-        config: makeSessionConfig(),
-        abortController: new AbortController(),
-        messageQueue: [],
-        resolveNext: null,
-        currentModel: 'claude-sonnet-4-20250514',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-
-      const result = await h.adapter.rewindFiles(
-        'live' as SessionId,
-        'user-msg-uuid',
-        true,
-      );
-
-      expect(rewindMock).toHaveBeenCalledTimes(1);
-      expect(rewindMock).toHaveBeenCalledWith('user-msg-uuid', {
-        dryRun: true,
-      });
-      expect(result.canRewind).toBe(true);
-      expect(result.filesChanged).toEqual(['/a.ts', '/b.ts']);
-      expect(result.insertions).toBe(12);
-      expect(result.deletions).toBe(3);
-    });
-
-    it('wraps SDK errors as SdkError with context and reports to Sentry', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      const fakeQuery = createFakeQuery();
-      (fakeQuery.rewindFiles as jest.Mock).mockRejectedValueOnce(
-        new Error('checkpointing not enabled'),
-      );
-
-      h.sessionLifecycle.find.mockReturnValueOnce({
-        sessionId: 'live' as SessionId,
-        query: fakeQuery,
-        config: makeSessionConfig(),
-        abortController: new AbortController(),
-        messageQueue: [],
-        resolveNext: null,
-        currentModel: 'claude-sonnet-4-20250514',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-
-      await expect(
-        h.adapter.rewindFiles('live' as SessionId, 'msg'),
-      ).rejects.toMatchObject({
-        message: expect.stringContaining('Failed to rewind files'),
-      });
-      expect(h.sentry.captureException).toHaveBeenCalledWith(
-        expect.any(Error),
-        expect.objectContaining({
-          errorSource: 'SdkAgentAdapter.rewindFiles',
-        }),
-      );
-    });
-
-    it('realUUID-keyed lookup succeeds: find(realUUID) returns a record with query set and rewindFiles resolves', async () => {
-      // This test exercises the central bug fix for realUUID lookup.
-      // Previously, find() only checked byTabId — passing a realUUID missed.
-      // After the fix, find() checks byTabId then bySessionId.
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      const fakeQuery = createFakeQuery();
-      const rewindMock = fakeQuery.rewindFiles as jest.Mock;
-      rewindMock.mockResolvedValueOnce({
-        canRewind: true,
-        filesChanged: ['/src/a.ts'],
-        insertions: 5,
-        deletions: 2,
-      });
-
-      // Simulate the registry returning a record when looked up by realUUID
-      // (the production flow: find() checks bySessionId for realUUIDs)
-      h.sessionLifecycle.find.mockImplementation((id: string) => {
-        if (id === 'real-uuid-from-sdk') {
-          return {
-            tabId: 'tab_1',
-            realSessionId: 'real-uuid-from-sdk',
-            query: fakeQuery,
-            config: {} as AISessionConfig,
-            abortController: new AbortController(),
-            messageQueue: [],
-            resolveNext: null,
-            currentModel: 'claude-sonnet-4-20250514',
-          };
-        }
-        return undefined;
-      });
-
-      const result = await h.adapter.rewindFiles(
-        'real-uuid-from-sdk' as SessionId,
-        'user-msg-uuid',
-      );
-
-      expect(rewindMock).toHaveBeenCalledTimes(1);
-      expect(result.canRewind).toBe(true);
-      expect(result.filesChanged).toEqual(['/src/a.ts']);
-    });
-
-    it('throws SessionNotActiveError (not a generic SdkError) when find() returns undefined — discriminator preserved', async () => {
-      // The instanceof discriminator is load-bearing: the RPC handler at
-      // session-rpc.handlers.ts uses `instanceof SessionNotActiveError` to
-      // decide whether to surface a "resume & retry" affordance to the user.
-      // A plain SdkError would silently hide that branch.
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      // find() returns undefined for an unknown sessionId
-      h.sessionLifecycle.find.mockReturnValueOnce(undefined);
-
-      const err = await h.adapter
-        .rewindFiles('unknown-session-id' as SessionId, 'msg-1')
-        .catch((e: unknown) => e);
-
-      // Must be a SessionNotActiveError — the specific subtype, not just SdkError
-      expect(err).toBeInstanceOf(SessionNotActiveError);
-      // And since SessionNotActiveError extends SdkError, it must also satisfy
-      // that broader check (guard against accidental instanceof narrowing loss)
-      expect(err).toBeInstanceOf(SdkError);
-    });
-
-    it('passes { dryRun: false } to query.rewindFiles when called with dryRun=false', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      const fakeQuery = createFakeQuery();
-      const rewindMock = fakeQuery.rewindFiles as jest.Mock;
-      rewindMock.mockResolvedValueOnce({
-        canRewind: true,
-        filesChanged: ['/x.ts'],
-        insertions: 1,
-        deletions: 0,
-      });
-
-      h.sessionLifecycle.find.mockReturnValueOnce({
-        tabId: 'live',
-        realSessionId: null,
-        query: fakeQuery,
-        config: makeSessionConfig(),
-        abortController: new AbortController(),
-        messageQueue: [],
-        resolveNext: null,
-        currentModel: 'claude-sonnet-4-20250514',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-
-      await h.adapter.rewindFiles('live' as SessionId, 'msg-commit', false);
-
-      expect(rewindMock).toHaveBeenCalledWith('msg-commit', { dryRun: false });
-    });
-
-    it('passes { dryRun: undefined } to query.rewindFiles when dryRun is omitted', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      const fakeQuery = createFakeQuery();
-      const rewindMock = fakeQuery.rewindFiles as jest.Mock;
-      rewindMock.mockResolvedValueOnce({
-        canRewind: false,
-        error: 'checkpoint missing',
-      });
-
-      h.sessionLifecycle.find.mockReturnValueOnce({
-        tabId: 'live',
-        realSessionId: null,
-        query: fakeQuery,
-        config: makeSessionConfig(),
-        abortController: new AbortController(),
-        messageQueue: [],
-        resolveNext: null,
-        currentModel: 'claude-sonnet-4-20250514',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-
-      await h.adapter.rewindFiles('live' as SessionId, 'msg-omitted');
-
-      // When dryRun is omitted from the caller the production code passes the
-      // raw parameter value (undefined) into { dryRun } — assert that shape.
-      expect(rewindMock).toHaveBeenCalledWith('msg-omitted', {
-        dryRun: undefined,
-      });
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // prewarm() — SDK startup() pre-warm with idempotency + silent failure
-  // -------------------------------------------------------------------------
-
-  describe('prewarm()', () => {
-    beforeEach(() => {
-      getMockedStartup().mockReset();
-    });
-
-    it('invokes SDK startup() once and retains the WarmQuery (does not close it)', async () => {
-      // consume via consumeWarmQuery(); it is NOT closed in prewarm().
-      const h = makeAdapter();
-      const close = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close });
-
-      await h.adapter.prewarm();
-
-      expect(getMockedStartup()).toHaveBeenCalledTimes(1);
-      expect(close).not.toHaveBeenCalled();
-      // The retained handle is observable via consumeWarmQuery().
-      const consumed = h.adapter.consumeWarmQuery();
-      expect(consumed).not.toBeNull();
-      expect((consumed as { close: () => void }).close).toBe(close);
-      // After consumption the slot is empty.
-      expect(h.adapter.consumeWarmQuery()).toBeNull();
-    });
-
-    it('is idempotent — second call is a no-op (does not call startup() again)', async () => {
-      const h = makeAdapter();
-      getMockedStartup().mockResolvedValue({ close: jest.fn() });
-
-      await h.adapter.prewarm();
-      await h.adapter.prewarm();
-      await h.adapter.prewarm();
-
-      expect(getMockedStartup()).toHaveBeenCalledTimes(1);
-    });
-
-    it('swallows startup() failures with logger.warn — never throws upward', async () => {
-      const h = makeAdapter();
-      const failure = new Error('subprocess spawn failed');
-      getMockedStartup().mockRejectedValueOnce(failure);
-
-      await expect(h.adapter.prewarm()).resolves.toBeUndefined();
-
-      // Logger.warn called — message is redacted/short form (Error name + sanitized message).
-      expect(h.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('SDK prewarm failed'),
-      );
-      // Sentry MUST NOT be invoked — prewarm is best-effort.
-      expect(h.sentry.captureException).not.toHaveBeenCalled();
-    });
-
-    it('allows retry on failure — does not mark prewarmed when startup() rejects', async () => {
-      const h = makeAdapter();
-      getMockedStartup()
-        .mockRejectedValueOnce(new Error('boom'))
-        .mockResolvedValueOnce({ close: jest.fn() });
-
-      await h.adapter.prewarm();
-      await h.adapter.prewarm();
-
-      // Both calls execute — the failed first call must NOT block the retry.
-      expect(getMockedStartup()).toHaveBeenCalledTimes(2);
-    });
-
-    it('passes pathToClaudeCodeExecutable into startup() options when CLI js path is resolved', async () => {
+  describe('prewarm() facade', () => {
+    it('delegates to SdkWarmQueryManager.prewarm with the current cliJsPath and active mcp servers', async () => {
       const h = makeAdapter();
       h.cliDetector.findExecutable.mockResolvedValueOnce({
         path: '/bin/claude',
@@ -1434,172 +827,33 @@ describe('SdkAgentAdapter', () => {
       } as ClaudeInstallation);
       await h.adapter.initialize();
 
-      const close = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close });
+      const mcp = { x: { type: 'http', url: 'http://x' } };
+      await h.adapter.prewarm(mcp);
 
-      await h.adapter.prewarm();
-
-      expect(getMockedStartup()).toHaveBeenCalledWith(
-        expect.objectContaining({
-          options: expect.objectContaining({
-            pathToClaudeCodeExecutable: '/bin/cli.js',
-          }),
-        }),
+      expect(h.warmQueryManager.prewarm).toHaveBeenCalledTimes(1);
+      expect(h.warmQueryManager.prewarm).toHaveBeenCalledWith(
+        '/bin/cli.js',
+        mcp,
       );
     });
 
-    it('does not throw when stale WarmQuery.close() throws during TTL eviction', async () => {
-      // test now exercises the TTL-eviction path inside consumeWarmQuery.
+    it('delegates consumeWarmQuery() to the warm-query manager', () => {
       const h = makeAdapter();
-      const closeError = new Error('close failed');
-      getMockedStartup().mockResolvedValueOnce({
-        close: () => {
-          throw closeError;
-        },
-      });
-
-      await expect(h.adapter.prewarm()).resolves.toBeUndefined();
-
-      // Force the held handle to look ancient by stomping the timestamp.
-      // Use a private field overwrite via a typed accessor.
-      (
-        h.adapter as unknown as { _warmQueryCreatedAt: number }
-      )._warmQueryCreatedAt = Date.now() - 10 * 60 * 1000;
-
-      // consumeWarmQuery now sees the handle as stale, calls close() which
-      // throws, but must swallow the throw and return null.
-      expect(h.adapter.consumeWarmQuery()).toBeNull();
-      expect(h.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Stale WarmQuery.close()'),
-        closeError,
-      );
-    });
-
-    it('passes mcpServers into startup() when provided', async () => {
-      const h = makeAdapter();
-      const close = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close });
-
-      const mcpServers = {
-        ptah: { type: 'http', url: 'http://localhost:9999' },
-      };
-      await h.adapter.prewarm(mcpServers);
-
-      expect(getMockedStartup()).toHaveBeenCalledWith(
-        expect.objectContaining({
-          options: expect.objectContaining({ mcpServers }),
-        }),
-      );
-    });
-
-    it('discards a stale warm handle (>5min) on consumeWarmQuery and resets prewarmed flag', async () => {
-      const h = makeAdapter();
-      const close = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close });
-
-      await h.adapter.prewarm();
-
-      // Force the held handle to look 6 minutes old.
-      (
-        h.adapter as unknown as { _warmQueryCreatedAt: number }
-      )._warmQueryCreatedAt = Date.now() - 6 * 60 * 1000;
-
-      const consumed = h.adapter.consumeWarmQuery();
-      expect(consumed).toBeNull();
-      expect(close).toHaveBeenCalledTimes(1);
-
-      // Allows a fresh prewarm because the stale-eviction reset _prewarmed.
-      getMockedStartup().mockResolvedValueOnce({ close: jest.fn() });
-      await h.adapter.prewarm();
-      expect(getMockedStartup()).toHaveBeenCalledTimes(2);
-    });
-
-    it('discards warm handle when fingerprint requirement (cli path) mismatches', async () => {
-      // reject + close the handle when the baked fingerprint differs from
-      // what the upcoming session needs. Here we exercise the cli-path
-      // mismatch branch by initializing the adapter with one cli.js path,
-      // prewarming (handle bakes that path), then asking to consume with a
-      // different required path.
-      const h = makeAdapter();
-      h.cliDetector.findExecutable.mockResolvedValueOnce({
-        path: '/bin/claude',
-        source: 'path',
-        cliJsPath: '/bin/cli.js',
-        useDirectExecution: false,
-      } as ClaudeInstallation);
-      await h.adapter.initialize();
-
-      const close = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close, query: jest.fn() });
-      await h.adapter.prewarm();
-
-      const consumed = h.adapter.consumeWarmQuery({
-        pathToClaudeCodeExecutable: '/different/cli.js',
-        mcpServers: null,
-      });
-
-      expect(consumed).toBeNull();
-      expect(close).toHaveBeenCalledTimes(1);
-      expect(h.logger.info).toHaveBeenCalledWith(
-        expect.stringContaining('fingerprint mismatch'),
-      );
-    });
-
-    it('discards warm handle when fingerprint requirement (mcpServers) mismatches', async () => {
-      // Variant of the above for the mcpServers branch — prewarm bakes
-      // an mcpServers map, consumer requests a different (or null) one.
-      const h = makeAdapter();
-      const close = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close, query: jest.fn() });
-
-      await h.adapter.prewarm({ x: { type: 'http', url: 'http://x' } });
-
-      const consumed = h.adapter.consumeWarmQuery({
-        pathToClaudeCodeExecutable: null,
-        mcpServers: null, // baked had an mcp map → mismatch
-      });
-
-      expect(consumed).toBeNull();
-      expect(close).toHaveBeenCalledTimes(1);
-    });
-
-    it('returns warm handle when fingerprint requirements match exactly', async () => {
-      const h = makeAdapter();
-      const close = jest.fn();
-      const warmQuery = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close, query: warmQuery });
-
-      await h.adapter.prewarm();
-
-      // No cli.js path was set (no initialize call), no mcpServers passed.
-      const consumed = h.adapter.consumeWarmQuery({
-        pathToClaudeCodeExecutable: null,
-        mcpServers: null,
-      });
-
-      expect(consumed).not.toBeNull();
-      expect(close).not.toHaveBeenCalled();
+      const handle: WarmQueryHandle = { close: jest.fn() };
+      h.warmQueryManager.consumeWarmQuery.mockReturnValueOnce(handle);
+      expect(h.adapter.consumeWarmQuery()).toBe(handle);
     });
   });
-
-  // -------------------------------------------------------------------------
-  // Warm-query wiring into startChatSession
-  // -------------------------------------------------------------------------
 
   describe('startChatSession warm-query wiring', () => {
-    beforeEach(() => {
-      getMockedStartup().mockReset();
-    });
-
     it('forwards a consumed warm handle to executeQuery on the first send (default settings)', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
-      // Prewarm to retain a warm handle on the adapter.
       const close = jest.fn();
       const warmQueryFn = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close, query: warmQueryFn });
-      await h.adapter.prewarm();
+      const handle: WarmQueryHandle = { close, query: warmQueryFn };
+      h.warmQueryManager.consumeWarmQuery.mockReturnValueOnce(handle);
 
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery: createFakeQuery(),
@@ -1610,25 +864,12 @@ describe('SdkAgentAdapter', () => {
       await h.adapter.startChatSession(makeSessionConfig());
 
       const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
-      // The adapter must hand the warm handle through. The handle may be
-      // wrapped/unwrapped — assert by referencing the close fn (load-bearing
-      // identity for the executor's fallback path).
-      expect(callArg.warmQuery).toBeDefined();
-      expect((callArg.warmQuery as { close: () => void }).close).toBe(close);
+      expect(callArg.warmQuery).toBe(handle);
     });
 
-    it('does NOT forward the warm handle when the session has an mcpServersOverride', async () => {
-      // The fingerprint guard discards the handle pre-emptively when the
-      // caller supplies an MCP override (the warm handle's MCP map cannot
-      // match an arbitrary override). The handle must be closed (not
-      // leaked) because the adapter has nothing else to do with it.
+    it('does NOT call consumeWarmQuery (or forward a handle) when the session has an mcpServersOverride', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
-
-      const close = jest.fn();
-      const warmQueryFn = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close, query: warmQueryFn });
-      await h.adapter.prewarm();
 
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery: createFakeQuery(),
@@ -1648,57 +889,17 @@ describe('SdkAgentAdapter', () => {
         cfg as Parameters<typeof h.adapter.startChatSession>[0],
       );
 
+      // Adapter short-circuited to `null` before touching the warm-query manager.
+      expect(h.warmQueryManager.consumeWarmQuery).not.toHaveBeenCalled();
       const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
-      // Adapter chose null for the warm-handle branch → undefined reaches
-      // the executor.
       expect(callArg.warmQuery).toBeUndefined();
-      // The unused warm handle must have been closed by consumeWarmQuery's
-      // fingerprint-mismatch path... but the adapter's startChatSession
-      // short-circuits to `null` BEFORE calling consumeWarmQuery when
-      // mcpServersOverride is present. So the handle stays held until the
-      // next consume / TTL eviction. This is acceptable: a follow-up
-      // session without an override can still consume it.
-      // Assert the handle is still held on the adapter (NOT yet closed).
-      expect(close).not.toHaveBeenCalled();
-      expect(h.adapter.consumeWarmQuery()).not.toBeNull();
     });
 
-    it('does NOT forward a warm handle on the second send (handle was consumed by the first)', async () => {
+    it('passes warmQuery=undefined when the manager has nothing to consume', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
-      const close = jest.fn();
-      const warmQueryFn = jest.fn();
-      getMockedStartup().mockResolvedValueOnce({ close, query: warmQueryFn });
-      await h.adapter.prewarm();
-
-      h.sessionLifecycle.executeQuery
-        .mockResolvedValueOnce({
-          sdkQuery: createFakeQuery(),
-          initialModel: 'claude-sonnet-4-20250514',
-          abortController: new AbortController(),
-        } as ExecuteQueryResult)
-        .mockResolvedValueOnce({
-          sdkQuery: createFakeQuery(),
-          initialModel: 'claude-sonnet-4-20250514',
-          abortController: new AbortController(),
-        } as ExecuteQueryResult);
-
-      // First send consumes the warm handle.
-      await h.adapter.startChatSession(makeSessionConfig({ tabId: 'tab_1' }));
-      const firstCall = h.sessionLifecycle.executeQuery.mock.calls[0][0];
-      expect(firstCall.warmQuery).toBeDefined();
-
-      // Second send finds nothing to consume — must fall through cleanly.
-      await h.adapter.startChatSession(makeSessionConfig({ tabId: 'tab_2' }));
-      const secondCall = h.sessionLifecycle.executeQuery.mock.calls[1][0];
-      expect(secondCall.warmQuery).toBeUndefined();
-    });
-
-    it('passes warmQuery=undefined when prewarm was never called', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
+      h.warmQueryManager.consumeWarmQuery.mockReturnValueOnce(null);
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery: createFakeQuery(),
         initialModel: 'claude-sonnet-4-20250514',
@@ -1712,9 +913,71 @@ describe('SdkAgentAdapter', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // includePartialMessages — RPC opt-in passthrough
-  // -------------------------------------------------------------------------
+  describe('forkSession() facade', () => {
+    it('throws SdkError before initialize()', async () => {
+      const h = makeAdapter();
+      await expect(
+        h.adapter.forkSession('src' as SessionId),
+      ).rejects.toBeInstanceOf(SdkError);
+      expect(h.forkService.forkSession).not.toHaveBeenCalled();
+    });
+
+    it('delegates to SessionForkService.forkSession with the same params', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.forkService.forkSession.mockResolvedValueOnce({
+        sessionId: 'forked-uuid-123',
+      });
+
+      const result = await h.adapter.forkSession(
+        'source-uuid' as SessionId,
+        'msg-uuid-50',
+        'My Fork',
+      );
+
+      expect(result).toEqual({ sessionId: 'forked-uuid-123' });
+      expect(h.forkService.forkSession).toHaveBeenCalledWith({
+        sessionId: 'source-uuid',
+        upToMessageId: 'msg-uuid-50',
+        title: 'My Fork',
+      });
+    });
+  });
+
+  describe('rewindFiles() facade', () => {
+    it('throws SdkError before initialize()', async () => {
+      const h = makeAdapter();
+      await expect(
+        h.adapter.rewindFiles('s' as SessionId, 'msg-1'),
+      ).rejects.toBeInstanceOf(SdkError);
+      expect(h.forkService.rewindFiles).not.toHaveBeenCalled();
+    });
+
+    it('delegates to SessionForkService.rewindFiles with the same params', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      h.forkService.rewindFiles.mockResolvedValueOnce({
+        canRewind: true,
+        filesChanged: ['/a.ts'],
+        insertions: 1,
+        deletions: 0,
+      });
+
+      const result = await h.adapter.rewindFiles(
+        'live' as SessionId,
+        'msg-1',
+        true,
+      );
+
+      expect(result.canRewind).toBe(true);
+      expect(h.forkService.rewindFiles).toHaveBeenCalledWith({
+        sessionId: 'live',
+        userMessageId: 'msg-1',
+        dryRun: true,
+      });
+    });
+  });
 
   describe('includePartialMessages passthrough', () => {
     it('forwards includePartialMessages=false from startChatSession config to executeQuery', async () => {

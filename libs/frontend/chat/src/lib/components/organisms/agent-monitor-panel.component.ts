@@ -240,8 +240,6 @@ export class AgentMonitorPanelComponent {
   readonly Trash2Icon = Trash2;
   readonly ShieldAlertIcon = ShieldAlert;
 
-  // ---- Embedded mode inputs ----
-
   /** Session-scoped agents. When provided, panel uses these instead of global store. */
   readonly embeddedAgents = input<MonitoredAgent[] | undefined>(undefined);
 
@@ -254,12 +252,8 @@ export class AgentMonitorPanelComponent {
   /** Emits when close button clicked in embedded mode. */
   readonly closed = output<void>();
 
-  // ---- Selection state ----
-
   readonly selectedAgentId = signal<string | null>(null);
   private prevAgentIds = new Set<string>();
-
-  // ---- Computed: effective values (embedded inputs or global store fallback) ----
 
   readonly effectiveAgents = computed(
     () => this.embeddedAgents() ?? this.store.activeTabAgents(),
@@ -294,7 +288,6 @@ export class AgentMonitorPanelComponent {
   });
 
   constructor() {
-    // Auto-select newly spawned agents and handle selection invalidation
     effect(() => {
       const agents = this.effectiveAgents();
       const currentIds = new Set(agents.map((a) => a.agentId));
@@ -303,24 +296,19 @@ export class AgentMonitorPanelComponent {
       const newIds = [...currentIds].filter((id) => !this.prevAgentIds.has(id));
 
       if (newIds.length > 0) {
-        // New agent spawned — select it
         this.selectAgent(newIds[0]);
       } else if (selectedId && !currentIds.has(selectedId)) {
-        // Selected agent was removed — fall back to first
         if (agents.length > 0) {
           this.selectAgent(agents[0].agentId);
         } else {
           this.selectedAgentId.set(null);
         }
       } else if (!selectedId && agents.length > 0) {
-        // Nothing selected yet — select first
         this.selectAgent(agents[0].agentId);
       }
 
       this.prevAgentIds = currentIds;
     });
-
-    // Auto-switch to agent when a permission request arrives
     effect(() => {
       const perms = this.effectivePermissions();
       if (perms.length > 0) {
@@ -329,11 +317,8 @@ export class AgentMonitorPanelComponent {
     });
   }
 
-  // ---- Actions ----
-
   selectAgent(agentId: string): void {
     this.selectedAgentId.set(agentId);
-    // Ensure the card is expanded so output is visible
     const agent = this.effectiveAgents().find((a) => a.agentId === agentId);
     if (agent && !agent.expanded) {
       this.store.toggleAgentExpanded(agentId);

@@ -37,10 +37,6 @@ export function createApplicationMenu(
   getWindow: () => BrowserWindow | null,
 ): void {
   const template: MenuItemConstructorOptions[] = [];
-
-  // ========================================
-  // macOS: App Name Menu
-  // ========================================
   if (isMac) {
     template.push({
       label: app.name,
@@ -65,10 +61,6 @@ export function createApplicationMenu(
       ],
     });
   }
-
-  // ========================================
-  // File Menu
-  // ========================================
   template.push({
     label: 'File',
     submenu: [
@@ -102,10 +94,6 @@ export function createApplicationMenu(
           ]),
     ],
   });
-
-  // ========================================
-  // Edit Menu
-  // ========================================
   template.push({
     label: 'Edit',
     submenu: [
@@ -136,10 +124,6 @@ export function createApplicationMenu(
           ]),
     ],
   });
-
-  // ========================================
-  // View Menu
-  // ========================================
   template.push({
     label: 'View',
     submenu: [
@@ -154,10 +138,6 @@ export function createApplicationMenu(
       { role: 'togglefullscreen' },
     ],
   });
-
-  // ========================================
-  // Window Menu
-  // ========================================
   template.push({
     label: 'Window',
     submenu: isMac
@@ -171,10 +151,6 @@ export function createApplicationMenu(
         ]
       : [{ role: 'minimize' }, { role: 'close' }],
   });
-
-  // ========================================
-  // Help Menu
-  // ========================================
   template.push({
     label: 'Help',
     submenu: [
@@ -211,10 +187,6 @@ export function createApplicationMenu(
                 cancelId: 0,
               });
               if (response !== 1) return;
-              // F-M1 security fix: mint a per-invocation challenge token in
-              // the trusted main-process context. The token is valid for 60 s
-              // and is single-use. Agents that construct RPC calls directly
-              // cannot mint tokens — they cannot bypass this dialog.
               const challengeToken = mintResetChallengeToken();
               win.webContents.send('rpc:invoke', {
                 method: 'db:reset',
@@ -277,9 +249,6 @@ async function handleOpenFolder(
   console.log(`[ApplicationMenu] Opening folder: ${folderPath}`);
 
   try {
-    // addFolder() deduplicates and fires onDidChangeWorkspaceFolders. That
-    // event subscription in workspace-restore.ts broadcasts WORKSPACE_CHANGED
-    // to the renderer, so no separate sendRendererMessage is needed here.
     const workspaceLifecycle = container.resolve<IWorkspaceLifecycleProvider>(
       PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER,
     );

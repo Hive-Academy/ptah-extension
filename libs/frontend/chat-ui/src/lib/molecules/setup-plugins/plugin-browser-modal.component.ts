@@ -483,13 +483,11 @@ export class PluginBrowserModalComponent {
   });
 
   constructor() {
-    // Watch for isOpen changes to load plugins when modal opens
     effect(() => {
       const open = this.isOpen();
       if (open) {
         this.loadPlugins();
       } else {
-        // Reset transient state when modal closes
         this.searchQuery.set('');
         this.expandedPlugins.set(new Set());
       }
@@ -655,8 +653,6 @@ export class PluginBrowserModalComponent {
         this.selectedIds.set(new Set());
         this.disabledSkillIds.set(new Set());
       }
-
-      // Fetch skills independently — failure should not affect plugin display
       if (plugins.length > 0) {
         try {
           const pluginIds = plugins.map((p) => p.id);

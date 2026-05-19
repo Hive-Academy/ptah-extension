@@ -106,7 +106,6 @@ export class NativeOptionComponent<T = unknown> {
   readonly hovered = output<void>();
 
   constructor() {
-    // Validate optionId is non-empty to prevent ARIA accessibility issues
     effect(() => {
       const id = this.optionId();
       if (!id || id.trim().length === 0) {

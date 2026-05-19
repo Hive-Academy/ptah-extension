@@ -29,7 +29,6 @@ export class ElectronOutputManagerAdapter {
   private readonly channels = new Map<string, IOutputChannel>();
 
   constructor(private readonly defaultChannel: IOutputChannel) {
-    // Pre-register the default channel
     this.channels.set(defaultChannel.name, defaultChannel);
   }
 
@@ -42,8 +41,6 @@ export class ElectronOutputManagerAdapter {
     if (existing) {
       return existing;
     }
-    // Reuse the default channel for all "channels" in Electron
-    // (we only have one log output destination)
     this.channels.set(config.name, this.defaultChannel);
     return this.defaultChannel;
   }
@@ -116,12 +113,9 @@ export class ElectronLoggerAdapter {
   private readonly logToConsole: boolean;
 
   constructor(private readonly outputManager: ElectronOutputManagerAdapter) {
-    // Ensure output channel is created
     this.outputManager.createOutputChannel({
       name: ElectronLoggerAdapter.CHANNEL_NAME,
     });
-
-    // Determine log level from environment
     const explicitLevel = process.env['PTAH_LOG_LEVEL'] as LogLevel | undefined;
     if (
       explicitLevel &&
@@ -257,7 +251,6 @@ export class ElectronLoggerAdapter {
   }
 
   dispose(): void {
-    // No-op: OutputManager handles disposal
   }
 
   private log(level: LogLevel, message: string, args: unknown[]): void {

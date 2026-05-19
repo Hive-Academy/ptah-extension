@@ -22,10 +22,6 @@ import {
   getLineFromPosition,
 } from './rule-base';
 
-// ============================================
-// NestJS Rules
-// ============================================
-
 /**
  * Detects classes in NestJS files that lack proper decorators.
  *
@@ -59,13 +55,10 @@ export const missingDecoratorRule: AntiPatternRule = createHeuristicRule({
   category: 'nestjs',
   fileExtensions: ['.ts'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Only check files that import from @nestjs
     const isNestJSFile = /@nestjs\//.test(content);
     if (!isNestJSFile) {
       return [];
     }
-
-    // Check for exported class declarations
     const exportClassPattern = /export\s+class\s+(\w+)/g;
     const classes: Array<{ name: string; index: number }> = [];
     let classMatch: RegExpExecArray | null;
@@ -77,20 +70,14 @@ export const missingDecoratorRule: AntiPatternRule = createHeuristicRule({
     if (classes.length === 0) {
       return [];
     }
-
-    // Known NestJS decorator patterns
     const decoratorPattern =
       /@(?:Injectable|Controller|Module|Guard|Interceptor|Pipe|Middleware|Resolver|Gateway)\s*\(/;
 
     const matches: AntiPatternMatch[] = [];
 
     for (const cls of classes) {
-      // Look at the content before this class declaration for a decorator.
-      // Use 1500 chars to accommodate JSDoc blocks and stacked decorators.
       const lookbackStart = Math.max(0, cls.index - 1500);
       const beforeClass = content.substring(lookbackStart, cls.index);
-
-      // Check if there's a NestJS decorator in the content before this class
       if (!decoratorPattern.test(beforeClass)) {
         matches.push({
           type: 'nestjs-missing-decorator',
@@ -148,22 +135,17 @@ export const controllerLogicRule: AntiPatternRule = createHeuristicRule({
   category: 'nestjs',
   fileExtensions: ['.ts'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Only check files with @Controller decorator
     const hasController = /@Controller\s*\(/.test(content);
     if (!hasController) {
       return [];
     }
 
     const matches: AntiPatternMatch[] = [];
-
-    // Find HTTP method decorators followed by method definitions
-    // @Get(), @Post(), @Put(), @Delete(), @Patch(), @All()
     const httpMethodPattern =
       /@(?:Get|Post|Put|Delete|Patch|All|Head|Options)\s*\([^)]*\)/g;
     let decoratorMatch: RegExpExecArray | null;
 
     while ((decoratorMatch = httpMethodPattern.exec(content)) !== null) {
-      // Find the next opening brace after the decorator (the method body)
       const afterDecorator = content.indexOf(
         '{',
         decoratorMatch.index + decoratorMatch[0].length,
@@ -171,8 +153,6 @@ export const controllerLogicRule: AntiPatternRule = createHeuristicRule({
       if (afterDecorator === -1) {
         continue;
       }
-
-      // Count balanced braces to find method end
       let braceCount = 0;
       let foundStart = false;
       let endIndex = afterDecorator;
@@ -244,7 +224,6 @@ export const unsafeRepositoryRule: AntiPatternRule = createRegexRule({
   severity: 'error',
   category: 'nestjs',
   fileExtensions: ['.ts'],
-  // Match query() or execute() with template literal containing ${
   pattern: /(?:query|execute)\s*\(\s*`[^`]*\$\{/g,
   suggestionTemplate:
     'Use parameterized queries to prevent SQL injection attacks. ' +
@@ -288,14 +267,10 @@ export const missingGuardRule: AntiPatternRule = createHeuristicRule({
   category: 'nestjs',
   fileExtensions: ['.ts'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Only check files with @Controller decorator
     const hasController = /@Controller\s*\(/.test(content);
     if (!hasController) {
       return [];
     }
-
-    // Check for class-level @UseGuards (covers all methods)
-    // Class-level guard appears before the class declaration and after @Controller
     const controllerIndex = content.search(/@Controller\s*\(/);
     const classIndex = content.indexOf('export class', controllerIndex);
     if (classIndex === -1) {
@@ -313,22 +288,15 @@ export const missingGuardRule: AntiPatternRule = createHeuristicRule({
     }
 
     const matches: AntiPatternMatch[] = [];
-
-    // Find mutation method decorators
     const mutationPattern = /@(?:Post|Put|Delete|Patch)\s*\(/g;
     let mutationMatch: RegExpExecArray | null;
 
     while ((mutationMatch = mutationPattern.exec(content)) !== null) {
-      // Look backwards from the mutation decorator for @UseGuards
-      // within a reasonable window (300 chars before, to capture stacked decorators)
       const lookbackStart = Math.max(0, mutationMatch.index - 300);
       const beforeDecorator = content.substring(
         lookbackStart,
         mutationMatch.index,
       );
-
-      // Check for @UseGuards in the decorator stack for this method
-      // We look for @UseGuards that appears after the last empty line or method boundary
       const lastBoundary = Math.max(
         beforeDecorator.lastIndexOf('\n\n'),
         beforeDecorator.lastIndexOf('}\n'),
@@ -391,10 +359,6 @@ export const circularModuleRule: AntiPatternRule = createRegexRule({
     'Refactor module structure to eliminate circular imports. ' +
     'Extract shared functionality into a common module.',
 });
-
-// ============================================
-// Exports
-// ============================================
 
 /**
  * All NestJS anti-pattern detection rules.

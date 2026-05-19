@@ -27,7 +27,7 @@ import type {
 } from './headless-flow.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
-import type { ICopilotAuthService } from '@ptah-extension/agent-sdk';
+import type { ICopilotAuthService } from '@ptah-extension/auth-providers';
 import type { IOAuthUrlOpener } from '@ptah-extension/platform-cli';
 
 /**

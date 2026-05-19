@@ -36,10 +36,6 @@ export class PermissionHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly vscodeService = inject(VSCodeService);
 
-  // ============================================================================
-  // STATE SIGNALS
-  // ============================================================================
-
   /**
    * Active permission requests awaiting user response
    * Private writable signal, exposed as readonly
@@ -130,14 +126,9 @@ export class PermissionHandlerService {
    * Constructor - sets up cleanup effect for expired requests
    */
   constructor() {
-    // Effect to clean up expired question requests automatically
-    // Runs every time the signal changes, checks for timeouts
     effect(() => {
       const requests = this._questionRequests();
       if (requests.length === 0) return;
-
-      // Schedule cleanup check
-      // Guard: timeoutAt === 0 means "no timeout â€” block indefinitely"
       const now = Date.now();
       const expiredIds = requests
         .filter((r) => r.timeoutAt > 0 && r.timeoutAt <= now)
@@ -160,10 +151,6 @@ export class PermissionHandlerService {
     }
     node.children?.forEach((child) => this.extractToolIds(child, set));
   }
-
-  // ============================================================================
-  // MEMOIZATION CACHE for toolIdsInExecutionTree
-  // ============================================================================
 
   /**
    * Cache keys for toolIdsInExecutionTree memoization.
@@ -188,10 +175,6 @@ export class PermissionHandlerService {
   private isRequestForActiveSession(_req: { sessionId?: string }): boolean {
     return true;
   }
-
-  // ============================================================================
-  // COMPUTED SIGNALS
-  // ============================================================================
 
   /**
    * Get permission by tool ID
@@ -224,29 +207,16 @@ export class PermissionHandlerService {
    * Pattern source: chat.store.ts:180-188 (currentExecutionTrees computed signal)
    */
   readonly toolIdsInExecutionTree = computed(() => {
-    // Use fine-grained selectors instead of activeTab() to avoid re-evaluation
-    // when unrelated tab fields (e.g., liveModelStats) change during streaming.
     const tabId = this.tabManager.activeTabId();
     if (!tabId) return new Set<string>();
-
-    // activeTabMessages uses reference equality -- won't re-notify during streaming
-    // when only streamingState changes (messages reference stays the same).
     const messages = this.tabManager.activeTabMessages();
-    // activeTabStreamingState changes every tick during streaming (desired).
     const streamingState = this.tabManager.activeTabStreamingState();
 
     const msgCount = messages.length;
     const toolCallMap = streamingState?.toolCallMap;
-    // Build fingerprint from actual keys â€” catches cases where size stays the
-    // same but keys differ (e.g., one tool removed + another added simultaneously).
     const keyFingerprint = toolCallMap
       ? Array.from(toolCallMap.keys()).sort().join(',')
       : '';
-
-    // Memoize by message count + toolCallMap key fingerprint.
-    // These are the two inputs that change the result. When both are stable
-    // (e.g., during streaming text deltas that don't add new tools),
-    // we skip the full O(messages * children) traversal.
     if (
       tabId === this._lastToolIdsTabId &&
       msgCount === this._lastToolIdsMsgCount &&
@@ -256,25 +226,16 @@ export class PermissionHandlerService {
     }
 
     const toolIds = new Set<string>();
-
-    // 1. Extract from finalized messages (historical tool IDs)
     messages.forEach((msg) => {
       if (msg.streamingState) {
         this.extractToolIds(msg.streamingState, toolIds);
       }
     });
-
-    // 2. Extract from current streaming state (real-time tool IDs) - KEY FIX!
-    // This is what eliminates the race condition: toolCallMap is updated
-    // immediately when tool_start events arrive via streaming-handler,
-    // so permissions can match within 1 frame instead of waiting for tab change.
     if (streamingState?.toolCallMap) {
       for (const toolCallId of streamingState.toolCallMap.keys()) {
         toolIds.add(toolCallId);
       }
     }
-
-    // Update cache keys
     this._lastToolIdsTabId = tabId;
     this._lastToolIdsMsgCount = msgCount;
     this._lastToolIdsKeyFingerprint = keyFingerprint;
@@ -305,18 +266,10 @@ export class PermissionHandlerService {
     const toolIdsInTree = this.toolIdsInExecutionTree();
 
     return sessionPermissions.filter((req) => {
-      // No toolUseId = can never match
       if (!req.toolUseId) return true;
-
-      // Check if any tool in the execution tree has this permission's toolUseId as its toolCallId
-      // If not found in tree, it's unmatched and needs fallback display
       return !toolIdsInTree.has(req.toolUseId);
     });
   });
-
-  // ============================================================================
-  // PUBLIC METHODS
-  // ============================================================================
 
   /**
    * Handle incoming permission request from backend
@@ -331,13 +284,8 @@ export class PermissionHandlerService {
    */
   handlePermissionRequest(request: PermissionRequest): void {
     const receiveTime = Date.now();
-
-    // Calculate latency from backend emission to frontend reception
-    // request.timestamp is set by backend when permission is emitted
     const latencyMs =
       request.timestamp !== undefined ? receiveTime - request.timestamp : null;
-
-    // Performance warning if latency exceeds expected threshold (100ms)
     if (latencyMs !== null && latencyMs > 100) {
       console.warn(
         '[PermissionHandlerService] High permission latency detected:',
@@ -421,13 +369,6 @@ export class PermissionHandlerService {
    * Extracted from chat.store.ts:1344-1364
    */
   handlePermissionResponse(response: PermissionResponse): void {
-    // Track hard deny IDs for targeted interrupted badge display.
-    // Prefer agentToolCallId (the parent Task tool's ID) over toolUseId
-    // (the denied tool's own ID). The frontend's markAgentsAsInterruptedByToolCallIds
-    // matches against agent node toolCallIds, which are Task tool IDs.
-    // - agentToolCallId set & not sentinel: use it (targeted marking)
-    // - agentToolCallId is sentinel: use sentinel (legacy fallback)
-    // - agentToolCallId unset: no subagent context, use sentinel (legacy fallback)
     if (response.decision === 'deny') {
       const originalRequest = this._permissionRequests().find(
         (r) => r.id === response.id,
@@ -443,17 +384,9 @@ export class PermissionHandlerService {
         return next;
       });
     }
-
-    // Remove from pending requests
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
     );
-
-    // Broadcast the decision so StreamRouter can fan a cancellation out to
-    // every other bound tab. We resolve the
-    // deciding tab id from the active tab (the user clicked from there).
-    // If no active tab, pass null — the router will still drop the prompt
-    // from any per-tab queues globally.
     const decidingTabId = this.tabManager.activeTabId() ?? null;
     this._decisionSeq += 1;
     this._decisionPulse.set({
@@ -462,8 +395,6 @@ export class PermissionHandlerService {
       decidingTabId,
     });
     this._promptTargetTabs.delete(response.id);
-
-    // Use public VSCodeService.postMessage() API
     this.vscodeService.postMessage({
       type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
       response,
@@ -506,10 +437,6 @@ export class PermissionHandlerService {
     return permission ?? null;
   }
 
-  // ============================================================================
-  // ASKUSERQUESTION METHODS
-  // ============================================================================
-
   /**
    * Handle incoming AskUserQuestion request from backend
    *
@@ -522,24 +449,14 @@ export class PermissionHandlerService {
    */
   handleQuestionRequest(request: AskUserQuestionRequest): void {
     const receiveTime = Date.now();
-
-    // Calculate latency from backend emission to frontend reception
     const latencyMs =
       request.timestamp !== undefined ? receiveTime - request.timestamp : null;
-
-    // Performance warning if latency exceeds expected threshold (100ms)
     if (latencyMs !== null && latencyMs > 100) {
       console.warn(
         '[PermissionHandlerService] High question request latency detected:',
         `${latencyMs}ms (expected < 100ms)`,
       );
     }
-
-    // Collision guard. If a question with this id is already in the queue,
-    // log a warning and return
-    // without appending. Backend retries (e.g. session-resume re-emit)
-    // would otherwise produce duplicate cards; the original entry must
-    // win because it owns the router-resolved target tabs.
     const existing = this._questionRequests().find((r) => r.id === request.id);
     if (existing) {
       console.warn('question.duplicate-id', { id: request.id });
@@ -560,14 +477,11 @@ export class PermissionHandlerService {
    * @param response The user's answers to the questions
    */
   handleQuestionResponse(response: AskUserQuestionResponse): void {
-    // Remove from pending requests
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
     );
 
     this._questionTargetTabs.delete(response.id);
-
-    // Send to backend via VSCodeService
     this.vscodeService.postMessage({
       type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE,
       payload: response,
@@ -582,10 +496,6 @@ export class PermissionHandlerService {
    */
   attachQuestionTargets(questionId: string, tabIds: readonly string[]): void {
     if (!tabIds || tabIds.length === 0) return;
-    // Collision guard. If targets for this question id were already
-    // attached, log and skip. Preserve the original target — re-routing
-    // flows call the dedicated refresh path that reads the existing list
-    // before overwriting.
     if (this._questionTargetTabs.has(questionId)) {
       console.warn('question.duplicate-id', {
         id: questionId,
@@ -594,11 +504,6 @@ export class PermissionHandlerService {
       return;
     }
     this._questionTargetTabs.set(questionId, [...tabIds]);
-    // Force signal-dependent computeds (e.g. `resolvedQuestionRequests`) to
-    // re-evaluate now that targets are known. The Map mutation alone is not
-    // observable, and routeQuestionPrompt runs immediately after the signal
-    // update — without this nudge the filter stays on the fallback path
-    // for one tick longer than necessary.
     this._questionRequests.update((reqs) => reqs.slice());
   }
 
@@ -678,7 +583,6 @@ export class PermissionHandlerService {
    * Prevents stale permission/question cards from lingering in the UI.
    */
   cleanupSession(sessionId: string): void {
-    // Capture removed prompt ids first so we can drop their fan-out metadata.
     const removedIds = this._permissionRequests()
       .filter((r) => r.sessionId === sessionId)
       .map((r) => r.id);

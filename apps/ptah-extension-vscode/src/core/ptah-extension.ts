@@ -20,21 +20,15 @@ import type { LicenseCommands } from '../commands/license-commands';
 export class PtahExtension implements vscode.Disposable {
   private static _instance: PtahExtension;
   private disposables: vscode.Disposable[] = [];
-
-  // Core services from DI
   private logger: Logger;
   private errorHandler: ErrorHandler;
   private configManager: ConfigManager;
   private commandManager: CommandManager;
   private webviewManager: WebviewManager;
-
-  // Webview provider
   private angularWebviewProvider?: AngularWebviewProvider;
 
   constructor(private context: vscode.ExtensionContext) {
     PtahExtension._instance = this;
-
-    // Resolve core services from DI container
     this.logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
     this.errorHandler = DIContainer.resolve<ErrorHandler>(TOKENS.ERROR_HANDLER);
     this.configManager = DIContainer.resolve<ConfigManager>(
@@ -58,13 +52,9 @@ export class PtahExtension implements vscode.Disposable {
   async initialize(): Promise<void> {
     try {
       this.logger.info('Initializing Ptah extension...');
-
-      // Resolve webview provider from DI
       this.angularWebviewProvider = DIContainer.resolve<AngularWebviewProvider>(
         TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       );
-
-      // Register webview provider with VS Code
       this.registerWebviews();
 
       this.logger.info('Ptah extension initialized successfully');
@@ -82,15 +72,11 @@ export class PtahExtension implements vscode.Disposable {
    * Register all components - called after initialization
    */
   async registerAll(): Promise<void> {
-    // Register license commands.
     const licenseCommands = DIContainer.resolve<LicenseCommands>(
       TOKENS.LICENSE_COMMANDS,
     );
     licenseCommands.registerCommands(this.context);
     this.logger.info('License commands registered');
-
-    // All other registration now happens in initialize()
-    // This method kept for API compatibility with main.ts
     this.logger.info('Extension components registered');
   }
 
@@ -117,9 +103,6 @@ export class PtahExtension implements vscode.Disposable {
       },
     );
     this.disposables.push(disposable);
-
-    // Register command to open editor panel.
-    // This command is declared in package.json and triggered from webview header button.
     const provider = this.angularWebviewProvider;
     const logger = this.logger;
     const panelCommand = vscode.commands.registerCommand(
@@ -153,9 +136,6 @@ export class PtahExtension implements vscode.Disposable {
       },
     );
     this.disposables.push(dashboardCommand);
-
-    // Backward compat: this command still sends 'orchestra-canvas' as initialView.
-    // AppStateManager.initializeState() maps it to layoutMode('grid') + chat view.
     const orchestraCanvasCommand = vscode.commands.registerCommand(
       'ptah.openOrchestraCanvas',
       async () => {

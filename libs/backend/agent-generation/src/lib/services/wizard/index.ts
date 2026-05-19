@@ -8,21 +8,15 @@
  * - ProjectAnalysisZodSchema: Shared Zod schema for analysis validation
  * - normalizeAgentOutput: LLM output to DeepProjectAnalysis normalization
  */
-
-// Barrel exports for wizard child services
 export { WizardWebviewLifecycleService } from './webview-lifecycle.service';
 export { AgenticAnalysisService } from './agentic-analysis.service';
 export { MultiPhaseAnalysisService } from './multi-phase-analysis.service';
-
-// Shared analysis schema and normalization
 export {
   ProjectAnalysisZodSchema,
   normalizeAgentOutput,
   resolveProjectType,
 } from './analysis-schema';
 export type { ProjectAnalysisZodOutput } from './analysis-schema';
-
-// Type exports
 export type {
   CustomMessageHandler,
   WizardPanelInitialData,

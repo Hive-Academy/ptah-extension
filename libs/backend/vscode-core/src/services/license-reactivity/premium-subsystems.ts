@@ -43,10 +43,6 @@ export interface PremiumSubsystemsDeps {
   syncCliAgents?: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// bringUpPremiumSubsystems
-// ---------------------------------------------------------------------------
-
 /**
  * Idempotently start premium subsystems after a license:verified event.
  *
@@ -63,8 +59,6 @@ export async function bringUpPremiumSubsystems(
   deps: PremiumSubsystemsDeps,
 ): Promise<void> {
   const { container, logger } = deps;
-
-  // Step 1: re-verify — never trust the caller's claim.
   let isPremium = false;
   try {
     const licenseService = container.resolve<LicenseService>(
@@ -94,8 +88,6 @@ export async function bringUpPremiumSubsystems(
   }
 
   let anyStarted = false;
-
-  // Step 2 + 3: Start MCP server and register for subagents.
   try {
     if (container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
       const mcpService = container.resolve(TOKENS.CODE_EXECUTION_MCP) as {
@@ -115,8 +107,6 @@ export async function bringUpPremiumSubsystems(
         logger.info(`[PremiumSubsystems] MCP server started on port ${port}`);
         anyStarted = true;
       }
-
-      // Always try to register (idempotent internally)
       try {
         mcpService.ensureRegisteredForSubagents();
       } catch (regError: unknown) {
@@ -138,8 +128,6 @@ export async function bringUpPremiumSubsystems(
       error: mcpError instanceof Error ? mcpError.message : String(mcpError),
     });
   }
-
-  // Step 4: CLI skill sync (fire-and-forget, delegated to app callback).
   if (deps.syncCliSkills) {
     try {
       deps.syncCliSkills();
@@ -153,8 +141,6 @@ export async function bringUpPremiumSubsystems(
       });
     }
   }
-
-  // Step 5: CLI agent sync (fire-and-forget, delegated to app callback).
   if (deps.syncCliAgents) {
     try {
       deps.syncCliAgents();
@@ -168,8 +154,6 @@ export async function bringUpPremiumSubsystems(
       });
     }
   }
-
-  // Step 6: Invalidate FeatureGateService cache.
   try {
     if (container.isRegistered(TOKENS.FEATURE_GATE_SERVICE)) {
       const featureGate = container.resolve<FeatureGateService>(
@@ -186,16 +170,10 @@ export async function bringUpPremiumSubsystems(
       },
     );
   }
-
-  // Step 7: Notify.
   if (anyStarted) {
     deps.notify?.('verified');
   }
 }
-
-// ---------------------------------------------------------------------------
-// tearDownPremiumSubsystems
-// ---------------------------------------------------------------------------
 
 /**
  * Idempotently stop premium subsystems after a license:expired event.
@@ -210,8 +188,6 @@ export async function tearDownPremiumSubsystems(
   deps: PremiumSubsystemsDeps,
 ): Promise<void> {
   const { container, logger } = deps;
-
-  // Step 1: Stop MCP server.
   try {
     if (container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
       const mcpService = container.resolve(TOKENS.CODE_EXECUTION_MCP) as {
@@ -236,8 +212,6 @@ export async function tearDownPremiumSubsystems(
       error: mcpError instanceof Error ? mcpError.message : String(mcpError),
     });
   }
-
-  // Step 2: Clean up CLI skills/agents via the sync service.
   try {
     if (container.isRegistered(TOKENS.CLI_PLUGIN_SYNC_SERVICE)) {
       const cliPluginSync = container.resolve(
@@ -256,8 +230,6 @@ export async function tearDownPremiumSubsystems(
           : String(cleanupError),
     });
   }
-
-  // Step 3: Invalidate FeatureGateService cache.
   try {
     if (container.isRegistered(TOKENS.FEATURE_GATE_SERVICE)) {
       const featureGate = container.resolve<FeatureGateService>(
@@ -274,7 +246,5 @@ export async function tearDownPremiumSubsystems(
       },
     );
   }
-
-  // Step 4: Notify.
   deps.notify?.('expired');
 }

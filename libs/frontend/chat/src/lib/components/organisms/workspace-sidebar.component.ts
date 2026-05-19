@@ -110,8 +110,6 @@ export class WorkspaceSidebarComponent {
 
   /** Sidebar width in pixels (controlled by parent via resize handle) */
   readonly width = input<number>(220);
-
-  // Icons
   readonly FolderOpenIcon = FolderOpen;
   readonly FolderPlusIcon = FolderPlus;
   readonly XIcon = X;

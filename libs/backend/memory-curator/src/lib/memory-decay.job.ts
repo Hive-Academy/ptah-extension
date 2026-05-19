@@ -43,7 +43,6 @@ export class MemoryDecayJob {
 
     const memories = this.store.all();
     for (const m of memories) {
-      // Hard expiry first.
       if (m.expiresAt !== null && now > m.expiresAt) {
         this.store.forget(m.id);
         expired++;

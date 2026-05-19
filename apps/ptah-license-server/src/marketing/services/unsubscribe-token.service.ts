@@ -30,7 +30,6 @@ export class UnsubscribeTokenService implements OnModuleInit {
   }
 
   onModuleInit() {
-    // Fail-closed at module init: throw if UNSUBSCRIBE_TOKEN_SECRET missing or <32 bytes.
     if (!this.secret || this.secret.length < 32) {
       const error =
         'UNSUBSCRIBE_TOKEN_SECRET is missing or too short (must be at least 32 bytes).';
@@ -66,8 +65,6 @@ export class UnsubscribeTokenService implements OnModuleInit {
           secret: this.secret,
         },
       );
-
-      // Rejects mismatched purpose or version
       if (payload.purpose !== 'unsubscribe' || payload.v !== this.VERSION) {
         this.logger.warn(
           `Invalid unsubscribe token payload: purpose=${payload.purpose}, v=${payload.v}`,

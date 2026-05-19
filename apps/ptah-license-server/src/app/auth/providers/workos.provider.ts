@@ -53,9 +53,6 @@ export const WorkOSClientProvider: Provider = {
       logger.error(error);
       throw new Error(error);
     }
-
-    // Package is marked as external in webpack.config.js
-    // Node.js loads it directly, so imports work as expected
     const client = new WorkOS(apiKey);
     logger.log('WorkOS client initialized successfully');
 

@@ -68,8 +68,6 @@ import {
 })
 export class CodeOutputComponent {
   readonly node = input.required<ExecutionNode>();
-
-  // Language extension mapping
   private readonly languageMap: Record<string, string> = {
     '.ts': 'typescript',
     '.tsx': 'tsx',
@@ -105,19 +103,13 @@ export class CodeOutputComponent {
 
     let str =
       typeof output === 'string' ? output : JSON.stringify(output, null, 2);
-
-    // Processing pipeline
     str = this.extractMCPContent(str);
     str = this.stripSystemReminders(str);
     str = this.stripAnsiCodes(str);
     str = this.stripLineNumbers(str);
 
     const language = this.detectLanguage();
-
-    // For markdown files, render as markdown (no code block)
     if (language === 'markdown') return str;
-
-    // Wrap in code block with language
     return '```' + language + '\n' + str + '\n```';
   });
 
@@ -131,16 +123,10 @@ export class CodeOutputComponent {
     const toolName = node.toolName;
     const toolInput = node.toolInput;
     const output = node.toolOutput;
-
-    // Detect language based on tool type using type guards
     let language = 'text';
-
-    // MCP tool responses are already formatted as markdown by mcp-response-formatter
     if (toolName?.startsWith('mcp__')) {
       return 'markdown';
     }
-
-    // Use type guards for type-safe property access
     if (
       isReadToolInput(toolInput) ||
       isWriteToolInput(toolInput) ||
@@ -150,22 +136,14 @@ export class CodeOutputComponent {
     } else if (toolName === 'Bash') {
       language = 'bash';
     } else if (toolName === 'Grep' || toolName === 'Glob') {
-      // Grep/Glob outputs are typically file lists or search results
       language = 'text';
     }
-
-    // Check if output is JSON (auto-detect)
     const str = typeof output === 'string' ? output : '';
     const trimmed = str.trim();
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        // Only treat as JSON if it's an object (not extracted MCP content)
-        if (typeof parsed === 'object') {
-          language = 'json';
-        }
-      } catch {
-        // Not valid JSON, keep detected language
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'object') {
+        language = 'json';
       }
     }
 
@@ -187,7 +165,6 @@ export class CodeOutputComponent {
    * Claude CLI adds these tags to tool results but they should not be displayed
    */
   private stripSystemReminders(content: string): string {
-    // Remove <system-reminder>...</system-reminder> tags and their content
     return content
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
       .trim();
@@ -199,12 +176,9 @@ export class CodeOutputComponent {
    * We strip these for cleaner display in the UI
    */
   private stripLineNumbers(content: string): string {
-    // Match pattern: optional spaces, digits, arrow (→), then content
-    // Example: "     1→import { Module }" becomes "import { Module }"
     return content
       .split('\n')
       .map((line) => {
-        // Pattern: optional whitespace, one or more digits, arrow character
         const match = line.match(/^\s*\d+→(.*)$/);
         return match ? match[1] : line;
       })
@@ -217,15 +191,12 @@ export class CodeOutputComponent {
    * This extracts just the text for cleaner display
    */
   private extractMCPContent(content: string): string {
-    // Check if it looks like an MCP content array
     const trimmed = content.trim();
     if (!trimmed.startsWith('[')) return content;
 
     try {
       const parsed = JSON.parse(trimmed);
       if (!Array.isArray(parsed)) return content;
-
-      // Check if it's MCP content format: array of {type, text} objects
       const isMCPContent = parsed.every(
         (item: unknown) =>
           typeof item === 'object' &&
@@ -236,7 +207,6 @@ export class CodeOutputComponent {
       );
 
       if (isMCPContent) {
-        // Extract and join all text content
         return parsed
           .map((item: { type: string; text: string }) => item.text)
           .join('\n');
@@ -244,7 +214,6 @@ export class CodeOutputComponent {
 
       return content;
     } catch {
-      // Not valid JSON, return as-is
       return content;
     }
   }

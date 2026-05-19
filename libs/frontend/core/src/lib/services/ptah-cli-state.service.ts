@@ -18,14 +18,10 @@ import type { PtahCliSummary } from '@ptah-extension/shared';
 @Injectable({ providedIn: 'root' })
 export class PtahCliStateService {
   private readonly rpc = inject(ClaudeRpcService);
-
-  // Private mutable signals
   private readonly _agents = signal<PtahCliSummary[]>([]);
   private readonly _selectedAgentId = signal<string | null>(null);
   private readonly _isLoading = signal(false);
   private readonly _isLoaded = signal(false);
-
-  // Public readonly signals
 
   /** All Ptah CLI agents (enabled and disabled) */
   readonly agents = this._agents.asReadonly();
@@ -63,7 +59,6 @@ export class PtahCliStateService {
   readonly isLoaded = this._isLoaded.asReadonly();
 
   constructor() {
-    // Load Ptah CLI agents on initialization
     this.loadAgents();
   }
 
@@ -96,8 +91,6 @@ export class PtahCliStateService {
       );
       if (result.isSuccess()) {
         this._agents.set(result.data.agents);
-
-        // If selected agent was deleted or disabled, clear selection
         const selectedId = this._selectedAgentId();
         if (selectedId) {
           const stillValid = result.data.agents.some(

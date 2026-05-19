@@ -18,10 +18,8 @@ import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import {
-  McpRegistryProvider,
-  DEFAULT_FALLBACK_MODEL_ID,
-} from '@ptah-extension/agent-sdk';
+import { DEFAULT_FALLBACK_MODEL_ID } from '@ptah-extension/agent-sdk';
+import { McpRegistryProvider } from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentOverride,
   AvailableAgent,
@@ -164,8 +162,6 @@ export class HarnessSuggestionService {
     }
   }
 
-  // ── LLM-backed suggestion ────────────────────────────────
-
   private async buildSuggestionViaAgent(
     description: string,
     goals: string[],
@@ -173,10 +169,6 @@ export class HarnessSuggestionService {
     availableAgents: AvailableAgent[],
   ): Promise<HarnessSuggestConfigResponse> {
     const workspaceRoot = this.workspaceContext.requireWorkspaceRoot();
-
-    // No `postProcess` — broadcast fires immediately after streaming, then
-    // validation/agent-filter/MCP-search runs OUTSIDE the runner so that
-    // the broadcast timing matches the pre-extraction behaviour.
     const { structuredOutput } = await this.llmRunner.run({
       operation: 'suggest-config',
       serviceTag: '[HarnessSuggest]',
@@ -507,8 +499,6 @@ export class HarnessSuggestionService {
       .filter((w) => w.length >= 3 && !stopWords.has(w))
       .filter((w, i, arr) => arr.indexOf(w) === i);
   }
-
-  // ── LLM-backed intent analysis ───────────────────────────
 
   private async analyzeIntentViaAgent(
     input: string,

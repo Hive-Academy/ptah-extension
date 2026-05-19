@@ -122,8 +122,6 @@ export class AgentMonitorTreeBuilderService {
     let changed = false;
     const finalized = nodes.map((node) => {
       let updated = node;
-
-      // Finalize orphaned tool nodes
       if (node.type === 'tool' && node.status === 'streaming') {
         updated = createExecutionNode({
           ...node,
@@ -132,8 +130,6 @@ export class AgentMonitorTreeBuilderService {
         });
         changed = true;
       }
-
-      // Recurse into children
       if (node.children.length > 0) {
         const currentChildren = node.children;
         const newChildren = this.finalizeOrphanedTools(currentChildren);
@@ -164,24 +160,13 @@ export class AgentMonitorTreeBuilderService {
     this.segmentCacheMap.clear();
   }
 
-  // ─────────────────────────────────────────────────────────
-  // Segment-based tree building (Copilot / Gemini)
-  // ─────────────────────────────────────────────────────────
-
   private buildTreeFromSegmentsInternal(
     segments: readonly CliOutputSegment[],
   ): ExecutionNode[] {
     if (segments.length === 0) return [];
 
     const nodes: ExecutionNode[] = [];
-
-    // Two-pass approach: first pass collects tool-call/result pairings,
-    // second pass builds the final immutable nodes.
-    // We use a mutable intermediate map for tool nodes that need result pairing.
-
-    // Index: toolCallId → index into nodes array (for replacement on result)
     const toolCallIdToIndex = new Map<string, number>();
-    // FIFO queue of tool-node indices without toolCallId (fallback matching)
     const unresolvedToolIndices: number[] = [];
 
     let textBuffer = '';
@@ -240,10 +225,6 @@ export class AgentMonitorTreeBuilderService {
         case 'tool-call': {
           if (textBuffer) flushText();
           if (thinkingBuffer) flushThinking();
-
-          // Prefer raw toolInput (structured object) over summary string.
-          // Normalize field names so existing type guards work across CLIs
-          // (e.g. Copilot uses 'path' while Claude SDK uses 'file_path').
           const toolInput = segment.toolInput
             ? this.normalizeToolInput(segment.toolName ?? '', segment.toolInput)
             : segment.toolArgs
@@ -275,14 +256,11 @@ export class AgentMonitorTreeBuilderService {
         case 'file-change': {
           if (textBuffer) flushText();
           if (thinkingBuffer) flushThinking();
-
-          // Find matching tool node by toolCallId or FIFO fallback
           let matchedIndex = -1;
           if (segment.toolCallId) {
             matchedIndex = toolCallIdToIndex.get(segment.toolCallId) ?? -1;
           }
           if (matchedIndex === -1 && unresolvedToolIndices.length > 0) {
-            // FIFO: walk forward to find first unresolved tool node
             for (let j = 0; j < unresolvedToolIndices.length; j++) {
               if (nodes[unresolvedToolIndices[j]].status === 'streaming') {
                 matchedIndex = unresolvedToolIndices[j];
@@ -293,7 +271,6 @@ export class AgentMonitorTreeBuilderService {
 
           if (matchedIndex >= 0) {
             const original = nodes[matchedIndex];
-            // Create a new node with result data (immutable replacement)
             nodes[matchedIndex] = createExecutionNode({
               ...original,
               status:
@@ -302,7 +279,6 @@ export class AgentMonitorTreeBuilderService {
               toolName: original.toolName || segment.toolName,
             });
           } else {
-            // Orphan result — render as standalone text
             nodes.push(
               createExecutionNode({
                 id: `seg-orphan-${i}`,
@@ -348,8 +324,6 @@ export class AgentMonitorTreeBuilderService {
           break;
       }
     }
-
-    // Flush remaining buffers
     if (textBuffer) flushText();
     if (thinkingBuffer) flushThinking();
 
@@ -366,8 +340,6 @@ export class AgentMonitorTreeBuilderService {
   ): Record<string, unknown> {
     const normalized = { ...input };
     const name = toolName.toLowerCase();
-
-    // Normalize 'path' → 'file_path' for read/write/edit tools
     if (
       'path' in normalized &&
       !('file_path' in normalized) &&
@@ -379,21 +351,13 @@ export class AgentMonitorTreeBuilderService {
     return normalized;
   }
 
-  // ─────────────────────────────────────────────────────────
-  // Internal tree building (FlatStreamEventUnion-based)
-  // ─────────────────────────────────────────────────────────
-
   private buildTreeInternal(
     events: readonly FlatStreamEventUnion[],
   ): ExecutionNode[] {
     if (events.length === 0) return [];
-
-    // Step 1: Build accumulators from delta events
     const textAccumulators = new Map<string, string>();
     const thinkingAccumulators = new Map<string, string>();
     const toolInputAccumulators = new Map<string, string>();
-
-    // Step 2: Index landmark events for lookup
     const messageStarts: MessageStartEvent[] = [];
     const toolStarts: ToolStartEvent[] = [];
     const toolResults = new Map<string, ToolResultEvent>();
@@ -442,30 +406,17 @@ export class AgentMonitorTreeBuilderService {
         case 'agent_start':
           agentStarts.push(event as AgentStartEvent);
           break;
-
-        // Skip non-structural events: message_delta, signature_delta,
-        // compaction_start/complete, background_agent_* events
-        // They don't contribute to the ExecutionNode tree structure
         default:
           break;
       }
     }
-
-    // Step 3: Build tree from root messages
-    // Root messages have no parentToolUseId.
-    // For sub-agent cards (e.g., Explore/Task spawned by ptah-cli), ALL messages
-    // have parentToolUseId set because they're nested under the parent's tool call.
-    // In that case, treat all messages as roots since the card IS the sub-agent context.
     let rootMessageStarts = messageStarts.filter((ms) => !ms.parentToolUseId);
 
     if (rootMessageStarts.length === 0) {
-      // Fallback: use all messages as roots (sub-agent card context)
       rootMessageStarts = messageStarts;
     }
 
     if (rootMessageStarts.length === 0) {
-      // No messages at all — return empty tree
-      // This can happen early in streaming before message_start arrives
       return [];
     }
 
@@ -484,13 +435,7 @@ export class AgentMonitorTreeBuilderService {
         messageStarts,
         0,
       );
-
-      // Skip empty messages
       if (children.length === 0) continue;
-
-      // Return root children directly (unwrap the message container).
-      // The agent card already provides its own header/chrome, so we don't
-      // need a 'message' wrapper node.
       rootNodes.push(...children);
     }
 
@@ -514,8 +459,6 @@ export class AgentMonitorTreeBuilderService {
     depth: number,
   ): ExecutionNode[] {
     const children: ExecutionNode[] = [];
-
-    // Collect text blocks
     for (const [key, text] of textAccumulators) {
       if (key.startsWith(`${messageId}-block-`)) {
         const blockIndex = parseInt(key.split('-block-')[1], 10);
@@ -531,8 +474,6 @@ export class AgentMonitorTreeBuilderService {
         );
       }
     }
-
-    // Collect thinking blocks
     for (const [key, text] of thinkingAccumulators) {
       if (key.startsWith(`${messageId}-thinking-`)) {
         const blockIndex = parseInt(key.split('-thinking-')[1], 10);
@@ -548,12 +489,6 @@ export class AgentMonitorTreeBuilderService {
         );
       }
     }
-
-    // Collect tools belonging to this message.
-    // Each message has a unique ID, so messageId alone is sufficient.
-    // Do NOT also filter by !parentToolUseId — subagent messages have
-    // parentToolUseId set (pointing to the Task tool that spawned them),
-    // and excluding those would leave subagent tool nodes empty.
     const messageTools = toolStarts.filter((ts) => ts.messageId === messageId);
 
     for (const toolStart of messageTools) {
@@ -570,8 +505,6 @@ export class AgentMonitorTreeBuilderService {
       );
       children.push(toolNode);
     }
-
-    // Sort by startTime for correct ordering
     return children.sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0));
   }
 
@@ -591,12 +524,8 @@ export class AgentMonitorTreeBuilderService {
     depth: number,
   ): ExecutionNode {
     const resultEvent = toolResults.get(toolStart.toolCallId);
-
-    // Get accumulated tool input
     const inputKey = `${toolStart.toolCallId}-input`;
     const inputString = toolInputAccumulators.get(inputKey) ?? '';
-
-    // Parse tool input JSON (only when tool is complete to avoid parse errors on partial JSON)
     let toolInput: Record<string, unknown> | undefined;
     if (inputString && resultEvent) {
       try {
@@ -605,8 +534,6 @@ export class AgentMonitorTreeBuilderService {
           toolInput = parsed;
         }
       } catch {
-        // Parse failure -- fall back to toolStart.toolInput if available
-        // (complete source provides parsed input even when accumulator has partial JSON)
         if (
           toolStart.toolInput &&
           Object.keys(toolStart.toolInput).length > 0
@@ -620,7 +547,6 @@ export class AgentMonitorTreeBuilderService {
         }
       }
     } else if (inputString) {
-      // Still streaming -- show raw snippet
       toolInput = {
         __streaming: true,
         __rawSnippet:
@@ -632,8 +558,6 @@ export class AgentMonitorTreeBuilderService {
     ) {
       toolInput = toolStart.toolInput;
     }
-
-    // Check if this is an Agent/Task tool (agent spawn)
     if (toolStart.isTaskTool || isAgentDispatchTool(toolStart.toolName)) {
       const agentNode = this.buildAgentNodeFromTool(
         toolStart,
@@ -649,10 +573,7 @@ export class AgentMonitorTreeBuilderService {
         depth,
       );
       if (agentNode) return agentNode;
-      // Fall through to normal tool if no agent found
     }
-
-    // Normal tool node
     return createExecutionNode({
       id: toolStart.id,
       type: 'tool',
@@ -686,13 +607,9 @@ export class AgentMonitorTreeBuilderService {
     depth: number,
   ): ExecutionNode | null {
     if (depth >= MAX_DEPTH) return null;
-
-    // Find matching agent_start event
     let matchedAgent = agentStarts.find(
       (as) => as.parentToolUseId === toolStart.toolCallId,
     );
-
-    // Fallback: match by agentType from tool input
     if (!matchedAgent) {
       const inputKey = `${toolStart.toolCallId}-input`;
       const inputString = toolInputAccumulators.get(inputKey) ?? '';
@@ -700,7 +617,6 @@ export class AgentMonitorTreeBuilderService {
 
       if (typeMatch) {
         const agentType = typeMatch[1];
-        // Find closest agent_start by timestamp
         let bestMatch: AgentStartEvent | undefined;
         let bestDiff = Infinity;
         for (const as of agentStarts) {
@@ -715,8 +631,6 @@ export class AgentMonitorTreeBuilderService {
         matchedAgent = bestMatch;
       }
     }
-
-    // Extract agent info from tool input or toolStart
     const agentType =
       matchedAgent?.agentType ??
       toolStart.agentType ??
@@ -727,14 +641,10 @@ export class AgentMonitorTreeBuilderService {
       toolStart.agentDescription ??
       (toolInput?.['description'] as string) ??
       'Agent working...';
-
-    // Find nested assistant messages (children of this agent)
     const agentMessageStarts = messageStarts.filter(
       (ms) =>
         ms.parentToolUseId === toolStart.toolCallId && ms.role === 'assistant',
     );
-
-    // Build children for the agent (from nested messages)
     const agentChildren: ExecutionNode[] = [];
     for (const msgStart of agentMessageStarts) {
       const msgChildren = this.buildMessageChildren(
@@ -749,7 +659,6 @@ export class AgentMonitorTreeBuilderService {
         messageStarts,
         depth + 1,
       );
-      // Unwrap message node -- agent shows content directly
       agentChildren.push(...msgChildren);
     }
 

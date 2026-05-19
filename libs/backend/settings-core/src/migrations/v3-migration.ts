@@ -46,14 +46,11 @@ export async function runV3Migration(
   masterKeyProvider: IMasterKeyProvider,
 ): Promise<void> {
   const settingsPath = path.join(ptahDir, 'settings.json');
-
-  // 1. Read settings.json.
   let raw: string;
   try {
     raw = await fsPromises.readFile(settingsPath, 'utf8');
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') {
-      // No settings file yet — nothing to migrate.
       return;
     }
     throw err;
@@ -63,11 +60,8 @@ export async function runV3Migration(
   try {
     data = JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    // Corrupt settings file — skip migration.
     return;
   }
-
-  // 2. Collect gateway cipher values (nested JSON format, e.g. { gateway: { telegram: { tokenCipher: '...' } } }).
   const toMigrate: Array<{ key: string; value: string }> = [];
   for (const key of GATEWAY_SECRET_KEYS) {
     const value = readNestedKey(data, key);
@@ -77,21 +71,14 @@ export async function runV3Migration(
   }
 
   if (toMigrate.length === 0) {
-    // Nothing to move — migration is already complete or no tokens were set.
     return;
   }
-
-  // 3. Encrypt and write each value into secrets.enc.json.
-  //    We treat the existing Vault cipher string as the "plaintext" for the
-  //    envelope layer (see module doc for the two-layer encryption rationale).
   const masterKey = await masterKeyProvider.getMasterKey();
   const secretsStore = new SecretsFileStore(ptahDir);
 
   for (const { key, value } of toMigrate) {
     await secretsStore.write(key, value, masterKey);
   }
-
-  // 4. Delete the migrated keys from settings.json and write atomically.
   for (const { key } of toMigrate) {
     deleteNestedKey(data, key);
   }
@@ -100,8 +87,6 @@ export async function runV3Migration(
   await fsPromises.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf8');
   await fsPromises.rename(tmpPath, settingsPath);
 }
-
-// ---- helpers ----------------------------------------------------------------
 
 /**
  * Read a dot-notation key from a nested JSON object.

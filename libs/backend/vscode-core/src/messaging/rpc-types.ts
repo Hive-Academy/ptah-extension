@@ -75,8 +75,6 @@ export type RpcMethodHandler<TParams = unknown, TResult = unknown> = (
  * Used internally by RpcHandler - external code should use typed handlers
  */
 export type BaseRpcMethodHandler = (params: unknown) => Promise<unknown>;
-
-// RpcUserErrorCode is the single source of truth — imported from @ptah-extension/shared.
 export type { RpcUserErrorCode } from '@ptah-extension/shared';
 import type { RpcUserErrorCode } from '@ptah-extension/shared';
 

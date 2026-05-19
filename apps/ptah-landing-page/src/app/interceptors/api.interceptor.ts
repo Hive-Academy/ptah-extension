@@ -16,17 +16,12 @@ import { environment } from '../../environments/environment';
  * Evidence: Code review finding P0-1 (HTTP credentials configuration)
  */
 export const apiInterceptor: HttpInterceptorFn = (req, next) => {
-  // Only intercept API and auth requests
   const isApiRequest =
     req.url.startsWith('/api') || req.url.startsWith('/auth');
 
   if (!isApiRequest) {
     return next(req);
   }
-
-  // Clone request with:
-  // 1. Full URL (base + path) for production cross-origin support
-  // 2. withCredentials for cookie authentication
   const apiReq = req.clone({
     url: `${environment.apiBaseUrl}${req.url}`,
     withCredentials: true,

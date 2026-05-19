@@ -27,9 +27,6 @@ export type SlashCommandResult =
 
 @injectable()
 export class SlashCommandInterceptor {
-  // Only /clear is handled natively (no SDK needed).
-  // /context, /cost, /compact, /review, and plugin commands are SDK built-ins
-  // parsed from the raw string prompt in query() — classified as 'new-query'.
   private static readonly NATIVE_COMMANDS = new Set(['clear']);
 
   private static readonly SLASH_COMMAND_REGEX = /^\/[a-zA-Z]/;
@@ -56,8 +53,6 @@ export class SlashCommandInterceptor {
     }
 
     const { commandName, args } = this.parseCommand(trimmed);
-
-    // Commands we handle natively (don't need SDK)
     if (SlashCommandInterceptor.NATIVE_COMMANDS.has(commandName)) {
       const action = 'native' as const;
       this.logger.debug('[SlashCommandInterceptor] Command intercepted', {
@@ -72,9 +67,6 @@ export class SlashCommandInterceptor {
         rawCommand: trimmed,
       };
     }
-
-    // SDK commands — need a new query to parse them
-    // This includes built-in SDK commands AND plugin commands (e.g., ptah-core:orchestrate)
     const action = 'new-query' as const;
     this.logger.debug('[SlashCommandInterceptor] Command intercepted', {
       action,

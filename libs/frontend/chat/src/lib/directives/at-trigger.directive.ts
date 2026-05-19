@@ -73,18 +73,10 @@ interface AtTriggerState {
 export class AtTriggerDirective implements OnInit {
   private readonly elementRef = inject(ElementRef<HTMLTextAreaElement>);
   private readonly destroyRef = inject(DestroyRef);
-
-  // Inputs
   /**
    * Enable/disable the directive
    */
   readonly enabled = input(true);
-
-  // CRITICAL: Field initializer pattern for toObservable() call
-  // Why: toObservable() uses inject() internally, which requires injection context
-  // Injection context: Only available during class construction (field initializers, constructor)
-  // Violation: Calling toObservable() in ngOnInit causes NG0203 "inject() must be called from injection context"
-  // Reference: https://angular.dev/guide/signals/inputs#reading-input-values-in-ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
 
   /**
@@ -132,8 +124,6 @@ export class AtTriggerDirective implements OnInit {
    */
   private setupInputPipeline(): void {
     const textarea = this.elementRef.nativeElement;
-
-    // Stream of input events mapped to trigger state
     const inputState$ = fromEvent<InputEvent>(textarea, 'input').pipe(
       map((): AtTriggerState => this.detectAtTrigger(textarea)),
       startWith({
@@ -143,20 +133,14 @@ export class AtTriggerDirective implements OnInit {
         triggerPosition: -1,
       } as AtTriggerState)
     );
-
-    // Combined stream that respects enabled state AND dropdown open state
     const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
       filter(([, enabled]) => enabled),
       map(([state]) => state),
       takeUntilDestroyed(this.destroyRef)
     );
-
-    // Track state transitions to detect open/close
     triggerState$
       .pipe(pairwise(), takeUntilDestroyed(this.destroyRef))
       .subscribe(([prev, curr]) => {
-        // Emit activated immediately on inactive→active transition
-        // This allows the parent to open the dropdown without waiting for debounce
         if (!prev.isActive && curr.isActive) {
           this.atActivated.emit({
             query: curr.query,
@@ -164,19 +148,13 @@ export class AtTriggerDirective implements OnInit {
             triggerPosition: curr.triggerPosition,
           });
         }
-
-        // Emit close immediately when transitioning from active to inactive
         if (prev.isActive && !curr.isActive) {
           this.atClosed.emit();
         }
-
-        // Emit query change immediately (including on activation)
         if (curr.isActive && (!prev.isActive || curr.query !== prev.query)) {
           this.atQueryChanged.emit(curr.query);
         }
       });
-
-    // Debounced stream for triggered events (only when active)
     triggerState$
       .pipe(
         filter((state) => state.isActive),
@@ -206,12 +184,8 @@ export class AtTriggerDirective implements OnInit {
   private detectAtTrigger(textarea: HTMLTextAreaElement): AtTriggerState {
     const text = textarea.value;
     const cursorPosition = textarea.selectionStart;
-
-    // Find the last @ before cursor
     const textBeforeCursor = text.substring(0, cursorPosition);
     const lastAtIndex = textBeforeCursor.lastIndexOf('@');
-
-    // No @ found
     if (lastAtIndex === -1) {
       return {
         isActive: false,
@@ -220,8 +194,6 @@ export class AtTriggerDirective implements OnInit {
         triggerPosition: -1,
       };
     }
-
-    // Check if @ is at start OR preceded by whitespace
     const isValidTriggerPosition =
       lastAtIndex === 0 || /\s/.test(text[lastAtIndex - 1]);
 
@@ -233,12 +205,8 @@ export class AtTriggerDirective implements OnInit {
         triggerPosition: -1,
       };
     }
-
-    // Extract query after @
     const queryStart = lastAtIndex + 1;
     const queryText = text.substring(queryStart, cursorPosition);
-
-    // If query contains whitespace, not active
     if (/\s/.test(queryText)) {
       return {
         isActive: false,
@@ -247,8 +215,6 @@ export class AtTriggerDirective implements OnInit {
         triggerPosition: -1,
       };
     }
-
-    // Valid trigger detected
     return {
       isActive: true,
       query: queryText,

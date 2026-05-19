@@ -42,7 +42,6 @@ export function registerPlatformVscodeServices(
   container: DependencyContainer,
   context: vscode.ExtensionContext,
 ): void {
-  // Platform Info
   const platformInfo: IPlatformInfo = {
     type: PlatformType.VSCode,
     extensionPath: context.extensionPath,
@@ -51,13 +50,9 @@ export function registerPlatformVscodeServices(
       context.storageUri?.fsPath ?? context.globalStorageUri.fsPath,
   };
   container.register(PLATFORM_TOKENS.PLATFORM_INFO, { useValue: platformInfo });
-
-  // File System
   container.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: new VscodeFileSystemProvider(),
   });
-
-  // State Storage (global = in-memory Memento, workspace = disk-based JSON)
   container.register(PLATFORM_TOKENS.STATE_STORAGE, {
     useValue: new VscodeStateStorage(context.globalState),
   });
@@ -67,65 +62,43 @@ export function registerPlatformVscodeServices(
       'workspace-state.json',
     ),
   });
-
-  // Secret Storage (holds event subscriptions — register for disposal)
   const secretStorage = new VscodeSecretStorage(context.secrets);
   container.register(PLATFORM_TOKENS.SECRET_STORAGE, {
     useValue: secretStorage,
   });
   context.subscriptions.push(secretStorage);
-
-  // Workspace Provider (holds event subscriptions — register for disposal)
   const workspaceProvider = new VscodeWorkspaceProvider();
   container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
     useValue: workspaceProvider,
   });
   context.subscriptions.push(workspaceProvider);
-
-  // Workspace Lifecycle Provider (holds VS Code event subscriptions — register
-  // for disposal). VS Code's workspace folder mutations go through
-  // vscode.workspace.updateWorkspaceFolders; this adapter wraps that API.
   const workspaceLifecycleProvider = new VscodeWorkspaceLifecycleProvider();
   container.register(PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER, {
     useValue: workspaceLifecycleProvider,
   });
   context.subscriptions.push(workspaceLifecycleProvider);
-
-  // User Interaction
   container.register(PLATFORM_TOKENS.USER_INTERACTION, {
     useValue: new VscodeUserInteraction(),
   });
-
-  // Output Channel (holds VS Code OutputChannel — register for disposal)
   const outputChannel = new VscodeOutputChannel('Ptah Extension');
   container.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
     useValue: outputChannel,
   });
   context.subscriptions.push(outputChannel);
-
-  // Command Registry
   container.register(PLATFORM_TOKENS.COMMAND_REGISTRY, {
     useValue: new VscodeCommandRegistry(),
   });
-
-  // Editor Provider (holds event subscriptions — register for disposal)
   const editorProvider = new VscodeEditorProvider();
   container.register(PLATFORM_TOKENS.EDITOR_PROVIDER, {
     useValue: editorProvider,
   });
   context.subscriptions.push(editorProvider);
-
-  // Token Counter (uses VS Code LM API with gpt-tokenizer fallback)
   container.register(PLATFORM_TOKENS.TOKEN_COUNTER, {
     useValue: new VscodeTokenCounter(),
   });
-
-  // Diagnostics Provider (wraps vscode.languages.getDiagnostics())
   container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
     useValue: new VscodeDiagnosticsProvider(),
   });
-
-  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
   });

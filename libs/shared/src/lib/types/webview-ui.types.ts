@@ -3,8 +3,6 @@
  * These are UI-specific types that are shared across webview components
  */
 
-// Dashboard component types for unified performance and analytics dashboard
-
 export interface DashboardMetrics {
   performance: PerformanceMetrics;
   usage: UsageMetrics;
@@ -84,7 +82,6 @@ export interface ProcessedClaudeMessage {
   readonly isError?: boolean;
   readonly isComplete?: boolean;
   readonly metadata?: Readonly<Record<string, unknown>>;
-  // UI-specific properties
   readonly displayContent?: string;
   readonly formattedTimestamp?: string;
   readonly isStreaming?: boolean;

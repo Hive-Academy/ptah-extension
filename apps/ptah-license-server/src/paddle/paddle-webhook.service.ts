@@ -102,9 +102,6 @@ export class PaddleWebhookService {
         'Webhook secret not configured - cannot verify signature',
       );
     }
-
-    // SDK handles signature verification + timestamp validation + parsing
-    // Returns typed EventEntity or throws if verification fails
     let event: EventEntity;
     try {
       event = await this.paddle.webhooks.unmarshal(
@@ -122,22 +119,14 @@ export class PaddleWebhookService {
     }
 
     this.logger.log(`Received webhook: ${event.eventType} (${event.eventId})`);
-
-    // Idempotency check: skip events that have already been processed
     if (this.isEventAlreadyProcessed(event.eventId)) {
       this.logger.log(
         `Duplicate webhook detected: ${event.eventId} (${event.eventType}) - skipping`,
       );
       return { received: true, duplicate: true };
     }
-
-    // Wrap processing in try/catch for failed webhook storage
-    // Return 500 on failure so Paddle retries the webhook delivery
     try {
       const result = await this.routeEvent(event);
-
-      // Mark as processed ONLY after successful processing.
-      // If processing fails, Paddle will retry and the event won't be rejected as duplicate.
       this.markEventAsProcessed(event.eventId);
 
       return result;
@@ -147,8 +136,6 @@ export class PaddleWebhookService {
       this.logger.error(
         `Webhook processing failed for ${event.eventType} (${event.eventId}) - stored for recovery`,
       );
-
-      // Throw 500 so Paddle knows delivery failed and will retry
       throw new InternalServerErrorException(
         'Webhook processing failed - stored for recovery',
       );
@@ -166,7 +153,6 @@ export class PaddleWebhookService {
    */
   private async routeEvent(event: EventEntity): Promise<WebhookResponse> {
     switch (event.eventType) {
-      // Subscription lifecycle events
       case EventName.SubscriptionCreated:
         return this.handleSubscriptionCreated(
           event as SubscriptionCreatedEvent,
@@ -199,15 +185,12 @@ export class PaddleWebhookService {
         return this.handleSubscriptionResumed(
           event as SubscriptionResumedEvent,
         );
-
-      // Transaction events
       case EventName.TransactionCompleted:
         return this.handleTransactionCompleted(
           event as TransactionCompletedEvent,
         );
 
       default:
-        // Acknowledge unknown events without processing
         this.logger.log(`Ignoring unhandled event type: ${event.eventType}`);
         return { received: true };
     }
@@ -502,7 +485,6 @@ export class PaddleWebhookService {
         `Stored failed webhook: ${event.eventId} (${event.eventType}) - ${errorMessage}`,
       );
     } catch (storeError) {
-      // Log but don't throw - we don't want storage failure to affect response
       this.logger.error(
         `Failed to store failed webhook ${event.eventId}:`,
         storeError instanceof Error ? storeError.message : 'Unknown error',

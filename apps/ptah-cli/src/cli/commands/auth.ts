@@ -1,31 +1,31 @@
 /**
- * `ptah auth` command — sub-dispatcher for status / login / logout / test.
+ * `ptah auth` command â€” sub-dispatcher for status / login / logout / test.
  *
- * Sub-commands (per task-description.md §3.1):
+ * Sub-commands (per task-description.md Â§3.1):
  *
- *   status                — Read-only. Calls `auth:getAuthStatus` +
+ *   status                â€” Read-only. Calls `auth:getAuthStatus` +
  *                           `auth:getHealth` + `auth:getApiKeyStatus`.
  *                           Redacts API keys unless `--reveal`.
- *   login copilot         — Headless device-code OAuth via `headless-flow.ts`.
+ *   login copilot         â€” Headless device-code OAuth via `headless-flow.ts`.
  *                           Composes JsonRpc opener if a peer is attached,
  *                           stderr opener otherwise.
- *   login codex           — Spawns `codex login --device-auth` via cross-spawn,
+ *   login codex           â€” Spawns `codex login --device-auth` via cross-spawn,
  *                           surfaces the device-code URL via auth.login.url,
  *                           propagates SIGINT, emits auth.login.complete on
  *                           exit code 0.
- *   login claude-cli      — Verifies Claude CLI on PATH via ClaudeCliDetector
+ *   login claude-cli      â€” Verifies Claude CLI on PATH via ClaudeCliDetector
  *                           (alias: `claude`). On success, persists
  *                           `authMethod=claudeCli` to ~/.ptah/settings.json.
  *                           On failure emits task.error{ ptah_code:
  *                           'claude_cli_not_found' } + ExitCode.UsageError.
- *   login anthropic       — Settings-based: prints "use provider set-key".
- *   logout copilot        — Calls `auth:copilotLogout` over RPC.
- *   logout codex --force  — CLI-local `fs.unlink('~/.codex/auth.json')`.
+ *   login anthropic       â€” Settings-based: prints "use provider set-key".
+ *   logout copilot        â€” Calls `auth:copilotLogout` over RPC.
+ *   logout codex --force  â€” CLI-local `fs.unlink('~/.codex/auth.json')`.
  *                           No RPC method (per B8b drop decision).
- *   test <provider>       — Calls `auth:testConnection` and emits
+ *   test <provider>       â€” Calls `auth:testConnection` and emits
  *                           `auth.test.result`.
  *
- * No DI mocking in production code — all collaborators are obtained via
+ * No DI mocking in production code â€” all collaborators are obtained via
  * `withEngine` (which bootstraps tsyringe) or via direct container resolution.
  * Mocking is permitted ONLY in the spec file.
  */
@@ -37,10 +37,13 @@ import { join as pathJoin } from 'node:path';
 import {
   ANTHROPIC_PROVIDERS,
   SDK_TOKENS,
-  spawnCli,
-  type ICopilotAuthService,
   type ClaudeCliDetector,
 } from '@ptah-extension/agent-sdk';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ICopilotAuthService,
+} from '@ptah-extension/auth-providers';
+import { spawnCli } from '@ptah-extension/cli-agent-runtime';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ClaudeCliHealth } from '@ptah-extension/shared';
 
@@ -114,25 +117,25 @@ export interface AuthOptions {
   force?: boolean;
   /**
    * For `auth use <providerId>`. Accepts:
-   *   - `claude-cli`              → authMethod=claude-cli
-   *   - `github-copilot`/`copilot`→ authMethod=oauth, anthropicProviderId=...
-   *   - `openai-codex`/`codex`    → authMethod=oauth, anthropicProviderId=...
-   *   - `openrouter`              → authMethod=apiKey, defaultProvider=openrouter
-   *   - `moonshot`                → authMethod=apiKey, defaultProvider=moonshot
-   *   - `z-ai`                    → authMethod=apiKey, defaultProvider=z-ai
+   *   - `claude-cli`              â†’ authMethod=claude-cli
+   *   - `github-copilot`/`copilot`â†’ authMethod=oauth, anthropicProviderId=...
+   *   - `openai-codex`/`codex`    â†’ authMethod=oauth, anthropicProviderId=...
+   *   - `openrouter`              â†’ authMethod=apiKey, defaultProvider=openrouter
+   *   - `moonshot`                â†’ authMethod=apiKey, defaultProvider=moonshot
+   *   - `z-ai`                    â†’ authMethod=apiKey, defaultProvider=z-ai
    */
   providerId?: string;
 }
 
 /**
- * Stderr stream contract — narrowed for testability. Production uses
+ * Stderr stream contract â€” narrowed for testability. Production uses
  * `process.stderr`; tests inject a buffer-backed sink.
  */
 export interface AuthStderrLike {
   write(chunk: string): boolean;
 }
 
-/** Optional collaborators — tests inject; production omits. */
+/** Optional collaborators â€” tests inject; production omits. */
 export interface AuthExecuteHooks {
   /** Override the stderr sink. Defaults to `process.stderr`. */
   stderr?: AuthStderrLike;
@@ -157,7 +160,7 @@ export interface AuthExecuteHooks {
   /**
    * Override the CopilotAuthService resolver. Production omits this hook; the
    * default resolves the service from the DI container via
-   * `SDK_TOKENS.SDK_COPILOT_AUTH`. Tests pass a stub so they do not need to
+   * `AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH`. Tests pass a stub so they do not need to
    * register the SDK module under jest.
    *
    * The resolver receives the engine context's container so production code
@@ -167,14 +170,14 @@ export interface AuthExecuteHooks {
     container: import('tsyringe').DependencyContainer,
   ) => Promise<ICopilotAuthService> | ICopilotAuthService;
   /**
-   * Override the ClaudeCliDetector resolver. Production omits — we resolve
+   * Override the ClaudeCliDetector resolver. Production omits â€” we resolve
    * `SDK_TOKENS.SDK_CLI_DETECTOR` from the container. Tests pass a stub.
    */
   resolveClaudeCliDetector?: (
     container: import('tsyringe').DependencyContainer,
   ) => Promise<ClaudeCliDetector> | ClaudeCliDetector;
   /**
-   * Override the workspace provider resolver. Production omits — we resolve
+   * Override the workspace provider resolver. Production omits â€” we resolve
    * `PLATFORM_TOKENS.WORKSPACE_PROVIDER` from the container. Tests pass a stub
    * so the spec doesn't need a real DI graph.
    */
@@ -201,7 +204,7 @@ export interface AuthExecuteHooks {
 /**
  * Execute the `ptah auth` command. Returns the process exit code.
  *
- * The dispatch is a flat switch — each sub-command resolves its own engine
+ * The dispatch is a flat switch â€” each sub-command resolves its own engine
  * mode and invokes the appropriate collaborator. We avoid building a single
  * giant DI bootstrap because `auth login codex` and `auth logout codex` need
  * no DI at all (they are pure file/stderr ops).
@@ -252,10 +255,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// `auth status`
-// ---------------------------------------------------------------------------
-
 async function runStatus(
   formatter: Formatter,
   globals: GlobalOptions,
@@ -281,16 +280,6 @@ async function runStatus(
     );
 
     const reveal = globals.reveal === true;
-
-    // Default (non-verbose) emits ONE coalesced `auth.status` notification.
-    // The formatter's `renderAuthStatus` understands the nested `health` and
-    // `apiKey` fields, so `--human` users see a single table instead of three
-    // disjoint envelopes. Operators driving the CLI from JSON-RPC also get a
-    // single deterministic frame, simplifying their state machine.
-    //
-    // `--verbose` preserves the legacy 3-frame stream for parity with older
-    // tooling that depends on `auth.health` / `auth.api_key.status` being
-    // separate envelopes (e.g. the doctor stream).
     if (globals.verbose) {
       await formatter.writeNotification(
         'auth.status',
@@ -306,13 +295,6 @@ async function runStatus(
       );
       return ExitCode.Success;
     }
-
-    // Nested keys are namespaced (`health`, `apiKeyStatus`) to avoid colliding
-    // with any top-level field on the auth-status payload. Naming the nested
-    // RPC result `apiKeyStatus` keeps it disjoint from the redactor's
-    // sensitive-key heuristics (which match `/apikey/i`) — the nested object
-    // gets walked and `hasApiKey`/`apiKey` fields inside it still redact
-    // correctly via the recursion.
     const coalesced = {
       ...(status ?? {}),
       health: health ?? null,
@@ -325,10 +307,6 @@ async function runStatus(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `auth login [copilot|codex|claude]`
-// ---------------------------------------------------------------------------
 
 async function runLogin(
   opts: AuthOptions,
@@ -357,8 +335,6 @@ async function runLogin(
   }
 
   if (provider === 'anthropic') {
-    // Settings-based: API-key auth flow lives under `provider set-key`.
-    // `claude` and `claude-cli` are now distinct (PATH-detected CLI auth).
     await formatter.writeNotification('auth.login.start', {
       provider: 'anthropic',
       timestamp: new Date().toISOString(),
@@ -384,7 +360,7 @@ async function runLogin(
  *
  * On failure (CLI not found / health check returns `available: false`) we
  * emit `task.error{ ptah_code: 'claude_cli_not_found' }` and exit with
- * `ExitCode.UsageError` — operator action is required (install the CLI or
+ * `ExitCode.UsageError` â€” operator action is required (install the CLI or
  * fix PATH), so `UsageError` is the right semantic, not `InternalFailure`.
  */
 async function runClaudeCliLogin(
@@ -439,10 +415,6 @@ async function runClaudeCliLogin(
       );
       return ExitCode.UsageError;
     }
-
-    // Persist authMethod=claudeCli via the workspace provider. The
-    // `authMethod` key is part of FILE_BASED_SETTINGS_KEYS so it routes to
-    // ~/.ptah/settings.json automatically.
     const workspaceProvider = await (hooks.resolveWorkspaceProvider
       ? hooks.resolveWorkspaceProvider(ctx.container)
       : (ctx.container.resolve(
@@ -458,10 +430,6 @@ async function runClaudeCliLogin(
       });
       return ExitCode.InternalFailure;
     }
-
-    // Stream A migrates `claudeCli` → `claude-cli` (kebab) across the
-    // codebase. Always write the canonical kebab token; Stream A's read-back
-    // shim in `with-engine.ts` normalizes legacy values for older configs.
     await workspaceProvider.setConfiguration(
       'ptah',
       'authMethod',
@@ -482,7 +450,7 @@ async function runClaudeCliLogin(
 }
 
 /**
- * `auth login codex` — drives `codex login --device-auth` via cross-spawn.
+ * `auth login codex` â€” drives `codex login --device-auth` via cross-spawn.
  *
  * The Codex CLI prints a `https://...` device-code URL to its own stdout.
  * We surface that URL via `auth.login.url` so JSON-RPC peers (and humans
@@ -529,10 +497,6 @@ async function runCodexLogin(
     );
     return ExitCode.AuthRequired;
   }
-
-  // Capture stdout to detect the device-code URL. We surface the FIRST
-  // https:// URL we see via `auth.login.url`; subsequent output is only
-  // mirrored to stderr (so humans driving the flow see codex's prompts).
   let urlEmitted = false;
   let stdoutBuffer = '';
   const urlPattern = /(https?:\/\/[^\s'"<>]+)/;
@@ -540,7 +504,6 @@ async function runCodexLogin(
   const onStdoutData = async (chunk: Buffer | string): Promise<void> => {
     const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     stdoutBuffer += text;
-    // Mirror codex output to stderr so humans see the prompts.
     stderr.write(text);
     if (!urlEmitted) {
       const match = urlPattern.exec(stdoutBuffer);
@@ -558,7 +521,6 @@ async function runCodexLogin(
 
   if (child.stdout) {
     child.stdout.on('data', (chunk) => {
-      // Fire-and-forget — async errors surface via the formatter elsewhere.
       void onStdoutData(chunk);
     });
   }
@@ -569,16 +531,9 @@ async function runCodexLogin(
       stderr.write(text);
     });
   }
-
-  // SIGINT propagation: forward Ctrl-C to the child so the device-code flow
-  // cancels cleanly. We attach a one-shot handler and remove it on exit.
   const sigintSource: NodeJS.EventEmitter = hooks.processRefForCodex ?? process;
   const onSigint = (): void => {
-    try {
-      child.kill('SIGINT');
-    } catch {
-      // Ignore — child may already be dead.
-    }
+    child.kill('SIGINT');
   };
   sigintSource.on('SIGINT', onSigint);
 
@@ -596,8 +551,6 @@ async function runCodexLogin(
       resolve(1);
     });
   });
-
-  // Detach the SIGINT handler.
   sigintSource.removeListener('SIGINT', onSigint);
 
   if (exitCode === 0) {
@@ -621,7 +574,7 @@ async function runCodexLogin(
  * JsonRpc opener if a peer is attached on stdio, otherwise a stderr opener.
  *
  * For the one-shot CLI command (no `interact` mode), we always fall back to
- * the stderr opener — `interact` is the only context where a JSON-RPC peer
+ * the stderr opener â€” `interact` is the only context where a JSON-RPC peer
  * round-trips on stdio, and `auth login copilot` is invoked as a one-shot.
  */
 async function runCopilotLogin(
@@ -633,18 +586,11 @@ async function runCopilotLogin(
   const headless = hooks.runHeadlessLogin ?? runHeadlessLogin;
 
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-    // Resolve CopilotAuthService directly from the container — we need the
-    // begin/poll/cancel methods, which are not exposed via the RPC surface.
-    // The hook lets tests inject a mock without touching the container.
     const copilotAuth = await (hooks.resolveCopilotAuth
       ? hooks.resolveCopilotAuth(ctx.container)
       : ctx.container.resolve<ICopilotAuthService>(
-          SDK_TOKENS.SDK_COPILOT_AUTH,
+          AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
         ));
-
-    // One-shot CLI commands have no JSON-RPC peer on stdio (that's `interact`
-    // mode only). Surface the URL via stderr so a human operator can complete
-    // the device-code flow manually.
     const opener = new StderrOAuthUrlOpener();
 
     const result = await headless({
@@ -657,10 +603,6 @@ async function runCopilotLogin(
     return result.exitCode;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `auth logout [copilot|codex]`
-// ---------------------------------------------------------------------------
 
 async function runLogout(
   opts: AuthOptions,
@@ -700,7 +642,6 @@ async function runLogout(
     try {
       await unlink(codexPath);
     } catch (error) {
-      // ENOENT is benign — logout is idempotent.
       const code = (error as NodeJS.ErrnoException | undefined)?.code;
       if (code !== 'ENOENT') {
         const message = error instanceof Error ? error.message : String(error);
@@ -724,10 +665,6 @@ async function runLogout(
   return ExitCode.UsageError;
 }
 
-// ---------------------------------------------------------------------------
-// `auth test <provider>`
-// ---------------------------------------------------------------------------
-
 async function runTest(
   opts: AuthOptions,
   formatter: Formatter,
@@ -750,31 +687,27 @@ async function runTest(
   });
 }
 
-// ---------------------------------------------------------------------------
-// `auth use <providerId>`
-// ---------------------------------------------------------------------------
-
 /**
- * Provider-id → settings-shape resolution table for `ptah auth use`.
+ * Provider-id â†’ settings-shape resolution table for `ptah auth use`.
  *
  * The CLI writes three coordinated keys under the `ptah` config namespace:
  *
- *   - `authMethod`            — strategy selector consumed by `resolveStrategy`.
+ *   - `authMethod`            â€” strategy selector consumed by `resolveStrategy`.
  *                               One of `'claude-cli' | 'oauth' | 'apiKey'`.
- *   - `defaultProvider`       — the provider id consumed by the SDK adapter
+ *   - `defaultProvider`       â€” the provider id consumed by the SDK adapter
  *                               when `authMethod !== 'oauth'`. For oauth flows
  *                               this is the anthropic-compatible upstream
  *                               (`'anthropic'`) so the proxy still routes
  *                               messages.create requests correctly.
- *   - `anthropicProviderId`   — the bridge provider id used by the oauth
+ *   - `anthropicProviderId`   â€” the bridge provider id used by the oauth
  *                               proxy to forge upstream calls. Only relevant
  *                               for `authMethod=oauth`. Cleared (set to
  *                               `null`) for non-oauth strategies.
  *
- * The mapping below is intentionally narrow — only the providers the doctor
+ * The mapping below is intentionally narrow â€” only the providers the doctor
  * surface and the marketplace agree on are accepted. Extending it requires a
  * new `auth.use.applied` payload field, so it must stay in lockstep with the
- * `task-description.md` §3.1 `auth use` table.
+ * `task-description.md` Â§3.1 `auth use` table.
  */
 interface AuthUsePlan {
   authMethod: 'claude-cli' | 'oauth' | 'apiKey';
@@ -831,7 +764,7 @@ function resolveAuthUsePlan(providerId: string): AuthUsePlan | null {
 }
 
 /**
- * `auth use <providerId>` — switch the active auth strategy without going
+ * `auth use <providerId>` â€” switch the active auth strategy without going
  * through a full login flow. This is the headless equivalent of the
  * "Switch Provider" UX in the VS Code/Electron settings panel.
  *
@@ -843,7 +776,7 @@ function resolveAuthUsePlan(providerId: string): AuthUsePlan | null {
  * Each key is part of `FILE_BASED_SETTINGS_KEYS` so writes are routed to
  * `~/.ptah/settings.json` automatically (transparent to the caller).
  *
- * Does NOT remove or invalidate existing OAuth tokens or API keys — it only
+ * Does NOT remove or invalidate existing OAuth tokens or API keys â€” it only
  * mutates which strategy the SDK selects on next bootstrap. Use
  * `ptah auth logout <provider>` to revoke credentials.
  */
@@ -885,10 +818,6 @@ async function runUse(
       });
       return ExitCode.InternalFailure;
     }
-
-    // Write all three keys before emitting the notification so callers see a
-    // consistent post-state. Order matters less here than atomicity within
-    // ~/.ptah/settings.json — `PtahFileSettingsManager` serializes writes.
     await workspaceProvider.setConfiguration(
       'ptah',
       'authMethod',
@@ -915,14 +844,10 @@ async function runUse(
   });
 }
 
-// ---------------------------------------------------------------------------
-// `auth set-anthropic-route <providerId>`
-// ---------------------------------------------------------------------------
-
 /**
  * `ptah auth set-anthropic-route <providerId>`.
  *
- * Headless-friendly setter for the `anthropicProviderId` config key — i.e.
+ * Headless-friendly setter for the `anthropicProviderId` config key â€” i.e.
  * which Anthropic-compatible bridge the SDK should route `messages.create`
  * traffic through when the agent talks to Claude. Mirrors the "Anthropic
  * route" picker in the Settings webview.
@@ -932,7 +857,7 @@ async function runUse(
  * `ANTHROPIC_PROVIDERS` registry; unknown ids are rejected with a
  * `did-you-mean?` suggestion via Levenshtein distance.
  *
- * Writes only `anthropicProviderId` — `authMethod` and `defaultProvider`
+ * Writes only `anthropicProviderId` â€” `authMethod` and `defaultProvider`
  * are left untouched so existing OAuth/CLI strategies keep working. Use
  * `ptah auth use` if you need to flip the strategy as well.
  */
@@ -955,8 +880,6 @@ async function runSetAnthropicRoute(
 
   const validIds = ANTHROPIC_PROVIDERS.map((p) => p.id);
   const lowered = raw.toLowerCase();
-
-  // Treat "default" / "none" / "clear" / "null" as a clear instruction.
   const isClear =
     lowered === 'default' ||
     lowered === 'none' ||
@@ -1011,10 +934,6 @@ async function runSetAnthropicRoute(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Thin wrapper around `transport.call` that throws on RPC error (so the

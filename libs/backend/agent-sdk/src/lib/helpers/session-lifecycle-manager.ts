@@ -26,6 +26,7 @@ import {
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import {
   SDKUserMessage,
   SDKMessage,
@@ -39,7 +40,7 @@ import type {
   WorktreeCreatedCallback,
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
-import type { ModelResolver } from '../auth/model-resolver';
+import type { IModelResolver } from '../auth-env.port';
 import {
   SessionRegistry,
   type SessionRecord,
@@ -48,11 +49,8 @@ import { SessionStreamPump } from './session-lifecycle/session-stream-pump.servi
 import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
 import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
-
-// Re-export for backward compatibility with other files
+import type { SdkQueryRunner } from './sdk-query-runner.service';
 export type { SDKUserMessage, ContentBlock };
-
-// Re-export SessionRecord and its type alias for all consumers.
 export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
 /**
@@ -162,7 +160,7 @@ export interface ExecuteQueryConfig {
   resumeSessionAt?: string;
   /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
-   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
+   * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
    * explicitly to opt out (e.g., performance-sensitive contexts).
    */
@@ -175,7 +173,7 @@ export interface ExecuteQueryConfig {
    */
   includePartialMessages?: boolean;
   /**
-   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
    * built map by the options builder (caller wins on key collision).
    * Reserved for the Anthropic-compatible HTTP proxy. When `undefined` or
    * empty, the SDK's `mcpServers` is identity-preserved.
@@ -189,15 +187,21 @@ export interface ExecuteQueryConfig {
    */
   initialUserQuery?: string;
   /**
+   * Per-call AuthEnv override (from a ProviderProfile). Forwarded verbatim to
+   * the options builder so third-party-provider sessions use the profile's
+   * auth env instead of the DI-singleton AuthEnv.
+   */
+  authEnvOverride?: AuthEnv;
+  /**
    * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
    * provided, the executor uses `warm.query(prompt)` for the very first
-   * query of this session instead of the standard `queryFn(...)` call —
+   * query of this session instead of the standard `queryFn(...)` call â€”
    * skipping the spawn + initialize handshake.
    *
    * **Caller contract**: the caller MUST have already validated (via
    * `consumeWarmQuery(requirements)`) that this warm handle's option
    * fingerprint matches the options about to be built for this session.
-   * The executor does NOT re-validate — `WarmQuery.query` accepts only a
+   * The executor does NOT re-validate â€” `WarmQuery.query` accepts only a
    * prompt and silently inherits every other Option from the original
    * `startup()` call, so any mismatch produces a session running with the
    * wrong options. Callers that aren't sure must pass `undefined` here.
@@ -271,8 +275,6 @@ export interface ExecuteQueryResult {
  */
 @injectable()
 export class SessionLifecycleManager {
-  // State ownership consolidated in `SessionRegistry`. The facade
-  // owns NO mutable session state; all reads/writes go through `_registry`.
   private readonly _registry: SessionRegistry;
   private readonly _streamPump: SessionStreamPump;
   private readonly _queryExecutor: SessionQueryExecutor;
@@ -282,28 +284,23 @@ export class SessionLifecycleManager {
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private permissionHandler: ISdkPermissionHandler,
-    // Dependencies for executeQuery orchestration
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     private moduleLoader: SdkModuleLoader,
     @inject(SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER)
     private queryOptionsBuilder: SdkQueryOptionsBuilder,
     @inject(SDK_TOKENS.SDK_MESSAGE_FACTORY)
     private messageFactory: SdkMessageFactory,
-    // SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private subagentRegistry: SubagentRegistryService,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
-    private readonly modelResolver: ModelResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: IModelResolver,
     @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
+    private readonly queryRunner: SdkQueryRunner,
   ) {
-    // Sub-services are constructed eagerly inside the facade because the spec
-    // bypasses tsyringe and uses `new SessionLifecycleManager(...)` directly
-    // with 9 positional args. Eager construction keeps the facade self-
-    // contained: no container lookup, no late-binding hazard, identical
-    // behavior whether instantiated by tsyringe or by hand in the spec.
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
       this.logger,
@@ -319,6 +316,7 @@ export class SessionLifecycleManager {
       this.queryOptionsBuilder,
       this.messageFactory,
       this.authEnv,
+      this.queryRunner,
     );
     this._control = new SessionControl(
       this.logger,
@@ -366,7 +364,7 @@ export class SessionLifecycleManager {
    * the user most recently interacted with, which is critical for MCP tools
    * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
    *
-   * Delegates directly to the registry — single storage means the registry
+   * Delegates directly to the registry â€” single storage means the registry
    * owns all ordering and resolution logic.
    */
   getActiveSessionIds(): SessionId[] {
@@ -388,7 +386,7 @@ export class SessionLifecycleManager {
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
-   * The session remains active for continued use — the user's follow-up message
+   * The session remains active for continued use â€” the user's follow-up message
    * will start a new turn.
    *
    * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
@@ -431,10 +429,6 @@ export class SessionLifecycleManager {
   getActiveSessionCount(): number {
     return this._registry.getActiveSessionCount();
   }
-
-  // ============================================================================
-  // Query Execution Orchestration
-  // ============================================================================
 
   /**
    * Execute an SDK query with all the orchestration steps
@@ -490,17 +484,9 @@ export class SessionLifecycleManager {
       `[SessionLifecycle] Executing slash command query for session: ${sessionId}`,
       { command: command.substring(0, 50) },
     );
-
-    // Resolve real SDK UUID before endSession removes the registry entry.
-    // find() checks both byTabId and bySessionId (dual-index).
     const rec = this._registry.find(sessionId as string);
     const realSessionId = rec?.realSessionId ?? (sessionId as string);
-
-    // Step 1: End the current session (abort existing query)
     await this._control.endSession(sessionId);
-
-    // Step 2: Start a new query with resume using the REAL session ID
-    // executeQuery will detect isSlashCommand and pass it as a raw string to query()
     return this._queryExecutor.executeQuery({
       sessionId,
       sessionConfig: config.sessionConfig,
@@ -514,10 +500,6 @@ export class SessionLifecycleManager {
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
-      // Mirror ExecuteQueryConfig pass-through so slash commands honor the
-      // same fork/rewind/checkpoint/partial-message toggles as regular
-      // resume flows. Without this, callers that set these on
-      // SlashCommandConfig would have them silently dropped.
       forkSession: config.forkSession,
       resumeSessionAt: config.resumeSessionAt,
       enableFileCheckpointing: config.enableFileCheckpointing,
@@ -552,7 +534,7 @@ export class SessionLifecycleManager {
    *
    * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
    * before passing to the SDK. The SDK's setModel() requires full model IDs
-   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
+   * like 'claude-opus-4-6' â€” bare tier names cause "can't access model" errors.
    *
    * @param sessionId - Session to update
    * @param model - Model ID or bare tier name to set

@@ -65,11 +65,7 @@ type IdOnlyProvider = Pick<RegistryElement, 'id'>;
  */
 export function mockAnthropicProviders(): readonly IdOnlyProvider[] {
   return [
-    // Virtual ID — direct Claude auth (OAuth / API key), not in the
-    // registry array but accepted by the auth code paths via
-    // `ANTHROPIC_DIRECT_PROVIDER_ID`.
     { id: 'anthropic' },
-    // Real registry IDs:
     { id: 'openrouter' },
     { id: 'github-copilot' },
     { id: 'openai-codex' },

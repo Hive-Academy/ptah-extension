@@ -175,10 +175,8 @@ export class AgentCardComponent {
   readonly elapsedDisplay = computed(() => {
     const a = this.agent();
     if (a.completedAt) {
-      // Agent finished — show frozen elapsed time
       return formatElapsed(a.completedAt - a.startedAt);
     }
-    // Read tick to re-evaluate every second while agents are running
     this.store.tick();
     return formatElapsed(Date.now() - a.startedAt);
   });
@@ -190,13 +188,9 @@ export class AgentCardComponent {
    */
   readonly parsedOutput = computed((): RenderSegment[] => {
     const agent = this.agent();
-
-    // Prefer structured segments when available (SDK adapters)
     if (agent.segments.length > 0) {
       return mergeConsecutiveTextSegments(agent.segments);
     }
-
-    // Fallback: regex-parse raw stdout (legacy sessions or unexpected adapter failures)
     const stdout = agent.stdout;
     if (!stdout) return [];
     return parseAgentOutput(stdout);
@@ -214,7 +208,6 @@ export class AgentCardComponent {
   /** Trigger for auto-scroll in the output component */
   readonly scrollTrigger = computed(() => {
     const a = this.agent();
-    // Use a hash of lengths so the output component scrolls on new content
     return (
       a.stdout.length +
       a.stderr.length +
@@ -251,10 +244,6 @@ export class AgentCardComponent {
         ptahCliId: agent.ptahCliId,
         previousAgentId: agent.agentId,
       });
-
-      // Don't remove the old card here — the backend's agent:spawned event
-      // will carry resumedFromAgentId, and onAgentSpawned() will replace
-      // the old card in-place (preserving position and avoiding flicker).
     } finally {
       this.isResuming.set(false);
     }

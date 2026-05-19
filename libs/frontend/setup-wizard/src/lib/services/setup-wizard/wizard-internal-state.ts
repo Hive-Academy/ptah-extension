@@ -31,7 +31,6 @@ import type {
  * state of its own.
  */
 export interface WizardInternalState {
-  // === Core flow signals ===
   readonly projectContext: WritableSignal<ProjectContext | null>;
   readonly availableAgents: WritableSignal<AgentSelection[]>;
   readonly generationProgress: WritableSignal<GenerationProgress | null>;
@@ -39,50 +38,32 @@ export interface WizardInternalState {
   readonly analysisResults: WritableSignal<AnalysisResults | null>;
   readonly completionData: WritableSignal<CompletionData | null>;
   readonly errorState: WritableSignal<ErrorState | null>;
-
-  // === Stream accumulators ===
   readonly analysisStream: WritableSignal<AnalysisStreamPayload[]>;
   readonly generationStream: WritableSignal<GenerationStreamPayload[]>;
   readonly enhanceStream: WritableSignal<AnalysisStreamPayload[]>;
   readonly phaseStreamingStates: WritableSignal<readonly PhaseStreamingEntry[]>;
-
-  // === Multi-phase progress ===
   readonly currentPhaseNumber: WritableSignal<number | null>;
   readonly totalPhaseCount: WritableSignal<number | null>;
   readonly phaseStatuses: WritableSignal<Array<{ id: string; status: string }>>;
-
-  // === Skill generation per-item tracking ===
   readonly skillGenerationProgress: WritableSignal<
     SkillGenerationProgressItem[]
   >;
-
-  // === Fallback warning (agentic → quick analysis degrade) ===
   readonly fallbackWarning: WritableSignal<string | null>;
-
-  // === Current step transitions driven by message handlers ===
   /** Set step to 'analysis' (called after analysis-complete). */
   setStepToAnalysis(): void;
   /** If current step is 'generation', set it to 'enhance' (auto-transition). */
   setCurrentStepIfGeneration(): void;
-
-  // === Wizard step ===
   readonly currentStep: WritableSignal<WizardStep>;
-
-  // === Deep analysis + recommendations + selection + history ===
   readonly deepAnalysis: WritableSignal<ProjectAnalysisResult | null>;
   readonly recommendations: WritableSignal<AgentRecommendation[]>;
   readonly selectedAgentsMap: WritableSignal<Record<string, boolean>>;
   readonly multiPhaseResult: WritableSignal<MultiPhaseAnalysisResponse | null>;
   readonly savedAnalyses: WritableSignal<SavedAnalysisMetadata[]>;
   readonly analysisLoadedFromHistory: WritableSignal<boolean>;
-
-  // === Enhanced Prompts state ===
   readonly enhancedPromptsStatus: WritableSignal<EnhancedPromptsWizardStatus>;
   readonly enhancedPromptsError: WritableSignal<string | null>;
   readonly enhancedPromptsDetectedStack: WritableSignal<string[] | null>;
   readonly enhancedPromptsSummary: WritableSignal<EnhancedPromptsSummary | null>;
-
-  // === Community agent packs ===
   readonly communityPacks: WritableSignal<AgentPackInfoDto[]>;
   readonly communityPacksLoading: WritableSignal<boolean>;
   readonly agentInstallStatus: WritableSignal<

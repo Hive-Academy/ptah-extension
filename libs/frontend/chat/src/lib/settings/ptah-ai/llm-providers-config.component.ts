@@ -73,8 +73,6 @@ export class LlmProvidersConfigComponent implements OnInit {
   readonly filteredProviders = computed(() =>
     this.llmState.providers().filter((p) => p.provider !== 'vscode-lm'),
   );
-
-  // --- Lucide icons ---
   readonly KeyIcon = Key;
   readonly CheckIcon = Check;
   readonly XIcon = X;
@@ -84,8 +82,6 @@ export class LlmProvidersConfigComponent implements OnInit {
   readonly ShieldIcon = Shield;
   readonly CpuIcon = Cpu;
   readonly SaveIcon = Save;
-
-  // --- Local form signals ---
 
   /**
    * Tracks API key input values per provider.
@@ -132,8 +128,6 @@ export class LlmProvidersConfigComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     try {
       await this.llmState.loadProviderStatus();
-
-      // Load models for all configured providers (vscode-lm handled by VscodeLmConfigComponent)
       const providers = this.llmState.providers();
       const modelLoadPromises: Promise<void>[] = [];
 
@@ -179,11 +173,9 @@ export class LlmProvidersConfigComponent implements OnInit {
       const success = await this.llmState.setApiKey(provider, keyValue);
 
       if (success) {
-        // Clear the input for this provider on successful save
         const updated = new Map(this.apiKeyInputs());
         updated.delete(provider);
         this.apiKeyInputs.set(updated);
-        // Model load is already triggered by setApiKey → loadProviderModels
       }
     } finally {
       this.savingProvider.set(null);
@@ -283,7 +275,6 @@ export class LlmProvidersConfigComponent implements OnInit {
 
     try {
       await this.llmState.setDefaultModel(provider, modelValue);
-      // Clear the local input override so it falls back to the refreshed value
       const updated = new Map(this.modelInputs());
       updated.delete(provider);
       this.modelInputs.set(updated);

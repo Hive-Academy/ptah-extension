@@ -81,15 +81,7 @@ export function loadPaddleFixture(
 ): SignedPaddleFixture {
   const jsonPath = path.join(FIXTURE_DIR, `${name}.json`);
   const raw = fs.readFileSync(jsonPath, 'utf8');
-
-  // Parse once for bodyJson; re-stringify to ensure deterministic bytes.
-  // The signing MUST use the exact bytes we later hand to the verifier,
-  // so we send the original raw file contents through the HMAC.
   const bodyJson = JSON.parse(raw) as Record<string, unknown>;
-
-  // Use the exact on-disk bytes (trimmed of any trailing whitespace is
-  // fine — JSON itself is whitespace-insensitive for HMAC purposes as
-  // long as body at verify time == body at sign time).
   const rawBody = raw.replace(/\s+$/, '');
   let body = Buffer.from(rawBody, 'utf8');
 
@@ -103,7 +95,6 @@ export function loadPaddleFixture(
     .digest('hex');
 
   if (options.tamperBody) {
-    // Flip one byte in the body AFTER signing — signature will no longer match.
     const tampered = Buffer.from(body);
     tampered[0] = tampered[0] ^ 0x01;
     body = tampered;

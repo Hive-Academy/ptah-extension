@@ -41,10 +41,6 @@ export class TerminalService {
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
 
-  // ============================================================================
-  // WORKSPACE STATE
-  // ============================================================================
-
   /**
    * Map of workspace path to terminal state. Contains cached terminal state
    * for all workspaces (active and background) so switching back is instant.
@@ -56,10 +52,6 @@ export class TerminalService {
 
   /** Currently active workspace path. Null when no workspace is active. */
   private _activeWorkspacePath: string | null = null;
-
-  // ============================================================================
-  // SIGNAL STATE
-  // ============================================================================
 
   private readonly _tabs = signal<TerminalTab[]>([]);
   private readonly _activeTabId = signal<string | null>(null);
@@ -78,10 +70,6 @@ export class TerminalService {
 
   /** Whether any terminal tabs exist for the active workspace. */
   readonly hasTerminals = computed(() => this._tabs().length > 0);
-
-  // ============================================================================
-  // BINARY IPC LISTENERS
-  // ============================================================================
 
   /** Cleanup function for the onData binary IPC listener. */
   private _dataUnsubscribe: (() => void) | null = null;
@@ -113,10 +101,6 @@ export class TerminalService {
     this.destroyRef.onDestroy(() => this.cleanup());
   }
 
-  // ============================================================================
-  // XTERM WRITER REGISTRATION
-  // ============================================================================
-
   /**
    * Register an xterm instance's write callback for data forwarding.
    *
@@ -130,7 +114,6 @@ export class TerminalService {
     terminalId: string,
     writer: (data: string) => void,
   ): void {
-    // Flush any buffered data that arrived before the writer was registered
     const pendingBuffer = this._pendingDataBuffers.get(terminalId);
     if (pendingBuffer && pendingBuffer.length > 0) {
       for (const chunk of pendingBuffer) {
@@ -152,10 +135,6 @@ export class TerminalService {
     this._xtermWriters.delete(terminalId);
     this._pendingDataBuffers.delete(terminalId);
   }
-
-  // ============================================================================
-  // TERMINAL LIFECYCLE
-  // ============================================================================
 
   /**
    * Create a new terminal tab via terminal:create RPC.
@@ -182,15 +161,11 @@ export class TerminalService {
         isActive: true,
         hasExited: false,
       };
-
-      // Mark all existing tabs as inactive, add the new one as active
       this._tabs.update((tabs) => [
         ...tabs.map((t) => ({ ...t, isActive: false })),
         newTab,
       ]);
       this._activeTabId.set(result.data.id);
-
-      // Sync to workspace state cache
       this.saveCurrentState();
 
       return result.data.id;
@@ -235,10 +210,7 @@ export class TerminalService {
    * @param id - Terminal session ID to close
    */
   async closeTab(id: string): Promise<void> {
-    // Kill the PTY session (ignore errors for already-exited terminals)
     await this.killTerminal(id);
-
-    // Remove the xterm writer and pending data buffer
     this._xtermWriters.delete(id);
     this._pendingDataBuffers.delete(id);
 
@@ -248,8 +220,6 @@ export class TerminalService {
 
     const updatedTabs = currentTabs.filter((t) => t.id !== id);
     this._tabs.set(updatedTabs);
-
-    // If the closed tab was active, switch to an adjacent tab
     if (this._activeTabId() === id) {
       if (updatedTabs.length > 0) {
         const newIndex = Math.min(tabIndex, updatedTabs.length - 1);
@@ -265,10 +235,6 @@ export class TerminalService {
 
     this.saveCurrentState();
   }
-
-  // ============================================================================
-  // BINARY IPC DATA FORWARDING
-  // ============================================================================
 
   /**
    * Write user input data to a terminal session via binary IPC.
@@ -291,22 +257,14 @@ export class TerminalService {
     window.ptahTerminal?.resize(id, cols, rows);
   }
 
-  // ============================================================================
-  // WORKSPACE OPERATIONS
-  // ============================================================================
-
   /**
    * Switch terminal state to a different workspace.
    * Saves current state, restores target from cache or resets to defaults.
    */
   switchWorkspace(workspacePath: string): void {
     if (this._activeWorkspacePath === workspacePath) return;
-
-    // Save current workspace state
     this.saveCurrentState();
     this._activeWorkspacePath = workspacePath;
-
-    // Restore cached state or reset to defaults
     const cached = this._workspaceTerminalState.get(workspacePath);
     if (cached) {
       this._tabs.set(cached.tabs);
@@ -326,45 +284,30 @@ export class TerminalService {
    * tab IDs are needed for the cleanup.
    */
   removeWorkspaceState(workspacePath: string): void {
-    // Collect terminal tabs BEFORE clearing state (otherwise tab IDs are lost)
     let tabsToKill: TerminalTab[] = [];
 
     if (this._activeWorkspacePath === workspacePath) {
-      // Active workspace: get tabs from the current signal
       tabsToKill = this._tabs();
     } else {
-      // Background workspace: get tabs from the workspace state cache
       const cached = this._workspaceTerminalState.get(workspacePath);
       if (cached) {
         tabsToKill = cached.tabs;
       }
     }
-
-    // Kill PTY sessions and clean up writers/buffers for each terminal
     for (const tab of tabsToKill) {
-      // Fire-and-forget: don't await since we're removing the workspace anyway.
-      // .catch() prevents unhandled promise rejections for already-exited terminals.
       this.killTerminal(tab.id).catch(() => {
         /* PTY may have already exited -- safe to ignore */
       });
       this._xtermWriters.delete(tab.id);
       this._pendingDataBuffers.delete(tab.id);
     }
-
-    // Clear the workspace state cache
     this._workspaceTerminalState.delete(workspacePath);
-
-    // If the removed workspace was active, clear signals
     if (this._activeWorkspacePath === workspacePath) {
       this._activeWorkspacePath = null;
       this._tabs.set([]);
       this._activeTabId.set(null);
     }
   }
-
-  // ============================================================================
-  // PRIVATE: BINARY IPC SETUP
-  // ============================================================================
 
   /**
    * Set up binary IPC listeners for terminal data and exit events.
@@ -377,13 +320,8 @@ export class TerminalService {
     this._dataUnsubscribe = window.ptahTerminal.onData((id, data) => {
       const writer = this._xtermWriters.get(id);
       if (writer) {
-        // Run outside Angular zone to avoid unnecessary change detection
-        // for high-frequency terminal data. The xterm canvas handles its own rendering.
         writer(data);
       } else {
-        // Buffer data until the TerminalComponent mounts and registers its writer.
-        // This prevents data loss for output that arrives between PTY creation
-        // and Angular component initialization.
         const buffer = this._pendingDataBuffers.get(id);
         if (buffer) {
           buffer.push(data);
@@ -394,7 +332,6 @@ export class TerminalService {
     });
 
     this._exitUnsubscribe = window.ptahTerminal.onExit((id, exitCode) => {
-      // Run inside Angular zone so the signal update triggers change detection
       this.ngZone.run(() => {
         this._tabs.update((tabs) =>
           tabs.map((t) =>
@@ -416,10 +353,6 @@ export class TerminalService {
     this._xtermWriters.clear();
     this._pendingDataBuffers.clear();
   }
-
-  // ============================================================================
-  // PRIVATE: WORKSPACE STATE HELPERS
-  // ============================================================================
 
   /**
    * Save current signal values into the workspace state map.

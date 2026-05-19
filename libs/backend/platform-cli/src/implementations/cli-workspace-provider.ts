@@ -61,8 +61,6 @@ export class CliWorkspaceProvider
 
     this.configFilePath = path.join(globalStoragePath, 'config.json');
     this.loadConfigSync();
-
-    // Resolve workspace path: use provided path, fall back to CWD
     const resolvedWorkspace = workspacePath
       ? path.resolve(workspacePath)
       : process.cwd();
@@ -87,7 +85,6 @@ export class CliWorkspaceProvider
     key: string,
     defaultValue?: T,
   ): T | undefined {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       return this.fileSettings.get<T>(key, defaultValue);
     }
@@ -108,7 +105,6 @@ export class CliWorkspaceProvider
     key: string,
     value: unknown,
   ): Promise<void> {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       await this.fileSettings.set(key, value);
       const fullKey = `${section}.${key}`;
@@ -139,15 +135,9 @@ export class CliWorkspaceProvider
    * Fires onDidChangeWorkspaceFolders event.
    */
   setWorkspaceFolders(folders: string[]): void {
-    // Only resolve relative paths — absolute inputs are preserved verbatim so
-    // POSIX fixtures like `/root` round-trip correctly on Windows. On Windows
-    // `path.resolve('/root')` would prepend the current drive letter and
-    // silently mangle an already-absolute POSIX path. The Electron impl
-    // stores the seed verbatim too; this aligns both impls.
     this.folders = folders.map((f) =>
       path.isAbsolute(f) ? f : path.resolve(f),
     );
-    // Update activeFolder if the current active is no longer in the list
     if (
       this.activeFolder &&
       !this.folders.some(
@@ -228,7 +218,6 @@ export class CliWorkspaceProvider
       const raw = fs.readFileSync(this.configFilePath, 'utf-8');
       this.config = JSON.parse(raw);
     } catch {
-      // Config file doesn't exist on first launch — start with empty config
       this.config = {};
     }
   }

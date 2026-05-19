@@ -76,9 +76,6 @@ function resolveRoot(explicit?: string): string | null {
   if (explicit && existsSync(explicit)) {
     return explicit;
   }
-  // Walk up from this file's compiled location to find a repo root that
-  // contains `dist/apps/ptah-extension-webview`. The harness lives at
-  // `libs/frontend/webview-e2e-harness/src/lib/`.
   const here = resolve(HERE);
   let cursor = here;
   for (let i = 0; i < 8; i++) {
@@ -106,8 +103,6 @@ function resolveRoot(explicit?: string): string | null {
 }
 
 function safeJoin(rootDir: string, urlPath: string): string | null {
-  // Strip query string + decode + normalize, then ensure the resolved path
-  // is still inside `rootDir` (no `..` escapes).
   const decoded = decodeURIComponent(urlPath.split('?')[0]);
   const target = normalize(join(rootDir, decoded));
   const rooted = resolve(rootDir);
@@ -150,8 +145,6 @@ export async function startFixtureServer(
     const urlPath = req.url ?? '/';
 
     if (rootDir === null) {
-      // Inline fallback: serve placeholder for `/` and 404 for everything
-      // else. Tests that don't need the SPA can still exercise the bridge.
       if (urlPath === '/' || urlPath === '/index.html') {
         res.writeHead(200, { 'content-type': MIME['.html'] });
         res.end(FALLBACK_HTML);
@@ -174,8 +167,6 @@ export async function startFixtureServer(
     try {
       stat = statSync(filePath);
     } catch {
-      // SPA fallback: route to index.html for any not-found path so that
-      // Angular client routing works in tests.
       const indexPath = safeJoin(rootDir, '/index.html');
       if (indexPath && existsSync(indexPath)) {
         res.writeHead(200, { 'content-type': MIME['.html'] });

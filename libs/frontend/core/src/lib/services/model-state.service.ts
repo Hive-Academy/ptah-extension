@@ -38,14 +38,10 @@ import { SessionId, SdkModelInfo } from '@ptah-extension/shared';
 @Injectable({ providedIn: 'root' })
 export class ModelStateService {
   private readonly rpc = inject(ClaudeRpcService);
-
-  // Private mutable signals - now using full API model names
   private readonly _currentModel = signal<string>(''); // Populated from backend RPC
   private readonly _availableModels = signal<SdkModelInfo[]>([]);
   private readonly _isPending = signal(false);
   private readonly _isLoaded = signal(false);
-
-  // Public readonly signals
   /**
    * Current selected model (full API name, e.g., 'claude-sonnet-4-20250514')
    * Read-only signal, updates reactively when model changes
@@ -106,7 +102,6 @@ export class ModelStateService {
   });
 
   constructor() {
-    // Load models and selection from backend on initialization
     this.loadModels();
   }
 
@@ -131,26 +126,18 @@ export class ModelStateService {
     model: string,
     sessionId?: SessionId | null,
   ): Promise<void> {
-    // Prevent concurrent model switches (race condition protection)
     if (this._isPending()) {
       console.warn(
         '[ModelStateService] Model switch already in progress, ignoring',
       );
       return;
     }
-
-    // Mark operation as in progress
     this._isPending.set(true);
 
     try {
-      // Store previous model for rollback
       const previousModel = this._currentModel();
-
-      // Optimistic update (UI updates immediately)
       this._currentModel.set(model);
       this.updateSelectionState(model);
-
-      // Persist to backend via RPC (with sessionId for live SDK sync)
       const result = await this.rpc.call('config:model-switch', {
         model,
         sessionId: sessionId ?? null,
@@ -161,12 +148,10 @@ export class ModelStateService {
           '[ModelStateService] Failed to switch model:',
           result.error,
         );
-        // Rollback to previous value
         this._currentModel.set(previousModel);
         this.updateSelectionState(previousModel);
       }
     } finally {
-      // Always clear pending state
       this._isPending.set(false);
     }
   }
@@ -191,8 +176,6 @@ export class ModelStateService {
       if (result.isSuccess() && result.data?.models) {
         const models = result.data.models;
         this._availableModels.set(models);
-
-        // Find and set the selected model
         const selected = models.find((m) => m.isSelected);
         if (selected) {
           this._currentModel.set(selected.id);
@@ -204,7 +187,6 @@ export class ModelStateService {
           '[ModelStateService] Failed to load models:',
           result.error,
         );
-        // Keep fallback static list
         this._isLoaded.set(true);
       }
     } catch (error) {

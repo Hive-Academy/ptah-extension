@@ -24,13 +24,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 
-// ── Output paths ──────────────────────────────────────────────────────────────
-
 const EVAL_DIR = path.join(process.cwd(), '.ptah', 'eval');
 const EVAL_SET_PATH = path.join(EVAL_DIR, 'memory-recall-v1.jsonl');
 const RESULTS_DIR = path.join(EVAL_DIR, 'results');
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface EvalLine {
   /** Text of the sampled chunk — used as the search query. */
@@ -60,8 +56,6 @@ interface EvalResults {
   }>;
 }
 
-// ── SQLite row shapes ─────────────────────────────────────────────────────────
-
 interface MemoryChunkRow {
   id: string;
   memory_id: string;
@@ -80,15 +74,11 @@ interface FtsResultRow {
   chunk_id: string;
 }
 
-// ── DB path resolution ────────────────────────────────────────────────────────
-
 function resolveDbPath(): string {
   const explicit = process.env['PTAH_DB_PATH'];
   if (explicit) return explicit;
   return path.join(os.homedir(), '.ptah', 'state', 'ptah.sqlite');
 }
-
-// ── --build ───────────────────────────────────────────────────────────────────
 
 function buildEvalSet(): void {
   const dbPath = resolveDbPath();
@@ -103,8 +93,6 @@ function buildEvalSet(): void {
   const db = new Database(dbPath, { readonly: true });
 
   let lines: EvalLine[] = [];
-
-  // Check for agent_runs table (future schema extension).
   const hasAgentRuns = db
     .prepare(
       `SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_runs'`,
@@ -112,11 +100,9 @@ function buildEvalSet(): void {
     .get();
 
   if (hasAgentRuns) {
-    // Future path: extract real agent-run queries.
     console.log('[eval] agent_runs table found — using real agent-run data');
     lines = buildFromAgentRuns(db);
   } else {
-    // Fallback: self-consistency eval from memory_chunks.
     console.log(
       '[eval] agent_runs table not found — falling back to memory_chunks self-consistency eval',
     );
@@ -143,7 +129,6 @@ function buildEvalSet(): void {
  * memory_chunk IDs as positives.
  */
 function buildFromAgentRuns(db: Database.Database): EvalLine[] {
-  // Placeholder for future schema — return empty to fall through gracefully.
   console.warn(
     '[eval] buildFromAgentRuns: schema not yet defined, returning empty set',
   );
@@ -161,7 +146,6 @@ function buildFromAgentRuns(db: Database.Database): EvalLine[] {
  * Memories with only 1 chunk are skipped (no positives to measure).
  */
 function buildFromMemoryChunks(db: Database.Database): EvalLine[] {
-  // Get all memories that have at least 2 chunks.
   const memories = db
     .prepare(
       `SELECT m.id, m.workspace_root
@@ -204,8 +188,6 @@ function buildFromMemoryChunks(db: Database.Database): EvalLine[] {
 
   return lines;
 }
-
-// ── --evaluate ────────────────────────────────────────────────────────────────
 
 /**
  * Run BM25 search for each query in the JSONL file and compute Recall@10 /
@@ -250,20 +232,17 @@ function evaluate(): void {
   for (const line of lines) {
     const escaped = escapeFtsQuery(line.query);
     let results: FtsResultRow[] = [];
-    try {
-      results = db
-        .prepare(
-          `SELECT mc.id AS chunk_id
-             FROM memory_chunks_fts fts
-             JOIN memory_chunks mc ON mc.rowid = fts.rowid
-             WHERE memory_chunks_fts MATCH ?
-             ORDER BY bm25(memory_chunks_fts) ASC
-             LIMIT 10`,
-        )
-        .all(escaped) as FtsResultRow[];
-    } catch {
-      // FTS table may not be populated; treat as no results.
-    }
+
+    results = db
+      .prepare(
+        `SELECT mc.id AS chunk_id
+           FROM memory_chunks_fts fts
+           JOIN memory_chunks mc ON mc.rowid = fts.rowid
+           WHERE memory_chunks_fts MATCH ?
+           ORDER BY bm25(memory_chunks_fts) ASC
+           LIMIT 10`,
+      )
+      .all(escaped) as FtsResultRow[];
 
     const returnedIds = results.map((r) => r.chunk_id);
     const positiveSet = new Set(line.positives);
@@ -317,8 +296,6 @@ function evaluate(): void {
   console.log(`[eval] MRR@10=${results.mrr10}`);
 }
 
-// ── FTS escape (mirrors MemorySearchService.escapeFtsQuery) ───────────────────
-
 function escapeFtsQuery(q: string): string {
   const stripped = q.replace(/["*()^+\-]/g, ' ');
   const tokens = stripped.split(/\s+/).filter((t) => t.length > 1);
@@ -335,8 +312,6 @@ function escapeFtsQuery(q: string): string {
 
   return escaped.join(' OR ');
 }
-
-// ── Entry point ───────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 

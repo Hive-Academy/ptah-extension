@@ -89,7 +89,6 @@ export class EventDeduplicationService {
     eventType: 'tool_start' | 'tool_result' | 'agent_start',
     newSource: EventSource | undefined,
   ): FlatStreamEventUnion | undefined {
-    // Find existing event with same toolCallId and eventType
     let existingEvent: FlatStreamEventUnion | undefined;
 
     for (const event of state.events.values()) {
@@ -104,7 +103,6 @@ export class EventDeduplicationService {
     }
 
     if (!existingEvent) {
-      // No existing event, new event should be stored
       return undefined;
     }
 
@@ -113,12 +111,9 @@ export class EventDeduplicationService {
     ).source;
 
     if (this.shouldReplaceEvent(existingSource, newSource)) {
-      // New event has higher priority, remove old event
       state.events.delete(existingEvent.id);
       return undefined; // Allow new event to be stored
     }
-
-    // Existing event has higher priority, skip new event
     return existingEvent;
   }
 
@@ -142,17 +137,13 @@ export class EventDeduplicationService {
     agentId: string | undefined,
     newSource: EventSource | undefined,
   ): FlatStreamEventUnion | undefined {
-    // If no agentId, can't deduplicate by agentId - fall through to caller
     if (!agentId) {
       return undefined;
     }
-
-    // Find existing agent_start event with same agentId
     let existingEvent: FlatStreamEventUnion | undefined;
 
     for (const event of state.events.values()) {
       if (event.eventType === 'agent_start') {
-        // Type narrowing for agentId access
         const agentEvent = event as FlatStreamEventUnion & {
           agentId?: string;
         };
@@ -164,15 +155,12 @@ export class EventDeduplicationService {
     }
 
     if (!existingEvent) {
-      // No existing event with this agentId
       return undefined;
     }
 
     const existingSource = (
       existingEvent as FlatStreamEventUnion & { source?: EventSource }
     ).source;
-
-    // Dev-guard diagnostic log to reduce GC pressure in production
     if (typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log(
         '[EventDeduplication] Agent_start deduplication by agentId:',
@@ -187,12 +175,9 @@ export class EventDeduplicationService {
     }
 
     if (this.shouldReplaceEvent(existingSource, newSource)) {
-      // New event has higher priority, remove old event
       state.events.delete(existingEvent.id);
       return undefined; // Allow new event to be stored
     }
-
-    // Existing event has higher priority, skip new event
     return existingEvent;
   }
 
@@ -208,7 +193,6 @@ export class EventDeduplicationService {
     state: StreamingState,
     messageId: string,
   ): FlatStreamEventUnion | undefined {
-    // Search in eventsByMessage for efficiency
     const messageEvents = state.eventsByMessage.get(messageId);
     if (!messageEvents) return undefined;
 
@@ -283,26 +267,17 @@ export class EventDeduplicationService {
     if (!existingMsgStart) {
       return { skip: false };
     }
-
-    // We have an existing message_start for this messageId
     const existingSource = (
       existingMsgStart as FlatStreamEventUnion & { source?: EventSource }
     ).source;
 
     if (this.shouldReplaceEvent(existingSource, event.source)) {
-      // New event has higher priority - remove old, store new
       state.events.delete(existingMsgStart.id);
-      // Remove from eventsByMessage
       const msgEvents = state.eventsByMessage.get(event.messageId) || [];
       const filtered = msgEvents.filter((e) => e.id !== existingMsgStart.id);
       state.eventsByMessage.set(event.messageId, filtered);
-      // Return existingEvent so caller knows this is a REPLACEMENT,
-      // not a first occurrence. Without this, caller pushes messageId to messageEventIds
-      // again, causing the same message to appear 2-3 times in the UI.
       return { skip: false, existingEvent: existingMsgStart };
     }
-
-    // Existing has higher priority - skip this event
     return { skip: true, existingEvent: existingMsgStart };
   }
 

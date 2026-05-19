@@ -37,18 +37,12 @@ export const AuthSettingsSchema = z.object({
   authMethod: z.enum(['apiKey', 'claudeCli', 'thirdParty']),
   anthropicApiKey: z.string().optional(),
   providerApiKey: z.string().optional(),
-  // Selected Anthropic-compatible provider.
-  // Validated against known provider IDs from the registry.
   anthropicProviderId: z
     .enum(ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]])
     .optional(),
 });
 
 export type AuthSettingsInput = z.infer<typeof AuthSettingsSchema>;
-
-// ---------------------------------------------------------------------------
-// Auth method from config storage
-// ---------------------------------------------------------------------------
 
 /** The three auth methods exposed to the rest of the handler. */
 export type AuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';

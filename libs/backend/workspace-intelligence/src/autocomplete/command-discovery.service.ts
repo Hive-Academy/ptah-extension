@@ -92,21 +92,13 @@ export class CommandDiscoveryService {
       if (!workspaceRoot) {
         return { success: false, error: 'No workspace folder open' };
       }
-
-      // Built-in commands
       const builtins = this.getBuiltinCommands();
-
-      // Project commands (includes plugin commands copied by SkillJunctionService)
       const projectCommands = await this.scanCommandDirectory(
         path.join(workspaceRoot, '.claude/commands'),
       );
-
-      // User commands
       const userCommands = await this.scanCommandDirectory(
         path.join(os.homedir(), '.claude/commands'),
       );
-
-      // Workspace skills (junctioned from plugins by SkillJunctionService)
       const workspaceSkills = await this.scanWorkspaceSkills(
         path.join(workspaceRoot, '.claude/skills'),
       );
@@ -117,8 +109,6 @@ export class CommandDiscoveryService {
         ...userCommands.map((c) => ({ ...c, scope: 'user' as const })),
         ...workspaceSkills,
       ];
-
-      // Update cache
       this.cache = allCommands;
 
       return { success: true, commands: allCommands };
@@ -139,7 +129,6 @@ export class CommandDiscoveryService {
     request: CommandSearchRequest,
   ): Promise<CommandDiscoveryResult> {
     try {
-      // Ensure cache is populated
       if (this.cache.length === 0) {
         await this.discoverCommands();
       }
@@ -174,8 +163,6 @@ export class CommandDiscoveryService {
   initializeWatchers(): void {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (!workspaceRoot) return;
-
-    // Watch project commands using platform file watcher
     const projectWatcher = this.fsProvider.createFileWatcher(
       '.claude/commands/**/*.md',
     );
@@ -202,7 +189,6 @@ export class CommandDiscoveryService {
    * Get hardcoded built-in commands (from CLI docs)
    */
   private getBuiltinCommands(): CommandInfo[] {
-    // SDK commands (supportsNonInteractive=true) + natively handled commands
     return [
       {
         name: 'compact',
@@ -281,7 +267,6 @@ export class CommandDiscoveryService {
           }
         }
       } catch (error) {
-        // Directory not accessible
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         console.debug(
@@ -308,8 +293,6 @@ export class CommandDiscoveryService {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const { data: frontmatter, content: template } = matter(content);
-
-      // Extract description: prefer frontmatter, fallback to first paragraph in markdown
       let description = frontmatter['description'];
       if (!description) {
         description = this.extractDescriptionFromMarkdown(template);
@@ -352,7 +335,6 @@ export class CommandDiscoveryService {
     const lines = markdownContent.split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
-      // Skip empty lines, headings, code fences, and list items
       if (
         !trimmed ||
         trimmed.startsWith('#') ||
@@ -362,7 +344,6 @@ export class CommandDiscoveryService {
       ) {
         continue;
       }
-      // Found first paragraph -- use it as description (truncate at 120 chars)
       return trimmed.length > 120 ? trimmed.substring(0, 117) + '...' : trimmed;
     }
     return null;
@@ -383,7 +364,6 @@ export class CommandDiscoveryService {
       const entries = await fs.readdir(skillsDir, { withFileTypes: true });
 
       for (const entry of entries) {
-        // Skills are directories (or junctions/symlinks to directories)
         if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
         const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
