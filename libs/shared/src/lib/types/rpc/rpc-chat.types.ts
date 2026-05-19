@@ -178,11 +178,18 @@ export interface ChatResumeParams {
    */
   activate?: boolean;
   /**
-   * When set, the SDK replays the transcript only up to (and including) this
-   * user-message UUID and truncates the on-disk JSONL accordingly. Used by the
-   * rewind flow to revert the conversation to an earlier point. Requires
-   * `activate: true`; if the session is already active the backend ends the
-   * current Query and restarts it with the truncation applied.
+   * **User-message UUID** at which to truncate the replayed transcript.
+   *
+   * Despite the legacy name (`...At`), this is NOT an ISO-8601 timestamp — it
+   * is the UUID of the user message to rewind to. The SDK replays the
+   * transcript only up to (and including) this user-message UUID and
+   * truncates the on-disk JSONL accordingly. Used by the rewind flow to
+   * revert the conversation to an earlier point. Requires `activate: true`;
+   * if the session is already active the backend ends the current Query and
+   * restarts it with the truncation applied.
+   *
+   * The Zod boundary schema (`ChatResumeParamsSchema`) validates this as
+   * `z.string().optional()` — do not narrow to `.datetime()` again.
    */
   resumeSessionAt?: string;
 }
