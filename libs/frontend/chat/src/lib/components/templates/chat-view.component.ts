@@ -917,10 +917,10 @@ export class ChatViewComponent {
   /**
    * "Rewind to here" — revert tracked file changes back to the checkpoint
    * captured at the given user message. Performs a dry-run preview first,
-   * confirms with the user, then commits. If the backend reports the session
-   * is not active (`session-not-active:*` error code prefix from the SDK),
-   * offers a "Resume & retry" affordance that loads the session into the
-   * active tab and re-runs the rewind.
+   * confirms with the user, then commits. The backend auto-resumes inactive
+   * sessions transparently (see `SessionRpcHandlers.registerRewindFiles`);
+   * the frontend no longer needs a manual resume-and-retry dance — any
+   * remaining `session-not-active:*` error is surfaced as a hard failure.
    */
   async onRewindRequested(messageId: string): Promise<void> {
     const sessionId = this.resolvedSessionId();
@@ -950,7 +950,6 @@ export class ChatViewComponent {
   private async attemptRewind(
     sessionId: SessionId,
     messageId: string,
-    retryCount = 0,
   ): Promise<void> {
     const dryRun = await this._claudeRpc.rewindFiles(
       sessionId,
@@ -959,12 +958,7 @@ export class ChatViewComponent {
     );
 
     if (!dryRun.isSuccess()) {
-      await this.handleRewindError(
-        dryRun.error,
-        sessionId,
-        messageId,
-        retryCount,
-      );
+      this.showActionError(`Rewind failed: ${dryRun.error ?? 'Unknown error'}`);
       return;
     }
 
@@ -1010,12 +1004,7 @@ export class ChatViewComponent {
     );
 
     if (!commit.isSuccess()) {
-      await this.handleRewindError(
-        commit.error,
-        sessionId,
-        messageId,
-        retryCount,
-      );
+      this.showActionError(`Rewind failed: ${commit.error ?? 'Unknown error'}`);
       return;
     }
     if (!commit.data.canRewind) {
@@ -1075,58 +1064,6 @@ export class ChatViewComponent {
       .filter((s): s is string => s !== null)
       .join(', ');
     this.showActionInfo(suffix ? `${baseMsg} (${suffix})` : baseMsg);
-  }
-
-  private async handleRewindError(
-    errorMessage: string | undefined,
-    sessionId: SessionId,
-    messageId: string,
-    retryCount: number,
-  ): Promise<void> {
-    const msg = errorMessage ?? 'Unknown error';
-    if (msg.startsWith('session-not-active')) {
-      if (retryCount > 0) {
-        this.showActionError(
-          `Rewind failed after resume retry: ${msg}. Please reopen the session manually.`,
-        );
-        return;
-      }
-
-      const retry = await this._confirmDialog.confirm({
-        title: 'Session not active',
-        message:
-          'This session must be resumed before its files can be rewound. Resume the session and retry the rewind?',
-        confirmLabel: 'Resume & retry',
-        cancelLabel: 'Cancel',
-        confirmStyle: 'primary',
-      });
-      if (!retry) return;
-      const tabId = this.resolvedTabId();
-      if (!tabId) {
-        this.showActionError('Cannot resume — no active tab.');
-        return;
-      }
-      const workspacePath = this.vscodeService.config().workspaceRoot;
-      const resumed = await this._claudeRpc.call('chat:resume', {
-        sessionId,
-        tabId,
-        workspacePath,
-        activate: true,
-      });
-      if (!resumed.isSuccess()) {
-        this.showActionError(`Resume failed: ${resumed.error ?? 'Unknown'}`);
-        return;
-      }
-      if (!resumed.data.activated) {
-        this.showActionError(
-          'Session could not be activated for rewind. Please send a message first.',
-        );
-        return;
-      }
-      await this.attemptRewind(sessionId, messageId, retryCount + 1);
-      return;
-    }
-    this.showActionError(`Rewind failed: ${msg}`);
   }
 
   /** Handle "New Session" request from context warning bar */
