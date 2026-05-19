@@ -200,17 +200,6 @@ export class SkillJunctionService {
       );
       return result;
     }
-    this.migrateFromPtahDir(result);
-    const skillsMap = this.buildSkillsMap(
-      pluginPaths,
-      new Set(disabledSkillIds),
-    );
-    if (skillsMap.size === 0) {
-      this.logger.debug(
-        '[SkillJunctionService] No skills found in enabled plugins',
-      );
-      return result;
-    }
     const skillsDir = join(this.workspaceRoot, CLAUDE_WORKSPACE_DIR, 'skills');
     try {
       mkdirSync(skillsDir, { recursive: true });
@@ -219,6 +208,17 @@ export class SkillJunctionService {
         `Failed to create .claude/skills/ directory: ${
           error instanceof Error ? error.message : String(error)
         }`,
+      );
+      return result;
+    }
+    this.migrateFromPtahDir(result);
+    const skillsMap = this.buildSkillsMap(
+      pluginPaths,
+      new Set(disabledSkillIds),
+    );
+    if (skillsMap.size === 0) {
+      this.logger.debug(
+        '[SkillJunctionService] No skills found in enabled plugins',
       );
       return result;
     }
