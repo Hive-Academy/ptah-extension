@@ -25,6 +25,7 @@ import type {
   IWorkspaceProvider,
   IStateStorage,
   IDisposable,
+  IMcpServerStatus,
 } from '@ptah-extension/platform-core';
 import {
   PtahAPIBuilder,
@@ -42,7 +43,7 @@ import {
 } from './mcp-handlers';
 
 @injectable()
-export class CodeExecutionMCP implements IDisposable {
+export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   private server: http.Server | null = null;
   private port: number | null = null;
   private ptahAPI: PtahAPI;

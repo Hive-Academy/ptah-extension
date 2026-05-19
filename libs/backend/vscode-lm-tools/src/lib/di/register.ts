@@ -17,6 +17,10 @@
 import { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IMcpServerStatus,
+} from '@ptah-extension/platform-core';
 import { PtahAPIBuilder } from '../code-execution/ptah-api-builder.service';
 import { CodeExecutionMCP } from '../code-execution/code-execution-mcp.service';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
@@ -64,6 +68,23 @@ export function registerVsCodeLmToolsServices(
   logger.info('[VS Code LM Tools] Registering services...');
   container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
   container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
+  const mcpStatusShim: IMcpServerStatus = {
+    getPort: () => {
+      try {
+        if (!container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
+          return null;
+        }
+        return container
+          .resolve<CodeExecutionMCP>(TOKENS.CODE_EXECUTION_MCP)
+          .getPort();
+      } catch {
+        return null;
+      }
+    },
+  };
+  container.register(PLATFORM_TOKENS.MCP_SERVER_STATUS, {
+    useValue: mcpStatusShim,
+  });
   container.registerSingleton(
     TOKENS.PERMISSION_PROMPT_SERVICE,
     PermissionPromptService,
@@ -73,6 +94,7 @@ export function registerVsCodeLmToolsServices(
     services: [
       'PTAH_API_BUILDER',
       'CODE_EXECUTION_MCP',
+      'MCP_SERVER_STATUS',
       'PERMISSION_PROMPT_SERVICE',
     ],
   });

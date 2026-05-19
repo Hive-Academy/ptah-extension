@@ -15,10 +15,10 @@ import {
   isPremiumTier,
   type LicenseService,
 } from '@ptah-extension/vscode-core';
-
-interface CodeExecutionMcpLike {
-  getPort(): number | null;
-}
+import {
+  PLATFORM_TOKENS,
+  type IMcpServerStatus,
+} from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
   SubagentHookHandler,
@@ -68,8 +68,8 @@ export class PtahCliSpawnOptions {
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
-    @inject(TOKENS.CODE_EXECUTION_MCP, { isOptional: true })
-    private readonly codeExecutionMcp: CodeExecutionMcpLike | undefined,
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | undefined,
   ) {}
 
   /**
@@ -172,10 +172,7 @@ export class PtahCliSpawnOptions {
 
   private isMcpServerRunning(): boolean {
     try {
-      if (!this.codeExecutionMcp) {
-        return false;
-      }
-      return this.codeExecutionMcp.getPort() !== null;
+      return this.mcpServerStatus?.getPort() != null;
     } catch (error) {
       this.logger.warn(
         `[PtahCliSpawnOptions] MCP server check failed: ${

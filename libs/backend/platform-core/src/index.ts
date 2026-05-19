@@ -38,6 +38,7 @@ export type {
   HttpServerRequestHandler,
 } from './interfaces/http-server-provider.interface';
 export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
+export type { IMcpServerStatus } from './interfaces/mcp-server-status.interface';
 export type {
   IPlatformCommands,
   IPlatformAuthProvider,
