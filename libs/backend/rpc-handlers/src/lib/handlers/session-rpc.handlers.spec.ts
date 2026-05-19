@@ -103,14 +103,29 @@ function createMockHistoryReader(): MockHistoryReader {
 }
 
 type MockSdkAdapter = jest.Mocked<
-  Pick<SdkAgentAdapter, 'forkSession' | 'rewindFiles'>
+  Pick<SdkAgentAdapter, 'forkSession' | 'rewindFiles' | 'isSessionActive'>
 >;
 
 function createMockSdkAdapter(): MockSdkAdapter {
   return {
     forkSession: jest.fn(),
     rewindFiles: jest.fn(),
+    // Default: session is active. Tests exercising the auto-resume path
+    // override this to `false` and inspect `chatSession.ensureSessionActiveForRewind`.
+    isSessionActive: jest.fn().mockReturnValue(true),
   } as unknown as MockSdkAdapter;
+}
+
+type MockChatSession = {
+  ensureSessionActiveForRewind: jest.Mock;
+};
+
+function createMockChatSession(): MockChatSession {
+  return {
+    ensureSessionActiveForRewind: jest
+      .fn()
+      .mockResolvedValue({ alreadyActive: true }),
+  };
 }
 
 /** Factory for minimal metadata fixtures — only fields the handler reads. */
@@ -171,6 +186,7 @@ interface Harness {
   workspace: MockWorkspaceProvider;
   sentry: MockSentryService;
   sdkAdapter: MockSdkAdapter;
+  chatSession: MockChatSession;
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -183,6 +199,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   });
   const sentry = createMockSentryService();
   const sdkAdapter = createMockSdkAdapter();
+  const chatSession = createMockChatSession();
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -192,6 +209,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     sentry as unknown as SentryService,
     workspace as unknown as IWorkspaceProvider,
     sdkAdapter as unknown as SdkAgentAdapter,
+    chatSession as never,
   );
 
   return {
@@ -203,6 +221,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     workspace,
     sentry,
     sdkAdapter,
+    chatSession,
   };
 }
 
@@ -1274,6 +1293,76 @@ describe('SessionRpcHandlers', () => {
 
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/invalid-user-message-id/);
+      expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
+    });
+
+    it('auto-resumes the session when inactive and then delegates to SdkAgentAdapter.rewindFiles', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      // Inactive at start → auto-resume is invoked.
+      h.sdkAdapter.isSessionActive.mockReturnValue(false);
+      h.chatSession.ensureSessionActiveForRewind.mockResolvedValue({
+        resumed: true,
+      });
+      h.sdkAdapter.rewindFiles.mockResolvedValue({
+        canRewind: true,
+        filesChanged: [],
+        insertions: 0,
+        deletions: 0,
+      } as never);
+      h.handlers.register();
+
+      const result = await call<{ canRewind: boolean }>(
+        h,
+        'session:rewindFiles',
+        {
+          sessionId: VALID_SESSION_ID,
+          userMessageId: VALID_USER_MESSAGE_ID,
+          dryRun: true,
+        },
+      );
+
+      expect(h.chatSession.ensureSessionActiveForRewind).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        VALID_SESSION_ID,
+        WORKSPACE,
+      );
+      expect(h.sdkAdapter.rewindFiles).toHaveBeenCalled();
+      expect(result.canRewind).toBe(true);
+    });
+
+    it('surfaces a session-not-active error when auto-resume fails (no recursion)', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.isSessionActive.mockReturnValue(false);
+      h.chatSession.ensureSessionActiveForRewind.mockResolvedValue({
+        resumed: false,
+        error: 'workspace not premium',
+      });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/^session-not-active:/);
+      // Single attempt — handler does NOT retry auto-resume.
+      expect(h.chatSession.ensureSessionActiveForRewind).toHaveBeenCalledTimes(
+        1,
+      );
+      // SDK rewindFiles is never reached when auto-resume fails.
       expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
     });
 

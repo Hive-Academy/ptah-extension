@@ -51,6 +51,8 @@ import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
+import { CHAT_TOKENS } from '../chat/tokens';
+import type { ChatSessionService } from '../chat/session/chat-session.service';
 
 /**
  * Minimal schema for JSONL first-line entries in agent session files.
@@ -96,6 +98,8 @@ export class SessionRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(CHAT_TOKENS.SESSION)
+    private readonly chatSession: ChatSessionService,
   ) {}
 
   /**
@@ -861,11 +865,13 @@ export class SessionRpcHandlers {
    * session to be currently active in SessionLifecycleManager** — there
    * must be an in-flight or paused query with file checkpointing enabled.
    *
-   * When the session is not active, the adapter throws an SdkError that
-   * mentions "is not active or has no live Query handle". We translate
-   * that into a stable RPC error code (`session-not-active`) so the
-   * frontend can prompt the user to resume the session first instead of
-   * showing a raw stack trace.
+   * If the session is inactive when the handler runs, we now call
+   * `ChatSessionService.ensureSessionActiveForRewind` to transparently
+   * resume it first (one attempt, no recursion) before delegating to the
+   * SDK. Auto-resume failures are surfaced as the legacy
+   * `session-not-active` error code so the existing frontend error path
+   * still works — but the routine success path no longer requires the
+   * frontend retry dance.
    */
   private registerRewindFiles(): void {
     this.rpcHandler.registerMethod<SessionRewindParams, SessionRewindResult>(
@@ -884,6 +890,28 @@ export class SessionRpcHandlers {
             userMessageId,
             dryRun: dryRun ?? false,
           });
+
+          if (!this.sdkAdapter.isSessionActive(sessionId as SessionId)) {
+            const metadata = await this.metadataStore.get(sessionId);
+            const workspacePath = metadata?.workspaceId;
+            if (!workspacePath) {
+              throw new Error(
+                'session-not-active: cannot auto-resume — session metadata missing workspacePath',
+              );
+            }
+            this.logger.info(
+              'RPC: session:rewindFiles — session inactive, attempting auto-resume',
+              { sessionId, workspacePath },
+            );
+            const outcome = await this.chatSession.ensureSessionActiveForRewind(
+              sessionId as SessionId,
+              sessionId,
+              workspacePath,
+            );
+            if ('resumed' in outcome && outcome.resumed === false) {
+              throw new Error(`session-not-active: ${outcome.error}`);
+            }
+          }
 
           const result = await this.sdkAdapter.rewindFiles(
             sessionId as SessionId,
@@ -948,6 +976,12 @@ export class SessionRpcHandlers {
             /is not active or has no live Query handle/i.test(errorObj.message)
           ) {
             throw new Error(`session-not-active: ${errorObj.message}`);
+          }
+          if (errorObj.message.startsWith('session-not-active:')) {
+            // Already-tagged error from the auto-resume preflight — surface
+            // unchanged so the frontend's `session-not-active` branch (and
+            // any callers grepping by prefix) still match.
+            throw errorObj;
           }
           throw new Error(`Failed to rewind files: ${errorObj.message}`);
         }
