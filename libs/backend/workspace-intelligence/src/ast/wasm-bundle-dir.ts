@@ -19,6 +19,8 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 function resolveBundleDir(): string {
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore TS1470: import.meta is provided by the ESM bundle's esbuild banner; CJS-target compile rejects it.
   const metaUrl: string | undefined = import.meta?.url;
   if (metaUrl) {
     return path.dirname(fileURLToPath(metaUrl));

@@ -3,7 +3,7 @@
  * add-ignore-deprecations.mjs
  *
  * Ensures every `tsconfig.lib.json` and `tsconfig.app.json` in the workspace
- * has `"ignoreDeprecations": "6.0"` inside its `compilerOptions` block.
+ * has `"ignoreDeprecations": "5.0"` inside its `compilerOptions` block.
  * Files that already have the key (any value) are left untouched.
  *
  * Default mode is dry-run: lists files that would be changed and prints the
