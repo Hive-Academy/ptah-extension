@@ -287,9 +287,10 @@ export class McpDirectoryRpcHandlers {
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'McpDirectoryRpcHandlers.registerGetPopular' },
         );
-        this.logger.error('RPC: mcpDirectory:getPopular failed', {
-          error: String(error),
-        });
+        this.logger.error(
+          'RPC: mcpDirectory:getPopular failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
         return { servers: [] };
       }
     });
