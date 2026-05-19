@@ -44,11 +44,15 @@ function getCommonFallbackDirs(): string[] {
   ];
   const nvmRoot = path.join(home, '.nvm', 'versions', 'node');
 
-  const entries = fs.readdirSync(nvmRoot, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      dirs.push(path.join(nvmRoot, entry.name, 'bin'));
+  try {
+    const entries = fs.readdirSync(nvmRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        dirs.push(path.join(nvmRoot, entry.name, 'bin'));
+      }
     }
+  } catch {
+    void 0;
   }
   dirs.push(path.join(home, 'n', 'bin'));
 
