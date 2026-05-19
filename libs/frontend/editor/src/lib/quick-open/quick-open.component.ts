@@ -132,16 +132,10 @@ export class QuickOpenComponent implements OnDestroy {
 
   /** Emitted when the modal should close */
   readonly closed = output<void>();
-
-  // Icons
   readonly SearchIcon = Search;
   readonly FileIcon = FileText;
-
-  // Reference to the search input for auto-focus
   private readonly searchInputRef =
     viewChild<ElementRef<HTMLInputElement>>('searchInput');
-
-  // State
   protected readonly query = signal('');
   protected readonly isLoading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
@@ -173,18 +167,13 @@ export class QuickOpenComponent implements OnDestroy {
   private globalKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor() {
-    // Fetch files on creation
     void this.fetchFiles();
-
-    // Auto-focus input after render
     afterNextRender(() => {
       const inputEl = this.searchInputRef()?.nativeElement;
       if (inputEl) {
         inputEl.focus();
       }
     });
-
-    // Prevent Ctrl+P from firing again while open
     this.globalKeydownHandler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
         e.preventDefault();
@@ -302,7 +291,6 @@ export class QuickOpenComponent implements OnDestroy {
    * Scroll the currently selected item into view within the results list.
    */
   private scrollSelectedIntoView(): void {
-    // Use requestAnimationFrame to ensure DOM has updated
     requestAnimationFrame(() => {
       const selected = document.querySelector('[aria-selected="true"]');
       if (selected) {

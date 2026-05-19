@@ -30,8 +30,6 @@ export interface WizardError {
  */
 export function isRetryableError(error: Error): boolean {
   const message = error.message.toLowerCase();
-
-  // Network errors are retryable
   if (
     message.includes('network') ||
     message.includes('timeout') ||
@@ -42,8 +40,6 @@ export function isRetryableError(error: Error): boolean {
   ) {
     return true;
   }
-
-  // Transient server errors are retryable
   if (
     message.includes('500') ||
     message.includes('502') ||
@@ -54,8 +50,6 @@ export function isRetryableError(error: Error): boolean {
   ) {
     return true;
   }
-
-  // Validation errors are not retryable
   if (
     message.includes('invalid') ||
     message.includes('validation') ||
@@ -67,8 +61,6 @@ export function isRetryableError(error: Error): boolean {
   ) {
     return false;
   }
-
-  // Default to retryable for unknown errors
   return true;
 }
 

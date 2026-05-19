@@ -18,8 +18,6 @@ import {
   SuggestionOptionComponent,
   type SuggestionItem,
 } from './suggestion-option.component';
-
-// Re-export for consumers
 export type { SuggestionItem } from './suggestion-option.component';
 
 /**
@@ -123,51 +121,33 @@ export type { SuggestionItem } from './suggestion-option.component';
 export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
   private readonly floatingUI = inject(FloatingUIService);
   private readonly keyboardNav = inject(KeyboardNavigationService);
-
-  // Inputs
   readonly overlayOrigin = input.required<{ elementRef: ElementRef }>(); // Origin element (textarea) from parent
   readonly suggestions = input.required<SuggestionItem[]>();
   readonly isLoading = input(false);
   readonly errorMessage = input<string | null>(null);
-
-  // Outputs
   readonly suggestionSelected = output<SuggestionItem>();
   readonly closed = output<void>();
-
-  // ViewChild for floating panel
   private readonly floatingPanel =
     viewChild<ElementRef<HTMLElement>>('floatingPanel');
-
-  // ViewChildren for option components (for scroll into view)
   private readonly optionComponents = viewChildren(SuggestionOptionComponent);
-
-  // Expose activeIndex from keyboard navigation service
   readonly activeIndex = this.keyboardNav.activeIndex;
-
-  // Unique ID for the listbox element (used by aria-controls on parent input)
   readonly listboxId = `suggestions-listbox-${Math.random()
     .toString(36)
     .substring(2, 9)}`;
 
   constructor() {
-    // Configure keyboard navigation when suggestions change
     effect(() => {
       const count = this.suggestions().length;
       this.keyboardNav.configure({ itemCount: count, wrap: true });
     });
-
-    // Position panel relative to origin
     effect(() => {
       const panel = this.floatingPanel()?.nativeElement;
       const origin = this.overlayOrigin()?.elementRef?.nativeElement;
 
       if (panel && origin) {
-        // Position using Floating UI
         queueMicrotask(() => this.positionPanel());
       }
     });
-
-    // Scroll active option into view when activeIndex changes
     effect(() => {
       const index = this.activeIndex();
       const options = this.optionComponents();
@@ -189,7 +169,6 @@ export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
     const origin = this.overlayOrigin()?.elementRef?.nativeElement;
 
     if (panel && origin) {
-      // Set width to match origin
       panel.style.width = `${origin.offsetWidth}px`;
 
       await this.floatingUI.position(origin, panel, {
@@ -223,10 +202,6 @@ export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
     return 'Suggestions';
   }
 
-  // ============================================================
-  // PUBLIC API - Called by parent component for keyboard navigation
-  // ============================================================
-
   /**
    * Handle keyboard events from parent component
    *
@@ -238,7 +213,6 @@ export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
    * @returns true if event was handled, false if not ready to handle
    */
   onKeyDown(event: KeyboardEvent): boolean {
-    // Don't handle if loading
     if (this.isLoading()) {
       return false;
     }
@@ -248,7 +222,6 @@ export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
       case 'ArrowUp':
       case 'Home':
       case 'End':
-        // Navigate options list - keyboardNav handles the navigation
         return this.keyboardNav.handleKeyDown(event);
 
       case 'Enter':

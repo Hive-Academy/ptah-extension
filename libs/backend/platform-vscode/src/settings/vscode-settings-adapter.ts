@@ -67,10 +67,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     this.secretsStore = secretsStore;
   }
 
-  // ---------------------------------------------------------------------------
-  // Global settings — routed between fileSettings and VS Code configuration
-  // ---------------------------------------------------------------------------
-
   readGlobal<T>(key: string): T | undefined {
     if (isFileBasedSettingKey(key)) {
       return this.workspaceProvider.fileSettings.get<T>(key);
@@ -87,10 +83,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
       .getConfiguration('ptah')
       .update(key, value, this.vscode.ConfigurationTarget.Global);
   }
-
-  // ---------------------------------------------------------------------------
-  // Secret storage — AES-256-GCM via SecretsFileStore
-  // ---------------------------------------------------------------------------
 
   /**
    * Read a secret from the encrypted secrets file.
@@ -117,10 +109,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     await this.secretsStore.delete(key);
   }
 
-  // ---------------------------------------------------------------------------
-  // Watchers
-  // ---------------------------------------------------------------------------
-
   /**
    * Subscribe to changes on a global setting key.
    *
@@ -136,8 +124,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     if (isFileBasedSettingKey(key)) {
       return this.workspaceProvider.fileSettings.watch(key, cb);
     }
-
-    // VS Code configuration watcher
     const fullKey = `ptah.${key}`;
     const disposable = this.vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration(fullKey)) {
@@ -161,10 +147,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // Flush
-  // ---------------------------------------------------------------------------
-
   /**
    * Flush both file-based settings and the secrets file synchronously.
    * VS Code's own configuration store handles its persistence internally.
@@ -176,10 +158,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     this.workspaceProvider.fileSettings.flushSync();
     this.secretsStore.flushSync(this.cachedMasterKey);
   }
-
-  // ---------------------------------------------------------------------------
-  // Internal
-  // ---------------------------------------------------------------------------
 
   private async getAndCacheMasterKey(): Promise<Buffer> {
     if (!this.cachedMasterKey) {

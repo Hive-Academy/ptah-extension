@@ -6,19 +6,11 @@
  * by the Codex CLI (~/.codex/auth.json).
  */
 
-// ---------------------------------------------------------------------------
-// Codex Constants
-// ---------------------------------------------------------------------------
-
 /** Placeholder API key used when the translation proxy manages auth internally */
 export const CODEX_PROXY_TOKEN_PLACEHOLDER = 'codex-proxy-managed';
 
 /** Sentinel value identifying a Codex OAuth-based provider configuration */
 export const CODEX_OAUTH_SENTINEL = 'codex-oauth';
-
-// ---------------------------------------------------------------------------
-// Codex Authentication Types
-// ---------------------------------------------------------------------------
 
 /**
  * Shape of the ~/.codex/auth.json file written by the Codex CLI.

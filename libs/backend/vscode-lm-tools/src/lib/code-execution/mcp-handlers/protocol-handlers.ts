@@ -217,7 +217,6 @@ function handleToolsList(
   const disabled = new Set(deps.disabledMcpNamespaces ?? []);
 
   const tools = [
-    // === Always-on core tools (not toggleable) ===
     buildWorkspaceAnalyzeTool(),
     buildSearchFilesTool(),
     buildGetDiagnosticsTool(),
@@ -225,8 +224,6 @@ function handleToolsList(
     buildWebSearchTool(),
     buildExecuteCodeTool(),
     buildApprovalPromptTool(),
-
-    // === IDE / LSP namespace (requires IDE capabilities AND not disabled) ===
     ...(deps.hasIDECapabilities === true && !disabled.has('ide')
       ? [
           buildLspReferencesTool(),
@@ -234,8 +231,6 @@ function handleToolsList(
           buildGetDirtyFilesTool(),
         ]
       : []),
-
-    // === Agent orchestration namespace ===
     ...(!disabled.has('agent')
       ? [
           buildAgentSpawnTool(),
@@ -246,8 +241,6 @@ function handleToolsList(
           buildAgentListTool(),
         ]
       : []),
-
-    // === Git worktree namespace ===
     ...(!disabled.has('git')
       ? [
           buildWorktreeListTool(),
@@ -255,11 +248,7 @@ function handleToolsList(
           buildWorktreeRemoveTool(),
         ]
       : []),
-
-    // === JSON validation namespace ===
     ...(!disabled.has('json') ? [buildJsonValidateTool()] : []),
-
-    // === Browser automation namespace ===
     ...(!disabled.has('browser')
       ? [
           buildBrowserNavigateTool(),
@@ -275,8 +264,6 @@ function handleToolsList(
           buildBrowserRecordStopTool(),
         ]
       : []),
-
-    // === Harness builder namespace ===
     ...(!disabled.has('harness')
       ? [
           buildHarnessSearchSkillsTool(),
@@ -305,11 +292,6 @@ async function handleToolsCall(
   const params = request.params as
     | { name: string; arguments?: Record<string, unknown> }
     | undefined;
-
-  // Per JSON-RPC 2.0: missing/invalid params must return -32602 Invalid params,
-  // not -32603 Internal error. Validate before destructure so a TypeError from
-  // unwrapping `undefined` does not get caught by the outer handler and
-  // translated into a generic internal error.
   if (params === null || params === undefined) {
     return createErrorResponse(
       request.id,
@@ -326,8 +308,6 @@ async function handleToolsCall(
   }
 
   const { name, arguments: args } = params;
-
-  // Individual first-class tools — direct API calls, no sandbox
   const individualResult = await handleIndividualTool(
     name,
     args || {},
@@ -345,8 +325,6 @@ async function handleToolsCall(
   }
 
   if (name === 'approval_prompt') {
-    // When WebviewManager is absent (Electron), auto-allow all approval prompts.
-    // Electron has no webview UI for user interaction, so permissions are granted automatically.
     if (!deps.webviewManager) {
       const approvalParams = args as unknown as ApprovalPromptParams;
       deps.logger.info(
@@ -484,8 +462,6 @@ async function handleIndividualTool(
           deps,
         );
       }
-
-      // Agent orchestration tools
       case 'ptah_agent_spawn': {
         const MAX_TASK_LENGTH = 100 * 1024; // 100KB
 
@@ -511,8 +487,6 @@ async function handleIndividualTool(
           modelTier?: 'opus' | 'sonnet' | 'haiku';
           resume_session_id?: string;
         };
-
-        // Validate task parameter: must be a non-empty string within size limits
         const task = (args as Record<string, unknown>)?.['task'];
         if (!task || typeof task !== 'string') {
           return {
@@ -568,8 +542,6 @@ async function handleIndividualTool(
           model,
           modelTier,
           resumeSessionId: resume_session_id,
-          // parentSessionId from MCP URL path (session-specific endpoint)
-          // Falls back to getActiveSessionId() in buildAgentNamespace if not present
           parentSessionId: request._callerSessionId,
         });
 
@@ -676,8 +648,6 @@ async function handleIndividualTool(
           deps,
         );
       }
-
-      // Git worktree tools
       case 'ptah_git_worktree_list': {
         const result = await ptahAPI.git.worktreeList();
         return createToolSuccessResponse(
@@ -693,8 +663,6 @@ async function handleIndividualTool(
           path?: string;
           createBranch?: boolean;
         };
-
-        // Validate required branch parameter
         if (!branch || typeof branch !== 'string' || !branch.trim()) {
           return {
             jsonrpc: '2.0',
@@ -728,8 +696,6 @@ async function handleIndividualTool(
           path: string;
           force?: boolean;
         };
-
-        // Validate required path parameter
         if (
           !worktreePath ||
           typeof worktreePath !== 'string' ||
@@ -760,15 +726,11 @@ async function handleIndividualTool(
           deps,
         );
       }
-
-      // JSON validation tool
       case 'ptah_json_validate': {
         const { file, schema } = args as {
           file: string;
           schema?: Record<string, unknown>;
         };
-
-        // Validate required file parameter
         if (!file || typeof file !== 'string' || !file.trim()) {
           return {
             jsonrpc: '2.0',
@@ -795,8 +757,6 @@ async function handleIndividualTool(
           deps,
         );
       }
-
-      // Browser automation tools
       case 'ptah_browser_navigate': {
         const { url, waitForLoad, headless, viewport } = args as {
           url: string;
@@ -846,8 +806,6 @@ async function handleIndividualTool(
           quality,
           fullPage,
         });
-
-        // Save to disk if requested
         if (saveTo && screenshotResult.data && !screenshotResult.error) {
           try {
             const filePath = await resolveScreenshotPath(
@@ -871,8 +829,6 @@ async function handleIndividualTool(
             );
           }
         }
-
-        // Return as MCP image content type so the AI model can visually inspect
         if (screenshotResult.data && !screenshotResult.error) {
           const mimeType =
             screenshotResult.format === 'jpeg'
@@ -906,8 +862,6 @@ async function handleIndividualTool(
             },
           };
         }
-
-        // Error case — return as text
         return createToolSuccessResponse(
           request,
           formatBrowserScreenshot(screenshotResult),
@@ -1062,8 +1016,6 @@ async function handleIndividualTool(
           deps,
         );
       }
-
-      // Browser enhancement tools
       case 'ptah_browser_record_start': {
         const { maxFrames, frameDelay } = args as {
           maxFrames?: number;
@@ -1088,8 +1040,6 @@ async function handleIndividualTool(
           deps,
         );
       }
-
-      // Harness builder tools
       case 'ptah_harness_search_skills': {
         if (!ptahAPI.harness) {
           return createToolSuccessResponse(
@@ -1282,15 +1232,11 @@ async function handleExecuteCodeCall(
 ): Promise<MCPResponse> {
   const { code, timeout = 15000 } = params;
   const { ptahAPI, logger } = deps;
-
-  // Validate timeout (cap at 30000ms)
   const actualTimeout = Math.min(timeout, 30000);
 
   try {
     const result = await executeCode(code, actualTimeout, { ptahAPI, logger });
     const textResult = serializeResult(result);
-
-    // Notify callback for live transcript streaming
     deps.onToolResult?.(request.id.toString(), textResult, false);
 
     return {
@@ -1308,19 +1254,11 @@ async function handleExecuteCodeCall(
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
-
-    // Log full stack trace server-side for debugging
     if (error instanceof Error && error.stack) {
       logger.error('Code execution failed', error);
     }
-
-    // Build agent-friendly error message with recovery hints
     const agentMessage = buildAgentFriendlyError(errorMessage);
-
-    // Notify callback for live transcript streaming
     deps.onToolResult?.(request.id.toString(), agentMessage, true);
-
-    // Per MCP spec: return tool errors as successful response with isError flag
     return {
       jsonrpc: '2.0',
       id: request.id,
@@ -1348,8 +1286,6 @@ function buildAgentFriendlyError(errorMessage: string): string {
   if (errorMessage.includes('Execution timeout')) {
     return `${errorMessage}. Try breaking the operation into smaller steps or increasing the timeout parameter.`;
   }
-
-  // File not found errors - guide to use search/discovery first
   if (errorMessage.includes('File not found:')) {
     const filePath = errorMessage.split('File not found:')[1]?.trim() || '';
     return `File not found: ${filePath}
@@ -1363,15 +1299,11 @@ Example:
   const tsFiles = await ptah.search.findFiles('**/*.ts', 100);
   const packageFiles = tsFiles.filter(f => f.includes('package'));`;
   }
-
-  // Directory not found errors
   if (errorMessage.includes('Directory not found:')) {
     return `${errorMessage}
 
 SOLUTION: Use ptah.workspace.analyze() to see project structure, then ptah.files.list() to explore directories.`;
   }
-
-  // Proxy-generated errors already include available methods — pass through with minimal wrapping
   if (errorMessage.includes('is not available. Available')) {
     return `API Error: ${errorMessage}`;
   }
@@ -1433,13 +1365,8 @@ async function resolveScreenshotPath(
     return filePath;
   }
 
-  let workspaceRoot: string | undefined;
-  try {
-    const info = await ptahAPI.workspace.getInfo();
-    workspaceRoot = info?.path;
-  } catch {
-    // Fall through to cwd
-  }
+  const info = await ptahAPI.workspace.getInfo();
+  const workspaceRoot = info?.path;
 
   return path.join(
     workspaceRoot || process.cwd(),

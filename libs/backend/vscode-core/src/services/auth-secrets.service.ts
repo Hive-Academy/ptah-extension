@@ -191,19 +191,15 @@ export class AuthSecretsService implements IAuthSecretsService {
    */
   async setCredential(type: AuthCredentialType, value: string): Promise<void> {
     if (!value || value.trim().length === 0) {
-      // Empty value means delete
       await this.deleteCredential(type);
       return;
     }
 
     const secretKey = this.getSecretKey(type);
     await this.context.secrets.store(secretKey, value.trim());
-
-    // SECURITY: Never log actual credential values
     this.logger.info('[AuthSecretsService.setCredential] Credential stored', {
       type,
       valueLength: value.length,
-      // Removed valuePrefix for security - never log credential data
     });
   }
 
@@ -253,11 +249,6 @@ export class AuthSecretsService implements IAuthSecretsService {
     const value = await this.getCredential(type);
     return !!value && value.length > 0;
   }
-
-  // ================================================================
-  // Per-provider key storage (each provider gets its own slot)
-  // Storage key pattern: ptah.auth.provider.{providerId}
-  // ================================================================
 
   /**
    * Get the secret storage key for a provider-specific API key

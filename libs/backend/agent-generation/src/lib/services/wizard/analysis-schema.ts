@@ -20,10 +20,6 @@ import {
 import type { DeepProjectAnalysis } from '../../types/analysis.types';
 import type { CodeConventions } from '@ptah-extension/shared';
 
-// ============================================================================
-// Enum Lookup Maps (case-insensitive)
-// ============================================================================
-
 /**
  * Build a case-insensitive lookup map from an enum's values.
  * Maps normalized keys (lowercase, alphanumeric only) to enum values.
@@ -33,9 +29,7 @@ function buildLookupMap<T extends string>(
 ): Map<string, T> {
   const map = new Map<string, T>();
   for (const value of Object.values(enumObj)) {
-    // Map the raw lowercase value: "node", "angular", "nestjs"
     map.set(value.toLowerCase(), value);
-    // Also map alphanumeric-only version: "pnpmworkspaces" -> "pnpm-workspaces"
     const alphaOnly = value.replace(/[^a-z0-9]/gi, '').toLowerCase();
     if (alphaOnly !== value.toLowerCase()) {
       map.set(alphaOnly, value);
@@ -47,8 +41,6 @@ function buildLookupMap<T extends string>(
 const PROJECT_TYPE_MAP = buildLookupMap(ProjectType);
 const FRAMEWORK_MAP = buildLookupMap(Framework);
 const MONOREPO_TYPE_MAP = buildLookupMap(MonorepoType);
-
-// Additional well-known aliases that LLMs commonly produce
 const PROJECT_TYPE_ALIASES: Record<string, ProjectType> = {
   'node.js': ProjectType.Node,
   nodejs: ProjectType.Node,
@@ -90,10 +82,6 @@ const MONOREPO_ALIASES: Record<string, MonorepoType> = {
   turbo: MonorepoType.Turborepo,
 };
 
-// ============================================================================
-// Normalization Helpers
-// ============================================================================
-
 /**
  * Keyword patterns for extracting project type from descriptive LLM strings.
  * Ordered by specificity (most specific first) so "Next.js" matches before "React".
@@ -130,30 +118,18 @@ const PROJECT_TYPE_KEYWORDS: Array<{ pattern: RegExp; type: ProjectType }> = [
 export function resolveProjectType(raw: string | number): ProjectType {
   const str = String(raw).trim();
   const lower = str.toLowerCase();
-
-  // Direct match on lowercase enum value
   const directMatch = PROJECT_TYPE_MAP.get(lower);
   if (directMatch) return directMatch as ProjectType;
-
-  // Alias match
   const aliasMatch = PROJECT_TYPE_ALIASES[lower];
   if (aliasMatch) return aliasMatch;
-
-  // Alphanumeric-only match (strips dots, hyphens, etc.)
   const alphaOnly = lower.replace(/[^a-z0-9]/g, '');
   const alphaMatch = PROJECT_TYPE_MAP.get(alphaOnly);
   if (alphaMatch) return alphaMatch as ProjectType;
-
-  // Check aliases with alphanumeric-only key
   for (const [aliasKey, aliasValue] of Object.entries(PROJECT_TYPE_ALIASES)) {
     if (aliasKey.replace(/[^a-z0-9]/g, '') === alphaOnly) {
       return aliasValue;
     }
   }
-
-  // Keyword extraction: scan descriptive strings for known project type keywords.
-  // Handles LLM outputs like "React SPA with Supabase Backend", "Angular Nx Monorepo",
-  // "Next.js Full-Stack App", etc.
   for (const { pattern, type } of PROJECT_TYPE_KEYWORDS) {
     if (pattern.test(str)) {
       return type;
@@ -169,21 +145,13 @@ export function resolveProjectType(raw: string | number): ProjectType {
 function resolveFramework(raw: string | number): Framework | undefined {
   const str = String(raw).trim();
   const lower = str.toLowerCase();
-
-  // Direct match
   const directMatch = FRAMEWORK_MAP.get(lower);
   if (directMatch) return directMatch as Framework;
-
-  // Alias match
   const aliasMatch = FRAMEWORK_ALIASES[lower];
   if (aliasMatch) return aliasMatch;
-
-  // Alphanumeric-only match
   const alphaOnly = lower.replace(/[^a-z0-9]/g, '');
   const alphaMatch = FRAMEWORK_MAP.get(alphaOnly);
   if (alphaMatch) return alphaMatch as Framework;
-
-  // Check aliases with alphanumeric-only key
   for (const [aliasKey, aliasValue] of Object.entries(FRAMEWORK_ALIASES)) {
     if (aliasKey.replace(/[^a-z0-9]/g, '') === alphaOnly) {
       return aliasValue;
@@ -202,21 +170,13 @@ function resolveMonorepoType(
   if (!raw) return undefined;
 
   const lower = raw.trim().toLowerCase();
-
-  // Direct match
   const directMatch = MONOREPO_TYPE_MAP.get(lower);
   if (directMatch) return directMatch as MonorepoType;
-
-  // Alias match
   const aliasMatch = MONOREPO_ALIASES[lower];
   if (aliasMatch) return aliasMatch;
-
-  // Alphanumeric-only match
   const alphaOnly = lower.replace(/[^a-z0-9]/g, '');
   const alphaMatch = MONOREPO_TYPE_MAP.get(alphaOnly);
   if (alphaMatch) return alphaMatch as MonorepoType;
-
-  // Check aliases with alphanumeric-only key
   for (const [aliasKey, aliasValue] of Object.entries(MONOREPO_ALIASES)) {
     if (aliasKey.replace(/[^a-z0-9]/g, '') === alphaOnly) {
       return aliasValue;
@@ -225,10 +185,6 @@ function resolveMonorepoType(
 
   return undefined;
 }
-
-// ============================================================================
-// Zod Schema
-// ============================================================================
 
 /**
  * Shared Zod schema for project analysis validation.
@@ -241,19 +197,14 @@ function resolveMonorepoType(
  * - trailingComma included in defaults since CodeConventions requires it
  */
 export const ProjectAnalysisZodSchema = z.object({
-  // Core project identification
   projectType: z.union([z.string(), z.number()]),
   frameworks: z.array(z.union([z.string(), z.number()])).default([]),
-  // LLMs often return `false` or `true` instead of null/string for monorepoType
   monorepoType: z.preprocess((val) => {
     if (typeof val === 'boolean') return val ? 'unknown' : null;
     if (val === '' || val === 'none' || val === 'None' || val === 'N/A')
       return null;
     return val;
   }, z.string().optional().nullable()),
-
-  // Architecture patterns with confidence scoring
-  // LLMs sometimes return plain strings instead of objects — normalize them
   architecturePatterns: z.preprocess(
     (val) => {
       if (!Array.isArray(val)) return [];
@@ -280,9 +231,6 @@ export const ProjectAnalysisZodSchema = z.object({
       )
       .default([]),
   ),
-
-  // Key file locations organized by purpose
-  // LLMs sometimes return a single string instead of an array — normalize
   keyFileLocations: z.preprocess(
     (val) => {
       if (!val || typeof val !== 'object') return {};
@@ -318,10 +266,6 @@ export const ProjectAnalysisZodSchema = z.object({
         services: [],
       }),
   ),
-
-  // Language distribution statistics
-  // LLMs sometimes return an object like {TypeScript: 80, CSS: 20} instead of an array
-  // LLMs sometimes return percentages > 100 (e.g. raw file counts) — clamp to 0-100
   languageDistribution: z.preprocess(
     (val) => {
       let arr: unknown[];
@@ -338,7 +282,6 @@ export const ProjectAnalysisZodSchema = z.object({
       } else {
         return [];
       }
-      // Clamp percentages to 0-100 before Zod validation
       return arr.map((item) => {
         if (item && typeof item === 'object' && 'percentage' in item) {
           const obj = item as Record<string, unknown>;
@@ -362,8 +305,6 @@ export const ProjectAnalysisZodSchema = z.object({
       )
       .default([]),
   ),
-
-  // Code health diagnostics
   existingIssues: z
     .object({
       errorCount: z.number().min(0).default(0),
@@ -388,9 +329,6 @@ export const ProjectAnalysisZodSchema = z.object({
       errorsByType: {},
       warningsByType: {},
     }),
-
-  // Code conventions detection - REQUIRED with defaults (SERIOUS-1 fix)
-  // Each field uses .catch() to fall back to defaults when LLM provides invalid values
   codeConventions: z
     .object({
       indentation: z.enum(['tabs', 'spaces']).catch('spaces'),
@@ -421,8 +359,6 @@ export const ProjectAnalysisZodSchema = z.object({
       semicolons: true,
       trailingComma: 'es5',
     }),
-
-  // Test coverage estimation
   testCoverage: z
     .object({
       percentage: z.number().min(0).max(100).default(0),
@@ -442,11 +378,6 @@ export const ProjectAnalysisZodSchema = z.object({
       hasIntegrationTests: false,
       hasE2eTests: false,
     }),
-
-  // Quality assessment from agentic analysis.
-  // The LLM agent assesses code quality based on its MCP tool exploration.
-  // All fields optional with defaults for backward compatibility with
-  // analysis runs that predate quality integration.
   qualityAssessment: z
     .object({
       qualityScore: z.number().min(0).max(100).default(0),
@@ -474,20 +405,12 @@ export const ProjectAnalysisZodSchema = z.object({
         .default([]),
     })
     .optional(),
-
-  // Optional metadata — present in the LLM output schema for prompt alignment
-  // (the system prompt asks the agent to report these) but not consumed
-  // downstream in DeepProjectAnalysis. Kept here so Zod doesn't reject them.
   fileCount: z.number().min(0).optional(),
   languages: z.array(z.string()).optional(),
 });
 
 /** Inferred type from the Zod schema after parsing */
 export type ProjectAnalysisZodOutput = z.infer<typeof ProjectAnalysisZodSchema>;
-
-// ============================================================================
-// Normalization Function
-// ============================================================================
 
 /**
  * Normalize Zod-validated analysis output into a properly typed DeepProjectAnalysis.
@@ -502,7 +425,6 @@ export type ProjectAnalysisZodOutput = z.infer<typeof ProjectAnalysisZodSchema>;
 export function normalizeAgentOutput(
   zodData: ProjectAnalysisZodOutput,
 ): DeepProjectAnalysis {
-  // Resolve projectType from LLM string to enum
   const projectType = resolveProjectType(zodData.projectType);
 
   if (projectType === ProjectType.General) {
@@ -512,15 +434,11 @@ export function normalizeAgentOutput(
       )}" could not be resolved to a known ProjectType; falling back to General`,
     );
   }
-
-  // Resolve frameworks, keeping both known enum values AND dynamic string values
-  // This allows discovered frameworks (Tailwind, Redux, etc.) to be preserved
   const resolvedFrameworks = zodData.frameworks.map((f) => {
     const resolved = resolveFramework(f);
     return {
       raw: f,
       resolved,
-      // If resolved to enum, use enum value; otherwise keep original string
       final: resolved !== undefined ? resolved : String(f),
     };
   });
@@ -535,20 +453,8 @@ export function normalizeAgentOutput(
         .join(', ')}`,
     );
   }
-
-  // Keep all frameworks: known ones as enum values, unknown ones as strings
   const frameworks = resolvedFrameworks.map((r) => r.final);
-
-  // Resolve monorepoType
   const monorepoType = resolveMonorepoType(zodData.monorepoType);
-
-  // Build CodeConventions explicitly from the Zod-validated output.
-  // Each required field is mapped from `zodData.codeConventions` with the
-  // same default the Zod schema specifies as a fallback. This is
-  // belt-and-braces: if a future schema edit drops a `.default()` at the
-  // field level, the fallback keeps runtime behavior correct, and the
-  // explicit object literal lets TypeScript verify the shape against
-  // `CodeConventions` without an `as` cast that could mask drift.
   const zc = zodData.codeConventions;
   const codeConventions: CodeConventions = {
     indentation: zc.indentation ?? 'spaces',
@@ -562,14 +468,9 @@ export function normalizeAgentOutput(
     useEslint: zc.useEslint,
     additionalTools: zc.additionalTools,
   };
-
-  // Preserve the agent's original rich description (e.g., "React SPA with Supabase Backend")
-  // while the enum is a best-effort infrastructure mapping
   const rawProjectTypeStr = String(zodData.projectType).trim();
   const projectTypeDescription =
     rawProjectTypeStr !== projectType ? rawProjectTypeStr : undefined;
-
-  // Build the properly typed result
   const result: DeepProjectAnalysis = {
     projectType,
     projectTypeDescription,
@@ -581,19 +482,13 @@ export function normalizeAgentOutput(
     codeConventions,
     testCoverage: zodData.testCoverage,
   };
-
-  // Only include monorepoType if resolved
   if (monorepoType) {
     result.monorepoType = monorepoType;
   }
-
-  // Map quality assessment fields
   if (zodData.qualityAssessment) {
     const qa = zodData.qualityAssessment;
 
     result.qualityScore = qa.qualityScore;
-
-    // Map qualityIssues → QualityGap[]
     if (qa.qualityIssues.length > 0) {
       result.qualityGaps = qa.qualityIssues.map((issue) => ({
         area: issue.area,
@@ -602,8 +497,6 @@ export function normalizeAgentOutput(
         recommendation: issue.recommendation,
       }));
     }
-
-    // Map recommendations → PrescriptiveGuidance
     if (qa.recommendations.length > 0) {
       result.prescriptiveGuidance = {
         summary: qa.recommendations
@@ -620,8 +513,6 @@ export function normalizeAgentOutput(
         wasTruncated: false,
       };
     }
-
-    // Build simplified QualityAssessment for downstream consumers
     result.qualityAssessment = {
       score: qa.qualityScore,
       antiPatterns: [], // Not available from agentic analysis (no line-level scanning)
@@ -635,10 +526,6 @@ export function normalizeAgentOutput(
 
   return result;
 }
-
-// ============================================================================
-// JSON Schema for SDK Structured Output
-// ============================================================================
 
 /**
  * Build a JSON Schema for the Claude Agent SDK `outputFormat` option.

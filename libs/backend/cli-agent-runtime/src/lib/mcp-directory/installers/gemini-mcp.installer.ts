@@ -39,8 +39,6 @@ export class GeminiMcpInstaller implements IMcpServerInstaller {
     try {
       const fileConfig = readJsonConfig(configPath);
       const servers = getServersObject(fileConfig, GeminiMcpInstaller.ROOT_KEY);
-
-      // Gemini uses "httpUrl" instead of "url" for HTTP transports
       const json = configToJson(config, false);
       if (config.type === 'http' || config.type === 'sse') {
         json['httpUrl'] = json['url'];
@@ -91,8 +89,6 @@ export class GeminiMcpInstaller implements IMcpServerInstaller {
       if (typeof value !== 'object' || value === null) continue;
 
       const raw = value as Record<string, unknown>;
-
-      // Normalize Gemini's "httpUrl" back to "url"
       if (typeof raw['httpUrl'] === 'string' && !raw['url']) {
         raw['url'] = raw['httpUrl'];
         delete raw['httpUrl'];

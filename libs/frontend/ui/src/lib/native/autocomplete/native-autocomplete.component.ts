@@ -145,10 +145,6 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
   private readonly floatingUI = inject(FloatingUIService);
   private readonly keyboardNav = inject(KeyboardNavigationService);
 
-  // ============================================================
-  // INPUTS
-  // ============================================================
-
   /**
    * Array of suggestions to display.
    * Required input - empty array shows empty state message.
@@ -199,10 +195,6 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    */
   readonly suggestionTemplate = input.required<TemplateRef<{ $implicit: T }>>();
 
-  // ============================================================
-  // OUTPUTS
-  // ============================================================
-
   /**
    * Emitted when a suggestion is selected (click or Enter key).
    * Parent should handle insertion logic.
@@ -214,10 +206,6 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    * Parent should update isOpen to false.
    */
   readonly closed = output<void>();
-
-  // ============================================================
-  // VIEW REFERENCES
-  // ============================================================
 
   /**
    * Reference to the input container element.
@@ -239,10 +227,6 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    */
   private readonly optionComponents = viewChildren(NativeOptionComponent);
 
-  // ============================================================
-  // SIGNALS FROM KEYBOARD NAVIGATION SERVICE
-  // ============================================================
-
   /**
    * Current active index from keyboard navigation service.
    * Used to determine which option should be highlighted.
@@ -250,23 +234,17 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
   readonly activeIndex = this.keyboardNav.activeIndex;
 
   constructor() {
-    // Configure keyboard navigation when suggestions change
     effect(() => {
       const count = this.suggestions().length;
       this.keyboardNav.configure({ itemCount: count, wrap: true });
     });
-
-    // Position panel when opened, cleanup when closed
     effect(() => {
       if (this.isOpen()) {
-        // Defer positioning to next microtask to ensure DOM is ready
         queueMicrotask(() => this.positionPanel());
       } else {
         this.floatingUI.cleanup();
       }
     });
-
-    // Scroll active option into view when activeIndex changes
     effect(() => {
       const index = this.activeIndex();
       const options = this.optionComponents();
@@ -275,10 +253,6 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
       }
     });
   }
-
-  // ============================================================
-  // POSITIONING
-  // ============================================================
 
   /**
    * Position the floating panel relative to the input.
@@ -297,10 +271,6 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
       });
     }
   }
-
-  // ============================================================
-  // PUBLIC API - Called by parent for keyboard integration
-  // ============================================================
 
   /**
    * Handle keyboard events from parent component.
@@ -403,10 +373,6 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
     return index >= 0 ? `suggestion-${index}` : null;
   }
 
-  // ============================================================
-  // CLICK-OUTSIDE & ESCAPE HANDLING
-  // ============================================================
-
   /**
    * Close the panel when clicking outside the input and floating panel.
    * Uses the same pattern as NativeDropdownComponent.
@@ -435,10 +401,6 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
       this.closed.emit();
     }
   }
-
-  // ============================================================
-  // LIFECYCLE
-  // ============================================================
 
   ngOnDestroy(): void {
     this.floatingUI.cleanup();

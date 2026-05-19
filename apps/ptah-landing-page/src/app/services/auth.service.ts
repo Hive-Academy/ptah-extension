@@ -50,7 +50,6 @@ export class AuthService {
    * @returns Observable<boolean>
    */
   public isAuthenticated(): Observable<boolean> {
-    // Skip API call if no auth hint exists (user never logged in)
     if (!this.hasAuthHint()) {
       return of(false);
     }
@@ -64,15 +63,13 @@ export class AuthService {
   private verifyWithBackend(): Observable<boolean> {
     return this.http.get(`${this.baseUrl}/me`).pipe(
       map(() => {
-        // Set hint on successful auth (handles OAuth/magic link redirects)
         this.setAuthHint();
         return true;
       }),
       catchError(() => {
-        // Clear stale hint on 401
         this.clearAuthHint();
         return of(false);
-      })
+      }),
     );
   }
 
@@ -84,21 +81,18 @@ export class AuthService {
    * @returns Observable<AuthUser | null>
    */
   public getCurrentUser(): Observable<AuthUser | null> {
-    // Skip API call if no auth hint exists
     if (!this.hasAuthHint()) {
       return of(null);
     }
 
     return this.http.get<AuthUser>(`${this.baseUrl}/me`).pipe(
       tap(() => {
-        // Ensure hint is set on success
         this.setAuthHint();
       }),
       catchError(() => {
-        // Clear stale hint on error
         this.clearAuthHint();
         return of(null);
-      })
+      }),
     );
   }
 
@@ -112,10 +106,9 @@ export class AuthService {
     return this.http.post<void>(`${this.baseUrl}/logout`, {}).pipe(
       tap(() => this.clearAuthHint()),
       catchError(() => {
-        // Clear hint even if logout API fails
         this.clearAuthHint();
         return of(undefined);
-      })
+      }),
     );
   }
 
@@ -124,22 +117,14 @@ export class AuthService {
    * Call this after successful authentication (OAuth callback, magic link, etc.)
    */
   public setAuthHint(): void {
-    try {
-      localStorage.setItem(AUTH_HINT_KEY, 'true');
-    } catch {
-      // localStorage might be unavailable (private browsing, etc.)
-    }
+    localStorage.setItem(AUTH_HINT_KEY, 'true');
   }
 
   /**
    * Clear auth hint
    */
   public clearAuthHint(): void {
-    try {
-      localStorage.removeItem(AUTH_HINT_KEY);
-    } catch {
-      // localStorage might be unavailable
-    }
+    localStorage.removeItem(AUTH_HINT_KEY);
   }
 
   /**
@@ -149,7 +134,6 @@ export class AuthService {
     try {
       return localStorage.getItem(AUTH_HINT_KEY) === 'true';
     } catch {
-      // If localStorage unavailable, always try API
       return true;
     }
   }

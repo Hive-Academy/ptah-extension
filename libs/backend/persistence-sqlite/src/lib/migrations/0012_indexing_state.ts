@@ -1,4 +1,3 @@
-// SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
 export const sql = `
 -- User-controlled workspace indexing state.
 -- One row per workspace (keyed by fingerprint). Additive — no existing tables modified.

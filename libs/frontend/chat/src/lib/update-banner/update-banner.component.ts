@@ -223,26 +223,15 @@ export class UpdateBannerComponent {
         confirmStyle: 'warning',
       });
       if (!confirmed) {
-        // Cancel path — do NOT set the in-flight flag; the RPC is skipped.
         return;
       }
     }
-
-    // Set the in-flight guard AFTER any confirmation has been accepted (or
-    // skipped because no active agent). The button's `restartEnabled`
-    // computed factors this in, so a rapid second click finds the button
-    // disabled and is dropped by Angular.
     this._installInFlight.set(true);
     try {
       await this.rpcService.call('update:install-now', {});
     } catch (err) {
-      // Non-fatal — main process will log; keep banner visible so the user
-      // can retry. Avoid surfacing raw error.message in production UI.
       console.error('[UpdateBanner] update:install-now failed', err);
     } finally {
-      // Re-enable the button. In the happy path the app is quitting and the
-      // UI is about to be torn down; this matters when the RPC rejects (e.g.
-      // Windows elevation failure) and the app stays alive.
       this._installInFlight.set(false);
     }
   }

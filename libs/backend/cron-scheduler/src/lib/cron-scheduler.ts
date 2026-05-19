@@ -75,10 +75,6 @@ export class CronScheduler {
     private readonly logger: Logger,
   ) {}
 
-  // ────────────────────────────────────────────────────────────────────────
-  // Lifecycle
-  // ────────────────────────────────────────────────────────────────────────
-
   /**
    * Boot the scheduler with the given options. Idempotent.
    *
@@ -124,21 +120,13 @@ export class CronScheduler {
   stop(): void {
     if (!this.started) return;
     for (const [, timer] of this.timers) {
-      try {
-        timer.stop();
-      } catch {
-        /* swallow */
-      }
+      timer.stop();
     }
     this.timers.clear();
     this.catchup.detach();
     this.started = false;
     this.logger.info('[cron-scheduler] stopped');
   }
-
-  // ────────────────────────────────────────────────────────────────────────
-  // CRUD (RPC surface)
-  // ────────────────────────────────────────────────────────────────────────
 
   list(opts?: { enabledOnly?: boolean }): ScheduledJob[] {
     return this.jobs.list(opts);
@@ -150,8 +138,6 @@ export class CronScheduler {
 
   create(input: Omit<CreateJobInput, 'nextRunAt'>): ScheduledJob {
     const tz = input.timezone ?? 'UTC';
-    // Construct a paused Cron — croner throws synchronously on invalid expr
-    // or unknown tz. Let the error propagate verbatim (architecture §5.3).
     const Cron = loadCron();
     const probe = new Cron(input.cronExpr, {
       timezone: tz,
@@ -169,8 +155,6 @@ export class CronScheduler {
     const existing = this.jobs.get(id);
     if (!existing) throw new JobNotFoundError(id);
     const merged = { ...existing, ...patch };
-
-    // If timing fields changed, re-validate + recompute nextRunAt.
     const cronChanged =
       patch.cronExpr !== undefined && patch.cronExpr !== existing.cronExpr;
     const tzChanged =
@@ -187,8 +171,6 @@ export class CronScheduler {
       probe.stop();
     }
     const updated = this.jobs.update(id, { ...patch, nextRunAt });
-
-    // Re-arm: tear down any existing timer, then arm if still enabled+started.
     this.disarmTimer(id);
     if (this.started && updated.enabled) this.armTimer(updated);
     return updated;
@@ -245,10 +227,6 @@ export class CronScheduler {
     }
   }
 
-  // ────────────────────────────────────────────────────────────────────────
-  // Internal: arm/disarm
-  // ────────────────────────────────────────────────────────────────────────
-
   private armTimer(job: ScheduledJob): void {
     if (this.timers.has(job.id)) return;
     const Cron = loadCron();
@@ -256,14 +234,9 @@ export class CronScheduler {
       job.cronExpr,
       {
         timezone: job.timezone,
-        // protect=false because we have our own concurrency layer (semaphore
-        // in JobRunner). croner's protect would otherwise drop overlapping
-        // ticks silently, making operator visibility worse.
         protect: false,
       },
       () => {
-        // croner doesn't pass scheduledFor — derive from "now" rounded to
-        // the previous second to make the slot deterministic for UNIQUE.
         const slot = Math.floor(Date.now() / 1000) * 1000;
         void this.runner.run(job, slot).catch((err) => {
           this.logger.error('[cron-scheduler] runner.run threw', {
@@ -279,11 +252,8 @@ export class CronScheduler {
   private disarmTimer(id: string): void {
     const timer = this.timers.get(id);
     if (!timer) return;
-    try {
-      timer.stop();
-    } catch {
-      /* swallow */
-    }
+
+    timer.stop();
     this.timers.delete(id);
   }
 }

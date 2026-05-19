@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Local Model Translation Proxy
  *
  * Translation proxy for local OpenAI-compatible model servers (LM Studio).
@@ -24,10 +24,6 @@ import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import { TranslationProxyBase } from '../../translation';
 import { SdkError } from '@ptah-extension/agent-sdk';
 import { getAnthropicProvider } from '@ptah-extension/shared';
-
-// ---------------------------------------------------------------------------
-// Base class (NOT injectable -- subclasses provide DI)
-// ---------------------------------------------------------------------------
 
 /**
  * Base translation proxy for local OpenAI-compatible model servers.
@@ -113,7 +109,6 @@ export class LocalModelTranslationProxy extends TranslationProxyBase {
     }>
   > {
     const endpoint = await this.getApiEndpoint();
-    // Build /v1/models URL from the base endpoint
     const modelsUrl = new URL('/v1/models', endpoint.replace(/\/v1\/?$/, ''));
 
     try {
@@ -175,10 +170,6 @@ export class LocalModelTranslationProxy extends TranslationProxyBase {
       .replace(/\b\w/g, (c) => c.toUpperCase());
   }
 }
-
-// ---------------------------------------------------------------------------
-// Injectable subclass (LM Studio only â€” Ollama uses OllamaModelDiscoveryService)
-// ---------------------------------------------------------------------------
 
 /**
  * LM Studio translation proxy.

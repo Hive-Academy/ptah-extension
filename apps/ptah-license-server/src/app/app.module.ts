@@ -42,17 +42,8 @@ import { MarketingModule } from '../marketing/marketing.module';
  */
 @Module({
   imports: [
-    // Global configuration - makes ConfigService available everywhere
     ConfigModule.forRoot({ isGlobal: true }),
-
-    // TASK_2025_251: Sentry error tracking and performance monitoring
-    // Must be imported early to capture exceptions from all other modules.
-    // Safe to include when SENTRY_DSN is not set (Sentry calls become no-ops).
     SentryModule,
-
-    // TASK_2025_125: Rate limiting to prevent abuse and DoS attacks
-    // Default: 100 requests per minute per IP (generous for normal usage)
-    // Stricter limits applied per-endpoint via @Throttle decorator
     ThrottlerModule.forRoot([
       {
         name: 'default',
@@ -60,17 +51,9 @@ import { MarketingModule } from '../marketing/marketing.module';
         limit: 100, // 100 requests per minute
       },
     ]),
-
-    // Event emitter for async event handling
     EventEmitterModule.forRoot(),
-
-    // Core infrastructure
     PrismaModule,
-    // TASK_2025_292: cross-cutting admin audit log (global; consumed by
-    // AdminModule, LicenseModule, MarketingModule).
     AuditModule,
-
-    // Feature modules
     LicenseModule,
     AuthModule,
     PaddleModule,
@@ -84,7 +67,6 @@ import { MarketingModule } from '../marketing/marketing.module';
     MarketingModule, // TASK_2025_292: marketing backend foundation
   ],
   providers: [
-    // TASK_2025_125: Apply ThrottlerGuard globally to all routes
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

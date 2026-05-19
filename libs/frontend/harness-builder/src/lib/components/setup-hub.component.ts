@@ -719,8 +719,6 @@ export class SetupHubComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly navigation = inject(WebviewNavigationService);
   private readonly appState = inject(AppStateManager);
-
-  // Icons
   protected readonly SearchIcon = Search;
   protected readonly WrenchIcon = Wrench;
   protected readonly FileTextIcon = FileText;
@@ -731,8 +729,6 @@ export class SetupHubComponent implements OnInit {
   protected readonly CheckCircleIcon = CheckCircle2;
   protected readonly RefreshIcon = RefreshCw;
   protected readonly ArrowLeftIcon = ArrowLeft;
-
-  // State
   private readonly _isLoading = signal(false);
   private readonly _hasLoadedOnce = signal(false);
   private readonly _loadError = signal<string | null>(null);

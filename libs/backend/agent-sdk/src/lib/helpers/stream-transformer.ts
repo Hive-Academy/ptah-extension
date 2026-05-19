@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Stream Transformer
  *
  * Transforms SDK message streams into FlatStreamEventUnion for UI rendering.
@@ -23,6 +23,7 @@ import {
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { SDK_TOKENS } from '../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import {
   SDKMessage,
   isResultMessage,
@@ -147,7 +148,6 @@ function validateStats(
   },
   logger: Logger,
 ): ValidatedStats | null {
-  // Validate cost (max $100 catches billing bugs)
   if (
     stats.cost < 0 ||
     stats.cost > 100 ||
@@ -160,8 +160,6 @@ function validateStats(
     });
     return null;
   }
-
-  // Validate tokens (max 1M catches overflow)
   if (
     stats.tokens.input < 0 ||
     stats.tokens.input > 1000000 ||
@@ -178,8 +176,6 @@ function validateStats(
     });
     return null;
   }
-
-  // Validate duration (max 1 hour = 3,600,000ms)
   if (
     stats.duration < 0 ||
     stats.duration > 3600000 ||
@@ -213,8 +209,9 @@ export class StreamTransformer {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
     private readonly messageTransformer: SdkMessageTransformer,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
   ) {}
 
@@ -233,8 +230,6 @@ export class StreamTransformer {
       tabId,
       abortController,
     } = config;
-
-    // Capture references for use in generator
     const logger = this.logger;
     const messageTransformer = this.messageTransformer;
     const authEnv = this.authEnv;
@@ -244,23 +239,8 @@ export class StreamTransformer {
       async *[Symbol.asyncIterator]() {
         let sdkMessageCount = 0;
         let yieldedEventCount = 0;
-        // Initial value is temp ID from config, updated to real UUID on system init message
         let effectiveSessionId = sessionId;
-
-        // Track the last message_start per model to get current context fill.
-        // The cumulative modelUsage tokens are summed across all turns, but
-        // the context window only holds the CURRENT conversation. Each
-        // message_start's usage.input_tokens + cache_read = actual prompt size
-        // for that turn, which IS the real context fill.
         const lastTurnContextByModel = new Map<string, number>();
-
-        // First-message timeout guard. If no SDK message has arrived within
-        // FIRST_MESSAGE_TIMEOUT_MS, abort the query and surface a clear error
-        // so the UI doesn't spin forever. Cleared as soon as the first message
-        // is received â€” normal streaming then proceeds without interference.
-        // Include the configured base URL and model ID in the error so users
-        // can diagnose misrouted requests (e.g., unsupported Moonshot model
-        // IDs on the Anthropic-compatible endpoint).
         let firstMessageReceived = false;
         const baseUrlForError = authEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
         const timeoutHandle: NodeJS.Timeout | null = abortController
@@ -300,10 +280,6 @@ export class StreamTransformer {
                 clearTimeout(timeoutHandle);
               }
             }
-
-            // Capture per-turn context fill from message_start events.
-            // Each message_start carries the input usage for that API call,
-            // which represents the full conversation sent (= current context).
             if (isStreamEvent(sdkMessage)) {
               const event = sdkMessage.event;
               if (isMessageStart(event)) {
@@ -319,16 +295,11 @@ export class StreamTransformer {
                 }
               }
             }
-
-            // DIAGNOSTIC: Log detailed message info to understand message flow
-            // This helps debug streaming behavior differences between Anthropic vs OpenRouter
             const messageDetails: Record<string, unknown> = {
               sessionId,
               messageType: sdkMessage.type,
               messageNumber: sdkMessageCount,
             };
-
-            // Extract message ID if available (for deduplication tracking)
             if (sdkMessage.type === 'stream_event') {
               const event = sdkMessage.event as {
                 type?: string;
@@ -340,46 +311,29 @@ export class StreamTransformer {
               const msg = sdkMessage as { message?: { id?: string } };
               messageDetails['messageId'] = msg?.message?.id;
             }
-
-            // Extract real session ID from system 'init' message using type guard
             if (isSystemInit(sdkMessage)) {
               const realSessionId = sdkMessage.session_id;
-
-              // This ensures stats and events use the real UUID, not temp ID
               effectiveSessionId = realSessionId as SessionId;
-
-              // tabId allows frontend to find tab directly without temp ID lookup
               if (onSessionIdResolved) {
                 onSessionIdResolved(tabId, realSessionId);
               }
             }
-
-            // Extract stats from result message and notify via callback
             if (isResultMessage(sdkMessage)) {
-              // Check callback is set
               if (!onResultStats) {
                 logger.error(
                   '[StreamTransformer] Result stats callback not set - stats will be lost!',
                   { sessionId: effectiveSessionId },
                 );
-                // Continue processing (don't throw) - stats are non-critical
               } else {
-                // This ensures frontend can find the tab by sessionId
-                // STATS_FIX: Now includes cache tokens for proper cost tracking
-                // Extract per-model usage data including context window
                 const modelUsageList: ResultModelUsage[] = [];
                 let recalculatedTotalCost = 0;
                 if (sdkMessage.modelUsage) {
                   for (const [model, usage] of Object.entries(
                     sdkMessage.modelUsage,
                   )) {
-                    // Skip SDK internal synthetic model entries (e.g., "<synthetic>")
-                    // These represent meta/system messages with no real billing cost
                     if (model.startsWith('<') && model.endsWith('>')) {
                       continue;
                     }
-
-                    // Resolve actual model for accurate pricing (e.g., "claude-opus-4-..." â†’ "kimi-k2.5")
                     const resolvedModel = modelResolver.resolveForPricing(
                       model,
                       authEnv,
@@ -406,18 +360,12 @@ export class StreamTransformer {
                           : usage.contextWindow,
                       costUSD: recalculatedCost,
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
-                      // Use the last message_start's input usage as current context fill.
-                      // The `model` key in modelUsage matches message_start's model field.
                       lastTurnContextTokens:
                         lastTurnContextByModel.get(model) ?? undefined,
                     });
                   }
-                  // Sort so the primary model appears first in the array.
-                  // The frontend uses modelUsage[0] as the display model.
-                  // Strategy: match initialModel (fuzzy), then fall back to highest output tokens.
                   if (modelUsageList.length > 1) {
                     modelUsageList.sort((a, b) => {
-                      // First: try matching against initialModel (fuzzy â€” extract family name)
                       if (initialModel) {
                         const normalizedInit = initialModel.toLowerCase();
                         const aFuzzy =
@@ -434,14 +382,10 @@ export class StreamTransformer {
                             : 0;
                         if (aFuzzy !== bFuzzy) return bFuzzy - aFuzzy;
                       }
-                      // Fallback: model with most output tokens (did the most work) first
                       return b.outputTokens - a.outputTokens;
                     });
                   }
                 }
-
-                // Use recalculated cost if we had modelUsage data, otherwise
-                // fall back to recalculating from aggregate usage
                 const totalCost =
                   recalculatedTotalCost > 0
                     ? recalculatedTotalCost
@@ -471,25 +415,13 @@ export class StreamTransformer {
                   modelUsage:
                     modelUsageList.length > 0 ? modelUsageList : undefined,
                 };
-
-                // Validate and notify
                 const validatedStats = validateStats(rawStats, logger);
                 if (validatedStats) {
                   onResultStats(validatedStats);
                 }
-                // If validation fails, validateStats already logged warning
               }
             }
-
-            // CRITICAL FIX: Must process 'user' messages to extract tool_result!
-            // SDK sends tool_result content blocks in user messages after tool execution.
-            // Without this, tools remain in __streaming: true state forever.
-            // Also process compact_boundary (type: 'system') to emit compaction_complete events.
-            // Also process local_command_output (type: 'system') for /cost, /context output.
             if (isCompactBoundary(sdkMessage)) {
-              // Compaction wipes the per-turn context â€” the next result that
-              // arrives without a fresh message_start must report undefined,
-              // not the stale pre-compaction tokens.
               lastTurnContextByModel.clear();
             }
 
@@ -500,7 +432,6 @@ export class StreamTransformer {
               isCompactBoundary(sdkMessage) ||
               isLocalCommandOutput(sdkMessage)
             ) {
-              // This ensures events have the real sessionId for proper routing
               const flatEvents = messageTransformer.transform(
                 sdkMessage,
                 effectiveSessionId,
@@ -512,8 +443,6 @@ export class StreamTransformer {
                 yield event;
               }
             }
-            // Note: 'user' and 'result' messages are NOT yielded
-            // SDK persists them natively to ~/.claude/projects/{sessionId}.jsonl
           }
 
           logger.info(
@@ -522,8 +451,6 @@ export class StreamTransformer {
         } catch (error) {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
-
-          // Check if this is a user-initiated abort (not a real error)
           const lowerMessage = errorObj.message.toLowerCase();
           const isUserAbort =
             lowerMessage.includes('aborted by user') ||
@@ -532,19 +459,14 @@ export class StreamTransformer {
             lowerMessage.includes('canceled');
 
           if (isUserAbort) {
-            // User aborts are expected behavior, log at INFO level
             logger.info(
               `[StreamTransformer] Session ${sessionId} aborted by user`,
             );
           } else {
-            // Real errors should be logged at ERROR level
             logger.error(
               `[StreamTransformer] Session ${sessionId} error: ${errorObj.message}`,
               errorObj,
             );
-
-            // Check for auth errors and provide helpful logging
-            // Be specific to avoid false positives (e.g., "Invalid MessageId format" is not an auth error)
             const isAuthError =
               errorObj.message.includes('401') ||
               lowerMessage.includes('unauthorized') ||

@@ -92,10 +92,6 @@ export type JsonRpcMessage<
   | JsonRpcRequest<TParams>
   | JsonRpcResponse<TResult, TData>;
 
-// ---------------------------------------------------------------------------
-// Standard JSON-RPC 2.0 error codes (per spec §5.1)
-// ---------------------------------------------------------------------------
-
 /** Standard JSON-RPC 2.0 error codes. */
 export const JsonRpcErrorCode = {
   /** Malformed JSON received. */
@@ -113,22 +109,13 @@ export const JsonRpcErrorCode = {
 export type JsonRpcErrorCodeValue =
   (typeof JsonRpcErrorCode)[keyof typeof JsonRpcErrorCode];
 
-// ---------------------------------------------------------------------------
-// Ptah notification method names — task-description.md §4.1
-// ---------------------------------------------------------------------------
-
 /**
  * String-literal union of every Ptah notification method emitted on stdout.
  * Schema for the `params` of each method lives in task-description.md §4.1.
  */
 export type PtahNotification =
-  // Session lifecycle
   | 'session.ready'
   | 'session.created'
-  // Session command surface — task-description.md §3.1
-  // `session *` table. Emitted by `ptah session {list|stop|delete|rename|
-  // load|stats|validate}` for non-streaming sub-subcommands. Streaming
-  // sub-subcommands (`start|resume|send`) emit `agent.*` via `ChatBridge`.
   | 'session.list'
   | 'session.history'
   | 'session.stats'
@@ -137,26 +124,17 @@ export type PtahNotification =
   | 'session.deleted'
   | 'session.renamed'
   | 'session.id_resolved'
-  // Agent stream
   | 'agent.thought'
   | 'agent.message'
   | 'agent.tool_use'
   | 'agent.tool_result'
-  // Approval round-trip notifications (task-description.md §4.2).
-  // These are fire-and-forget CLI → client notifications; the matching client
-  // → CLI responses arrive as JSON-RPC requests on the inbound channel
-  // (`permission.response` / `question.response`) and are dispatched through
-  // `JsonRpcServer.register()` handlers wired by the `ApprovalBridge`.
   | 'permission.request'
   | 'question.ask'
-  // Session metering
   | 'session.cost'
   | 'session.token_usage'
-  // Task lifecycle
   | 'task.start'
   | 'task.complete'
   | 'task.error'
-  // Config commands (file-backed reads/writes + RPC sub-subcommands)
   | 'config.value'
   | 'config.updated'
   | 'config.list'
@@ -164,29 +142,24 @@ export type PtahNotification =
   | 'config.models'
   | 'config.autopilot'
   | 'config.effort'
-  // Harness commands
   | 'harness.initialized'
   | 'skill.installed'
   | 'skill.list'
-  // Skill commands — task-description.md §4.1.5
   | 'skill.search'
   | 'skill.removed'
   | 'skill.popular'
   | 'skill.recommended'
   | 'skill.created'
-  // MCP commands — task-description.md §4.1.5
   | 'mcp.search'
   | 'mcp.details'
   | 'mcp.installed'
   | 'mcp.uninstalled'
   | 'mcp.list'
   | 'mcp.popular'
-  // Plugin commands — task-description.md §3.1 `plugin *`
   | 'plugin.list'
   | 'plugin.config.value'
   | 'plugin.config.updated'
   | 'plugin.skills.list'
-  // Prompts commands — task-description.md §3.1 `prompts *`
   | 'prompts.status'
   | 'prompts.enabled'
   | 'prompts.disabled'
@@ -194,18 +167,9 @@ export type PtahNotification =
   | 'prompts.regenerate.complete'
   | 'prompts.content'
   | 'prompts.download.complete'
-  // Setup-wizard generation surface — task-description.md §4.1.3.
-  // Forwarded by the event-pipe when the backend `setup-wizard:generation-*`
-  // push events fire during wizard prompt generation. Consumed by the
-  // phase-runner async-broadcast mode and the setup orchestrator.
   | 'wizard.generation.progress'
   | 'wizard.generation.stream'
   | 'wizard.generation.complete'
-  // Harness commands — task-description.md §3.1 `harness *`.
-  // NOTE: `harness.chat.*` is intentionally OMITTED — the `harness chat`
-  // sub-subcommand is an alias for `session start --scope harness-skill`
-  // and emits `task.error` synchronously without any new notifications.
-  // See `harness.ts#runChatAlias`.
   | 'harness.status'
   | 'harness.workspace_context'
   | 'harness.available_agents'
@@ -220,15 +184,12 @@ export type PtahNotification =
   | 'harness.document.start'
   | 'harness.document.stream'
   | 'harness.document.complete'
-  // Profile commands
   | 'profile.applied'
   | 'profile.list'
-  // Workspace commands
   | 'workspace.info'
   | 'workspace.added'
   | 'workspace.removed'
   | 'workspace.switched'
-  // Git commands
   | 'git.info'
   | 'git.worktrees'
   | 'git.worktree.added'
@@ -238,25 +199,20 @@ export type PtahNotification =
   | 'git.discarded'
   | 'git.committed'
   | 'git.file'
-  // License commands
   | 'license.status'
   | 'license.updated'
   | 'license.cleared'
-  // Web search commands
   | 'websearch.status'
   | 'websearch.config'
   | 'websearch.test'
   | 'websearch.updated'
-  // Settings export/import
   | 'settings.exported'
   | 'settings.imported'
-  // Workspace deep-analysis
   | 'analyze.start'
   | 'analyze.framework_detected'
   | 'analyze.dependency_detected'
   | 'analyze.recommendation'
   | 'analyze.complete'
-  // Auth commands — task-description.md §4.1.6
   | 'auth.status'
   | 'auth.health'
   | 'auth.api_key.status'
@@ -265,12 +221,7 @@ export type PtahNotification =
   | 'auth.login.complete'
   | 'auth.logout.complete'
   | 'auth.test.result'
-  // Auth provider switch — `ptah auth use <providerId>`.
-  // Emitted after the workspace provider config has been mutated to point
-  // at the target provider. Payload shape:
-  //   { providerId, authMethod, defaultProvider, anthropicProviderId }
   | 'auth.use.applied'
-  // Provider commands — task-description.md §4.1.6
   | 'provider.status'
   | 'provider.default'
   | 'provider.models'
@@ -280,33 +231,6 @@ export type PtahNotification =
   | 'provider.default.updated'
   | 'provider.tier.updated'
   | 'provider.tier.cleared'
-  // Anthropic-compatible HTTP proxy (`ptah proxy *`).
-  //
-  // Emitted by `apps/ptah-cli/src/services/proxy/anthropic-proxy.service.ts`
-  // when the proxy is launched embedded inside an active `ptah interact`
-  // session. Outside of `interact`, these notifications are produced via the
-  // structured stderr formatter only — there's no JSON-RPC peer to receive
-  // them.
-  //
-  //   - `proxy.started`       — HTTP server bound + token issued.
-  //                             `{ host, port, token_path, expose_workspace_tools }`
-  //   - `proxy.token.issued`  — token mint event mirroring the disk write.
-  //                             `{ token, port }` (token field is the literal
-  //                             secret — the peer is responsible for not
-  //                             logging it). Also written to
-  //                             `~/.ptah/proxy/<port>.token` mode 0o600.
-  //   - `proxy.request`       — per-request lifecycle (start + complete).
-  //                             `{ request_id, model, tool_count, stream,
-  //                                phase: 'start' | 'complete', duration_ms? }`
-  //   - `proxy.tool_invoked`  — workspace MCP tool surfaced to caller.
-  //                             `{ request_id, tool_name, source: 'caller' |
-  //                                'workspace' }`
-  //   - `proxy.warning`       — collision / soft-fail diagnostics.
-  //                             `{ request_id?, kind, message, details? }`
-  //   - `proxy.error`         — request-level fatal (non-fatal to the proxy).
-  //                             `{ request_id?, code, message }`
-  //   - `proxy.stopped`       — HTTP server closed (idempotent).
-  //                             `{ port, reason }`
   | 'proxy.started'
   | 'proxy.token.issued'
   | 'proxy.request'
@@ -314,28 +238,19 @@ export type PtahNotification =
   | 'proxy.warning'
   | 'proxy.error'
   | 'proxy.stopped'
-  // Agent surface — task-description.md §4.1.2
   | 'agent.packs.list'
   | 'agent.pack.install.start'
   | 'agent.pack.install.progress'
   | 'agent.pack.install.complete'
   | 'agent.list'
   | 'agent.applied'
-  // Agent CLI surface — task-description.md §4.1.2
   | 'agent_cli.detection'
   | 'agent_cli.config'
   | 'agent_cli.config.updated'
   | 'agent_cli.models'
   | 'agent_cli.stopped'
   | 'agent_cli.resumed'
-  // Diagnostics (verbose)
   | 'debug.di.phase'
-  // System/diagnostics surface.
-  //   - `doctor.report` — emitted by `ptah doctor` (alias `diagnose`) once
-  //     the diagnostic walk completes. Payload:
-  //       { license, auth, providers[], effective: { route, ready, blockers[] }, timestamp }
-  //   - `system.schema.version` — emitted on `ptah interact` startup so the
-  //     peer can detect protocol skew. Payload: `{ version, cliVersion }`.
   | 'doctor.report'
   | 'system.schema.version';
 
@@ -346,9 +261,6 @@ export type PtahNotification =
 export type PtahOutboundRequest =
   | 'permission.request'
   | 'question.ask'
-  // OAuth URL surfacing for headless device-code flows.
-  // The CLI sends this to the connected JSON-RPC peer when a Copilot login
-  // begins so the peer can open the verification URL on the user's behalf.
   | 'oauth.url.open';
 
 /**
@@ -368,16 +280,7 @@ export type PtahInboundRequest =
   | 'task.cancel'
   | 'session.shutdown'
   | 'session.history'
-  // Anthropic-compatible HTTP proxy shutdown — only registered when the proxy
-  // is launched embedded inside `ptah interact`. Closes the HTTP listener,
-  // detaches the proxy from the push adapter, and unlinks
-  // `~/.ptah/proxy/<port>.token`. Idempotent — second call returns
-  // `{ stopped: false, reason: 'already stopped' }`.
   | 'proxy.shutdown';
-
-// ---------------------------------------------------------------------------
-// Ptah-specific error codes — task-description.md §4.4
-// ---------------------------------------------------------------------------
 
 /** Ptah-specific error codes (carried in `error.data.ptah_code`). */
 export type PtahErrorCode =
@@ -388,43 +291,13 @@ export type PtahErrorCode =
   | 'license_required'
   | 'unknown'
   | 'internal_failure'
-  // CLI agent allowlist rejection.
-  // Emitted by `ptah agent-cli {models|stop|resume} --cli <id>` when the
-  // requested CLI is not in the locked allowlist (`glm` | `gemini`). NEVER
-  // bypassable via env vars — the check lives at command entry-point and
-  // ignores `process.env.PTAH_AGENT_CLI_OVERRIDE` entirely.
   | 'cli_agent_unavailable'
-  // SDK agent adapter failed to initialize during CLI bootstrap. Emitted from
-  // `withEngine` when `mode === 'full'` and the AGENT_ADAPTER's `initialize()`
-  // returns false or throws — without this surface, `chat:start` RPCs hang
-  // because the adapter never spawns claude. Mirrors Electron's bootstrap.ts
-  // initialization step.
   | 'sdk_init_failed'
-  // Workspace root could not be resolved or does not exist. Reserved for
-  // structured stderr emission via `emitFatalError`.
   | 'workspace_missing'
-  // Anthropic-compatible HTTP proxy failed to bind the requested host/port
-  // pair. `data.host` / `data.port` carry the requested values; `data.cause`
-  // carries the underlying `EADDRINUSE` / `EACCES` reason from `node:http`.
   | 'proxy_bind_failed'
-  // Caller body rejected by the proxy (e.g. malformed JSON, unsupported
-  // `model` field, missing `messages`). Always paired with HTTP 400; the
-  // peer-side notification is a `proxy.error` event.
   | 'proxy_invalid_request'
-  // Proxy attempted to forward a tool that requires user permission, but the
-  // active CLI session has no permission gate available (no `--auto-approve`
-  // and not running embedded inside `ptah interact`). Treated as a fail-fast
-  // at proxy-startup so the proxy never silently auto-allows.
   | 'permission_gate_unavailable'
-  // `ptah auth login claude-cli` could not locate the Claude CLI on PATH or
-  // in any of the known installation locations. Emitted alongside
-  // ExitCode.UsageError so the operator can re-run after `npm install -g
-  // @anthropic-ai/claude-code` (or equivalent).
   | 'claude_cli_not_found';
-
-// ---------------------------------------------------------------------------
-// Process exit codes — task-description.md §6
-// ---------------------------------------------------------------------------
 
 /** Process exit codes. */
 export const ExitCode = {
@@ -437,10 +310,6 @@ export const ExitCode = {
 } as const;
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode];
-
-// ---------------------------------------------------------------------------
-// Type guards (used by the server dispatcher and tests)
-// ---------------------------------------------------------------------------
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

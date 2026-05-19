@@ -44,18 +44,11 @@ export function generateAgentColorOklch(agentType: string): OklchColor {
 
   const builtin = BUILTIN_AGENT_COLORS[agentType];
   if (builtin) return builtin;
-
-  // Simple hash function
   let hash = 0;
   for (let i = 0; i < agentType.length; i++) {
     hash = agentType.charCodeAt(i) + ((hash << 5) - hash);
   }
-
-  // Convert hash to hue (0-360)
   const hue = Math.abs(hash % 360);
-
-  // L=0.55 provides good contrast on both light and dark backgrounds.
-  // C=0.15 gives vibrant but not oversaturated colors.
   return { l: 0.55, c: 0.15, h: hue };
 }
 

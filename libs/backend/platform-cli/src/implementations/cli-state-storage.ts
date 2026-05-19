@@ -34,8 +34,6 @@ export class CliStateStorage implements IStateStorage {
     } else {
       this.data[key] = value;
     }
-    // Serialize writes to prevent corruption from concurrent updates.
-    // Catch errors to prevent a single failure from breaking the chain permanently.
     this.writePromise = this.writePromise.then(
       () => this.persist(),
       () => this.persist(),
@@ -52,7 +50,6 @@ export class CliStateStorage implements IStateStorage {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
       this.data = JSON.parse(raw);
     } catch {
-      // File doesn't exist or is corrupted — start fresh
       this.data = {};
     }
   }
@@ -60,7 +57,6 @@ export class CliStateStorage implements IStateStorage {
   private async persist(): Promise<void> {
     const dir = path.dirname(this.filePath);
     await fsPromises.mkdir(dir, { recursive: true });
-    // Atomic write: write to temp file then rename to prevent partial writes
     const tmpPath = this.filePath + '.tmp';
     await fsPromises.writeFile(
       tmpPath,

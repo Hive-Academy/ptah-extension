@@ -24,6 +24,9 @@
       "@ptah-extension/auth-providers": [
         "libs/backend/auth-providers/src/index.ts"
       ],
+      "@ptah-extension/auth-providers-tokens": [
+        "libs/backend/auth-providers-tokens/src/index.ts"
+      ],
       "@ptah-extension/canvas": ["libs/frontend/canvas/src/index.ts"],
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
       "@ptah-extension/chat-types": ["libs/frontend/chat-types/src/index.ts"],

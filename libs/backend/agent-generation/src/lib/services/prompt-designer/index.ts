@@ -7,16 +7,10 @@
  * - Types for input/output contracts
  * - Generation prompts and response parsing utilities
  */
-
-// Main agent
 export { PromptDesignerAgent } from './prompt-designer-agent';
-
-// Cache service
 export { PromptCacheService } from './prompt-cache.service';
 export type { PromptCacheConfig } from './prompt-cache.service';
 export { DEFAULT_CACHE_CONFIG } from './prompt-cache.service';
-
-// Types
 export type {
   PromptDesignerInput,
   PromptDesignerOutput,
@@ -31,15 +25,11 @@ export {
   PromptDesignerResponseSchema,
   DEFAULT_PROMPT_DESIGNER_CONFIG,
 } from './prompt-designer.types';
-
-// Prompts (for testing and extension)
 export {
   PROMPT_DESIGNER_SYSTEM_PROMPT,
   buildGenerationUserPrompt,
   buildFallbackGuidance,
 } from './generation-prompts';
-
-// Response parsing (for testing)
 export {
   parseStructuredResponse,
   parseTextResponse,
@@ -47,8 +37,6 @@ export {
   formatAsPromptSection,
   truncateToTokenBudget,
 } from './response-parser';
-
-// Cache invalidation utilities
 export {
   INVALIDATION_TRIGGER_FILES,
   INVALIDATION_IGNORE_PATTERNS,

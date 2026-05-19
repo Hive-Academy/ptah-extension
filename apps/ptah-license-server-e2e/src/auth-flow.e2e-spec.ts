@@ -75,16 +75,11 @@ function makeWorkOSUser(overrides: Partial<WorkOSUser> = {}): WorkOSUser {
   } as unknown as WorkOSUser;
 }
 
-// ============================================================================
-// MAGIC LINK FLOW
-// ============================================================================
-
 describe('auth-flow e2e :: magic-link request → token issue', () => {
   let magicLink: MagicLinkService;
 
   beforeEach(() => {
     jest.useRealTimers();
-    // Short TTL so expiry tests are fast but deterministic (100ms).
     magicLink = new MagicLinkService(
       makeConfig({
         MAGIC_LINK_TTL_MS: 100,
@@ -160,8 +155,6 @@ describe('auth-flow e2e :: magic-link request → token issue', () => {
   it('rejects expired tokens once the TTL elapses', async () => {
     const url = await magicLink.createMagicLink(TEST_EMAIL);
     const token = new URL(url).searchParams.get('token') as string;
-
-    // Wait past the 100ms TTL configured above.
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     const result = await magicLink.validateAndConsume(token);
@@ -170,14 +163,9 @@ describe('auth-flow e2e :: magic-link request → token issue', () => {
       valid: false,
       error: 'token_expired',
     });
-    // Expired tokens are evicted — storage should be empty afterwards.
     expect(magicLink.getTokenCount()).toBe(0);
   });
 });
-
-// ============================================================================
-// JWT SESSION TOKEN FLOW
-// ============================================================================
 
 describe('auth-flow e2e :: JWT session issue → validate → refresh', () => {
   let jwtService: JwtService;
@@ -230,7 +218,6 @@ describe('auth-flow e2e :: JWT session issue → validate → refresh', () => {
   it('rejects tokens whose payload has been tampered with', async () => {
     const jwt = await tokens.generateToken(DB_USER_ID, makeWorkOSUser());
     const [header, , signature] = jwt.split('.');
-    // Swap in an attacker-chosen payload, keep the original signature.
     const maliciousPayload = Buffer.from(
       JSON.stringify({ sub: DB_USER_ID, email: TEST_EMAIL, tier: 'pro' }),
       'utf8',
@@ -252,7 +239,6 @@ describe('auth-flow e2e :: JWT session issue → validate → refresh', () => {
     const forSpec = new JwtTokenService(shortLived, asPrismaService(prisma));
 
     const jwt = await forSpec.generateToken(DB_USER_ID, makeWorkOSUser());
-    // Wait past the 1ms expiry (jsonwebtoken enforces at verify-time).
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(() => forSpec.validateToken(jwt)).toThrow(UnauthorizedException);
@@ -260,7 +246,6 @@ describe('auth-flow e2e :: JWT session issue → validate → refresh', () => {
 
   it('refreshes a session by re-signing the same subject claim', async () => {
     const first = await tokens.generateToken(DB_USER_ID, makeWorkOSUser());
-    // Small delay so the `iat` claim differs — proves it is a NEW token.
     await new Promise((resolve) => setTimeout(resolve, 1100));
     const refreshed = await tokens.generateToken(DB_USER_ID, makeWorkOSUser());
 
@@ -283,10 +268,7 @@ describe('auth-flow e2e :: JWT session issue → validate → refresh', () => {
 
     const jwt = await tokens.generateToken(DB_USER_ID, malicious);
     const user = tokens.validateToken(jwt);
-
-    // 'owner' and 'superuser' are blocked — only admin + user survive.
     expect(user.roles).toEqual(['admin', 'user']);
-    // Permissions are derived server-side — metadata-injected perms are ignored.
     expect(user.permissions).toEqual(
       expect.arrayContaining(['read:docs', 'write:docs', 'manage:users']),
     );
@@ -294,10 +276,6 @@ describe('auth-flow e2e :: JWT session issue → validate → refresh', () => {
     expect(user.permissions).not.toContain('bypass:billing');
   });
 });
-
-// ============================================================================
-// PKCE (OAuth 2.1 — "DEVICE-CODE"-EQUIVALENT) FLOW
-// ============================================================================
 
 describe('auth-flow e2e :: PKCE state issue → consume → replay', () => {
   let pkce: PkceService;
@@ -312,15 +290,9 @@ describe('auth-flow e2e :: PKCE state issue → consume → replay', () => {
 
   it('issues a matching code_verifier / code_challenge / state triple', () => {
     const params = pkce.generatePkceParams();
-
-    // code_verifier must be 43-128 chars of base64url (RFC 7636).
     expect(params.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
-    // code_challenge is SHA-256 of the verifier, base64url-encoded (43 chars).
     expect(params.codeChallenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    // state is 32 hex chars (16 bytes).
     expect(params.state).toMatch(/^[a-f0-9]{32}$/);
-
-    // Verifier and challenge should not be equal — challenge is the hash.
     expect(params.codeVerifier).not.toBe(params.codeChallenge);
   });
 
@@ -361,8 +333,6 @@ describe('auth-flow e2e :: PKCE state issue → consume → replay', () => {
       const local = new PkceService();
       try {
         const { state } = local.generatePkceParams();
-
-        // Advance just past the 5-minute TTL baked into PkceService.
         jest.advanceTimersByTime(5 * 60 * 1000 + 1);
 
         const result = local.consumeVerifier(state);

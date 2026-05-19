@@ -9,8 +9,6 @@
  * webview / Electron renderer.
  */
 
-// ---- Shared union types ----
-
 export type IndexingState =
   | 'never-indexed'
   | 'indexing'
@@ -21,18 +19,12 @@ export type IndexingState =
 
 export type IndexingPipeline = 'symbols' | 'memory';
 
-// ---- Cursor for resumable symbol indexing ----
-
 export interface SymbolsCursor {
   readonly remainingFiles: string[];
   readonly processed: number;
   readonly total: number;
   readonly batchIndex: number;
 }
-
-// ---- Wire representation of IndexingStatus ----
-// Mirrors the backend IndexingStatus interface but with all timestamps
-// as epoch-millisecond numbers (not Date objects) for JSON transport.
 
 export interface IndexingStatusWire {
   readonly state: IndexingState;
@@ -48,8 +40,6 @@ export interface IndexingStatusWire {
   readonly errorMessage: string | null;
 }
 
-// ---- Progress event broadcast on indexing:progress push message ----
-
 export interface IndexingProgressEvent {
   readonly pipeline: IndexingPipeline;
   readonly percent: number;
@@ -58,16 +48,12 @@ export interface IndexingProgressEvent {
   readonly totalKnown: boolean;
 }
 
-// ---- indexing:getStatus ----
-
 export interface IndexingGetStatusParams {
   readonly workspaceRoot: string;
 }
 export interface IndexingGetStatusResult {
   readonly status: IndexingStatusWire;
 }
-
-// ---- indexing:start ----
 
 export interface IndexingStartParams {
   readonly workspaceRoot: string;
@@ -82,8 +68,6 @@ export interface IndexingStartResult {
   readonly state: IndexingState;
 }
 
-// ---- indexing:pause ----
-
 export interface IndexingPauseParams {
   readonly pipeline?: IndexingPipeline;
 }
@@ -91,8 +75,6 @@ export interface IndexingPauseResult {
   readonly accepted: boolean;
   readonly state: IndexingState;
 }
-
-// ---- indexing:resume ----
 
 export interface IndexingResumeParams {
   readonly workspaceRoot: string;
@@ -103,8 +85,6 @@ export interface IndexingResumeResult {
   readonly state: IndexingState;
 }
 
-// ---- indexing:cancel ----
-
 export interface IndexingCancelParams {
   readonly pipeline?: IndexingPipeline;
 }
@@ -112,8 +92,6 @@ export interface IndexingCancelResult {
   readonly accepted: boolean;
   readonly state: IndexingState;
 }
-
-// ---- indexing:setPipelineEnabled ----
 
 export interface IndexingSetPipelineEnabledParams {
   readonly workspaceRoot: string;
@@ -126,8 +104,6 @@ export interface IndexingSetPipelineEnabledResult {
   readonly memoryEnabled: boolean;
 }
 
-// ---- indexing:dismissStale ----
-
 export interface IndexingDismissStaleParams {
   readonly workspaceRoot: string;
 }
@@ -136,8 +112,6 @@ export interface IndexingDismissStaleResult {
   /** The SHA that was recorded as dismissed. */
   readonly dismissedSha: string | null;
 }
-
-// ---- indexing:acknowledgeDisclosure ----
 
 export interface IndexingAcknowledgeDisclosureParams {
   readonly workspaceRoot: string;

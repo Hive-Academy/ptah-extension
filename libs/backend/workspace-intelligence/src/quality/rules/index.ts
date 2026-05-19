@@ -16,8 +16,6 @@ import type {
   RuleConfiguration,
   RuleCategory,
 } from '@ptah-extension/shared';
-
-// Import rule modules
 import { typescriptRules } from './typescript-rules';
 import { errorHandlingRules } from './error-handling-rules';
 import { architectureRules } from './architecture-rules';
@@ -25,10 +23,6 @@ import { testingRules } from './testing-rules';
 import { angularRules } from './angular-rules';
 import { nestjsRules } from './nestjs-rules';
 import { reactRules } from './react-rules';
-
-// ============================================
-// Rule Aggregation
-// ============================================
 
 /**
  * All built-in anti-pattern detection rules.
@@ -64,10 +58,6 @@ export const ALL_RULES: AntiPatternRule[] = [
   ...nestjsRules,
   ...reactRules,
 ];
-
-// ============================================
-// Rule Registry
-// ============================================
 
 /**
  * Central registry for managing anti-pattern detection rules.
@@ -121,7 +111,6 @@ export class RuleRegistry {
    * ```
    */
   constructor() {
-    // Register all built-in rules
     ALL_RULES.forEach((rule) => this.registerRule(rule));
   }
 
@@ -195,13 +184,9 @@ export class RuleRegistry {
   getRules(): AntiPatternRule[] {
     return Array.from(this.rules.values()).filter((rule) => {
       const config = this.configurations.get(rule.id);
-
-      // Explicitly disabled
       if (config?.enabled === false) {
         return false;
       }
-
-      // Explicitly enabled OR enabled by default
       return config?.enabled === true || rule.enabledByDefault;
     });
   }
@@ -339,12 +324,6 @@ export class RuleRegistry {
     this.configurations.clear();
   }
 }
-
-// ============================================
-// Re-exports
-// ============================================
-
-// Export rule modules for direct access
 export { typescriptRules } from './typescript-rules';
 export { errorHandlingRules } from './error-handling-rules';
 export { architectureRules } from './architecture-rules';
@@ -352,8 +331,6 @@ export { testingRules } from './testing-rules';
 export { angularRules } from './angular-rules';
 export { nestjsRules } from './nestjs-rules';
 export { reactRules } from './react-rules';
-
-// Export individual rules for selective use
 export {
   explicitAnyRule,
   tsIgnoreRule,
@@ -369,8 +346,6 @@ export {
 } from './architecture-rules';
 
 export { noAssertionsRule, allSkippedRule } from './testing-rules';
-
-// Angular rules
 export {
   improperChangeDetectionRule,
   subscriptionLeakRule,
@@ -378,8 +353,6 @@ export {
   largeComponentRule as angularLargeComponentRule,
   missingTrackByRule,
 } from './angular-rules';
-
-// NestJS rules
 export {
   missingDecoratorRule,
   controllerLogicRule,
@@ -387,8 +360,6 @@ export {
   missingGuardRule,
   circularModuleRule,
 } from './nestjs-rules';
-
-// React rules
 export {
   missingKeyRule,
   directStateMutationRule,
@@ -396,8 +367,6 @@ export {
   largeComponentRule as reactLargeComponentRule,
   inlineFunctionPropRule,
 } from './react-rules';
-
-// Export rule-base utilities
 export {
   createRegexRule,
   createHeuristicRule,
@@ -407,6 +376,4 @@ export {
   type RegexRuleConfig,
   type HeuristicRuleConfig,
 } from './rule-base';
-
-// Comment/string pre-processor
 export { stripCommentsAndStrings } from './strip-comments-and-strings';

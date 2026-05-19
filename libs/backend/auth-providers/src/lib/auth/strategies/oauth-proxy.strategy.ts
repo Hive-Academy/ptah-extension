@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OAuth Proxy Strategy
  *
  * Handles authentication for OAuth-based providers that require a translation proxy:
@@ -50,21 +50,15 @@ export class OAuthProxyStrategy implements IAuthStrategy {
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     const { providerId, authEnv } = context;
-
-    // Determine which OAuth sub-provider to configure
     if (providerId === 'openai-codex') {
-      // Stop the Copilot proxy to prevent cross-contamination
       await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
       return this.configureCodexOAuth(providerId, authEnv);
     }
-
-    // Default: GitHub Copilot flow
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     return this.configureCopilotOAuth(providerId, authEnv);
   }
 
   async teardown(): Promise<void> {
-    // Stop both proxies and clear Codex auth cache
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     this.codexAuth.clearCache();
@@ -81,10 +75,6 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     this.logger.info(
       `[${this.name}] Configuring OAuth provider: GitHub Copilot`,
     );
-
-    // Step 1: Check if already authenticated, if not try silent restore
-    // IMPORTANT: Do NOT call copilotAuth.login() here. The full login()
-    // triggers an interactive device code flow that blocks startup.
     const isAuthed = await this.copilotAuth.isAuthenticated();
     if (!isAuthed) {
       this.logger.info(
@@ -103,8 +93,6 @@ export class OAuthProxyStrategy implements IAuthStrategy {
         };
       }
     }
-
-    // Step 2: Start the translation proxy
     let proxyUrl: string;
     try {
       if (this.copilotProxy.isRunning()) {
@@ -149,14 +137,10 @@ export class OAuthProxyStrategy implements IAuthStrategy {
           'Failed to start Copilot translation proxy. Check if the port is available.',
       };
     }
-
-    // Step 3: Point SDK at the proxy
     authEnv.ANTHROPIC_BASE_URL = proxyUrl;
     authEnv.ANTHROPIC_AUTH_TOKEN = COPILOT_PROXY_TOKEN_PLACEHOLDER;
     process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
     process.env['ANTHROPIC_AUTH_TOKEN'] = COPILOT_PROXY_TOKEN_PLACEHOLDER;
-
-    // Step 4: Apply tier mappings and seed pricing
     this.providerModels.switchActiveProvider(providerId);
     seedStaticModelPricing(providerId);
 
@@ -182,8 +166,6 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     authEnv: import('@ptah-extension/shared').AuthEnv,
   ): Promise<AuthConfigureResult> {
     this.logger.info(`[${this.name}] Configuring OAuth provider: OpenAI Codex`);
-
-    // Step 1: Verify Codex auth and ensure tokens are fresh
     const isAuthed = await this.codexAuth.isAuthenticated();
     if (!isAuthed) {
       this.logger.warn(
@@ -209,8 +191,6 @@ export class OAuthProxyStrategy implements IAuthStrategy {
           'OpenAI Codex token has expired. Run `codex login` in your terminal to re-authenticate.',
       };
     }
-
-    // Step 2: Start the Codex translation proxy
     let proxyUrl: string;
     try {
       if (this.codexProxy.isRunning()) {
@@ -255,14 +235,10 @@ export class OAuthProxyStrategy implements IAuthStrategy {
           'Failed to start Codex translation proxy. Check if the port is available.',
       };
     }
-
-    // Step 3: Point SDK at the Codex proxy
     authEnv.ANTHROPIC_BASE_URL = proxyUrl;
     authEnv.ANTHROPIC_AUTH_TOKEN = CODEX_PROXY_TOKEN_PLACEHOLDER;
     process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
     process.env['ANTHROPIC_AUTH_TOKEN'] = CODEX_PROXY_TOKEN_PLACEHOLDER;
-
-    // Step 4: Apply tier mappings and seed pricing
     this.providerModels.switchActiveProvider(providerId);
     seedStaticModelPricing(providerId);
 

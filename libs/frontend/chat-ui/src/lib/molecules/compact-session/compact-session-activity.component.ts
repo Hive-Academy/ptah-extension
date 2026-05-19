@@ -506,8 +506,6 @@ export class CompactSessionActivityComponent {
       });
       return;
     }
-
-    // For message/container nodes, recurse but group top-level tools
     if (
       node.type === 'message' ||
       node.type === 'system' ||
@@ -612,8 +610,6 @@ export class CompactSessionActivityComponent {
     }
 
     flushTools();
-
-    // Append accumulated assistant text
     if (state.textAccumulators.size > 0) {
       let latestText = '';
       for (const text of state.textAccumulators.values()) {

@@ -6,9 +6,6 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-
-// Brand types to make types distinct at compile time
-// Using string literals instead of unique symbols for library compatibility
 /**
  * Branded SessionId type - prevents mixing with other string IDs
  */
@@ -29,8 +26,6 @@ export type CorrelationId = string & { readonly __brand: 'CorrelationId' };
  * Prevents accidental mixing with SessionId (real SDK UUID) or other IDs.
  */
 export type TabId = string & { readonly __brand: 'TabId' };
-
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * Branded JobId type — identifies a scheduled cron job row.
  * Backed by ULID (Crockford base32, 26 chars) per architecture §8.5.
@@ -42,21 +37,13 @@ export type JobId = string & { readonly __brand: 'JobId' };
  * Also ULID-backed.
  */
 export type RunId = string & { readonly __brand: 'RunId' };
-// === TRACK_3_CRON_SCHEDULER_END ===
-
-// UUID validation regex for branded type validation.
-// Exported so validation schemas (e.g. permission.types.ts) can re-use it
-// without duplicating the pattern.
 export const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * ULID validation regex — Crockford base32, 26 characters.
  * Excludes I, L, O, U to avoid ambiguity (per the spec).
  */
 const ULID_REGEX = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-// === TRACK_3_CRON_SCHEDULER_END ===
 
 /**
  * SessionId smart constructors with validation
@@ -205,8 +192,6 @@ export const TabId = {
     return TabId.validate(id) ? (id as TabId) : null;
   },
 };
-
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * JobId smart constructors with validation.
  * Note: callers (cron-scheduler/JobStore) generate ULIDs via the `ulid`
@@ -254,7 +239,6 @@ export const RunId = {
     return RunId.validate(id) ? (id as RunId) : null;
   },
 };
-// === TRACK_3_CRON_SCHEDULER_END ===
 
 /**
  * Zod schemas for runtime validation of branded types

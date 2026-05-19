@@ -156,35 +156,17 @@ export class AuthRpcHandlers {
     >('auth:getAuthStatus', async (params: AuthGetAuthStatusParams) => {
       try {
         this.logger.debug('RPC: auth:getAuthStatus called');
-
-        // Guard against undefined params: TUI callers pass no params at all.
         const safeParams: AuthGetAuthStatusParams = params ?? {};
-
-        // Check SecretStorage for credentials
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
-
-        // Get auth method from ConfigManager (non-sensitive).
-        // parseAuthMethod validates and normalizes the stored value via the
-        // auth-rpc schema — legacy aliases ('openrouter') → 'thirdParty';
-        // unrecognized values ('vscode-lm', 'auto') → 'apiKey'.
         const rawMethod = this.configManager.get<string>('authMethod');
         const authMethod = parseAuthMethod(rawMethod);
-
-        // Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
           'anthropicProviderId',
           DEFAULT_PROVIDER_ID,
         );
-
-        // Per-provider key check: use provided ID (for local UI switching) or persisted config
         const checkProviderId = safeParams.providerId || anthropicProviderId;
         const hasOpenRouterKey =
           await this.authSecretsService.hasProviderKey(checkProviderId);
-
-        // Check if ANY provider has a key configured.
-        // This supports users who only use third-party providers (z-ai, moonshot, etc.)
-        // without Claude/Anthropic auth. The per-provider check above only verifies the
-        // currently selected provider, which may miss keys stored for other providers.
         let hasAnyProviderKey = hasOpenRouterKey;
         if (!hasAnyProviderKey) {
           for (const p of ANTHROPIC_PROVIDERS) {
@@ -194,8 +176,6 @@ export class AuthRpcHandlers {
             }
           }
         }
-
-        // Map provider registry to frontend-consumable format
         const availableProviders = ANTHROPIC_PROVIDERS.map((p) => ({
           id: p.id,
           name: p.name,
@@ -213,9 +193,6 @@ export class AuthRpcHandlers {
               ? p.supportsOptionalApiKey
               : undefined,
         }));
-
-        // Check Copilot auth status.
-        // Wrapped in try/catch so Copilot failures don't crash the entire auth status response.
         let copilotAuthenticated = false;
         let copilotUsername: string | undefined;
         try {
@@ -231,9 +208,6 @@ export class AuthRpcHandlers {
               : new Error(String(copilotError)),
           );
         }
-
-        // Check Codex auth status.
-        // Wrapped in try/catch so Codex failures don't crash the entire auth status response.
         let codexAuthenticated = false;
         let codexTokenStale = false;
         try {
@@ -248,8 +222,6 @@ export class AuthRpcHandlers {
               : new Error(String(codexError)),
           );
         }
-
-        // Check Claude CLI availability
         let claudeCliInstalled = false;
         try {
           const cliHealth = await this.cliDetector.performHealthCheck();
@@ -309,7 +281,6 @@ export class AuthRpcHandlers {
       { success: boolean; error?: string }
     >('auth:saveSettings', async (params: unknown) => {
       try {
-        // SECURITY: Sanitize params before logging (mask credentials)
         const sanitizedParams =
           typeof params === 'object' && params !== null
             ? {
@@ -331,14 +302,8 @@ export class AuthRpcHandlers {
         this.logger.debug('RPC: auth:saveSettings called', {
           params: sanitizedParams,
         });
-
-        // Validate parameters with Zod
         const validated = AuthSettingsSchema.parse(params);
-
-        // Save auth method to ConfigManager (non-sensitive)
         await this.configManager.set('authMethod', validated.authMethod);
-
-        // Save credentials to SecretStorage (encrypted!)
         if (validated.anthropicApiKey !== undefined) {
           if (validated.anthropicApiKey.trim()) {
             await this.authSecretsService.setCredential(
@@ -346,13 +311,9 @@ export class AuthRpcHandlers {
               validated.anthropicApiKey,
             );
           } else {
-            // Empty string = clear the credential
             await this.authSecretsService.deleteCredential('apiKey');
           }
         }
-
-        // Per-provider API key handling: store key under the selected provider's slot
-        // This prevents overwriting keys when switching between providers
         if (validated.providerApiKey !== undefined) {
           const targetProviderId =
             validated.anthropicProviderId ??
@@ -367,28 +328,17 @@ export class AuthRpcHandlers {
               validated.providerApiKey,
             );
           } else {
-            // Empty string = clear the provider's key
             await this.authSecretsService.deleteProviderKey(targetProviderId);
           }
-
-          // Invalidate model cache so next fetch uses the new key
           this.providerModels.clearCache(targetProviderId);
         }
-
-        // Save selected Anthropic-compatible provider ID
         if (validated.anthropicProviderId !== undefined) {
           await this.configManager.set(
             'anthropicProviderId',
             validated.anthropicProviderId,
           );
-
-          // Auto-map default tier models on first provider selection
           await this.autoMapProviderTiers(validated.anthropicProviderId);
         }
-
-        // Explicitly await reinit so testConnection sees updated health.
-        // Without this, saveSettings returns before reinit completes (fire-and-forget
-        // via ConfigWatcher), causing testConnection polls to fail.
         this.logger.info('RPC: auth:saveSettings triggering adapter reset...');
         await this.sdkAdapter.reset();
         this.logger.info('RPC: auth:saveSettings adapter reset completed');
@@ -423,8 +373,6 @@ export class AuthRpcHandlers {
     >('auth:testConnection', async () => {
       try {
         this.logger.debug('RPC: auth:testConnection called');
-
-        // Retry-poll: check SDK health with exponential backoff
         const MAX_RETRIES = 5;
         const BASE_DELAY_MS = 200;
 
@@ -451,8 +399,6 @@ export class AuthRpcHandlers {
             { status: health.status, delay },
           );
         }
-
-        // Exhausted retries -- return last health check
         const finalHealth = this.sdkAdapter.getHealth();
         const result = {
           success: finalHealth.status === 'available',
@@ -503,14 +449,8 @@ export class AuthRpcHandlers {
               'GitHub login failed. Ensure you have an active GitHub Copilot subscription.',
           };
         }
-
-        // Extract username from the GitHub auth session
         const username = await this.getGitHubUsername();
-
-        // Auto-map default tier models if no mappings exist yet
         await this.autoMapProviderTiers('github-copilot');
-
-        // Clear cached models so they're re-fetched with provider-specific IDs
         await this.sdkAdapter.reset();
 
         this.logger.info('RPC: auth:copilotLogin succeeded', { username });
@@ -631,7 +571,6 @@ export class AuthRpcHandlers {
         } else {
           await this.authSecretsService.deleteProviderKey(params.provider);
         }
-        // Invalidate model cache so next fetch uses the new key.
         this.providerModels.clearCache(params.provider);
         return { success: true };
       } catch (error) {
@@ -773,9 +712,6 @@ export class AuthRpcHandlers {
     if (!provider?.defaultTiers) return;
 
     try {
-      // Auto-mapping applies to the main agent only. CLI sub-agents fall back
-      // to provider.defaultTiers at runtime in buildAuthEnv — no persistence
-      // needed for their defaults.
       const currentTiers = this.providerModels.getModelTiers(
         providerId,
         'mainAgent',

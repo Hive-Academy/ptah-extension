@@ -200,8 +200,6 @@ export class SearchPanelComponent {
 
   /** Emitted when user clicks a search result to navigate to it */
   readonly searchResultSelected = output<{ filePath: string; line: number }>();
-
-  // Icons
   readonly SearchIcon = Search;
   readonly XIcon = X;
   readonly RegexIcon = Regex;
@@ -210,8 +208,6 @@ export class SearchPanelComponent {
   readonly ChevronRightIcon = ChevronRight;
 
   readonly ChevronDownIcon = ChevronDown;
-
-  // State signals
   protected searchQuery = '';
   protected readonly isRegex = signal(false);
   protected readonly caseSensitive = signal(false);
@@ -276,13 +272,11 @@ export class SearchPanelComponent {
 
   protected toggleRegex(): void {
     this.isRegex.update((v) => !v);
-    // Re-trigger search with updated mode
     this.onQueryChanged();
   }
 
   protected toggleCaseSensitive(): void {
     this.caseSensitive.update((v) => !v);
-    // Re-trigger search with updated mode
     this.onQueryChanged();
   }
 
@@ -316,15 +310,12 @@ export class SearchPanelComponent {
     column: number,
     matchLength: number,
   ): string {
-    // column is 1-based, convert to 0-based for string slicing
     const start = column - 1;
     const end = start + matchLength;
 
     if (start < 0 || start >= lineText.length || matchLength <= 0) {
       return this.escapeHtml(lineText);
     }
-
-    // Escape each segment individually to handle HTML entities at correct offsets
     const before = this.escapeHtml(lineText.substring(0, start));
     const match = this.escapeHtml(lineText.substring(start, end));
     const after = this.escapeHtml(lineText.substring(end));
@@ -346,8 +337,6 @@ export class SearchPanelComponent {
         caseSensitive: this.caseSensitive(),
       },
     );
-
-    // Discard stale response if a newer search was issued while awaiting
     if (this.searchRequestId !== requestId) {
       return;
     }
@@ -360,8 +349,6 @@ export class SearchPanelComponent {
       this.searchResults.set(data.files);
       this.totalMatches.set(data.totalMatches);
       this.truncated.set(data.truncated);
-
-      // Auto-expand all files on new search
       const expanded = new Set<string>();
       for (const file of data.files) {
         expanded.add(file.filePath);

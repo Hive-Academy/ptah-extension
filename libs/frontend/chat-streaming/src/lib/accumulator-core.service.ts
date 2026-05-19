@@ -149,11 +149,6 @@ function skip(eventType: FlatStreamEventUnion['eventType']): AccumulatorResult {
 
 @Injectable({ providedIn: 'root' })
 export class StreamingAccumulatorCore {
-  // Peer services are injected by `inject()` so the accumulator can also be
-  // instantiated standalone in tests via `TestBed.inject(StreamingAccumulatorCore)`.
-  // Wrappers may pass their OWN instances via `AccumulatorContext` (the chat
-  // handler today injects all peers itself); the ctx parameter wins so the
-  // core remains a pure function of (state, event, ctx).
   private readonly defaultSessionManager = inject(SessionManager);
   private readonly defaultDeduplication = inject(EventDeduplicationService);
   private readonly defaultBatchedUpdate = inject(BatchedUpdateService);
@@ -206,9 +201,6 @@ export class StreamingAccumulatorCore {
 
         if (dedupResult.skip) {
           state.currentMessageId = event.messageId;
-          // currentMessageId mutated — surface a state change so signal
-          // observers re-evaluate. (Chat wrapper ignores; surface wrapper
-          // pushes through adapter.)
           ctx.onStateChanged?.(state);
           return {
             stateMutated: true,
@@ -221,21 +213,11 @@ export class StreamingAccumulatorCore {
         }
 
         if (!dedupResult.existingEvent) {
-          // First message_start for this messageId
           deduplication
             .getProcessedMessageIds(event.sessionId)
             .add(event.messageId);
           state.messageEventIds.push(event.messageId);
         } else if (event.source === 'complete' || event.source === 'history') {
-          // REPLACEMENT: Complete/history message_start replacing a previous one.
-          // Mark for DEFERRED, TYPE-SPLIT accumulator clearing.
-          //
-          // text_delta clears only text keys (`*-block-*`), thinking_delta
-          // clears only thinking keys (`*-thinking-*`). This prevents:
-          // 1. Duplicate text (stream blockIndex=1 + complete blockIndex=0)
-          // 2. Text/thinking LOSS when complete message omits that content type
-          // 3. Cross-turn wipes on non-Anthropic models that reuse the same
-          //    chatcmpl-* messageId across ALL turns
           this.pendingTextClear.add(event.messageId);
           this.pendingThinkingClear.add(event.messageId);
         }
@@ -243,13 +225,6 @@ export class StreamingAccumulatorCore {
         setStreamingEventCapped(state, event);
         this.indexEventByMessage(state, event);
         state.currentMessageId = event.messageId;
-
-        // Backfill agent_start parentToolUseId when we see a subagent message_start
-        // with a toolu_* format parentToolUseId. Hook-based agent_start events have
-        // UUID-format toolCallId/parentToolUseId which doesn't match the tool_start's
-        // toolCallId (toolu_* format). This causes the tree builder's primary matching
-        // path to fail. By updating the agent_start with the correct toolu_* ID,
-        // we fix the correlation at the source.
         if (
           event.parentToolUseId &&
           event.parentToolUseId.startsWith('toolu_')
@@ -279,11 +254,6 @@ export class StreamingAccumulatorCore {
         const blockKey = AccumulatorKeys.textBlock(event.messageId, blockIndex);
 
         if (event.source === 'complete' || event.source === 'history') {
-          // Deferred TEXT clearing: on the first complete/history text_delta,
-          // clear only text accumulator keys (`*-block-*`) for this messageId.
-          // Thinking keys are left untouched — they're cleared separately by
-          // thinking_delta. This prevents a complete thinking_delta from wiping
-          // text and vice versa.
           if (this.pendingTextClear.has(event.messageId)) {
             this.clearTextAccumulators(state, event.messageId);
             this.pendingTextClear.delete(event.messageId);
@@ -325,9 +295,6 @@ export class StreamingAccumulatorCore {
         );
 
         if (event.source === 'complete' || event.source === 'history') {
-          // Deferred THINKING clearing: on the first complete/history
-          // thinking_delta, clear only thinking keys (`*-thinking-*`).
-          // Text keys are left untouched.
           if (this.pendingThinkingClear.has(event.messageId)) {
             this.clearThinkingAccumulators(state, event.messageId);
             this.pendingThinkingClear.delete(event.messageId);
@@ -414,9 +381,6 @@ export class StreamingAccumulatorCore {
       }
 
       case 'agent_start': {
-        // Use agentId for deduplication (stable across hook and complete).
-        // Hook sends UUID-format toolCallId, complete sends toolu_* format - they don't match!
-        // agentId (e.g., "adcecb2") is stable and present in both sources.
         const existingByAgentId = deduplication.replaceAgentStartByAgentId(
           state,
           event.agentId,
@@ -426,8 +390,6 @@ export class StreamingAccumulatorCore {
         if (existingByAgentId) {
           return skip(event.eventType);
         }
-
-        // Fallback: Also check by toolCallId for events without agentId
         const existingByToolCallId = deduplication.replaceStreamEventIfNeeded(
           state,
           event.toolCallId,
@@ -441,8 +403,6 @@ export class StreamingAccumulatorCore {
 
         setStreamingEventCapped(state, event);
         this.indexEventByMessage(state, event);
-
-        // Register agent with SessionManager
         const preliminaryAgentNode: ExecutionNode = {
           id: event.id,
           type: 'agent',
@@ -455,15 +415,7 @@ export class StreamingAccumulatorCore {
           startTime: event.timestamp,
           isCollapsed: false,
         };
-
-        // detect-and-mark-resumed lives in the wrapper (it reads
-        // `tab.messages` which surfaces don't have). Hand off via the
-        // optional onAgentStart hook.
         ctx.onAgentStart?.(event);
-
-        // Capture per-subagent record keyed by parentToolUseId so the
-        // inline-agent-bubble can show progress/status updates and
-        // dispatch send-message / stop RPCs.
         agentMonitorStore.onAgentStart(event);
 
         const pendingDeltas = sessionManager.registerAgent(
@@ -497,11 +449,6 @@ export class StreamingAccumulatorCore {
 
         state.currentTokenUsage = event.tokenUsage || null;
 
-        // Queued-content surfacing is intentionally a wrapper concern.
-        // Surfaces (wizard/harness) have no queued-content concept. Chat
-        // wrapper inspects `eventType === 'message_complete'` and the
-        // tab's queuedContent in its own follow-up.
-
         ctx.onStateChanged?.(state);
         return this.mutated(event.eventType);
       }
@@ -522,10 +469,6 @@ export class StreamingAccumulatorCore {
       }
 
       case 'compaction_start': {
-        // Unified compaction flow.
-        // Compaction events flow through CHAT_CHUNK (same as all streaming events).
-        // The wrapper translates `compactionStart: true` into the legacy
-        // `{ compactionSessionId }` return shape. No state mutation.
         return {
           stateMutated: false,
           agentStartFlushNeeded: false,
@@ -537,15 +480,9 @@ export class StreamingAccumulatorCore {
       }
 
       case 'compaction_complete': {
-        // Reset streaming state to fresh — pre-compaction events are stale.
-        // The wrapper installs `replacementState` via the appropriate path
-        // (`tabManager.setStreamingState` for chat; `adapter.setState` for
-        // surfaces). We also clear deduplication state across the boundary.
         deduplication.cleanupSession(event.sessionId);
 
         const fresh = createEmptyStreamingState();
-        // Notify with the FRESH state so signal-backed observers see the
-        // reset before the wrapper installs it.
         ctx.onStateChanged?.(fresh);
         return {
           stateMutated: true,
@@ -569,9 +506,6 @@ export class StreamingAccumulatorCore {
       case 'background_agent_stopped':
         backgroundAgentStore.onStopped(event);
         return this.mutated(event.eventType);
-
-      // SDK task_* surface — drives per-subagent records keyed by
-      // parentToolUseId for the inline-agent-bubble UI.
       case 'agent_progress':
         agentMonitorStore.onAgentProgress(event);
         return this.mutated(event.eventType);
@@ -600,10 +534,6 @@ export class StreamingAccumulatorCore {
     this.pendingThinkingClear.clear();
   }
 
-  // ---------------------------------------------------------------------
-  // Internals (extracted verbatim from streaming-handler.service.ts).
-  // ---------------------------------------------------------------------
-
   /**
    * Backfill agent_start events with the correct toolu_* format parentToolUseId.
    *
@@ -620,8 +550,6 @@ export class StreamingAccumulatorCore {
     state: StreamingState,
     tooluParentToolUseId: string,
   ): void {
-    // Find a hook-based agent_start with UUID-format toolCallId (not toolu_*)
-    // that hasn't been backfilled yet
     for (const [eventId, evt] of state.events) {
       if (
         evt.eventType === 'agent_start' &&
@@ -629,8 +557,6 @@ export class StreamingAccumulatorCore {
         evt.toolCallId &&
         !evt.toolCallId.startsWith('toolu_')
       ) {
-        // Check if this agent_start has already been backfilled
-        // (i.e., another message_start already updated it)
         const alreadyBackfilled = [...state.events.values()].some(
           (e) =>
             e.eventType === 'agent_start' &&
@@ -639,8 +565,6 @@ export class StreamingAccumulatorCore {
         if (alreadyBackfilled) {
           return; // Already have an agent_start with this toolu_* ID
         }
-
-        // Replace the event with an updated copy carrying the correct toolu_* ID
         const updatedEvent = {
           ...evt,
           toolCallId: tooluParentToolUseId,

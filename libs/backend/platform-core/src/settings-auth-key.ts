@@ -20,6 +20,5 @@ export function resolveAuthProviderKey(
         : 'unknown';
     return `thirdParty.${providerId}`;
   }
-  // 'apiKey' | 'claudeCli' — use as-is
   return authMethod;
 }

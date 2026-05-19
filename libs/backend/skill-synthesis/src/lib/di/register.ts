@@ -29,8 +29,6 @@ export function registerSkillSynthesisServices(
   logger: Logger,
 ): void {
   logger.info('[skill-synthesis] registering services');
-
-  // Concrete classes (constructor-injected in their own dependents).
   container.registerSingleton(SkillCandidateStore);
   container.registerSingleton(SkillMdGenerator);
   container.registerSingleton(TrajectoryExtractor);
@@ -40,8 +38,6 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillPromotionService);
   container.registerSingleton(SkillInvocationTracker);
   container.registerSingleton(SkillSynthesisService);
-
-  // Symbol tokens — exposed for cross-library resolution by RPC handlers.
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });

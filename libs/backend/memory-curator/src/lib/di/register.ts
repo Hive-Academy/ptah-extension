@@ -39,10 +39,6 @@ export function registerMemoryCuratorServices(
   logger: Logger,
 ): void {
   logger.info('[memory-curator] registering services');
-
-  // Embedder — registered under the shared PERSISTENCE_TOKENS.EMBEDDER token
-  // so any persistence-sqlite-aware caller can resolve it. The concrete impl
-  // lives here because it's the curator that owns the @huggingface/transformers worker.
   container.register(
     PERSISTENCE_TOKENS.EMBEDDER,
     { useClass: EmbedderWorkerClient },
@@ -66,9 +62,6 @@ export function registerMemoryCuratorServices(
     { useClass: CodeSymbolStore },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // IMemoryWriter port adapter (consumed by the wizard seeder in rpc-handlers).
-  // Registered after MEMORY_STORE (above) because it depends on it at resolution time.
   container.register(
     PLATFORM_TOKENS.MEMORY_WRITER,
     { useClass: MemoryWriterAdapter },
@@ -80,9 +73,6 @@ export function registerMemoryCuratorServices(
     { useClass: MemorySearchService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Cross-layer aliases — consumed by agent-sdk and vscode-lm-tools
-  // via MEMORY_CONTRACT_TOKENS without importing memory-curator directly.
   container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
     useToken: MEMORY_TOKENS.MEMORY_SEARCH,
   });
@@ -101,17 +91,11 @@ export function registerMemoryCuratorServices(
     { useClass: MemoryCuratorService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Register MemoryStoreSymbolSink under the shared ISymbolSink port token
-  // so workspace-intelligence can inject it without a direct dependency on
-  // memory-curator.
   container.register(
     MEMORY_CONTRACT_TOKENS.SYMBOL_SINK,
     { useClass: MemoryStoreSymbolSink },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // IndexingControlService — user-controlled workspace indexing.
   container.register(
     MEMORY_TOKENS.INDEXING_CONTROL,
     { useClass: IndexingControlService },

@@ -612,19 +612,12 @@ export class MemoryCuratorTabComponent implements OnInit {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   public constructor() {
-    // Refresh entries whenever the tier filter flips. Skipped in non-Electron
-    // hosts where memory:* RPCs are not registered (placeholder shown instead).
     effect(() => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       this.state.tierFilter();
       if (!this.isElectron()) return;
       void this.state.refresh();
     });
-
-    // Reactive effect: when the workspace scope toggle flips, refresh both the
-    // entry list and the stats payload so the UI matches the new scope.
     effect(() => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       this.state.scopeFilter();
       if (!this.isElectron()) return;
       void this.state.refresh();

@@ -211,8 +211,6 @@ export interface IAgentAdapter extends IAIProvider {
 
   /** Switch models mid-session. */
   setSessionModel(sessionId: SessionId, model: string): Promise<void>;
-
-  // ---------- Event-sink callbacks ----------
   setSessionIdResolvedCallback(cb: SessionIdResolvedCallback): void;
   setResultStatsCallback(cb: ResultStatsCallback): void;
   setCompactionStartCallback(cb: CompactionStartCallback): void;

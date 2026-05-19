@@ -58,7 +58,6 @@ export class AdminController {
    */
   @Post('licenses')
   async createLicense(@Body() dto: CreateLicenseDto) {
-    // Step 1: Create license using LicenseService
     const { licenseKey, expiresAt } = await this.licenseService.createLicense({
       email: dto.email,
       plan: dto.plan,
@@ -69,9 +68,6 @@ export class AdminController {
         expiresAt?.toISOString() || 'never'
       }`,
     );
-
-    // Step 2: Send email (if requested)
-    // NOTE: This is the ONLY way users receive their license key
     let emailSent = false;
     let emailError: string | undefined;
 
@@ -86,8 +82,6 @@ export class AdminController {
         emailSent = true;
         this.logger.log(`License key email sent to ${dto.email}`);
       } catch (error) {
-        // Graceful degradation: Log error but still return success
-        // IMPORTANT: If email fails, user won't receive their license key!
         emailError =
           error instanceof Error ? error.message : 'Unknown email error';
         this.logger.error(
@@ -95,19 +89,13 @@ export class AdminController {
         );
       }
     } else {
-      // WARNING: If sendEmail=false, user will NOT receive their license key
       this.logger.warn(
         `Email sending skipped (sendEmail=false) - user will NOT receive license key`,
       );
     }
-
-    // Step 3: Return response
-    // SECURITY: License key is NEVER included in response
-    // License keys are delivered via email only
     return {
       success: true,
       license: {
-        // NOTE: licenseKey intentionally excluded for security
         email: dto.email,
         plan: dto.plan,
         status: 'active',

@@ -5,10 +5,6 @@
  * auth:copilotLogin/Logout/Status, auth:codexLogin, auth:getAuthStatus
  */
 
-// ============================================================
-// Authentication RPC Types
-// ============================================================
-
 /** Supported authentication methods */
 export type AuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
 
@@ -58,10 +54,6 @@ export interface AuthTestConnectionResponse {
   };
   errorMessage?: string;
 }
-
-// ============================================================
-// Auth Status RPC Types
-// ============================================================
 
 /** Parameters for auth:copilotLogin RPC method */
 export type AuthCopilotLoginParams = Record<string, never>;

@@ -199,18 +199,6 @@ export async function withEngine<T>(
     transport: result.transport,
     pushAdapter: result.pushAdapter,
   };
-
-  // ---- File-settings migration -----------------------------------------------
-  //
-  // SETTINGS_TOKENS (SETTINGS_STORE, all 9 repository tokens, MIGRATION_RUNNER)
-  // are registered by CliDIContainer.setup() in Phase 3.6 — BEFORE Phase 4
-  // eagerly resolves RPC handler classes that @inject those tokens.
-  //
-  // runMigrations() runs here (post-setup, pre-SDK-init) so that migrated
-  // values are visible when sdkAdapter.initialize() first reads settings.
-  //
-  // The call is best-effort: a failed migration is logged to stderr and does
-  // not block bootstrap or the command body.
   await (async () => {
     try {
       const migrationRunner = ctx.container.resolve<MigrationRunner>(
@@ -232,21 +220,8 @@ export async function withEngine<T>(
       );
     }
   })();
-
-  // ---- authMethod camelCase → kebab-case migration --------------------------
-  //
-  // Older configs persist `authMethod: 'claudeCli'`. The canonical form is
-  // `'claude-cli'` so the value matches the provider id used everywhere else
-  // (registry lookups, RPC handlers, `auth use` / `auth login claude-cli`).
-  //
-  // We rewrite the value in place once at bootstrap so all downstream readers
-  // (SDK adapter, RPC handlers, formatters) see the canonical form. Skipped
-  // under `'minimal'` mode because that path doesn't register the workspace
-  // provider with the file-settings backend.
   if (opts.mode === 'full') {
     await migrateLegacyAuthMethod(ctx.container).catch((migrationErr) => {
-      // Migration is best-effort — never block bootstrap on a failed shim.
-      // Surface a stderr breadcrumb under verbose so it's diagnosable.
       if (globals.verbose === true) {
         process.stderr.write(
           `[ptah] withEngine: authMethod migration skipped: ${
@@ -258,27 +233,12 @@ export async function withEngine<T>(
       }
     });
   }
-
-  // ---- Initialize the SDK agent adapter under `mode === 'full'` ------------
-  //
-  // Without this, `chat:start` RPCs throw `SdkAgentAdapter not initialized`
-  // inside the chat-session service, the throw is swallowed by an inner
-  // catch, and `ptah session start` / `ptah interact + task.submit` hang
-  // forever waiting for events that will never arrive.
-  //
-  // Mirrors `apps/ptah-electron/src/activation/bootstrap.ts:240`. We only run
-  // this for `'full'` because `'minimal'` skips Phase 4.x RPC registrations
-  // and is used by introspection commands (e.g. `--help`, `--version`,
-  // metadata-only queries) that never hit the chat surface.
   let sdkAdapter: SdkAgentLifecycle | undefined;
   if (opts.mode === 'full' && opts.requireSdk !== false) {
     try {
       sdkAdapter =
         ctx.container.resolve<SdkAgentLifecycle>(AGENT_ADAPTER_TOKEN);
     } catch (resolveErr) {
-      // Container did not register the adapter (older bootstrap variants or
-      // a partial test harness). Treat as a non-recoverable init failure so
-      // JSON-RPC clients see a deterministic error instead of a hang.
       const message =
         resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
       await runDispose(opts, ctx);
@@ -286,9 +246,6 @@ export async function withEngine<T>(
     }
 
     if (globals.verbose === true) {
-      // Dev-mode breadcrumb confirming the bootstrap path actually reached
-      // `initialize()`. Visible only with `--verbose`; never on the default
-      // hot path.
       process.stderr.write('[ptah] withEngine: initializing SDK adapter\n');
     }
 
@@ -305,37 +262,14 @@ export async function withEngine<T>(
       const message =
         initErrorMessage ??
         'SDK agent adapter initialize() returned false (auth not configured)';
-      // Emit the structured stderr NDJSON line BEFORE we tear down so
-      // supervisors see the deterministic error code even if the JSON-RPC
-      // stdout channel is closed.
       emitFatalError('sdk_init_failed', message, {
         command: 'engine.bootstrap',
         bootstrap_mode: opts.mode,
       });
-      // Symmetric teardown — `initialize()` may have partially mutated
-      // adapter state. The container clear + push-adapter listener cleanup
-      // run before we propagate so the caller doesn't observe a half-booted
-      // engine.
       await runDispose(opts, ctx);
       throw new SdkInitFailedError(message);
     }
   }
-
-  // ---- Wire `--auto-approve` / `PTAH_AUTO_APPROVE` to YOLO -----------------
-  //
-  // The `--auto-approve` global flag is resolved into `globals.autoApprove`
-  // and must elevate the SdkPermissionHandler's permission level. Without
-  // this, tools outside the safe-tool whitelist hang indefinitely at the
-  // `canUseTool` gate waiting for a webview response that never arrives in
-  // headless mode.
-  //
-  // We wire post DI Phase 4 RPC registration AND post `SdkAgentAdapter.
-  // initialize()` so the permission handler singleton is guaranteed to be
-  // resolvable. The handler is only registered in `'full'` mode bootstrap
-  // (via `registerSdkServices`); `'minimal'` skips Phase 4 entirely.
-  //
-  // The env var `PTAH_AUTO_APPROVE=true` is honored with the same semantics
-  // for parity with `approval-bridge.ts` (which already consults it).
   if (opts.mode === 'full') {
     const autoApproveRequested =
       globals.autoApprove === true ||
@@ -354,11 +288,6 @@ export async function withEngine<T>(
           );
         }
       } catch (resolveErr) {
-        // Resolving the permission handler should never fail in `'full'`
-        // mode bootstrap (registerSdkServices runs unconditionally), but
-        // surface a stderr breadcrumb instead of crashing — the command
-        // body can still execute; tools will simply hit the default `'ask'`
-        // gate as before this fix.
         const message =
           resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
         process.stderr.write(
@@ -371,9 +300,6 @@ export async function withEngine<T>(
   try {
     return await fn(ctx);
   } finally {
-    // Dispose the SDK adapter symmetrically with `initialize()` — mirrors the
-    // electron shutdown path. Errors here are swallowed; the user-supplied
-    // `dispose` and `clearInstances()` still run below.
     if (sdkAdapter && typeof sdkAdapter.dispose === 'function') {
       try {
         await sdkAdapter.dispose();
@@ -424,7 +350,6 @@ export async function migrateLegacyAuthMethod(
       WORKSPACE_PROVIDER_TOKEN,
     );
   } catch {
-    // No workspace provider registered (older / partial bootstrap). Bail.
     return;
   }
 
@@ -447,16 +372,9 @@ function defaultBootstrap(options: CliBootstrapOptions): CliBootstrapResult {
  * scope cleanup to a sub-container.
  */
 function defaultDispose(ctx: EngineContext): void {
-  try {
-    ctx.pushAdapter.removeAllListeners();
-  } catch {
-    /* swallow — adapter cleanup is best-effort */
-  }
-  try {
-    ctx.container.clearInstances();
-  } catch {
-    /* swallow — container cleanup is best-effort */
-  }
+  ctx.pushAdapter.removeAllListeners();
+
+  ctx.container.clearInstances();
 }
 
 async function runDispose(
@@ -467,9 +385,6 @@ async function runDispose(
   try {
     await dispose(ctx);
   } catch (disposeError) {
-    // Surface dispose errors to stderr so they are visible in CI logs but do
-    // not mask the original `fn` error (if any). The `finally` path here
-    // returns void; callers see only the original throw.
     process.stderr.write(
       `[ptah] dispose failed: ${
         disposeError instanceof Error

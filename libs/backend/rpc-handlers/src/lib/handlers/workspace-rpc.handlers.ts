@@ -111,9 +111,6 @@ export class WorkspaceRpcHandlers {
   private registerAddFolder(): void {
     this.rpcHandler.registerMethod('workspace:addFolder', async () => {
       try {
-        // CLI / headless hosts intentionally leave `showOpenDialog` undefined.
-        // Surface a structured error rather than throwing so the renderer can
-        // fall back to `workspace:registerFolder` with an explicit path.
         if (!this.userInteraction.showOpenDialog) {
           return {
             path: null,
@@ -134,14 +131,8 @@ export class WorkspaceRpcHandlers {
 
         const folderPath = filePaths[0];
         const folderName = folderPath.split(/[/\\]/).pop() ?? folderPath;
-
-        // CRITICAL ORDER: Create workspace context FIRST, then add to provider.
-        // If context creation fails, the provider stays clean (no folder added).
         const createResult =
           await this.workspaceContextManager.createWorkspace(folderPath);
-        // Use `'error' in createResult` rather than `!createResult.success` so
-        // narrowing also works under ts-jest spec configs that run without
-        // `strictNullChecks`. See container.ts for the same pattern.
         if ('error' in createResult) {
           this.logger.error(
             '[RPC] workspace:addFolder - failed to create workspace context',
@@ -155,11 +146,6 @@ export class WorkspaceRpcHandlers {
         }
 
         this.workspaceLifecycle.addFolder(folderPath);
-
-        // Session import is handled by workspace:switch (called by frontend
-        // auto-switch). No fire-and-forget import here — it would write to
-        // the wrong workspace storage since addFolder creates but does not
-        // activate the workspace context.
 
         this.logger.info('[RPC] workspace:addFolder', { folderPath });
         return { path: folderPath, name: folderName };
@@ -192,7 +178,6 @@ export class WorkspaceRpcHandlers {
 
           const createResult =
             await this.workspaceContextManager.createWorkspace(folderPath);
-          // `in`-based narrowing — see registerAddFolder for the rationale.
           if ('error' in createResult) {
             return {
               success: false,
@@ -231,7 +216,6 @@ export class WorkspaceRpcHandlers {
         }
 
         try {
-          // Remove workspace storage first, then remove from the provider's folder list.
           this.workspaceContextManager.removeWorkspace(params.path);
           this.workspaceLifecycle.removeFolder(params.path);
 
@@ -259,12 +243,7 @@ export class WorkspaceRpcHandlers {
         }
 
         try {
-          // Store the origin token so the broadcast listener can echo it back
-          // to the frontend for self-echo suppression.
           this.workspaceLifecycle.setPendingOrigin?.(params.origin ?? null);
-
-          // Switch workspace context (creates lazily if needed),
-          // then update the provider's active folder.
           const encodedPath =
             await this.workspaceContextManager.switchWorkspace(params.path);
           if (!encodedPath) {
@@ -276,9 +255,6 @@ export class WorkspaceRpcHandlers {
           }
 
           this.workspaceLifecycle.setActiveFolder(params.path);
-
-          // Import existing Claude sessions for the switched workspace.
-          // Awaited so sessions are available when the frontend reloads the session list.
           try {
             const importCount = await this.sessionImporter.scanAndImport(
               params.path,

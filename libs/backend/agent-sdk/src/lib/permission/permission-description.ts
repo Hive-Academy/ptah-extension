@@ -33,7 +33,6 @@ export function generateDescription(
   toolName: string,
   input: Record<string, unknown>,
 ): string {
-  // Handle MCP tools (format: mcp__server-name__tool-name)
   if (isMcpTool(toolName)) {
     const parts = toolName.split('__');
     if (parts.length >= 3) {
@@ -147,14 +146,11 @@ export function sanitizeToolInput(
   }
 
   const sanitized = { ...input };
-
-  // Sanitize environment variables
   const env = sanitized['env'];
   if (env && typeof env === 'object' && !Array.isArray(env)) {
     const envRecord = env as Record<string, unknown>;
     sanitized['env'] = Object.keys(envRecord).reduce(
       (acc, key) => {
-        // Redact keys that likely contain secrets
         const isSecret =
           key.toUpperCase().includes('KEY') ||
           key.toUpperCase().includes('TOKEN') ||
@@ -168,11 +164,8 @@ export function sanitizeToolInput(
       {} as Record<string, unknown>,
     );
   }
-
-  // Sanitize command strings that might contain secrets
   const command = sanitized['command'];
   if (command && typeof command === 'string') {
-    // Simple heuristic: if command contains key-like patterns, warn user
     if (
       command.includes('KEY=') ||
       command.includes('TOKEN=') ||

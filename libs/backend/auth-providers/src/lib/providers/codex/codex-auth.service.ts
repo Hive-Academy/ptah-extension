@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Codex Authentication Service
  *
  * Reads and manages Codex authentication from ~/.codex/auth.json,
@@ -30,10 +30,6 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { SdkError } from '@ptah-extension/agent-sdk';
 import type { ICodexAuthService, CodexAuthFile } from './codex-provider.types';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 /** Path to the Codex auth file */
 const AUTH_FILE_PATH = join(homedir(), '.codex', 'auth.json');
 
@@ -50,10 +46,6 @@ const DEFAULT_API_ENDPOINT_APIKEY = 'https://api.openai.com/v1';
  * Using api.openai.com with OAuth tokens fails with 401 "Missing scopes: api.responses.write".
  */
 const DEFAULT_API_ENDPOINT_OAUTH = 'https://chatgpt.com/backend-api/codex';
-
-// ---------------------------------------------------------------------------
-// Service Implementation
-// ---------------------------------------------------------------------------
 
 @injectable()
 export class CodexAuthService implements ICodexAuthService {
@@ -75,7 +67,6 @@ export class CodexAuthService implements ICodexAuthService {
    * SCREAMING_CASE field names for compatibility.
    */
   private getApiKey(auth: CodexAuthFile): string | null {
-    // Codex CLI writes snake_case; check both for safety
     return auth.openai_api_key || auth.OPENAI_API_KEY || null;
   }
 
@@ -101,11 +92,7 @@ export class CodexAuthService implements ICodexAuthService {
     try {
       const auth = await this.readAuthFile();
       if (!auth) return false;
-
-      // API key is always valid
       if (this.getApiKey(auth)) return true;
-
-      // OAuth token must exist
       return !!auth.tokens?.access_token;
     } catch {
       return false;
@@ -141,12 +128,9 @@ export class CodexAuthService implements ICodexAuthService {
    * 3. OAuth mode â†’ user-configured endpoint from settings, or ChatGPT backend default
    */
   getApiEndpoint(): string {
-    // Explicit override from auth file always wins
     if (this.cachedAuth?.api_base_url) {
       return this.cachedAuth.api_base_url;
     }
-
-    // API key mode uses the public OpenAI API endpoint
     const authMode = this.cachedAuth?.auth_mode;
     if (
       authMode === 'ApiKey' ||
@@ -154,8 +138,6 @@ export class CodexAuthService implements ICodexAuthService {
     ) {
       return DEFAULT_API_ENDPOINT_APIKEY;
     }
-
-    // OAuth mode: read endpoint from settings, or use the ChatGPT backend default
     const oauthEndpoint = this.getOAuthApiEndpoint();
     if (oauthEndpoint) {
       this.logger.debug(
@@ -182,13 +164,9 @@ export class CodexAuthService implements ICodexAuthService {
     if (!auth) {
       return { authenticated: false, stale: false };
     }
-
-    // API key mode -- never expires
     if (auth.openai_api_key || auth.OPENAI_API_KEY) {
       return { authenticated: true, stale: false };
     }
-
-    // OAuth mode -- check token presence and staleness
     if (!auth.tokens?.access_token) {
       return { authenticated: false, stale: false };
     }
@@ -220,11 +198,7 @@ export class CodexAuthService implements ICodexAuthService {
     try {
       const auth = await this.readAuthFile();
       if (!auth) return false;
-
-      // API keys never expire
       if (this.getApiKey(auth)) return true;
-
-      // OAuth tokens: check presence only (we don't refresh anymore)
       if (!auth.tokens?.access_token) return false;
 
       if (this.isTokenStale(auth.last_refresh)) {
@@ -245,10 +219,6 @@ export class CodexAuthService implements ICodexAuthService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
-
   /**
    * Resolve the best available access token.
    * API key takes priority over OAuth tokens.
@@ -258,14 +228,10 @@ export class CodexAuthService implements ICodexAuthService {
     try {
       const auth = await this.readAuthFile();
       if (!auth) return null;
-
-      // API key takes priority -- never expires
       const apiKey = this.getApiKey(auth);
       if (apiKey) return apiKey;
 
       if (!auth.tokens?.access_token) return null;
-
-      // Warn if token looks stale (but still return it -- let the API reject it)
       if (this.isTokenStale(auth.last_refresh)) {
         this.logger.warn(
           '[CodexAuth] OAuth token may be expired. If API calls fail, run `codex login` to re-authenticate.',
@@ -303,7 +269,6 @@ export class CodexAuthService implements ICodexAuthService {
       this.cacheTimestamp = now;
       return auth;
     } catch (error) {
-      // File not found or unreadable -- clear cache
       this.cachedAuth = null;
       this.cacheTimestamp = 0;
 

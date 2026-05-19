@@ -80,19 +80,12 @@ export class GeminiCliAdapter implements CliAdapter {
       if (!binaryPath) {
         return { cli: 'gemini', installed: false, supportsSteer: false };
       }
-
-      // Try to get version using the resolved path
-      let version: string | undefined;
-      try {
-        const { stdout: versionOutput } = await execFileAsync(
-          binaryPath,
-          ['--version'],
-          { timeout: 5000 },
-        );
-        version = versionOutput.trim().split(/\r?\n/)[0];
-      } catch {
-        // Version check failed, CLI still usable
-      }
+      const { stdout: versionOutput } = await execFileAsync(
+        binaryPath,
+        ['--version'],
+        { timeout: 5000 },
+      );
+      const version = versionOutput.trim().split(/\r?\n/)[0];
 
       return {
         cli: 'gemini',
@@ -155,45 +148,28 @@ export class GeminiCliAdapter implements CliAdapter {
    * Non-fatal: errors are silently caught.
    */
   private async ensureFolderTrusted(folder: string): Promise<void> {
-    try {
-      const geminiDir = join(homedir(), '.gemini');
-      const trustedPath = join(geminiDir, 'trustedFolders.json');
+    const geminiDir = join(homedir(), '.gemini');
+    const trustedPath = join(geminiDir, 'trustedFolders.json');
+    const normalizedFolder =
+      process.platform === 'win32' ? folder.replace(/\//g, '\\') : folder;
 
-      // Normalize folder path for comparison.
-      // On Windows, Gemini CLI stores trusted-folder keys with backslashes;
-      // on Unix, paths use forward slashes natively, so leave them alone.
-      const normalizedFolder =
-        process.platform === 'win32' ? folder.replace(/\//g, '\\') : folder;
+    let trustedFolders: Record<string, string> = {};
 
-      let trustedFolders: Record<string, string> = {};
-      try {
-        const content = await readFile(trustedPath, 'utf8');
-        trustedFolders = JSON.parse(content) as Record<string, string>;
-      } catch {
-        // File doesn't exist or invalid JSON — start fresh
-      }
-
-      // Check if already trusted (try both slash styles)
-      if (
-        trustedFolders[folder] === 'TRUST_FOLDER' ||
-        trustedFolders[normalizedFolder] === 'TRUST_FOLDER'
-      ) {
-        return;
-      }
-
-      // Add trust entry using backslash style (matches Gemini CLI's own format on Windows)
-      trustedFolders[normalizedFolder] = 'TRUST_FOLDER';
-
-      // Ensure ~/.gemini directory exists
-      await mkdir(geminiDir, { recursive: true });
-      await writeFile(
-        trustedPath,
-        JSON.stringify(trustedFolders, null, 2),
-        'utf8',
-      );
-    } catch {
-      // Non-fatal — worst case, --yolo flag handles it
+    const content = await readFile(trustedPath, 'utf8');
+    trustedFolders = JSON.parse(content) as Record<string, string>;
+    if (
+      trustedFolders[folder] === 'TRUST_FOLDER' ||
+      trustedFolders[normalizedFolder] === 'TRUST_FOLDER'
+    ) {
+      return;
     }
+    trustedFolders[normalizedFolder] = 'TRUST_FOLDER';
+    await mkdir(geminiDir, { recursive: true });
+    await writeFile(
+      trustedPath,
+      JSON.stringify(trustedFolders, null, 2),
+      'utf8',
+    );
   }
 
   /**
@@ -204,30 +180,23 @@ export class GeminiCliAdapter implements CliAdapter {
    * Non-fatal: errors are silently caught.
    */
   private async configureMcpServer(port: number): Promise<void> {
-    try {
-      const geminiDir = join(homedir(), '.gemini');
-      const settingsPath = join(geminiDir, 'settings.json');
+    const geminiDir = join(homedir(), '.gemini');
+    const settingsPath = join(geminiDir, 'settings.json');
 
-      let settings: Record<string, unknown> = {};
-      try {
-        const content = await readFile(settingsPath, 'utf8');
-        settings = JSON.parse(content) as Record<string, unknown>;
-      } catch {
-        // File doesn't exist or invalid JSON — start fresh
-      }
+    let settings: Record<string, unknown> = {};
 
-      const mcpServers =
-        (settings['mcpServers'] as Record<string, unknown>) || {};
-      mcpServers['ptah'] = {
-        httpUrl: `http://localhost:${port}`,
-      };
-      settings['mcpServers'] = mcpServers;
+    const content = await readFile(settingsPath, 'utf8');
+    settings = JSON.parse(content) as Record<string, unknown>;
 
-      await mkdir(geminiDir, { recursive: true });
-      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-    } catch {
-      // Non-fatal — MCP tools won't be available but agent still runs
-    }
+    const mcpServers =
+      (settings['mcpServers'] as Record<string, unknown>) || {};
+    mcpServers['ptah'] = {
+      httpUrl: `http://localhost:${port}`,
+    };
+    settings['mcpServers'] = mcpServers;
+
+    await mkdir(geminiDir, { recursive: true });
+    await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
   }
 
   /**
@@ -236,23 +205,19 @@ export class GeminiCliAdapter implements CliAdapter {
    * Non-fatal: errors are silently caught.
    */
   private async cleanupMcpEntry(): Promise<void> {
-    try {
-      const settingsPath = join(homedir(), '.gemini', 'settings.json');
-      const content = await readFile(settingsPath, 'utf8');
-      const settings = JSON.parse(content) as Record<string, unknown>;
-      const mcpServers = settings['mcpServers'] as
-        | Record<string, unknown>
-        | undefined;
-      if (!mcpServers?.['ptah']) return;
+    const settingsPath = join(homedir(), '.gemini', 'settings.json');
+    const content = await readFile(settingsPath, 'utf8');
+    const settings = JSON.parse(content) as Record<string, unknown>;
+    const mcpServers = settings['mcpServers'] as
+      | Record<string, unknown>
+      | undefined;
+    if (!mcpServers?.['ptah']) return;
 
-      delete mcpServers['ptah'];
-      if (Object.keys(mcpServers).length === 0) {
-        delete settings['mcpServers'];
-      }
-      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-    } catch {
-      // Non-fatal — file may not exist or never had a ptah entry
+    delete mcpServers['ptah'];
+    if (Object.keys(mcpServers).length === 0) {
+      delete settings['mcpServers'];
     }
+    await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
   }
 
   /**
@@ -262,9 +227,6 @@ export class GeminiCliAdapter implements CliAdapter {
   private writeSystemPromptFile(content: string): string {
     const tmpPath = join(tmpdir(), `ptah-gemini-system-${Date.now()}.md`);
     writeFileSync(tmpPath, content, 'utf8');
-    // Normalize to forward slashes for the env var. Gemini CLI parses backslashes
-    // in env-var paths as escape sequences on some platforms; forward slashes
-    // are accepted on every supported platform (including Windows).
     return tmpPath.replace(/\\/g, '/');
   }
 
@@ -276,27 +238,14 @@ export class GeminiCliAdapter implements CliAdapter {
    * Parses JSONL events line-by-line and emits readable output.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    // Auto-trust workspace folder before spawning (prevents trust prompt)
     if (options.workingDirectory) {
       await this.ensureFolderTrusted(options.workingDirectory);
     }
-
-    // Configure Ptah MCP server in ~/.gemini/settings.json before spawning.
-    // Gemini CLI reads MCP config from this file at startup.
     if (options.mcpPort) {
       await this.configureMcpServer(options.mcpPort);
     }
-
-    // Handle system prompt via Gemini's native mechanism (GEMINI_SYSTEM_MD env var).
-    // Prefers full systemPrompt (premium prompt harness) over projectGuidance.
-    // This avoids polluting the task prompt and uses the model's system instruction slot.
     const spawnEnv: Record<string, string> = {};
     if (process.platform === 'win32') {
-      // Hint node-pty to skip ConPTY on Windows. ConPTY's AttachConsole() fails
-      // when Gemini is spawned as a child process (no real console), causing
-      // harmless but noisy "AttachConsole failed" errors in stderr.
-      // This env var is respected by some node-pty versions/forks to fall back
-      // to winpty, which doesn't need AttachConsole.
       spawnEnv['NODE_PTY_USE_CONPTY'] = '0';
     }
     let systemPromptTmpPath: string | undefined;
@@ -305,16 +254,12 @@ export class GeminiCliAdapter implements CliAdapter {
       systemPromptTmpPath = this.writeSystemPromptFile(systemContent);
       spawnEnv['GEMINI_SYSTEM_MD'] = systemPromptTmpPath;
     }
-
-    // Build task prompt WITHOUT system content (handled via env var above)
     const taskPrompt = buildTaskPrompt({
       ...options,
       systemPrompt: undefined,
       projectGuidance: undefined,
     });
     const abortController = new AbortController();
-
-    // Session ID captured from init event (closure scoped per invocation)
     let capturedSessionId: string | undefined;
 
     const args = [
@@ -322,23 +267,13 @@ export class GeminiCliAdapter implements CliAdapter {
       'stream-json',
       '--yolo', // Auto-approve all tool calls (orchestrated context)
     ];
-
-    // --prompt= is the headless mode trigger — actual prompt comes from stdin.
-    // Required in BOTH fresh and resume modes, otherwise Gemini enters interactive
-    // mode and exits immediately when stdin closes (ENODATA / exit code 0).
     args.push('--prompt=');
-
-    // Resume mode: additionally pass --resume <id> to load prior session context
     if (options.resumeSessionId) {
       args.push('--resume', options.resumeSessionId);
     }
-
-    // Add model if specified
     if (options.model) {
       args.push('--model', options.model);
     }
-
-    // Output buffering (same pattern as Codex/VS Code LM adapters)
     const outputBuffer: string[] = [];
     const outputCallbacks: Array<(data: string) => void> = [];
 
@@ -361,8 +296,6 @@ export class GeminiCliAdapter implements CliAdapter {
         }
       }
     };
-
-    // Structured segment buffering (same pattern as output)
     const segmentBuffer: CliOutputSegment[] = [];
     const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
 
@@ -385,28 +318,14 @@ export class GeminiCliAdapter implements CliAdapter {
         }
       }
     };
-
-    // Spawn using cross-spawn — transparent .cmd handling on Windows.
-    // needsConsole: Gemini CLI uses node-pty/ConPTY for run_shell_command.
-    // ConPTY's AttachConsole() fails on Windows when the process has no console
-    // (caused by CREATE_NO_WINDOW flag). This ensures a console is allocated.
     const binary = options.binaryPath ?? 'gemini';
     const child = spawnCli(binary, args, {
       cwd: options.workingDirectory,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
       needsConsole: true,
     });
-
-    // Explicit UTF-8 encoding prevents Buffer concatenation issues
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
-
-    // Write prompt to stdin then close.
-    // Fresh mode: stdin IS the full task prompt (--prompt= is empty, Gemini reads stdin).
-    // Resume mode: Gemini loads existing session context from the resumed session.
-    //   The original task is already in that context, so re-sending it is redundant
-    //   and may cause Gemini to believe the work is already done. Instead, send a
-    //   short continuation prompt that tells it to pick up where it left off.
     if (options.resumeSessionId) {
       child.stdin?.write(
         'Continue working on the previous task. Pick up where you left off.\n',
@@ -415,28 +334,18 @@ export class GeminiCliAdapter implements CliAdapter {
       child.stdin?.write(taskPrompt + '\n');
     }
     child.stdin?.end();
-
-    // Abort handler: kill the child process
     const onAbort = (): void => {
       if (!child.killed) {
         child.kill('SIGTERM');
       }
     };
     abortController.signal.addEventListener('abort', onAbort);
-
-    // JSONL line buffer for incremental parsing
     let lineBuf = '';
 
     child.stdout?.on('data', (data: string) => {
       lineBuf += data;
-      // Cross-platform line splitting: handle both \n (Unix) and \r\n (Windows).
       const lines = lineBuf.split(/\r?\n/);
-      // Keep the last incomplete line in the buffer
       lineBuf = lines.pop() ?? '';
-
-      // Cap lineBuf at 64KB to defend against pathological JSONL streams
-      // that never emit a newline (e.g., a runaway tool result without LF).
-      // Without this guard, lineBuf could grow unboundedly and OOM the process.
       const LINE_BUF_CAP = 64 * 1024;
       if (lineBuf.length > LINE_BUF_CAP) {
         emitOutput(
@@ -458,18 +367,10 @@ export class GeminiCliAdapter implements CliAdapter {
         }
       }
     });
-
-    // Stderr: emit meaningful errors, filter known Windows ConPTY noise.
-    // Gemini CLI uses node-pty/ConPTY internally for run_shell_command.
-    // On Windows, the conpty_console_list_agent.js sub-process frequently
-    // fails with "AttachConsole failed" — this is cosmetic (non-blocking)
-    // and clutters output. We suppress it along with the associated stack trace.
     let suppressConptyLines = 0;
     child.stderr?.on('data', (data: string) => {
       const cleaned = stripAnsiCodes(data).trim();
       if (!cleaned) return;
-
-      // Suppress ConPTY console attachment errors (Windows-only cosmetic noise)
       if (cleaned.includes('conpty_console_list_agent')) {
         suppressConptyLines = 5; // Suppress this + next few stack trace lines
         return;
@@ -484,19 +385,15 @@ export class GeminiCliAdapter implements CliAdapter {
       }
 
       emitOutput(`[stderr] ${cleaned}\n`);
-      // Classify: error keywords → error segment, otherwise info
       const isError =
         /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
           cleaned,
         );
       emitSegment({ type: isError ? 'error' : 'info', content: cleaned });
     });
-
-    // Done promise: resolves when the process exits
     const done = new Promise<number>((resolve) => {
       child.on('close', (code, signal) => {
         abortController.signal.removeEventListener('abort', onAbort);
-        // Flush remaining line buffer
         if (lineBuf.trim()) {
           const sessionId = this.handleJsonLine(
             lineBuf.trim(),
@@ -521,18 +418,10 @@ export class GeminiCliAdapter implements CliAdapter {
         resolve(1);
       });
     });
-
-    // Clean up temporary resources after the process exits
     done.then(() => {
-      // Remove temp system prompt file
       if (systemPromptTmpPath) {
-        try {
-          unlinkSync(systemPromptTmpPath);
-        } catch {
-          // Ignore — file may already be deleted
-        }
+        unlinkSync(systemPromptTmpPath);
       }
-      // Remove ptah MCP entry to avoid stale port references
       if (options.mcpPort) {
         this.cleanupMcpEntry();
       }
@@ -560,8 +449,6 @@ export class GeminiCliAdapter implements CliAdapter {
     try {
       event = JSON.parse(line) as GeminiStreamEvent;
     } catch {
-      // Not valid JSON — could be plain text fallback or partial output
-      // Emit as-is if it looks meaningful
       if (line.length > 0 && !line.startsWith('{')) {
         emitOutput(line + '\n');
         emitSegment({ type: 'text', content: line });
@@ -591,7 +478,6 @@ export class GeminiCliAdapter implements CliAdapter {
       }
 
       case 'message':
-        // Main content from the model
         if (event.content) {
           emitOutput(event.content);
           emitSegment({ type: 'text', content: event.content });
@@ -599,7 +485,6 @@ export class GeminiCliAdapter implements CliAdapter {
         break;
 
       case 'tool_use':
-        // Agent is calling a tool
         if (event.tool_name) {
           const inputSummary = event.tool_input
             ? ` ${this.summarizeToolInput(event.tool_name, event.tool_input)}`
@@ -622,11 +507,9 @@ export class GeminiCliAdapter implements CliAdapter {
         break;
 
       case 'tool_result': {
-        // Tool execution result
         const isError =
           event.status !== undefined && event.status !== 'success';
         if (event.output) {
-          // Truncate long tool output for readability
           const output =
             event.output.length > 2000
               ? event.output.substring(0, 2000) + '\n... [truncated]'
@@ -664,7 +547,6 @@ export class GeminiCliAdapter implements CliAdapter {
         break;
 
       case 'result':
-        // Final result with stats
         if (event.stats) {
           const { input_tokens, output_tokens, duration_ms } = event.stats;
           const parts: string[] = [];
@@ -680,7 +562,6 @@ export class GeminiCliAdapter implements CliAdapter {
         break;
 
       default:
-        // Unknown event type — ignore silently
         break;
     }
     return undefined;
@@ -713,7 +594,6 @@ export class GeminiCliAdapter implements CliAdapter {
       case 'replace':
         return input['file_path'] ? `\`${input['file_path']}\`` : '';
       default: {
-        // Generic: show first string value
         const firstStr = Object.entries(input).find(
           ([, v]) => typeof v === 'string',
         );

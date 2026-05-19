@@ -49,13 +49,9 @@ export class AdminApiKeyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
     const apiKey = request.headers['x-api-key'];
-
-    // Validate API key presence
     if (!apiKey || typeof apiKey !== 'string') {
       throw new UnauthorizedException('Invalid API key');
     }
-
-    // Get valid API key from environment
     const validApiKey = this.config.get<string>('ADMIN_API_KEY');
 
     if (!validApiKey) {
@@ -63,10 +59,6 @@ export class AdminApiKeyGuard implements CanActivate {
         'Server configuration error: ADMIN_API_KEY not set',
       );
     }
-
-    // TASK_2025_125: Hash-based constant-time comparison
-    // Hash both keys to get fixed-length buffers, then compare
-    // This prevents timing attacks from leaking key length or content
     const providedHash = this.hashKey(apiKey);
     const expectedHash = this.hashKey(validApiKey);
     const isValid = timingSafeEqual(providedHash, expectedHash);

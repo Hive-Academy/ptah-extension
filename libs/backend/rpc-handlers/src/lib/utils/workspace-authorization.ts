@@ -17,10 +17,6 @@ export function isAuthorizedWorkspace(
   if (!workspacePath) return false;
   const folders = workspaceProvider.getWorkspaceFolders();
   if (!folders || folders.length === 0) return false;
-
-  // Convert backslashes to forward slashes BEFORE path.resolve so input paths
-  // serialized with Windows separators are interpreted as path separators on
-  // POSIX runtimes too (otherwise resolve() treats `\` as part of the filename).
   const normalize = (p: string) =>
     path
       .resolve(p.replace(/\\/g, '/'))

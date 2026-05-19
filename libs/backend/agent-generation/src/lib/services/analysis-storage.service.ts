@@ -211,8 +211,6 @@ export class AnalysisStorageService {
         continue;
       }
     }
-
-    // Sort by savedAt descending (newest first)
     items.sort(
       (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
     );

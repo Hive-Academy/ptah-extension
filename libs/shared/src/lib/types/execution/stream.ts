@@ -49,7 +49,6 @@ export type StreamEventType =
   | 'background_agent_progress'
   | 'background_agent_completed'
   | 'background_agent_stopped'
-  // SDK task_* event surface (subagent visibility)
   | 'agent_progress'
   | 'agent_status'
   | 'agent_completed';
@@ -74,7 +73,6 @@ export interface FlatStreamEvent {
    * - 'history': Reconstructed from session JSONL history
    */
   readonly source?: EventSource;
-  // ---- Relationship IDs for tree building ----
   /** Root message this event belongs to */
   readonly messageId: string;
   /** For nesting under tools (agents, sub-tools) */
@@ -132,7 +130,6 @@ export interface ToolStartEvent extends FlatStreamEvent {
   readonly toolName: string;
   readonly toolInput?: Record<string, unknown>; // May be streaming JSON
   readonly isTaskTool: boolean; // true if Task tool (agent spawn)
-  // Agent-specific fields (only if isTaskTool = true)
   readonly agentType?: string;
   readonly agentDescription?: string;
   readonly agentPrompt?: string;

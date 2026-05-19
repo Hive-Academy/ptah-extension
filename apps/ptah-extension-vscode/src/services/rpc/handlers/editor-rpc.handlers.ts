@@ -72,17 +72,9 @@ export class EditorRpcHandlers {
           const doc = vscode.workspace.textDocuments.find(
             (d) => d.uri.fsPath === filePath,
           );
-
-          // Silently skip files that aren't open or have no pending edits.
-          // Reverting a clean buffer would still trigger an editor jump
-          // and is wasted work — the on-disk state is already correct.
           if (!doc || !doc.isDirty) {
             continue;
           }
-
-          // `workbench.action.files.revert` operates on the *active* editor,
-          // so we must show the document first. `preserveFocus: false` is
-          // the default and ensures the revert command targets it.
           await vscode.window.showTextDocument(doc, {
             preview: false,
           });
@@ -90,9 +82,6 @@ export class EditorRpcHandlers {
 
           revertedCount++;
         } catch (error) {
-          // Per-file failures must not abort the whole batch — a rewind may
-          // touch dozens of files and one transient editor glitch shouldn't
-          // strand the rest in stale-buffer state.
           const errObj =
             error instanceof Error ? error : new Error(String(error));
           this.sentryService.captureException(errObj, {

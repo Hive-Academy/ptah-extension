@@ -99,9 +99,6 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     }
     await fs.cp(source, destination, {
       recursive: true,
-      // Node >= 20 rejects `force: undefined` with a TypeError — the field
-      // must be a strict boolean. Default to `false` so "no overwrite" is
-      // expressed explicitly in the call into fs.cp.
       force: options?.overwrite ?? false,
     });
   }
@@ -112,17 +109,11 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     maxResults?: number,
     cwd?: string,
   ): Promise<string[]> {
-    // Dynamic import to avoid issues if fast-glob not installed in test environments
     const fg = await import('fast-glob');
     const results = await fg.default(pattern, {
       ignore: exclude && exclude.length > 0 ? exclude : undefined,
       absolute: true,
       onlyFiles: true,
-      // Match dotfiles/dotfolders (e.g. `.ptah/foo.ts`, `.claude/config`). Without
-      // this, fast-glob hides any path whose segment starts with `.`, which made
-      // the `@` file picker silently drop `.ptah/**` results on Electron while
-      // VS Code's findFiles returned them. Explicit excludes (e.g. `**/.git/**`)
-      // still filter the noisy ones.
       dot: true,
       cwd: cwd || undefined,
     });

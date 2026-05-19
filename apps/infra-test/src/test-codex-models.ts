@@ -19,8 +19,6 @@ import whichLib from 'which';
 
 const execFileAsync = promisify(execFile);
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 async function resolveCliPath(binary: string): Promise<string | null> {
   try {
     return await whichLib(binary);
@@ -28,8 +26,6 @@ async function resolveCliPath(binary: string): Promise<string | null> {
     return null;
   }
 }
-
-// ── Test 1: Auth Token Resolution ────────────────────────────────────────────
 
 async function testAuthResolution(): Promise<{
   token: string | null;
@@ -58,8 +54,6 @@ async function testAuthResolution(): Promise<{
 
     const rawKeys = Object.keys(auth);
     console.log(`  Auth file keys: ${rawKeys.join(', ')}`);
-
-    // Check token expiry if OAuth
     if (auth.tokens?.expires_at) {
       const expiresAt = new Date(auth.tokens.expires_at * 1000);
       const now = new Date();
@@ -73,8 +67,6 @@ async function testAuthResolution(): Promise<{
         console.log('  [HINT] Run `codex` interactively to refresh the token');
       }
     }
-
-    // API key takes priority
     if (auth.OPENAI_API_KEY) {
       const masked =
         auth.OPENAI_API_KEY.substring(0, 8) +
@@ -131,8 +123,6 @@ async function testAuthResolution(): Promise<{
   }
 }
 
-// ── Test 2: CLI Version Detection ────────────────────────────────────────────
-
 async function testCliVersion(): Promise<string> {
   console.log('\n=== Test 2: CLI Version Detection ===\n');
 
@@ -162,8 +152,6 @@ async function testCliVersion(): Promise<string> {
     return '0.107.0';
   }
 }
-
-// ── Test 3: Model API Fetch ──────────────────────────────────────────────────
 
 interface ModelApiResponse {
   models?: Array<{
@@ -239,8 +227,6 @@ async function testModelApiFetch(
     }
 
     console.log(`  [OK] Found ${body.models.length} models:\n`);
-
-    // Display models in a table format
     console.log('  ' + 'Slug'.padEnd(30) + 'Name'.padEnd(30) + 'Default');
     console.log('  ' + '-'.repeat(70));
 
@@ -250,8 +236,6 @@ async function testModelApiFetch(
       const isDefault = model.is_default ? 'YES' : '';
       console.log(`  ${slug}${name}${isDefault}`);
     }
-
-    // Show extra fields per model (for discovery)
     console.log('\n  [DEBUG] Full model objects:');
     for (const model of body.models) {
       const extraKeys = Object.keys(model).filter(
@@ -261,8 +245,6 @@ async function testModelApiFetch(
         console.log(`    ${model.slug}: extra keys = ${extraKeys.join(', ')}`);
       }
     }
-
-    // Compare with our fallback list
     console.log('\n  --- Comparison with FALLBACK_MODELS ---');
     const fallbackSlugs = [
       'gpt-5.3-codex',
@@ -309,21 +291,16 @@ async function testModelApiFetch(
   }
 }
 
-// ── Test 4: SDK Import & Capabilities ────────────────────────────────────────
-
 async function testSdkCapabilities(): Promise<void> {
   console.log('\n=== Test 4: SDK Import & Capabilities ===\n');
 
   try {
     console.log('  [1] Importing @openai/codex-sdk...');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sdk = await (Function(
       'return import("@openai/codex-sdk")'
     )() as Promise<any>);
     console.log('  [OK] SDK imported');
     console.log(`  SDK exports: ${Object.keys(sdk).join(', ')}`);
-
-    // Check Codex constructor options
     console.log('\n  [2] Checking Codex constructor...');
     const codex = new sdk.Codex({});
     console.log('  [OK] Codex instance created (no options)');
@@ -334,16 +311,12 @@ async function testSdkCapabilities(): Promise<void> {
         .filter((k: string) => k !== 'constructor')
         .join(', ')}`
     );
-
-    // Check if SDK exposes listModels or similar
     const hasListModels = typeof codex.listModels === 'function';
     const hasGetModels = typeof codex.getModels === 'function';
     const hasModels = typeof codex.models === 'object' && codex.models !== null;
     console.log(`  SDK has listModels(): ${hasListModels}`);
     console.log(`  SDK has getModels(): ${hasGetModels}`);
     console.log(`  SDK has models object: ${hasModels}`);
-
-    // If SDK has a native model listing method, try it
     if (hasListModels) {
       console.log('\n  [3] Testing SDK listModels()...');
       try {
@@ -361,8 +334,6 @@ async function testSdkCapabilities(): Promise<void> {
         console.log(`  [FAIL] SDK listModels() error: ${e.message}`);
       }
     }
-
-    // Check thread options for system prompt support
     console.log('\n  [4] Checking thread/session capabilities...');
     console.log(
       '  Codex SDK thread options (from our types): workingDirectory, model, approvalPolicy, skipGitRepoCheck, sandboxMode'
@@ -373,8 +344,6 @@ async function testSdkCapabilities(): Promise<void> {
     console.log(
       '  [INFO] MCP support: via config.mcp_servers in Codex constructor options'
     );
-
-    // Test MCP config acceptance
     console.log('\n  [5] Testing MCP config...');
     try {
       const codexWithMcp = new sdk.Codex({
@@ -387,7 +356,6 @@ async function testSdkCapabilities(): Promise<void> {
         },
       });
       console.log('  [OK] Codex created with MCP config (no error thrown)');
-      // Clean up - we don't need this instance
       void codexWithMcp;
     } catch (err: unknown) {
       const e = err instanceof Error ? err : new Error(String(err));
@@ -402,13 +370,10 @@ async function testSdkCapabilities(): Promise<void> {
   }
 }
 
-// ── Test 5: Quick SDK Run (model validation) ─────────────────────────────────
-
 async function testSdkRun(): Promise<void> {
   console.log('\n=== Test 5: SDK Quick Run (validate model & streaming) ===\n');
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sdk = await (Function(
       'return import("@openai/codex-sdk")'
     )() as Promise<any>);
@@ -491,8 +456,6 @@ async function testSdkRun(): Promise<void> {
   }
 }
 
-// ── Utility ──────────────────────────────────────────────────────────────────
-
 function formatModelName(slug: string): string {
   return slug
     .split('-')
@@ -503,8 +466,6 @@ function formatModelName(slug: string): string {
     .join(' ');
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
-
 async function main(): Promise<void> {
   console.log('==========================================================');
   console.log('  Codex Model Fetch & SDK Capabilities Test');
@@ -513,33 +474,19 @@ async function main(): Promise<void> {
   console.log(`Node: ${process.version}`);
   console.log(`Home: ${homedir()}`);
   console.log(`CWD: ${process.cwd()}`);
-
-  // Check for --skip-run flag
   const skipRun = process.argv.includes('--skip-run');
   if (skipRun) {
     console.log(
       '\n  [NOTE] --skip-run flag detected — skipping SDK execution test'
     );
   }
-
-  // Test 1: Auth
   const authResult = await testAuthResolution();
-
-  // Test 2: CLI version
   const version = await testCliVersion();
-
-  // Test 3: Model API fetch
   await testModelApiFetch(authResult.token, version);
-
-  // Test 4: SDK capabilities
   await testSdkCapabilities();
-
-  // Test 5: Quick SDK run (unless --skip-run)
   if (!skipRun) {
     await testSdkRun();
   }
-
-  // Summary
   console.log('\n==========================================================');
   console.log('  Summary');
   console.log('==========================================================\n');

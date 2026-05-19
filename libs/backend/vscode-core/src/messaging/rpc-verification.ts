@@ -78,27 +78,19 @@ export function verifyRpcRegistration(
   excludeMethods?: string[],
 ): RpcVerificationResult {
   const registeredMethods = rpcHandler.getRegisteredMethods();
-
-  // Use string Sets for comparison (runtime values are strings)
   const expectedMethods = new Set<string>(RPC_METHOD_NAMES);
   const actualMethods = new Set<string>(registeredMethods);
-
-  // Remove platform-specific methods that are not applicable in this context
   if (excludeMethods) {
     for (const method of excludeMethods) {
       expectedMethods.delete(method);
     }
   }
-
-  // Find methods in registry but missing handlers
   const missingHandlers: string[] = [];
   for (const method of expectedMethods) {
     if (!actualMethods.has(method)) {
       missingHandlers.push(method);
     }
   }
-
-  // Find handlers registered but not in registry
   const orphanHandlers: string[] = [];
   for (const method of actualMethods) {
     if (!expectedMethods.has(method)) {
@@ -116,8 +108,6 @@ export function verifyRpcRegistration(
     expectedCount: expectedMethods.size,
     actualCount: actualMethods.size,
   };
-
-  // Log the verification result
   if (valid && orphanHandlers.length === 0) {
     logger.info(
       `[RPC Verification] All ${result.expectedCount} RPC methods correctly registered`,

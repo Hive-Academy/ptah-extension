@@ -32,21 +32,16 @@ export interface CopilotHostsFile {
  * Checks environment variables first, then platform defaults.
  */
 function getCopilotConfigDir(): string {
-  // XDG_CONFIG_HOME takes priority (standard on Linux)
   const xdg = process.env['XDG_CONFIG_HOME'];
   if (xdg) {
     return join(xdg, 'github-copilot');
   }
-
-  // Windows: %LOCALAPPDATA%/github-copilot
   if (process.platform === 'win32') {
     const localAppData = process.env['LOCALAPPDATA'];
     if (localAppData) {
       return join(localAppData, 'github-copilot');
     }
   }
-
-  // Linux/macOS default: ~/.config/github-copilot
   return join(homedir(), '.config', 'github-copilot');
 }
 
@@ -76,15 +71,10 @@ async function readTokenFromFile(filePath: string): Promise<string | null> {
   try {
     const raw = await readFile(filePath, 'utf-8');
     const data = JSON.parse(raw) as CopilotHostsFile;
-
-    // Check github.com entry first (exact match for hosts.json)
     const githubHost = data['github.com'];
     if (githubHost?.oauth_token) {
       return githubHost.oauth_token;
     }
-
-    // Check any key with an oauth_token (handles GHES in hosts.json,
-    // and "github.com:app_id" keys in apps.json)
     for (const entry of Object.values(data)) {
       if (entry?.oauth_token) {
         return entry.oauth_token;
@@ -93,7 +83,6 @@ async function readTokenFromFile(filePath: string): Promise<string | null> {
 
     return null;
   } catch {
-    // File not found or unreadable
     return null;
   }
 }
@@ -108,13 +97,10 @@ async function readTokenFromFile(filePath: string): Promise<string | null> {
  * Returns null if neither file exists or contains a valid token.
  */
 export async function readCopilotToken(): Promise<string | null> {
-  // Check hosts.json first (primary location)
   const hostsToken = await readTokenFromFile(getCopilotHostsPath());
   if (hostsToken) {
     return hostsToken;
   }
-
-  // Fall back to apps.json (Copilot CLI uses this with gho_ tokens)
   return readTokenFromFile(getCopilotAppsPath());
 }
 
@@ -130,29 +116,16 @@ export async function readCopilotToken(): Promise<string | null> {
  * @param token - GitHub OAuth access token to persist
  */
 export async function writeCopilotToken(token: string): Promise<void> {
-  try {
-    const hostsPath = getCopilotHostsPath();
+  const hostsPath = getCopilotHostsPath();
+  await mkdir(dirname(hostsPath), { recursive: true });
+  let hosts: CopilotHostsFile = {};
 
-    // Ensure the config directory exists
-    await mkdir(dirname(hostsPath), { recursive: true });
+  const raw = await readFile(hostsPath, 'utf-8');
+  hosts = JSON.parse(raw) as CopilotHostsFile;
+  hosts['github.com'] = {
+    ...hosts['github.com'],
+    oauth_token: token,
+  };
 
-    // Read existing file content or start with empty object
-    let hosts: CopilotHostsFile = {};
-    try {
-      const raw = await readFile(hostsPath, 'utf-8');
-      hosts = JSON.parse(raw) as CopilotHostsFile;
-    } catch {
-      // File doesn't exist or is unreadable — start fresh
-    }
-
-    // Set the github.com token, preserving any other host entries
-    hosts['github.com'] = {
-      ...hosts['github.com'],
-      oauth_token: token,
-    };
-
-    await writeFile(hostsPath, JSON.stringify(hosts, null, 2), 'utf-8');
-  } catch {
-    // Token persistence is best-effort — never break the auth flow
-  }
+  await writeFile(hostsPath, JSON.stringify(hosts, null, 2), 'utf-8');
 }

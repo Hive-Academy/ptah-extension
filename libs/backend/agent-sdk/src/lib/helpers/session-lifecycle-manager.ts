@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Session Lifecycle Manager - Handles SDK session runtime management
  *
  * Responsibilities:
@@ -26,6 +26,7 @@ import {
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import {
   SDKUserMessage,
   SDKMessage,
@@ -49,11 +50,7 @@ import { SessionQueryExecutor } from './session-lifecycle/session-query-executor
 import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
-
-// Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
-
-// Re-export SessionRecord and its type alias for all consumers.
 export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
 /**
@@ -278,8 +275,6 @@ export interface ExecuteQueryResult {
  */
 @injectable()
 export class SessionLifecycleManager {
-  // State ownership consolidated in `SessionRegistry`. The facade
-  // owns NO mutable session state; all reads/writes go through `_registry`.
   private readonly _registry: SessionRegistry;
   private readonly _streamPump: SessionStreamPump;
   private readonly _queryExecutor: SessionQueryExecutor;
@@ -289,30 +284,23 @@ export class SessionLifecycleManager {
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private permissionHandler: ISdkPermissionHandler,
-    // Dependencies for executeQuery orchestration
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     private moduleLoader: SdkModuleLoader,
     @inject(SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER)
     private queryOptionsBuilder: SdkQueryOptionsBuilder,
     @inject(SDK_TOKENS.SDK_MESSAGE_FACTORY)
     private messageFactory: SdkMessageFactory,
-    // SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private subagentRegistry: SubagentRegistryService,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
     @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
     @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
     private readonly queryRunner: SdkQueryRunner,
   ) {
-    // Sub-services are constructed eagerly inside the facade because the spec
-    // bypasses tsyringe and uses `new SessionLifecycleManager(...)` directly
-    // with 9 positional args. Eager construction keeps the facade self-
-    // contained: no container lookup, no late-binding hazard, identical
-    // behavior whether instantiated by tsyringe or by hand in the spec.
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
       this.logger,
@@ -442,10 +430,6 @@ export class SessionLifecycleManager {
     return this._registry.getActiveSessionCount();
   }
 
-  // ============================================================================
-  // Query Execution Orchestration
-  // ============================================================================
-
   /**
    * Execute an SDK query with all the orchestration steps
    * Consolidates the common flow between startChatSession and resumeSession
@@ -500,17 +484,9 @@ export class SessionLifecycleManager {
       `[SessionLifecycle] Executing slash command query for session: ${sessionId}`,
       { command: command.substring(0, 50) },
     );
-
-    // Resolve real SDK UUID before endSession removes the registry entry.
-    // find() checks both byTabId and bySessionId (dual-index).
     const rec = this._registry.find(sessionId as string);
     const realSessionId = rec?.realSessionId ?? (sessionId as string);
-
-    // Step 1: End the current session (abort existing query)
     await this._control.endSession(sessionId);
-
-    // Step 2: Start a new query with resume using the REAL session ID
-    // executeQuery will detect isSlashCommand and pass it as a raw string to query()
     return this._queryExecutor.executeQuery({
       sessionId,
       sessionConfig: config.sessionConfig,
@@ -524,10 +500,6 @@ export class SessionLifecycleManager {
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
-      // Mirror ExecuteQueryConfig pass-through so slash commands honor the
-      // same fork/rewind/checkpoint/partial-message toggles as regular
-      // resume flows. Without this, callers that set these on
-      // SlashCommandConfig would have them silently dropped.
       forkSession: config.forkSession,
       resumeSessionAt: config.resumeSessionAt,
       enableFileCheckpointing: config.enableFileCheckpointing,

@@ -172,16 +172,8 @@ export class GitStatusBarComponent {
   protected readonly editorService = inject(EditorService);
   private readonly elementRef = inject(ElementRef);
 
-  // ============================================================================
-  // ICONS
-  // ============================================================================
-
   protected readonly GitBranchIcon = GitBranch;
   protected readonly TerminalIcon = TermIcon;
-
-  // ============================================================================
-  // STATE
-  // ============================================================================
 
   /** Whether the changed files panel is visible. */
   protected readonly showChangedFiles = signal(false);
@@ -193,13 +185,8 @@ export class GitStatusBarComponent {
   protected readonly detailsPopoverOpen = signal(false);
 
   constructor() {
-    // Start the branches service listening for git:status-update push events
-    // and pull an initial snapshot so the status bar populates without waiting
-    // for the first event.
     this.gitBranches.startListening();
     void this.gitBranches.refreshBranches();
-
-    // Auto-close changed files panel when all changes are resolved
     effect(
       () => {
         if (!this.gitStatus.hasChanges()) {
@@ -209,10 +196,6 @@ export class GitStatusBarComponent {
       { allowSignalWrites: true },
     );
   }
-
-  // ============================================================================
-  // OUTSIDE-CLICK
-  // ============================================================================
 
   /** Close inline panels when clicking outside the component. */
   onDocumentClick(event: MouseEvent): void {
@@ -224,10 +207,6 @@ export class GitStatusBarComponent {
       if (this.showChangedFiles()) this.showChangedFiles.set(false);
     }
   }
-
-  // ============================================================================
-  // ACTIONS
-  // ============================================================================
 
   protected toggleChangedFiles(): void {
     this.showChangedFiles.update((v) => !v);
@@ -244,7 +223,6 @@ export class GitStatusBarComponent {
    */
   protected onBranchClick(event: MouseEvent): void {
     event.stopPropagation();
-    // Mutual exclusion with the details popover.
     if (this.detailsPopoverOpen()) this.detailsPopoverOpen.set(false);
     this.branchPickerOpen.update((v) => !v);
   }
@@ -257,9 +235,6 @@ export class GitStatusBarComponent {
   }
 
   protected onBranchCheckedOut(_branchName: string): void {
-    // The git watcher will push a `git:status-update` event after the checkout
-    // succeeds, which already triggers a refresh via GitBranchesService. The
-    // dropdown closes itself on success, so nothing else is needed here.
   }
 
   /**
@@ -269,17 +244,12 @@ export class GitStatusBarComponent {
   protected onChangedFileClick(relativePath: string): void {
     const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return;
-
-    // Guard against path traversal — validate each segment individually.
-    // Git status paths are always relative with forward slashes, never absolute.
     const normalized = relativePath.replace(/\\/g, '/');
     const segments = normalized.split('/');
     const isAbsolute =
       normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized);
     const hasTraversal = segments.some((s) => s === '..' || s === '.');
     if (isAbsolute || hasTraversal || segments.length === 0) return;
-
-    // Build absolute path from workspace root + relative path
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
     const root = normalizedRoot.endsWith('/')
       ? normalizedRoot

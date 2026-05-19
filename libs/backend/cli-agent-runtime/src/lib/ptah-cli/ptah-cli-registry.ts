@@ -1,4 +1,4 @@
-﻿import { injectable, inject } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import {
   type AuthEnv,
   type PtahCliConfig,
@@ -429,7 +429,6 @@ export class PtahCliRegistry {
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
     | SpawnAgentFailure
   > {
-    // Find config
     const configs = this.configPersistence.loadConfigs();
     const agentConfig = configs.find((c) => c.id === id);
     if (!agentConfig) {
@@ -447,11 +446,7 @@ export class PtahCliRegistry {
         message: `Ptah CLI agent "${id}" is disabled`,
       };
     }
-
-    // Resolve provider
     const provider = getAnthropicProvider(agentConfig.providerId);
-
-    // Get API key (local providers use placeholder)
     const isLocalProvider = provider?.authType === 'none';
     const apiKey = isLocalProvider
       ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
@@ -474,41 +469,21 @@ export class PtahCliRegistry {
         message: `Unknown provider "${agentConfig.providerId}" for Ptah CLI agent "${id}"`,
       };
     }
-
-    // The agentId is not available until after spawnFromSdkHandle() returns,
-    // but the permission callback (canUseTool) is created before that.
-    // The resolver closure captures this holder; the caller populates it
-    // via setAgentId() after spawn completes.
     const agentIdHolder: { value?: string } = {};
-
-    // Build isolated AuthEnv
     const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
     seedStaticModelPricing(agentConfig.providerId);
-
-    // Resolve SDK model.
-    // Priority: agent-level selectedModel (the user's explicit pick in the
-    // CLI agent card) â†’ per-tier mapping â†’ hardcoded Anthropic fallback.
-    // selectedModel must win so users see the model they configured (e.g.
-    // kimi-k2.6:cloud) instead of the provider default (kimi-k2.5:cloud).
     const tier: ModelTier = options?.modelTier ?? 'sonnet';
     const spawnTiers = this.resolveEffectiveTiers(agentConfig, provider);
     const model =
       agentConfig.selectedModel?.trim() ||
       spawnTiers?.[tier] ||
       TIER_TO_MODEL_ID[tier];
-    // workingDirectory should be resolved by the caller (agent-namespace.builder).
-    // os.homedir() is a safer fallback than process.cwd() which returns the
-    // app installation directory in VS Code extension host / Electron.
     const cwd = options?.workingDirectory || require('os').homedir();
-
-    // Assemble premium spawn options via dedicated service
     const assembly = await this.spawnOptionsService.assembleSpawnOptions(
       authEnv,
       cwd,
       options?.projectGuidance,
     );
-
-    // Build callback infrastructure
     const {
       outputCallbacks,
       segmentBuffer: _segmentBuffer,
@@ -536,14 +511,10 @@ export class PtahCliRegistry {
         hasSystemPrompt: !!assembly.systemPromptContent,
       },
     );
-
-    // When resuming, use a continuation prompt
     const isResume = !!options?.resumeSessionId;
     const effectivePrompt = isResume
       ? 'Continue working on the previous task. Pick up where you left off.'
       : task;
-
-    // Get query function and start SDK query
     const queryFn = await this.moduleLoader.getQueryFunction();
     const abortController = new AbortController();
 
@@ -552,7 +523,6 @@ export class PtahCliRegistry {
       options: {
         abortController,
         model,
-        // No maxTurns cap â€” let the agent work freely until done
         cwd,
         systemPrompt:
           assembly.systemPromptMode === 'standalone' &&
@@ -591,12 +561,8 @@ export class PtahCliRegistry {
           (await this.moduleLoader.getCliJsPath()) ?? undefined,
       } as Options,
     });
-
-    // Session-resolved callback relay (buffer-and-replay pattern)
     let resolvedSessionId: string | null = null;
     const sessionResolvedCallbacks: Array<(sessionId: string) => void> = [];
-
-    // Consume the async iterable in background via PtahCliStreamLoop
     const streamLoop = new PtahCliStreamLoop({
       logger: this.logger,
       messageTransformer: this.messageTransformer,
@@ -611,15 +577,9 @@ export class PtahCliRegistry {
         }
       },
     });
-    // Chain dispose after stream loop exits to release callback/buffer references.
-    // The stream loop's run() returns the exit code; we preserve it after cleanup.
     const done = streamLoop.run(sdkQuery).then((exitCode) => {
-      try {
-        disposeCallbacks();
-        sessionResolvedCallbacks.length = 0;
-      } catch {
-        // Cleanup errors must not break the promise chain or mask the exit code
-      }
+      disposeCallbacks();
+      sessionResolvedCallbacks.length = 0;
       return exitCode;
     });
 
@@ -633,7 +593,6 @@ export class PtahCliRegistry {
       onStreamEvent,
       onSessionResolved: (callback) => {
         sessionResolvedCallbacks.push(callback);
-        // Replay if session ID was already resolved before listener registered
         if (resolvedSessionId) {
           callback(resolvedSessionId);
         }
@@ -666,10 +625,6 @@ export class PtahCliRegistry {
     this.logger.info('[PtahCliRegistry] disposeAll() — no-op');
   }
 
-  // ============================================================================
-  // Private Helper Methods
-  // ============================================================================
-
   /**
    * Resolve SDK permission options based on user's current autopilot level.
    *
@@ -690,9 +645,6 @@ export class PtahCliRegistry {
     allowDangerouslySkipPermissions?: boolean;
   } {
     const level = this.permissionHandler.getPermissionLevel();
-
-    // Map user's autopilot level to SDK permission mode.
-    // This ensures subagents honor the same permission policy as the parent session.
     const LEVEL_TO_SDK_MODE: Record<string, string> = {
       yolo: 'bypassPermissions',
       'auto-edit': 'acceptEdits',
@@ -718,9 +670,6 @@ export class PtahCliRegistry {
     );
     return {
       permissionMode: sdkMode,
-      // CLI path: no tabId arg â€” tabId stays undefined on the wire per the
-      // CLI contract (UC3). The frontend router falls through to agent-monitor
-      // routing when tabId is absent.
       canUseTool: this.permissionHandler.createCallback(
         sessionId ? SessionId.from(sessionId) : undefined,
         cliAgentResolver,
@@ -763,11 +712,7 @@ export class PtahCliRegistry {
    */
   private createCallbackInfrastructure() {
     const MAX_STREAM_EVENT_BUFFER = 5000;
-
-    // Raw text callbacks
     const outputCallbacks: ((data: string) => void)[] = [];
-
-    // Structured segment buffering
     const segmentBuffer: CliOutputSegment[] = [];
     const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
 
@@ -796,8 +741,6 @@ export class PtahCliRegistry {
         cb(data);
       }
     };
-
-    // FlatStreamEventUnion callbacks
     const streamEventBuffer: FlatStreamEventUnion[] = [];
     const streamEventCallbacks: Array<(event: FlatStreamEventUnion) => void> =
       [];
@@ -867,9 +810,6 @@ export class PtahCliRegistry {
     agentConfig: PtahCliConfig,
     provider: AnthropicProvider,
   ): PtahCliConfig['tierMappings'] {
-    // Read CLI-agent scope first (the user's per-agent tier overrides set via
-    // the CLI agent config UI). Fall back to the main-agent scope only as a
-    // last resort â€” do not let mainTiers silently shadow cliAgent tiers.
     const mainTiers = this.providerModels.getModelTiers(
       agentConfig.providerId,
       'cliAgent',

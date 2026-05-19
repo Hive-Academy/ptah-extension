@@ -16,6 +16,7 @@
     "@ptah-extension/workspace-intelligence": "0.0.1",
     "@ptah-extension/agent-generation": "0.0.1",
     "@ptah-extension/settings-core": "0.0.1",
-    "@ptah-extension/cli-agent-runtime": "0.0.1"
+    "@ptah-extension/cli-agent-runtime": "0.0.1",
+    "@ptah-extension/auth-providers": "0.0.1"
   }
 }

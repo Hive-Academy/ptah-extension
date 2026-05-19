@@ -59,14 +59,8 @@ export class TrialReminderService {
     let totalSent = 0;
 
     try {
-      // STEP 1: Downgrade expired trials to Community plan
-      // This must run BEFORE sending reminders to ensure clean state
       const downgraded = await this.downgradeExpiredTrials();
       this.logger.log(`Downgraded ${downgraded} expired trials to Community`);
-
-      // STEP 2: Process reminder emails for upcoming expirations
-      // Order matters: closest to expiry first (1_day, 3_day, 7_day)
-      // Note: We no longer send 'expired' reminder - users are auto-downgraded instead
       const reminderConfigs: { type: ReminderType; daysFromExpiry: number }[] =
         [
           { type: '1_day', daysFromExpiry: 1 },
@@ -114,8 +108,6 @@ export class TrialReminderService {
     this.logger.debug('Processing expired trial downgrades');
 
     const now = new Date();
-
-    // Find all expired trials that haven't been downgraded yet
     const expiredTrials = await this.prisma.subscription.findMany({
       where: {
         status: 'trialing',
@@ -151,9 +143,6 @@ export class TrialReminderService {
 
     for (const subscription of expiredTrials) {
       try {
-        // Safety: Check if user has a real (non-trial) active subscription.
-        // If a trial user converted to paid via Paddle but the trial record
-        // wasn't cleaned up, we must not downgrade a paying customer.
         const hasActiveSubscription = await this.prisma.subscription.findFirst({
           where: {
             userId: subscription.userId,
@@ -164,7 +153,6 @@ export class TrialReminderService {
         });
 
         if (hasActiveSubscription) {
-          // User has a paid subscription - just expire the orphaned trial, don't downgrade
           await this.prisma.subscription.update({
             where: { id: subscription.id },
             data: { status: 'expired' },
@@ -174,17 +162,11 @@ export class TrialReminderService {
           );
           continue;
         }
-
-        // Use a transaction to ensure atomicity
         await this.prisma.$transaction(async (tx) => {
-          // 1. Update subscription status to 'expired'
           await tx.subscription.update({
             where: { id: subscription.id },
             data: { status: 'expired' },
           });
-
-          // 2. Update user's license to 'community' plan
-          // Find the active license for this user
           const activeLicense = subscription.user.licenses.find(
             (l) => l.status === 'active',
           );
@@ -195,9 +177,6 @@ export class TrialReminderService {
               data: { plan: 'community' },
             });
           }
-
-          // 3. Record the 'expired' reminder to track that we processed this user
-          // This also prevents re-processing on next cron run
           await tx.trialReminder.create({
             data: {
               userId: subscription.userId,
@@ -206,8 +185,6 @@ export class TrialReminderService {
             },
           });
         });
-
-        // 4. Send "Welcome to Community" email (outside transaction)
         await this.emailService.sendTrialDowngradedToCommunity({
           email: subscription.user.email,
           firstName: subscription.user.firstName,
@@ -243,8 +220,6 @@ export class TrialReminderService {
     this.logger.debug(
       `Processing ${type} reminders (${daysFromExpiry} days from expiry)`,
     );
-
-    // Calculate target date range (start of day to end of day for the target date)
     const now = new Date();
     const targetDate = new Date(now);
     targetDate.setDate(targetDate.getDate() + daysFromExpiry);
@@ -254,9 +229,6 @@ export class TrialReminderService {
 
     const endOfDay = new Date(targetDate);
     endOfDay.setUTCHours(23, 59, 59, 999);
-
-    // Find subscriptions with trialing status where trialEnd is within target date
-    // Exclude users who already received this reminder type
     const eligibleSubscriptions = await this.prisma.subscription.findMany({
       where: {
         status: 'trialing',
@@ -265,7 +237,6 @@ export class TrialReminderService {
           lte: endOfDay,
         },
         user: {
-          // Exclude users who already received this reminder
           trialReminders: {
             none: {
               reminderType: type,
@@ -278,8 +249,6 @@ export class TrialReminderService {
       },
       take: 1000, // Safety limit to prevent memory issues
     });
-
-    // Warn if limit is reached - some users may be missed
     if (eligibleSubscriptions.length === 1000) {
       this.logger.warn(
         `[${type}] Hit 1000 subscription limit - some users may not receive reminders. Consider implementing pagination.`,
@@ -293,31 +262,24 @@ export class TrialReminderService {
     if (eligibleSubscriptions.length === 0) {
       return 0;
     }
-
-    // Process in batches for rate limiting
     let sentCount = 0;
     for (let i = 0; i < eligibleSubscriptions.length; i += this.BATCH_SIZE) {
       const batch = eligibleSubscriptions.slice(i, i + this.BATCH_SIZE);
 
       for (const subscription of batch) {
         try {
-          // Skip if trialEnd is null (shouldn't happen for trialing status, but defensive check)
           if (!subscription.trialEnd) {
             this.logger.warn(
               `Skipping subscription ${subscription.id}: trialEnd is null despite trialing status`,
             );
             continue;
           }
-
-          // Send the appropriate email based on reminder type
           await this.sendReminderEmail(
             type,
             subscription.user.email,
             subscription.user.firstName,
             subscription.trialEnd,
           );
-
-          // Record sent reminder to prevent duplicates (idempotency)
           await this.prisma.trialReminder.create({
             data: {
               userId: subscription.userId,
@@ -328,7 +290,6 @@ export class TrialReminderService {
 
           sentCount++;
         } catch (error) {
-          // Log error but continue processing other users
           const errorMessage =
             error instanceof Error ? error.message : 'Unknown error';
           this.logger.warn(
@@ -336,8 +297,6 @@ export class TrialReminderService {
           );
         }
       }
-
-      // Delay between batches for rate limiting (avoid Resend throttling)
       if (i + this.BATCH_SIZE < eligibleSubscriptions.length) {
         await this.sleep(this.BATCH_DELAY_MS);
       }
@@ -387,7 +346,6 @@ export class TrialReminderService {
         await this.emailService.sendTrialExpired({ email, firstName });
         break;
       default: {
-        // Exhaustive check - TypeScript will error if a new ReminderType is added without handling
         const _exhaustiveCheck: never = type;
         throw new Error(`Unhandled reminder type: ${_exhaustiveCheck}`);
       }

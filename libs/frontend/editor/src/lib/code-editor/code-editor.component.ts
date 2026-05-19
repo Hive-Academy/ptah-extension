@@ -152,8 +152,6 @@ export class CodeEditorComponent implements OnInit {
 
   readonly isDirty = signal(false);
   readonly showPreview = signal(false);
-
-  // Icons
   readonly EyeIcon = Eye;
   readonly CodeIcon = Code;
 
@@ -186,26 +184,17 @@ export class CodeEditorComponent implements OnInit {
     effect(() => {
       const newContent = this.content();
       const newPath = this.filePath();
-      // Only update if we have a path (skip initial empty state)
       if (newPath !== undefined) {
         this.editorContent = newContent;
         this.lastSavedContent = newContent;
         this.isDirty.set(false);
-        // Reset preview when switching files
         this.showPreview.set(false);
       }
     });
-
-    // Vim mode attachment effect: watch enabled state AND isFocused state.
-    // Vim mode only attaches to the focused pane's editor. When isFocused becomes
-    // false (e.g., user clicks the other split pane), vim detaches from this instance.
-    // The @ViewChild inside @if means vimStatusBarRef is only available after the @if renders,
-    // so we use a microtask to wait for the DOM update.
     effect(() => {
       const enabled = this.vimModeService.enabled();
       const focused = this.isFocused();
       if (enabled && focused && this.monacoEditor) {
-        // Defer to allow the @if block to render the #vimStatusBar element
         Promise.resolve().then(() => {
           if (this.vimStatusBarRef?.nativeElement && this.monacoEditor) {
             this.vimModeService.attachToEditor(
@@ -218,14 +207,9 @@ export class CodeEditorComponent implements OnInit {
         this.vimModeService.detach();
       }
     });
-
-    // Clean up vim mode when the component is destroyed
     this.destroyRef.onDestroy(() => {
       this.vimModeService.detach();
     });
-
-    // Watch targetLine from EditorService and reveal line in Monaco when set.
-    // This is a one-shot signal: read it, reveal, then clear.
     effect(() => {
       const line = this.editorService.targetLine();
       if (line !== undefined && this.monacoEditor) {
@@ -243,7 +227,6 @@ export class CodeEditorComponent implements OnInit {
   ngOnInit(): void {
     this.keydownHandler = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 's') {
-        // Only handle save when this pane has focus and has an active file
         if (this.isFocused() && this.filePath()) {
           event.preventDefault();
           this.saveFile();
@@ -264,11 +247,7 @@ export class CodeEditorComponent implements OnInit {
   }
 
   protected onEditorInit(editor: unknown): void {
-    // Capture the Monaco editor instance for vim mode attachment
     this.monacoEditor = editor;
-
-    // If vim mode is already enabled and this pane is focused,
-    // attach immediately once the status bar element is available
     if (this.vimModeService.enabled() && this.isFocused()) {
       Promise.resolve().then(() => {
         if (this.vimStatusBarRef?.nativeElement && this.monacoEditor) {

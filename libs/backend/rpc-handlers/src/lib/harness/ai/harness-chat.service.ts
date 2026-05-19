@@ -59,8 +59,6 @@ export class HarnessChatService {
     private readonly llmRunner: HarnessLlmRunner,
   ) {}
 
-  // ─── Step-Aware Chat Reply ────────────────────────────
-
   /**
    * Build an intelligent chat reply for the current wizard step, with
    * optional click-to-apply actions (toggle-agent, add-skill, etc.).
@@ -154,8 +152,6 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
         if (!output?.reply) {
           return { reply: this.buildChatReplyFallback(step, message) };
         }
-
-        // Validate and filter suggested actions to valid types
         const validTypes = new Set([
           'toggle-agent',
           'add-skill',
@@ -274,8 +270,6 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
 
     return stepGuidance[step] ?? 'How can I help you build your harness?';
   }
-
-  // ─── Conversational Config Builder ────────────────────
 
   /**
    * Freeform conversation that yields `{ reply, configUpdates?, isConfigComplete? }`

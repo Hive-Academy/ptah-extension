@@ -255,10 +255,6 @@ export class WorktreeSectionComponent {
   private readonly editorService = inject(EditorService);
   private readonly layoutService = inject(ElectronLayoutService);
 
-  // ============================================================================
-  // ICONS
-  // ============================================================================
-
   protected readonly GitBranchIcon = GitBranch;
   protected readonly FolderOpenIcon = FolderOpen;
   protected readonly PlusIcon = Plus;
@@ -267,28 +263,16 @@ export class WorktreeSectionComponent {
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
 
-  // ============================================================================
-  // STATE
-  // ============================================================================
-
   protected readonly expanded = signal(false);
-
-  // Add form state
   protected readonly showAddForm = signal(false);
   protected readonly newBranch = signal('');
   protected readonly newPath = signal('');
   protected readonly newCreateBranch = signal(false);
   protected readonly isAdding = signal(false);
   protected readonly addError = signal('');
-
-  // Remove state
   protected readonly removeTarget = signal<GitWorktreeInfo | null>(null);
   protected readonly isRemoving = signal(false);
   protected readonly removeError = signal('');
-
-  // ============================================================================
-  // HELPERS
-  // ============================================================================
 
   protected isActiveWorktree(wt: GitWorktreeInfo): boolean {
     const activeRoot = this.editorService.activeWorkspacePath;
@@ -302,10 +286,6 @@ export class WorktreeSectionComponent {
     if (!branch) return '(detached)';
     return branch;
   }
-
-  // ============================================================================
-  // ACTIONS
-  // ============================================================================
 
   protected onWorktreeSelect(wt: GitWorktreeInfo): void {
     void this.layoutService.addFolderByPath(wt.path);

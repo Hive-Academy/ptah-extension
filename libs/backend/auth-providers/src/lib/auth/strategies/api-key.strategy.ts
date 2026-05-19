@@ -59,31 +59,21 @@ export class ApiKeyStrategy implements IAuthStrategy {
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     const { providerId, authEnv, envSnapshot } = context;
-
-    // Direct Anthropic API key flow (providerId is 'anthropic' or legacy 'apiKey' path)
     if (
       providerId === ANTHROPIC_DIRECT_PROVIDER_ID ||
       providerId === 'apiKey'
     ) {
-      // Stop the OpenRouter proxy if switching away from OpenRouter
       await this.stopOpenRouterProxyIfRunning();
       return this.configureDirectApiKey(authEnv, envSnapshot);
     }
-
-    // OpenRouter uses a local translation proxy to support ALL providers
-    // (Anthropic, OpenAI, Google, Meta, etc.), not just Anthropic-family.
     if (providerId === OPENROUTER_PROVIDER_ID) {
       return this.configureOpenRouterProxy(providerId, authEnv);
     }
-
-    // Third-party Anthropic-compatible providers that speak Anthropic protocol
-    // natively (Moonshot, Z.AI) — direct passthrough, no proxy.
     await this.stopOpenRouterProxyIfRunning();
     return this.configureProviderApiKey(providerId, authEnv, envSnapshot);
   }
 
   async teardown(): Promise<void> {
-    // Stop the OpenRouter translation proxy if it was started by this strategy
     await this.stopOpenRouterProxyIfRunning();
   }
 
@@ -125,7 +115,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
     providerId: string,
     authEnv: AuthEnv,
   ): Promise<AuthConfigureResult> {
-    // Step 1: Verify API key is configured
     const providerKey = await this.authSecrets.getProviderKey(providerId);
     if (!providerKey?.trim()) {
       this.logger.debug(
@@ -151,8 +140,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
           `Get valid keys from: ${provider.helpUrl}`,
       );
     }
-
-    // Step 2: Start the translation proxy
     let proxyUrl: string;
     try {
       if (this.openRouterProxy.isRunning()) {
@@ -198,18 +185,12 @@ export class ApiKeyStrategy implements IAuthStrategy {
           'Failed to start OpenRouter translation proxy. Check if a local port is available.',
       };
     }
-
-    // Step 3: Point SDK at the local proxy instead of openrouter.ai.
-    // The proxy handles auth itself via OpenRouterAuthService, so the SDK only
-    // needs a placeholder token. ANTHROPIC_API_KEY is left unset.
     authEnv.ANTHROPIC_BASE_URL = proxyUrl;
     authEnv.ANTHROPIC_AUTH_TOKEN = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
     authEnv.ANTHROPIC_API_KEY = '';
     process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
     process.env['ANTHROPIC_AUTH_TOKEN'] = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
     delete process.env['ANTHROPIC_API_KEY'];
-
-    // Step 4: Apply tier mappings and seed pricing for the provider
     this.providerModels.switchActiveProvider(providerId);
     seedStaticModelPricing(providerId);
 
@@ -240,7 +221,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
     authEnv: AuthEnv,
     envSnapshot?: { ANTHROPIC_API_KEY?: string },
   ): Promise<AuthConfigureResult> {
-    // Read from snapshot captured before AuthManager's clean slate wipe
     const envApiKey = envSnapshot?.ANTHROPIC_API_KEY;
 
     const apiKey = await this.authSecrets.getCredential('apiKey');
@@ -286,8 +266,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
           `[${this.name}] WARNING: Environment API key format may be invalid`,
         );
       }
-
-      // Restore the key from env (it was cleared in clean slate)
       authEnv.ANTHROPIC_API_KEY = envApiKey;
       process.env['ANTHROPIC_API_KEY'] = envApiKey;
 
@@ -328,11 +306,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
     const providerKey = await this.authSecrets.getProviderKey(providerId);
 
     if (!providerKey?.trim()) {
-      // Env-var fallback: mirror the direct-Anthropic path. Headless flows like
-      // the openclaw bridge pre-set ANTHROPIC_AUTH_TOKEN (+ ANTHROPIC_BASE_URL)
-      // instead of populating SecretStorage. The clean-slate wipe in
-      // AuthManager removed these from process.env, so we read them from the
-      // pre-wipe snapshot.
       const envProviderKey =
         envSnapshot?.[authEnvVar] ??
         envSnapshot?.ANTHROPIC_AUTH_TOKEN ??
@@ -348,8 +321,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
         authEnv[authEnvVar as keyof AuthEnv] = trimmed;
         process.env['ANTHROPIC_BASE_URL'] = baseUrl;
         process.env[authEnvVar] = trimmed;
-
-        // Apply persisted tier mappings + seed pricing same as the SecretStorage path.
         this.providerModels.switchActiveProvider(providerId);
         seedStaticModelPricing(providerId);
 
@@ -370,8 +341,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
     }
 
     const keyLength = providerKey.length;
-
-    // Validate key format if provider has expected prefix
     const hasExpectedPrefix = provider?.keyPrefix
       ? providerKey.startsWith(provider.keyPrefix)
       : true;
@@ -388,17 +357,11 @@ export class ApiKeyStrategy implements IAuthStrategy {
         `[${this.name}] Get valid keys from: ${provider.helpUrl}`,
       );
     }
-
-    // Set provider-specific env vars
     authEnv.ANTHROPIC_BASE_URL = baseUrl;
     authEnv[authEnvVar as keyof AuthEnv] = providerKey.trim();
     process.env['ANTHROPIC_BASE_URL'] = baseUrl;
     process.env[authEnvVar] = providerKey.trim();
-
-    // Apply persisted tier mappings for this provider
     this.providerModels.switchActiveProvider(providerId);
-
-    // Seed pricing map with static model pricing
     seedStaticModelPricing(providerId);
 
     this.logger.info(
@@ -445,12 +408,6 @@ export class ApiKeyStrategy implements IAuthStrategy {
   }
 
   private applyDirectProviderTiers(): void {
-    // Direct Anthropic (API key or CLI auth): no tier overrides.
-    // ANTHROPIC_DEFAULT_*_MODEL env vars are meant for third-party providers
-    // (OpenRouter/Moonshot/Z.AI) that need to remap tier → provider model ID.
-    // For api.anthropic.com, model IDs are valid as-is and the CLI/SDK handles
-    // its own default resolution — setting these env vars pins resolution to
-    // stale values and breaks the native tier behavior.
     this.providerModels.clearAllTierEnvVars();
   }
 }

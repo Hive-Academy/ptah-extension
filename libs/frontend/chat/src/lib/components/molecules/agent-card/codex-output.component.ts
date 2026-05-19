@@ -119,7 +119,6 @@ export class CodexOutputComponent {
     viewChild<ElementRef<HTMLDivElement>>('outputContainer');
 
   constructor() {
-    // Auto-scroll effect: scrolls to bottom when new content arrives.
     effect(() => {
       this.executionNodes();
       this.scrollTrigger();

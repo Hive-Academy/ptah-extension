@@ -158,19 +158,11 @@ import { WorktreeService } from '../services/worktree.service';
 export class AddWorktreeDialogComponent {
   private readonly worktreeService = inject(WorktreeService);
 
-  // ============================================================================
-  // OUTPUT EVENTS
-  // ============================================================================
-
   /** Emitted when a worktree is successfully created. */
   readonly worktreeCreated = output<void>();
 
   /** Emitted when the dialog is cancelled/dismissed. */
   readonly cancelled = output<void>();
-
-  // ============================================================================
-  // FORM STATE
-  // ============================================================================
 
   /** Branch name input value. */
   protected readonly branchName = signal('');
@@ -187,25 +179,13 @@ export class AddWorktreeDialogComponent {
   /** Error message from the last failed attempt. */
   protected readonly errorMessage = signal('');
 
-  // ============================================================================
-  // ICONS
-  // ============================================================================
-
   protected readonly GitForkIcon = GitFork;
   protected readonly XIcon = X;
-
-  // ============================================================================
-  // COMPUTED
-  // ============================================================================
 
   /** Whether the form can be submitted (branch name is non-empty and not already submitting). */
   protected readonly canSubmit = computed(
     () => this.branchName().trim().length > 0 && !this.isSubmitting(),
   );
-
-  // ============================================================================
-  // ACTIONS
-  // ============================================================================
 
   /**
    * Submit the form: call WorktreeService.addWorktree().
@@ -248,10 +228,6 @@ export class AddWorktreeDialogComponent {
       this.cancel();
     }
   }
-
-  // ============================================================================
-  // PRIVATE
-  // ============================================================================
 
   /** Reset all form fields to their defaults. */
   private resetForm(): void {

@@ -103,8 +103,6 @@ export class SkillSynthesisStateService {
     this.error.set(null);
     try {
       await this.rpc.promote(id);
-      // `reason` is currently advisory; carried in component state if
-      // backend extends the promote payload later.
       void reason;
       await this.refreshCandidates();
     } catch (err) {

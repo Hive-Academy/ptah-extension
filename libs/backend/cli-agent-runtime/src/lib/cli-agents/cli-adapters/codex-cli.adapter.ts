@@ -225,7 +225,6 @@ function resolveCodexNativeBinary(
 
   const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
   const pkgDir = platformPkg.split('/')[1];
-  // Path of the binary RELATIVE to a `node_modules/@openai/` parent directory.
   const relFromOpenAi = path.join(
     pkgDir,
     'vendor',
@@ -233,55 +232,34 @@ function resolveCodexNativeBinary(
     'codex',
     binaryName,
   );
-  // Path of the binary RELATIVE to a `node_modules/` parent directory.
   const relFromNodeModules = path.join('@openai', relFromOpenAi);
-  // Path of the binary RELATIVE to a directory containing `node_modules`.
   const relFromBin = path.join('node_modules', relFromNodeModules);
 
   const candidates: string[] = [];
-
-  // 1. Electron: resourcesPath/app.asar.unpacked/node_modules/...
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
     .resourcesPath;
   if (resourcesPath) {
     candidates.push(path.join(resourcesPath, 'app.asar.unpacked', relFromBin));
   }
 
-  // 2. require.resolve the platform binary package directly. When the SDK's
-  //    optional dep is installed alongside the SDK, this is the most reliable
-  //    path on all OSes.
-  try {
-    const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
-    candidates.push(
-      path.join(
-        path.dirname(platformPkgJson),
-        'vendor',
-        targetTriple,
-        'codex',
-        binaryName,
-      ),
-    );
-  } catch {
-    // Platform package not installed or not resolvable from this context.
-  }
+  const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
+  candidates.push(
+    path.join(
+      path.dirname(platformPkgJson),
+      'vendor',
+      targetTriple,
+      'codex',
+      binaryName,
+    ),
+  );
 
-  // 3. require.resolve via @openai/codex-sdk's node_modules root.
-  try {
-    const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
-    // sdkPkgJsonPath = .../node_modules/@openai/codex-sdk/package.json
-    const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
-    const candidate = path.join(nodeModulesRoot, relFromNodeModules);
-    candidates.push(candidate);
-    // Rewrite for older Electron builds where SDK lives inside app.asar but
-    // the binary is unpacked.
-    candidates.push(
-      candidate.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked'),
-    );
-  } catch {
-    // SDK not resolvable when bundled by esbuild — falls through to below.
-  }
-
-  // 4. npm global roots (covers `npm i -g @openai/codex` installs).
+  const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
+  const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
+  const candidate = path.join(nodeModulesRoot, relFromNodeModules);
+  candidates.push(candidate);
+  candidates.push(
+    candidate.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked'),
+  );
   if (process.platform === 'win32') {
     const appData = process.env['APPDATA'];
     if (appData) {
@@ -306,11 +284,6 @@ function resolveCodexNativeBinary(
       );
     }
   }
-
-  // 5. Walk up from the detected CLI path. npm puts the platform-binary
-  //    optional-dep alongside the `@openai/codex` package, so we try both:
-  //      <cliDir>/node_modules/@openai/codex-<platform>/...
-  //      <cliDir>/node_modules/@openai/codex/node_modules/@openai/codex-<platform>/...
   if (detectedCliPath) {
     const cliDir = path.dirname(detectedCliPath);
     candidates.push(path.join(cliDir, relFromBin));
@@ -324,10 +297,6 @@ function resolveCodexNativeBinary(
         relFromNodeModules,
       ),
     );
-    // On Windows, the .cmd lives in `<prefix>/npm/`; the node_modules is at
-    // `<prefix>/npm/node_modules/`. cliDir already points to the right place.
-    // On Unix, the bin is at `<prefix>/bin/codex`; node_modules is at
-    // `<prefix>/lib/node_modules/`. Translate bin → lib for that case.
     if (process.platform !== 'win32' && path.basename(cliDir) === 'bin') {
       const prefix = path.dirname(cliDir);
       candidates.push(path.join(prefix, 'lib', relFromBin));
@@ -335,11 +304,7 @@ function resolveCodexNativeBinary(
   }
 
   for (const candidate of candidates) {
-    try {
-      if (existsSync(candidate)) return candidate;
-    } catch {
-      // Permission / path errors — skip and try next.
-    }
+    if (existsSync(candidate)) return candidate;
   }
 
   return undefined;
@@ -369,37 +334,29 @@ export class CodexCliAdapter implements CliAdapter {
       if (!binaryPath) {
         return { cli: 'codex', installed: false, supportsSteer: false };
       }
+      const version = await new Promise<string | undefined>((resolve) => {
+        let stdout = '';
+        const child = spawnCli(binaryPath, ['--version'], {});
 
-      // Use cross-spawn (via spawnCli) for version detection to avoid
-      // EINVAL when execFile encounters a Windows .cmd wrapper.
-      let version: string | undefined;
-      try {
-        version = await new Promise<string | undefined>((resolve) => {
-          let stdout = '';
-          const child = spawnCli(binaryPath, ['--version'], {});
+        const timer = setTimeout(() => {
+          child.kill();
+          resolve(undefined);
+        }, 5000);
 
-          const timer = setTimeout(() => {
-            child.kill();
-            resolve(undefined);
-          }, 5000);
-
-          child.stdout?.setEncoding('utf8');
-          child.stdout?.on('data', (data: string) => {
-            stdout += data;
-          });
-          child.on('close', () => {
-            clearTimeout(timer);
-            const trimmed = stdout.trim().split(/\r?\n/)[0];
-            resolve(trimmed || undefined);
-          });
-          child.on('error', () => {
-            clearTimeout(timer);
-            resolve(undefined);
-          });
+        child.stdout?.setEncoding('utf8');
+        child.stdout?.on('data', (data: string) => {
+          stdout += data;
         });
-      } catch {
-        // Version check failed
-      }
+        child.on('close', () => {
+          clearTimeout(timer);
+          const trimmed = stdout.trim().split(/\r?\n/)[0];
+          resolve(trimmed || undefined);
+        });
+        child.on('error', () => {
+          clearTimeout(timer);
+          resolve(undefined);
+        });
+      });
 
       return {
         cli: 'codex',
@@ -419,9 +376,6 @@ export class CodexCliAdapter implements CliAdapter {
 
   buildCommand(options: CliCommandOptions): CliCommand {
     const taskPrompt = buildTaskPrompt(options);
-
-    // Use `exec` subcommand for non-interactive mode
-    // Flags: --full-auto (auto-approve + sandbox), --ephemeral (no session persistence)
     const args = ['exec', '--full-auto', '--ephemeral', taskPrompt];
 
     if (options.model) {
@@ -488,19 +442,13 @@ export class CodexCliAdapter implements CliAdapter {
    * Reads the token from ~/.codex/auth.json. No refresh is attempted.
    */
   private async resolveAccessToken(): Promise<string | null> {
-    try {
-      const raw = await readFile(CodexCliAdapter.getAuthPath(), 'utf-8');
-      const auth = JSON.parse(raw) as CodexAuthFile;
+    const raw = await readFile(CodexCliAdapter.getAuthPath(), 'utf-8');
+    const auth = JSON.parse(raw) as CodexAuthFile;
+    const apiKey = auth.openai_api_key || auth.OPENAI_API_KEY;
+    if (apiKey) return apiKey;
+    if (!auth.tokens?.access_token) return null;
 
-      // API key takes priority — never expires (check both snake_case and SCREAMING_CASE)
-      const apiKey = auth.openai_api_key || auth.OPENAI_API_KEY;
-      if (apiKey) return apiKey;
-      if (!auth.tokens?.access_token) return null;
-
-      return auth.tokens.access_token;
-    } catch {
-      // Auth file not found or unreadable
-    }
+    return auth.tokens.access_token;
     return null;
   }
 
@@ -532,22 +480,17 @@ export class CodexCliAdapter implements CliAdapter {
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     const sdk = await getCodexSdk();
-
-    // Pass MCP server config, env vars, and codexPathOverride through Codex SDK
     const codexOptions: {
       config?: Record<string, unknown>;
       codexPathOverride?: string;
       env?: Record<string, string>;
     } = {
-      // Spread process.env to preserve PATH, API keys, etc.
-      // The SDK does NOT inherit process.env when `env` is provided.
       env: {
         ...(process.env as Record<string, string>),
         FORCE_COLOR: '0',
         NO_COLOR: '1',
       },
     };
-    // Build config: MCP servers + feature flags for skill/agent discovery
     const config: Record<string, unknown> = {
       features: {
         child_agents_md: true,
@@ -562,22 +505,12 @@ export class CodexCliAdapter implements CliAdapter {
       };
     }
     codexOptions.config = config;
-    // Resolve the native Codex binary across all platforms (Win/macOS/Linux)
-    // and all hosts (Electron, VS Code extension, CLI/dev). The SDK spawns
-    // this binary directly, so we must point to the actual platform-specific
-    // Rust executable — never to a `.cmd` shim (EFTYPE on Windows) or `.js`
-    // launcher. If resolution fails we pass `undefined` and let the SDK's
-    // internal `findCodexPath()` try.
     const nativeBinaryPath = resolveCodexNativeBinary(options.binaryPath);
     if (nativeBinaryPath) {
       codexOptions.codexPathOverride = nativeBinaryPath;
     }
 
     const codex = new sdk.Codex(codexOptions);
-
-    // Thread options: always headless with full permissions.
-    // Codex SDK has no runtime permission hooks (unlike Copilot), so
-    // approvalPolicy + sandboxMode are set upfront and cannot be changed mid-session.
     const threadOptions: CodexThreadOptions = {
       workingDirectory: options.workingDirectory,
       approvalPolicy: 'never',
@@ -596,34 +529,19 @@ export class CodexCliAdapter implements CliAdapter {
       threadOptions.modelReasoningEffort =
         options.reasoningEffort as CodexReasoningEffort;
     }
-
-    // Session resume or new thread
     const thread = options.resumeSessionId
       ? codex.resumeThread(options.resumeSessionId, threadOptions)
       : codex.startThread(threadOptions);
-
-    // Codex SDK has no native system message channel (unlike Gemini's GEMINI_SYSTEM_MD
-    // or Copilot's sessionConfig.systemMessage). The systemPrompt is intentionally
-    // included in buildTaskPrompt() as the only way to inject system context.
     const taskPrompt = buildTaskPrompt(options);
     const abortController = new AbortController();
-
-    // Captured thread ID for session resume
     let capturedThreadId: string | undefined;
-
-    // Delta tracking: track last-seen text per item.id for progressive streaming
     const itemTextTracker = new Map<string, string>();
-    // Track which item IDs have emitted deltas (skip full text on completion)
     const itemsWithDeltas = new Set<string>();
-
-    // Output buffering: buffer output until callbacks are registered,
-    // then flush buffered data and switch to direct delivery.
     const outputBuffer: string[] = [];
     const outputCallbacks: Array<(data: string) => void> = [];
 
     const onOutput = (callback: (data: string) => void): void => {
       outputCallbacks.push(callback);
-      // Flush any buffered output to the newly registered callback
       if (outputBuffer.length > 0) {
         for (const buffered of outputBuffer) {
           callback(buffered);
@@ -641,8 +559,6 @@ export class CodexCliAdapter implements CliAdapter {
         }
       }
     };
-
-    // Structured segment buffering (same pattern as output)
     const segmentBuffer: CliOutputSegment[] = [];
     const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
 
@@ -665,14 +581,9 @@ export class CodexCliAdapter implements CliAdapter {
         }
       }
     };
-
-    // Start streamed execution and iterate events
     const STARTUP_TIMEOUT_MS = 30_000;
     const done = (async (): Promise<number> => {
       try {
-        // Startup timeout: catch cases where the Codex subprocess fails to
-        // start or connect. The overall session timeout is handled by
-        // AgentProcessManager separately.
         const streamedTurn = await Promise.race([
           thread.runStreamed(taskPrompt, {
             signal: abortController.signal,
@@ -689,8 +600,6 @@ export class CodexCliAdapter implements CliAdapter {
           if (abortController.signal.aborted) {
             return 1;
           }
-
-          // Capture thread ID from thread.started event
           if (event.type === 'thread.started') {
             capturedThreadId = event.thread_id;
           }
@@ -706,7 +615,6 @@ export class CodexCliAdapter implements CliAdapter {
 
         return 0;
       } catch (error: unknown) {
-        // AbortError is expected when we cancel - treat as non-error exit
         if (
           error instanceof Error &&
           (error.name === 'AbortError' || abortController.signal.aborted)
@@ -731,9 +639,7 @@ export class CodexCliAdapter implements CliAdapter {
       onOutput,
       onSegment,
       getSessionId: () => capturedThreadId,
-      setAgentId: () => {
-        // No-op: Codex SDK has no permission hooks that need agentId routing
-      },
+      setAgentId: () => {},
     };
   }
 
@@ -783,7 +689,6 @@ export class CodexCliAdapter implements CliAdapter {
         this.handleStreamError(event, emitOutput, emitSegment);
         break;
       default:
-        // thread.started handled in runSdk() for thread ID capture
         break;
     }
   }
@@ -795,7 +700,6 @@ export class CodexCliAdapter implements CliAdapter {
   ): void {
     switch (item.type) {
       case 'command_execution':
-        // Use generic 'Shell' as toolName; full command goes in toolArgs.
         emitSegment({
           type: 'tool-call',
           toolName: 'Shell',
@@ -866,7 +770,6 @@ export class CodexCliAdapter implements CliAdapter {
   ): void {
     const previousText = itemTextTracker.get(item.id) ?? '';
     if (item.text.startsWith(previousText)) {
-      // Normal append — emit only the new delta
       const delta = item.text.slice(previousText.length);
       if (delta) {
         emitOutput(delta);
@@ -875,7 +778,6 @@ export class CodexCliAdapter implements CliAdapter {
         itemsWithDeltas.add(item.id);
       }
     } else {
-      // Text was replaced (not appended) — emit full text as replacement
       emitOutput(item.text);
       emitSegment({ type: segmentType, content: item.text });
       itemTextTracker.set(item.id, item.text);
@@ -893,26 +795,22 @@ export class CodexCliAdapter implements CliAdapter {
   ): void {
     switch (item.type) {
       case 'agent_message':
-        // Skip full text emission if deltas were sent via item.updated
         if (!itemsWithDeltas.has(item.id)) {
           if (item.text) {
             emitOutput(item.text + '\n');
             emitSegment({ type: 'text', content: item.text });
           }
         }
-        // Clean up trackers
         itemTextTracker.delete(item.id);
         itemsWithDeltas.delete(item.id);
         break;
       case 'reasoning':
-        // Skip full text emission if deltas were sent via item.updated
         if (!itemsWithDeltas.has(item.id)) {
           if (item.text) {
             emitOutput(`[Thinking] ${item.text}\n`);
             emitSegment({ type: 'thinking', content: item.text });
           }
         }
-        // Clean up trackers
         itemTextTracker.delete(item.id);
         itemsWithDeltas.delete(item.id);
         break;
@@ -965,7 +863,6 @@ export class CodexCliAdapter implements CliAdapter {
             toolCallId: item.id,
           });
         } else {
-          // Completed with neither result nor error (e.g., cancelled/timed out)
           emitOutput(
             `[MCP] ${item.server}:${item.tool} (${
               item.status || 'completed'

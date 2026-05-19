@@ -159,50 +159,38 @@ function wireSessionIdResolvedCallback(
       );
 
       if (tabId) {
-        try {
-          if (container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
-            const agentProcessManager = container.resolve<AgentProcessManager>(
-              TOKENS.AGENT_PROCESS_MANAGER,
-            );
-            agentProcessManager.resolveParentSessionId(tabId, realSessionId);
+        if (container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+          const agentProcessManager = container.resolve<AgentProcessManager>(
+            TOKENS.AGENT_PROCESS_MANAGER,
+          );
+          agentProcessManager.resolveParentSessionId(tabId, realSessionId);
 
-            try {
-              if (container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
-                const subagentRegistry =
-                  container.resolve<SubagentRegistryLike>(
-                    TOKENS.SUBAGENT_REGISTRY_SERVICE,
-                  );
-                subagentRegistry.resolveParentSessionId(tabId, realSessionId);
-              }
-            } catch {
-              // SubagentRegistryService may not be registered yet
-            }
-
-            // Re-persist exited agents whose parentSessionId couldn't resolve
-            // earlier (timing race: agent exited while tab ID was still in play).
-            const allAgents =
-              agentProcessManager.getStatus() as AgentProcessInfo[];
-            const exitedWithParent = allAgents.filter(
-              (a) =>
-                a.parentSessionId === realSessionId && a.status !== 'running',
+          if (container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
+            const subagentRegistry = container.resolve<SubagentRegistryLike>(
+              TOKENS.SUBAGENT_REGISTRY_SERVICE,
             );
-            if (exitedWithParent.length > 0) {
-              logger.info(
-                `${tag} Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`,
-              );
-            }
-            for (const exitedInfo of exitedWithParent) {
-              persistCliSessionReference(
-                container,
-                logger,
-                tag,
-                exitedInfo,
-                getSdkSessionId,
-              );
-            }
+            subagentRegistry.resolveParentSessionId(tabId, realSessionId);
           }
-        } catch {
-          // AgentProcessManager may not be registered yet
+          const allAgents =
+            agentProcessManager.getStatus() as AgentProcessInfo[];
+          const exitedWithParent = allAgents.filter(
+            (a) =>
+              a.parentSessionId === realSessionId && a.status !== 'running',
+          );
+          if (exitedWithParent.length > 0) {
+            logger.info(
+              `${tag} Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`,
+            );
+          }
+          for (const exitedInfo of exitedWithParent) {
+            persistCliSessionReference(
+              container,
+              logger,
+              tag,
+              exitedInfo,
+              getSdkSessionId,
+            );
+          }
         }
       }
 
@@ -231,8 +219,6 @@ function wireCompactionStartCallback(
     logger.info(
       `${tag} Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}, preTokens=${data.preTokens}`,
     );
-    // pre-compaction header stats and pair this start with the eventual
-    // `compact_boundary` for duration / delta computation.
     const compactionEvent = {
       id: `compaction_${data.sessionId}_${data.timestamp}`,
       eventType: 'compaction_start' as const,

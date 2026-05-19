@@ -22,9 +22,6 @@ export async function waitFor<T>(
   const intervalMs = opts.intervalMs ?? 50;
   const label = opts.label ?? 'predicate';
   const deadline = Date.now() + timeoutMs;
-
-  // First evaluation synchronously — avoids a 50ms penalty when the
-  // predicate is already true (common when racing emitters).
   const initial = await predicate();
   if (initial) return initial as NonNullable<T>;
 

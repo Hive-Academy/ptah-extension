@@ -43,12 +43,9 @@ export function computeBadgeVariant(
   isCurrentPlan: boolean,
   isTrialPlan: boolean,
 ): PlanBadgeVariant {
-  // No context = unauthenticated user
   if (!context) {
     return planTier === 'community' ? 'trial' : 'popular';
   }
-
-  // Pro subscriber viewing Community card - show "included" badge
   if (
     planTier === 'community' &&
     context.currentPlanTier === 'pro' &&
@@ -56,24 +53,17 @@ export function computeBadgeVariant(
   ) {
     return 'included';
   }
-
-  // Paused subscription for this plan tier
   if (
     context.subscriptionStatus === 'paused' &&
     context.currentPlanTier === planTier
   ) {
     return 'paused';
   }
-
-  // Active subscription (not trial)
   if (isCurrentPlan) {
     return 'current';
   }
-
-  // Trial user for this plan
   if (isTrialPlan) {
     const days = context.trialDaysRemaining ?? 0;
-    // Handle zero or negative trial days as "trial-ending"
     if (days <= 0) {
       return 'trial-ending';
     }
@@ -81,24 +71,18 @@ export function computeBadgeVariant(
       ? 'trial-ending'
       : 'trial-active';
   }
-
-  // Canceled subscription (still in grace period)
   if (
     context.subscriptionStatus === 'canceled' &&
     context.currentPlanTier === planTier
   ) {
     return 'canceling';
   }
-
-  // Past due subscription
   if (
     context.subscriptionStatus === 'past_due' &&
     context.currentPlanTier === planTier
   ) {
     return 'past-due';
   }
-
-  // Default for non-authenticated or no subscription
   return planTier === 'community' ? 'trial' : 'popular';
 }
 
@@ -123,32 +107,20 @@ export function computeCtaVariant(
   context: PlanSubscriptionContext | null,
   planTier: 'community' | 'pro',
 ): PlanCtaVariant {
-  // Not authenticated or no context -> start trial
   if (!context?.isAuthenticated) return 'start-trial';
   if (!context.currentPlanTier) return 'start-trial';
-
-  // User has this plan tier
   if (context.currentPlanTier === planTier) {
-    // Paused -> offer resume
     if (context.subscriptionStatus === 'paused') return 'resume';
-    // Trial user -> encourage upgrade
     if (context.isOnTrial) return 'upgrade-now';
-    // Canceled -> offer reactivation
     if (context.subscriptionStatus === 'canceled') return 'reactivate';
-    // Past due -> prompt payment update
     if (context.subscriptionStatus === 'past_due') return 'update-payment';
-    // Active subscription -> manage
     return 'current-plan';
   }
-
-  // Different plan tier logic
   if (planTier === 'community') {
-    // User has Pro subscription - Community is included
     if (context.currentPlanTier === 'pro') {
       return 'included';
     }
   } else if (planTier === 'pro') {
-    // User has Community plan - show upgrade option
     if (context.currentPlanTier === 'community') {
       return 'upgrade';
     }
@@ -201,7 +173,6 @@ export function computeCtaButtonClass(
   isDisabled: boolean,
   planTier: 'community' | 'pro',
 ): string {
-  // Base disabled state (not for 'included' which has its own style)
   if (isDisabled && variant !== 'included') {
     return planTier === 'community'
       ? 'bg-base-content/10 text-base-content/40 cursor-not-allowed opacity-50'

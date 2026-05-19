@@ -35,8 +35,6 @@ export class CliDetectionService {
   ) {
     this.adapters.set('gemini', new GeminiCliAdapter());
     this.adapters.set('codex', new CodexCliAdapter());
-
-    // Copilot SDK adapter with permission bridge
     const permissionBridge = new CopilotPermissionBridge();
     this.adapters.set('copilot', new CopilotSdkAdapter(permissionBridge));
 
@@ -56,8 +54,6 @@ export class CliDetectionService {
     if (this.detectionCache) {
       return Array.from(this.detectionCache.values());
     }
-
-    // Deduplicate concurrent calls: reuse in-flight detection promise
     if (this.detectionInFlight) {
       this.logger.debug(
         '[CliDetection] Detection already in progress, reusing in-flight promise',
@@ -208,7 +204,6 @@ export class CliDetectionService {
           fresh ? 'fresh' : 'stale/unavailable'
         }`,
       );
-      // Invalidate model cache so next listModels() fetches with fresh token
       if (fresh) {
         this.modelCache = null;
       }

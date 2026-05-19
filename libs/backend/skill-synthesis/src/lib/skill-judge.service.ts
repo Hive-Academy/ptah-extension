@@ -101,8 +101,6 @@ export class SkillJudgeService {
         }
         if (msg.type === 'result') break;
       }
-
-      // Parse JSON from collected text.
       const jsonMatch = /\{[^{}]*\}/.exec(collected.trim());
       if (!jsonMatch) {
         this.logger.warn('[skill-judge] could not extract JSON from response', {

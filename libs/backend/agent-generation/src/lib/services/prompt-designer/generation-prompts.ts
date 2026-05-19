@@ -70,7 +70,6 @@ export function buildQualityContextPrompt(
   assessment: QualityAssessment | undefined,
   guidance: PrescriptiveGuidance | undefined,
 ): string {
-  // Return empty if no assessment or no detected issues from either source
   const hasAntiPatterns = assessment?.antiPatterns?.length ?? 0;
   const hasGaps = assessment?.gaps?.length ?? 0;
   if (!assessment || (hasAntiPatterns === 0 && hasGaps === 0)) {
@@ -78,12 +77,8 @@ export function buildQualityContextPrompt(
   }
 
   const parts: string[] = [];
-
-  // Quality score header
   parts.push(`## Code Quality Context (Score: ${assessment.score}/100)`);
   parts.push('');
-
-  // Top 5 detected anti-patterns (by frequency, then severity) — legacy source
   if (assessment.antiPatterns.length > 0) {
     const sortedPatterns = [...assessment.antiPatterns].sort((a, b) => {
       if (b.frequency !== a.frequency) {
@@ -113,8 +108,6 @@ export function buildQualityContextPrompt(
     }
     parts.push('');
   }
-
-  // Top 5 quality gaps (by priority) — agentic analysis source
   if (assessment.gaps.length > 0) {
     const priorityOrder: Record<string, number> = {
       high: 3,
@@ -139,8 +132,6 @@ export function buildQualityContextPrompt(
     }
     parts.push('');
   }
-
-  // Strengths (from agentic analysis)
   if (assessment.strengths.length > 0) {
     const topStrengths = assessment.strengths.slice(0, 3);
     parts.push('### Strengths:');
@@ -149,8 +140,6 @@ export function buildQualityContextPrompt(
     }
     parts.push('');
   }
-
-  // Top 3 recommendations from guidance
   if (guidance && guidance.recommendations.length > 0) {
     const topRecommendations = guidance.recommendations.slice(0, 3);
     parts.push('### Top Recommendations:');
@@ -159,8 +148,6 @@ export function buildQualityContextPrompt(
     }
     parts.push('');
   }
-
-  // Instruction for the LLM
   parts.push(
     '**Note:** Include specific guidance addressing these quality issues in the Quality Guidance section.',
   );
@@ -233,8 +220,6 @@ ${
     : 'Single-project structure - focus on folder organization and module boundaries.'
 }
 Include: key abstractions, import patterns, layer boundaries.`;
-
-  // Add quality guidance section if quality context is provided
   let prompt = basePrompt;
   if (qualityContext) {
     prompt += `
@@ -246,8 +231,6 @@ Keep this section under 300 tokens.
 
 ${qualityContext}`;
   }
-
-  // Append additional analysis context from multi-phase analysis
   if (input.additionalContext) {
     prompt += `
 
@@ -272,8 +255,6 @@ ${input.additionalContext}`;
  */
 export function buildFallbackGuidance(input: PromptDesignerInput): string {
   const parts: string[] = [];
-
-  // Project context fallback
   parts.push(`## Project Context
 
 This is a ${input.projectType} project${
@@ -283,8 +264,6 @@ This is a ${input.projectType} project${
       ? ` It's organized as a ${input.monorepoType || 'monorepo'}.`
       : ''
   }`);
-
-  // Framework guidelines — list detected dependencies for context
   if (input.framework) {
     const deps = input.dependencies.slice(0, 10);
     const depsText =
@@ -294,8 +273,6 @@ This is a ${input.projectType} project${
 Follow established patterns and best practices for ${input.framework}.
 Reference the project's existing code for conventions and patterns.${depsText}`);
   }
-
-  // Coding standards — universal best practices
   const standards: string[] = [
     '- Follow consistent naming conventions used in the existing codebase',
     '- Keep functions small and focused on a single responsibility',
@@ -315,8 +292,6 @@ Reference the project's existing code for conventions and patterns.${depsText}`)
   parts.push(`## Coding Standards
 
 ${standards.join('\n')}`);
-
-  // Architecture notes
   if (input.isMonorepo) {
     parts.push(`## Architecture Notes
 

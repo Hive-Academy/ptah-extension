@@ -68,18 +68,8 @@ interface TriggerState {
 export class SlashTriggerDirective implements OnInit {
   private readonly elementRef = inject(ElementRef<HTMLTextAreaElement>);
   private readonly destroyRef = inject(DestroyRef);
-
-  // Inputs
   readonly enabled = input(true);
-
-  // CRITICAL: Field initializer pattern for toObservable() call
-  // Why: toObservable() uses inject() internally, which requires injection context
-  // Injection context: Only available during class construction (field initializers, constructor)
-  // Violation: Calling toObservable() in ngOnInit causes NG0203 "inject() must be called from injection context"
-  // Reference: https://angular.dev/guide/signals/inputs#reading-input-values-in-ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
-
-  // Outputs (prefixed with 'slash' to avoid conflicts with other trigger directives)
   /**
    * Emitted IMMEDIATELY when / trigger becomes active (inactive→active transition).
    * Use this to open the dropdown without waiting for debounce.
@@ -108,37 +98,18 @@ export class SlashTriggerDirective implements OnInit {
    */
   private setupInputPipeline(): void {
     const textarea = this.elementRef.nativeElement;
-
-    // Stream of input events mapped to trigger state
     const inputState$ = fromEvent<InputEvent>(textarea, 'input').pipe(
       map((): TriggerState => {
         const value = textarea.value;
         const cursorPosition = textarea.selectionStart;
-
-        // Slash trigger detection rules:
-        // 1. Value must start with / (slash commands are always at position 0)
-        // 2. The command portion (text between / and first space) must have no space
-        //    (space indicates command was completed/selected)
-        //    This prevents re-triggering after user selects a command like "/orchestrate "
-        //
-        // NOTE: Removed the `value.includes('@')` guard — it was overly aggressive
-        // and disabled slash commands if ANY @ existed in the text (e.g., email addresses,
-        // leftover @ from file selection). The @ and / triggers now operate independently.
         if (!value.startsWith('/')) {
           return { isActive: false, query: '', cursorPosition };
         }
-
-        // Extract potential command (text after / up to cursor position)
-        // Only consider text up to cursor — user may have moved cursor back
         const textAfterSlash = value.substring(1, cursorPosition);
         const spaceIndex = textAfterSlash.indexOf(' ');
-
-        // If there's a space before the cursor, command is complete
         if (spaceIndex !== -1) {
           return { isActive: false, query: '', cursorPosition };
         }
-
-        // Active: no space yet, still typing command name
         return { isActive: true, query: textAfterSlash, cursorPosition };
       }),
       startWith({
@@ -147,38 +118,27 @@ export class SlashTriggerDirective implements OnInit {
         cursorPosition: 0,
       } as TriggerState)
     );
-
-    // Combined stream that respects enabled state AND dropdown open state
     const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
       filter(([, enabled]) => enabled),
       map(([state]) => state),
       takeUntilDestroyed(this.destroyRef)
     );
-
-    // Track state transitions to detect open/close
     triggerState$
       .pipe(pairwise(), takeUntilDestroyed(this.destroyRef))
       .subscribe(([prev, curr]) => {
-        // Emit activated immediately on inactive→active transition
         if (!prev.isActive && curr.isActive) {
           this.slashActivated.emit({
             query: curr.query,
             cursorPosition: curr.cursorPosition,
           });
         }
-
-        // Emit close immediately when transitioning from active to inactive
         if (prev.isActive && !curr.isActive) {
           this.slashClosed.emit();
         }
-
-        // Emit query change immediately (including on activation)
         if (curr.isActive && (!prev.isActive || curr.query !== prev.query)) {
           this.slashQueryChanged.emit(curr.query);
         }
       });
-
-    // Debounced stream for triggered events (only when active)
     triggerState$
       .pipe(
         filter((state) => state.isActive),

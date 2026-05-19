@@ -91,15 +91,11 @@ export const MessageResponseSchema = z
     metadata: MessageMetadataSchema,
   })
   .strict();
-
-// Zod schema for MCPServerInfo
 export const MCPServerInfoSchema = z.object({
   name: z.string(),
   status: z.enum(['connected', 'disabled', 'failed']),
   tools: z.array(z.string()).optional(),
 });
-
-// Zod schema for SessionCapabilities
 export const SessionCapabilitiesSchema = z.object({
   cwd: z.string(),
   model: z.string(),
@@ -169,11 +165,8 @@ export const StrictChatMessageSchema = z.object({
   files: z.array(z.string()).optional(),
   isError: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-  // For assistant messages
   isComplete: z.boolean().optional(),
-  // For system messages
   level: z.enum(['info', 'warning', 'error']).optional(),
-  // Message lifecycle fields
   cost: z.number().nonnegative().optional(),
   tokens: z
     .object({
@@ -204,7 +197,6 @@ export const StrictChatSessionSchema = z
         maxTokens: z.number().positive().optional(),
       })
       .strict(),
-    // IMPLEMENTATION_PLAN compatibility fields
     capabilities: SessionCapabilitiesSchema.optional(),
     model: z.string().optional(),
     totalCost: z.number().nonnegative().optional(),

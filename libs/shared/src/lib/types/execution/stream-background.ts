@@ -109,10 +109,6 @@ export interface BackgroundAgentStoppedEvent extends FlatStreamEvent {
   readonly tabId?: string;
 }
 
-// ============================================================================
-// SDK task_* surface — subagent visibility events
-// ============================================================================
-
 /**
  * Agent progress event — emitted from SDK task_progress system messages.
  *
@@ -208,7 +204,6 @@ export type FlatStreamEventUnion =
   | BackgroundAgentProgressEvent
   | BackgroundAgentCompletedEvent
   | BackgroundAgentStoppedEvent
-  // SDK task_* surface
   | AgentProgressEvent
   | AgentStatusEvent
   | AgentCompletedEvent;

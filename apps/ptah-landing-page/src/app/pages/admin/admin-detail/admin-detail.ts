@@ -62,8 +62,6 @@ export class AdminDetail {
     IssueCompLicenseModalComponent,
   );
 
-  // --- Route params --------------------------------------------------------
-
   private readonly paramMap = toSignal(this.route.paramMap, {
     initialValue: null,
   });
@@ -87,8 +85,6 @@ export class AdminDetail {
     return s ? (s.key as AdminModelKey) : undefined;
   });
 
-  // --- Record state --------------------------------------------------------
-
   protected readonly record = signal<Record<string, unknown> | null>(null);
   protected readonly loading = signal<boolean>(false);
   protected readonly loadError = signal<string | null>(null);
@@ -108,7 +104,6 @@ export class AdminDetail {
   });
 
   public constructor() {
-    // Fetch when (model, id) changes.
     effect(() => {
       const key = this.modelKey();
       const id = this.id();
@@ -119,8 +114,6 @@ export class AdminDetail {
       this.loadRecord(key, id);
     });
   }
-
-  // --- Data loading --------------------------------------------------------
 
   private loadRecord(model: AdminModelKey, id: string): void {
     this.loading.set(true);
@@ -163,7 +156,6 @@ export class AdminDetail {
       if (typeof raw !== 'string' && !(raw instanceof Date)) return '';
       const d = raw instanceof Date ? raw : new Date(raw);
       if (isNaN(d.getTime())) return '';
-      // yyyy-MM-ddTHH:mm in LOCAL time — what datetime-local expects.
       const pad = (n: number) => String(n).padStart(2, '0');
       return (
         `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
@@ -175,8 +167,6 @@ export class AdminDetail {
       return typeof raw === 'number' ? raw : Number(raw);
     return String(raw);
   }
-
-  // --- Form input handlers -------------------------------------------------
 
   protected onFieldInput(field: FieldSpec, event: Event): void {
     const target = event.target as
@@ -230,8 +220,6 @@ export class AdminDetail {
         this.record.set(updated);
         this.seedFormValues(updated);
         this.savedAt.set(Date.now());
-        // Navigate back to the list after a short delay so the user sees
-        // the success toast.
         setTimeout(() => {
           if (this.savedAt() !== null) this.navigateBack();
         }, 700);
@@ -265,8 +253,6 @@ export class AdminDetail {
     this.router.navigate(['/admin', key]);
   }
 
-  // --- Render helpers (exposed to template) --------------------------------
-
   /** String rendering for read-only cells. */
   protected renderRead(field: FieldSpec, value: unknown): string {
     if (value == null || value === '') return '—';
@@ -279,8 +265,6 @@ export class AdminDetail {
       }
     }
     if (field.type === 'datetime') {
-      // DatePipe is used directly in the template for datetime — this
-      // fallback covers programmatic calls.
       if (value instanceof Date) return value.toISOString();
       return String(value);
     }
@@ -298,8 +282,6 @@ export class AdminDetail {
   protected boolValue(field: FieldSpec): boolean {
     return Boolean(this.formValues()[field.key]);
   }
-
-  // --- Private helpers -----------------------------------------------------
 
   private buildDirtyPatch(): Record<string, unknown> {
     const fields = this.editableFields();

@@ -113,10 +113,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// assessment — RPC `quality:getAssessment`
-// ---------------------------------------------------------------------------
-
 async function runAssessment(
   opts: QualityOptions,
   globals: GlobalOptions,
@@ -138,10 +134,6 @@ async function runAssessment(
   });
 }
 
-// ---------------------------------------------------------------------------
-// history — RPC `quality:getHistory`
-// ---------------------------------------------------------------------------
-
 async function runHistory(
   opts: QualityOptions,
   globals: GlobalOptions,
@@ -162,10 +154,6 @@ async function runHistory(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// export — RPC `quality:export { format: 'json' }`
-// ---------------------------------------------------------------------------
 
 async function runExport(
   opts: QualityOptions,
@@ -198,10 +186,6 @@ async function runExport(
       outPath = path.resolve(globals.cwd, opts.out);
       await mkdir(path.dirname(outPath), { recursive: true });
       await writeFile(outPath, content);
-
-      // The CLI's existing CliSaveDialog has already written a copy to
-      // <cwd>/<filename> as a side-effect. When --out points elsewhere,
-      // remove the duplicate so consumers see exactly one artifact.
       const sideEffectPath = result?.filePath;
       if (
         sideEffectPath &&
@@ -210,9 +194,7 @@ async function runExport(
         await unlink(sideEffectPath);
       }
     } else {
-      // No --out: stream content to stdout AFTER the notification frame.
       const stdout: QualityStdoutLike = hooks.stdout ?? process.stdout;
-      // Fall through — write happens after notification below.
       await formatter.writeNotification('quality.export.complete', {
         outPath: undefined,
         savedBytes: contentBytes,
@@ -232,10 +214,6 @@ async function runExport(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 async function callRpc<T = unknown>(
   transport: CliMessageTransport,

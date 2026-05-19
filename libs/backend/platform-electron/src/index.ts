@@ -1,12 +1,7 @@
-// Registration function (primary export)
 export { registerPlatformElectronServices } from './registration';
 export type { ElectronPlatformOptions } from './registration';
-
-// Settings registration
 export { registerElectronSettings } from './settings/electron-settings-registration';
 export { FileSettingsStore } from './settings/file-settings-store';
-
-// Implementations (for direct use if needed)
 export { ElectronFileSystemProvider } from './implementations/electron-file-system-provider';
 export { ElectronStateStorage } from './implementations/electron-state-storage';
 export { ElectronSecretStorage } from './implementations/electron-secret-storage';

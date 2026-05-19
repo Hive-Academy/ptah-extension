@@ -474,8 +474,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    * Default 50 for a 50/50 split. Adjusted by the split divider drag.
    */
   protected readonly splitLeftPercent = signal(50);
-
-  // Icons
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftIcon = PanelLeft;
   readonly XIcon = X;
@@ -505,24 +503,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   };
 
   ngOnInit(): void {
-    // Bootstrap file tree if a workspace is already active.
-    // When the editor chunk loads after workspace coordination has already
-    // fired, switchWorkspace() would never be called, leaving the explorer empty.
     const workspaceRoot = this.vscodeService.config().workspaceRoot;
     if (workspaceRoot) {
       this.editorService.switchWorkspace(workspaceRoot);
     }
 
     this.gitStatus.startListening();
-
-    // Listen for file:tree-changed push events from the backend so the
-    // file explorer updates when files are added/deleted (e.g. git pull).
     this.editorService.startFileTreeWatcher();
-
-    // Load vim mode preference from backend settings
     void this.vimModeService.loadPreference();
-
-    // Register Ctrl+P / Cmd+P keyboard shortcut for Quick Open
     document.addEventListener('keydown', this._quickOpenKeydown);
   }
 
@@ -667,17 +655,11 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     this.editorService.closeTab(filePath);
   }
 
-  // ============================================================================
-  // CONTEXT MENU & FILE CRUD
-  // ============================================================================
-
   protected readonly ctxMenuVisible = signal(false);
   protected readonly ctxMenuX = signal(0);
   protected readonly ctxMenuY = signal(0);
   protected readonly ctxMenuNode = signal<FileTreeNode | null>(null);
   protected readonly deleteTarget = signal<FileTreeNode | null>(null);
-
-  // Input dialog state (replaces window.prompt which is unavailable in Electron)
   protected readonly inputDialogTitle = signal('');
   protected readonly inputDialogValue = signal('');
   protected readonly inputDialogError = signal('');
@@ -781,15 +763,12 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     this.inputDialogValue.set(initialValue);
     this.inputDialogError.set('');
     this.inputDialogCallback = callback;
-
-    // Auto-focus the input after the modal renders
     afterNextRender(() => {
       const input = document.querySelector<HTMLInputElement>(
         '.modal-open input[type="text"]',
       );
       if (input) {
         input.focus();
-        // For rename, select just the filename part (before last dot)
         if (initialValue) {
           const dotIdx = initialValue.lastIndexOf('.');
           input.setSelectionRange(0, dotIdx > 0 ? dotIdx : initialValue.length);
@@ -837,22 +816,15 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     const startY = event.clientY;
     const startHeight = this.editorService.terminalHeight();
-
-    // Run outside Angular zone to avoid triggering change detection on every mousemove
     this.ngZone.runOutsideAngular(() => {
       this._resizeMouseMove = (e: MouseEvent) => {
-        // Moving mouse UP (negative deltaY) should INCREASE terminal height
         const deltaY = startY - e.clientY;
         const newHeight = startHeight + deltaY;
-
-        // Clamp: minimum 100px, maximum 60% of component height
         const hostElement = (event.target as HTMLElement).closest(
           '[role="main"]',
         );
         const maxHeight = hostElement ? hostElement.clientHeight * 0.6 : 600;
         const clampedHeight = Math.max(100, Math.min(newHeight, maxHeight));
-
-        // Update signal inside Angular zone so template bindings update
         this.ngZone.run(() => {
           this.editorService.setTerminalHeight(clampedHeight);
         });
@@ -880,10 +852,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
       this._resizeMouseUp = null;
     }
   }
-
-  // ============================================================================
-  // SIDEBAR RESIZE
-  // ============================================================================
 
   /**
    * Handle mousedown on the sidebar resize handle.
@@ -927,10 +895,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ============================================================================
-  // SPLIT DIVIDER RESIZE
-  // ============================================================================
-
   /**
    * Handle mousedown on the split divider.
    * Starts tracking horizontal mouse movement to resize the split panes.
@@ -941,8 +905,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     const startX = event.clientX;
     const startPercent = this.splitLeftPercent();
-
-    // Get the parent container width for percentage calculation
     const container = (event.target as HTMLElement).parentElement;
     if (!container) return;
     const containerWidth = container.clientWidth;
@@ -952,8 +914,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         const deltaX = e.clientX - startX;
         const deltaPercent = (deltaX / containerWidth) * 100;
         const newPercent = startPercent + deltaPercent;
-
-        // Clamp between 20% and 80% to prevent either pane from becoming too small
         const clampedPercent = Math.max(20, Math.min(80, newPercent));
 
         this.ngZone.run(() => {

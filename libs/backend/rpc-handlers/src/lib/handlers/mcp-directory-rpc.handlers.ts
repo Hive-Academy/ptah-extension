@@ -87,8 +87,6 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
-  // ─── RPC Method: mcpDirectory:search ───
-
   private registerSearch(): void {
     this.rpcHandler.registerMethod<
       McpDirectorySearchParams,
@@ -119,8 +117,6 @@ export class McpDirectoryRpcHandlers {
       }
     });
   }
-
-  // ─── RPC Method: mcpDirectory:getDetails ───
 
   private registerGetDetails(): void {
     this.rpcHandler.registerMethod<
@@ -153,8 +149,6 @@ export class McpDirectoryRpcHandlers {
       }
     });
   }
-
-  // ─── RPC Method: mcpDirectory:install ───
 
   private registerInstall(): void {
     this.rpcHandler.registerMethod<
@@ -220,8 +214,6 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
-  // ─── RPC Method: mcpDirectory:uninstall ───
-
   private registerUninstall(): void {
     this.rpcHandler.registerMethod<
       McpDirectoryUninstallParams,
@@ -255,8 +247,6 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
-  // ─── RPC Method: mcpDirectory:listInstalled ───
-
   private registerListInstalled(): void {
     this.rpcHandler.registerMethod<
       McpDirectoryListInstalledParams,
@@ -282,8 +272,6 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
-  // ─── RPC Method: mcpDirectory:getPopular ───
-
   private registerGetPopular(): void {
     this.rpcHandler.registerMethod<
       McpDirectoryGetPopularParams,
@@ -306,8 +294,6 @@ export class McpDirectoryRpcHandlers {
       }
     });
   }
-
-  // ─── Helpers ───
 
   private getWorkspaceRoot(): string | undefined {
     return this.workspaceProvider.getWorkspaceRoot();

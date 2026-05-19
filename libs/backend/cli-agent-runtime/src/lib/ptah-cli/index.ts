@@ -6,8 +6,6 @@
 export { PtahCliRegistry } from './ptah-cli-registry';
 export type { SpawnAgentFailure } from './ptah-cli-registry';
 export type { ProviderProfile } from '@ptah-extension/shared';
-
-// Extracted helper services
 export { PtahCliConfigPersistence } from './helpers';
 export { PtahCliSpawnOptions, type PtahSpawnAssembly } from './helpers';
 export { PtahCliStreamLoop, type PtahCliStreamLoopConfig } from './helpers';

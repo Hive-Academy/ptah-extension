@@ -91,8 +91,6 @@ export type SuggestionItem =
 })
 export class SuggestionOptionComponent {
   private readonly elementRef = inject(ElementRef);
-
-  // Inputs
   readonly suggestion = input.required<SuggestionItem>();
   readonly optionId = input.required<string>();
 
@@ -102,8 +100,6 @@ export class SuggestionOptionComponent {
    * Parent passes this based on keyboard navigation state (i === activeIndex).
    */
   readonly isActive = input<boolean>(false);
-
-  // Outputs
   readonly selected = output<SuggestionItem>();
   readonly hovered = output<void>();
 

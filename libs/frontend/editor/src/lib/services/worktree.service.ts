@@ -38,10 +38,6 @@ export class WorktreeService {
   private readonly layoutService = inject(ElectronLayoutService);
   private readonly destroyRef = inject(DestroyRef);
 
-  // ============================================================================
-  // SIGNAL STATE
-  // ============================================================================
-
   private readonly _worktrees = signal<GitWorktreeInfo[]>([]);
   private readonly _isLoading = signal(false);
 
@@ -57,10 +53,6 @@ export class WorktreeService {
   constructor() {
     this.setupWorktreeChangeListener();
   }
-
-  // ============================================================================
-  // PUBLIC API
-  // ============================================================================
 
   /**
    * Fetch the list of worktrees via git:worktrees RPC and update the signal.
@@ -107,10 +99,7 @@ export class WorktreeService {
     );
 
     if (result.success && result.data?.success && result.data.worktreePath) {
-      // Auto-register the new worktree as a workspace folder
       await this.layoutService.addFolderByPath(result.data.worktreePath);
-
-      // Refresh the worktree list to include the new entry
       await this.loadWorktrees();
       this._isLoading.set(false);
 
@@ -146,7 +135,6 @@ export class WorktreeService {
     );
 
     if (result.success && result.data?.success) {
-      // Remove from local list immediately for responsive UI
       this._worktrees.update((worktrees) =>
         worktrees.filter((w) => w.path !== path),
       );
@@ -162,10 +150,6 @@ export class WorktreeService {
     return { success: false, error };
   }
 
-  // ============================================================================
-  // NOTIFICATION LISTENER
-  // ============================================================================
-
   /**
    * Listen for git:worktreeChanged push notifications from the backend.
    * When the SDK creates or removes a worktree, the backend sends a push
@@ -176,33 +160,26 @@ export class WorktreeService {
    */
   private setupWorktreeChangeListener(): void {
     const handler = (event: MessageEvent) => {
-      try {
-        const data = event.data;
-        if (!data || typeof data !== 'object') return;
-        if (data.type !== 'git:worktreeChanged') return;
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.type !== 'git:worktreeChanged') return;
 
-        const payload = data.payload as
-          | GitWorktreeChangedNotification
-          | undefined;
-        if (!payload || !payload.action) return;
+      const payload = data.payload as
+        | GitWorktreeChangedNotification
+        | undefined;
+      if (!payload || !payload.action) return;
 
-        if (payload.action === 'created') {
-          if (payload.path) {
-            void this.layoutService.addFolderByPath(payload.path);
-          }
-          this.loadWorktrees();
-        } else if (payload.action === 'removed') {
-          this.loadWorktrees();
+      if (payload.action === 'created') {
+        if (payload.path) {
+          void this.layoutService.addFolderByPath(payload.path);
         }
-      } catch {
-        // Gracefully ignore malformed notifications to prevent
-        // breaking the message listener pipeline
+        this.loadWorktrees();
+      } else if (payload.action === 'removed') {
+        this.loadWorktrees();
       }
     };
 
     window.addEventListener('message', handler);
-
-    // Clean up listener when service is destroyed
     this.destroyRef.onDestroy(() => {
       window.removeEventListener('message', handler);
     });

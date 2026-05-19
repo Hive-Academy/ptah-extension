@@ -24,10 +24,6 @@ export function registerPhase4App(
   container: DependencyContainer,
   context: vscode.ExtensionContext,
 ): void {
-  // Storage Adapters.
-  // Storage adapter over VS Code's workspaceState. The `get` wrapper resolves
-  // the `undefined`-handling quirk of `workspaceState.get<T>(key)` which does
-  // not respect the `defaultValue` parameter signature cleanly.
   const storageAdapter = {
     get: <T>(key: string, defaultValue?: T): T | undefined => {
       const value = context.workspaceState.get<T>(key);
@@ -38,17 +34,8 @@ export function registerPhase4App(
     },
   };
   container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
-
-  // Global state adapter (pricing cache uses globalState for cross-workspace persistence).
   container.register(TOKENS.GLOBAL_STATE, { useValue: context.globalState });
-
-  // Webview Support Services.
   container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
-
-  // WebviewHtmlGenerator — used by AngularWebviewProvider and SetupWizardService.
-  // Registered as factory because it requires `ExtensionContext` which is not
-  // itself injectable (it's a value, not a service). Context is captured via
-  // closure so the factory can be called at any time after registration.
   container.register(TOKENS.WEBVIEW_HTML_GENERATOR, {
     useFactory: () => new WebviewHtmlGenerator(context),
   });
@@ -57,7 +44,5 @@ export function registerPhase4App(
     TOKENS.ANGULAR_WEBVIEW_PROVIDER,
     AngularWebviewProvider,
   );
-
-  // Command Handlers.
   container.registerSingleton(TOKENS.LICENSE_COMMANDS, LicenseCommands);
 }

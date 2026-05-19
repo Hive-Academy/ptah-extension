@@ -17,5 +17,4 @@ export { AgentRpcHandlers } from './agent-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 export { LayoutRpcHandlers } from './layout-rpc.handlers';
 export { TerminalRpcHandlers } from './terminal-rpc.handlers';
-// Electron-local auto-update RPC handlers.
 export { UpdateRpcHandlers } from './update-rpc.handlers';

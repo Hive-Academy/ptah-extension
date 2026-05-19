@@ -64,8 +64,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
       for (const pluginPath of pluginPaths) {
         try {
           const skillsSourceDir = join(pluginPath, 'skills');
-
-          // Check if skills/ directory exists in plugin (use lstat for symlink safety)
           let skillsDirStat;
           try {
             skillsDirStat = await lstat(skillsSourceDir);
@@ -76,8 +74,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
           if (!skillsDirStat.isDirectory() || skillsDirStat.isSymbolicLink()) {
             continue;
           }
-
-          // Copy each skill directory FLAT into ~/.cursor/skills/ptah-{skillName}/
           const skillDirs = await readdir(skillsSourceDir);
           for (const skillDirName of skillDirs) {
             try {
@@ -133,20 +129,13 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
         }
       }
 
-      // Cleanup is scoped to THIS call's prefix bucket only.
-      try {
-        const existingEntries = await readdir(basePath);
-        for (const entry of existingEntries) {
-          if (entry.startsWith(folderPrefix) && !installedFolders.has(entry)) {
-            const entryPath = join(basePath, entry);
-            await rm(entryPath, { recursive: true, force: true });
-          }
+      const existingEntries = await readdir(basePath);
+      for (const entry of existingEntries) {
+        if (entry.startsWith(folderPrefix) && !installedFolders.has(entry)) {
+          const entryPath = join(basePath, entry);
+          await rm(entryPath, { recursive: true, force: true });
         }
-      } catch {
-        // Non-fatal: best-effort cleanup of stale skills
       }
-
-      // Sync command files from plugins
       if (syncCommandsEnabled) {
         await this.syncCommands(pluginPaths, errors);
       }
@@ -181,16 +170,11 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
       return;
     }
 
-    // Clean up old ptah- prefixed command files
-    try {
-      const existing = await readdir(commandsDir);
-      for (const entry of existing) {
-        if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
-          await rm(join(commandsDir, entry), { force: true });
-        }
+    const existing = await readdir(commandsDir);
+    for (const entry of existing) {
+      if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
+        await rm(join(commandsDir, entry), { force: true });
       }
-    } catch {
-      // Non-fatal
     }
 
     for (const pluginPath of pluginPaths) {
@@ -209,7 +193,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
             join(commandsSourceDir, entry),
             'utf8',
           );
-          // Prefix with ptah- for cleanup identification
           const targetName = `ptah-${entry}`;
           await writeFile(join(commandsDir, targetName), content, 'utf8');
         } catch (err) {
@@ -224,34 +207,21 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
   }
 
   async uninstall(): Promise<void> {
-    try {
-      // Remove ptah- skill folders
-      const basePath = this.getSkillsBasePath();
-      try {
-        const entries = await readdir(basePath);
-        for (const entry of entries) {
-          if (entry.startsWith('ptah-') || entry.startsWith('ptahsynth-')) {
-            await rm(join(basePath, entry), { recursive: true, force: true });
-          }
-        }
-      } catch {
-        // Skills directory doesn't exist — continue to commands cleanup
-      }
+    const basePath = this.getSkillsBasePath();
 
-      // Remove ptah- command files
-      const commandsPath = this.getCommandsBasePath();
-      try {
-        const commandEntries = await readdir(commandsPath);
-        for (const entry of commandEntries) {
-          if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
-            await rm(join(commandsPath, entry), { force: true });
-          }
-        }
-      } catch {
-        // Commands directory doesn't exist — nothing to clean
+    const entries = await readdir(basePath);
+    for (const entry of entries) {
+      if (entry.startsWith('ptah-') || entry.startsWith('ptahsynth-')) {
+        await rm(join(basePath, entry), { recursive: true, force: true });
       }
-    } catch {
-      // Non-fatal: best-effort cleanup
+    }
+    const commandsPath = this.getCommandsBasePath();
+
+    const commandEntries = await readdir(commandsPath);
+    for (const entry of commandEntries) {
+      if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
+        await rm(join(commandsPath, entry), { force: true });
+      }
     }
   }
 }

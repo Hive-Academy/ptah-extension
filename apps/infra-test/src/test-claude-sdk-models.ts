@@ -30,8 +30,6 @@ interface CliJsonResult {
   [key: string]: unknown;
 }
 
-// ── Test 1: Model alias resolution ──────────────────────────────────────────
-
 async function testModelAliasResolution(): Promise<void> {
   console.log('\n=== Test 1: Model Alias Resolution ===\n');
 
@@ -51,12 +49,10 @@ async function testModelAliasResolution(): Promise<void> {
           'json',
           'respond with just the word hello',
         ],
-        { timeout: 30_000, shell: true }
+        { timeout: 30_000, shell: true },
       );
 
       const result = JSON.parse(stdout.trim()) as CliJsonResult;
-
-      // Extract actual model from modelUsage keys
       const actualModels = result.modelUsage
         ? Object.keys(result.modelUsage)
         : [];
@@ -68,7 +64,7 @@ async function testModelAliasResolution(): Promise<void> {
           console.log(
             `      Model: ${modelId}, Context: ${
               usage.contextWindow
-            }, Cost: $${usage.costUSD.toFixed(6)}`
+            }, Cost: $${usage.costUSD.toFixed(6)}`,
           );
         }
       }
@@ -79,8 +75,6 @@ async function testModelAliasResolution(): Promise<void> {
     console.log('');
   }
 }
-
-// ── Test 2: Init message model field ────────────────────────────────────────
 
 async function testInitMessage(): Promise<void> {
   console.log('\n=== Test 2: Init Message (default model) ===\n');
@@ -95,35 +89,29 @@ async function testInitMessage(): Promise<void> {
         '--verbose',
         'respond with just hello',
       ],
-      { timeout: 30_000, shell: true }
+      { timeout: 30_000, shell: true },
     );
 
     const lines = stdout.trim().split('\n');
 
     for (const line of lines) {
-      try {
-        const event = JSON.parse(line);
+      const event = JSON.parse(line);
 
-        if (event.type === 'system' && event.subtype === 'init') {
-          console.log(`  Default model (from init): ${event.model}`);
-          console.log(`  Claude Code version: ${event.claude_code_version}`);
-          console.log(`  Fast mode: ${event.fast_mode_state}`);
-
-          // Determine tier
-          const model = (event.model as string).toLowerCase();
-          if (model.includes('opus')) {
-            console.log(
-              '\n  [CONFIRMED] Default model is now OPUS (was Sonnet previously)'
-            );
-          } else if (model.includes('sonnet')) {
-            console.log('\n  [INFO] Default model is still Sonnet');
-          } else {
-            console.log(`\n  [INFO] Default model: ${event.model}`);
-          }
-          break;
+      if (event.type === 'system' && event.subtype === 'init') {
+        console.log(`  Default model (from init): ${event.model}`);
+        console.log(`  Claude Code version: ${event.claude_code_version}`);
+        console.log(`  Fast mode: ${event.fast_mode_state}`);
+        const model = (event.model as string).toLowerCase();
+        if (model.includes('opus')) {
+          console.log(
+            '\n  [CONFIRMED] Default model is now OPUS (was Sonnet previously)',
+          );
+        } else if (model.includes('sonnet')) {
+          console.log('\n  [INFO] Default model is still Sonnet');
+        } else {
+          console.log(`\n  [INFO] Default model: ${event.model}`);
         }
-      } catch {
-        // skip non-JSON lines
+        break;
       }
     }
   } catch (error: unknown) {
@@ -132,8 +120,6 @@ async function testInitMessage(): Promise<void> {
   }
 }
 
-// ── Test 3: Extension impact analysis ───────────────────────────────────────
-
 function analyzeExtensionImpact(): void {
   console.log('\n=== Test 3: Extension Impact Analysis ===\n');
 
@@ -141,53 +127,51 @@ function analyzeExtensionImpact(): void {
 
   console.log('  1. TIER MAPPING (line ~350):');
   console.log(
-    '     Current: valueLower === "default" → maps to tierOverrides.sonnet'
+    '     Current: valueLower === "default" → maps to tierOverrides.sonnet',
   );
   console.log(
-    '     Problem: "default" is now Opus, so it should map to tierOverrides.opus'
+    '     Problem: "default" is now Opus, so it should map to tierOverrides.opus',
   );
   console.log(
-    '     Fix: Use displayName to detect tier, or map "default" → opus\n'
+    '     Fix: Use displayName to detect tier, or map "default" → opus\n',
   );
 
   console.log('  2. isRecommended FLAG (line ~375):');
   console.log(
-    '     Current: isRecommended = valueLower.includes("sonnet") || valueLower === "default"'
+    '     Current: isRecommended = valueLower.includes("sonnet") || valueLower === "default"',
   );
   console.log(
-    '     Problem: "default" (now Opus) gets the "Recommended" badge'
+    '     Problem: "default" (now Opus) gets the "Recommended" badge',
   );
   console.log(
-    '     Fix: Remove valueLower === "default" from isRecommended condition\n'
+    '     Fix: Remove valueLower === "default" from isRecommended condition\n',
   );
 
   console.log('  3. FALLBACK_MODELS (sdk-model-service.ts):');
   console.log(
-    '     Current first entry: claude-sonnet-4-5-20250929 (used by getDefaultModel())'
+    '     Current first entry: claude-sonnet-4-5-20250929 (used by getDefaultModel())',
   );
   console.log(
-    '     Consider: Should first entry be Opus now to match SDK behavior?\n'
+    '     Consider: Should first entry be Opus now to match SDK behavior?\n',
   );
 
   console.log('  4. SAVED MODEL DEFAULT (config-rpc.handlers.ts line ~312):');
   console.log('     Current: defaults to "claude-sonnet-4-5-20250929"');
   console.log(
-    '     Consider: Should this default to Opus to match new SDK behavior?\n'
+    '     Consider: Should this default to Opus to match new SDK behavior?\n',
   );
 
   console.log('  Recommended fix approach:');
   console.log(
-    '  - Use displayName (contains "Opus"/"Sonnet"/"Haiku") for tier detection'
+    '  - Use displayName (contains "Opus"/"Sonnet"/"Haiku") for tier detection',
   );
   console.log(
-    '  - This is more resilient than matching on the value "default"'
+    '  - This is more resilient than matching on the value "default"',
   );
   console.log(
-    '  - The displayName approach also handles future value changes gracefully'
+    '  - The displayName approach also handles future value changes gracefully',
   );
 }
-
-// ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   console.log('==========================================================');

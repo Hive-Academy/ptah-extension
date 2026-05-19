@@ -25,10 +25,6 @@ import type {
   IPrescriptiveGuidanceService,
 } from '../interfaces';
 
-// ============================================
-// Constants
-// ============================================
-
 /**
  * Cache time-to-live in milliseconds (5 minutes).
  * After this period, cached intelligence is considered stale.
@@ -40,10 +36,6 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
  */
 const DEFAULT_GUIDANCE_TOKEN_BUDGET = 500;
 
-// ============================================
-// Internal Types
-// ============================================
-
 /**
  * Cache entry for project intelligence.
  */
@@ -53,10 +45,6 @@ interface CacheEntry {
   /** Timestamp when cache was created */
   timestamp: number;
 }
-
-// ============================================
-// Service Implementation
-// ============================================
 
 /**
  * ProjectIntelligenceService
@@ -159,8 +147,6 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
     this.logger.debug('Getting project intelligence', {
       workspacePath: cacheKey,
     });
-
-    // Check cache first
     const cached = this.getCachedIntelligence(cacheKey);
     if (cached) {
       this.logger.debug('Returning cached project intelligence', {
@@ -169,32 +155,21 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
       });
       return cached.intelligence;
     }
-
-    // Build fresh intelligence
     try {
-      // Get workspace context from detection services
       const workspaceContext = await this.getWorkspaceContext(workspacePath);
-
-      // Perform quality assessment
       const qualityAssessment =
         await this.qualityAssessment.assessQuality(workspacePath);
-
-      // Generate prescriptive guidance
       const prescriptiveGuidance = this.guidanceService.generateGuidance(
         qualityAssessment,
         workspaceContext,
         DEFAULT_GUIDANCE_TOKEN_BUDGET,
       );
-
-      // Build unified intelligence
       const intelligence: ProjectIntelligence = {
         workspaceContext,
         qualityAssessment,
         prescriptiveGuidance,
         timestamp: Date.now(),
       };
-
-      // Cache the result
       this.cache.set(cacheKey, {
         intelligence,
         timestamp: Date.now(),
@@ -215,8 +190,6 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
         workspacePath: cacheKey,
         error: error instanceof Error ? error.message : String(error),
       });
-
-      // Return a minimal intelligence object on error
       return this.createMinimalIntelligence(workspacePath);
     }
   }
@@ -245,32 +218,21 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
     });
 
     try {
-      // Detect project type
       const projectType =
         await this.projectDetector.detectProjectType(workspacePath);
-
-      // Detect framework based on project type
       const projectTypesMap = new Map<string, typeof projectType>();
       projectTypesMap.set(workspacePath, projectType);
       const frameworksMap =
         await this.frameworkDetector.detectFrameworks(projectTypesMap);
       const framework = frameworksMap.get(workspacePath);
-
-      // Detect monorepo
       const monorepoResult =
         await this.monorepoDetector.detectMonorepo(workspacePath);
-
-      // Analyze dependencies (requires project type)
       const dependencyResult =
         await this.dependencyAnalyzer.analyzeDependencies(
           workspacePath,
           projectType,
         );
-
-      // Detect languages from project type
       const languages = this.detectLanguages(projectType);
-
-      // Detect architecture patterns from project structure
       const architecturePatterns = this.detectArchitecturePatterns(
         projectType,
         framework,
@@ -303,8 +265,6 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
         workspacePath: workspacePath,
         error: error instanceof Error ? error.message : String(error),
       });
-
-      // Return minimal context on error
       return this.createMinimalContext();
     }
   }
@@ -339,10 +299,6 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
     }
   }
 
-  // ============================================
-  // Private Helper Methods
-  // ============================================
-
   /**
    * Gets cached intelligence if valid (within TTL).
    *
@@ -358,7 +314,6 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
 
     const age = Date.now() - entry.timestamp;
     if (age > CACHE_TTL_MS) {
-      // Cache is stale, remove it
       this.cache.delete(cacheKey);
       this.logger.debug('Cache expired', {
         workspacePath: cacheKey,
@@ -411,13 +366,9 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
     isMonorepo: boolean,
   ): string[] {
     const patterns: string[] = [];
-
-    // Add monorepo pattern
     if (isMonorepo) {
       patterns.push('Monorepo');
     }
-
-    // Framework-specific patterns
     if (framework) {
       const frameworkLower = framework.toLowerCase();
 
@@ -435,14 +386,10 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
         patterns.push('MVC', 'ORM', 'Convention over Configuration');
       }
     }
-
-    // Project type specific patterns
     const projectTypeLower = projectType.toLowerCase();
     if (projectTypeLower === 'node' && !framework) {
       patterns.push('Modular');
     }
-
-    // Deduplicate
     return [...new Set(patterns)];
   }
 

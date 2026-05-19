@@ -34,7 +34,6 @@ export class ReasoningSettings extends BaseSettingsRepository {
       const providerId =
         store.readGlobal<string>(ANTHROPIC_PROVIDER_ID_DEF.key) ?? '';
       const authKey = resolveAuthProviderKey(authMethod, providerId);
-      // Key pattern: `provider.<authKey>.reasoningEffort`
       return `provider.${authKey}.reasoningEffort`;
     };
 

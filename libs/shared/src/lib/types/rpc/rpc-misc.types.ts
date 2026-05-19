@@ -10,10 +10,6 @@ import type {
   QualityHistoryEntry,
 } from '../quality-assessment.types';
 
-// ============================================================
-// Context RPC Types
-// ============================================================
-
 /** Parameters for context:getAllFiles RPC method */
 export interface ContextGetAllFilesParams {
   /** Whether to include image files */
@@ -52,10 +48,6 @@ export interface ContextGetAllFilesResult {
 export interface ContextGetFileSuggestionsResult {
   files?: ContextFileInfo[];
 }
-
-// ============================================================
-// Autocomplete RPC Types
-// ============================================================
 
 /** Parameters for autocomplete:agents RPC method */
 export interface AutocompleteAgentsParams {
@@ -98,10 +90,6 @@ export interface AutocompleteCommandsResult {
   commands?: AutocompleteCommandInfo[];
 }
 
-// ============================================================
-// File RPC Types
-// ============================================================
-
 /** Parameters for file:open RPC method */
 export interface FileOpenParams {
   /** File path to open */
@@ -116,10 +104,6 @@ export interface FileOpenResult {
   error?: string;
   isDirectory?: boolean;
 }
-
-// ============================================================
-// License RPC Types
-// ============================================================
 
 /** Parameters for license:getStatus RPC method */
 export type LicenseGetStatusParams = Record<string, never>;
@@ -202,10 +186,6 @@ export interface LicenseClearKeyResponse {
   error?: string;
 }
 
-// ============================================================
-// Command RPC Types
-// ============================================================
-
 /**
  * Parameters for command:execute RPC method.
  *
@@ -230,10 +210,6 @@ export interface CommandExecuteResponse {
   /** Error message if failed */
   error?: string;
 }
-
-// ============================================================
-// Quality Dashboard RPC Types
-// ============================================================
 
 /** Parameters for quality:getAssessment RPC method */
 export interface QualityGetAssessmentParams {
@@ -280,10 +256,6 @@ export interface QualityExportResult {
   /** File path where the report was saved (if saved) */
   filePath?: string;
 }
-
-// ============================================================
-// Plugin Configuration RPC Types
-// ============================================================
 
 /** Plugin metadata for UI display */
 export interface PluginInfo {

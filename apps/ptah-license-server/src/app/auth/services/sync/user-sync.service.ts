@@ -39,12 +39,9 @@ export class UserSyncService {
    */
   async syncUser(workosUser: User): Promise<SyncedUser> {
     try {
-      // First check if user exists by workosId
       let existingUser = await this.prisma.user.findUnique({
         where: { workosId: workosUser.id },
       });
-
-      // If not found by workosId, check by email
       if (!existingUser) {
         existingUser = await this.prisma.user.findUnique({
           where: { email: workosUser.email },
@@ -54,7 +51,6 @@ export class UserSyncService {
       let dbUser: PrismaUser;
 
       if (existingUser) {
-        // Update existing user
         dbUser = await this.prisma.user.update({
           where: { id: existingUser.id },
           data: {
@@ -67,7 +63,6 @@ export class UserSyncService {
         });
         this.logger.debug(`Updated user in database: ${workosUser.email}`);
       } else {
-        // Create new user
         dbUser = await this.prisma.user.create({
           data: {
             workosId: workosUser.id,
@@ -82,13 +77,11 @@ export class UserSyncService {
 
       return { id: dbUser.id, email: dbUser.email };
     } catch (error) {
-      // Log but don't fail - local sync is not critical
       this.logger.warn(
         `Failed to sync user to database: ${
           error instanceof Error ? error.message : 'Unknown error'
         }`,
       );
-      // Return WorkOS data as fallback (queries will fail but auth won't break completely)
       return { id: workosUser.id, email: workosUser.email };
     }
   }

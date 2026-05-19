@@ -185,8 +185,6 @@ export class ChatRpcHandlers {
       'chat:start',
       'registerChatStart',
       (params) => {
-        // Defense-in-depth: reject malformed tabId at the RPC boundary so the
-        // SDK adapter never sees a non-UUID routing key (NODE-NESTJS-3Y).
         ChatStartParamsSchema.parse(params);
         return this.session.startSession(params);
       },

@@ -28,10 +28,6 @@ import type {
 } from '../interfaces';
 import { AntiPatternDetectionService } from './anti-pattern-detection.service';
 
-// ============================================
-// Constants
-// ============================================
-
 /**
  * Source file extensions to include in quality assessment.
  * These are the primary programming language files we analyze.
@@ -105,10 +101,6 @@ const DEFAULT_STRENGTHS: Record<string, string> = {
   nestjs: 'NestJS services follow proper patterns',
   react: 'React components follow best practices',
 };
-
-// ============================================
-// Service Implementation
-// ============================================
 
 /**
  * CodeQualityAssessmentService
@@ -197,8 +189,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
     config?: Partial<SamplingConfig>,
   ): Promise<QualityAssessment> {
     const startTime = Date.now();
-
-    // Merge configuration with defaults
     const mergedConfig: SamplingConfig = {
       ...DEFAULT_CONFIG,
       ...config,
@@ -208,11 +198,7 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       workspacePath: workspacePath,
       config: mergedConfig,
     });
-
-    // Sample files for analysis
     const sampledFiles = await this.sampleFiles(workspacePath, mergedConfig);
-
-    // Handle empty workspace case
     if (sampledFiles.length === 0) {
       this.logger.info('No source files found for analysis', {
         workspacePath: workspacePath,
@@ -220,26 +206,14 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
 
       return this.createNeutralAssessment(startTime);
     }
-
-    // Detect anti-patterns across sampled files.
-    // detectPatternsInFiles is async because some rules (e.g. `functionTooLargeRule`)
-    // rely on tree-sitter AST analysis.
     const antiPatterns =
       await this.antiPatternDetector.detectPatternsInFiles(sampledFiles);
-
-    // Calculate quality score
     const score = this.antiPatternDetector.calculateScore(
       antiPatterns,
       sampledFiles.length,
     );
-
-    // Identify quality gaps from patterns
     const gaps = this.identifyGaps(antiPatterns);
-
-    // Identify strengths (categories with no/few issues)
     const strengths = this.identifyStrengths(antiPatterns);
-
-    // Build assessment result
     const assessment: QualityAssessment = {
       score,
       antiPatterns,
@@ -298,15 +272,11 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       workspacePath: workspacePath,
       config,
     });
-
-    // Index workspace with token estimation
     const index = await this.indexer.indexWorkspace({
       workspaceFolder: workspacePath,
       estimateTokens: true,
       respectIgnoreFiles: true,
     });
-
-    // Filter to source files only
     const sourceFiles = index.files.filter((file) => this.isSourceFile(file));
 
     if (sourceFiles.length === 0) {
@@ -318,11 +288,7 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       total: index.files.length,
       sourceFiles: sourceFiles.length,
     });
-
-    // Select files using intelligent sampling
     const selectedFiles = this.selectFilesIntelligently(sourceFiles, config);
-
-    // Read file contents
     const sampledFiles: SampledFile[] = [];
 
     for (const file of selectedFiles) {
@@ -336,7 +302,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
           estimatedTokens: file.estimatedTokens,
         });
       } catch (error) {
-        // Skip files that fail to read
         this.logger.warn('Failed to read file for sampling', {
           filePath: file.path,
           error: error instanceof Error ? error.message : String(error),
@@ -351,10 +316,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
 
     return sampledFiles;
   }
-
-  // ============================================
-  // Incremental Analysis
-  // ============================================
 
   /**
    * Assess code quality with incremental analysis using file hash caching.
@@ -379,8 +340,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
     config?: Partial<SamplingConfig>,
   ): Promise<QualityAssessment> {
     const startTime = Date.now();
-
-    // Merge config with defaults, applying adaptive sample size
     const mergedConfig: SamplingConfig = {
       ...DEFAULT_CONFIG,
       ...config,
@@ -390,8 +349,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       workspacePath: workspacePath,
       config: mergedConfig,
     });
-
-    // Sample files for analysis
     const sampledFiles = await this.sampleFiles(workspacePath, mergedConfig);
 
     if (sampledFiles.length === 0) {
@@ -400,8 +357,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       });
       return this.createNeutralAssessment(startTime);
     }
-
-    // Separate files into cached (unchanged) and fresh (changed)
     const cachedPatterns: AntiPattern[] = [];
     const freshFiles: SampledFile[] = [];
     let cachedFileCount = 0;
@@ -423,11 +378,8 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       cached: cachedFileCount,
       fresh: freshFiles.length,
     });
-
-    // Analyze fresh files individually (not aggregated) so we can cache per-file
     const freshPatterns: AntiPattern[] = [];
     if (freshFiles.length > 0) {
-      // Use the concrete AntiPatternDetectionService for async methods
       const asyncDetector = this
         .antiPatternDetector as AntiPatternDetectionService;
       const hasAsync = typeof asyncDetector.detectPatternsAsync === 'function';
@@ -441,35 +393,24 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
             file.path,
           );
         } else {
-          // detectPatterns is async.
           filePatterns = await this.antiPatternDetector.detectPatterns(
             file.content,
             file.path,
           );
         }
-
-        // Cache per-file patterns before aggregation
         this.fileHashCache.updateHash(file.path, file.content);
         this.fileHashCache.setCachedPatterns(file.path, filePatterns);
 
         freshPatterns.push(...filePatterns);
       }
     }
-
-    // Merge cached and fresh patterns, re-aggregate
     const allPatterns = [...cachedPatterns, ...freshPatterns];
-
-    // Calculate quality score from merged patterns
     const score = this.antiPatternDetector.calculateScore(
       allPatterns,
       sampledFiles.length,
     );
-
-    // Identify gaps and strengths
     const gaps = this.identifyGaps(allPatterns);
     const strengths = this.identifyStrengths(allPatterns);
-
-    // Calculate cache hit rate
     const cacheHitRate =
       sampledFiles.length > 0 ? cachedFileCount / sampledFiles.length : 0;
 
@@ -560,10 +501,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
     }
   }
 
-  // ============================================
-  // Private Helper Methods
-  // ============================================
-
   /**
    * Checks if a file is a source file eligible for quality analysis.
    *
@@ -571,7 +508,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
    * @returns True if file should be analyzed
    */
   private isSourceFile(file: IndexedFile): boolean {
-    // Check extension
     const hasSourceExtension = SOURCE_EXTENSIONS.some((ext) =>
       file.relativePath.toLowerCase().endsWith(ext),
     );
@@ -579,8 +515,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
     if (!hasSourceExtension) {
       return false;
     }
-
-    // Exclude test files
     const isTestFile = TEST_FILE_PATTERNS.some((pattern) =>
       file.relativePath.toLowerCase().includes(pattern),
     );
@@ -588,8 +522,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
     if (isTestFile) {
       return false;
     }
-
-    // Exclude declaration files
     const isDeclarationFile = DECLARATION_FILE_PATTERNS.some((pattern) =>
       file.relativePath.toLowerCase().includes(pattern),
     );
@@ -613,8 +545,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
     config: SamplingConfig,
   ): IndexedFile[] {
     const selected = new Set<IndexedFile>();
-
-    // 1. Select entry points first
     const entryPoints = files.filter((file) =>
       ENTRY_POINT_PATTERNS.some((pattern) =>
         file.relativePath.toLowerCase().endsWith(pattern),
@@ -629,8 +559,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       found: entryPoints.length,
       selected: Math.min(entryPoints.length, config.entryPointCount),
     });
-
-    // 2. Select high-relevance files (using priority patterns as query)
     const remainingFiles = files.filter((file) => !selected.has(file));
     const priorityQuery = config.priorityPatterns.join(' ');
 
@@ -639,8 +567,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       priorityQuery,
       config.highRelevanceCount + config.randomCount, // Get more to allow for random selection
     );
-
-    // Add high-relevance files
     let highRelevanceAdded = 0;
     for (const result of rankedFiles) {
       if (highRelevanceAdded >= config.highRelevanceCount) {
@@ -656,12 +582,9 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
       ranked: rankedFiles.length,
       added: highRelevanceAdded,
     });
-
-    // 3. Random selection for diversity
     const stillRemaining = files.filter((file) => !selected.has(file));
 
     if (stillRemaining.length > 0 && config.randomCount > 0) {
-      // Fisher-Yates shuffle for random selection
       const shuffled = [...stillRemaining];
       for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -678,8 +601,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
         added: randomCount,
       });
     }
-
-    // Limit to maxFiles
     const result = Array.from(selected).slice(0, config.maxFiles);
 
     this.logger.debug('File selection complete', {
@@ -697,24 +618,18 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
    * @returns Array of quality gaps
    */
   private identifyGaps(antiPatterns: AntiPattern[]): QualityGap[] {
-    // Group patterns by category
     const categoryOccurrences = new Map<string, number>();
 
     for (const pattern of antiPatterns) {
-      // Extract category from pattern type (e.g., 'typescript' from 'typescript-explicit-any')
       const category = pattern.type.split('-')[0];
       const current = categoryOccurrences.get(category) || 0;
       categoryOccurrences.set(category, current + pattern.frequency);
     }
-
-    // Create gaps for categories with issues
     const gaps: QualityGap[] = [];
 
     for (const [category, occurrences] of categoryOccurrences) {
       const priority = this.determineGapPriority(occurrences, antiPatterns);
       const categoryName = CATEGORY_FROM_TYPE[category] || category;
-
-      // Find the most frequent pattern in this category for description
       const categoryPatterns = antiPatterns.filter((p) =>
         p.type.startsWith(category),
       );
@@ -732,8 +647,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
           topPattern?.suggestion || `Review and fix ${category} issues`,
       });
     }
-
-    // Sort by priority (high first)
     const priorityOrder: Record<QualityGapPriority, number> = {
       high: 0,
       medium: 1,
@@ -756,7 +669,6 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
     occurrences: number,
     patterns: AntiPattern[],
   ): QualityGapPriority {
-    // Check for any error-severity patterns
     const hasErrors = patterns.some((p) => p.severity === 'error');
 
     if (hasErrors || occurrences >= 10) {
@@ -775,20 +687,14 @@ export class CodeQualityAssessmentService implements ICodeQualityAssessmentServi
    */
   private identifyStrengths(antiPatterns: AntiPattern[]): string[] {
     const strengths: string[] = [];
-
-    // Get categories with issues
     const categoriesWithIssues = new Set(
       antiPatterns.map((p) => p.type.split('-')[0]),
     );
-
-    // Add strengths for categories without issues
     for (const [category, strength] of Object.entries(DEFAULT_STRENGTHS)) {
       if (!categoriesWithIssues.has(category)) {
         strengths.push(strength);
       }
     }
-
-    // If very few patterns overall, add general strength
     if (antiPatterns.length <= 2) {
       strengths.push('Overall clean codebase with minimal anti-patterns');
     }

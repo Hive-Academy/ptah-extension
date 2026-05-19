@@ -64,4 +64,7 @@ export const PLATFORM_TOKENS = {
 
   /** DependencyContainer — tsyringe container instance, exposed under an explicit token so handlers can request it via @inject(PLATFORM_TOKENS.DI_CONTAINER) instead of the magic string 'DependencyContainer'. */
   DI_CONTAINER: Symbol.for('PlatformDIContainer'),
+
+  /** IMcpServerStatus — read-only port for querying the in-process MCP server status. Breaks the vscode-lm-tools ↔ cli-agent-runtime construction cycle. */
+  MCP_SERVER_STATUS: Symbol.for('PlatformMcpServerStatus'),
 } as const;

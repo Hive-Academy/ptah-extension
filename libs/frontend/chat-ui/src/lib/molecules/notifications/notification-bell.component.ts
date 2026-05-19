@@ -166,27 +166,18 @@ import { ClaudeRpcService } from '@ptah-extension/core';
   `,
 })
 export class NotificationBellComponent {
-  // License inputs
   readonly trialActive = input<boolean>(false);
   readonly trialDaysRemaining = input<number | null>(null);
   readonly isCommunity = input<boolean>(false);
   readonly reason = input<string | undefined>(undefined);
-
-  // Popover state
   private readonly _isOpen = signal(false);
   readonly isOpen = this._isOpen.asReadonly();
-
-  // Dismissed state (session-scoped)
   private readonly trialDismissed = signal(false);
   private readonly communityDismissed = signal(false);
-
-  // Icons
   protected readonly BellIcon = Bell;
   protected readonly ClockIcon = Clock;
   protected readonly XIcon = X;
   protected readonly SparklesIcon = Sparkles;
-
-  // Session storage keys
   private readonly TRIAL_DISMISS_KEY = 'ptah_trial_banner_dismissed';
   private readonly COMMUNITY_DISMISS_KEY =
     'ptah_community_upgrade_banner_dismissed';

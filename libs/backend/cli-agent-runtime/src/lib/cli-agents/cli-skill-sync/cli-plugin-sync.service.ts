@@ -55,7 +55,6 @@ export class CliPluginSyncService {
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {
-    // Register installers (one per supported CLI target)
     this.installers.set('codex', new CodexSkillInstaller());
     this.installers.set('copilot', new CopilotSkillInstaller());
     this.installers.set('gemini', new GeminiSkillInstaller());
@@ -115,8 +114,6 @@ export class CliPluginSyncService {
     if (pluginPaths.length === 0) {
       return [];
     }
-
-    // Detect installed CLIs
     const installedClis = await this.getInstalledCliTargets();
     if (installedClis.length === 0) {
       this.logger.debug('[CliPluginSync] No supported CLIs installed');
@@ -127,7 +124,6 @@ export class CliPluginSyncService {
 
     for (const cli of installedClis) {
       try {
-        // Check if sync is needed (content hash comparison)
         const needsSync = await this.manifestTracker.needsSync(
           cli,
           pluginPaths,
@@ -144,8 +140,6 @@ export class CliPluginSyncService {
           });
           continue;
         }
-
-        // Perform sync
         const status = await this.syncForCli(
           cli,
           pluginPaths,
@@ -240,8 +234,6 @@ export class CliPluginSyncService {
         });
       }
     }
-
-    // Remove Ptah-generated agent files from CLI directories
     await this.removeCliAgents(['codex', 'copilot', 'gemini', 'cursor']);
   }
 
@@ -263,7 +255,6 @@ export class CliPluginSyncService {
 
     for (const cli of clis) {
       try {
-        // Delegate to installer if registered (handles non-standard paths like codex)
         const installer = this.installers.get(cli);
         if (installer) {
           await installer.uninstall();
@@ -272,8 +263,6 @@ export class CliPluginSyncService {
           );
           continue;
         }
-
-        // Fallback: conventional ~/.{cli}/agents/ path for CLIs without an installer
         const agentsDir = join(homeDir, `.${cli}`, 'agents');
         let entries: string[];
         try {
@@ -281,17 +270,11 @@ export class CliPluginSyncService {
         } catch {
           continue; // Directory doesn't exist
         }
-
-        // Remove only Ptah-generated files (identified by ptah- prefix)
         let removedCount = 0;
         for (const entry of entries) {
           if (entry.startsWith(PTAH_AGENT_PREFIX)) {
-            try {
-              await rm(join(agentsDir, entry), { force: true });
-              removedCount++;
-            } catch {
-              // Best-effort deletion
-            }
+            await rm(join(agentsDir, entry), { force: true });
+            removedCount++;
           }
         }
 
@@ -333,22 +316,16 @@ export class CliPluginSyncService {
     }
 
     try {
-      // Enumerate entries in the synthesized skills root to check it's non-empty
-      // and to explicitly filter _candidates.
       let entries: string[];
       try {
         entries = await readdir(synthesizedSkillsRoot);
       } catch {
-        // Directory doesn't exist yet — nothing to sync
         this.logger.debug(
           '[CliPluginSync] Synthesized skills root does not exist, skipping',
           { synthesizedSkillsRoot },
         );
         return [];
       }
-
-      // Explicit exclusion of _candidates directory at the enumeration boundary.
-      // The installer also enforces this content-side via requireSkillMdAtRoot (defense in depth).
       const validEntries = entries.filter((e) => e !== '_candidates');
       if (validEntries.length === 0) {
         this.logger.debug(
@@ -356,12 +333,7 @@ export class CliPluginSyncService {
         );
         return [];
       }
-
-      // The installer scans join(pluginPath, 'skills') for skill dirs.
-      // Since synthesizedSkillsRoot IS ~/.ptah/skills/, pass ~/.ptah as the fake plugin path.
       const fakePtahPluginPath = join(homedir(), '.ptah');
-
-      // Detect installed CLIs
       const installedClis = await this.getInstalledCliTargets();
       if (installedClis.length === 0) {
         this.logger.debug(
@@ -456,7 +428,6 @@ export class CliPluginSyncService {
     const status = await installer.install(pluginPaths);
 
     if (status.synced) {
-      // Update manifest tracker with new hash
       await this.manifestTracker.updateSyncHash(
         cli,
         pluginPaths,
@@ -479,11 +450,9 @@ export class CliPluginSyncService {
    * for KNOWN_PLUGIN_IDS validation), falls back to naive path construction.
    */
   private resolvePluginPaths(pluginIds: string[]): string[] {
-    // Use injected resolver if available (delegates to PluginLoaderService for validation)
     if (this.pluginPathResolver) {
       return this.pluginPathResolver(pluginIds);
     }
-    // Fallback: naive path construction (no validation)
     const extPath = this.extensionPath;
     if (!extPath) {
       return [];

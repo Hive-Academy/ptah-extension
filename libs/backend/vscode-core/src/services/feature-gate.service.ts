@@ -135,8 +135,6 @@ export class FeatureGateService {
    */
   async isFeatureEnabled(feature: Feature): Promise<boolean> {
     const status = await this.getLicenseStatus();
-
-    // No valid license (expired) = no features
     if (!status.valid) {
       this.logger.debug(
         '[FeatureGateService.isFeatureEnabled] License invalid, feature disabled',
@@ -147,8 +145,6 @@ export class FeatureGateService {
       );
       return false;
     }
-
-    // Pro-only features require Pro tier (or Pro trial)
     if (this.isProOnlyFeature(feature)) {
       const isEnabled = status.tier === 'pro' || status.tier === 'trial_pro';
       this.logger.debug(
@@ -161,8 +157,6 @@ export class FeatureGateService {
       );
       return isEnabled;
     }
-
-    // All other features are available to any valid license (Community or Pro)
     this.logger.debug(
       '[FeatureGateService.isFeatureEnabled] Community feature enabled',
       {

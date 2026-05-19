@@ -208,9 +208,6 @@ export class FileRpcHandlers {
           if (params?.multiple !== false) {
             properties.push('multiSelections' as const);
           }
-
-          // Only offer extensions that map to Anthropic-allowed media types.
-          // Magic-byte sniffing (below) is the source of truth.
           const result = await electronDialog.showOpenDialog({
             properties,
             title: 'Attach Images',
@@ -255,8 +252,6 @@ export class FileRpcHandlers {
 
             const data = await fsModule.readFile(filePath);
             const base64 = data.toString('base64');
-            // Sniff the bytes — extension is unreliable, magic bytes are
-            // the only thing the Anthropic API will accept.
             const mediaType = resolveImageMediaType(undefined, base64);
             if (mediaType === null) {
               this.logger.warn(

@@ -16,7 +16,6 @@
  * postMessage({ type: MESSAGE_TYPES.NAVIGATE, payload: {...} });
  */
 export const MESSAGE_TYPES = {
-  // ---- Chat Messages ----
   CHAT_SEND_MESSAGE: 'chat:sendMessage',
   CHAT_MESSAGE_CHUNK: 'chat:messageChunk',
   CHAT_SESSION_START: 'chat:sessionStart',
@@ -53,32 +52,9 @@ export const MESSAGE_TYPES = {
   CHAT_HEALTH_UPDATE: 'chat:healthUpdate',
   CHAT_CLI_ERROR: 'chat:cliError',
   CHAT_RESTORE_INPUT: 'chat:restore-input',
-
-  // ---- Permission Messages ----
-  // TWO SEPARATE SYSTEMS - SDK and MCP - DO NOT CONFUSE!
-  //
-  // SYSTEM 1: Claude Agent SDK Permissions (Primary, always active)
-  // - Triggered when SDK calls Write, Edit, Bash tools via canUseTool callback
-  // - Flow: SdkPermissionHandler → 'permission:request' → UI → 'chat:permission-response'
-  // - Handler: SdkPermissionHandler.handleResponse()
-  //
-  // SYSTEM 2: Code Execution MCP Permissions (Premium only, separate)
-  // - Triggered by Ptah MCP Server's approval_prompt tool
-  // - Flow: PermissionPromptService → 'permission:request' → UI → 'permission:response'
-  // - Handler: PermissionPromptService.resolveRequest()
-  //
-  // Both use same request type but DIFFERENT response types!
-
-  // Shared request type (both SDK and MCP send this to frontend)
   PERMISSION_REQUEST: 'permission:request',
-
-  // SDK-specific response (frontend → backend for SDK permissions)
   SDK_PERMISSION_RESPONSE: 'chat:permission-response',
-
-  // MCP-specific response (frontend → backend for MCP permissions)
   MCP_PERMISSION_RESPONSE: 'permission:response',
-
-  // ---- Provider Messages ----
   PROVIDERS_GET_AVAILABLE: 'providers:getAvailable',
   PROVIDERS_GET_CURRENT: 'providers:getCurrent',
   PROVIDERS_SWITCH: 'providers:switch',
@@ -93,8 +69,6 @@ export const MESSAGE_TYPES = {
   PROVIDERS_ERROR: 'providers:error',
   PROVIDERS_AVAILABLE_UPDATED: 'providers:availableUpdated',
   PROVIDERS_MODEL_CHANGED: 'providers:modelChanged',
-
-  // ---- Context Messages ----
   CONTEXT_UPDATE_FILES: 'context:updateFiles',
   CONTEXT_GET_FILES: 'context:getFiles',
   CONTEXT_INCLUDE_FILE: 'context:includeFile',
@@ -103,36 +77,24 @@ export const MESSAGE_TYPES = {
   CONTEXT_GET_ALL_FILES: 'context:getAllFiles',
   CONTEXT_GET_FILE_SUGGESTIONS: 'context:getFileSuggestions',
   CONTEXT_SEARCH_IMAGES: 'context:searchImages',
-
-  // ---- Command Messages ----
   COMMANDS_GET_TEMPLATES: 'commands:getTemplates',
   COMMANDS_EXECUTE_COMMAND: 'commands:executeCommand',
   COMMANDS_SELECT_FILE: 'commands:selectFile',
   COMMANDS_SAVE_TEMPLATE: 'commands:saveTemplate',
-
-  // ---- Analytics Messages ----
   ANALYTICS_TRACK_EVENT: 'analytics:trackEvent',
   ANALYTICS_GET_DATA: 'analytics:getData',
-
-  // ---- Config Messages ----
   CONFIG_GET: 'config:get',
   CONFIG_SET: 'config:set',
   CONFIG_UPDATE: 'config:update',
   CONFIG_REFRESH: 'config:refresh',
-
-  // ---- State Messages ----
   STATE_SAVE: 'state:save',
   STATE_LOAD: 'state:load',
   STATE_CLEAR: 'state:clear',
   STATE_SAVED: 'state:saved',
   STATE_LOADED: 'state:loaded',
-
-  // ---- View Messages ----
   VIEW_CHANGED: 'view:changed',
   VIEW_ROUTE_CHANGED: 'view:routeChanged',
   VIEW_GENERIC: 'view:generic',
-
-  // ---- System Messages ----
   ERROR: 'error',
   INITIAL_DATA: 'initialData',
   WEBVIEW_READY: 'webview-ready',
@@ -143,16 +105,9 @@ export const MESSAGE_TYPES = {
   REFRESH: 'refresh',
   SWITCH_VIEW: 'switchView',
   WORKSPACE_CHANGED: 'workspaceChanged',
-
-  // ---- RPC Messages ----
-  // Frontend → Backend: Request/call an RPC method
   RPC_REQUEST: 'rpc:request',
   RPC_CALL: 'rpc:call',
-  // Backend → Frontend: RPC method response
   RPC_RESPONSE: 'rpc:response',
-
-  // ---- SDK Integration Messages ----
-  // These are used by the Agent SDK streaming layer
   CHAT_CHUNK: 'chat:chunk',
   CHAT_COMPLETE: 'chat:complete',
   CHAT_ERROR: 'chat:error',
@@ -162,60 +117,28 @@ export const MESSAGE_TYPES = {
   SESSION_METADATA_CHANGED: 'session:metadataChanged',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
-
-  // ---- Editor Push Messages ----
   /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */
   EDITOR_TAB_CONTENT_REVERTED: 'editor:tabContentReverted',
-
-  // ---- Setup Wizard Messages ----
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
   SETUP_WIZARD_ANALYSIS_STREAM: 'setup-wizard:analysis-stream',
   /** Backend → Frontend: seed a new chat session with a pre-populated user turn (new-project handoff). */
   SETUP_WIZARD_START_NEW_PROJECT_CHAT: 'setup-wizard:start-new-project-chat',
-
-  // ---- AskUserQuestion Messages ----
-  // Used by SDK's AskUserQuestion tool to prompt user with clarifying questions
-  // Similar to permission system but expects answers instead of approve/deny
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
-  // Backend → webview broadcast when an AskUserQuestion idle-timeout fires
-  // and the handler auto-picked the recommended option. Webview removes the
-  // stale question card so the UI reflects what the agent already knows.
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
-
-  // ---- Permission Auto-Resolve Messages ----
-  // Sent when "Always Allow" auto-resolves sibling pending requests for the same tool
   PERMISSION_AUTO_RESOLVED: 'permission:auto-resolved',
-
-  // ---- Permission Session Cleanup Messages ----
-  // Sent when a session is aborted to notify frontend to remove stale permission/question cards
   PERMISSION_SESSION_CLEANUP: 'permission:session-cleanup',
-
-  // ---- Plan Mode Messages ----
-  // Sent when agent enters/exits plan mode via EnterPlanMode/ExitPlanMode tools
   PLAN_MODE_CHANGED: 'session:plan-mode-changed',
-
-  // ---- Agent Monitor Messages ----
-  // Real-time agent process monitoring for the sidebar panel
   AGENT_MONITOR_SPAWNED: 'agent-monitor:spawned',
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
-
-  // ---- Agent Permission Messages (Copilot SDK) ----
-  // CLI agent tool permission routing (Copilot SDK permission hooks)
   AGENT_MONITOR_PERMISSION_REQUEST: 'agent-monitor:permission-request',
   AGENT_MONITOR_PERMISSION_RESPONSE: 'agent-monitor:permission-response',
-  // CLI agent user input routing (Copilot SDK onUserInputRequest)
   AGENT_MONITOR_USER_INPUT_REQUEST: 'agent-monitor:user-input-request',
   AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
-
-  // ---- Gateway Push Messages ----
-  // Backend → Frontend: adapter running/error state changed
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
-
-  // ---- Update Messages ----
   /** Backend → Frontend: update lifecycle state changed (Electron only). */
   UPDATE_STATUS_CHANGED: 'update:statusChanged',
 } as const;

@@ -70,20 +70,11 @@ export class AuditLogService {
     if (userAgent !== undefined && userAgent !== null) {
       data['userAgent'] = userAgent;
     }
-
-    // Both `tx` and `PrismaService` expose the same `adminAuditLog.create`
-    // from the generated client. `Prisma.TransactionClient` is
-    // `Omit<PrismaClient, ITXClientDenyList>` — structurally compatible
-    // with the full client, so the narrow type is safe for either branch.
     const client: Prisma.TransactionClient = tx ?? this.prisma;
     const created = await client.adminAuditLog.create({
       data: data as Prisma.AdminAuditLogUncheckedCreateInput,
       select: { id: true },
     });
-
-    // Structured log — deliberately omits targetSnapshot/metadata which may
-    // contain PII. Enough breadcrumbs to reconstruct the audit trail from
-    // the DB if needed.
     this.logger.log({
       message: 'admin audit log recorded',
       auditLogId: created.id,

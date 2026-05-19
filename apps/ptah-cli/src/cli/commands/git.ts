@@ -116,10 +116,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-command runners
-// ---------------------------------------------------------------------------
-
 async function runInfo(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -351,10 +347,6 @@ async function runShowFile(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function wrapResult(result: unknown): Record<string, unknown> {
   if (result === null || result === undefined) return {};

@@ -8,10 +8,6 @@
 
 import type { SessionId } from '../branded.types';
 
-// ============================================================================
-// EXECUTION NODE TYPES
-// ============================================================================
-
 /**
  * ExecutionNodeType - Discriminated union for node classification
  *
@@ -47,10 +43,6 @@ export type ExecutionStatus =
  */
 export type MessageRole = 'user' | 'assistant' | 'system';
 
-// ============================================================================
-// TOKEN USAGE TYPE (Aligned with Claude SDK Cost Tracking)
-// ============================================================================
-
 /**
  * MessageTokenUsage - Token consumption data aligned with Claude SDK
  *
@@ -73,10 +65,6 @@ export interface MessageTokenUsage {
   /** Tokens used to create cache entries */
   readonly cacheCreation?: number;
 }
-
-// ============================================================================
-// EXECUTION NODE INTERFACE
-// ============================================================================
 
 /**
  * ExecutionNode - The core recursive data structure
@@ -101,12 +89,10 @@ export interface ExecutionNode {
   readonly type: ExecutionNodeType;
   /** Current execution status */
   readonly status: ExecutionStatus;
-  // ---- Content (varies by type) ----
   /** Main content (markdown for text/thinking, description for agent) */
   readonly content: string | null;
   /** Error message if status is 'error' */
   readonly error?: string;
-  // ---- Tool-specific fields ----
   /** Tool name (e.g., 'Read', 'Write', 'Bash', 'Task') */
   readonly toolName?: string;
   /** Tool input parameters */
@@ -126,7 +112,6 @@ export interface ExecutionNode {
    * Used to show special permission request UI instead of generic error.
    */
   readonly isPermissionRequest?: boolean;
-  // ---- Agent-specific fields (type: 'agent') ----
   /** Agent subtype from Task tool args.subagent_type */
   readonly agentType?: string;
   /** Model used by agent (opus, sonnet, haiku) */
@@ -147,7 +132,6 @@ export interface ExecutionNode {
    * which tails the agent's JSONL file for text blocks.
    */
   readonly summaryContent?: string;
-  // ---- Metrics ----
   /** Execution start timestamp (Unix epoch ms) */
   readonly startTime?: number;
   /** Execution end timestamp (Unix epoch ms) */
@@ -162,7 +146,6 @@ export interface ExecutionNode {
   readonly model?: string;
   /** Tool execution count (for agents) */
   readonly toolCount?: number;
-  // ---- Recursive children ----
   /**
    * Child nodes - THE KEY TO NESTED RENDERING
    *
@@ -171,7 +154,6 @@ export interface ExecutionNode {
    * For tool nodes: may contain nested result details
    */
   readonly children: readonly ExecutionNode[];
-  // ---- UI State ----
   /** Whether this node is collapsed in the UI */
   readonly isCollapsed: boolean;
   /** Whether this node is highlighted (e.g., during search) */
@@ -179,10 +161,6 @@ export interface ExecutionNode {
   /** Whether this is a background agent (continues executing independently of main turn) */
   readonly isBackground?: boolean;
 }
-
-// ============================================================================
-// SESSION SUMMARY
-// ============================================================================
 
 /**
  * SessionSummary - Lightweight session metadata for session list UI
@@ -203,10 +181,6 @@ export interface ChatSessionSummary {
   /** Whether this session is currently active */
   readonly isActive: boolean;
 }
-
-// ============================================================================
-// JSONL MESSAGE MAPPING
-// ============================================================================
 
 /**
  * JSONLMessageType - Claude CLI JSONL message types
@@ -231,11 +205,9 @@ export interface JSONLMessage {
   readonly type: JSONLMessageType;
   /** Subtype for further discrimination (e.g., 'init', 'start', 'result') */
   readonly subtype?: string;
-  // ---- System message fields ----
   readonly session_id?: string;
   readonly cwd?: string;
   readonly model?: string;
-  // ---- Assistant message fields ----
   readonly thinking?: string;
   readonly delta?: string; // Streaming text delta
   readonly message?: {
@@ -247,21 +219,18 @@ export interface JSONLMessage {
     };
     readonly model?: string;
   };
-  // ---- Tool message fields ----
   readonly tool?: string; // Tool name
   readonly tool_use_id?: string; // Links tool_use to tool_result
   readonly parent_tool_use_id?: string; // For nested agent tools
   readonly args?: Record<string, unknown>;
   readonly output?: unknown;
   readonly error?: string;
-  // ---- Result message fields ----
   readonly cost?: number;
   readonly duration?: number;
   readonly usage?: {
     readonly input_tokens?: number;
     readonly output_tokens?: number;
   };
-  // ---- Metadata ----
   readonly timestamp?: string;
   readonly isMeta?: boolean;
   readonly uuid?: string;
@@ -273,13 +242,10 @@ export interface JSONLMessage {
  */
 export interface ContentBlockJSON {
   readonly type: 'text' | 'tool_use' | 'tool_result';
-  // text block
   readonly text?: string;
-  // tool_use block
   readonly id?: string;
   readonly name?: string;
   readonly input?: Record<string, unknown>;
-  // tool_result block
   readonly tool_use_id?: string;
   readonly content?: string | unknown;
   readonly is_error?: boolean;

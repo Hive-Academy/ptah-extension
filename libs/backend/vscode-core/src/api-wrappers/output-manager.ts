@@ -82,7 +82,7 @@ export class OutputManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext
+    private readonly context: vscode.ExtensionContext,
   ) {}
 
   /**
@@ -93,21 +93,13 @@ export class OutputManager {
    * @returns Created or existing output channel
    */
   createOutputChannel(config: OutputChannelConfig): vscode.OutputChannel {
-    // Check if channel already exists
     if (this.outputChannels.has(config.name)) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.outputChannels.get(config.name)!;
     }
-
-    // Create output channel with language ID if provided
     const channel = config.languageId
       ? vscode.window.createOutputChannel(config.name, config.languageId)
       : vscode.window.createOutputChannel(config.name);
-
-    // Store channel reference
     this.outputChannels.set(config.name, channel);
-
-    // Initialize metrics tracking
     this.channelMetrics.set(config.name, {
       messageCount: 0,
       lastWrite: 0,
@@ -121,8 +113,6 @@ export class OutputManager {
         error: 0,
       },
     });
-
-    // Add to extension subscriptions for proper cleanup
     this.context.subscriptions.push(channel);
 
     return channel;
@@ -139,7 +129,7 @@ export class OutputManager {
   write(
     channelName: string,
     message: string,
-    options: WriteOptions = {}
+    options: WriteOptions = {},
   ): void {
     const channel = this.outputChannels.get(channelName);
 
@@ -154,17 +144,10 @@ export class OutputManager {
         : '';
       const prefix = options.prefix ? `[${options.prefix}] ` : '';
       const formattedMessage = `${timestamp}${prefix}${message}`;
-
-      // Write message to channel
       channel.appendLine(formattedMessage);
-
-      // Update metrics
       this.updateChannelMetrics(channelName, level, false);
     } catch (error) {
-      // Update error metrics
       this.updateChannelMetrics(channelName, options.level || 'info', true);
-
-      // Re-throw to maintain error handling
       throw error;
     }
   }
@@ -180,7 +163,7 @@ export class OutputManager {
   writeLines(
     channelName: string,
     messages: readonly string[],
-    options: WriteOptions = {}
+    options: WriteOptions = {},
   ): void {
     messages.forEach((message) => this.write(channelName, message, options));
   }
@@ -329,13 +312,9 @@ export class OutputManager {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    try {
-      this.outputChannels.forEach((channel) => channel.dispose());
-      this.outputChannels.clear();
-      this.channelMetrics.clear();
-    } catch {
-      // Silently handle disposal errors
-    }
+    this.outputChannels.forEach((channel) => channel.dispose());
+    this.outputChannels.clear();
+    this.channelMetrics.clear();
   }
 
   /**
@@ -345,7 +324,7 @@ export class OutputManager {
   private updateChannelMetrics(
     channelName: string,
     level: 'debug' | 'info' | 'warn' | 'error',
-    isError: boolean
+    isError: boolean,
   ): void {
     const metrics = this.channelMetrics.get(channelName);
 

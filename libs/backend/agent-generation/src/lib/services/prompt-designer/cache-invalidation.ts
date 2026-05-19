@@ -18,17 +18,12 @@ import * as crypto from 'crypto';
  * Files that trigger cache invalidation when changed
  */
 export const INVALIDATION_TRIGGER_FILES = [
-  // Package management
   '**/package.json',
   '**/package-lock.json',
   '**/yarn.lock',
   '**/pnpm-lock.yaml',
-
-  // TypeScript configuration
   '**/tsconfig.json',
   '**/tsconfig.*.json',
-
-  // Framework configs
   '**/angular.json',
   '**/project.json',
   '**/nx.json',
@@ -36,14 +31,10 @@ export const INVALIDATION_TRIGGER_FILES = [
   '**/vite.config.*',
   '**/next.config.*',
   '**/nuxt.config.*',
-
-  // Linting/formatting
   '**/.eslintrc.*',
   '**/eslint.config.*',
   '**/.prettierrc*',
   '**/prettier.config.*',
-
-  // Build tools
   '**/webpack.config.*',
   '**/rollup.config.*',
   '**/esbuild.config.*',
@@ -169,15 +160,11 @@ export function extractDependencyInfo(
  */
 export function isInvalidationTrigger(filePath: string): boolean {
   const normalizedPath = filePath.replace(/\\/g, '/');
-
-  // Check ignore patterns first
   for (const pattern of INVALIDATION_IGNORE_PATTERNS) {
     if (matchGlobPattern(normalizedPath, pattern)) {
       return false;
     }
   }
-
-  // Check trigger patterns
   for (const pattern of INVALIDATION_TRIGGER_FILES) {
     if (matchGlobPattern(normalizedPath, pattern)) {
       return true;
@@ -236,15 +223,12 @@ export function getInvalidationReason(
  * - ? (single character)
  */
 function matchGlobPattern(path: string, pattern: string): boolean {
-  // Escape special regex chars except * and ?
   let regexPattern = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*\*/g, '<<<GLOBSTAR>>>')
     .replace(/\*/g, '[^/]*')
     .replace(/\?/g, '.')
     .replace(/<<<GLOBSTAR>>>/g, '.*');
-
-  // Anchor the pattern
   regexPattern = '^' + regexPattern + '$';
 
   try {

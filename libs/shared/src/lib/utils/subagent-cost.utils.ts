@@ -56,8 +56,6 @@ export interface SessionCostSummary {
  */
 export function calculateTotalTreeCost(node: ExecutionNode): number {
   let total = node.cost ?? 0;
-
-  // Recurse into children
   for (const child of node.children) {
     total += calculateTotalTreeCost(child);
   }
@@ -71,13 +69,10 @@ export function calculateTotalTreeCost(node: ExecutionNode): number {
 export function calculateTotalTreeTokens(
   node: ExecutionNode,
 ): MessageTokenUsage {
-  // Use mutable accumulator internally
   let input = node.tokenUsage?.input ?? 0;
   let output = node.tokenUsage?.output ?? 0;
   let cacheRead = node.tokenUsage?.cacheRead ?? 0;
   let cacheCreation = node.tokenUsage?.cacheCreation ?? 0;
-
-  // Recurse into children
   for (const child of node.children) {
     const childTokens = calculateTotalTreeTokens(child);
     input += childTokens.input;
@@ -109,8 +104,6 @@ export function getAgentCostBreakdown(
       toolCount,
     });
   }
-
-  // Recurse into children (incrementing depth for nested agents)
   for (const child of node.children) {
     const childBreakdown = getAgentCostBreakdown(
       child,
@@ -166,7 +159,6 @@ export function calculateSessionCostSummary(
   let totalDuration = 0;
   let messageCount = 0;
   let agentCount = 0;
-  // Use mutable primitives for accumulation
   let tokensInput = 0;
   let tokensOutput = 0;
   let tokensCacheRead = 0;
@@ -177,8 +169,6 @@ export function calculateSessionCostSummary(
     if (message.role === 'user') {
       messageCount++;
     }
-
-    // Add message-level stats if available
     if (message.tokens) {
       tokensInput += message.tokens.input;
       tokensOutput += message.tokens.output;
@@ -191,8 +181,6 @@ export function calculateSessionCostSummary(
     if (message.duration) {
       totalDuration += message.duration;
     }
-
-    // Process streaming state tree for agent breakdown
     if (message.streamingState) {
       const agents = getAgentCostBreakdown(message.streamingState);
       allAgentBreakdown.push(...agents);

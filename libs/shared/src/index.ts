@@ -24,34 +24,17 @@ export * from './lib/types/provider-profile.types';
 export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
 export * from './lib/types/mcp-directory.types';
-
-// Type guards
 export * from './lib/type-guards/guards';
-
-// Utilities
 export * from './lib/utils/message-normalizer';
 export * from './lib/utils';
 export * from './lib/utils/pricing.utils';
 export * from './lib/utils/session-totals.utils';
 export * from './lib/utils/subagent-cost.utils';
 export * from './lib/utils/git.utils';
-
-// Setup wizard types
 export * from './lib/types/wizard';
-
-// Harness builder types
 export * from './lib/types/rpc/rpc-harness.types';
-
-// RPC error codes — single source of truth shared by backend and frontend
 export * from './lib/types/rpc/rpc-error-codes.types';
-
-// Persistence RPC types (db:health, db:reset)
 export * from './lib/types/rpc/rpc-persistence.types';
-
-// Anthropic-compatible provider registry
-// Moved here in TASK_2026_123 Win 5 to break agent-sdk ↔ auth-providers cycle.
 export * from './lib/providers';
-
-// Constants
 export * from './lib/constants/trial.constants';
 export * from './lib/constants/environment.constants';

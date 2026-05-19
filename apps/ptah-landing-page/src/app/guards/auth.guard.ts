@@ -23,9 +23,6 @@ import { AuthService } from '../services/auth.service';
 export const AuthGuard: CanActivateFn = () => {
   const authService = inject(AuthService);
   const router = inject(Router);
-
-  // Use verifyAuthentication() to always check with backend
-  // This handles OAuth/magic link redirects where cookie exists but no hint yet
   return authService.isAuthenticated().pipe(
     map((isAuth) => {
       if (!isAuth) {

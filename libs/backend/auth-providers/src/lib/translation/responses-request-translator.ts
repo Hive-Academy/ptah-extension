@@ -33,10 +33,6 @@ import type {
 
 import type { TranslateOptions } from './request-translator';
 
-// ---------------------------------------------------------------------------
-// Responses API Types
-// ---------------------------------------------------------------------------
-
 /** Content part within a Responses API input message */
 export type ResponsesContentPart =
   | ResponsesInputTextPart
@@ -116,10 +112,6 @@ export interface OpenAIResponsesRequest {
   tools?: ResponsesToolDefinition[];
 }
 
-// ---------------------------------------------------------------------------
-// Main translation function
-// ---------------------------------------------------------------------------
-
 /**
  * Translate a complete Anthropic Messages API request into an OpenAI
  * Responses API request suitable for GPT-5.3+ models.
@@ -133,22 +125,15 @@ export function translateAnthropicToResponses(
   options?: TranslateOptions,
 ): OpenAIResponsesRequest {
   const input: ResponsesInputItem[] = [];
-
-  // 1. Extract system prompt as instructions string (required by Codex API)
-  //    Also add as developer message in input for compatibility
   const systemText = extractSystemText(anthropicRequest.system);
   const developerMessage = translateSystemToDeveloper(anthropicRequest.system);
   if (developerMessage) {
     input.push(developerMessage);
   }
-
-  // 2. Translate conversation messages
   const conversationItems = translateMessagesToResponsesInput(
     anthropicRequest.messages,
   );
   input.push(...conversationItems);
-
-  // 3. Build the Responses API request
   const prefix = options?.modelPrefix ?? '';
   const model =
     prefix && !anthropicRequest.model.startsWith(prefix)
@@ -158,33 +143,18 @@ export function translateAnthropicToResponses(
   const responsesRequest: OpenAIResponsesRequest = {
     model,
     input,
-    // Codex API requires 'instructions' at top level (not just developer message in input)
     ...(systemText ? { instructions: systemText } : {}),
-    // Codex API requires store=false (does not support response storage)
     store: false,
   };
-
-  // Note: max_output_tokens is intentionally NOT mapped for the Responses API.
-  // Codex API rejects it as "Unsupported parameter: max_output_tokens".
-
-  // stream — direct pass-through
   if (anthropicRequest.stream) {
     responsesRequest.stream = true;
   }
-
-  // tools — Responses API uses FLAT format (name at top level, not nested under function)
   if (anthropicRequest.tools && anthropicRequest.tools.length > 0) {
     responsesRequest.tools = translateToolsForResponses(anthropicRequest.tools);
   }
 
-  // Note: tool_choice is NOT supported in Responses API — intentionally omitted
-
   return responsesRequest;
 }
-
-// ---------------------------------------------------------------------------
-// Exported helper functions (individually testable)
-// ---------------------------------------------------------------------------
 
 /**
  * Extract system prompt text as a plain string.
@@ -279,10 +249,6 @@ export function translateToolsForResponses(
   }));
 }
 
-// ---------------------------------------------------------------------------
-// Private translation helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Translate a single Anthropic user message into Responses API input items.
  * User messages may contain text, images, and tool_result blocks.
@@ -308,8 +274,6 @@ function translateUserMessageToResponses(
     });
     return results;
   }
-
-  // Separate tool_result blocks from other content
   const toolResults: AnthropicToolResultBlock[] = [];
   const otherBlocks: AnthropicContentBlock[] = [];
 
@@ -320,20 +284,15 @@ function translateUserMessageToResponses(
       otherBlocks.push(block);
     }
   }
-
-  // Emit function_call_output items for tool results first
   for (const toolResult of toolResults) {
     results.push(translateToolResultToFunctionCallOutput(toolResult));
   }
-
-  // Emit the user message with remaining content blocks
   if (otherBlocks.length > 0) {
     const parts = flattenToResponsesContentParts(otherBlocks);
     if (parts.length > 0) {
       results.push({ role: 'user', content: parts });
     }
   } else if (toolResults.length === 0) {
-    // No content at all — emit empty user message
     results.push({
       role: 'user',
       content: [{ type: 'input_text', text: '' }],
@@ -381,7 +340,6 @@ function translateAssistantMessageToResponses(
       });
     } else if (block.type === 'tool_use') {
       const toolUse = block as AnthropicToolUseBlock;
-      // If we have accumulated text parts, emit assistant message before tool call
       if (textParts.length > 0) {
         results.push({
           role: 'assistant',
@@ -397,15 +355,12 @@ function translateAssistantMessageToResponses(
       });
     }
   }
-
-  // Emit remaining text parts as assistant message
   if (textParts.length > 0) {
     results.push({
       role: 'assistant',
       content: [...textParts],
     });
   } else if (results.length === 0) {
-    // No content at all
     results.push({
       role: 'assistant',
       content: [{ type: 'output_text', text: '' }],
@@ -463,16 +418,11 @@ function flattenToResponsesContentParts(
       });
     } else if (block.type === 'image') {
       const img = block as AnthropicImageBlock;
-      // Poisoned sessions (pre-validator history) can carry SVG / BMP / empty
-      // media_types that OpenAI-shape providers will reject. Route through the
-      // shared resolver so magic-byte sniffing wins and unknowns are dropped.
       const resolved = resolveImageMediaType(
         img.source.media_type,
         img.source.data,
       );
       if (resolved === null) {
-        // Skip the image entirely — matches how tool_use/tool_result are
-        // filtered out of this flatten function.
         continue;
       }
       parts.push({

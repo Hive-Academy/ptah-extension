@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Provider DI Registrations â€” consolidated.
  *
  * Previously: 4 copy-pasted blocks at di/register.ts:407-487.
@@ -32,11 +32,6 @@ import {
  * previously occupied.
  */
 export function registerProviders(container: DependencyContainer): void {
-  // ============================================================
-  // Copilot Provider Services
-  // Auth service and translation proxy for GitHub Copilot integration
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
 
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
@@ -50,12 +45,6 @@ export function registerProviders(container: DependencyContainer): void {
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // Codex Provider Services
-  // Auth service and translation proxy for OpenAI Codex integration
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
-
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH,
     { useClass: CodexAuthService },
@@ -68,13 +57,6 @@ export function registerProviders(container: DependencyContainer): void {
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // OpenRouter Provider Services
-  // Auth service (reads API key from SecretStorage) and translation proxy
-  // (Anthropic <-> OpenAI Chat Completions). Must be registered before
-  // AuthManager resolves (which depends on these via ApiKeyStrategy).
-  // ============================================================
-
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_AUTH,
     { useClass: OpenRouterAuthService },
@@ -86,16 +68,6 @@ export function registerProviders(container: DependencyContainer): void {
     { useClass: OpenRouterTranslationProxy },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // ============================================================
-  // Local Model Provider Services
-  // Ollama: model discovery service (Anthropic-native, no proxy)
-  // LM Studio: translation proxy (OpenAI-compat, still needs proxy)
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
-
-  // Ollama Cloud metadata service â€” must be registered BEFORE
-  // OllamaModelDiscoveryService (which now injects it via SDK_OLLAMA_CLOUD_METADATA)
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_OLLAMA_CLOUD_METADATA,
     { useClass: OllamaCloudMetadataService },

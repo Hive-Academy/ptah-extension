@@ -2,10 +2,6 @@
  * Setup Wizard code convention types — naming conventions and code style.
  */
 
-// ============================================================================
-// Code Conventions Types
-// ============================================================================
-
 /**
  * Naming convention pattern type.
  */

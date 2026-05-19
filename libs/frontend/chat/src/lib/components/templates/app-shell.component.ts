@@ -113,7 +113,6 @@ import type { ViewType } from '@ptah-extension/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppShellComponent {
-  // Initialize keyboard shortcuts (constructor injection triggers setup)
   private readonly keyboardShortcuts = inject(KeyboardShortcutsService);
 
   /**
@@ -138,11 +137,7 @@ export class AppShellComponent {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
   private readonly sessionDisplayUtils = inject(SessionDisplayUtils);
-
-  // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
-
-  // Layout mode signals (canvas-first layout)
   readonly layoutMode = this.appState.layoutMode;
 
   /** Computed: true when the current view is a standalone view (no shared chrome) */
@@ -178,12 +173,8 @@ export class AppShellComponent {
    */
   readonly setupHubComponent =
     inject(SETUP_HUB_COMPONENT, { optional: true }) ?? null;
-
-  // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
-
-  // Lucide icons
   readonly CalendarDaysIcon = CalendarDays;
   readonly CheckIcon = Check;
   readonly ChevronDownIcon = ChevronDown;
@@ -198,27 +189,14 @@ export class AppShellComponent {
   readonly BarChart3Icon = BarChart3;
   readonly LayoutGridIcon = LayoutGrid;
   readonly RadioTowerIcon = RadioTower;
-
-  // Thoth first-run hint visibility (B6). Sourced from AppStateManager
-  // so the dismissal flag round-trips through localStorage on reload.
   readonly thothFirstRunDismissed = this.appState.thothFirstRunDismissed;
-
-  // Inline edit state for session renaming
   readonly editingSessionId = signal<string | null>(null);
   readonly editingSessionName = signal('');
-
-  // Platform detection: in Electron, some icons move to the global navbar
   readonly isElectron = this.vscodeService.isElectron;
-
-  // Ptah icon URI
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
-
-  // Session name popover state (sidebar)
   private readonly _sessionNamePopoverOpen = signal(false);
   readonly sessionNamePopoverOpen = this._sessionNamePopoverOpen.asReadonly();
   readonly sessionNameInput = signal('');
-
-  // Session search & filter state
   private readonly _searchQuery = signal('');
   private readonly _dateFrom = signal('');
   private readonly _dateTo = signal('');
@@ -244,8 +222,6 @@ export class AppShellComponent {
     if (!query && !fromStr && !toStr) {
       return sessions;
     }
-
-    // Parse dates once outside the filter loop, using local time
     let fromMs = 0;
     let toMs = 0;
     if (fromStr) {
@@ -258,12 +234,9 @@ export class AppShellComponent {
     }
 
     return sessions.filter((session) => {
-      // Name filter (case-insensitive substring, null-safe)
       if (query && !(session.name || '').toLowerCase().includes(query)) {
         return false;
       }
-
-      // Date range filter on lastActivityAt
       if (fromMs && session.lastActivityAt < fromMs) {
         return false;
       }
@@ -274,18 +247,12 @@ export class AppShellComponent {
       return true;
     });
   });
-
-  // License reason for trial ended modal
   readonly licenseReason = computed(
     () => this.chatStore.licenseStatus()?.reason,
   );
-
-  // ViewChild for session name input (programmatic focus)
   readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(
     'sessionNameInputRef',
   );
-
-  // ViewChild for inline session rename input
   readonly editSessionInput =
     viewChild<ElementRef<HTMLInputElement>>('editSessionInput');
 
@@ -296,7 +263,6 @@ export class AppShellComponent {
   private authCheckDone = false;
 
   constructor() {
-    // Focus sidebar input when popover opens
     effect(() => {
       if (this.sessionNamePopoverOpen()) {
         setTimeout(() => {
@@ -304,24 +270,16 @@ export class AppShellComponent {
         }, 0);
       }
     });
-
-    // Check auth status on initial load.
-    // If user is licensed but has no auth configured, redirect to settings.
-    // This handles the case where a user activates their license on the welcome
-    // page and lands on chat view with no provider keys configured.
     effect(() => {
       const view = this.currentView();
       if (view !== 'chat' || this.authCheckDone) {
         return;
       }
       this.authCheckDone = true;
-
-      // Check auth status asynchronously (non-blocking)
       this.rpcService
         .call('auth:getAuthStatus', {})
         .then((rpcResult) => {
           if (!rpcResult.isSuccess() || !rpcResult.data) return;
-          // Re-check: user may have navigated away while RPC was in flight
           if (this.currentView() !== 'chat') return;
           const data = rpcResult.data;
           const hasAnyAuth =
@@ -334,7 +292,6 @@ export class AppShellComponent {
           }
         })
         .catch(() => {
-          // Non-fatal: if RPC fails, don't redirect
         });
     });
   }
@@ -401,8 +358,6 @@ export class AppShellComponent {
     if (this._isOpeningPanel) return;
 
     const activeTab = this.tabManager.activeTab();
-
-    // Block pop-out during streaming â€” events would be orphaned
     if (activeTab?.status === 'streaming' || activeTab?.status === 'resuming') {
       console.warn('[AppShell] Cannot pop out during streaming/resuming');
       return;
@@ -422,8 +377,6 @@ export class AppShellComponent {
           },
         ],
       });
-
-      // Force-close the tab in the sidebar (no confirmation â€” session is being transferred)
       if (activeTab && sessionId) {
         this.tabManager.forceCloseTab(activeTab.id);
       }
@@ -464,14 +417,10 @@ export class AppShellComponent {
     const sessionName = name || this.generateDefaultSessionName();
 
     if (this.layoutMode() === 'grid') {
-      // Grid mode: request canvas to create a new tile
       this.appState.requestNewCanvasSession(sessionName);
     } else {
-      // Single mode: create new tab (createTab already switches to the new tab)
       this.tabManager.createTab(sessionName);
     }
-
-    // Close popover
     this._sessionNamePopoverOpen.set(false);
   }
 
@@ -499,8 +448,6 @@ export class AppShellComponent {
   toggleDateFilter(): void {
     this._dateFilterOpen.update((open) => !open);
   }
-
-  // Setter methods for template ngModel bindings
   setSearchQuery(value: string): void {
     this._searchQuery.set(value);
   }
@@ -561,7 +508,6 @@ export class AppShellComponent {
     event.stopPropagation();
     this.editingSessionId.set(session.id);
     this.editingSessionName.set(session.name || '');
-    // Programmatic focus â€” HTML autofocus doesn't work on dynamically rendered elements
     setTimeout(() => this.editSessionInput()?.nativeElement.focus(), 0);
   }
 
@@ -582,8 +528,6 @@ export class AppShellComponent {
     session: ChatSessionSummary,
   ): Promise<void> {
     event.stopPropagation();
-
-    // Guard: skip if already saved/cancelled (prevents Enter + blur double-fire)
     if (this.editingSessionId() !== session.id) {
       return;
     }
@@ -593,8 +537,6 @@ export class AppShellComponent {
       this.cancelEditingSession();
       return;
     }
-
-    // Clear edit state immediately to prevent double-fire
     this.cancelEditingSession();
 
     try {
@@ -602,8 +544,6 @@ export class AppShellComponent {
 
       if (result.isSuccess() && result.data?.success) {
         this.chatStore.updateSessionName(session.id, newName);
-
-        // Update open tab name and title if this session has one
         const tab = this.tabManager.findTabBySessionId(session.id);
         if (tab) {
           this.tabManager.setNameAndTitle(tab.id, newName, newName);
@@ -623,7 +563,6 @@ export class AppShellComponent {
     event: Event,
     session: ChatSessionSummary,
   ): Promise<void> {
-    // Prevent click from propagating to session button
     event.stopPropagation();
 
     const sessionName = this.getSessionDisplayName(session);
@@ -643,15 +582,10 @@ export class AppShellComponent {
       const result = await this.rpcService.deleteSession(session.id);
 
       if (result.isSuccess() && result.data?.success) {
-        // Remove from local session list
         this.chatStore.removeSessionFromList(session.id);
-
-        // If this was the current session, clear it
         if (this.chatStore.currentSession()?.id === session.id) {
           this.chatStore.clearCurrentSession();
         }
-
-        // Close any open tab for this session
         const tab = this.tabManager.findTabBySessionId(session.id);
         if (tab) {
           this.tabManager.closeTab(tab.id);

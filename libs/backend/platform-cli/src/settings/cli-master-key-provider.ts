@@ -82,8 +82,6 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
     if (keytar) {
       return this.getOrCreateKeytarKey(keytar);
     }
-
-    // Keytar unavailable — use deterministic fallback.
     if (!CliMasterKeyProvider.fallbackWarnEmitted) {
       CliMasterKeyProvider.fallbackWarnEmitted = true;
       console.warn(
@@ -104,11 +102,8 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
       if (keyBuf.length === 32) {
         return keyBuf;
       }
-      // Stored key has wrong length — notify and regenerate.
       await this.notifyCorruption();
     }
-
-    // Generate and store a new random key.
     const newKey = crypto.randomBytes(32);
     await keytar.setPassword(
       KEYTAR_SERVICE,
@@ -127,18 +122,13 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
       try {
         await this.userInteraction.showErrorMessage(CORRUPT_KEY_MESSAGE);
       } catch {
-        // If notification fails, log and continue — regeneration must proceed.
         console.error('[ptah-cli] ERROR:', CORRUPT_KEY_MESSAGE);
       }
     } else {
-      // IUserInteraction not provided — log to console as fallback.
-      // Production code always passes userInteraction via registerCliSettings.
       console.error('[ptah-cli] ERROR:', CORRUPT_KEY_MESSAGE);
     }
   }
 }
-
-// ---- helpers ----------------------------------------------------------------
 
 /**
  * Attempt to require keytar at runtime. Returns null if it is not installed
@@ -146,10 +136,8 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
  */
 async function tryLoadKeytar(): Promise<KeytarApi | null> {
   try {
-    // Dynamic require to avoid compilation errors when keytar is absent.
     const kt = await import('keytar').catch(() => null);
     if (!kt) return null;
-    // Smoke-test the API shape.
     if (
       typeof kt.getPassword !== 'function' ||
       typeof kt.setPassword !== 'function'
@@ -175,8 +163,6 @@ function deriveFallbackKey(): Buffer {
   const username = os.userInfo().username;
   const hostname = os.hostname();
   const inputMaterial = Buffer.from(`${username}:${hostname}`, 'utf-8');
-
-  // Build a 16-byte salt by padding or truncating the source string.
   const saltSource = Buffer.from(FALLBACK_SALT_SOURCE, 'utf-8');
   const salt = Buffer.alloc(16, 0);
   saltSource.copy(salt, 0, 0, Math.min(saltSource.length, 16));

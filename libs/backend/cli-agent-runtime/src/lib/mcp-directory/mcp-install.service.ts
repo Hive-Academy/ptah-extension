@@ -77,8 +77,6 @@ export class McpInstallService {
         successfulTargets.push(target);
       }
     }
-
-    // Track successful installs in manifest
     if (successfulTargets.length > 0) {
       this.manifestTracker.recordInstall(
         serverKey,
@@ -100,13 +98,10 @@ export class McpInstallService {
     targets?: McpInstallTarget[],
     workspaceRoot?: string,
   ): Promise<McpInstallResult[]> {
-    // If no targets specified, use the manifest to find where it was installed
     const resolvedTargets =
       targets && targets.length > 0
         ? targets
         : this.manifestTracker.getTargetsForServer(serverKey);
-
-    // If still empty, try all targets
     const finalTargets =
       resolvedTargets.length > 0
         ? resolvedTargets
@@ -121,8 +116,6 @@ export class McpInstallService {
       const result = await installer.uninstall(serverKey, workspaceRoot);
       results.push(result);
     }
-
-    // Update manifest
     this.manifestTracker.recordUninstall(serverKey, targets);
 
     return results;
@@ -136,20 +129,14 @@ export class McpInstallService {
     const allServers: InstalledMcpServer[] = [];
 
     for (const installer of this.installers.values()) {
-      try {
-        const servers = await installer.listInstalled(workspaceRoot);
-
-        // Enrich with manifest tracking
-        for (const server of servers) {
-          server.managedByPtah = this.manifestTracker.isManagedByPtah(
-            server.serverKey,
-          );
-        }
-
-        allServers.push(...servers);
-      } catch {
-        // Non-fatal: skip targets whose config files don't exist
+      const servers = await installer.listInstalled(workspaceRoot);
+      for (const server of servers) {
+        server.managedByPtah = this.manifestTracker.isManagedByPtah(
+          server.serverKey,
+        );
       }
+
+      allServers.push(...servers);
     }
 
     return allServers;

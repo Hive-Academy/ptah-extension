@@ -71,8 +71,6 @@ export class AuthConfigComponent implements OnInit {
   /** Auth state service - single source of truth for all auth state (PUBLIC for template access) */
   readonly authState = inject(AuthStateService);
   private readonly rpcService = inject(ClaudeRpcService);
-
-  // Lucide icons
   readonly CheckCircleIcon = CheckCircle;
   readonly XCircleIcon = XCircle;
   readonly Loader2Icon = Loader2;
@@ -88,15 +86,11 @@ export class AuthConfigComponent implements OnInit {
   readonly AlertTriangleIcon = AlertTriangle;
   readonly ServerIcon = Server;
 
-  // --- Local form signals (text input values only) ---
-
   /** API key text input value */
   readonly apiKey = signal('');
 
   /** Provider API key text input value (renamed from openrouterKey for clarity) */
   readonly providerKey = signal('');
-
-  // --- Local toggle signals for showing credential replacement inputs ---
 
   readonly isReplacingApiKey = signal(false);
   readonly isReplacingProviderKey = signal(false);
@@ -222,29 +216,20 @@ export class AuthConfigComponent implements OnInit {
     const hasNewProviderKey = this.providerKey().trim().length > 0;
     const hasExistingApiKey = this.authState.hasApiKey();
     const hasExistingProviderKey = this.authState.hasProviderKey();
-
-    // Claude tile: check credential matching the active auth mode
     if (this.selectedTileId() === 'claude') {
       if (this.claudeAuthMode() === 'claudeCli') {
         return this.authState.claudeCliInstalled();
       }
       return hasNewApiKey || hasExistingApiKey;
     }
-
-    // OAuth providers (Copilot/Codex) are ready when authenticated
     if (this.isOAuthProvider()) {
       return this.isCopilotProvider()
         ? this.authState.copilotAuthenticated()
         : true; // Codex uses file-based auth, always "ready" if selected
     }
-
-    // Local providers (Ollama, LM Studio) are always ready -- no credentials needed
     if (this.isLocalProvider()) {
       return true;
     }
-
-    // Optional-key providers (e.g., Ollama Cloud) -- always allow save/test
-    // even with no input value, since inference works without a key.
     if (this.supportsOptionalKey()) {
       return true;
     }
@@ -308,7 +293,6 @@ export class AuthConfigComponent implements OnInit {
    * - Refreshing auth status and model list on success
    */
   async saveAndTest(): Promise<void> {
-    // Concurrent guard: prevent double-click or rapid re-invocation
     if (this.authState.isSaving()) {
       return;
     }
@@ -316,7 +300,6 @@ export class AuthConfigComponent implements OnInit {
     const currentMethod = this.authState.authMethod();
     const params: AuthSaveSettingsParams = {
       authMethod: currentMethod,
-      // Only send credentials relevant to the selected auth method
       anthropicApiKey:
         currentMethod === 'apiKey'
           ? this.apiKey().trim() || undefined
@@ -325,12 +308,6 @@ export class AuthConfigComponent implements OnInit {
         currentMethod === 'thirdParty'
           ? this.providerKey().trim() || undefined
           : undefined,
-      // Only persist the third-party provider id when the user is actually
-      // saving a third-party configuration. When auth method is Claude-native
-      // (apiKey / claudeCli), the selected provider tile is orphaned UI state
-      // and must not overwrite the stored last-used provider id — otherwise
-      // switching back to a provider tile would inherit a stale/unrelated id
-      // (e.g. saving claudeCli with a leftover 'ollama-cloud' selection).
       anthropicProviderId:
         currentMethod === 'thirdParty'
           ? this.authState.selectedProviderId()
@@ -338,16 +315,11 @@ export class AuthConfigComponent implements OnInit {
     };
 
     await this.authState.saveAndTest(params);
-
-    // After save completes, check if it was successful
     if (this.authState.connectionStatus() === 'success') {
-      // Reset replacement toggles
       this.isReplacingApiKey.set(false);
       this.isReplacingProviderKey.set(false);
-      // Clear local form inputs (service has refreshed auth status)
       this.apiKey.set('');
       this.providerKey.set('');
-      // Notify parent components
       this.authStatusChanged.emit();
     }
   }
@@ -391,9 +363,6 @@ export class AuthConfigComponent implements OnInit {
     this.authState.setSelectedProviderId(providerId);
     this.providerKey.set('');
     this.isReplacingProviderKey.set(false);
-
-    // Query backend for key status of the newly selected provider
-    // This correctly updates the badge without a full auth status refresh
     await this.authState.checkProviderKeyStatus(providerId);
   }
 
@@ -411,7 +380,6 @@ export class AuthConfigComponent implements OnInit {
    */
   onTileSelect(tileId: string): void {
     if (tileId === 'claude') {
-      // Preserve current claude auth mode if already on claude tile
       const current = this.authState.authMethod();
       if (current !== 'apiKey' && current !== 'claudeCli') {
         this.authState.setAuthMethod('apiKey');

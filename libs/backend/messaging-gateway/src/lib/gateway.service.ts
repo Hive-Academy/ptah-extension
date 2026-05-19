@@ -231,8 +231,6 @@ export class GatewayService extends EventEmitter {
         this.flushOutbound(payload),
       );
     }
-
-    // Bridge transcriber download lifecycle to the renderer. Idempotent.
     this.bridgeWhisperEvents();
 
     const masterEnabled =
@@ -272,8 +270,6 @@ export class GatewayService extends EventEmitter {
 
   /** LIFO cleanup hook called by `main.ts` `will-quit`. */
   async stop(): Promise<void> {
-    // Drain before discard so any in-flight chunks reach the platform before
-    // adapters close. discardAll() without drainAll() drops buffered content.
     await this.coalescer?.drainAll();
     for (const [platform, adapter] of this.adapters) {
       try {
@@ -348,16 +344,12 @@ export class GatewayService extends EventEmitter {
       return { ok: false, error: 'invalid-code' };
     }
     const binding = this.bindings.approve(id, ptahSessionId, workspaceRoot);
-    // Binding has left the pending state — drop the one-shot prompt latch so
-    // a future revoke→re-pending cycle gets a fresh prompt.
     this.pairingPromptSent.delete(id);
     return { ok: true, binding };
   }
 
   setBindingStatus(id: BindingId, status: ApprovalStatus): GatewayBinding {
     const binding = this.bindings.setStatus(id, status);
-    // Any state transition out of `pending` clears the latch. Any transition
-    // into `revoked`/`rejected` also drops any in-flight outbound stream.
     this.pairingPromptSent.delete(id);
     if (status === 'revoked' || status === 'rejected') {
       const handleKey =
@@ -461,10 +453,6 @@ export class GatewayService extends EventEmitter {
     this.streamHandles.delete(conversationKey);
   }
 
-  // -------------------------------------------------------------------------
-  // Internal — adapter wiring + inbound pipeline.
-  // -------------------------------------------------------------------------
-
   private wireAdapter(
     platform: GatewayPlatform,
     adapter: IMessagingAdapter,
@@ -538,7 +526,6 @@ export class GatewayService extends EventEmitter {
   }
 
   private async handleInbound(msg: InboundMessage): Promise<void> {
-    // Abuse cap.
     if (msg.allowListId) {
       const now = Date.now();
       const recent = (this.inboundCounters.get(msg.allowListId) ?? []).filter(
@@ -554,8 +541,6 @@ export class GatewayService extends EventEmitter {
       recent.push(now);
       this.inboundCounters.set(msg.allowListId, recent);
     }
-
-    // Voice path: transcribe before pairing logic.
     let body = msg.body;
     if (msg.voicePath && this.cfgBool(SETTINGS_KEYS.voiceEnabled, true)) {
       try {
@@ -568,8 +553,6 @@ export class GatewayService extends EventEmitter {
         });
       }
     }
-
-    // Pairing flow.
     const binding = this.bindings.upsertPending({
       platform: msg.platform,
       externalChatId: msg.externalChatId,
@@ -577,9 +560,6 @@ export class GatewayService extends EventEmitter {
     });
 
     if (binding.approvalStatus === 'pending') {
-      // Architecture §8.5: send the "approval required" reply ONCE per
-      // pending binding. Every subsequent inbound is silently dropped to
-      // prevent a hostile sender from spamming the user's notifications.
       if (!this.pairingPromptSent.has(binding.id)) {
         const code = binding.pairingCode ?? '------';
         const reply =
@@ -607,8 +587,6 @@ export class GatewayService extends EventEmitter {
       });
       return;
     }
-
-    // Persist (dedup via UNIQUE).
     const persisted = this.messages.insert({
       bindingId: binding.id,
       direction: 'inbound',
@@ -647,7 +625,6 @@ export class GatewayService extends EventEmitter {
           externalChatId,
           externalMsgId: res.externalMsgId,
         });
-        // Persist outbound (dedup-friendly).
         const binding = this.bindings.findByExternal(platform, externalChatId);
         if (binding) {
           this.messages.insert({
@@ -682,7 +659,6 @@ export class GatewayService extends EventEmitter {
       } else if (platform === 'discord') {
         cipher = await this.gatewaySettings.discordTokenCipher.get();
       } else {
-        // Slack: bot token only — appToken is handled separately in maybeStartSlack.
         cipher = await this.gatewaySettings.slackBotTokenCipher.get();
       }
     } catch (err) {
@@ -753,12 +729,8 @@ export class GatewayService extends EventEmitter {
     const stale = this.messages.listVoicePathsOlderThan(cutoff);
     let deleted = 0;
     for (const p of stale) {
-      try {
-        await fs.unlink(p);
-        deleted++;
-      } catch {
-        // file may already be gone — non-fatal.
-      }
+      await fs.unlink(p);
+      deleted++;
     }
     if (deleted > 0) {
       this.logger.info('[gateway] voice GC removed stale files', {
@@ -780,7 +752,6 @@ export class GatewayService extends EventEmitter {
   bridgeWhisperEvents(): void {
     if (this.whisperEventsBridged) return;
     this.whisperEventsBridged = true;
-    // Apply the current settings model name so the next transcribe uses it.
     const modelName = this.workspace.getConfiguration<string>(
       'ptah',
       SETTINGS_KEYS.whisperModel,

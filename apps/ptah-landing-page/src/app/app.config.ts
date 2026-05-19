@@ -16,8 +16,6 @@ import { AuthInitializerService } from './services/auth-initializer.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    // Auth state synchronization from backend redirects (OAuth, magic link)
-    // Must run BEFORE routing to set localStorage hint from ?auth_hint=1 param
     {
       provide: APP_INITIALIZER,
       useFactory: (authInit: AuthInitializerService) => () =>
@@ -25,15 +23,11 @@ export const appConfig: ApplicationConfig = {
       deps: [AuthInitializerService],
       multi: true,
     },
-    // Router configuration
     provideRouter(routes),
-    // HTTP client with API interceptor for credentials and base URL
     provideHttpClient(withInterceptors([apiInterceptor])),
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
-    // Markdown rendering for chat messages (required by ExecutionNodeComponent from @ptah-extension/chat)
     provideMarkdownRendering({ extensions: 'basic' }),
-    // Paddle checkout configuration with DI token (Pro plan only - Community is free)
     providePaddleConfig({
       environment: environment.paddle.environment,
       token: environment.paddle.token,
@@ -45,21 +39,11 @@ export const appConfig: ApplicationConfig = {
       licenseVerifyRetries: 3,
       licenseVerifyDelay: 2000,
     }),
-    // GSAP animation defaults for landing page
     provideGsap({
       defaults: {
         ease: 'power2.out',
         duration: 0.8,
       },
     }),
-    // Lenis smooth scroll for premium scroll experience
-    // provideLenis({
-    //   lerp: 0.05, // 5% interpolation - smoother but responsive to fast scrolling
-    //   duration: 1.2, // Fallback duration for consistent timing (lerp takes priority)
-    //   wheelMultiplier: 1.4, // Slightly reduced wheel sensitivity to prevent jumping
-    //   touchMultiplier: 1.2, // Balanced touch responsiveness
-    //   smoothWheel: true, // Smooth wheel scrolling
-    //   useGsapTicker: true, // Sync with GSAP for animations
-    // }),
   ],
 };

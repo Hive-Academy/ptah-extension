@@ -54,22 +54,12 @@ export class ElectronSecretStorage implements ISecretStorage {
   }
 
   async get(key: string): Promise<string | undefined> {
-    // Use strict `in` / `undefined` check — an empty-string value is a
-    // legitimate secret and must round-trip as `""`, not `undefined`.
     if (!(key in this.secrets)) return undefined;
     const stored = this.secrets[key];
     if (stored === undefined) return undefined;
-
-    // Plain-text fallback marker (written when encryption was unavailable at
-    // store() time). Honour the marker regardless of current encryption state
-    // so credentials survive round-trips across encryption-availability changes.
     if (stored.startsWith(PLAIN_MARKER)) {
       return stored.slice(PLAIN_MARKER.length);
     }
-
-    // Empty string with no marker means the ciphertext was empty — treat as
-    // empty-string plaintext. safeStorage.decryptString on an empty Buffer is
-    // platform-dependent, so short-circuit for determinism.
     if (stored === '') {
       return '';
     }
@@ -99,8 +89,6 @@ export class ElectronSecretStorage implements ISecretStorage {
       const encrypted = this.safeStorage.encryptString(value);
       this.secrets[key] = encrypted.toString('base64');
     } else {
-      // Fallback: tag with plain: marker so get() can distinguish a raw value
-      // from a base64-encoded encrypted buffer on future reads.
       console.warn(
         '[ElectronSecretStorage] Encryption not available, storing with plain: marker',
       );
@@ -130,7 +118,6 @@ export class ElectronSecretStorage implements ISecretStorage {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
       this.secrets = JSON.parse(raw);
     } catch {
-      // File doesn't exist or is corrupted — start fresh
       this.secrets = {};
     }
   }
@@ -138,7 +125,6 @@ export class ElectronSecretStorage implements ISecretStorage {
   private async persist(): Promise<void> {
     const dir = path.dirname(this.filePath);
     await fsPromises.mkdir(dir, { recursive: true });
-    // Atomic write: write to temp file then rename
     const tmpPath = this.filePath + '.tmp';
     await fsPromises.writeFile(
       tmpPath,

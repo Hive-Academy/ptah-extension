@@ -180,11 +180,7 @@ export class TrialEndedPageComponent implements OnInit {
   public readonly isDowngrading = signal(false);
   public readonly isYearly = signal(false);
   public readonly isCheckingOut = signal(false);
-
-  // Expose Paddle error for template
   public readonly paddleError = this.paddleService.error;
-
-  // Icons
   public readonly ClockIcon = Clock;
   public readonly SparklesIcon = Sparkles;
   public readonly ZapIcon = Zap;
@@ -192,10 +188,7 @@ export class TrialEndedPageComponent implements OnInit {
   public readonly BotIcon = Bot;
 
   public ngOnInit(): void {
-    // Initialize Paddle SDK
     this.paddleService.initialize();
-
-    // Fetch current license data to get daysRemaining
     this.http.get<{ daysRemaining?: number }>('/api/v1/licenses/me').subscribe({
       next: (data) => {
         this.daysRemaining.set(data.daysRemaining ?? 0);
@@ -210,8 +203,6 @@ export class TrialEndedPageComponent implements OnInit {
     const priceId = this.isYearly()
       ? environment.paddle.proPriceIdYearly
       : environment.paddle.proPriceIdMonthly;
-
-    // Get current user email for Paddle checkout
     this.authService
       .getCurrentUser()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -237,11 +228,9 @@ export class TrialEndedPageComponent implements OnInit {
   public async continueWithCommunity(): Promise<void> {
     this.isDowngrading.set(true);
     try {
-      // Call backend to downgrade to Community plan
       await this.http
         .post('/api/v1/licenses/downgrade-to-community', {})
         .toPromise();
-      // Redirect to profile after successful downgrade
       this.router.navigate(['/profile']);
     } catch (error) {
       console.error('Failed to downgrade:', error);

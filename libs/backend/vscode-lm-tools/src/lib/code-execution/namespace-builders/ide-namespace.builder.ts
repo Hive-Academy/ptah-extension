@@ -28,10 +28,6 @@ import type {
   VisibleRange,
 } from '../types';
 
-// ========================================
-// IIDECapabilities Interface
-// ========================================
-
 /**
  * Platform-specific IDE capabilities interface.
  *
@@ -161,16 +157,8 @@ export interface IIDECapabilities {
   };
 }
 
-// ========================================
-// Graceful Degradation Message
-// ========================================
-
 const IDE_NOT_AVAILABLE_MSG =
   'IDE integration not available in standalone mode. This feature requires VS Code.';
-
-// ========================================
-// buildIDENamespace
-// ========================================
 
 /**
  * Build the complete IDE namespace with all sub-namespaces.
@@ -198,8 +186,6 @@ export function buildIDENamespace(
       testing: buildTestingNamespace(),
     };
   }
-
-  // Graceful degradation: no IDE capabilities available (Electron/standalone)
   return {
     lsp: buildGracefulLSPNamespace(),
     editor: buildGracefulEditorNamespace(),
@@ -207,10 +193,6 @@ export function buildIDENamespace(
     testing: buildTestingNamespace(),
   };
 }
-
-// ========================================
-// Capability-backed Namespace Builders
-// ========================================
 
 /**
  * Build LSP namespace that delegates to IIDECapabilities.lsp
@@ -340,10 +322,6 @@ function buildActionsNamespaceFromCapabilities(
   };
 }
 
-// ========================================
-// Graceful Degradation Namespace Builders
-// ========================================
-
 /**
  * Build LSP namespace with graceful degradation stubs.
  * All methods return empty arrays or null with a descriptive message
@@ -431,10 +409,6 @@ function buildGracefulActionsNamespace(): ActionsNamespace {
   };
 }
 
-// ========================================
-// Testing Namespace (always graceful degradation)
-// ========================================
-
 /**
  * Build the Testing namespace for test operations.
  *
@@ -514,10 +488,6 @@ function buildTestingNamespace(): TestingNamespace {
   };
 }
 
-// ========================================
-// Input Validation Helpers
-// ========================================
-
 /**
  * Validate that a file path input is non-empty.
  * @throws Error if file path is empty or whitespace
@@ -547,6 +517,4 @@ function validateLineInput(line: number): void {
     throw new Error('Line must be non-negative');
   }
 }
-
-// Export the IDE_NOT_AVAILABLE_MSG for potential use in error reporting
 export { IDE_NOT_AVAILABLE_MSG };

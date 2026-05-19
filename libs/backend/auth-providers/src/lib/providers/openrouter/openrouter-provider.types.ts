@@ -11,16 +11,8 @@
  * Mirrors the Copilot/Codex translation proxy pattern.
  */
 
-// ---------------------------------------------------------------------------
-// OpenRouter Constants
-// ---------------------------------------------------------------------------
-
 /** Placeholder API key used when the translation proxy manages auth internally */
 export const OPENROUTER_PROXY_TOKEN_PLACEHOLDER = 'openrouter-proxy-token';
-
-// ---------------------------------------------------------------------------
-// OpenRouter Authentication Service Interface
-// ---------------------------------------------------------------------------
 
 /**
  * OpenRouter authentication service interface.

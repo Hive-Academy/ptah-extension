@@ -13,8 +13,6 @@ import * as path from 'path';
 const TEST_PROMPT = 'What is 2+2? Reply with just the number.';
 const TIMEOUT_MS = 30_000;
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 async function resolveCliPath(binary: string): Promise<string | null> {
   try {
     return await whichLib(binary);
@@ -34,30 +32,21 @@ async function resolveWindowsCmd(binaryPath: string): Promise<string> {
   if (process.platform !== 'win32') return binaryPath;
   if (!binaryPath.toLowerCase().endsWith('.cmd')) return binaryPath;
 
-  try {
-    const content = await readFile(binaryPath, 'utf8');
-    const dir = path.dirname(binaryPath);
+  const content = await readFile(binaryPath, 'utf8');
+  const dir = path.dirname(binaryPath);
+  const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
+  let lastMatch: string | null = null;
+  let m;
+  while ((m = regex.exec(content)) !== null) {
+    lastMatch = m[1];
+  }
 
-    // npm .cmd wrappers use %~dp0 as the wrapper's directory.
-    // The actual target is the last "%~dp0\<path>" reference.
-    const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
-    let lastMatch: string | null = null;
-    let m;
-    while ((m = regex.exec(content)) !== null) {
-      lastMatch = m[1];
-    }
-
-    if (lastMatch) {
-      return path.join(dir, lastMatch);
-    }
-  } catch {
-    // Can't read/parse .cmd file — fall through to original
+  if (lastMatch) {
+    return path.join(dir, lastMatch);
   }
 
   return binaryPath;
 }
-
-// ── SDK Test ─────────────────────────────────────────────────────────────────
 
 async function testCodexSdk(codexPathOverride?: string): Promise<void> {
   const label = codexPathOverride
@@ -68,11 +57,8 @@ async function testCodexSdk(codexPathOverride?: string): Promise<void> {
 
   try {
     console.log('  [1] Importing @openai/codex-sdk (ESM dynamic import)...');
-    // ESM-only package — use dynamic import() which works in both CJS and ESM contexts.
-    // In CJS, Node.js handles "import" condition via dynamic import().
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sdk = await (Function(
-      'return import("@openai/codex-sdk")'
+      'return import("@openai/codex-sdk")',
     )() as Promise<any>);
     console.log('  [OK] SDK imported successfully');
     console.log('  [1a] SDK exports:', Object.keys(sdk).join(', '));
@@ -94,8 +80,6 @@ async function testCodexSdk(codexPathOverride?: string): Promise<void> {
 
     console.log('  [4] Running streamed turn...');
     const abortController = new AbortController();
-
-    // Timeout guard
     const timer = setTimeout(() => {
       console.log(`\n  [TIMEOUT] Aborting after ${TIMEOUT_MS / 1000}s`);
       abortController.abort();
@@ -132,14 +116,13 @@ async function testCodexSdk(codexPathOverride?: string): Promise<void> {
       console.log('  [DIAGNOSIS] spawn EINVAL — the SDK is trying to spawn a');
       console.log('    .cmd wrapper file directly via child_process.spawn().');
       console.log(
-        '    On Windows, .cmd files require shell: true or the actual'
+        '    On Windows, .cmd files require shell: true or the actual',
       );
       console.log('    Node.js script path must be used instead.');
     }
     if ('code' in err) {
       console.log(`  [ERROR CODE] ${(err as NodeJS.ErrnoException).code}`);
     }
-    // Print stack for deeper diagnosis
     if (err.stack) {
       console.log(`  [STACK]\n${err.stack.split('\n').slice(0, 8).join('\n')}`);
     }
@@ -179,27 +162,21 @@ function summarizeEvent(event: Record<string, unknown>): string {
   }
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
-
 async function main(): Promise<void> {
   console.log('=== Codex SDK Spawn Diagnostic ===\n');
   console.log(`Platform: ${process.platform}`);
   console.log(`Node: ${process.version}`);
   console.log(`CWD: ${process.cwd()}`);
   console.log(`Prompt: "${TEST_PROMPT}"`);
-
-  // Step 1: Find codex binary
   const codexPath = await resolveCliPath('codex');
   console.log(`\nCodex binary (which): ${codexPath ?? 'NOT FOUND'}`);
 
   if (!codexPath) {
     console.log(
-      '\nCodex CLI not found. Install with: npm install -g @openai/codex'
+      '\nCodex CLI not found. Install with: npm install -g @openai/codex',
     );
     process.exit(1);
   }
-
-  // Step 2: Check if it's a .cmd wrapper
   const isCmd = codexPath.toLowerCase().endsWith('.cmd');
   console.log(`Is .cmd wrapper: ${isCmd}`);
 
@@ -207,8 +184,6 @@ async function main(): Promise<void> {
   if (isCmd) {
     resolvedPath = await resolveWindowsCmd(codexPath);
     console.log(`Resolved from .cmd: ${resolvedPath}`);
-
-    // Show .cmd contents for diagnosis
     try {
       const cmdContent = await readFile(codexPath, 'utf8');
       console.log(`\n.cmd file contents:\n---`);
@@ -218,23 +193,16 @@ async function main(): Promise<void> {
       console.log('Could not read .cmd file');
     }
   }
-
-  // Test 1: No codexPathOverride — SDK resolves from PATH itself
-  // This is what our fix does: skip override when path is .cmd
   await testCodexSdk();
-
-  // Test 2: With .CMD path as override (reproduces the EINVAL bug)
   if (isCmd) {
     console.log(
-      '\n[NOTE] Test 2 demonstrates the EINVAL bug when .cmd path is passed'
+      '\n[NOTE] Test 2 demonstrates the EINVAL bug when .cmd path is passed',
     );
     await testCodexSdk(codexPath);
   }
-
-  // Test 3: With resolved .js path as override (EFTYPE on Windows)
   if (resolvedPath && resolvedPath !== codexPath) {
     console.log(
-      '\n[NOTE] Test 3 demonstrates EFTYPE when .js script path is passed'
+      '\n[NOTE] Test 3 demonstrates EFTYPE when .js script path is passed',
     );
     await testCodexSdk(resolvedPath);
   }

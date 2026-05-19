@@ -78,8 +78,6 @@ export class LicenseFetcher {
     if (settingOverride) {
       return settingOverride;
     }
-
-    // extensionMode: 2 = Development (matches vscode.ExtensionMode.Development)
     const isDev = this.context.extensionMode === 2;
     return resolveEnvironment(isDev).urls.API_URL;
   }
@@ -111,12 +109,8 @@ export class LicenseFetcher {
         { licenseKey },
         { timeout: NETWORK_TIMEOUT_MS },
       );
-
-      // Verify response signature to prevent MITM attacks.
-      // Extract signature before creating the LicenseStatus object.
       const { signature: responseSignature, ...licenseData } = responseJson;
       if (this.publicKey) {
-        // When a real public key is configured, signature is mandatory
         if (!responseSignature) {
           throw new Error(
             'License response missing required signature — possible tampering',
@@ -189,7 +183,6 @@ export class LicenseFetcher {
    */
   private verifySignature(payload: object, signature: string): boolean {
     if (!this.publicKey) {
-      // Public key not configured (placeholder) - skip verification
       return true;
     }
     try {

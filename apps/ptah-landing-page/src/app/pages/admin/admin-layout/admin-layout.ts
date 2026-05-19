@@ -38,9 +38,6 @@ export class AdminLayout {
   protected readonly currentEmail = signal<string | null>(null);
 
   public constructor() {
-    // Fire-and-forget fetch: fill the top-bar label once `/api/auth/me`
-    // resolves. Guard already proved the user is authenticated, so we only
-    // treat errors as "hide the label" (no redirect).
     this.auth.getCurrentUser().subscribe((user) => {
       this.currentEmail.set(user?.email ?? null);
     });

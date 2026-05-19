@@ -101,10 +101,6 @@ export class PaddleService {
     );
 
     const subscriptionId = data.id;
-
-    // Step 1: Idempotency check - prevent duplicate processing
-    // Primary guard: check if subscription already exists (handles cross-event duplicates,
-    // e.g. subscription.activated already created the record before this retry arrives)
     const existingSubscription = await this.prisma.subscription.findUnique({
       where: { paddleSubscriptionId: subscriptionId },
     });
@@ -115,8 +111,6 @@ export class PaddleService {
       );
       return { success: true, duplicate: true };
     }
-
-    // Secondary guard: check if this exact event already created a license
     const existingLicense = await this.prisma.license.findFirst({
       where: { createdBy: `paddle_${eventId}` },
     });
@@ -134,12 +128,8 @@ export class PaddleService {
       ? new Date(data.currentBillingPeriod.endsAt)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Default 30 days if missing
     const licenseKey = this.generateLicenseKey();
-
-    // Step 2: Detect trial status from SDK type
     const isInTrial = data.status === 'trialing';
     const licensePlan = isInTrial ? `trial_${basePlan}` : basePlan;
-
-    // Extract trial end from item's trialDates
     const trialDates = data.items[0]?.trialDates;
     const trialEnd = trialDates?.endsAt ? new Date(trialDates.endsAt) : null;
 
@@ -150,10 +140,7 @@ export class PaddleService {
         }`,
       );
     }
-
-    // Wrap all database operations in a transaction for atomicity
     const license = await this.prisma.$transaction(async (tx) => {
-      // Step 3: Find or create user
       let user = await tx.user.findUnique({
         where: { email: normalizedEmail },
       });
@@ -163,7 +150,6 @@ export class PaddleService {
         });
         this.logger.log(`Created new user for email: ${normalizedEmail}`);
       } else if (!user.paddleCustomerId && customerId) {
-        // Save paddleCustomerId to user if not already set (for existing users)
         user = await tx.user.update({
           where: { id: user.id },
           data: { paddleCustomerId: customerId },
@@ -172,8 +158,6 @@ export class PaddleService {
           `Saved Paddle customer ID ${customerId} to user: ${normalizedEmail}`,
         );
       }
-
-      // Step 4: Revoke any existing active licenses (one active license per user)
       const revokedCount = await tx.license.updateMany({
         where: {
           userId: user.id,
@@ -188,10 +172,6 @@ export class PaddleService {
           `Revoked ${revokedCount.count} existing license(s) for user: ${normalizedEmail}`,
         );
       }
-
-      // Step 4b: Expire any internal trial subscriptions for this user
-      // When a trial user converts to paid via Paddle, the old trial subscription
-      // must be expired to prevent the cron job from downgrading them back to Community.
       const expiredTrials = await tx.subscription.updateMany({
         where: {
           userId: user.id,
@@ -205,8 +185,6 @@ export class PaddleService {
           `Expired ${expiredTrials.count} internal trial subscription(s) for user: ${normalizedEmail}`,
         );
       }
-
-      // Step 5: Create new license
       const newLicense = await tx.license.create({
         data: {
           userId: user.id,
@@ -222,8 +200,6 @@ export class PaddleService {
           isInTrial ? ' (trial)' : ''
         }`,
       );
-
-      // Step 6: Create subscription record
       await tx.subscription.create({
         data: {
           userId: user.id,
@@ -241,8 +217,6 @@ export class PaddleService {
 
       return newLicense;
     });
-
-    // Step 7: Send license key email (outside transaction - non-critical)
     try {
       await this.emailService.sendLicenseKey({
         email: normalizedEmail,
@@ -257,8 +231,6 @@ export class PaddleService {
         error instanceof Error ? error.message : 'Unknown error',
       );
     }
-
-    // Step 8: Emit SSE event for real-time frontend updates
     this.eventsService.emitLicenseUpdated({
       email: normalizedEmail,
       plan: licensePlan,
@@ -296,20 +268,15 @@ export class PaddleService {
     const periodEnd = data.currentBillingPeriod
       ? new Date(data.currentBillingPeriod.endsAt)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-    // Check if we have an existing subscription (created during trial)
     const existingSubscription = await this.prisma.subscription.findUnique({
       where: { paddleSubscriptionId: subscriptionId },
       include: { user: true },
     });
 
     if (existingSubscription) {
-      // Subscription exists - this is a trial-to-active transition
       this.logger.log(
         `Trial-to-active transition for subscription ${subscriptionId}`,
       );
-
-      // Update subscription status to active and clear trial end
       await this.prisma.subscription.update({
         where: { paddleSubscriptionId: subscriptionId },
         data: {
@@ -318,8 +285,6 @@ export class PaddleService {
           trialEnd: null,
         },
       });
-
-      // Update license plan from trial_X to X
       const updateResult = await this.prisma.license.updateMany({
         where: {
           userId: existingSubscription.userId,
@@ -335,8 +300,6 @@ export class PaddleService {
       this.logger.log(
         `Updated ${updateResult.count} license(s) from trial to ${basePlan}`,
       );
-
-      // Emit SSE events for trial-to-active transition
       this.eventsService.emitLicenseUpdated({
         email: normalizedEmail,
         plan: basePlan,
@@ -352,9 +315,6 @@ export class PaddleService {
 
       return { success: true };
     }
-
-    // No existing subscription - create new (delegate to created handler logic)
-    // This handles cases where activated fires without prior created event
     return this.handleSubscriptionCreatedEvent(
       data as unknown as SubscriptionCreatedNotification,
       email,
@@ -388,8 +348,6 @@ export class PaddleService {
       ? new Date(data.currentBillingPeriod.endsAt)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const subscriptionId = data.id;
-
-    // Find user by email
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -397,8 +355,6 @@ export class PaddleService {
       this.logger.warn(`User not found for email: ${normalizedEmail}`);
       return { success: false, error: 'User not found' };
     }
-
-    // Update subscription record
     await this.prisma.subscription.updateMany({
       where: { paddleSubscriptionId: subscriptionId },
       data: {
@@ -409,8 +365,6 @@ export class PaddleService {
       },
     });
     this.logger.log(`Updated subscription: ${subscriptionId}`);
-
-    // Update active licenses for this user
     const updateResult = await this.prisma.license.updateMany({
       where: {
         userId: user.id,
@@ -427,8 +381,6 @@ export class PaddleService {
         updateResult.count
       } license(s) to plan: ${newPlan}, expires: ${periodEnd.toISOString()}`,
     );
-
-    // Emit SSE event for real-time frontend updates
     this.eventsService.emitLicenseUpdated({
       email: normalizedEmail,
       plan: newPlan,
@@ -464,8 +416,6 @@ export class PaddleService {
       : new Date();
     const subscriptionId = data.id;
     const canceledAt = data.canceledAt ? new Date(data.canceledAt) : new Date();
-
-    // Find user by email
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -473,8 +423,6 @@ export class PaddleService {
       this.logger.warn(`User not found for email: ${normalizedEmail}`);
       return { success: false, error: 'User not found' };
     }
-
-    // Update subscription record
     await this.prisma.subscription.updateMany({
       where: { paddleSubscriptionId: subscriptionId },
       data: {
@@ -484,8 +432,6 @@ export class PaddleService {
       },
     });
     this.logger.log(`Marked subscription as canceled: ${subscriptionId}`);
-
-    // Update license expiration - user keeps access until period ends
     const updateResult = await this.prisma.license.updateMany({
       where: {
         userId: user.id,
@@ -501,14 +447,10 @@ export class PaddleService {
         updateResult.count
       } license(s) with cancellation expiry: ${periodEnd.toISOString()}`,
     );
-
-    // Get current plan for the notification
     const currentLicense = await this.prisma.license.findFirst({
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
     });
-
-    // Emit SSE event for canceled status
     this.eventsService.emitSubscriptionStatus({
       email: normalizedEmail,
       status: 'canceled',
@@ -539,8 +481,6 @@ export class PaddleService {
 
     const normalizedEmail = email.toLowerCase();
     const subscriptionId = data.id;
-
-    // Update subscription status to past_due
     await this.prisma.subscription.updateMany({
       where: { paddleSubscriptionId: subscriptionId },
       data: { status: 'past_due' },
@@ -549,8 +489,6 @@ export class PaddleService {
     this.logger.warn(
       `Subscription ${subscriptionId} is past due for ${normalizedEmail} - payment retry in progress`,
     );
-
-    // Get current license plan for the notification
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -560,8 +498,6 @@ export class PaddleService {
           orderBy: { createdAt: 'desc' },
         })
       : null;
-
-    // Emit SSE event for past_due status
     this.eventsService.emitSubscriptionStatus({
       email: normalizedEmail,
       status: 'past_due',
@@ -592,19 +528,14 @@ export class PaddleService {
 
     const subscriptionId = data.id;
     const normalizedEmail = email.toLowerCase();
-
-    // Update subscription status to paused
     await this.prisma.subscription.updateMany({
       where: { paddleSubscriptionId: subscriptionId },
       data: { status: 'paused' },
     });
-
-    // Find user and update license status
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
     if (user) {
-      // Get license before update for plan info
       const license = await this.prisma.license.findFirst({
         where: { userId: user.id, status: 'active' },
       });
@@ -616,8 +547,6 @@ export class PaddleService {
       this.logger.log(
         `License(s) paused for user ${normalizedEmail} - subscription ${subscriptionId}`,
       );
-
-      // Emit SSE event for paused status
       this.eventsService.emitSubscriptionStatus({
         email: normalizedEmail,
         status: 'paused',
@@ -659,19 +588,14 @@ export class PaddleService {
     const periodEnd = data.currentBillingPeriod
       ? new Date(data.currentBillingPeriod.endsAt)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-    // Update subscription status to active
     await this.prisma.subscription.updateMany({
       where: { paddleSubscriptionId: subscriptionId },
       data: { status: 'active', currentPeriodEnd: periodEnd },
     });
-
-    // Find user and reactivate license
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
     if (user) {
-      // Get license before update for plan info
       const license = await this.prisma.license.findFirst({
         where: { userId: user.id, status: 'paused' },
       });
@@ -683,8 +607,6 @@ export class PaddleService {
       this.logger.log(
         `License(s) reactivated for user ${normalizedEmail} - expires ${periodEnd.toISOString()}`,
       );
-
-      // Emit SSE events for resumed status
       this.eventsService.emitLicenseUpdated({
         email: normalizedEmail,
         plan: license?.plan || 'unknown',
@@ -725,10 +647,7 @@ export class PaddleService {
     this.logger.log(
       `Processing transaction.completed event: ${eventId}, transaction: ${data.id}`,
     );
-
-    // Step 1: Check if this is a subscription transaction
     if (!data.subscriptionId) {
-      // Check if this is a session payment (one-time $100 purchase)
       const sessionPriceId = this.configService.get<string>(
         'PADDLE_PRICE_ID_SESSION',
       );
@@ -755,8 +674,6 @@ export class PaddleService {
     this.logger.log(
       `Transaction ${data.id} is for subscription ${subscriptionId}`,
     );
-
-    // Step 2: Verify billing period exists (required for renewals)
     if (!data.billingPeriod) {
       this.logger.warn(
         `Transaction ${data.id} has subscriptionId but no billingPeriod - cannot extend license`,
@@ -768,8 +685,6 @@ export class PaddleService {
     }
 
     const newPeriodEnd = new Date(data.billingPeriod.endsAt);
-
-    // Step 3: Find existing subscription
     const subscription = await this.prisma.subscription.findUnique({
       where: { paddleSubscriptionId: subscriptionId },
       include: { user: true },
@@ -787,8 +702,6 @@ export class PaddleService {
     }
 
     const email = subscription.user.email;
-
-    // Step 4: Update subscription currentPeriodEnd
     await this.prisma.subscription.update({
       where: { paddleSubscriptionId: subscriptionId },
       data: {
@@ -799,8 +712,6 @@ export class PaddleService {
     this.logger.log(
       `Updated subscription ${subscriptionId} period end to ${newPeriodEnd.toISOString()}`,
     );
-
-    // Step 5: Update license expiresAt
     const updateResult = await this.prisma.license.updateMany({
       where: {
         userId: subscription.userId,
@@ -816,14 +727,10 @@ export class PaddleService {
         updateResult.count
       } license(s) for user ${email} to ${newPeriodEnd.toISOString()}`,
     );
-
-    // Step 6: Get current license plan for SSE event
     const currentLicense = await this.prisma.license.findFirst({
       where: { userId: subscription.userId, status: 'active' },
       orderBy: { createdAt: 'desc' },
     });
-
-    // Step 7: Emit SSE event for real-time frontend updates
     this.eventsService.emitLicenseUpdated({
       email,
       plan: currentLicense?.plan || 'unknown',
@@ -852,16 +759,12 @@ export class PaddleService {
       this.logger.warn('No price ID provided - returning expired tier');
       return 'expired';
     }
-
-    // Pro plan price IDs (only paid plan in freemium model)
     const proMonthlyPriceId = this.configService.get<string>(
       'PADDLE_PRICE_ID_PRO_MONTHLY',
     );
     const proYearlyPriceId = this.configService.get<string>(
       'PADDLE_PRICE_ID_PRO_YEARLY',
     );
-
-    // Map to pro plan
     if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId) {
       return 'pro';
     }

@@ -27,10 +27,6 @@ import type {
   ViewportDimensions,
 } from '../types';
 
-// ========================================
-// IBrowserCapabilities Interface
-// ========================================
-
 /**
  * Platform-specific browser automation capabilities interface.
  *
@@ -120,8 +116,6 @@ export interface IBrowserCapabilities {
 
   isConnected(): boolean;
 
-  // Recording methods
-
   /** Start recording browser session frames for GIF assembly */
   startRecording(options?: {
     maxFrames?: number;
@@ -138,10 +132,6 @@ export interface IBrowserCapabilities {
     error?: string;
   }>;
 }
-
-// ========================================
-// URL Validation (Security)
-// ========================================
 
 const BLOCKED_SCHEMES = [
   'file:',
@@ -169,18 +159,12 @@ export function validateBrowserUrl(
 ): string | undefined {
   try {
     const parsed = new URL(url);
-
-    // Check blocked schemes
     if (BLOCKED_SCHEMES.includes(parsed.protocol)) {
       return `Blocked: ${parsed.protocol} URLs are not allowed for security reasons. Only http: and https: are permitted.`;
     }
-
-    // Only allow http and https
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return `Blocked: ${parsed.protocol} URLs are not allowed. Only http: and https: are permitted.`;
     }
-
-    // Check blocked hosts (unless localhost is allowed)
     if (!allowLocalhost && BLOCKED_HOSTS.includes(parsed.hostname)) {
       return `Blocked: ${parsed.hostname} URLs are blocked by default. Enable ptah.browser.allowLocalhost in settings to allow local dev server access.`;
     }
@@ -191,16 +175,8 @@ export function validateBrowserUrl(
   }
 }
 
-// ========================================
-// Graceful Degradation Message
-// ========================================
-
 const BROWSER_NOT_AVAILABLE_MSG =
   'Browser capabilities not available on this platform. Browser automation requires either the Electron app (built-in) or Chrome installed on your system (VS Code extension).';
-
-// ========================================
-// BrowserNamespaceDependencies
-// ========================================
 
 /**
  * Dependencies required to build the browser namespace.
@@ -213,13 +189,7 @@ const BROWSER_NOT_AVAILABLE_MSG =
 export interface BrowserNamespaceDependencies {
   capabilities?: IBrowserCapabilities;
   getAllowLocalhost?: () => boolean;
-  // Note: recordingDir is configured via the capabilities constructor, not here.
-  // Note: headless and viewport are agent-controlled via navigate params, not settings.
 }
-
-// ========================================
-// buildBrowserNamespace
-// ========================================
 
 /**
  * Build the browser namespace with CDP-backed browser automation methods.
@@ -245,17 +215,12 @@ export function buildBrowserNamespace(
   return buildCapabilityBackedBrowserNamespace(capabilities, getAllowLocalhost);
 }
 
-// ========================================
-// Capability-Backed Namespace
-// ========================================
-
 function buildCapabilityBackedBrowserNamespace(
   capabilities: IBrowserCapabilities,
   getAllowLocalhost?: () => boolean,
 ): BrowserNamespace {
   return {
     navigate: async (params): Promise<BrowserNavigateResult> => {
-      // Validate URL against security blocklist
       const allowLocalhost = getAllowLocalhost?.() ?? false;
       const validationError = validateBrowserUrl(params.url, allowLocalhost);
       if (validationError) {
@@ -266,8 +231,6 @@ function buildCapabilityBackedBrowserNamespace(
           error: validationError,
         };
       }
-
-      // Validate viewport dimensions if provided
       if (params.viewport) {
         const { width, height } = params.viewport;
         if (
@@ -289,8 +252,6 @@ function buildCapabilityBackedBrowserNamespace(
       }
 
       try {
-        // Pass agent-controlled session options (headless, viewport) to capabilities.
-        // These only take effect when creating a NEW session.
         if (params.headless !== undefined || params.viewport) {
           capabilities.configureSession({
             ...(params.headless !== undefined && { headless: params.headless }),
@@ -325,7 +286,6 @@ function buildCapabilityBackedBrowserNamespace(
     },
 
     evaluate: async (params): Promise<BrowserEvaluateResult> => {
-      // Enforce expression size limit
       if (params.expression.length > MAX_EXPRESSION_LENGTH) {
         return {
           value: null,
@@ -452,10 +412,6 @@ function buildCapabilityBackedBrowserNamespace(
     },
   };
 }
-
-// ========================================
-// Graceful Degradation Namespace
-// ========================================
 
 function buildGracefulBrowserNamespace(): BrowserNamespace {
   return {

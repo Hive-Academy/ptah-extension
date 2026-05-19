@@ -16,10 +16,6 @@ import {
   GitInfoService,
   type Logger,
 } from '@ptah-extension/vscode-core';
-
-// Shared RPC handler classes.
-// These are platform-agnostic handlers that can be used in both VS Code and Electron.
-// LlmRpcHandlers is platform-agnostic; WebSearchRpcHandlers manages web search settings.
 import {
   SessionRpcHandlers,
   ChatRpcHandlers,
@@ -45,8 +41,6 @@ import {
   registerChatServices,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
-
-// Electron-specific RPC handler classes.
 import {
   EditorRpcHandlers,
   FileRpcHandlers,
@@ -58,8 +52,6 @@ import {
   TerminalRpcHandlers,
   UpdateRpcHandlers,
 } from '../services/rpc/handlers';
-
-// Auto-update manager + DI token.
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
@@ -84,24 +76,8 @@ export function registerPhase4Handlers(
   container: DependencyContainer,
   logger: Logger,
 ): void {
-  // ========================================
-  // PHASE 4.0: Pre-handler service tokens (Wave C7d/C7e sub-services).
-  // ========================================
-  // ChatRpcHandlers (4.1) and HarnessRpcHandlers (4.1) declare constructor
-  // injections against CHAT_TOKENS.* and HARNESS_TOKENS.* respectively.
-  // tsyringe walks those decorators when the orchestrator service
-  // (ElectronRpcMethodRegistrationService) is resolved later in
-  // wireRuntime — at that point every chat/harness token MUST already
-  // be registered, otherwise resolution throws
-  //   "Attempted to resolve unregistered dependency token: ChatPtahCliService".
-  // Registering both groups here (before the handler classes themselves)
-  // keeps tsyringe's lazy resolution chain valid without re-ordering main.ts.
   registerHarnessServices(container);
   registerChatServices(container);
-
-  // ========================================
-  // PHASE 4.1: Shared RPC Handler Classes
-  // ========================================
   container.registerSingleton(SessionRpcHandlers);
   container.registerSingleton(ChatRpcHandlers);
   container.registerSingleton(ConfigRpcHandlers);
@@ -115,38 +91,17 @@ export function registerPhase4Handlers(
   container.registerSingleton(QualityRpcHandlers);
   container.registerSingleton(ProviderRpcHandlers);
   container.registerSingleton(WebSearchRpcHandlers);
-  // SetupRpcHandlers, WizardGenerationRpcHandlers, EnhancedPromptsRpcHandlers,
-  // LlmRpcHandlers — all four have @inject-decorated constructors and live in
-  // one shared registration site so apps stay in lockstep.
   registerSharedRpcHandlers(container);
-
-  // Harness Setup Builder RPC handlers.
   container.registerSingleton(HarnessRpcHandlers);
-
-  // MCP Directory handlers live in the shared library so Electron exposes
-  // mcpDirectory:* at parity with VS Code.
   container.registerSingleton(McpDirectoryRpcHandlers);
-
-  // GitInfoService lives in shared libraries. The service registration must
-  // happen here (not inside the shared register helper) because each app owns
-  // its own logger instance. GitRpcHandlers is resolved automatically via
-  // SHARED_HANDLERS — no local registerSingleton call is needed.
   const gitInfoService = new GitInfoService(logger);
   container.register(TOKENS.GIT_INFO_SERVICE, {
     useValue: gitInfoService,
   });
   container.registerSingleton(GitRpcHandlers);
-
-  // Memory curator RPC handlers.
   container.registerSingleton(MemoryRpcHandlers);
-
-  // Skill synthesis RPC handlers.
   container.registerSingleton(SkillsSynthesisRpcHandlers);
-
-  // Cron scheduler RPC handlers.
   container.registerSingleton(CronRpcHandlers);
-
-  // Messaging gateway RPC handlers.
   container.registerSingleton(GatewayRpcHandlers);
 
   logger.info(
@@ -177,11 +132,6 @@ export function registerPhase4Handlers(
       ],
     },
   );
-
-  // ========================================
-  // PHASE 4.2: Electron-specific RPC Handler Classes
-  // ========================================
-  // EditorRpcHandlers requires container for lazy resolution.
   container.register(EditorRpcHandlers, {
     useFactory: (c) =>
       new EditorRpcHandlers(
@@ -194,7 +144,6 @@ export function registerPhase4Handlers(
       ),
   });
   container.registerSingleton(FileRpcHandlers);
-  // ConfigExtendedRpcHandlers requires container for lazy resolution.
   container.register(ConfigExtendedRpcHandlers, {
     useFactory: (c) =>
       new ConfigExtendedRpcHandlers(
@@ -207,22 +156,13 @@ export function registerPhase4Handlers(
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
   container.registerSingleton(LayoutRpcHandlers);
-
-  // GitInfoService registration lives in Phase 4.1 above so the shared
-  // GitRpcHandlers (in SHARED_HANDLERS) can resolve TOKENS.GIT_INFO_SERVICE.
-
-  // PtyManagerService: Terminal PTY session management.
   const ptyManagerService = new PtyManagerService(logger);
   container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
     useValue: ptyManagerService,
   });
   container.registerSingleton(TerminalRpcHandlers);
-
-  // Register UpdateManager singleton (single 4h timer) and its RPC handlers.
   container.registerSingleton(UPDATE_MANAGER_TOKEN, UpdateManager);
   container.registerSingleton(UpdateRpcHandlers);
-
-  // Register the orchestrator itself.
   container.registerSingleton(ElectronRpcMethodRegistrationService);
 
   logger.info(

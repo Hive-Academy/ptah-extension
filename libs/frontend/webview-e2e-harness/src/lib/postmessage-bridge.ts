@@ -67,9 +67,6 @@ export async function installPostMessageBridge(
     const outbound: WebviewToExtensionMessage[] = [];
     const state = { outbound, nextStateValue: undefined as unknown };
     w[globalKey] = state;
-
-    // Stub the VS Code webview API: `acquireVsCodeApi()` is a singleton in
-    // real webviews, so we replicate that contract here.
     let acquired = false;
     (w as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi = () => {
       if (acquired) {
@@ -96,7 +93,6 @@ export async function installPostMessageBridge(
     return page.evaluate((globalKey: string) => {
       const w = window as unknown as Record<string, { outbound: unknown[] }>;
       const bag = w[globalKey];
-      // Return a defensive copy so Playwright serializes a snapshot.
       return bag ? [...bag.outbound] : [];
     }, BRIDGE_GLOBAL) as Promise<readonly WebviewToExtensionMessage[]>;
   };

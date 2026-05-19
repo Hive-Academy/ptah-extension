@@ -70,9 +70,6 @@ export class McpRegistryProvider {
     if (options?.cursor) {
       params.set('cursor', options.cursor);
     }
-
-    // The official registry supports text search via a query param
-    // (specific parameter name may be 'q' or embedded in cursor-based pagination)
     if (options?.query) {
       params.set('q', options.query);
     }
@@ -131,8 +128,6 @@ export class McpRegistryProvider {
     ) {
       return this.popularCache.data;
     }
-
-    // Fetch the first page of servers (default sort is by popularity/activity)
     const result = await this.listServers({ limit: 50 });
 
     this.popularCache = {

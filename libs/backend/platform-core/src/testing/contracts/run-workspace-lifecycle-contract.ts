@@ -37,9 +37,6 @@ export interface WorkspaceLifecycleProviderSetup {
   getFolders(): string[];
   subscribeToFolderChanges(fn: () => void): { dispose(): void };
 }
-
-// Platform-safe path fixtures — absolute on all OSes.
-// Using path.resolve ensures CLI's internal resolve() returns the same value.
 const FOLDER_ALPHA = path.resolve('/workspace/alpha');
 const FOLDER_BETA = path.resolve('/workspace/beta');
 const FOLDER_GAMMA = path.resolve('/workspace/gamma');
@@ -63,18 +60,10 @@ export function runWorkspaceLifecycleContract(
       await teardown?.();
     });
 
-    // -----------------------------------------------------------------------
-    // getActiveFolder — empty state
-    // -----------------------------------------------------------------------
-
     it('getActiveFolder returns undefined when no folders are present', () => {
       setup.seed([]);
       expect(setup.provider.getActiveFolder()).toBeUndefined();
     });
-
-    // -----------------------------------------------------------------------
-    // addFolder
-    // -----------------------------------------------------------------------
 
     it('addFolder appends the path to the folder list', () => {
       setup.seed([]);
@@ -111,10 +100,6 @@ export function runWorkspaceLifecycleContract(
       sub.dispose();
       expect(count).toBe(0);
     });
-
-    // -----------------------------------------------------------------------
-    // removeFolder
-    // -----------------------------------------------------------------------
 
     it('removeFolder of a missing path is a no-op — list unchanged', () => {
       setup.seed([FOLDER_ALPHA]);
@@ -163,10 +148,6 @@ export function runWorkspaceLifecycleContract(
         expect(active).toBeUndefined();
       }
     });
-
-    // -----------------------------------------------------------------------
-    // setActiveFolder / getActiveFolder
-    // -----------------------------------------------------------------------
 
     it('setActiveFolder of a path not in the list is a no-op — no event fired', () => {
       setup.seed([FOLDER_ALPHA]);

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Local Native Strategy
  *
  * Handles authentication for local Anthropic-native providers:
@@ -44,7 +44,6 @@ export class LocalNativeStrategy implements IAuthStrategy {
     private readonly ollamaDiscovery: OllamaModelDiscoveryService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
-    // Inject other proxies to stop them during cross-provider switching
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_PROXY)
     private readonly copilotProxy: ICopilotTranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_PROXY)
@@ -65,17 +64,11 @@ export class LocalNativeStrategy implements IAuthStrategy {
     this.logger.info(
       `[${this.name}] Configuring Ollama provider: ${providerId} (Anthropic-native)`,
     );
-
-    // Step 1: Stop all other proxies to prevent cross-contamination
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     await this.stopProxyIfRunning(this.lmStudioProxy, 'LM Studio');
-
-    // Step 2: Get the base URL (custom or default from provider entry)
     const customUrl = this.config.get<string>(`provider.${providerId}.baseUrl`);
     const baseUrl = customUrl?.trim() || getProviderBaseUrl(providerId);
-
-    // Step 2.5: Version check - verify Ollama v0.14.0+ for Anthropic API support
     try {
       const { version, supported } =
         await this.ollamaDiscovery.checkVersion(providerId);
@@ -113,8 +106,6 @@ export class LocalNativeStrategy implements IAuthStrategy {
         errorMessage: `Ollama is not reachable at ${baseUrl}. Ensure Ollama is running.`,
       };
     }
-
-    // Step 2.6: Model availability check (non-fatal)
     try {
       const models =
         providerId === 'ollama-cloud'
@@ -141,19 +132,12 @@ export class LocalNativeStrategy implements IAuthStrategy {
           modelError instanceof Error ? modelError.message : String(modelError)
         }`,
       );
-      // Non-fatal: proceed with configuration even if model listing fails
     }
-
-    // Step 3: Point SDK directly at Ollama (no proxy)
     authEnv.ANTHROPIC_BASE_URL = baseUrl;
     authEnv.ANTHROPIC_AUTH_TOKEN = OLLAMA_AUTH_TOKEN_PLACEHOLDER;
     process.env['ANTHROPIC_BASE_URL'] = baseUrl;
     process.env['ANTHROPIC_AUTH_TOKEN'] = OLLAMA_AUTH_TOKEN_PLACEHOLDER;
-
-    // Step 4: Apply tier mappings and register dynamic model fetcher
     this.providerModels.switchActiveProvider(providerId);
-
-    // Register the appropriate model fetcher (local vs cloud)
     if (providerId === 'ollama-cloud') {
       this.providerModels.registerDynamicFetcher(providerId, () =>
         this.ollamaDiscovery.listCloudModels(),
@@ -166,17 +150,6 @@ export class LocalNativeStrategy implements IAuthStrategy {
 
     const providerName =
       providerId === 'ollama-cloud' ? 'Ollama Cloud' : 'Ollama';
-
-    // Step 5: For ollama-cloud, kick off a metadata refresh.
-    // Reads the optional API key from SecretStorage
-    // via IAuthSecretsService.getProviderKey('ollama-cloud') â€” same slot the
-    // auth UI writes to via auth:saveSettings, so saving/replacing/clearing the
-    // key in the settings panel automatically triggers a fresh metadata fetch
-    // here on the next sdkAdapter.reset() (which auth:saveSettings awaits) or
-    // on the SecretStorage 'ptah.auth.*' change notification handled by
-    // ConfigWatcher. Cache is also explicitly cleared to drop any stale tags
-    // or pricing from a prior key. Inference is unaffected and proceeds
-    // immediately via localhost:11434.
     if (providerId === 'ollama-cloud') {
       const apiKey = (
         (await this.authSecrets.getProviderKey('ollama-cloud')) ?? ''
@@ -197,7 +170,6 @@ export class LocalNativeStrategy implements IAuthStrategy {
           },
         );
       } else {
-        // No key configured â€” drop any cached tags/pricing from a prior key.
         this.cloudMetadata.clearCache();
         this.logger.debug(
           `[${this.name}] No Ollama Cloud API key configured â€” skipping live metadata fetch (using static catalog + zero-cost pricing fallback)`,
@@ -219,9 +191,7 @@ export class LocalNativeStrategy implements IAuthStrategy {
   }
 
   async teardown(): Promise<void> {
-    // Clear Ollama model discovery cache
     this.ollamaDiscovery.clearCache();
-    // Clear Ollama Cloud metadata cache
     this.cloudMetadata.clearCache();
   }
 

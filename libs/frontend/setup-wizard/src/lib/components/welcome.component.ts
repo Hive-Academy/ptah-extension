@@ -383,8 +383,6 @@ export class WelcomeComponent implements OnInit {
     try {
       const analyses = await this.wizardRpc.listAnalyses();
       this.wizardState.setSavedAnalyses(analyses);
-
-      // Auto-select analysis mode if user has previous analyses
       if (analyses.length > 0) {
         this.selectedMode.set('analysis');
       }
@@ -405,7 +403,6 @@ export class WelcomeComponent implements OnInit {
   protected async onStartNewProject(): Promise<void> {
     try {
       await this.wizardRpc.startNewProjectChat();
-      // Backend disposes the wizard panel; this component will be torn down.
     } catch (error: unknown) {
       console.error(
         '[WelcomeComponent] Failed to start new project chat:',

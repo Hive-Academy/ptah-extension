@@ -150,10 +150,6 @@ export class FileTreeNodeComponent {
   readonly creatingType = signal<'file' | 'folder' | null>(null);
 
   constructor() {
-    // Defensive auto-reload: if a node is currently expanded and its `needsLoad`
-    // flag flips back to `true` (e.g., after a tree refresh that didn't preserve
-    // its loaded children), trigger lazy-load of its children so the user
-    // doesn't have to manually collapse + re-expand.
     effect(() => {
       if (
         this.node().type === 'directory' &&
@@ -189,12 +185,8 @@ export class FileTreeNodeComponent {
     const absolutePath = this.node().path;
     const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return undefined;
-
-    // Normalize both to forward slashes for consistent comparison
     const normalizedPath = absolutePath.replace(/\\/g, '/');
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
-
-    // Strip workspace root prefix + trailing slash to get relative path
     const rootWithSlash = normalizedRoot.endsWith('/')
       ? normalizedRoot
       : normalizedRoot + '/';
@@ -202,12 +194,8 @@ export class FileTreeNodeComponent {
     if (!normalizedPath.startsWith(rootWithSlash)) return undefined;
 
     const relativePath = normalizedPath.slice(rootWithSlash.length);
-
-    // Get all entries for this path (may include both staged and unstaged)
     const entries = this.gitStatus.fileStatusMap().get(relativePath);
     if (!entries || entries.length === 0) return undefined;
-
-    // Prefer staged entry for the badge (staged changes are more significant)
     return entries.find((e) => e.staged) ?? entries[0];
   });
 
@@ -313,8 +301,6 @@ export class FileTreeNodeComponent {
     }
     return false;
   });
-
-  // Lucide icons
   readonly FolderIcon = Folder;
   private readonly FileIcon = File;
   private readonly FileCodeIcon = FileCode;
@@ -343,8 +329,6 @@ export class FileTreeNodeComponent {
     if (this.node().type === 'directory') {
       const wasExpanded = this.expanded();
       this.expanded.update((v) => !v);
-
-      // Lazy load children if this directory needs loading and is being expanded
       if (!wasExpanded && this.node().needsLoad) {
         this.isLoadingChildren.set(true);
         await this.editorService.loadDirectoryChildren(this.node().path);

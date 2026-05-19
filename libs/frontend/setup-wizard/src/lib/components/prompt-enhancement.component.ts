@@ -280,8 +280,6 @@ export class PromptEnhancementComponent {
         );
         return;
       }
-
-      // Pass analysisDir so backend reads all phase markdown files.
       const result = await this.wizardRpc.runEnhancedPromptsWizard(
         workspacePath,
         multiPhase.analysisDir,

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Provider RPC Handlers (generalized from OpenRouterRpcHandlers).
  *
  * Handles provider-related RPC methods for model listing and tier configuration:
@@ -128,7 +128,6 @@ export class ProviderRpcHandlers {
    */
   private registerCopilotDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('github-copilot', async () => {
-      // 1. Try platform model discovery â€” returns only models the user's subscription covers
       try {
         const platformModels = await this.modelDiscovery.getCopilotModels();
         if (platformModels.length > 0) {
@@ -150,8 +149,6 @@ export class ProviderRpcHandlers {
           }`,
         );
       }
-
-      // 2. Try Copilot CLI SDK â€” also subscription-filtered
       try {
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter?.listModels) {
@@ -176,8 +173,6 @@ export class ProviderRpcHandlers {
           }`,
         );
       }
-
-      // 3. Static fallback
       this.logger.info(
         '[ProviderRpc] Using static Copilot model list (VS Code LM and CLI both unavailable)',
       );
@@ -201,10 +196,8 @@ export class ProviderRpcHandlers {
    */
   private registerCodexDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('openai-codex', async () => {
-      // 1. Try platform model discovery â€” Codex models may not be available, but check anyway
       try {
         const platformModels = await this.modelDiscovery.getCodexModels();
-        // Filter to known Codex model IDs
         const codexModelIds = new Set(
           (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id),
         );
@@ -228,8 +221,6 @@ export class ProviderRpcHandlers {
           }`,
         );
       }
-
-      // 2. Static fallback (primary source for Codex)
       this.logger.info('[ProviderRpc] Using static Codex model list');
       return (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
         id: m.id,
@@ -376,11 +367,7 @@ export class ProviderRpcHandlers {
           providerId,
           toolUseOnly: validated.toolUseOnly,
         });
-
-        // Get API key from per-provider storage (may be null for static-model providers)
         const apiKey = await this.authSecretsService.getProviderKey(providerId);
-
-        // Guard: purely dynamic providers (no static fallback) need an API key
         if (!apiKey) {
           const provider = getAnthropicProvider(providerId);
           const isPurelyDynamic =
@@ -394,8 +381,6 @@ export class ProviderRpcHandlers {
             return { models: [], totalCount: 0, isStatic: false };
           }
         }
-
-        // Fetch models (service handles static vs dynamic internally)
         const result = await this.providerModels.fetchModels(
           providerId,
           apiKey ?? null,
@@ -412,8 +397,6 @@ export class ProviderRpcHandlers {
         return result;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-
-        // Auth failures: return empty models + error message instead of throwing
         if (
           errorMsg.includes('401') ||
           errorMsg.includes('403') ||
@@ -473,9 +456,6 @@ export class ProviderRpcHandlers {
           validated.modelId,
           validated.scope,
         );
-
-        // Clear SDK model cache so the next config:models-list call re-fetches
-        // models with the updated tier env vars applied.
         this.sdkAdapter.clearModelCache();
 
         this.logger.info('RPC: provider:setModelTier completed', {
@@ -569,9 +549,6 @@ export class ProviderRpcHandlers {
           validated.tier,
           validated.scope,
         );
-
-        // Clear SDK model cache so the next config:models-list call re-fetches
-        // models without the removed tier override.
         this.sdkAdapter.clearModelCache();
 
         this.logger.info('RPC: provider:clearModelTier completed', {

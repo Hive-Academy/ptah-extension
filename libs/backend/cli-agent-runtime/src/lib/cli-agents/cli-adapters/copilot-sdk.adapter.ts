@@ -56,10 +56,6 @@ import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 const execFileAsync = promisify(execFile);
 
-// ========================================
-// Tool Classification Helpers
-// ========================================
-
 /** Shell/command execution tool names across providers */
 function isShellTool(toolName: string): boolean {
   return /^(run_shell_command|bash|shell|execute_command|terminal)$/i.test(
@@ -168,17 +164,12 @@ export class CopilotSdkAdapter implements CliAdapter {
         return { cli: 'copilot', installed: false, supportsSteer: false };
       }
 
-      let version: string | undefined;
-      try {
-        const { stdout: versionOutput } = await execFileAsync(
-          binaryPath,
-          ['--version'],
-          { timeout: 5000 },
-        );
-        version = versionOutput.trim().split(/\r?\n/)[0];
-      } catch {
-        // Version check failed -- CLI still usable
-      }
+      const { stdout: versionOutput } = await execFileAsync(
+        binaryPath,
+        ['--version'],
+        { timeout: 5000 },
+      );
+      const version = versionOutput.trim().split(/\r?\n/)[0];
 
       return {
         cli: 'copilot',
@@ -239,8 +230,6 @@ export class CopilotSdkAdapter implements CliAdapter {
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     const abortController = new AbortController();
-
-    // Output and segment buffering (matches Gemini/Codex pattern).
     const outputBuffer: string[] = [];
     const outputCallbacks: Array<(data: string) => void> = [];
 
@@ -286,9 +275,6 @@ export class CopilotSdkAdapter implements CliAdapter {
         }
       }
     };
-
-    // Resolve the binary path. Use options.binaryPath if AgentProcessManager
-    // already resolved it; otherwise probe PATH ourselves.
     let binaryPath = options.binaryPath;
     if (!binaryPath) {
       const resolved = await resolveCliPath('copilot');
@@ -308,9 +294,6 @@ export class CopilotSdkAdapter implements CliAdapter {
         getSessionId: () => undefined,
       };
     }
-
-    // Build task prompt -- buildTaskPrompt() handles systemPrompt /
-    // projectGuidance / files / taskFolder appending.
     const taskPrompt = buildTaskPrompt(options);
 
     const args: string[] = [
@@ -320,14 +303,8 @@ export class CopilotSdkAdapter implements CliAdapter {
       'json',
       '--allow-all-tools',
       '--no-color',
-      // Suppress Copilot's human-readable stats footer
-      // ("Changes +N -M", "Requests N Premium", "Tokens ↑ ...") that
-      // otherwise leaks to stderr after the JSONL stream completes.
       '-s',
     ];
-
-    // Resume mode: append --resume=<id>. Copilot's --resume accepts a session
-    // UUID; the CLI loads prior context before processing the new prompt.
     if (options.resumeSessionId) {
       args.push(`--resume=${options.resumeSessionId}`);
     }
@@ -339,10 +316,6 @@ export class CopilotSdkAdapter implements CliAdapter {
     if (options.reasoningEffort) {
       args.push('--effort', options.reasoningEffort);
     }
-
-    // Wire Ptah MCP server via --additional-mcp-config (JSON inline).
-    // The CLI accepts either a JSON string or a file path prefixed with `@`.
-    // Inline JSON keeps the implementation stateless (no temp files to clean).
     if (options.mcpPort) {
       const mcpConfig = JSON.stringify({
         mcpServers: {
@@ -354,9 +327,6 @@ export class CopilotSdkAdapter implements CliAdapter {
       });
       args.push('--additional-mcp-config', mcpConfig);
     }
-
-    // Spawn. needsConsole on Windows because Copilot CLI uses node-pty
-    // internally for shell execution -- same gotcha as Gemini.
     const child = spawnCli(binaryPath, args, {
       cwd: options.workingDirectory,
       needsConsole: true,
@@ -364,28 +334,20 @@ export class CopilotSdkAdapter implements CliAdapter {
 
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
-
-    // Abort handler: kill the child process.
     const onAbort = (): void => {
       if (!child.killed) {
         child.kill('SIGTERM');
       }
     };
     abortController.signal.addEventListener('abort', onAbort);
-
-    // Per-invocation parsing state.
     let receivedDeltas = false;
     let receivedReasoningDeltas = false;
     const toolCallIdToName = new Map<string, string>();
     let capturedSessionId: string | undefined;
-
-    // JSONL line buffer. Copilot can emit very long lines (full encrypted
-    // reasoning blobs) so we accumulate until a newline.
     let lineBuf = '';
 
     child.stdout?.on('data', (data: string) => {
       lineBuf += data;
-      // Cross-platform line splitting: handle both \n (Unix) and \r\n (Windows).
       const lines = lineBuf.split(/\r?\n/);
       lineBuf = lines.pop() ?? '';
 
@@ -413,12 +375,6 @@ export class CopilotSdkAdapter implements CliAdapter {
         }
       }
     });
-
-    // Stderr: filter aggressively to keep chat clean.
-    // Copilot CLI prints a human-readable stats footer + occasional ConPTY
-    // / pty-host warnings to stderr that are not user-actionable. -s flag
-    // above suppresses most of it; this filter handles whatever remains
-    // and any future variations of the same noise patterns.
     let stderrBuf = '';
 
     const isStackFrame = (line: string): boolean =>
@@ -445,13 +401,9 @@ export class CopilotSdkAdapter implements CliAdapter {
       for (const raw of lines) {
         const line = raw.trim();
         if (!line) continue;
-
-        // Drop everything we know is benign noise.
         if (isStackFrame(line) || isStatsFooter(line) || isPtyNoise(line)) {
           continue;
         }
-
-        // Anything else is a real error/warning the user should see.
         const isError =
           /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
             line,
@@ -459,12 +411,9 @@ export class CopilotSdkAdapter implements CliAdapter {
         emitSegment({ type: isError ? 'error' : 'info', content: line });
       }
     });
-
-    // Done promise: resolves when the process exits.
     const done = new Promise<number>((resolve) => {
       child.on('close', (code, signal) => {
         abortController.signal.removeEventListener('abort', onAbort);
-        // Flush any remaining buffered line.
         if (lineBuf.trim()) {
           const sessionId = this.handleJsonLine(
             lineBuf.trim(),
@@ -533,8 +482,6 @@ export class CopilotSdkAdapter implements CliAdapter {
     try {
       event = JSON.parse(line) as CopilotCliEvent;
     } catch {
-      // Drop noise that occasionally leaks onto stdout: stats footer,
-      // stack frames, banner lines. Only forward truly meaningful text.
       if (
         !line ||
         line.startsWith('{') ||
@@ -757,8 +704,6 @@ export class CopilotSdkAdapter implements CliAdapter {
       }
 
       case 'result': {
-        // Final event: { type: 'result', sessionId, exitCode, usage }.
-        // No `data` wrapper -- fields are top-level.
         const sessionId =
           typeof event.sessionId === 'string' && event.sessionId.trim()
             ? event.sessionId.trim()
@@ -788,8 +733,6 @@ export class CopilotSdkAdapter implements CliAdapter {
       }
 
       default:
-        // Unknown / informational event types (mcp_server_status_changed,
-        // skills_loaded, user.message, turn_start, turn_end, etc.) -- ignore.
         return undefined;
     }
   }
@@ -825,7 +768,6 @@ export class CopilotSdkAdapter implements CliAdapter {
           ? `\`${(obj['file_path'] ?? obj['path']) as string}\``
           : '';
       default: {
-        // Generic: show first string value, truncated.
         const firstStr = Object.entries(obj).find(
           ([, v]) => typeof v === 'string',
         );

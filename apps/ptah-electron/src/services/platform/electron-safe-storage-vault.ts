@@ -51,7 +51,6 @@ export class ElectronSafeStorageVault implements ITokenVault {
       const buf = safeStorage.encryptString(plaintext);
       return buf.toString('base64');
     }
-    // Fallback: AES-256-GCM.
     const key = this.getFallbackKey();
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -74,10 +73,7 @@ export class ElectronSafeStorageVault implements ITokenVault {
       if (ciphertext.startsWith(FALLBACK_PREFIX)) {
         return this.decryptFallback(ciphertext);
       }
-      // safeStorage path — base64 buffer.
       if (!this.isEncryptionAvailable()) {
-        // Caller stored under safeStorage on a different machine and we
-        // can't read it back. Surface as decrypt failure.
         return null;
       }
       const buf = Buffer.from(ciphertext, 'base64');
@@ -87,12 +83,7 @@ export class ElectronSafeStorageVault implements ITokenVault {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Fallback AES-GCM helpers.
-  // ---------------------------------------------------------------------------
-
   private decryptFallback(blob: string): string | null {
-    // Format: gcm:<iv64>:<tag64>:<ct64>
     const parts = blob.split(':');
     if (parts.length !== 4) return null;
     const [, iv64, tag64, ct64] = parts;
@@ -114,7 +105,6 @@ export class ElectronSafeStorageVault implements ITokenVault {
   private getFallbackKey(): Buffer {
     if (this.fallbackKey) return this.fallbackKey;
     const seed = this.resolveMachineSeed();
-    // HKDF-style: HMAC-SHA-256(seed, info) gives a 32-byte key.
     this.fallbackKey = crypto
       .createHmac('sha256', seed)
       .update(KEY_INFO)
@@ -123,16 +113,10 @@ export class ElectronSafeStorageVault implements ITokenVault {
   }
 
   private resolveMachineSeed(): Buffer {
-    // 1) Linux: try `/etc/machine-id`, then `/var/lib/dbus/machine-id`.
     for (const candidate of MACHINE_ID_PATHS) {
-      try {
-        const v = fs.readFileSync(candidate, 'utf8').trim();
-        if (v.length > 0) return Buffer.from(v, 'utf8');
-      } catch {
-        // not readable — fall through.
-      }
+      const v = fs.readFileSync(candidate, 'utf8').trim();
+      if (v.length > 0) return Buffer.from(v, 'utf8');
     }
-    // 2) Persist a UUID to ~/.ptah/.machine-uuid (created on first call).
     try {
       if (fs.existsSync(FALLBACK_UUID_FILE)) {
         const v = fs.readFileSync(FALLBACK_UUID_FILE, 'utf8').trim();
@@ -143,12 +127,6 @@ export class ElectronSafeStorageVault implements ITokenVault {
       fs.writeFileSync(FALLBACK_UUID_FILE, fresh, { mode: 0o600 });
       return Buffer.from(fresh, 'utf8');
     } catch {
-      // SECURITY: do NOT fall back to hostname+username — both values are
-      // world-readable on multi-user systems, making the derived AES-GCM key
-      // publicly computable. Throw so the failure surfaces clearly rather
-      // than silently encrypting with a predictable key. On a healthy system
-      // this path is unreachable: /etc/machine-id exists on all modern Linux
-      // distros, and ~/.ptah/ is always writable (we create it on first run).
       throw new Error(
         'ElectronSafeStorageVault: cannot derive a stable machine seed. ' +
           '/etc/machine-id is unreadable and ~/.ptah/.machine-uuid could not be created. ' +

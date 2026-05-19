@@ -8,10 +8,6 @@
  * This barrel re-exports all child types and contains the central RpcMethodRegistry.
  */
 
-// ============================================================
-// Re-export all domain-specific RPC types
-// ============================================================
-
 export * from './rpc/rpc-chat.types';
 export * from './rpc/rpc-session.types';
 export * from './rpc/rpc-config.types';
@@ -29,10 +25,6 @@ export * from './rpc/rpc-indexing.types';
 
 export * from './rpc/rpc-update.types';
 
-// ============================================================
-// Imports for RpcMethodRegistry (types used only in registry entries)
-// ============================================================
-
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
@@ -42,8 +34,6 @@ import type {
   SubagentCommandResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
-
-// Types from child files used in the registry
 import type {
   ChatStartParams,
   ChatStartResult,
@@ -377,10 +367,6 @@ import type {
   UpdateInstallNowResult,
 } from './rpc/rpc-update.types';
 
-// ============================================================
-// RPC Method Registry (Compile-Time Enforcement)
-// ============================================================
-
 /**
  * RPC Method Registry
  *
@@ -398,7 +384,6 @@ import type {
  * If a method is not in this registry, it CANNOT be called from frontend.
  */
 export interface RpcMethodRegistry {
-  // ---- Chat Methods ----
   'chat:start': { params: ChatStartParams; result: ChatStartResult };
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
   'chat:resume': { params: ChatResumeParams; result: ChatResumeResult };
@@ -407,8 +392,6 @@ export interface RpcMethodRegistry {
     params: ChatRunningAgentsParams;
     result: ChatRunningAgentsResult;
   };
-
-  // ---- Session Methods ----
   'session:list': { params: SessionListParams; result: SessionListResult };
   'session:load': { params: SessionLoadParams; result: SessionLoadResult };
   'session:delete': {
@@ -439,8 +422,6 @@ export interface RpcMethodRegistry {
     params: SessionRewindParams;
     result: SessionRewindResult;
   };
-
-  // ---- Context Methods ----
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
     result: ContextGetAllFilesResult;
@@ -449,8 +430,6 @@ export interface RpcMethodRegistry {
     params: ContextGetFileSuggestionsParams;
     result: ContextGetFileSuggestionsResult;
   };
-
-  // ---- Autocomplete Methods ----
   'autocomplete:agents': {
     params: AutocompleteAgentsParams;
     result: AutocompleteAgentsResult;
@@ -459,8 +438,6 @@ export interface RpcMethodRegistry {
     params: AutocompleteCommandsParams;
     result: AutocompleteCommandsResult;
   };
-
-  // ---- File Methods ----
   'file:open': { params: FileOpenParams; result: FileOpenResult };
   'file:pick': {
     params: { multiple?: boolean };
@@ -476,8 +453,6 @@ export interface RpcMethodRegistry {
       }>;
     };
   };
-
-  // ---- Config Methods ----
   'config:model-switch': {
     params: ConfigModelSwitchParams;
     result: ConfigModelSwitchResult;
@@ -506,8 +481,6 @@ export interface RpcMethodRegistry {
     params: ConfigEffortSetParams;
     result: ConfigEffortSetResult;
   };
-
-  // ---- Auth Methods ----
   'auth:getHealth': {
     params: AuthGetHealthParams;
     result: AuthGetHealthResponse;
@@ -540,8 +513,6 @@ export interface RpcMethodRegistry {
     params: AuthCodexLoginParams;
     result: AuthCodexLoginResponse;
   };
-
-  // ---- Setup Methods ----
   'setup-status:get-status': {
     params: SetupStatusGetParams;
     result: SetupStatusGetResponse;
@@ -562,7 +533,6 @@ export interface RpcMethodRegistry {
     params: WizardCancelAnalysisParams;
     result: WizardCancelAnalysisResponse;
   };
-  // Wizard Generation Methods
   'wizard:submit-selection': {
     params: WizardSubmitSelectionParams;
     result: WizardSubmitSelectionResponse;
@@ -575,7 +545,6 @@ export interface RpcMethodRegistry {
     params: WizardRetryItemParams;
     result: WizardRetryItemResponse;
   };
-  // Wizard Analysis History Methods (v2 Multi-Phase)
   'wizard:list-analyses': {
     params: Record<string, never>;
     result: { analyses: SavedAnalysisMetadata[] };
@@ -584,7 +553,6 @@ export interface RpcMethodRegistry {
     params: { filename: string };
     result: MultiPhaseAnalysisResponse;
   };
-  // Agent Pack Browser Methods
   'wizard:list-agent-packs': {
     params: WizardListAgentPacksParams;
     result: WizardListAgentPacksResult;
@@ -593,13 +561,10 @@ export interface RpcMethodRegistry {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
   };
-  // New Project Chat Handoff
   'wizard:start-new-project-chat': {
     params: WizardStartNewProjectChatParams;
     result: WizardStartNewProjectChatResult;
   };
-
-  // ---- License Methods ----
   'license:getStatus': {
     params: LicenseGetStatusParams;
     result: LicenseGetStatusResponse;
@@ -612,14 +577,10 @@ export interface RpcMethodRegistry {
     params: LicenseClearKeyParams;
     result: LicenseClearKeyResponse;
   };
-
-  // ---- Command Methods ----
   'command:execute': {
     params: CommandExecuteParams;
     result: CommandExecuteResponse;
   };
-
-  // ---- LLM Provider Methods ----
   'llm:getProviderStatus': {
     params: LlmGetProviderStatusParams;
     result: LlmProviderStatusResponse;
@@ -665,8 +626,6 @@ export interface RpcMethodRegistry {
     params: LlmClearProviderBaseUrlParams;
     result: LlmClearProviderBaseUrlResponse;
   };
-
-  // ---- Provider Model Methods ----
   'provider:listModels': {
     params: ProviderListModelsParams;
     result: ProviderListModelsResult;
@@ -683,13 +642,10 @@ export interface RpcMethodRegistry {
     params: ProviderClearModelTierParams;
     result: ProviderClearModelTierResult;
   };
-
-  // ---- Subagent Methods ----
   'chat:subagent-query': {
     params: SubagentQueryParams;
     result: SubagentQueryResult;
   };
-  // Bidirectional messaging + stop/interrupt
   'subagent:send-message': {
     params: SubagentSendMessageParams;
     result: SubagentCommandResult;
@@ -702,8 +658,6 @@ export interface RpcMethodRegistry {
     params: SubagentInterruptParams;
     result: SubagentCommandResult;
   };
-
-  // ---- Enhanced Prompts Methods ----
   'enhancedPrompts:getStatus': {
     params: EnhancedPromptsGetStatusParams;
     result: EnhancedPromptsGetStatusResponse;
@@ -720,7 +674,6 @@ export interface RpcMethodRegistry {
     params: EnhancedPromptsRegenerateParams;
     result: EnhancedPromptsRegenerateResponse;
   };
-  // Settings UI prompt content & download
   'enhancedPrompts:getPromptContent': {
     params: { workspacePath: string };
     result: { content: string | null; error?: string };
@@ -729,8 +682,6 @@ export interface RpcMethodRegistry {
     params: { workspacePath: string };
     result: { success: boolean; filePath?: string; error?: string };
   };
-
-  // ---- Quality Dashboard Methods ----
   'quality:getAssessment': {
     params: QualityGetAssessmentParams;
     result: QualityGetAssessmentResult;
@@ -743,8 +694,6 @@ export interface RpcMethodRegistry {
     params: QualityExportParams;
     result: QualityExportResult;
   };
-
-  // ---- Plugin Methods ----
   'plugins:list-available': {
     params: Record<string, never>;
     result: { plugins: PluginInfo[] };
@@ -761,8 +710,6 @@ export interface RpcMethodRegistry {
     params: { pluginIds: string[] };
     result: { skills: PluginSkillEntry[] };
   };
-
-  // ---- Agent Orchestration Methods ----
   'agent:getConfig': {
     params: void;
     result: AgentOrchestrationConfig;
@@ -820,8 +767,6 @@ export interface RpcMethodRegistry {
       }>;
     };
   };
-
-  // ---- Ptah CLI Agent Methods ----
   'ptahCli:list': {
     params: PtahCliListParams;
     result: PtahCliListResult;
@@ -846,8 +791,6 @@ export interface RpcMethodRegistry {
     params: PtahCliListModelsParams;
     result: PtahCliListModelsResult;
   };
-
-  // ---- Skills.sh Marketplace Methods ----
   'skillsSh:search': {
     params: { query: string };
     result: { skills: SkillShEntry[]; error?: string };
@@ -877,8 +820,6 @@ export interface RpcMethodRegistry {
     params: Record<string, never>;
     result: SkillDetectionResult;
   };
-
-  // ---- MCP Server Directory Methods ----
   'mcpDirectory:search': {
     params: McpDirectorySearchParams;
     result: McpDirectorySearchResult;
@@ -903,8 +844,6 @@ export interface RpcMethodRegistry {
     params: McpDirectoryGetPopularParams;
     result: McpDirectoryGetPopularResult;
   };
-
-  // ---- Workspace Methods (Electron desktop) ----
   'workspace:getInfo': {
     params: Record<string, never>;
     result: {
@@ -923,10 +862,6 @@ export interface RpcMethodRegistry {
     result: { success: boolean; error?: string };
   };
   'workspace:switch': {
-    // `origin` is an opaque per-call token stamped by the frontend so the
-    // resulting WORKSPACE_CHANGED echo can be identified and dropped
-    // (self-echo suppression). Optional for backward compat with platforms
-    // that don't broadcast push events.
     params: { path: string; origin?: string };
     result: { success: boolean; error?: string };
   };
@@ -934,8 +869,6 @@ export interface RpcMethodRegistry {
     params: { path: string };
     result: { success: boolean; path: string; name: string; error?: string };
   };
-
-  // ---- Layout Methods (Electron desktop) ----
   'layout:persist': {
     params: Record<string, unknown>;
     result: { success: boolean };
@@ -944,14 +877,10 @@ export interface RpcMethodRegistry {
     params: Record<string, never>;
     result: { success: boolean };
   };
-
-  // ---- Editor Methods (M3 — VS Code, post-rewind buffer revert) ----
   'editor:revertFiles': {
     params: EditorRevertFilesParams;
     result: EditorRevertFilesResult;
   };
-
-  // ---- Electron Editor Methods ----
   'editor:openFile': {
     params: { filePath: string };
     result: {
@@ -991,8 +920,6 @@ export interface RpcMethodRegistry {
       error?: string;
     };
   };
-
-  // ---- Electron File CRUD Methods ----
   'editor:createFile': {
     params: { filePath: string; content?: string };
     result: { success: boolean; error?: string };
@@ -1040,8 +967,6 @@ export interface RpcMethodRegistry {
     params: Record<string, never>;
     result: { success: boolean; files: string[]; error?: string };
   };
-
-  // ---- Electron File Methods ----
   'file:read': {
     params: { path: string };
     result: { content: string };
@@ -1058,14 +983,10 @@ export interface RpcMethodRegistry {
     };
     result: { saved: boolean; filePath?: string; error?: string };
   };
-
-  // ---- Electron Config Extended Methods ----
   'config:model-set': {
     params: { model?: string; autopilot?: boolean };
     result: { success: boolean };
   };
-
-  // ---- Electron Auth Extended Methods ----
   'auth:setApiKey': {
     params: { provider: string; apiKey: string };
     result: { success: boolean; error?: string };
@@ -1085,8 +1006,6 @@ export interface RpcMethodRegistry {
       }>;
     };
   };
-
-  // ---- Electron Settings Methods ----
   'settings:export': {
     params: Record<string, never>;
     result: {
@@ -1105,8 +1024,6 @@ export interface RpcMethodRegistry {
       result?: { imported: string[]; skipped: string[]; errors: string[] };
     };
   };
-
-  // ---- Web Search Settings Methods ----
   'webSearch:getApiKeyStatus': {
     params: { provider: string };
     result: { configured: boolean };
@@ -1131,8 +1048,6 @@ export interface RpcMethodRegistry {
     params: { provider?: string; maxResults?: number };
     result: { success: boolean };
   };
-
-  // ---- Git Methods ----
   'git:info': { params: GitInfoParams; result: GitInfoResult };
   'git:worktrees': { params: GitWorktreesParams; result: GitWorktreesResult };
   'git:addWorktree': {
@@ -1143,13 +1058,11 @@ export interface RpcMethodRegistry {
     params: GitRemoveWorktreeParams;
     result: GitRemoveWorktreeResult;
   };
-  // Source control methods
   'git:stage': { params: GitStageParams; result: GitStageResult };
   'git:unstage': { params: GitUnstageParams; result: GitUnstageResult };
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
-  // Git enhancement methods
   'git:branches': { params: GitBranchesParams; result: GitBranchesResult };
   'git:checkout': { params: GitCheckoutParams; result: GitCheckoutResult };
   'git:stashList': { params: GitStashListParams; result: GitStashListResult };
@@ -1159,15 +1072,11 @@ export interface RpcMethodRegistry {
     params: GitLastCommitParams;
     result: GitLastCommitResult;
   };
-
-  // ---- Terminal Methods ----
   'terminal:create': {
     params: TerminalCreateParams;
     result: TerminalCreateResult;
   };
   'terminal:kill': { params: TerminalKillParams; result: TerminalKillResult };
-
-  // ---- Harness Builder Methods ----
   'harness:initialize': {
     params: HarnessInitializeParams;
     result: HarnessInitializeResponse;
@@ -1232,8 +1141,6 @@ export interface RpcMethodRegistry {
     params: HarnessConverseParams;
     result: HarnessConverseResponse;
   };
-
-  // Letta-style tiered memory curator
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
   'memory:get': { params: MemoryGetParams; result: MemoryGetResult };
@@ -1253,8 +1160,6 @@ export interface RpcMethodRegistry {
     params: MemoryPurgeJunkParams;
     result: MemoryPurgeJunkResult;
   };
-
-  // Autonomous skill synthesis
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
     result: SkillSynthesisListCandidatesResult;
@@ -1299,8 +1204,6 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisRunCuratorParams;
     result: SkillSynthesisRunCuratorResult;
   };
-
-  // Cron scheduler
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1310,8 +1213,6 @@ export interface RpcMethodRegistry {
   'cron:runNow': { params: CronRunNowParams; result: CronRunNowResult };
   'cron:runs': { params: CronRunsParams; result: CronRunsResult };
   'cron:nextFire': { params: CronNextFireParams; result: CronNextFireResult };
-
-  // Messaging gateway
   'gateway:status': {
     params: GatewayStatusParams;
     result: GatewayStatusResult;
@@ -1357,8 +1258,6 @@ export interface RpcMethodRegistry {
     params: { confirm: string };
     result: DbResetResult;
   };
-
-  // User-controlled workspace indexing
   'indexing:getStatus': {
     params: IndexingGetStatusParams;
     result: IndexingGetStatusResult;
@@ -1391,8 +1290,6 @@ export interface RpcMethodRegistry {
     params: IndexingAcknowledgeDisclosureParams;
     result: IndexingAcknowledgeDisclosureResult;
   };
-
-  // Electron auto-update UX (check-now, install-now)
   'update:check-now': {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
@@ -1402,11 +1299,6 @@ export interface RpcMethodRegistry {
     result: UpdateInstallNowResult;
   };
 }
-
-// Skill synthesis RPC param/result types.
-// Inlined here (rather than a child rpc-skill-synthesis.types.ts) because
-// the surface is small and self-contained — six methods, all reading from
-// or mutating the candidate store / invocation log.
 
 export interface SkillSynthesisCandidateSummary {
   id: string;
@@ -1552,15 +1444,6 @@ export interface SkillSynthesisRunCuratorResult {
   overlaps?: SkillSynthesisCuratorOverlap[];
 }
 
-// Messaging gateway RPC param/result types.
-//
-// Eight methods covering: status query, start/stop lifecycle, token write,
-// binding list/approve/block (the per-user pairing surface), and message
-// history. All param/result shapes are deliberately small — the heavy
-// payloads (binding rows, message rows) live in the messaging-gateway lib's
-// own types; we mirror the bare DTO fields here so the shared package stays
-// dependency-free.
-
 export type GatewayPlatformId = 'telegram' | 'discord' | 'slack';
 export type GatewayApprovalStatus =
   | 'pending'
@@ -1689,11 +1572,6 @@ export type GatewayTestResult =
   | { ok: true; bindingId: string; externalMsgId: string | null }
   | { ok: false; error: string };
 
-// Cron scheduler RPC param/result types.
-// Wire-friendly DTOs that mirror the persisted shape from
-// `@ptah-extension/cron-scheduler` types.ts but use plain `string` for ids
-// (frontend bindings don't have access to the JobId / RunId branded types).
-
 export interface ScheduledJobDto {
   id: string;
   name: string;
@@ -1821,14 +1699,11 @@ export type RpcMethodName = keyof RpcMethodRegistry;
  * verifyRpcRegistration uses set-membership checks only.
  */
 const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
-  // Chat Methods
   'chat:start': true,
   'chat:continue': true,
   'chat:abort': true,
   'chat:running-agents': true,
   'chat:resume': true,
-
-  // Session Methods
   'session:list': true,
   'session:load': true,
   'session:delete': true,
@@ -1838,21 +1713,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:stats-batch': true,
   'session:forkSession': true,
   'session:rewindFiles': true,
-
-  // Context Methods
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
-
-  // Autocomplete Methods
   'autocomplete:agents': true,
   'autocomplete:commands': true,
-
-  // File Methods
   'file:open': true,
   'file:pick': true,
   'file:pick-images': true,
-
-  // Config Methods
   'config:model-switch': true,
   'config:model-get': true,
   'config:autopilot-toggle': true,
@@ -1860,8 +1727,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'config:models-list': true,
   'config:effort-get': true,
   'config:effort-set': true,
-
-  // Auth Methods
   'auth:getHealth': true,
   'auth:saveSettings': true,
   'auth:testConnection': true,
@@ -1870,35 +1735,23 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotLogout': true,
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
-
-  // Setup Methods
   'setup-status:get-status': true,
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,
   'wizard:recommend-agents': true,
   'wizard:cancel-analysis': true,
-  // Wizard Generation Methods
   'wizard:submit-selection': true,
   'wizard:cancel': true,
   'wizard:retry-item': true,
-  // Wizard Analysis History Methods (v2 Multi-Phase)
   'wizard:list-analyses': true,
   'wizard:load-analysis': true,
-  // Agent Pack Browser Methods
   'wizard:list-agent-packs': true,
   'wizard:install-pack-agents': true,
-  // New Project Chat Handoff
   'wizard:start-new-project-chat': true,
-
-  // License Methods
   'license:getStatus': true,
   'license:setKey': true,
   'license:clearKey': true,
-
-  // Command Methods
   'command:execute': true,
-
-  // LLM Provider Methods
   'llm:getProviderStatus': true,
   'llm:setApiKey': true,
   'llm:removeApiKey': true,
@@ -1911,41 +1764,27 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'llm:setProviderBaseUrl': true,
   'llm:getProviderBaseUrl': true,
   'llm:clearProviderBaseUrl': true,
-
-  // Provider Model Methods
   'provider:listModels': true,
   'provider:setModelTier': true,
   'provider:getModelTiers': true,
   'provider:clearModelTier': true,
-
-  // Subagent Methods
   'chat:subagent-query': true,
-  // Bidirectional messaging + stop/interrupt
   'subagent:send-message': true,
   'subagent:stop': true,
   'subagent:interrupt': true,
-
-  // Enhanced Prompts Methods
   'enhancedPrompts:getStatus': true,
   'enhancedPrompts:runWizard': true,
   'enhancedPrompts:setEnabled': true,
   'enhancedPrompts:regenerate': true,
-  // Settings UI prompt content & download
   'enhancedPrompts:getPromptContent': true,
   'enhancedPrompts:download': true,
-
-  // Quality Dashboard Methods
   'quality:getAssessment': true,
   'quality:getHistory': true,
   'quality:export': true,
-
-  // Plugin Methods
   'plugins:list-available': true,
   'plugins:get-config': true,
   'plugins:save-config': true,
   'plugins:list-skills': true,
-
-  // Agent Orchestration Methods
   'agent:getConfig': true,
   'agent:setConfig': true,
   'agent:detectClis': true,
@@ -1954,46 +1793,32 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:stop': true,
   'agent:resumeCliSession': true, // CLI agent session resume
   'agent:backgroundList': true, // Background agent listing
-
-  // Ptah CLI Agent Methods
   'ptahCli:list': true,
   'ptahCli:create': true,
   'ptahCli:update': true,
   'ptahCli:delete': true,
   'ptahCli:testConnection': true,
   'ptahCli:listModels': true,
-
-  // Skills.sh Marketplace Methods
   'skillsSh:search': true,
   'skillsSh:listInstalled': true,
   'skillsSh:install': true,
   'skillsSh:uninstall': true,
   'skillsSh:getPopular': true,
   'skillsSh:detectRecommended': true,
-
-  // MCP Server Directory Methods
   'mcpDirectory:search': true,
   'mcpDirectory:getDetails': true,
   'mcpDirectory:install': true,
   'mcpDirectory:uninstall': true,
   'mcpDirectory:listInstalled': true,
   'mcpDirectory:getPopular': true,
-
-  // Workspace Methods (Electron desktop)
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,
   'workspace:switch': true,
   'workspace:registerFolder': true,
-
-  // Layout Methods (Electron desktop)
   'layout:persist': true,
   'layout:restore': true,
-
-  // Editor Methods (M3 — VS Code, post-rewind buffer revert)
   'editor:revertFiles': true,
-
-  // Electron Editor Methods
   'editor:openFile': true,
   'editor:saveFile': true,
   'editor:getFileTree': true,
@@ -2006,56 +1831,38 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'editor:updateSetting': true,
   'editor:searchInFiles': true,
   'editor:listAllFiles': true,
-
-  // Electron File Methods
   'file:read': true,
   'file:exists': true,
   'file:save-dialog': true,
-
-  // Electron Config Extended Methods
   'config:model-set': true,
-
-  // Electron Auth Extended Methods
   'auth:setApiKey': true,
   'auth:getStatus': true,
   'auth:getApiKeyStatus': true,
-
-  // Electron Settings Methods
   'settings:export': true,
   'settings:import': true,
-
-  // Web Search Settings Methods
   'webSearch:getApiKeyStatus': true,
   'webSearch:setApiKey': true,
   'webSearch:deleteApiKey': true,
   'webSearch:test': true,
   'webSearch:getConfig': true,
   'webSearch:setConfig': true,
-
-  // Git Methods
   'git:info': true,
   'git:worktrees': true,
   'git:addWorktree': true,
   'git:removeWorktree': true,
-  // Source control methods
   'git:stage': true,
   'git:unstage': true,
   'git:discard': true,
   'git:commit': true,
   'git:showFile': true,
-  // Git enhancement methods
   'git:branches': true,
   'git:checkout': true,
   'git:stashList': true,
   'git:tags': true,
   'git:remotes': true,
   'git:lastCommit': true,
-
-  // Terminal Methods
   'terminal:create': true,
   'terminal:kill': true,
-
-  // Harness Builder Methods
   'harness:initialize': true,
   'harness:suggest-config': true,
   'harness:search-skills': true,

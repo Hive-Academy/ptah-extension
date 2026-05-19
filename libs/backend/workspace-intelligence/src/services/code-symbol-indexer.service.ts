@@ -1,5 +1,3 @@
-// libs/backend/workspace-intelligence/src/services/code-symbol-indexer.service.ts
-
 import * as path from 'path';
 import picomatch from 'picomatch';
 import { inject, injectable } from 'tsyringe';
@@ -80,7 +78,6 @@ const DEFAULT_SKIP_PATTERNS = [
   '*.test.jsx',
   '*.module.ts',
   '*.module.js',
-  // Note: index.ts barrels occasionally define inline symbols — remove if false-positive skipping is reported
   'index.ts',
   'index.tsx',
   'index.js',
@@ -155,8 +152,6 @@ export class CodeSymbolIndexer {
     const extensions = options?.extensions ?? [...DEFAULT_EXTENSIONS];
     const batchSize = options?.batchSize ?? DEFAULT_BATCH_SIZE;
     const maxFilesPerRun = options?.maxFilesPerRun ?? DEFAULT_MAX_FILES;
-
-    // Collect file paths up to maxFilesPerRun
     const filePaths: string[] = [];
     const includePatterns = extensions.map((ext) => `**/*${ext}`);
 
@@ -202,16 +197,12 @@ export class CodeSymbolIndexer {
       }
 
       if (options?.onProgress) {
-        try {
-          options.onProgress({
-            filesScanned: filesProcessed,
-            totalFiles: filteredPaths.length,
-            symbolsIndexed: totalSymbols,
-            currentFile: batch[batch.length - 1] ?? '',
-          });
-        } catch {
-          // never let a listener throw poison the indexing loop
-        }
+        options.onProgress({
+          filesScanned: filesProcessed,
+          totalFiles: filteredPaths.length,
+          symbolsIndexed: totalSymbols,
+          currentFile: batch[batch.length - 1] ?? '',
+        });
       }
 
       if (i + batchSize < filteredPaths.length) {
@@ -282,15 +273,10 @@ export class CodeSymbolIndexer {
     workspaceRoot: string,
   ): Promise<FileStats> {
     const startMs = Date.now();
-
-    // Normalize path separators to forward slashes for consistent SQLite subject keys
-    // across Windows and Unix — prevents stale entries when paths are compared.
     const normalizedFilePath = absoluteFilePath.replace(/\\/g, '/');
 
     const ext = path.extname(normalizedFilePath);
     const language = extensionToLanguage(ext);
-
-    // Silently skip files with unsupported extensions
     if (!language) {
       return { symbolsIndexed: 0, errors: 0, durationMs: Date.now() - startMs };
     }
@@ -311,9 +297,6 @@ export class CodeSymbolIndexer {
       language,
       normalizedFilePath,
     );
-
-    // Fix 5: check isErr() BEFORE accessing result.value to avoid crashing
-    // if the Result implementation throws on .value when in error state.
     if (result.isErr()) {
       this.logger.warn(
         `[CodeSymbolIndexer] AST parse failed for ${normalizedFilePath}: ${result.error?.message ?? 'Unknown error'}`,
@@ -326,8 +309,6 @@ export class CodeSymbolIndexer {
     }
 
     const relPath = path.relative(workspaceRoot, normalizedFilePath);
-
-    // Clear stale symbols for this file before re-inserting (minor: log count)
     try {
       const deletedCount = this.sink.deleteSymbolsForFile(
         normalizedFilePath,
@@ -351,8 +332,6 @@ export class CodeSymbolIndexer {
     }
 
     const chunks: SymbolChunkInsert[] = [];
-
-    // Index functions
     for (const fn of insights.functions) {
       const name = fn.name;
       const startLine = fn.startLine ?? 0;
@@ -366,8 +345,6 @@ export class CodeSymbolIndexer {
         workspaceRoot,
       });
     }
-
-    // Index classes and their methods
     for (const cls of insights.classes) {
       const className = cls.name;
       const classStartLine = cls.startLine ?? 0;
@@ -380,8 +357,6 @@ export class CodeSymbolIndexer {
         filePath: normalizedFilePath,
         workspaceRoot,
       });
-
-      // Index methods within the class
       if (cls.methods) {
         for (const method of cls.methods) {
           const methodName = method.name;
@@ -400,8 +375,6 @@ export class CodeSymbolIndexer {
     }
 
     if (chunks.length > 0) {
-      // Fix 6: wrap insertSymbols in its own try/catch so a failed insert after
-      // a successful delete is clearly diagnosed (symbols are gone, re-index recovers).
       try {
         await this.sink.insertSymbols(chunks);
       } catch (insertError: unknown) {

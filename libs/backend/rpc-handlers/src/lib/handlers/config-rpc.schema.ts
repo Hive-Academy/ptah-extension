@@ -16,10 +16,6 @@
 import { z } from 'zod';
 import type { PermissionLevel, EffortLevel } from '@ptah-extension/shared';
 
-// ---------------------------------------------------------------------------
-// Permission level
-// ---------------------------------------------------------------------------
-
 export const PermissionLevelSchema = z.enum([
   'ask',
   'auto-edit',
@@ -38,10 +34,6 @@ export function parsePermissionLevel(
   const result = PermissionLevelSchema.safeParse(raw);
   return result.success ? result.data : fallback;
 }
-
-// ---------------------------------------------------------------------------
-// Effort level
-// ---------------------------------------------------------------------------
 
 export const EffortLevelSchema = z.enum([
   'low',

@@ -53,11 +53,11 @@ import {
 
 import { SdkAgentAdapter } from './sdk-agent-adapter';
 import { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
+import { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
 import { SdkError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
 import type {
   SessionLifecycleManager,
-  ConfigWatcher,
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
@@ -142,15 +142,6 @@ function createMockModelService(): jest.Mocked<
     getApiModelsNormalized: jest.fn().mockResolvedValue([]),
     clearCache: jest.fn(),
     resolveModelId: jest.fn((m: string) => m),
-  };
-}
-
-function createMockConfigWatcher(): jest.Mocked<
-  Pick<ConfigWatcher, 'registerWatchers' | 'dispose'>
-> {
-  return {
-    registerWatchers: jest.fn(),
-    dispose: jest.fn(),
   };
 }
 
@@ -274,7 +265,6 @@ interface AdapterHarness {
   metadataStore: ReturnType<typeof createMockMetadataStore>;
   authManager: ReturnType<typeof createMockIAuthEnvProvider>;
   sessionLifecycle: ReturnType<typeof createMockSessionLifecycle>;
-  configWatcher: ReturnType<typeof createMockConfigWatcher>;
   cliDetector: ReturnType<typeof createMockCliDetector>;
   streamTransformer: ReturnType<typeof createMockStreamTransformer>;
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
@@ -282,6 +272,7 @@ interface AdapterHarness {
   platformInfo: IPlatformInfo;
   warmQueryManager: ReturnType<typeof createMockWarmQueryManager>;
   forkService: ReturnType<typeof createMockForkService>;
+  events: SdkAdapterEvents;
 }
 
 function makeAdapter(
@@ -296,7 +287,6 @@ function makeAdapter(
   const metadataStore = createMockMetadataStore();
   const authManager = createMockIAuthEnvProvider();
   const sessionLifecycle = createMockSessionLifecycle();
-  const configWatcher = createMockConfigWatcher();
   const cliDetector = createMockCliDetector();
   const streamTransformer = createMockStreamTransformer();
   const moduleLoader = createMockModuleLoader();
@@ -306,6 +296,7 @@ function makeAdapter(
   const forkService = createMockForkService();
 
   const runtimeState = new SdkRuntimeStateService(asLogger(logger));
+  const events = new SdkAdapterEvents(asLogger(logger));
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
@@ -314,7 +305,6 @@ function makeAdapter(
     metadataStore as unknown as SessionMetadataStore,
     authManager as unknown as IAuthEnvProvider,
     sessionLifecycle as unknown as SessionLifecycleManager,
-    configWatcher as unknown as ConfigWatcher,
     cliDetector as unknown as ClaudeCliDetector,
     streamTransformer as unknown as StreamTransformer,
     moduleLoader as unknown as SdkModuleLoader,
@@ -323,6 +313,7 @@ function makeAdapter(
     warmQueryManager as unknown as SdkWarmQueryManager,
     forkService as unknown as SessionForkService,
     sentry as unknown as SentryService,
+    events,
   );
 
   return {
@@ -333,7 +324,6 @@ function makeAdapter(
     metadataStore,
     authManager,
     sessionLifecycle,
-    configWatcher,
     cliDetector,
     streamTransformer,
     moduleLoader,
@@ -341,6 +331,7 @@ function makeAdapter(
     platformInfo,
     warmQueryManager,
     forkService,
+    events,
   };
 }
 
@@ -362,16 +353,31 @@ describe('SdkAgentAdapter', () => {
   });
 
   describe('initialize()', () => {
-    it('registers config watchers BEFORE attempting authentication', async () => {
+    it('emits initialized=true on the events bus after a successful init', async () => {
       const h = makeAdapter();
-      let registeredBeforeAuth = false;
-      h.configWatcher.registerWatchers.mockImplementationOnce(() => {
-        registeredBeforeAuth =
-          h.authManager.configureAuthentication.mock.calls.length === 0;
-      });
+      const listener = jest.fn();
+      h.events.onInitialized(listener);
 
       await h.adapter.initialize();
-      expect(registeredBeforeAuth).toBe(true);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener.mock.calls[0][0]).toMatchObject({ success: true });
+    });
+
+    it('emits initialized=false when authentication fails', async () => {
+      const h = makeAdapter();
+      h.authManager.configureAuthentication.mockResolvedValueOnce({
+        configured: false,
+        details: [],
+        errorMessage: 'no key',
+      });
+      const listener = jest.fn();
+      h.events.onInitialized(listener);
+
+      await h.adapter.initialize();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener.mock.calls[0][0]).toMatchObject({ success: false });
     });
 
     it('returns false and records errorMessage when auth is not configured', async () => {
@@ -784,13 +790,16 @@ describe('SdkAgentAdapter', () => {
   });
 
   describe('dispose()', () => {
-    it('disposes config watcher, clears auth, clears the model cache, and disposes the warm-query manager', async () => {
+    it('emits disposed on the events bus, clears auth, clears the model cache, and disposes the warm-query manager', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
+      const disposedListener = jest.fn();
+      h.events.onDisposed(disposedListener);
+
       h.adapter.dispose();
 
-      expect(h.configWatcher.dispose).toHaveBeenCalled();
+      expect(disposedListener).toHaveBeenCalledTimes(1);
       expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalled();
       expect(h.authManager.clearAuthentication).toHaveBeenCalled();
       expect(h.modelService.clearCache).toHaveBeenCalled();

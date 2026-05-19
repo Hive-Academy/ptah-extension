@@ -50,7 +50,6 @@ export class JsonRpcOAuthUrlOpener implements IOAuthUrlOpener {
         code: response.code,
       };
     } catch {
-      // Timeout, transport error, or client rejected — caller will fall back.
       return { opened: false };
     } finally {
       if (timeoutHandle !== undefined) {

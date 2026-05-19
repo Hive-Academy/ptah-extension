@@ -11,11 +11,9 @@
  */
 
 import { DependencyContainer, Lifecycle } from 'tsyringe';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import {
-  MEMORY_CONTRACT_TOKENS,
-  type IMemoryReader,
-} from '@ptah-extension/memory-contracts';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
@@ -38,28 +36,21 @@ import {
   SdkModelService,
   MemoryPromptInjector,
   SdkInternalQueryCuratorLlm,
-  // History reader child services
   HistoryEventFactory,
   JsonlReaderService,
   AgentCorrelationService,
   SessionReplayService,
-  // Compaction configuration and hooks
   CompactionConfigProvider,
   CompactionHookHandler,
-  // Compaction callback registry
   CompactionCallbackRegistry,
-  // Session end callback registry
   SessionEndCallbackRegistry,
-  // Live usage tracker
   LiveUsageTracker,
-  // Worktree hook handler
   WorktreeHookHandler,
-  // Slash command interceptor
   SlashCommandInterceptor,
-  // Warm-query manager + session fork service (Win 6c)
   SdkWarmQueryManager,
   SessionForkService,
   SdkRuntimeStateService,
+  SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
@@ -90,23 +81,16 @@ export function registerSdkServices(
   logger: Logger,
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
-
-  // Session metadata store - uses @inject decorators for IStateStorage and Logger
-  // Resolved via decorator injection (PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE).
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Session importer - scans existing Claude sessions
   container.register(
     SDK_TOKENS.SDK_SESSION_IMPORTER,
     { useClass: SessionImporterService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // History event factory - creates FlatStreamEventUnion events
   container.register(
     SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY,
     { useClass: HistoryEventFactory },
@@ -176,6 +160,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_RUNTIME_STATE,
     { useClass: SdkRuntimeStateService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_ADAPTER_EVENTS,
+    { useClass: SdkAdapterEvents },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -262,22 +252,12 @@ export function registerSdkServices(
     { useClass: SdkTranscriptReaderAdapter },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Curator LLM adapter — SdkInternalQueryCuratorLlm implements ICuratorLLM.
   container.register(
     SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER,
     { useClass: SdkInternalQueryCuratorLlm },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
-    const noopReader: IMemoryReader = {
-      search: async () => ({ hits: [], bm25Only: true }),
-    };
-    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
-      useValue: noopReader,
-    });
-  }
   container.registerSingleton(
     SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR,
     MemoryPromptInjector,
@@ -343,7 +323,15 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
+  container.resolve(SDK_TOKENS.SDK_CONFIG_WATCHER);
+
   logger.info('[AgentSDK] SDK services registered successfully', {
     services: Object.keys(SDK_TOKENS),
+  });
+}
+
+export function wireAgentAdapterAliases(container: DependencyContainer): void {
+  container.register(TOKENS.AGENT_ADAPTER, {
+    useFactory: (c) => c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
   });
 }

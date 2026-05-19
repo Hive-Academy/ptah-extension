@@ -27,12 +27,9 @@ export class AgentDiscoveryFacade {
    * Fetch all agents from backend
    */
   async fetchAgents(): Promise<void> {
-    // Cache check - skip RPC if already cached
     if (this._isCached()) {
       return;
     }
-
-    // Prevent duplicate in-flight requests
     if (this._isLoading()) {
       return;
     }
@@ -57,7 +54,6 @@ export class AgentDiscoveryFacade {
                   : '👤',
           })),
         );
-        // Only mark cache as valid when we have actual data
         if (result.data.agents.length > 0) {
           this._isCached.set(true);
         }

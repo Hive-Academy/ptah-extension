@@ -103,8 +103,6 @@ export class WorkspaceIndexerService {
 
     const maxFileSize = options.maxFileSize ?? this.defaultMaxFileSize;
     const respectIgnoreFiles = options.respectIgnoreFiles ?? true;
-
-    // Load ignore patterns if requested
     const ignoredPatterns: string[] = [];
     let parsedIgnoreFiles: Awaited<
       ReturnType<typeof this.ignoreResolver.parseWorkspaceIgnoreFiles>
@@ -117,26 +115,18 @@ export class WorkspaceIndexerService {
         ignoredPatterns.push(...ignoreFile.patterns.map((p) => p.pattern));
       }
     }
-
-    // Add user-provided exclude patterns
     if (options.excludePatterns) {
       ignoredPatterns.push(...options.excludePatterns);
     }
-
-    // Discover all files
     const allFiles = await this.discoverFiles(
       workspaceFolder,
       options.includePatterns,
     );
-
-    // Filter files based on ignore patterns and size
     const indexedFiles: IndexedFile[] = [];
     let filesIndexed = 0;
 
     for (const filePath of allFiles) {
       const relativePath = path.relative(workspaceFolder, filePath);
-
-      // Check if file should be ignored
       if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
         const ignoreResult = await this.ignoreResolver.isIgnored(
           relativePath,
@@ -146,8 +136,6 @@ export class WorkspaceIndexerService {
           continue; // Skip ignored files
         }
       }
-
-      // Check against exclude patterns
       if (options.excludePatterns && options.excludePatterns.length > 0) {
         const excluded = this.patternMatcher.matchFiles(
           [relativePath],
@@ -157,31 +145,20 @@ export class WorkspaceIndexerService {
           continue; // Skip excluded files
         }
       }
-
-      // Get file stats
       const stat = await this.fileSystemService.stat(filePath);
-
-      // Skip files that are too large
       if (stat.size > maxFileSize) {
         continue;
       }
-
-      // Classify file type
       const classification = this.fileClassifier.classifyFile(relativePath);
-
-      // Estimate token count if requested
       let estimatedTokens = 0;
       if (options.estimateTokens) {
         try {
           const content = await this.fileSystemService.readFile(filePath);
           estimatedTokens = await this.tokenCounter.countTokens(content);
         } catch {
-          // If we can't read the file, skip it
           continue;
         }
       }
-
-      // Create indexed file entry
       const indexedFile: IndexedFile = {
         path: filePath,
         relativePath,
@@ -193,8 +170,6 @@ export class WorkspaceIndexerService {
 
       indexedFiles.push(indexedFile);
       filesIndexed++;
-
-      // Report progress
       if (onProgress) {
         onProgress({
           currentFile: relativePath,
@@ -204,8 +179,6 @@ export class WorkspaceIndexerService {
         });
       }
     }
-
-    // Calculate totals
     const totalSize = indexedFiles.reduce((sum, file) => sum + file.size, 0);
 
     return {
@@ -237,8 +210,6 @@ export class WorkspaceIndexerService {
 
     const maxFileSize = options.maxFileSize ?? this.defaultMaxFileSize;
     const respectIgnoreFiles = options.respectIgnoreFiles ?? true;
-
-    // Load ignore patterns
     let parsedIgnoreFiles: Awaited<
       ReturnType<typeof this.ignoreResolver.parseWorkspaceIgnoreFiles>
     > = [];
@@ -247,8 +218,6 @@ export class WorkspaceIndexerService {
       parsedIgnoreFiles =
         await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceFolder);
     }
-
-    // Discover and yield files one at a time
     const allFiles = await this.discoverFiles(
       workspaceFolder,
       options.includePatterns,
@@ -256,8 +225,6 @@ export class WorkspaceIndexerService {
 
     for (const filePath of allFiles) {
       const relativePath = path.relative(workspaceFolder, filePath);
-
-      // Check if file should be ignored
       if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
         const ignoreResult = await this.ignoreResolver.isIgnored(
           relativePath,
@@ -267,8 +234,6 @@ export class WorkspaceIndexerService {
           continue;
         }
       }
-
-      // Check against exclude patterns
       if (options.excludePatterns && options.excludePatterns.length > 0) {
         const excluded = this.patternMatcher.matchFiles(
           [relativePath],
@@ -278,19 +243,11 @@ export class WorkspaceIndexerService {
           continue;
         }
       }
-
-      // Get file stats
       const stat = await this.fileSystemService.stat(filePath);
-
-      // Skip files that are too large
       if (stat.size > maxFileSize) {
         continue;
       }
-
-      // Classify file type
       const classification = this.fileClassifier.classifyFile(relativePath);
-
-      // Estimate token count if requested
       let estimatedTokens = 0;
       if (options.estimateTokens) {
         try {
@@ -300,8 +257,6 @@ export class WorkspaceIndexerService {
           continue;
         }
       }
-
-      // Yield indexed file
       yield {
         path: filePath,
         relativePath,
@@ -350,7 +305,6 @@ export class WorkspaceIndexerService {
     workspaceFolder: string,
     includePatterns?: string[],
   ): Promise<string[]> {
-    // Use IFileSystemProvider's findFiles API for efficient file discovery
     const pattern = includePatterns?.length
       ? `{${includePatterns.join(',')}}`
       : '**/*';

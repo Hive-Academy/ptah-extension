@@ -26,10 +26,6 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-angular';
-// ExecutionNodeComponent import removed to break the execution-node ↔
-// inline-agent-bubble file-import cycle. Recursive rendering of children is
-// delegated to a TemplateRef supplied by the parent (ExecutionNodeComponent)
-// via `nodeTemplate` input + ngTemplateOutlet.
 import {
   TypingCursorComponent,
   CostBadgeComponent,
@@ -619,8 +615,6 @@ export class InlineAgentBubbleComponent {
    */
   private readonly contentContainerRef =
     viewChild<ElementRef<HTMLElement>>('contentContainer');
-
-  // Icons
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
   readonly ChevronUpIcon = ChevronUp;
@@ -630,36 +624,23 @@ export class InlineAgentBubbleComponent {
   readonly SendIcon = Send;
   readonly CheckIcon = CheckCircle2;
   readonly XIcon = XCircle;
-
-  // Collapse state - expanded by default, auto-collapsed for background agents
   readonly isCollapsed = signal(false);
 
   constructor() {
-    // Auto-collapse background agents so they don't interfere with the
-    // active session's streaming. Users can manually expand if needed.
-    // Runs once on init and when a node transitions to background mid-stream.
     effect(() => {
       if (this.isBackground()) {
         this.isCollapsed.set(true);
       }
     });
-
-    // Setup observer after initial render
     afterNextRender(
       () => {
         this.setupMutationObserver();
       },
       { injector: this.injector },
     );
-
-    // Re-setup observer when component expands (container re-enters DOM)
-    // The #contentContainer is conditionally rendered with @if (!isCollapsed())
     effect(() => {
       const collapsed = this.isCollapsed();
       if (!collapsed && !this.observerSetupPending) {
-        // Container is visible - setup/re-setup observer
-        // Use afterNextRender to ensure DOM is ready
-        // Set flag to prevent multiple queued setups on rapid toggle
         this.observerSetupPending = true;
         afterNextRender(
           () => {
@@ -670,8 +651,6 @@ export class InlineAgentBubbleComponent {
         );
       }
     });
-
-    // Cleanup on component destruction
     this.destroyRef.onDestroy(() => {
       this.cleanup();
     });
@@ -699,8 +678,6 @@ export class InlineAgentBubbleComponent {
   private setupMutationObserver(): void {
     const container = this.contentContainerRef()?.nativeElement;
     if (!container) return;
-
-    // Disconnect existing observer if any (handles re-connection on expand)
     if (this.observer) {
       this.observer.disconnect();
     }
@@ -708,12 +685,6 @@ export class InlineAgentBubbleComponent {
     this.observer = new MutationObserver(() => {
       this.scheduleScroll();
     });
-
-    // Watch for any DOM changes in the container subtree.
-    // characterData is intentionally NOT observed — it fires on every text
-    // node change during streaming, causing excessive scroll callbacks.
-    // childList + subtree is sufficient because Angular's change detection
-    // adds new DOM elements for streaming content.
     this.observer.observe(container, {
       childList: true, // New nodes added/removed
       subtree: true, // Watch entire subtree (recursive components)
@@ -727,18 +698,11 @@ export class InlineAgentBubbleComponent {
   private scheduleScroll(): void {
     const isStreaming = this.node().status === 'streaming';
     const isCollapsed = this.isCollapsed();
-
-    // Only scroll when streaming and expanded
     if (!isStreaming || isCollapsed) return;
-
-    // Clear previous debounce (trailing debounce pattern)
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
     }
-
-    // Schedule scroll after debounce period
     this.scrollTimeoutId = setTimeout(() => {
-      // Re-check conditions - may have changed during debounce period
       const stillStreaming = this.node().status === 'streaming';
       const nowCollapsed = this.isCollapsed();
       if (stillStreaming && !nowCollapsed) {
@@ -761,20 +725,11 @@ export class InlineAgentBubbleComponent {
       this.scrollTimeoutId = null;
     }
   }
-
-  // Computed: is agent streaming
   readonly isStreaming = computed(() => this.node().status === 'streaming');
-
-  // Computed: was agent interrupted
   readonly isInterrupted = computed(() => this.node().status === 'interrupted');
-
-  // Computed: was agent resumed (interrupted then continued in new agent)
-  // Checks both the node's own status and the AgentMonitorStore's resume tracking.
-  // Matches by specific node ID to avoid false positives with multiple agents of same type.
   readonly isResumed = computed(() => {
     const node = this.node();
     if (node.status === 'resumed') return true;
-    // If node is interrupted, check if THIS specific node was subsequently resumed
     if (node.status === 'interrupted') {
       const description = node.agentDescription || node.content || '';
       return this.agentMonitorStore.isAgentResumed(
@@ -785,19 +740,10 @@ export class InlineAgentBubbleComponent {
     }
     return false;
   });
-
-  // Computed: is background agent
   readonly isBackground = computed(() => this.node().isBackground === true);
-
-  // Structured agent color { l, c, h } — preferred internal representation.
-  // Built-in Claude agents get fixed oklch values for theme consistency;
-  // custom agents get a hashed hue. Empty/falsy types yield a sentinel that
-  // routes to the `oklch(var(--bc) / α)` theme-aware fallback in formatOklch.
   readonly agentColorOklch = computed(() =>
     generateAgentColorOklch(this.node().agentType || ''),
   );
-
-  // CSS string for the main agent color (used for border, avatar, etc.).
   readonly agentColor = computed(() => formatOklch(this.agentColorOklch()));
 
   /**
@@ -813,14 +759,10 @@ export class InlineAgentBubbleComponent {
     }
     return formatOklch(color, 0.1);
   });
-
-  // Computed: agent initial letter
   readonly agentInitial = computed(() => {
     const agentType = this.node().agentType || '';
     return agentType.charAt(0).toUpperCase();
   });
-
-  // Computed: child statistics for badge display
   readonly childStats = computed(() => {
     const children = this.node().children ?? [];
     const toolCount = children.filter((c) => c.type === 'tool').length;
@@ -835,8 +777,6 @@ export class InlineAgentBubbleComponent {
     }
     return '';
   });
-
-  // Computed: agent cost for badge display
   readonly agentCost = computed(() => this.node().cost ?? 0);
 
   /**
@@ -896,10 +836,6 @@ export class InlineAgentBubbleComponent {
     this.isCollapsed.update((v) => !v);
   }
 
-  // ───────────────────────────────────────────────────────────────────
-  // Subagent visibility + bidirectional messaging
-  // ───────────────────────────────────────────────────────────────────
-
   /** parentToolUseId for the SDK task this bubble represents. */
   readonly parentToolUseId = computed(() => this.node().toolCallId ?? null);
 
@@ -931,8 +867,6 @@ export class InlineAgentBubbleComponent {
     const rec = this.subagentRecord();
     return !!rec && rec.status === 'running';
   });
-
-  // Send-message UI state
   readonly sendInputExpanded = signal(false);
   readonly sendDraft = signal('');
   readonly sendPending = signal(false);
@@ -957,14 +891,12 @@ export class InlineAgentBubbleComponent {
   protected onSendDraftInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
     this.sendDraft.set(target.value);
-    // Auto-grow up to ~3 lines
     target.style.height = 'auto';
     const max = 72; // ~3 lines @ 24px line-height
     target.style.height = Math.min(target.scrollHeight, max) + 'px';
   }
 
   protected onSendKeydown(event: KeyboardEvent): void {
-    // Cmd/Ctrl+Enter submits
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       this.onSendSubmit();
@@ -987,8 +919,6 @@ export class InlineAgentBubbleComponent {
       this.sendDraft.set('');
       this.flashSentToast();
     }
-    // On failure the draft is preserved so the user can retry; the store's
-    // subagentRpcError signal surfaces the error inline via the template.
   }
 
   protected async onStopClick(event: Event): Promise<void> {

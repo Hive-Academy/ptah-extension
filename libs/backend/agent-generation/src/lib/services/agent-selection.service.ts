@@ -67,8 +67,6 @@ export class AgentSelectionService implements IAgentSelectionService {
         projectType: context.projectType,
         frameworks: context.frameworks,
       });
-
-      // Load all templates
       const templatesResult = await this.templateStorage.loadAllTemplates();
       if (templatesResult.isErr()) {
         this.logger.error('Failed to load templates', templatesResult.error!);
@@ -81,8 +79,6 @@ export class AgentSelectionService implements IAgentSelectionService {
         this.logger.warn('No templates available for selection');
         return Result.ok([]);
       }
-
-      // Select all templates — intelligence comes from LLM customization
       const selectedTemplates: SelectionResult[] = templates.map(
         (template) => ({
           template,
@@ -90,8 +86,6 @@ export class AgentSelectionService implements IAgentSelectionService {
           matchedCriteria: this.buildCriteria(template, context),
         })
       );
-
-      // Log selection summary
       this.logger.info('Agent selection complete', {
         totalTemplates: templates.length,
         selectedCount: selectedTemplates.length,

@@ -24,16 +24,12 @@ export class ResendWebhookGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-
-    // 1. Check secret configuration
     if (!this.secret) {
       this.logger.error(
         'RESEND_WEBHOOK_SECRET is not configured. Webhook rejected.',
       );
       throw new UnauthorizedException('Webhook secret not configured');
     }
-
-    // 2. Extract headers
     const svixId = request.headers['svix-id'] as string;
     const svixTimestamp = request.headers['svix-timestamp'] as string;
     const svixSignature = request.headers['svix-signature'] as string;
@@ -42,8 +38,6 @@ export class ResendWebhookGuard implements CanActivate {
       this.logger.warn('Missing Svix headers in Resend webhook');
       throw new UnauthorizedException('Missing Svix headers');
     }
-
-    // 3. Verify timestamp drift (max 5 minutes)
     const now = Math.floor(Date.now() / 1000);
     const timestamp = parseInt(svixTimestamp, 10);
     if (isNaN(timestamp) || Math.abs(now - timestamp) > 300) {
@@ -52,8 +46,6 @@ export class ResendWebhookGuard implements CanActivate {
       );
       throw new UnauthorizedException('Timestamp drift too large');
     }
-
-    // 4. Extract raw body (MUST be provided by custom middleware)
     const rawBody = request.rawBody;
     if (!rawBody) {
       this.logger.error(
@@ -61,18 +53,12 @@ export class ResendWebhookGuard implements CanActivate {
       );
       throw new UnauthorizedException('Internal error: raw body missing');
     }
-
-    // 5. Compute signature
-    // Payload format: <svix-id>.<svix-timestamp>.<rawBody>
     const toSign = `${svixId}.${svixTimestamp}.${rawBody.toString('utf8')}`;
-    // The secret is base64 encoded (after stripping whsec_ prefix)
     const hmac = crypto.createHmac(
       'sha256',
       Buffer.from(this.secret, 'base64'),
     );
     const computedSignature = hmac.update(toSign).digest('base64');
-
-    // 6. Iterate and verify signatures (Svix provides multiple space-separated 'v1,<sig>' pairs)
     const signatures = svixSignature.split(' ');
     let verified = false;
 
@@ -92,7 +78,6 @@ export class ResendWebhookGuard implements CanActivate {
           break;
         }
       } catch {
-        // Handle potential base64 decoding errors
         continue;
       }
     }
@@ -101,8 +86,6 @@ export class ResendWebhookGuard implements CanActivate {
       this.logger.warn('Resend webhook signature verification failed');
       throw new UnauthorizedException('Invalid signature');
     }
-
-    // Attach parsed body to request so controller can use it
     try {
       request.body = JSON.parse(rawBody.toString('utf8'));
     } catch {

@@ -29,10 +29,6 @@ import type {
   OpenAIContentPart,
 } from './openai-translation.types';
 
-// ---------------------------------------------------------------------------
-// Translation options
-// ---------------------------------------------------------------------------
-
 /** Options for controlling request translation behavior */
 export interface TranslateOptions {
   /**
@@ -43,10 +39,6 @@ export interface TranslateOptions {
    */
   modelPrefix?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Main translation function
-// ---------------------------------------------------------------------------
 
 /**
  * Translate a complete Anthropic Messages API request into an OpenAI
@@ -61,19 +53,12 @@ export function translateAnthropicToOpenAI(
   options?: TranslateOptions,
 ): OpenAIChatCompletionsRequest {
   const openaiMessages: OpenAIChatMessage[] = [];
-
-  // 1. Translate system prompt to system message (if present)
   const systemMessage = translateSystemPrompt(anthropicRequest.system);
   if (systemMessage) {
     openaiMessages.push(systemMessage);
   }
-
-  // 2. Translate conversation messages
   const conversationMessages = translateMessages(anthropicRequest.messages);
   openaiMessages.push(...conversationMessages);
-
-  // 3. Build the OpenAI request
-  // Apply model prefix if configured (e.g., Copilot needs 'capi:' prefix)
   const prefix = options?.modelPrefix ?? '';
   const model =
     prefix && !anthropicRequest.model.startsWith(prefix)
@@ -84,26 +69,16 @@ export function translateAnthropicToOpenAI(
     model,
     messages: openaiMessages,
   };
-
-  // max_tokens → max_completion_tokens (modern OpenAI field name).
-  // Newer APIs (Copilot, GPT-4-turbo+) reject 'max_tokens' with
-  // "Unsupported parameter: use 'max_completion_tokens' instead".
   if (anthropicRequest.max_tokens != null) {
     openaiRequest.max_completion_tokens = anthropicRequest.max_tokens;
   }
-
-  // stream — direct pass-through, request usage in final chunk
   if (anthropicRequest.stream) {
     openaiRequest.stream = true;
     openaiRequest.stream_options = { include_usage: true };
   }
-
-  // tools — translate format
   if (anthropicRequest.tools && anthropicRequest.tools.length > 0) {
     openaiRequest.tools = translateTools(anthropicRequest.tools);
   }
-
-  // tool_choice — translate format differences
   if (anthropicRequest.tool_choice) {
     openaiRequest.tool_choice = translateToolChoice(
       anthropicRequest.tool_choice,
@@ -112,10 +87,6 @@ export function translateAnthropicToOpenAI(
 
   return openaiRequest;
 }
-
-// ---------------------------------------------------------------------------
-// Exported helper functions (individually testable)
-// ---------------------------------------------------------------------------
 
 /**
  * Translate Anthropic system prompt into an OpenAI system message.
@@ -132,7 +103,6 @@ export function translateSystemPrompt(
   if (typeof system === 'string') {
     text = system;
   } else if (Array.isArray(system)) {
-    // Array of { type: 'text', text: '...' } blocks — concatenate
     text = system
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
@@ -193,7 +163,6 @@ export function translateToolChoice(
     case 'auto':
       return 'auto';
     case 'any':
-      // Anthropic 'any' means "must use a tool" -> OpenAI 'required'
       return 'required';
     case 'tool':
       return { type: 'function', function: { name: toolChoice.name } };
@@ -201,10 +170,6 @@ export function translateToolChoice(
       return 'auto';
   }
 }
-
-// ---------------------------------------------------------------------------
-// Private translation helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Translate a single Anthropic user message.
@@ -223,8 +188,6 @@ function translateUserMessage(msg: AnthropicMessage): OpenAIChatMessage[] {
     results.push({ role: 'user', content: '' });
     return results;
   }
-
-  // Separate tool_result blocks from other content
   const toolResults: AnthropicToolResultBlock[] = [];
   const otherBlocks: AnthropicContentBlock[] = [];
 
@@ -235,14 +198,9 @@ function translateUserMessage(msg: AnthropicMessage): OpenAIChatMessage[] {
       otherBlocks.push(block);
     }
   }
-
-  // Emit tool result messages first (OpenAI expects role:'tool' messages
-  // right after the assistant's tool_calls)
   for (const toolResult of toolResults) {
     results.push(translateToolResultToMessage(toolResult));
   }
-
-  // Emit the user message with remaining content blocks
   if (otherBlocks.length > 0) {
     const parts = flattenContentBlocks(otherBlocks);
     if (
@@ -251,13 +209,11 @@ function translateUserMessage(msg: AnthropicMessage): OpenAIChatMessage[] {
       'type' in parts[0] &&
       parts[0].type === 'text'
     ) {
-      // Single text block — use string content for simplicity
       results.push({ role: 'user', content: parts[0].text });
     } else if (parts.length > 0) {
       results.push({ role: 'user', content: parts as OpenAIContentPart[] });
     }
   } else if (toolResults.length === 0) {
-    // No content at all — emit empty user message
     results.push({ role: 'user', content: '' });
   }
 
@@ -295,7 +251,6 @@ function translateAssistantMessage(msg: AnthropicMessage): OpenAIChatMessage[] {
         },
       });
     }
-    // Skip other block types (image in assistant = unusual, ignore)
   }
 
   const assistantMsg: OpenAIChatMessage = {
@@ -321,7 +276,6 @@ function translateToolResultToMessage(
   if (typeof toolResult.content === 'string') {
     content = toolResult.content;
   } else if (Array.isArray(toolResult.content)) {
-    // Extract text from content blocks
     content = toolResult.content
       .filter((b): b is AnthropicTextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -329,8 +283,6 @@ function translateToolResultToMessage(
   } else {
     content = '';
   }
-
-  // If it was an error, prefix with error indicator
   if (toolResult.is_error && content) {
     content = `Error: ${content}`;
   }
@@ -357,17 +309,11 @@ function flattenContentBlocks(
       parts.push({ type: 'text', text: (block as AnthropicTextBlock).text });
     } else if (block.type === 'image') {
       const img = block as AnthropicImageBlock;
-      // Poisoned sessions (pre-validator history) can carry SVG / BMP / empty
-      // media_types that OpenAI-shape providers will reject. Route through the
-      // shared resolver so magic-byte sniffing wins and unknowns are dropped.
       const resolved = resolveImageMediaType(
         img.source.media_type,
         img.source.data,
       );
       if (resolved === null) {
-        // Skip the image entirely — matches how tool_use/tool_result are
-        // filtered out of flattenContentBlocks (positional indices are not
-        // load-bearing here; this function only emits content parts).
         continue;
       }
       parts.push({

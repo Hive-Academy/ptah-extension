@@ -100,9 +100,6 @@ export async function runHeadlessLogin(
     provider,
     timestamp: new Date().toISOString(),
   });
-
-  // Step 1: request a fresh device code. If GitHub rejects, surface the
-  // failure as `task.error` and exit with the generic auth_required code.
   let deviceLogin;
   try {
     deviceLogin = await copilotAuth.beginLogin();
@@ -116,11 +113,6 @@ export async function runHeadlessLogin(
   }
 
   const deviceCode = deviceLogin.deviceCode;
-
-  // Step 2: surface the verification URL + user code to whatever opener was
-  // composed. The opener returns `{ opened: false }` when the user (or peer)
-  // did not open the URL on our behalf — we still proceed to poll because
-  // the user may have opened it manually out-of-band.
   let openResult: { opened: boolean; code?: string };
   try {
     openResult = await opener.openOAuthUrl({
@@ -129,8 +121,6 @@ export async function runHeadlessLogin(
       userCode: deviceLogin.userCode,
     });
   } catch {
-    // Defensive — the opener contract says it never throws, but if it does
-    // we still try to poll (the user may have opened the URL out-of-band).
     openResult = { opened: false };
   }
 
@@ -142,18 +132,11 @@ export async function runHeadlessLogin(
     expires_in: deviceLogin.expiresIn,
     interval: deviceLogin.interval,
   });
-
-  // Step 3: install a SIGINT handler so Ctrl+C cleanly cancels polling and
-  // surfaces a `task.error` instead of leaving the device-code entry orphaned
-  // in the auth service's in-memory map.
   let sigintReceived = false;
   const sigintHandler = (): void => {
     sigintReceived = true;
-    try {
-      copilotAuth.cancelLogin(deviceCode);
-    } catch {
-      // cancelLogin is best-effort; ignore failures.
-    }
+
+    copilotAuth.cancelLogin(deviceCode);
   };
   processRef.on('SIGINT', sigintHandler);
 
@@ -178,10 +161,6 @@ export async function runHeadlessLogin(
       });
       return { exitCode: ExitCode.Success, outcome: 'success', deviceCode };
     }
-
-    // pollLogin returned `false` — could be timeout, denial, or exchange
-    // failure. We collapse all of these to `auth_required` so the parent
-    // process can reliably retry with `ptah auth login copilot`.
     await formatter.writeNotification('task.error', {
       provider,
       ptah_code: 'auth_required',

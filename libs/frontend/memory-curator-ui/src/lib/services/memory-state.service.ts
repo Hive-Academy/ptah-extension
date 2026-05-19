@@ -46,8 +46,6 @@ export interface MemoryTierTotals {
 export class MemoryStateService {
   private readonly rpcService = inject(MemoryRpcService);
   private readonly appState = inject(AppStateManager);
-
-  // -- Private writable signals --
   private readonly _entries = signal<readonly MemoryWire[]>([]);
   private readonly _query = signal<string>('');
   private readonly _tierFilter = signal<MemoryTierFilter>('all');
@@ -55,8 +53,6 @@ export class MemoryStateService {
   private readonly _stats = signal<MemoryStatsResult | null>(null);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
-
-  // -- Public readonly signals --
   public readonly entries = this._entries.asReadonly();
   public readonly query = this._query.asReadonly();
   public readonly tierFilter = this._tierFilter.asReadonly();
@@ -88,8 +84,6 @@ export class MemoryStateService {
     const codeIndex = stats?.codeIndex ?? 0;
     return { core, recall, archival, codeIndex, total: list.length };
   });
-
-  // -- Mutators --
 
   public setQuery(value: string): void {
     this._query.set(value);
@@ -131,8 +125,6 @@ export class MemoryStateService {
     }
     return { ok: true, workspaceRoot: root };
   }
-
-  // -- RPC-bound actions --
 
   /** Refresh the entry list from `memory:list`, optionally restricted to a tier. */
   public async refresh(): Promise<void> {
@@ -250,16 +242,11 @@ export class MemoryStateService {
   public async loadStats(): Promise<void> {
     const scoped = this.resolveScopedWorkspaceRoot();
     if (!scoped.ok) {
-      // Leave _stats unchanged: avoid showing zeros/stale numbers from a
-      // different workspace; surface the error so the UI can prompt the user.
       this._error.set(scoped.error);
       return;
     }
     this._error.set(null);
     try {
-      // `stats(null)` = global; `stats(path)` = scoped. The RPC contract
-      // distinguishes null vs undefined; map our `workspaceRoot: undefined`
-      // back to null for the "all" scope.
       const scopedRoot = scoped.workspaceRoot ?? null;
       const stats = await this.rpcService.stats(scopedRoot);
       this._stats.set(stats);

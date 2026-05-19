@@ -23,7 +23,7 @@
 
 import * as os from 'os';
 import * as path from 'path';
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type {
@@ -31,7 +31,7 @@ import type {
   IMemoryLister,
 } from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
-import { CODE_SYMBOL_INDEXER as CODE_SYMBOL_INDEXER_TOKEN } from '@ptah-extension/workspace-intelligence';
+import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -58,39 +58,26 @@ import {
 import type { PtahAPI } from './types';
 import { WebSearchService } from './services/web-search.service';
 import {
-  // Core namespace builders
   buildWorkspaceNamespace,
   buildSearchNamespace,
   buildDiagnosticsNamespace,
-  // System namespace builders
   buildFilesNamespace,
   buildHelpMethod,
-  // Analysis namespace builders
   buildContextNamespace,
   buildProjectNamespace,
   buildRelevanceNamespace,
   buildDependencyNamespace,
-  // AST namespace builder
   buildAstNamespace,
-  // IDE namespace builder
   buildIDENamespace,
   type IIDECapabilities,
-  // Orchestration namespace builder
   buildOrchestrationNamespace,
-  // Agent namespace builder
   buildAgentNamespace,
-  // Git namespace builder
   buildGitNamespace,
-  // JSON namespace builder
   buildJsonNamespace,
-  // Browser namespace builder
   buildBrowserNamespace,
   type IBrowserCapabilities,
-  // Skill namespace builder
   buildSkillNamespace,
-  // Memory namespace builder
   buildMemoryNamespace,
-  // Code symbol indexer namespace builder
   buildCodeNamespace,
 } from './namespace-builders';
 import {
@@ -178,6 +165,56 @@ const MEMORY_WRITER_TOKEN = Symbol.for('PlatformMemoryWriter');
  */
 export const IDE_CAPABILITIES_TOKEN = Symbol.for('IDECapabilities');
 
+interface SdkSessionLifecycleManagerLike {
+  getActiveSessionIds(): string[];
+  getActiveSessionWorkspace(): string | undefined;
+  find(id: string): { realSessionId: string | null } | undefined;
+}
+
+interface EnhancedPromptsServiceLike {
+  getProjectGuidanceContent(workspacePath: string): Promise<string | null>;
+  getEnhancedPromptContent(workspacePath: string): Promise<string | null>;
+}
+
+interface PluginLoaderLike {
+  getWorkspacePluginConfig(): { enabledPluginIds: string[] };
+  resolvePluginPaths(pluginIds: string[]): string[];
+}
+
+interface PtahCliRegistryLike {
+  listAgents(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      providerName: string;
+      hasApiKey: boolean;
+      enabled: boolean;
+    }>
+  >;
+  spawnAgent(
+    id: string,
+    task: string,
+    options?: {
+      projectGuidance?: string;
+      workingDirectory?: string;
+    },
+  ): Promise<
+    | {
+        handle: {
+          abort: AbortController;
+          done: Promise<number>;
+          onOutput: (cb: (data: string) => void) => void;
+        };
+        agentName: string;
+        setAgentId: (id: string) => void;
+      }
+    | {
+        status: 'not_found' | 'disabled' | 'no_api_key' | 'unknown_provider';
+        message: string;
+      }
+  >;
+}
+
 /**
  * DI token for browser capabilities.
  * In Electron, ElectronBrowserCapabilities is registered under this token.
@@ -203,8 +240,6 @@ export class PtahAPIBuilder {
 
     @inject(TOKENS.FILE_SYSTEM_MANAGER)
     private readonly fileSystemManager: FileSystemManager,
-
-    // Analysis services
     @inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)
     private readonly contextOptimizer: ContextSizeOptimizerService,
 
@@ -225,22 +260,16 @@ export class PtahAPIBuilder {
 
     @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
-
-    // Context enrichment & dependency graph
     @inject(TOKENS.CONTEXT_ENRICHMENT_SERVICE)
     private readonly contextEnrichment: ContextEnrichmentService,
 
     @inject(TOKENS.DEPENDENCY_GRAPH_SERVICE)
     private readonly dependencyGraph: DependencyGraphService,
-
-    // AST services
     @inject(TOKENS.TREE_SITTER_PARSER_SERVICE)
     private readonly treeSitterParser: TreeSitterParserService,
 
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
-
-    // Agent orchestration services
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,
 
@@ -258,6 +287,43 @@ export class PtahAPIBuilder {
 
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
     private readonly secretStorage: ISecretStorage,
+
+    @inject(SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
+    private readonly sdkSessionLifecycleManager:
+      | SdkSessionLifecycleManagerLike
+      | undefined,
+
+    @inject(ENHANCED_PROMPTS_SERVICE_TOKEN, { isOptional: true })
+    private readonly enhancedPromptsService:
+      | EnhancedPromptsServiceLike
+      | undefined,
+
+    @inject(SDK_PLUGIN_LOADER, { isOptional: true })
+    private readonly pluginLoader: PluginLoaderLike | undefined,
+
+    @inject(SDK_PTAH_CLI_REGISTRY, { isOptional: true })
+    private readonly ptahCliRegistry: PtahCliRegistryLike | undefined,
+
+    @inject(MEMORY_SEARCH_TOKEN, { isOptional: true })
+    private readonly memorySearch: IMemoryReader | undefined,
+
+    @inject(MEMORY_STORE_TOKEN, { isOptional: true })
+    private readonly memoryStore: IMemoryLister | undefined,
+
+    @inject(MEMORY_WRITER_TOKEN, { isOptional: true })
+    private readonly memoryWriter: IMemoryWriter | undefined,
+
+    @inject(CODE_SYMBOL_INDEXER, { isOptional: true })
+    private readonly symbolIndexer: CodeSymbolIndexer | undefined,
+
+    @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
+    private readonly webviewManager: WebviewManager | undefined,
+
+    @inject(IDE_CAPABILITIES_TOKEN, { isOptional: true })
+    private readonly ideCapabilities: IIDECapabilities | undefined,
+
+    @inject(BROWSER_CAPABILITIES_TOKEN, { isOptional: true })
+    private readonly browserCapabilities: IBrowserCapabilities | undefined,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
   }
@@ -272,8 +338,6 @@ export class PtahAPIBuilder {
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
-
-    // Prepare dependency objects for namespace builders
     const coreDeps = {
       workspaceAnalyzer: this.workspaceAnalyzer,
       contextOrchestration: this.contextOrchestration,
@@ -305,9 +369,6 @@ export class PtahAPIBuilder {
       fileSystemProvider: this.fileSystemProvider,
       workspaceProvider: this.workspaceProvider,
     };
-
-    // Lazy workspace root for orchestration namespace — resolved at call time
-    // so it stays current when the user switches workspace folders.
     const getWorkspaceRootLazy = () => this.getWorkspaceRoot();
     const orchestrationDeps = {
       get workspaceRoot() {
@@ -316,7 +377,6 @@ export class PtahAPIBuilder {
     };
 
     return {
-      // Core namespaces (workspace discovery)
       workspace: this.buildNamespaceSafe('workspace', () =>
         buildWorkspaceNamespace(coreDeps),
       ),
@@ -326,13 +386,9 @@ export class PtahAPIBuilder {
       diagnostics: this.buildNamespaceSafe('diagnostics', () =>
         buildDiagnosticsNamespace(this.diagnosticsProvider),
       ),
-
-      // System namespaces (VS Code integration)
       files: this.buildNamespaceSafe('files', () =>
         buildFilesNamespace(systemDeps),
       ),
-
-      // Analysis namespaces (workspace intelligence)
       context: this.buildNamespaceSafe('context', () =>
         buildContextNamespace(analysisDeps),
       ),
@@ -342,180 +398,84 @@ export class PtahAPIBuilder {
       relevance: this.buildNamespaceSafe('relevance', () =>
         buildRelevanceNamespace(analysisDeps),
       ),
-
-      // Dependencies namespace (import-based dependency graph)
       dependencies: this.buildNamespaceSafe('dependencies', () =>
         buildDependencyNamespace(analysisDeps),
       ),
-
-      // AST namespace (code structure)
       ast: this.buildNamespaceSafe('ast', () => buildAstNamespace(astDeps)),
-
-      // IDE namespace (LSP, editor, actions, testing)
-      // Resolved lazily: if IDE_CAPABILITIES_TOKEN is not registered (Electron/standalone),
-      // buildIDENamespace receives undefined and returns graceful degradation stubs.
       ide: this.buildNamespaceSafe('ide', () =>
         buildIDENamespace(this.resolveIDECapabilities()),
       ),
-
-      // Orchestration namespace (workflow state management)
       orchestration: this.buildNamespaceSafe('orchestration', () =>
         buildOrchestrationNamespace(orchestrationDeps),
       ),
-
-      // Agent orchestration namespace
       agent: this.buildNamespaceSafe('agent', () =>
         buildAgentNamespace({
           agentProcessManager: this.agentProcessManager,
           cliDetectionService: this.cliDetectionService,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
           getActiveSessionId: () => {
-            // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
-            // In single-session mode (current), there's at most one.
-            // Resolved lazily: if SDK_SESSION_LIFECYCLE_MANAGER token is unregistered, returns undefined
-            // instead of crashing the MCP server during DI resolution.
-            if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
-              return undefined;
-            }
             try {
-              const manager = container.resolve<{
-                getActiveSessionIds(): string[];
-              }>(SDK_SESSION_LIFECYCLE_MANAGER);
-              const ids = manager.getActiveSessionIds();
-              return ids.length > 0 ? (ids[0] as string) : undefined;
+              const ids =
+                this.sdkSessionLifecycleManager?.getActiveSessionIds();
+              return ids && ids.length > 0 ? (ids[0] as string) : undefined;
             } catch {
               return undefined;
             }
           },
           resolveSessionId: (tabIdOrSessionId: string) => {
-            // Resolve tab ID → real SDK UUID via SessionLifecycleManager.
-            // Used by MCP session threading to map tab_xxx → real-uuid.
-            if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
-              return tabIdOrSessionId;
-            }
             try {
-              const manager = container.resolve<{
-                find(id: string): { realSessionId: string | null } | undefined;
-              }>(SDK_SESSION_LIFECYCLE_MANAGER);
-              const rec = manager.find(tabIdOrSessionId);
+              const rec =
+                this.sdkSessionLifecycleManager?.find(tabIdOrSessionId);
               return rec?.realSessionId ?? tabIdOrSessionId;
             } catch {
               return tabIdOrSessionId;
             }
           },
           getProjectGuidance: async () => {
-            // Resolve EnhancedPromptsService lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
-            // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
-            if (!container.isRegistered(ENHANCED_PROMPTS_SERVICE_TOKEN)) {
-              return undefined;
-            }
+            if (!this.enhancedPromptsService) return undefined;
             try {
-              const service = container.resolve<{
-                getProjectGuidanceContent(
-                  workspacePath: string,
-                ): Promise<string | null>;
-              }>(ENHANCED_PROMPTS_SERVICE_TOKEN);
               const workspacePath = this.getWorkspaceRoot();
               const content =
-                await service.getProjectGuidanceContent(workspacePath);
+                await this.enhancedPromptsService.getProjectGuidanceContent(
+                  workspacePath,
+                );
               return content ?? undefined;
             } catch {
               return undefined;
             }
           },
           getSystemPrompt: async () => {
-            // Resolve EnhancedPromptsService lazily for the full enhanced prompt content.
-            // Returns the full enhanced prompts (project guidance + framework guidelines +
-            // coding standards + architecture notes) for use as CLI agent system prompt.
-            if (!container.isRegistered(ENHANCED_PROMPTS_SERVICE_TOKEN)) {
-              return undefined;
-            }
+            if (!this.enhancedPromptsService) return undefined;
             try {
-              const service = container.resolve<{
-                getEnhancedPromptContent(
-                  workspacePath: string,
-                ): Promise<string | null>;
-              }>(ENHANCED_PROMPTS_SERVICE_TOKEN);
               const workspacePath = this.getWorkspaceRoot();
               const content =
-                await service.getEnhancedPromptContent(workspacePath);
+                await this.enhancedPromptsService.getEnhancedPromptContent(
+                  workspacePath,
+                );
               return content ?? undefined;
             } catch {
               return undefined;
             }
           },
           getPluginPaths: async () => {
-            // Resolve PluginLoaderService lazily to get enabled plugin paths (premium-gated).
-            // Skills are synced to CLI directories by CliPluginSyncService on activation.
-            if (!container.isRegistered(SDK_PLUGIN_LOADER)) {
-              return undefined;
-            }
+            if (!this.pluginLoader) return undefined;
             try {
-              const pluginLoader = container.resolve<{
-                getWorkspacePluginConfig(): {
-                  enabledPluginIds: string[];
-                };
-                resolvePluginPaths(pluginIds: string[]): string[];
-              }>(SDK_PLUGIN_LOADER);
-              const config = pluginLoader.getWorkspacePluginConfig();
+              const config = this.pluginLoader.getWorkspacePluginConfig();
               if (
                 !config.enabledPluginIds ||
                 config.enabledPluginIds.length === 0
               ) {
                 return undefined;
               }
-              return pluginLoader.resolvePluginPaths(config.enabledPluginIds);
+              return this.pluginLoader.resolvePluginPaths(
+                config.enabledPluginIds,
+              );
             } catch {
               return undefined;
             }
           },
           getPtahCliRegistry: () => {
-            // Resolve PtahCliRegistry lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
-            // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
-            if (!container.isRegistered(SDK_PTAH_CLI_REGISTRY)) {
-              return undefined;
-            }
-            try {
-              return container.resolve<{
-                listAgents(): Promise<
-                  Array<{
-                    id: string;
-                    name: string;
-                    providerName: string;
-                    hasApiKey: boolean;
-                    enabled: boolean;
-                  }>
-                >;
-                spawnAgent(
-                  id: string,
-                  task: string,
-                  options?: {
-                    projectGuidance?: string;
-                    workingDirectory?: string;
-                  },
-                ): Promise<
-                  | {
-                      handle: {
-                        abort: AbortController;
-                        done: Promise<number>;
-                        onOutput: (cb: (data: string) => void) => void;
-                      };
-                      agentName: string;
-                      setAgentId: (id: string) => void;
-                    }
-                  | {
-                      status:
-                        | 'not_found'
-                        | 'disabled'
-                        | 'no_api_key'
-                        | 'unknown_provider';
-                      message: string;
-                    }
-                >;
-              }>(SDK_PTAH_CLI_REGISTRY);
-            } catch {
-              return undefined;
-            }
+            return this.ptahCliRegistry;
           },
           getDisabledClis: () => {
             return (
@@ -537,29 +497,18 @@ export class PtahAPIBuilder {
           },
         }),
       ),
-
-      // Git worktree namespace
-      // Wires onWorktreeChanged callback to broadcast git:worktreeChanged
-      // to the frontend when MCP tools create/remove worktrees.
       git: this.buildNamespaceSafe('git', () =>
         buildGitNamespace({
           getWorkspaceRoot: getWorkspaceRootLazy,
           onWorktreeChanged: this.buildWorktreeChangeHandler(),
         }),
       ),
-
-      // JSON validation namespace
       json: this.buildNamespaceSafe('json', () =>
         buildJsonNamespace({
           fileSystemProvider: this.fileSystemProvider,
           workspaceProvider: this.workspaceProvider,
         }),
       ),
-
-      // Browser automation namespace
-      // Resolved lazily: if BROWSER_CAPABILITIES_TOKEN is not registered,
-      // buildBrowserNamespace receives undefined capabilities and returns graceful degradation stubs.
-      // Headless/viewport are agent-controlled via ptah_browser_navigate params (not settings).
       browser: this.buildNamespaceSafe('browser', () =>
         buildBrowserNamespace({
           capabilities: this.resolveBrowserCapabilities(),
@@ -569,18 +518,13 @@ export class PtahAPIBuilder {
               'browser.allowLocalhost',
               false,
             ) ?? false,
-          // Note: recordingDir is configured via capabilities constructor, not namespace deps
         }),
       ),
-
-      // Promoted skills namespace (ptah.skill.list + ptah.skill.describe)
       skill: this.buildNamespaceSafe('skill', () =>
         buildSkillNamespace({
           getSkillsRoot: () => path.join(os.homedir(), '.ptah', 'skills'),
         }),
       ),
-
-      // Web search namespace (multi-provider)
       webSearch: this.buildNamespaceSafe(
         'webSearch',
         () =>
@@ -590,74 +534,21 @@ export class PtahAPIBuilder {
             logger: this.logger,
           }),
       ),
-
-      // Memory namespace
-      // Resolved lazily: if MEMORY_SEARCH_TOKEN / MEMORY_STORE_TOKEN / MEMORY_WRITER_TOKEN
-      // are not registered (VS Code without SQLite support), the namespace returns graceful
-      // error objects.
       memory: this.buildNamespaceSafe('memory', () =>
         buildMemoryNamespace({
-          getMemorySearch: () => {
-            try {
-              return container.isRegistered(MEMORY_SEARCH_TOKEN)
-                ? container.resolve<IMemoryReader>(MEMORY_SEARCH_TOKEN)
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
-          getMemoryStore: () => {
-            try {
-              return container.isRegistered(MEMORY_STORE_TOKEN)
-                ? container.resolve<IMemoryLister>(MEMORY_STORE_TOKEN)
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
-          getMemoryWriter: () => {
-            try {
-              return container.isRegistered(MEMORY_WRITER_TOKEN)
-                ? container.resolve<IMemoryWriter>(MEMORY_WRITER_TOKEN)
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
+          getMemorySearch: () => this.memorySearch,
+          getMemoryStore: () => this.memoryStore,
+          getMemoryWriter: () => this.memoryWriter,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
-
-      // Code symbol indexer namespace
-      // Resolved lazily: if CODE_SYMBOL_INDEXER_TOKEN or MEMORY_SEARCH_TOKEN are not registered
-      // (SQLite unavailable), all methods return { error: "..." } graceful degradation objects.
       code: this.buildNamespaceSafe('code', () =>
         buildCodeNamespace({
-          getMemorySearch: () => {
-            try {
-              return container.isRegistered(MEMORY_SEARCH_TOKEN)
-                ? container.resolve<IMemoryReader>(MEMORY_SEARCH_TOKEN)
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
-          getSymbolIndexer: () => {
-            try {
-              return container.isRegistered(CODE_SYMBOL_INDEXER_TOKEN)
-                ? container.resolve<CodeSymbolIndexer>(
-                    CODE_SYMBOL_INDEXER_TOKEN,
-                  )
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          },
+          getMemorySearch: () => this.memorySearch,
+          getSymbolIndexer: () => this.symbolIndexer,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
-
-      // Help method at root level (ptah.help())
       help: buildHelpMethod(),
     };
   }
@@ -688,13 +579,9 @@ export class PtahAPIBuilder {
           `Methods on ptah.${name} will return errors.`,
         'PtahAPIBuilder',
       );
-
-      // Return a proxy that throws descriptive errors on any property access
-      // that results in a function call. Property reads return functions that throw.
       return new Proxy({} as T, {
         get: (_target, prop) => {
           if (typeof prop === 'symbol') return undefined;
-          // Return a function that throws, so ptah.<namespace>.<method>() gives a clear error
           return (..._args: unknown[]) => {
             throw new Error(
               `ptah.${name}.${String(prop)}() is unavailable: the '${name}' namespace ` +
@@ -719,28 +606,19 @@ export class PtahAPIBuilder {
    * or multiple sessions target different workspace folders.
    */
   private getWorkspaceRoot(): string {
-    // 1. Try the active SDK session's workspace (most accurate in multi-session scenarios)
     try {
-      if (container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
-        const manager = container.resolve<{
-          getActiveSessionWorkspace(): string | undefined;
-        }>(SDK_SESSION_LIFECYCLE_MANAGER);
-        const sessionWorkspace = manager.getActiveSessionWorkspace();
-        if (sessionWorkspace) {
-          return sessionWorkspace;
-        }
+      const sessionWorkspace =
+        this.sdkSessionLifecycleManager?.getActiveSessionWorkspace();
+      if (sessionWorkspace) {
+        return sessionWorkspace;
       }
     } catch {
-      // SessionLifecycleManager not available yet — fall through
+      // fall through to workspace provider
     }
-
-    // 2. Platform workspace provider (active editor folder in VS Code, active folder in Electron)
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (workspaceRoot) {
       return workspaceRoot;
     }
-
-    // 3. Safe fallback — never process.cwd() (that's the app install directory)
     return os.homedir();
   }
 
@@ -758,21 +636,13 @@ export class PtahAPIBuilder {
   }) => void {
     const logger = this.logger;
 
+    const webviewManager = this.webviewManager;
+
     return (event) => {
-      // Lazy resolution: check and resolve on each invocation
-      if (!container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
+      if (!webviewManager) {
         logger.debug(
           '[PtahAPIBuilder] WebviewManager not registered, skipping worktree notification',
         );
-        return;
-      }
-
-      let webviewManager: WebviewManager;
-      try {
-        webviewManager = container.resolve<WebviewManager>(
-          TOKENS.WEBVIEW_MANAGER,
-        );
-      } catch {
         return;
       }
 
@@ -804,14 +674,7 @@ export class PtahAPIBuilder {
    * Follows the same pattern as SDK_SESSION_LIFECYCLE_MANAGER lazy resolution.
    */
   private resolveIDECapabilities(): IIDECapabilities | undefined {
-    if (!container.isRegistered(IDE_CAPABILITIES_TOKEN)) {
-      return undefined;
-    }
-    try {
-      return container.resolve<IIDECapabilities>(IDE_CAPABILITIES_TOKEN);
-    } catch {
-      return undefined;
-    }
+    return this.ideCapabilities;
   }
 
   /**
@@ -824,15 +687,6 @@ export class PtahAPIBuilder {
    * Follows the same pattern as IDE_CAPABILITIES_TOKEN lazy resolution.
    */
   private resolveBrowserCapabilities(): IBrowserCapabilities | undefined {
-    if (!container.isRegistered(BROWSER_CAPABILITIES_TOKEN)) {
-      return undefined;
-    }
-    try {
-      return container.resolve<IBrowserCapabilities>(
-        BROWSER_CAPABILITIES_TOKEN,
-      );
-    } catch {
-      return undefined;
-    }
+    return this.browserCapabilities;
   }
 }

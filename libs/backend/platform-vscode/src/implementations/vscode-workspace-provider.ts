@@ -74,7 +74,6 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
     key: string,
     defaultValue?: T,
   ): T | undefined {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       return this.fileSettings.get<T>(key, defaultValue);
     }
@@ -95,12 +94,8 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
     key: string,
     value: unknown,
   ): Promise<void> {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       await this.fileSettings.set(key, value);
-      // Fire a synthetic config change event so watchers are notified.
-      // Implements VS Code's prefix-matching semantics: ptah.agentOrchestration
-      // matches ptah.agentOrchestration.copilotModel.
       const fullKey = `${section}.${key}`;
       this.fireConfigChange({
         affectsConfiguration: (s: string) =>

@@ -9,7 +9,6 @@ export function injectCampaignFooter(
   <p>${postalAddress}</p>
   <p><a href="${unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a></p>
 </div>`;
-  // Append before </body> if present, else append at end
   if (html.includes('</body>')) {
     return html.replace('</body>', `${footer}</body>`);
   }

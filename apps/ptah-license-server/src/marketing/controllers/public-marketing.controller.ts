@@ -45,8 +45,6 @@ export class PublicMarketingController {
         message: 'The unsubscription link is invalid or has expired.',
       });
     }
-
-    // Perform unsubscription
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: userId },

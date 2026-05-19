@@ -8,10 +8,6 @@
  * Extracted from copilot-provider.types.ts to enable reuse.
  */
 
-// ---------------------------------------------------------------------------
-// Translation Proxy Interface
-// ---------------------------------------------------------------------------
-
 /**
  * Translation proxy lifecycle interface.
  * Manages a local HTTP server that translates between Anthropic and OpenAI protocols.
@@ -26,11 +22,6 @@ export interface ITranslationProxy {
   /** The proxy base URL if running, undefined otherwise */
   getUrl(): string | undefined;
 }
-
-// ---------------------------------------------------------------------------
-// Simplified OpenAI Chat Completions Protocol Types
-// (Only the fields we need for Anthropic <-> OpenAI translation)
-// ---------------------------------------------------------------------------
 
 /** A single message in an OpenAI Chat Completions request */
 export interface OpenAIChatMessage {
@@ -160,11 +151,6 @@ export interface OpenAIToolCallDelta {
     arguments?: string;
   };
 }
-
-// ---------------------------------------------------------------------------
-// Simplified Anthropic Messages Protocol Types
-// (Only the fields we need for translation from the SDK's outgoing requests)
-// ---------------------------------------------------------------------------
 
 /** A content block in an Anthropic message */
 export type AnthropicContentBlock =

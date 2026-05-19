@@ -55,8 +55,6 @@ export function resolveStrategy(
 ): AuthStrategyType {
   if (legacyMethod === 'claudeCli') return 'cli';
   if (legacyMethod === 'apiKey') return 'api-key';
-
-  // legacyMethod === 'thirdParty' — determine from provider entry
   if (!provider) return 'api-key'; // fallback when no provider metadata
 
   if (provider.authType === 'oauth' && provider.requiresProxy)

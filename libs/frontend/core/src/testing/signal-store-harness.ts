@@ -106,8 +106,6 @@ export function makeSignalStoreHarness<TState extends object>(
       return readSignal(name);
     },
     async flush(): Promise<void> {
-      // Two turns: one to let awaited promises settle, one to flush any
-      // follow-up microtasks those handlers enqueue.
       await Promise.resolve();
       await Promise.resolve();
     },
@@ -125,17 +123,11 @@ function discoverSignalNames(
   excluded: ReadonlySet<string>,
 ): string[] {
   const names = new Set<string>();
-
-  // Own enumerable properties (covers `readonly foo = signal(0).asReadonly()`
-  // assignments in the class body).
   for (const key of Object.keys(store)) {
     if (shouldCollect(store, key, excluded)) {
       names.add(key);
     }
   }
-
-  // Prototype chain (covers computed getters declared on the class prototype,
-  // though in this codebase most signals live as own instance properties).
   let proto: object | null = Object.getPrototypeOf(store);
   while (proto && proto !== Object.prototype) {
     for (const key of Object.getOwnPropertyNames(proto)) {
@@ -158,8 +150,5 @@ function shouldCollect(
   if (excluded.has(key)) return false;
   if (key.startsWith('_')) return false;
   const value = (store as Record<string, unknown>)[key];
-  // `isSignal` is the authoritative check — it recognises `signal()`,
-  // `computed()`, and `.asReadonly()` wrappers. Regular class methods
-  // (e.g. `increment()`, even if zero-arg) are correctly rejected.
   return typeof value === 'function' && isSignal(value);
 }

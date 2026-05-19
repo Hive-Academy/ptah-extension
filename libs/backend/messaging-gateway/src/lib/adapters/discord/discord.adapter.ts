@@ -134,14 +134,6 @@ export class DiscordAdapter implements IMessagingAdapter {
   }
 
   async sendMessage(externalChatId: string, body: string): Promise<SendResult> {
-    // Discord's flow is interaction-driven; sendMessage maps to "followUp on
-    // the most recent UNCONSUMED interaction for that channel". We must not
-    // re-use an arbitrary stored interaction because Discord scopes a
-    // followUp/editReply to the original invoking user — co-opting another
-    // user's interaction would surface this user's reply (and any leaked
-    // session content) under the wrong user's slash command. We therefore
-    // pop the freshest pending interaction and refuse to fall back to older
-    // ones implicitly.
     const interaction = this.consumeFreshInteractionForChannel(externalChatId);
     if (!interaction) {
       throw new Error(
@@ -151,7 +143,6 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
     await this.respectChannelRateLimit(externalChatId);
     const res = await interaction.followUp({ content: body });
-    // Track the followUp message id → originating interaction for editMessage.
     this.interactions.set(res.id, interaction);
     return { externalMsgId: res.id };
   }
@@ -181,8 +172,6 @@ export class DiscordAdapter implements IMessagingAdapter {
   ): DiscordInteractionLike | null {
     const queue = this.pendingByChannel.get(channelId);
     if (!queue || queue.length === 0) return null;
-    // LIFO — newest invocation wins, so the user that just typed `/ptah`
-    // gets the response, never a stale interaction belonging to someone else.
     const interaction = queue.pop() ?? null;
     if (queue.length === 0) this.pendingByChannel.delete(channelId);
     return interaction;
@@ -194,11 +183,6 @@ export class DiscordAdapter implements IMessagingAdapter {
     if (!this.listener) return;
     if (interaction.commandName !== 'ptah') return;
     if (this.allowedGuildIds.size) {
-      // SECURITY: when an allowlist is configured, reject DMs (guildId === null)
-      // and non-listed guilds. A null guildId means a DM — not in any guild,
-      // so no guild ID to check against the list. Passing through a DM when a
-      // guild allowlist is active would let any user who discovers the bot token
-      // bypass the restriction entirely.
       if (
         !interaction.guildId ||
         !this.allowedGuildIds.has(interaction.guildId)
@@ -212,8 +196,6 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
     await interaction.deferReply();
     this.interactions.set(interaction.id, interaction);
-    // Track this interaction in the per-channel pending queue so the next
-    // outbound flush goes back to the user who invoked the command.
     const queue = this.pendingByChannel.get(interaction.channelId) ?? [];
     queue.push(interaction);
     this.pendingByChannel.set(interaction.channelId, queue);

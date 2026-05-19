@@ -37,7 +37,6 @@ export class FileTypeClassifierService {
    * Programming language file extensions mapping
    */
   private readonly languageExtensions = new Map<string, string>([
-    // JavaScript/TypeScript ecosystem
     ['.js', 'javascript'],
     ['.mjs', 'javascript'],
     ['.cjs', 'javascript'],
@@ -46,27 +45,19 @@ export class FileTypeClassifierService {
     ['.tsx', 'typescriptreact'],
     ['.mts', 'typescript'],
     ['.cts', 'typescript'],
-
-    // Web
     ['.html', 'html'],
     ['.htm', 'html'],
     ['.css', 'css'],
     ['.scss', 'scss'],
     ['.sass', 'sass'],
     ['.less', 'less'],
-
-    // Python
     ['.py', 'python'],
     ['.pyi', 'python'],
     ['.pyw', 'python'],
-
-    // Java/Kotlin/Scala
     ['.java', 'java'],
     ['.kt', 'kotlin'],
     ['.kts', 'kotlin'],
     ['.scala', 'scala'],
-
-    // C/C++
     ['.c', 'c'],
     ['.h', 'c'],
     ['.cpp', 'cpp'],
@@ -74,29 +65,15 @@ export class FileTypeClassifierService {
     ['.cc', 'cpp'],
     ['.hpp', 'cpp'],
     ['.hxx', 'cpp'],
-
-    // C#
     ['.cs', 'csharp'],
     ['.csx', 'csharp'],
-
-    // Go
     ['.go', 'go'],
-
-    // Rust
     ['.rs', 'rust'],
-
-    // Ruby
     ['.rb', 'ruby'],
-
-    // PHP
     ['.php', 'php'],
-
-    // Shell
     ['.sh', 'shellscript'],
     ['.bash', 'shellscript'],
     ['.zsh', 'shellscript'],
-
-    // Other
     ['.sql', 'sql'],
     ['.graphql', 'graphql'],
     ['.gql', 'graphql'],
@@ -107,7 +84,6 @@ export class FileTypeClassifierService {
    * Configuration file extensions and exact names
    */
   private readonly configPatterns = new Set<string>([
-    // Extensions
     '.config.js',
     '.config.ts',
     '.config.mjs',
@@ -120,8 +96,6 @@ export class FileTypeClassifierService {
     '.conf',
     '.xml',
     '.env',
-
-    // Exact filenames
     'package.json',
     'tsconfig.json',
     'jsconfig.json',
@@ -190,7 +164,6 @@ export class FileTypeClassifierService {
    * Asset file extensions (images, fonts, media)
    */
   private readonly assetExtensions = new Set<string>([
-    // Images
     '.png',
     '.jpg',
     '.jpeg',
@@ -200,23 +173,17 @@ export class FileTypeClassifierService {
     '.ico',
     '.bmp',
     '.tiff',
-
-    // Fonts
     '.woff',
     '.woff2',
     '.ttf',
     '.otf',
     '.eot',
-
-    // Media
     '.mp4',
     '.webm',
     '.ogg',
     '.mp3',
     '.wav',
     '.flac',
-
-    // Archives
     '.zip',
     '.tar',
     '.gz',
@@ -266,8 +233,6 @@ export class FileTypeClassifierService {
     const fileName = path.basename(filePath);
     const ext = path.extname(filePath).toLowerCase();
     const pathSegments = filePath.split(/[\\/]/).map((s) => s.toLowerCase());
-
-    // 1. Test file detection (highest priority)
     if (this.isTestFile(fileName, ext, pathSegments)) {
       const language = this.languageExtensions.get(
         ext.replace(/\.(test|spec)/, '')
@@ -278,32 +243,24 @@ export class FileTypeClassifierService {
         confidence: 1.0,
       };
     }
-
-    // 2. Configuration file detection
     if (this.isConfigFile(fileName, ext)) {
       return {
         type: FileType.Config,
         confidence: 1.0,
       };
     }
-
-    // 3. Documentation file detection
     if (this.isDocumentationFile(fileName, ext, pathSegments)) {
       return {
         type: FileType.Documentation,
         confidence: 1.0,
       };
     }
-
-    // 4. Asset file detection
     if (this.isAssetFile(ext)) {
       return {
         type: FileType.Asset,
         confidence: 1.0,
       };
     }
-
-    // 5. Source file detection (default for programming languages)
     const language = this.languageExtensions.get(ext);
     if (language) {
       return {
@@ -312,8 +269,6 @@ export class FileTypeClassifierService {
         confidence: 1.0,
       };
     }
-
-    // 6. Unknown file type - classify as source with low confidence
     return {
       type: FileType.Source,
       confidence: 0.3,
@@ -365,14 +320,11 @@ export class FileTypeClassifierService {
     ext: string,
     pathSegments: string[]
   ): boolean {
-    // Check test file naming patterns
     for (const pattern of this.testPatterns) {
       if (pattern.test(fileName)) {
         return true;
       }
     }
-
-    // Check if file is in a test directory
     return pathSegments.some((segment) => this.testDirectories.has(segment));
   }
 
@@ -380,17 +332,12 @@ export class FileTypeClassifierService {
    * Check if file is a configuration file
    */
   private isConfigFile(fileName: string, ext: string): boolean {
-    // Exact filename match
     if (this.configPatterns.has(fileName)) {
       return true;
     }
-
-    // Extension match
     if (this.configPatterns.has(ext)) {
       return true;
     }
-
-    // Config pattern match (e.g., .config.js)
     for (const pattern of this.configPatterns) {
       if (pattern.startsWith('.') && fileName.endsWith(pattern)) {
         return true;
@@ -408,12 +355,9 @@ export class FileTypeClassifierService {
     ext: string,
     pathSegments: string[]
   ): boolean {
-    // Extension match
     if (this.documentationExtensions.has(ext)) {
       return true;
     }
-
-    // Special documentation files
     const docFiles = new Set([
       'readme',
       'changelog',
@@ -429,8 +373,6 @@ export class FileTypeClassifierService {
         return true;
       }
     }
-
-    // Check if in docs directory
     return pathSegments.some((segment) => this.docsDirectories.has(segment));
   }
 

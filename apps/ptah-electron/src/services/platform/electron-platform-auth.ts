@@ -11,7 +11,6 @@ import type { IPlatformAuthProvider } from '@ptah-extension/rpc-handlers';
 @injectable()
 export class ElectronPlatformAuth implements IPlatformAuthProvider {
   async getGitHubUsername(): Promise<string | undefined> {
-    // GitHub Copilot authentication is not available in Electron
     return undefined;
   }
 }

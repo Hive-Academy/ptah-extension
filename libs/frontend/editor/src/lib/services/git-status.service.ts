@@ -59,22 +59,10 @@ export class GitStatusService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
 
-  // ============================================================================
-  // WORKSPACE STATE
-  // ============================================================================
-
   private readonly _workspaceGitState = new Map<string, GitWorkspaceState>();
-
-  // ============================================================================
-  // LISTENER STATE
-  // ============================================================================
 
   private _isListening = false;
   private _messageHandler: ((event: MessageEvent) => void) | null = null;
-
-  // ============================================================================
-  // SIGNAL STATE
-  // ============================================================================
 
   private readonly _activeWorkspacePath = signal<string | null>(null);
   private readonly _branch = signal<GitBranchInfo>(EMPTY_BRANCH, {
@@ -95,10 +83,6 @@ export class GitStatusService {
 
   /** Whether a git:info RPC call is currently in flight. */
   readonly isLoading = this._isLoading.asReadonly();
-
-  // ============================================================================
-  // COMPUTED SIGNALS
-  // ============================================================================
 
   /** Number of changed files. */
   readonly changedFileCount = computed(() => this._files().length);
@@ -149,10 +133,6 @@ export class GitStatusService {
     this.destroyRef.onDestroy(() => this.stopListening());
   }
 
-  // ============================================================================
-  // WORKSPACE OPERATIONS
-  // ============================================================================
-
   /**
    * Switch git state to a different workspace.
    * Saves current state, restores target from cache or resets to defaults.
@@ -160,12 +140,8 @@ export class GitStatusService {
    */
   switchWorkspace(workspacePath: string): void {
     if (this._activeWorkspacePath() === workspacePath) return;
-
-    // Save current workspace state to map
     this.saveCurrentState();
     this._activeWorkspacePath.set(workspacePath);
-
-    // Restore cached state or reset to defaults
     const cached = this._workspaceGitState.get(workspacePath);
     if (cached) {
       this._branch.set(cached.branch);
@@ -176,8 +152,6 @@ export class GitStatusService {
       this._files.set([]);
       this._isGitRepo.set(false);
     }
-
-    // Immediately fetch fresh data for the new workspace
     this.fetchGitInfo();
   }
 
@@ -187,8 +161,6 @@ export class GitStatusService {
    */
   removeWorkspaceState(workspacePath: string): void {
     this._workspaceGitState.delete(workspacePath);
-
-    // If the removed workspace was active, clear signals
     if (this._activeWorkspacePath() === workspacePath) {
       this._activeWorkspacePath.set(null);
       this._branch.set(EMPTY_BRANCH);
@@ -197,10 +169,6 @@ export class GitStatusService {
     }
   }
 
-  // ============================================================================
-  // EVENT LISTENING (replaces polling)
-  // ============================================================================
-
   /**
    * Start listening for git:status-update push events from the backend.
    * Also performs an initial RPC fetch to populate state immediately.
@@ -208,8 +176,6 @@ export class GitStatusService {
   startListening(): void {
     if (this._isListening) return;
     this._isListening = true;
-
-    // Listen for push events from the backend git watcher
     this._messageHandler = (event: MessageEvent) => {
       const data = event.data;
       if (data?.type === 'git:status-update' && data.payload) {
@@ -217,9 +183,6 @@ export class GitStatusService {
       }
     };
     window.addEventListener('message', this._messageHandler);
-
-    // Initial fetch to populate state immediately (the watcher may not have
-    // pushed yet, or we may be on VS Code where there's no watcher).
     this.fetchGitInfo();
   }
 
@@ -235,10 +198,6 @@ export class GitStatusService {
       this._messageHandler = null;
     }
   }
-
-  // ============================================================================
-  // PRIVATE: RPC + STATE
-  // ============================================================================
 
   /**
    * Apply a git info result to the current signals and cache.

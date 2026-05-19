@@ -163,10 +163,6 @@ export class ConversationRegistry {
   }
 
   markCompactionStart(convId: ConversationId): void {
-    // Strict path used by StreamRouter and tests: throws on unknown
-    // conversation. `setCompactionState` is the defensive write-through API
-    // used by lifecycle services that may race with router-driven
-    // (un)registration.
     this.patch(convId, (r) => ({ ...r, compactionInFlight: true }));
   }
 
@@ -195,9 +191,6 @@ export class ConversationRegistry {
     patch: CompactionStatePatch,
   ): void {
     if (!this._byId().has(convId)) {
-      // Defensive: lifecycle services may write through here for tabs that
-      // are not yet (or no longer) registered. Silent no-op preserves the
-      // legacy "graceful skip" behavior the per-tab path used to provide.
       return;
     }
     this.patch(convId, (r) => {
@@ -210,9 +203,6 @@ export class ConversationRegistry {
           compactionStartedAt: patch.startedAt ?? r.compactionStartedAt,
         };
       }
-      // Completing: stamp lastCompactionAt; keep start-payload fields so
-      // post-complete readers can still report what triggered the compaction
-      // until the next start arrives and overwrites them.
       return {
         ...r,
         compactionInFlight: false,

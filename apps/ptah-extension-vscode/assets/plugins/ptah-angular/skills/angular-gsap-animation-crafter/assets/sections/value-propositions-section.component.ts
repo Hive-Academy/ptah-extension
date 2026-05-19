@@ -169,7 +169,6 @@ import {
   ],
 })
 export class ValuePropositionsSectionComponent {
-  // Step tracking state (synced from ScrollTimelineComponent)
   public readonly currentStep = signal(0);
 
   /**

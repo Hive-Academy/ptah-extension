@@ -144,8 +144,12 @@ function makeHarness(
   const handlers = new LlmRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
-    container as unknown as DependencyContainer,
     sentry as unknown as SentryService,
+    secretStorage as unknown as ConstructorParameters<typeof LlmRpcHandlers>[3],
+    modelDiscovery as unknown as ConstructorParameters<
+      typeof LlmRpcHandlers
+    >[4],
+    configManager as unknown as ConstructorParameters<typeof LlmRpcHandlers>[5],
   );
 
   return {

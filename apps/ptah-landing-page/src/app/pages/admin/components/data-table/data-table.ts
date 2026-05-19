@@ -46,7 +46,6 @@ export interface DataTablePageEvent {
   templateUrl: './data-table.html',
 })
 export class DataTable {
-  // --- Inputs --------------------------------------------------------------
 
   /** Ordered column specs (full model field list — we filter `listColumn` internally). */
   public readonly columns = input.required<readonly FieldSpec[]>();
@@ -75,14 +74,10 @@ export class DataTable {
   /** Loading flag — dims the table body. */
   public readonly loading = input<boolean>(false);
 
-  // --- Outputs -------------------------------------------------------------
-
   public readonly sortChange = output<DataTableSortEvent>();
   public readonly pageChange = output<DataTablePageEvent>();
   public readonly rowClick = output<string>();
   public readonly selectionChange = output<string[]>();
-
-  // --- Local state ---------------------------------------------------------
 
   /** Selected row ids. Cleared externally by parent when rows change (not auto). */
   private readonly selectedIds = signal<ReadonlySet<string>>(new Set());
@@ -100,8 +95,6 @@ export class DataTable {
 
   /** Page-size options for the <select> widget. */
   protected readonly pageSizeOptions: readonly number[] = [10, 25, 50, 100];
-
-  // --- Cell formatting -----------------------------------------------------
 
   /**
    * Best-effort extraction of a row's id. We accept `unknown` rows so we
@@ -153,12 +146,7 @@ export class DataTable {
     return null;
   }
 
-  // --- Sort ----------------------------------------------------------------
-
   protected onHeaderClick(col: FieldSpec): void {
-    // Non-primitive types aren't meaningful to sort on at the Prisma level;
-    // backend allowlist will reject them anyway. Let the parent arbitrate —
-    // we still emit and it's their job to ignore if unsupported.
     const currentBy = this.sortBy();
     const currentOrder = this.sortOrder();
     const nextOrder: 'asc' | 'desc' =
@@ -170,8 +158,6 @@ export class DataTable {
     if (this.sortBy() !== col.key) return '';
     return this.sortOrder() === 'asc' ? '▲' : '▼';
   }
-
-  // --- Pagination ----------------------------------------------------------
 
   protected onPrev(): void {
     const next = Math.max(1, this.page() - 1);
@@ -191,22 +177,16 @@ export class DataTable {
     const target = event.target as HTMLSelectElement | null;
     const newSize = target ? Number(target.value) : this.pageSize();
     if (Number.isFinite(newSize) && newSize > 0) {
-      // Reset to page 1 on page-size change to avoid empty-page edge case.
       this.pageChange.emit({ page: 1, pageSize: newSize });
     }
   }
 
-  // --- Row interactions ----------------------------------------------------
-
   protected onRowClick(row: unknown, event: MouseEvent): void {
-    // Ignore clicks that originated on a checkbox (selection vs navigation).
     const target = event.target as HTMLElement | null;
     if (target && target.tagName === 'INPUT') return;
     const id = this.rowId(row);
     if (id) this.rowClick.emit(id);
   }
-
-  // --- Selection -----------------------------------------------------------
 
   protected isSelected(id: string): boolean {
     return this.selectedIds().has(id);

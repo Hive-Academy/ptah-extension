@@ -38,25 +38,13 @@ const PENDING_CHUNK_TTL_MS = 60_000;
 
 @Injectable({ providedIn: 'root' })
 export class SessionManager {
-  // Node maps - bridge between session loading and streaming
   private readonly _agentNodeMap = new Map<string, ExecutionNode>();
   private readonly _toolNodeMap = new Map<string, ExecutionNode>();
-
-  // Pending summary chunks buffer (race condition fix)
-  // Buffers chunks that arrive before agent node is registered
   private readonly _pendingAgentChunks = new Map<string, PendingChunk[]>();
-
-  // Session state
   private readonly _sessionId = signal<string | null>(null);
   private readonly _status = signal<SessionStatus>('fresh');
-
-  // Session state machine (draft → confirming → confirmed → failed)
   private readonly _sessionState = signal<SessionState>('draft');
-
-  // Store original draft ID for reference/debugging
   private readonly _draftId = signal<SessionId | null>(null);
-
-  // Public state
   readonly sessionId = this._sessionId.asReadonly();
   readonly status = this._status.asReadonly();
   readonly sessionState = this._sessionState.asReadonly();
@@ -72,15 +60,12 @@ export class SessionManager {
       this._sessionId() !== null && this._status() === 'loaded',
   }));
 
-  // ============== Session Operations ==============
-
   /**
    * Set the current session ID with optional state
    * @param sessionId - Session identifier (draft or confirmed)
    * @param state - Session state (defaults to 'draft')
    */
   setSessionId(sessionId: string | null, state: SessionState = 'draft'): void {
-    // Guard: Cannot transition from confirmed back to draft
     if (this._sessionState() === 'confirmed' && state === 'draft') {
       console.warn(
         '[SessionManager] Invalid state transition: confirmed → draft (blocked)',
@@ -90,8 +75,6 @@ export class SessionManager {
 
     this._sessionId.set(sessionId);
     this._sessionState.set(state);
-
-    // Store draft ID when in draft state for reference
     if (state === 'draft' && sessionId) {
       this._draftId.set(sessionId as SessionId);
     }
@@ -119,13 +102,9 @@ export class SessionManager {
 
     this._sessionId.set(realId);
     this._sessionState.set('confirmed');
-
-    // Transition from draft to streaming when we get real ID
     if (this._status() === 'draft') {
       this._status.set('streaming');
     }
-
-    // Dev-guard diagnostic log to reduce GC pressure in production
     if (typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log('[SessionManager] Session ID confirmed:', {
         draftId: this._draftId(),
@@ -140,7 +119,6 @@ export class SessionManager {
    */
   failSession(): void {
     this._sessionState.set('failed');
-    // Dev-guard diagnostic log
     if (typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log('[SessionManager] Session marked as failed');
     }
@@ -173,8 +151,6 @@ export class SessionManager {
     this._draftId.set(null);
     this.clearNodeMaps();
   }
-
-  // ============== Node Map Operations ==============
 
   /**
    * Clear all node maps and pending chunk buffers
@@ -210,20 +186,13 @@ export class SessionManager {
    */
   registerAgent(toolCallId: string, node: ExecutionNode): string[] {
     this._agentNodeMap.set(toolCallId, node);
-
-    // Check for and return any pending chunks
     const pendingChunks = this._pendingAgentChunks.get(toolCallId);
     if (pendingChunks && pendingChunks.length > 0) {
-      // Clear the pending buffer
       this._pendingAgentChunks.delete(toolCallId);
-
-      // Filter out stale chunks and extract deltas
       const now = Date.now();
       const validDeltas = pendingChunks
         .filter((chunk) => now - chunk.timestamp < PENDING_CHUNK_TTL_MS)
         .map((chunk) => chunk.summaryDelta);
-
-      // Dev-guard diagnostic log (fires on every agent chunk flush)
       if (
         validDeltas.length > 0 &&
         typeof ngDevMode !== 'undefined' &&
@@ -255,8 +224,6 @@ export class SessionManager {
       timestamp: Date.now(),
     });
     this._pendingAgentChunks.set(toolCallId, existing);
-
-    // Dev-guard diagnostic log (fires on every buffered chunk)
     if (typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log(
         `[SessionManager] Buffered chunk for pending agent:`,
@@ -271,8 +238,6 @@ export class SessionManager {
    */
   getAgent(toolCallId: string): ExecutionNode | undefined {
     const node = this._agentNodeMap.get(toolCallId);
-
-    // Dev-guard diagnostic log (fires on every agent lookup miss)
     if (!node && typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log('[SessionManager] getAgent() - NOT FOUND:', {
         toolCallId,
@@ -338,8 +303,6 @@ export class SessionManager {
   getRegisteredToolIds(): string[] {
     return Array.from(this._toolNodeMap.keys());
   }
-
-  // ============== Decision Helpers ==============
 
   /**
    * Check if we have an existing session that should be continued

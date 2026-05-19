@@ -20,8 +20,6 @@ import * as path from 'path';
  * - Preserves Windows drive letters intact (e.g. `C:\foo` -> `C:/foo`).
  */
 export function toPosixPath(value: string): string {
-  // Replace backslashes first so `path.posix.normalize` does not misinterpret
-  // them (it only knows about forward slashes).
   return path.posix.normalize(
     value.split(path.sep).join('/').replace(/\\/g, '/'),
   );

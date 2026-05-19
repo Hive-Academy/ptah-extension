@@ -70,7 +70,6 @@ const OVERSIZE_REPLACEMENT_TEXT = '[image removed — exceeds 5MB]';
  */
 function estimateDecodedSize(base64: string): number {
   if (!base64) return 0;
-  // Strip whitespace so line-wrapped base64 isn't counted as payload.
   const cleaned = base64.replace(/\s+/g, '');
   return Math.floor(cleaned.length * 0.75);
 }
@@ -170,10 +169,6 @@ function sanitizeValue(root: unknown): SanitizeCounts {
         counts.changed = true;
         return;
       }
-
-      // Even a legit PNG/JPEG will get rejected by the Anthropic API if its
-      // decoded size exceeds 5 MB. Replace oversize images with a text
-      // placeholder so session resume succeeds.
       if (estimateDecodedSize(data) > MAX_IMAGE_SIZE_BYTES) {
         writeReplacement(OVERSIZE_REPLACEMENT_TEXT);
         counts.oversize += 1;
@@ -186,11 +181,8 @@ function sanitizeValue(root: unknown): SanitizeCounts {
         counts.patched += 1;
         counts.changed = true;
       }
-      // Allowed value is unchanged — do nothing.
       return;
     }
-
-    // Recurse into containers.
     if (Array.isArray(child)) {
       for (let i = 0; i < child.length; i += 1) {
         visit(child, i);
@@ -201,8 +193,6 @@ function sanitizeValue(root: unknown): SanitizeCounts {
       }
     }
   };
-
-  // Kick off from a synthetic parent so `visit` can mutate the root if need be.
   const wrapper: { root: unknown } = { root };
   visit(wrapper, 'root');
   return counts;
@@ -227,8 +217,6 @@ function processFile(file: string, options: RunOptions): PerFileStats {
     );
     return stats;
   }
-
-  // Preserve original EOLs — splitting on \n keeps trailing \r if any.
   const lines = original.split('\n');
   const outLines: string[] = new Array(lines.length);
   let fileChanged = false;
@@ -246,7 +234,6 @@ function processFile(file: string, options: RunOptions): PerFileStats {
     try {
       parsed = JSON.parse(line);
     } catch {
-      // Not JSON — leave untouched.
       outLines[i] = line;
       continue;
     }
@@ -267,10 +254,6 @@ function processFile(file: string, options: RunOptions): PerFileStats {
   if (fileChanged && !options.dryRun) {
     const backup = `${file}.bak`;
     try {
-      // Skip-if-exists: a second run must never overwrite the pristine
-      // original with the already-sanitized content. Timestamped backups
-      // would just clutter the sessions directory, so we just leave the
-      // earliest backup in place.
       if (fs.existsSync(backup)) {
         console.log(
           `[sanitize-claude-sessions] [skip backup] ${backup} already exists — preserving original`,

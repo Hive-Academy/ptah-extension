@@ -52,8 +52,6 @@ export const routes: Routes = [
     component: LandingPageComponent,
   },
   {
-    // Docs moved to docs.ptah.live (Astro Starlight). Preserve /docs as a
-    // redirect so old marketing links and bookmarks still land on the new site.
     path: 'docs',
     canActivate: [
       () => {
@@ -89,7 +87,6 @@ export const routes: Routes = [
     component: ProfilePageComponent,
     canActivate: [AuthGuard, TrialStatusGuard], // Auth + trial status check
   },
-  // Redirect old standalone pages to profile (now tabs within profile)
   {
     path: 'contact',
     redirectTo: 'profile',
@@ -116,10 +113,6 @@ export const routes: Routes = [
     canActivate: [AuthGuard], // Must be logged in, but no trial check
   },
   {
-    // Native admin dashboard (TASK_2025_290)
-    // Hidden route — NOT in nav, NOT in sitemap.
-    // Server-side enforcement via ADMIN_EMAILS allowlist is the source of
-    // truth; this client guard is just a UX shortcut for redirects.
     path: 'admin',
     canActivate: [AdminAuthGuard],
     loadChildren: () =>

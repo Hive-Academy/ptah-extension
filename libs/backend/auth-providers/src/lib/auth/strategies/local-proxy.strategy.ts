@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Local Proxy Strategy
  *
  * Handles authentication for local providers that require a translation proxy:
@@ -35,7 +35,6 @@ export class LocalProxyStrategy implements IAuthStrategy {
     private readonly lmStudioProxy: LocalModelTranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
-    // Inject other proxies to stop them during cross-provider switching
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_PROXY)
     private readonly copilotProxy: ICopilotTranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_PROXY)
@@ -48,12 +47,8 @@ export class LocalProxyStrategy implements IAuthStrategy {
     const { providerId, authEnv } = context;
 
     this.logger.info(`[${this.name}] Configuring local provider: LM Studio`);
-
-    // Step 1: Stop other proxies to prevent cross-contamination
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
-
-    // Step 2: Start the LM Studio translation proxy
     const proxy = this.lmStudioProxy;
     let proxyUrl: string;
     try {
@@ -99,14 +94,10 @@ export class LocalProxyStrategy implements IAuthStrategy {
           'LM Studio is not running. Start LM Studio and try again.',
       };
     }
-
-    // Step 3: Point SDK at the proxy
     authEnv.ANTHROPIC_BASE_URL = proxyUrl;
     authEnv.ANTHROPIC_AUTH_TOKEN = LOCAL_PROXY_TOKEN_PLACEHOLDER;
     process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
     process.env['ANTHROPIC_AUTH_TOKEN'] = LOCAL_PROXY_TOKEN_PLACEHOLDER;
-
-    // Step 4: Apply tier mappings and register dynamic model fetcher
     this.providerModels.switchActiveProvider(providerId);
     this.providerModels.registerDynamicFetcher(providerId, () =>
       proxy.listModels(),
@@ -126,7 +117,6 @@ export class LocalProxyStrategy implements IAuthStrategy {
   }
 
   async teardown(): Promise<void> {
-    // Stop LM Studio proxy if running
     await this.stopProxyIfRunning(this.lmStudioProxy, 'LM Studio');
   }
 

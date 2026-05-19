@@ -75,8 +75,6 @@ export class SessionRegistry {
 
   constructor(private readonly logger: Logger) {}
 
-  // ─── Core dual-index API ───────────────────────────────────────────────────
-
   /**
    * Register a new session into the registry.
    * Creates a SessionRecord with realSessionId = null and inserts it into
@@ -177,8 +175,6 @@ export class SessionRegistry {
     this.recomputeLastActiveOnRemoval(rec.tabId);
   }
 
-  // ─── Public-API methods (delegated by the facade) ─────────────────────────
-
   /**
    * Set the SDK query for a pre-registered session.
    * Mutates the single SessionRecord stored in byTabId (and referenced by
@@ -206,8 +202,6 @@ export class SessionRegistry {
    */
   getActiveSessionIds(): SessionId[] {
     const keys = Array.from(this.byTabId.keys());
-
-    // Sort so that the most recently active tab ID comes first
     if (this._lastActiveTabId && keys.length > 1) {
       const idx = keys.indexOf(this._lastActiveTabId);
       if (idx > 0) {
@@ -232,7 +226,6 @@ export class SessionRegistry {
         return rec.config.projectPath;
       }
     }
-    // Fallback: check any active session
     for (const rec of this.byTabId.values()) {
       if (rec.config?.projectPath) {
         return rec.config.projectPath;

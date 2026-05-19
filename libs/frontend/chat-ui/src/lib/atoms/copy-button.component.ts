@@ -62,12 +62,9 @@ export class CopyButtonComponent {
   protected copyMessage(): void {
     const msg = this.message();
     let content = '';
-
-    // For assistant messages, extract text from streamingState tree
     if (msg.role === 'assistant' && msg.streamingState) {
       content = this.extractTextFromNode(msg.streamingState);
     } else {
-      // For user messages, use rawContent
       content = msg.rawContent || '';
     }
 
@@ -93,13 +90,9 @@ export class CopyButtonComponent {
    */
   private extractTextFromNode(node: ExecutionNode): string {
     const parts: string[] = [];
-
-    // Add this node's content if it's a text or message type with content
     if (node.content && (node.type === 'text' || node.type === 'message')) {
       parts.push(node.content);
     }
-
-    // Recursively process children
     for (const child of node.children) {
       const childContent = this.extractTextFromNode(child);
       if (childContent) {

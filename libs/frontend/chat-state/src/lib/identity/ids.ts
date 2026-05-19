@@ -27,10 +27,6 @@ import { TabId as SharedTabId } from '@ptah-extension/shared';
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// ---------------------------------------------------------------------------
-// TabId
-// ---------------------------------------------------------------------------
-
 /**
  * Identifies a tab — a UI surface a user can open, close, or arrange in the
  * canvas grid. Lives only in the renderer; never round-trips through the SDK.
@@ -45,10 +41,6 @@ export type TabId = SharedTabId;
 
 export const TabId = SharedTabId;
 
-// ---------------------------------------------------------------------------
-// ClaudeSessionId
-// ---------------------------------------------------------------------------
-
 /**
  * Alias for the cross-platform `SessionId` brand from `@ptah-extension/shared`.
  * Re-exported here so chat-domain code reads in domain-meaningful terms.
@@ -58,10 +50,6 @@ export const TabId = SharedTabId;
  * explicit (this is the SDK session id, not a frontend identity).
  */
 export type ClaudeSessionId = SessionId;
-
-// ---------------------------------------------------------------------------
-// ConversationId
-// ---------------------------------------------------------------------------
 
 /**
  * Identifies a user-perceived conversation thread that survives compaction
@@ -93,10 +81,6 @@ export const ConversationId = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// BackgroundAgentId
-// ---------------------------------------------------------------------------
-
 /**
  * Identifies a background sub-agent spawned inside a session. Distinct from
  * `ClaudeSessionId` so the background-agent store can never collide with
@@ -123,10 +107,6 @@ export const BackgroundAgentId = {
     return BackgroundAgentId.validate(id) ? (id as BackgroundAgentId) : null;
   },
 };
-
-// ---------------------------------------------------------------------------
-// SurfaceId
-// ---------------------------------------------------------------------------
 
 /**
  * Identifies a non-tab consumer of a streaming pipeline — currently a

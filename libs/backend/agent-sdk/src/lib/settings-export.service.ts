@@ -66,8 +66,6 @@ export class SettingsExportService {
       },
       config,
     };
-
-    // Only include licenseKey field when a value exists
     if (licenseKey) {
       exportData.licenseKey = licenseKey;
     }
@@ -83,10 +81,6 @@ export class SettingsExportService {
 
     return exportData;
   }
-
-  // ------------------------------------------------------------------
-  // Private helpers
-  // ------------------------------------------------------------------
 
   /**
    * Read a single secret, logging only the key name and presence.

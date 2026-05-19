@@ -49,34 +49,14 @@ import {
 
 export function registerPhase3Handlers(
   container: DependencyContainer,
-  // Kept in the signature for parity with other phase modules and future use;
-  // currently not needed at registration time.
   _logger: Logger,
 ): void {
-  // Silence the unused-parameter warning without changing the signature.
   void _logger;
-
-  // RPC Domain Handlers.
-
-  // GitInfoService is required by the lifted shared GitRpcHandlers
-  // (registered via SHARED_HANDLERS in `@ptah-extension/rpc-handlers`).
-  // Registered here so it is available before the shared handler fan-out
-  // resolves it.
   container.register(TOKENS.GIT_INFO_SERVICE, {
     useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
   });
-
-  // Register the lifted harness + chat sub-services BEFORE their handler
-  // classes. `RpcMethodRegistrationService` injects `ChatRpcHandlers` eagerly
-  // via its constructor, so the chat sub-services (CHAT_TOKENS.PTAH_CLI,
-  // STREAM_BROADCASTER, SESSION, PREMIUM_CONTEXT) must be registered here,
-  // not deferred to `registerAll()`. Mirrors the electron pattern in
-  // `apps/ptah-electron/src/di/phase-4-handlers.ts`.
   registerHarnessServices(container);
   registerChatServices(container);
-
-  // Register all domain-specific RPC handler classes. These are consumed by
-  // `RpcMethodRegistrationService` to delegate per-domain RPC registration.
   container.registerSingleton(ChatRpcHandlers);
   container.registerSingleton(SessionRpcHandlers);
   container.registerSingleton(ContextRpcHandlers);
@@ -86,52 +66,17 @@ export function registerPhase3Handlers(
   container.registerSingleton(ConfigRpcHandlers);
   container.registerSingleton(AuthRpcHandlers);
   container.registerSingleton(LicenseRpcHandlers);
-
-  // ProviderRpcHandlers requires SDK_PROVIDER_MODELS which is registered by
-  // the library phase. Registered as singleton here, resolved lazily at RPC
-  // service factory resolve time (after the library phase has run).
   container.registerSingleton(ProviderRpcHandlers);
-
-  // Subagent RPC handlers for subagent resumption.
   container.registerSingleton(SubagentRpcHandlers);
-
-  // Command RPC handlers for webview command execution.
   container.registerSingleton(CommandRpcHandlers);
-
-  // Quality Dashboard RPC handlers.
   container.registerSingleton(QualityRpcHandlers);
-
-  // Plugin Configuration RPC handlers.
   container.registerSingleton(PluginRpcHandlers);
-
-  // Agent Orchestration RPC handlers.
   container.registerSingleton(AgentRpcHandlers);
-
-  // Ptah CLI Management RPC handlers.
   container.registerSingleton(PtahCliRpcHandlers);
-
-  // Skills.sh Marketplace RPC handlers.
   container.registerSingleton(SkillsShRpcHandlers);
-
-  // MCP Server Directory RPC handlers
   container.registerSingleton(McpDirectoryRpcHandlers);
-
-  // Harness Setup Builder RPC handlers
   container.registerSingleton(HarnessRpcHandlers);
-
-  // SetupRpcHandlers, WizardGenerationRpcHandlers, EnhancedPromptsRpcHandlers,
-  // LlmRpcHandlers — all four have @inject-decorated constructors and live in
-  // one shared registration site so apps stay in lockstep.
   registerSharedRpcHandlers(container);
-
-  // ========================================
-  // RPC Method Registration Service (orchestrator)
-  // ========================================
-  // Registered as factory because it requires the container instance.
-  // Shared-handler fan-out + wiring live in helpers, so the factory only
-  // threads LOGGER / RPC_HANDLER / COMMAND_MANAGER and the five VS Code-
-  // specific handlers. ChatRpcHandlers is still injected so the wiring
-  // helpers can resolve PTAH CLI session IDs via its public API.
   container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
     useFactory: (c) =>
       new RpcMethodRegistrationService(

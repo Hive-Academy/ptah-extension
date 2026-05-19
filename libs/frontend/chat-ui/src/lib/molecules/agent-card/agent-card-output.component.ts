@@ -339,8 +339,6 @@ $ {{ segment.toolName }}</pre
 export class AgentCardOutputComponent {
   readonly segments = input.required<RenderSegment[]>();
   readonly stderrSegments = input.required<StderrSegment[]>();
-
-  // Auto-scroll to bottom
   private readonly outputContainer =
     viewChild<ElementRef<HTMLDivElement>>('outputContainer');
 
@@ -355,7 +353,6 @@ export class AgentCardOutputComponent {
 
   constructor() {
     effect(() => {
-      // Read inputs to track changes
       this.segments();
       this.stderrSegments();
       this.scrollTrigger();

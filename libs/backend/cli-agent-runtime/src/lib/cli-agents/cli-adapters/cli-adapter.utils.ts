@@ -17,9 +17,6 @@ import type { CliCommandOptions } from './cli-adapter.interface';
  * Used by all CLI adapters to clean raw terminal output.
  */
 export function stripAnsiCodes(str: string): string {
-  // Strip CSI sequences (e.g., colors, cursor moves) and ESC()/ESC[/ charset
-  // selection codes (e.g., `\x1b(B`, `\x1b)0`) emitted by some terminals on
-  // Linux/macOS that would otherwise show up as garbled `(B` text in output.
   /* eslint-disable no-control-regex */
   return str
     .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
@@ -57,15 +54,6 @@ export function spawnCli(
     cwd: options.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, ...CLI_CLEAN_ENV, ...options.env },
-    // On Windows, CLIs that use node-pty/ConPTY for shell execution (Gemini)
-    // need a console. Piped stdio with CREATE_NO_WINDOW prevents this.
-    // windowsHide: false ALLOCATES (rather than hides) a console for the
-    // child process. Despite the name reading as "show the window", Node's
-    // semantics are: `false` = do NOT pass CREATE_NO_WINDOW, so the child
-    // inherits/allocates a console. The console is still hidden from the user
-    // because we don't connect stdio to a TTY — node-pty's ConPTY can then
-    // call AttachConsole() successfully. On Unix this option is ignored, so
-    // the gating on win32 is purely for documentation.
     ...(options.needsConsole && process.platform === 'win32'
       ? { windowsHide: false }
       : {}),
@@ -94,8 +82,6 @@ export const CLI_CLEAN_ENV: Record<string, string> = {
  */
 export function buildTaskPrompt(options: CliCommandOptions): string {
   let taskPrompt = '';
-
-  // Prepend system prompt (full harness, premium) or project guidance (fallback)
   const systemContext = options.systemPrompt || options.projectGuidance;
   if (systemContext) {
     taskPrompt += systemContext + '\n\n---\n\n';
@@ -131,24 +117,17 @@ export async function resolveWindowsCmd(binaryPath: string): Promise<string> {
   if (process.platform !== 'win32') return binaryPath;
   if (!binaryPath.toLowerCase().endsWith('.cmd')) return binaryPath;
 
-  try {
-    const content = await readFile(binaryPath, 'utf8');
-    const dir = path.dirname(binaryPath);
+  const content = await readFile(binaryPath, 'utf8');
+  const dir = path.dirname(binaryPath);
+  const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
+  let lastMatch: string | null = null;
+  let m;
+  while ((m = regex.exec(content)) !== null) {
+    lastMatch = m[1];
+  }
 
-    // npm .cmd wrappers use %~dp0 or %dp0% as the wrapper's directory.
-    // The actual target is the last "%~dp0\<path>" or "%dp0%\<path>" reference.
-    const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
-    let lastMatch: string | null = null;
-    let m;
-    while ((m = regex.exec(content)) !== null) {
-      lastMatch = m[1];
-    }
-
-    if (lastMatch) {
-      return path.join(dir, lastMatch);
-    }
-  } catch {
-    // Can't read/parse .cmd file — fall through to original
+  if (lastMatch) {
+    return path.join(dir, lastMatch);
   }
 
   return binaryPath;

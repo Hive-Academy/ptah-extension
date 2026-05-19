@@ -70,10 +70,6 @@ import {
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 export interface InteractOptions {
   /** Optional resume target — currently only echoed in `session.ready`. */
   session?: string;
@@ -86,10 +82,6 @@ export interface InteractOptions {
   /** Surface workspace MCP tools via embedded proxy. */
   proxyExposeWorkspaceTools?: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Embedded proxy test seam
-// ---------------------------------------------------------------------------
 
 /**
  * Minimal surface of `AnthropicProxyService` consumed by `interact.ts`.
@@ -183,10 +175,6 @@ export interface InteractExecuteHooks {
   ) => AnthropicProxyServiceLike;
 }
 
-// ---------------------------------------------------------------------------
-// Per-handler param shapes (hand-rolled — keep narrow, validate at runtime).
-// ---------------------------------------------------------------------------
-
 interface TaskSubmitParams {
   task: string;
   cwd?: string;
@@ -208,13 +196,6 @@ interface RunTurnResult {
   error?: string;
   session_id?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Param guards — narrow `unknown` JSON-RPC params onto typed views.
-// Reject malformed shapes loudly via thrown `Error` (becomes -32603) since the
-// only callers are A2A peers; -32602 InvalidParamsError is reserved for
-// recoverable parameter errors that the peer can fix.
-// ---------------------------------------------------------------------------
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -256,10 +237,6 @@ function asSessionHistory(params: unknown): SessionHistoryParams {
   return {};
 }
 
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
-
 /**
  * Run the `ptah interact` command. Resolves to a process exit code; when
  * `hooks.returnExitCode === true` the exit code is returned to the caller
@@ -277,8 +254,6 @@ export async function execute(
   globals: GlobalOptions,
   hooks: InteractExecuteHooks = {},
 ): Promise<number> {
-  // `opts.session` is reserved for future resume; surfaced in session.ready below.
-  // `opts.proxy*` flags drive the embedded Anthropic-compatible proxy.
   const formatter = hooks.formatter ?? buildFormatter(globals);
   const engine = hooks.withEngine ?? withEngine;
   const uuid = hooks.randomUUID ?? nodeRandomUUID;
@@ -300,21 +275,10 @@ export async function execute(
   const drainTimeoutMs = hooks.drainTimeoutMs ?? 5_000;
   const version = hooks.version ?? '0.1.0';
 
-  // -------------------------------------------------------------------------
-  // Bootstrap full DI + wire bridges + start the JSON-RPC server.
-  // The whole session lives inside `engine(...)` so dispose runs on every exit
-  // path (success, throw, signal) via the helper's `finally`.
-  // -------------------------------------------------------------------------
-
   let resolvedExitCode: number | null = null;
 
   try {
     await engine(globals, { mode: 'full' }, async (ctx) => {
-      // 0. Install the `PTAH_INTERACT_ACTIVE=1` marker BEFORE any bridges
-      //    attach or sub-process spawn. Capture the prior
-      //    value (including the unset case via `hasOwnProperty`) so the drain
-      //    can restore it byte-identically. A blanket `delete` would silently
-      //    erase a `'0'` set by an outer supervisor.
       const priorInteractActiveSet = Object.prototype.hasOwnProperty.call(
         process.env,
         'PTAH_INTERACT_ACTIVE',
@@ -323,9 +287,6 @@ export async function execute(
         ? process.env['PTAH_INTERACT_ACTIVE']
         : undefined;
       process.env['PTAH_INTERACT_ACTIVE'] = '1';
-
-      // 1. Synthesize the synthetic session id (replaced by SDK UUID once
-      //    `message_start` arrives during the first turn).
       const tabId = uuid();
       let sessionId: string = tabId;
       let firstTurn = true;
@@ -338,8 +299,6 @@ export async function execute(
       );
       const workspacePath =
         workspaceProvider.getWorkspaceRoot() ?? globals.cwd ?? process.cwd();
-
-      // 2. JSON-RPC server — wired to stdin/stdout (or test PassThroughs).
       const stdoutWriter = new StdoutWriter({
         output: hooks.stdout ?? process.stdout,
       });
@@ -347,10 +306,6 @@ export async function execute(
         input: hooks.stdin ?? process.stdin,
       });
       const server = hooks.server ?? new JsonRpcServer();
-
-      // 3. Build a notify shim around the JsonRpcServer so the bridges
-      //    receive the same `Pick<JsonRpcServer, 'notify' | 'register' |
-      //    'unregister'>` surface they receive in `session *` mode.
       const jsonrpcShim = {
         notify: <TParams = unknown>(
           method: string,
@@ -362,20 +317,14 @@ export async function execute(
         ): void => server.register(method, handler),
         unregister: (method: string): void => server.unregister(method),
       };
-
-      // 4. EventPipe — non-chat backend events → JSON-RPC notifications.
       const eventPipe = new EventPipe(formatter, {
         verbose: globals.verbose === true,
       });
       eventPipe.attach(ctx.pushAdapter as unknown as EventEmitter);
-
-      // 5. ChatBridge — held singleton, used per `task.submit` runTurn().
       const chatBridge = new ChatBridge(
         ctx.pushAdapter as unknown as EventEmitter,
         jsonrpcShim,
       );
-
-      // 6. ApprovalBridge — attach ONCE at startup; detach on drain.
       let approvalBridge: ApprovalBridge | undefined;
       try {
         const permissionHandler = ctx.container.resolve<ISdkPermissionHandler>(
@@ -388,8 +337,6 @@ export async function execute(
         );
         approvalBridge.attach();
       } catch (resolveError) {
-        // Non-fatal — approval surface unavailable. The interact loop still
-        // accepts task.submit / task.cancel / session.shutdown / session.history.
         const message =
           resolveError instanceof Error
             ? resolveError.message
@@ -398,26 +345,7 @@ export async function execute(
           `[ptah] approval bridge unavailable (continuing without permission round-trip): ${message}\n`,
         );
       }
-
-      // 7. Start the JSON-RPC server (binds to stdin/stdout) BEFORE we emit
-      //    `session.ready` — `notify(...)` requires the writer to be attached.
       server.start(stdinReader, stdoutWriter);
-
-      // 7b. Embedded Anthropic-compatible HTTP proxy.
-      //     When `--proxy-start` is set, construct the proxy via the test seam
-      //     factory, bind the listener, and register the `proxy.shutdown`
-      //     inbound RPC. The lifecycle order on drain is intentional and
-      //     load-bearing:
-      //       1. `proxy.stop()`     — close listener, abort in-flight reqs.
-      //       2. `proxyUnregister()` — remove `proxy.shutdown` handler BEFORE
-      //          the JsonRpcServer stops dispatching, so a second shutdown
-      //          surface (idempotent re-entry) settles via the proxy's own
-      //          stopped-state branch instead of bouncing as -32601.
-      //       3. `server.stop()`    — tear down the JSON-RPC stdio loop.
-      //
-      //     The `proxy.start()` failure surfaces by throwing — `engine(...)`
-      //     captures it and the top-level `catch` emits `task.error` with
-      //     `ptah_code: 'internal_failure'` (no swallow).
       let embeddedProxy: AnthropicProxyServiceLike | null = null;
       let embeddedProxyUnregister: (() => void) | null = null;
       if (opts.proxyStart === true) {
@@ -444,18 +372,10 @@ export async function execute(
         );
         const bound = await embeddedProxy.start();
         embeddedProxyUnregister = embeddedProxy.registerShutdownRpc(server);
-        // Surface the bound address on stderr for supervisor scraping. Always
-        // emitted (not gated on --verbose) so a parent process can pipe stderr
-        // and grab the line on first read; this matches the standalone
-        // `ptah proxy start` contract in proxy.ts:135.
         process.stderr.write(
           `[ptah] proxy listening on http://${bound.host}:${bound.port}\n`,
         );
       }
-
-      // 8. Drain promise — resolves when the loop should terminate. The
-      //    matching `setExit(code)` is the canonical settle path for EOF /
-      //    shutdown / SIGINT / SIGTERM. Idempotent.
       let resolveDrain: (code: number) => void = () => undefined;
       const drainPromise = new Promise<number>((resolve) => {
         resolveDrain = resolve;
@@ -465,54 +385,33 @@ export async function execute(
         shuttingDown = true;
         resolveDrain(code);
       };
-
-      // 9. EOF — when stdin closes (peer disconnected), drain and exit 0.
-      //    The JsonRpcServer also marks `running = false` on its end callback,
-      //    but interact owns the lifecycle so we register an explicit listener.
       const stdinSource = hooks.stdin ?? process.stdin;
       const onStdinEnd = (): void => {
         setExit(ExitCode.Success);
       };
       stdinSource.once('end', onStdinEnd);
       stdinSource.once('close', onStdinEnd);
-
-      // 10. SIGINT / SIGTERM handlers — graceful drain + matching exit code.
       const uninstallSigint = installSignal('SIGINT', () => {
         setExit(130);
       });
       const uninstallSigterm = installSignal('SIGTERM', () => {
         setExit(143);
       });
-
-      // 11. Emit `session.ready` AFTER bridges attach and AFTER server.start
-      //     (so the writer is bound), but BEFORE we register inbound handlers.
-      //     The peer waits for this notification to gate handshake completion.
       await server.notify('session.ready', {
         session_id: tabId,
         version,
         capabilities: ['chat', 'session', 'permission', 'question'],
         protocol_version: '2.0',
       });
-
-      // 11a. Advertise the Ptah JSON-RPC schema version so peers can detect
-      //      protocol skew. Emitted right after
-      //      `session.ready` so it lands inside the same handshake window.
       await server.notify('system.schema.version', {
         version: JSONRPC_SCHEMA_VERSION,
         cliVersion: version,
       });
 
-      // 12. Inbound A2A handlers — task.submit / task.cancel /
-      //     session.shutdown / session.history.
-
       server.register(
         'task.submit',
         async (params: unknown): Promise<RunTurnResult> => {
           if (currentTurnId !== null) {
-            // Spec § B10e step 8.1 — concurrent submit attempt is -32603.
-            // The dispatcher writes the error envelope using the thrown
-            // message; data carrying `current_turn_id` is best-effort and
-            // omitted (not load-bearing for the spec test).
             throw new Error(
               `turn already in flight (current_turn_id=${currentTurnId})`,
             );
@@ -560,8 +459,6 @@ export async function execute(
               }
               return { turn_id: turnId, complete: true };
             }
-
-            // result.success === false
             const out: RunTurnResult = {
               turn_id: turnId,
               complete: false,
@@ -591,13 +488,7 @@ export async function execute(
             return { cancelled: false, reason: 'no matching turn' };
           }
 
-          // Best-effort `chat:abort` — the response is irrelevant; the bridge
-          // settles via the AbortController below regardless.
-          try {
-            await ctx.transport.call('chat:abort', { sessionId: tabId });
-          } catch {
-            /* swallow — backend may already be torn down */
-          }
+          await ctx.transport.call('chat:abort', { sessionId: tabId });
 
           inFlightAbort.abort();
           return { cancelled: true, turn_id };
@@ -609,9 +500,6 @@ export async function execute(
         async (): Promise<{
           shutdown: boolean;
         }> => {
-          // Per spec § B10e step 8.session.shutdown(1): respond IMMEDIATELY,
-          // BEFORE detaching anything. The drain is scheduled async so the
-          // response can flush.
           setImmediate(() => {
             setExit(ExitCode.Success);
           });
@@ -646,11 +534,6 @@ export async function execute(
           return { messages: trimmed, session_id: sessionId };
         },
       );
-
-      // e2e + scripted-bridge passthrough — forwards an arbitrary in-process
-      // RPC call through the same transport used by chat:start/chat:continue.
-      // Inbound shape: { method: string; params?: unknown }
-      // Returns the raw RpcResponse<unknown> envelope from the in-process handler.
       server.register(
         'rpc.call',
         async (
@@ -681,16 +564,8 @@ export async function execute(
           return out;
         },
       );
-
-      // 13. Wait for a terminal event (EOF | shutdown | SIGINT | SIGTERM).
-      //     `drainPromise` is exclusive — only the first signal wins.
       const exitCode = await drainPromise;
-
-      // 14. Drain — race the structured teardown against the configured
-      //     timeout. Whichever wins, we're done; the dispose chain in
-      //     `withEngine`'s finally then reaps the container.
       await drainWithTimeout(async () => {
-        // Detach in reverse order of attach.
         stdinSource.off('end', onStdinEnd);
         stdinSource.off('close', onStdinEnd);
         uninstallSigint();
@@ -700,12 +575,6 @@ export async function execute(
         }
         approvalBridge?.detach();
         eventPipe.detach();
-        // Embedded proxy teardown order:
-        //   proxy.stop() → unregister() → server.stop()
-        // The unregister MUST run before `server.stop()` so a second
-        // `proxy.shutdown` re-entry hits the proxy's idempotent
-        // `{ stopped: false }` branch rather than the JsonRpcServer
-        // `-32601 method not found` path.
         if (embeddedProxy !== null) {
           try {
             await embeddedProxy.stop('shutdown');
@@ -720,23 +589,11 @@ export async function execute(
           }
         }
         if (embeddedProxyUnregister !== null) {
-          try {
-            embeddedProxyUnregister();
-          } catch {
-            /* swallow — JsonRpcServer is about to stop anyway */
-          }
+          embeddedProxyUnregister();
         }
         server.stop();
-        // Best-effort flush of pending writes (e.g. the shutdown response
-        // we just queued in `setImmediate`).
-        try {
-          await formatter.close();
-        } catch {
-          /* swallow — formatter may share the writer with the server */
-        }
-        // Restore the captured `PTAH_INTERACT_ACTIVE` exactly. `delete` is
-        // reserved for the previously-unset case so a
-        // prior `'0'` (or any other string) round-trips intact.
+
+        await formatter.close();
         if (priorInteractActiveSet && priorInteractActive !== undefined) {
           process.env['PTAH_INTERACT_ACTIVE'] = priorInteractActive;
         } else {
@@ -747,19 +604,15 @@ export async function execute(
       resolvedExitCode = exitCode;
     });
   } catch (err) {
-    // Top-level uncaught — emit `task.error` and exit 5 per spec § 9 crit. 4.
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    try {
-      await formatter.writeNotification('task.error', {
-        ptah_code: 'internal_failure',
-        command: 'interact',
-        message,
-        ...(stack ? { stack } : {}),
-      });
-    } catch {
-      /* swallow — last-ditch reporting */
-    }
+
+    await formatter.writeNotification('task.error', {
+      ptah_code: 'internal_failure',
+      command: 'interact',
+      message,
+      ...(stack ? { stack } : {}),
+    });
     resolvedExitCode = ExitCode.InternalFailure;
   }
 
@@ -771,10 +624,6 @@ export async function execute(
   exit(code);
   return code;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 /**
  * Race a teardown closure against `timeoutMs`. The closure is started

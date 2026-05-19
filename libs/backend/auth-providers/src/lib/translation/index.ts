@@ -5,8 +5,6 @@
  * all translation proxy providers (Copilot, Codex, etc.).
  *
  */
-
-// Request translator (pure functions, stateless)
 export {
   translateAnthropicToOpenAI,
   translateSystemPrompt,
@@ -16,11 +14,7 @@ export {
 } from './request-translator';
 
 export type { TranslateOptions } from './request-translator';
-
-// Response translator (stateful, create per-request)
 export { OpenAIResponseTranslator } from './response-translator';
-
-// Responses API request translator (pure functions, stateless)
 export {
   translateAnthropicToResponses,
   translateToolsForResponses,
@@ -38,19 +32,11 @@ export type {
   ResponsesInputImagePart,
   ResponsesOutputTextPart,
 } from './responses-request-translator';
-
-// Responses API stream translator (stateful, create per-request)
 export { ResponsesStreamTranslator } from './responses-stream-translator';
-
-// Abstract base class for translation proxies
 export { TranslationProxyBase } from './translation-proxy-base';
 export type { TranslationProxyConfig } from './translation-proxy-base';
-
-// Protocol types
 export type {
-  // Translation proxy interface
   ITranslationProxy,
-  // OpenAI types
   OpenAIChatMessage,
   OpenAIContentPart,
   OpenAITextPart,
@@ -61,7 +47,6 @@ export type {
   OpenAIStreamChunk,
   OpenAIStreamChoice,
   OpenAIToolCallDelta,
-  // Anthropic types
   AnthropicContentBlock,
   AnthropicTextBlock,
   AnthropicImageBlock,

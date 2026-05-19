@@ -33,9 +33,6 @@ export const OLLAMA_PROVIDER_ENTRY: AnthropicProvider = {
   description: 'Run open-source models locally via Ollama',
   keyPlaceholder: 'No API key needed',
   maskedKeyDisplay: 'Local (no key)',
-  // Defensive fallback list of commonly-installed Ollama models.
-  // Shown only if the dynamic discovery service is unavailable (e.g., Ollama
-  // not running). Users can pull any of these via `ollama pull <model>`.
   staticModels: [
     {
       id: 'llama3.1:8b',
@@ -103,9 +100,6 @@ export const OLLAMA_CLOUD_PROVIDER_ENTRY: AnthropicProvider = {
   name: 'Ollama Cloud',
   baseUrl: 'http://localhost:11434',
   authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
-  // Keep authType='none' so strategy resolver routes to LocalNativeStrategy
-  // (Ollama proxy on localhost). The optional key is metadata-only and is
-  // expressed via supportsOptionalApiKey instead.
   authType: 'none',
   supportsOptionalApiKey: true,
   requiresProxy: false,

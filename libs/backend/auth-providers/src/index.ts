@@ -1,8 +1,6 @@
 export { AUTH_PROVIDERS_TOKENS } from './lib/di/tokens';
 export type { AuthProvidersDIToken } from './lib/di/tokens';
 export { registerAuthProvidersServices } from './lib/di/register';
-
-// Auth subsystem
 export {
   AuthManager,
   type AuthResult,
@@ -31,14 +29,10 @@ export {
   LocalProxyStrategy,
   CliStrategy,
 } from './lib/auth/strategies';
-
-// Provider models
 export {
   ProviderModelsService,
   type DynamicModelFetcher,
 } from './lib/provider-models.service';
-
-// Translation infrastructure
 export {
   OpenAIResponseTranslator,
   TranslationProxyBase,
@@ -48,8 +42,6 @@ export type {
   ITranslationProxy,
   TranslationProxyConfig,
 } from './lib/translation';
-
-// Copilot provider
 export {
   CopilotAuthService,
   VscodeCopilotAuthService,
@@ -68,8 +60,6 @@ export type {
   CopilotAuthState,
   CopilotHostsFile,
 } from './lib/providers/copilot';
-
-// Codex provider
 export {
   CodexAuthService,
   CodexTranslationProxy,
@@ -78,16 +68,12 @@ export {
   CODEX_PROXY_TOKEN_PLACEHOLDER,
 } from './lib/providers/codex';
 export type { ICodexAuthService, CodexAuthFile } from './lib/providers/codex';
-
-// OpenRouter provider
 export {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
 } from './lib/providers/openrouter';
 export type { IOpenRouterAuthService } from './lib/providers/openrouter';
-
-// Local providers
 export {
   LmStudioTranslationProxy,
   OllamaModelDiscoveryService,

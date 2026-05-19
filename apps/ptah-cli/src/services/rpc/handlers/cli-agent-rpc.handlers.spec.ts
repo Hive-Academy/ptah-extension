@@ -127,6 +127,11 @@ function buildHandler<T extends new (...args: never[]) => unknown>(
   const workspace = buildWorkspaceProviderStub();
   const storage = buildStateStorageStub();
 
+  const runtimeContainer = {
+    isRegistered: jest.fn(() => false),
+    resolve: jest.fn(),
+  };
+
   const instance = new (Ctor as unknown as new (
     logger: unknown,
     rpc: unknown,
@@ -136,6 +141,7 @@ function buildHandler<T extends new (...args: never[]) => unknown>(
     sessionMetadata: unknown,
     workspace: unknown,
     storage: unknown,
+    runtimeContainer: unknown,
   ) => InstanceType<T>)(
     new StubLogger(),
     rpc,
@@ -145,6 +151,7 @@ function buildHandler<T extends new (...args: never[]) => unknown>(
     sessionMetadata,
     workspace,
     storage,
+    runtimeContainer,
   );
 
   return {

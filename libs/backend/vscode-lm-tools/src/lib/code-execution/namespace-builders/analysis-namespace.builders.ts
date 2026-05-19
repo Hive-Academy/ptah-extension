@@ -63,8 +63,6 @@ export function buildContextNamespace(
   return {
     enrichFile: async (filePath: string, language?: string) => {
       try {
-        // Cast language string to the internal SupportedLanguage type
-        // Valid values: 'typescript' | 'javascript' | undefined
         const lang =
           language === 'typescript' || language === 'javascript'
             ? (language as 'typescript' | 'javascript')

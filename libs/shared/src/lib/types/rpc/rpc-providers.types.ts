@@ -5,10 +5,6 @@
  * provider:clearModelTier, deprecated OpenRouter aliases, and all llm:* methods
  */
 
-// ============================================================
-// Provider Model RPC Types
-// ============================================================
-
 /** Model tier for provider model mapping */
 export type ProviderModelTier = 'sonnet' | 'opus' | 'haiku';
 
@@ -117,8 +113,6 @@ export interface ProviderClearModelTierResult {
   success: boolean;
   error?: string;
 }
-
-// Backward-compatible type aliases (deprecated - use Provider* variants)
 /** @deprecated Use ProviderModelTier instead */
 export type OpenRouterModelTier = ProviderModelTier;
 /** @deprecated Use ProviderModelInfo instead */
@@ -139,10 +133,6 @@ export type OpenRouterGetModelTiersResult = ProviderGetModelTiersResult;
 export type OpenRouterClearModelTierParams = ProviderClearModelTierParams;
 /** @deprecated Use ProviderClearModelTierResult instead */
 export type OpenRouterClearModelTierResult = ProviderClearModelTierResult;
-
-// ============================================================
-// LLM Provider RPC Types (SDK-only migration: vscode-lm only)
-// ============================================================
 
 /** LLM Provider names for API key management (platform-agnostic) */
 export type LlmProviderName =
@@ -289,10 +279,6 @@ export interface LlmListProviderModelsResponse {
   models: Array<{ id: string; displayName: string }>;
   error?: string;
 }
-
-// ============================================================
-// Provider Base URL Override RPC Types (CLI parity)
-// ============================================================
 
 /** Parameters for llm:setProviderBaseUrl RPC method */
 export interface LlmSetProviderBaseUrlParams {

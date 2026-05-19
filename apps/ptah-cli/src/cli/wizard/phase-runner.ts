@@ -128,10 +128,6 @@ export async function runPhase<T>(
   }
 }
 
-// ---------------------------------------------------------------------------
-// async-broadcast branch — extracted for readability.
-// ---------------------------------------------------------------------------
-
 async function runAsyncBroadcast<T>(
   name: string,
   fn: Extract<PhaseFn<T>, { kind: 'async-broadcast' }>,
@@ -140,10 +136,6 @@ async function runAsyncBroadcast<T>(
 ): Promise<PhaseResult<T>> {
   const adapter = fn.adapter;
   const progressEvents = fn.progressEvents ?? [];
-
-  // Capture the completion payload via a deferred promise. The listener is
-  // registered BEFORE `fn.run()` to avoid a race where `run()` triggers the
-  // broadcast synchronously (in tests via `emit()` from a microtask).
   let completionListener: ((payload: unknown) => void) | undefined;
   const completionPromise = new Promise<unknown>((resolve) => {
     completionListener = (payload: unknown): void => {
@@ -151,11 +143,6 @@ async function runAsyncBroadcast<T>(
     };
     adapter.once(fn.completionEvent, completionListener);
   });
-
-  // Forward progress events as `setup.phase.progress { phase, ...payload }`.
-  // We track each (event, listener) pair so `finally` can detach exactly the
-  // listeners we registered (never `removeAllListeners` — sibling phases may
-  // share the same emitter).
   const progressListeners: Array<{
     event: string;
     listener: (payload: unknown) => void;
@@ -163,14 +150,11 @@ async function runAsyncBroadcast<T>(
   for (const event of progressEvents) {
     const listener = (payload: unknown): void => {
       const merged = mergeProgress(name, payload);
-      // Fire-and-forget — formatter writes are serial via `StdoutWriter`.
       void opts.formatter.writeNotification('setup.phase.progress', merged);
     };
     adapter.on(event, listener);
     progressListeners.push({ event, listener });
   }
-
-  // Timeout handle is captured so `finally` can clear it on success.
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
@@ -183,17 +167,12 @@ async function runAsyncBroadcast<T>(
   });
 
   try {
-    // Submit the request — the synchronous accept resolves quickly; the real
-    // completion arrives via the event listener attached above.
     await fn.run();
 
     const completionPayload = await Promise.race<unknown>([
       completionPromise,
       timeoutPromise,
     ]);
-
-    // Inspect the payload — `isFailure` returns null on success, string on
-    // logical failure (e.g. `payload.success === false`).
     const failureMessage = fn.isFailure(completionPayload);
     if (failureMessage !== null) {
       throw new Error(failureMessage);
@@ -223,10 +202,6 @@ async function runAsyncBroadcast<T>(
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 /**
  * Build a `setup.phase.progress` payload by merging the phase name with the
@@ -268,8 +243,6 @@ async function failPhase<T>(
         rollbackError instanceof Error
           ? rollbackError.message
           : String(rollbackError);
-      // Surface to stderr so CI logs see it; never throw — must not mask the
-      // original error (spec § B9c sub-task 1).
       process.stderr.write(
         `[ptah] phase '${name}' rollback failed: ${rollbackMessage}\n`,
       );

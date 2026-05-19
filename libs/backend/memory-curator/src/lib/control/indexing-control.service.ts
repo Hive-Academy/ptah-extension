@@ -52,8 +52,6 @@ export interface IndexingRunDeps {
   runMemory?: (workspaceRoot: string) => Promise<void>;
 }
 
-// ---- Internal DB row shape ----
-
 interface IndexingStateRow {
   workspace_fingerprint: string;
   git_head_sha: string | null;
@@ -83,8 +81,6 @@ function deriveStateFromRow(
   if (row.last_error) return 'error';
   if (row.symbols_cursor) return 'paused';
   if (!row.last_indexed_at) return 'never-indexed';
-
-  // Stale detection: stored SHA differs from current SHA
   if (row.git_head_sha && currentSha && row.git_head_sha !== currentSha) {
     return 'stale';
   }
@@ -118,8 +114,6 @@ export class IndexingControlService {
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
   ) {}
-
-  // ---- Status read -------------------------------------------------------
 
   /** Synchronous status read — derive state from stored row + current git HEAD. */
   async getStatus(workspaceRoot: string): Promise<IndexingStatus> {
@@ -168,8 +162,6 @@ export class IndexingControlService {
     };
   }
 
-  // ---- State machine transitions -----------------------------------------------
-
   /**
    * Start indexing pipelines.
    *
@@ -184,36 +176,28 @@ export class IndexingControlService {
     deps: IndexingRunDeps,
     options?: { force?: boolean },
   ): Promise<void> {
-    // Prevent double-start — set controller synchronously before any await
     if (this.activeAbortController) {
       this.logger.debug(
         '[indexing-control] start() called while already running — ignored',
       );
       return;
     }
-    // Set immediately (synchronous) so concurrent calls see it
     this.activeAbortController = new AbortController();
     const { signal } = this.activeAbortController;
 
     const { fp } = await deriveWorkspaceFingerprint(workspaceRoot, this.fs);
     const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
     const row = this.readRow(fp);
-
-    // Record pre-index state for cancel()
     this.preIndexState = row
       ? deriveStateFromRow(row, currentSha)
       : 'never-indexed';
     this.activeWorkspaceFp = fp;
-
-    // Early return if already aborted (pause/cancel called before awaits returned)
     if (signal.aborted) return;
 
     const runSymbols =
       !pipeline || pipeline === 'symbols' || pipeline === 'both';
     const runMemory = !pipeline || pipeline === 'memory' || pipeline === 'both';
     const startedAt = Date.now();
-
-    // Persist transitional state: clear error, set as indexing
     this.upsertRow(fp, {
       last_error: null,
       symbols_cursor: null,
@@ -237,7 +221,6 @@ export class IndexingControlService {
       }
 
       if (!signal.aborted) {
-        // Successful completion
         this.upsertRow(fp, {
           git_head_sha: currentSha,
           last_indexed_at: Date.now(),
@@ -265,7 +248,6 @@ export class IndexingControlService {
     }
     this.activeAbortController.abort();
     this.activeAbortController = null;
-    // Cursor is persisted by runSymbolsIndexWithProgress after the abort is detected
     this.logger.debug('[indexing-control] paused');
   }
 
@@ -284,11 +266,8 @@ export class IndexingControlService {
       await this.start(undefined, workspaceRoot, deps);
       return;
     }
-
-    // Verify fingerprint hasn't changed (workspace modified while paused)
     const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
     if (row.git_head_sha && currentSha && row.git_head_sha !== currentSha) {
-      // Fingerprint changed — discard cursor and start fresh
       this.logger.debug(
         '[indexing-control] resume() — fingerprint changed, discarding cursor',
       );
@@ -296,8 +275,6 @@ export class IndexingControlService {
       await this.start(undefined, workspaceRoot, deps);
       return;
     }
-
-    // Resume with stored cursor
     await this.start(undefined, workspaceRoot, deps);
   }
 
@@ -312,7 +289,6 @@ export class IndexingControlService {
     }
 
     if (this.activeWorkspaceFp) {
-      // Clear cursor but do NOT touch git_head_sha or last_indexed_at
       this.upsertRow(this.activeWorkspaceFp, {
         symbols_cursor: null,
         last_error: null,
@@ -324,8 +300,6 @@ export class IndexingControlService {
       restoredState: this.preIndexState,
     });
   }
-
-  // ---- Pipeline toggles -------------------------------------------------------
 
   /** Enable or disable a pipeline. Immediately starts/stops the relevant service. */
   async setPipelineEnabled(
@@ -351,8 +325,6 @@ export class IndexingControlService {
     }
   }
 
-  // ---- Stale / disclosure management ------------------------------------------
-
   /** Dismiss the stale banner for the current SHA (re-shows if HEAD changes again). */
   async dismissStale(workspaceRoot: string): Promise<void> {
     const { fp } = await deriveWorkspaceFingerprint(workspaceRoot, this.fs);
@@ -366,14 +338,10 @@ export class IndexingControlService {
     this.upsertRow(fp, { disclosure_acknowledged_at: Date.now() });
   }
 
-  // ---- Watcher management ---------------------------------------------------
-
   /** Wire-runtime calls this after the chokidar watcher is created. */
   setSymbolWatcher(watcher: { close: () => void } | null): void {
     this.symbolWatcher = watcher;
   }
-
-  // ---- Progress events -------------------------------------------------------
 
   /** Subscribe to indexing progress events. Returns an unsubscribe function. */
   onProgress(listener: (event: IndexingProgressEvent) => void): () => void {
@@ -383,8 +351,6 @@ export class IndexingControlService {
       if (idx !== -1) this.progressListeners.splice(idx, 1);
     };
   }
-
-  // ---- Private helpers -------------------------------------------------------
 
   /**
    * Internal symbol-indexing loop with progress events and cooperative abort.
@@ -401,22 +367,14 @@ export class IndexingControlService {
     const fp = this.activeWorkspaceFp;
 
     const progressHandler = (event: IndexingProgressEvent): void => {
-      // Emit to listeners
       for (const listener of this.progressListeners) {
-        try {
-          listener(event);
-        } catch {
-          // never swallow listener errors into the indexing path
-        }
+        listener(event);
       }
-      // Broadcast to webview
       void this.webviewManager.broadcastMessage(
         'indexing:progress' as never,
         event,
       );
     };
-
-    // Wrap runSymbols to intercept abort and persist cursor
     try {
       await deps.runSymbols(workspaceRoot, { signal });
 
@@ -436,9 +394,6 @@ export class IndexingControlService {
         (error.name === 'AbortError' || error.name === 'DOMException');
 
       if (isDomAbort || signal.aborted) {
-        // Paused — persist cursor position
-        // The cursor is managed by the caller (wire-runtime / RPC handler) as it
-        // knows the file list; here we simply mark the cursor as "mid-run".
         if (fp) {
           const cursor: SymbolsCursor = {
             remainingFiles: [],
@@ -485,8 +440,6 @@ export class IndexingControlService {
   ): void {
     try {
       const now = Date.now();
-
-      // Build SET clause dynamically from provided fields
       const setClauses: string[] = ['updated_at = ?'];
       const values: unknown[] = [now];
 
@@ -524,8 +477,6 @@ export class IndexingControlService {
       }
 
       values.push(fingerprint);
-
-      // INSERT OR IGNORE first (creates row if not exists), then UPDATE
       const insertStmt = this.sqlite.db.prepare(
         `INSERT OR IGNORE INTO indexing_state (workspace_fingerprint, created_at, updated_at) VALUES (?, ?, ?)`,
       );

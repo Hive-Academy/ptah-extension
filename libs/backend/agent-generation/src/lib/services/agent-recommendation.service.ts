@@ -35,7 +35,6 @@ interface AgentMetadata {
  * at the template level via LLM-driven analysis.
  */
 const AGENT_CATALOG: AgentMetadata[] = [
-  // Planning Agents
   {
     id: 'project-manager',
     name: 'Project Manager',
@@ -60,8 +59,6 @@ const AGENT_CATALOG: AgentMetadata[] = [
     category: 'planning',
     icon: 'team',
   },
-
-  // Development Agents
   {
     id: 'frontend-developer',
     name: 'Frontend Developer',
@@ -86,8 +83,6 @@ const AGENT_CATALOG: AgentMetadata[] = [
     category: 'development',
     icon: 'devops',
   },
-
-  // QA Agents
   {
     id: 'senior-tester',
     name: 'Senior Tester',
@@ -112,8 +107,6 @@ const AGENT_CATALOG: AgentMetadata[] = [
     category: 'qa',
     icon: 'logic',
   },
-
-  // Specialist Agents
   {
     id: 'researcher-expert',
     name: 'Researcher Expert',
@@ -130,8 +123,6 @@ const AGENT_CATALOG: AgentMetadata[] = [
     category: 'specialist',
     icon: 'modernize',
   },
-
-  // Creative Agents
   {
     id: 'ui-ux-designer',
     name: 'UI/UX Designer',
@@ -251,8 +242,6 @@ export class AgentRecommendationService {
    */
   private buildCriteria(agent: AgentMetadata, ctx: ProjectContext): string[] {
     const criteria: string[] = [];
-
-    // Universal context — every agent gets this
     criteria.push(`Will be customized for: ${ctx.projectDescription}`);
 
     if (ctx.frameworks.length > 0) {
@@ -266,8 +255,6 @@ export class AgentRecommendationService {
     if (ctx.languages.length > 0) {
       criteria.push(`Languages: ${ctx.languages.join(', ')}`);
     }
-
-    // Category-specific context that helps the user understand the agent's focus
     switch (agent.category) {
       case 'planning':
         if (ctx.monorepoType) {

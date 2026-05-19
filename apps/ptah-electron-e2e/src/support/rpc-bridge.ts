@@ -55,8 +55,6 @@ export class RpcBridge {
       payload?.payload?.correlationId ??
       payload?.correlationId ??
       `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-    // Ensure the correlationId we wait for is on the payload.
     if (payload?.payload && !payload.payload.correlationId) {
       payload.payload.correlationId = correlationId;
     }
@@ -76,9 +74,6 @@ export class RpcBridge {
               ),
             );
           }, args.timeoutMs);
-
-          // Intercept the next 'to-renderer' send by monkey-patching webContents.send.
-          // We restore the original after capturing the matching response.
           const patchable = win.webContents as unknown as {
             send: (channel: string, ...args: unknown[]) => void;
           };
@@ -97,9 +92,6 @@ export class RpcBridge {
             }
             originalSend(sendChannel, ...sendArgs);
           };
-
-          // Emit on the channel as if it came from the renderer.
-          // `ipcMain.emit` synchronously invokes all registered listeners.
           ipcMain.emit(
             args.channel,
             { sender: win.webContents } as Electron.IpcMainEvent,
@@ -146,9 +138,6 @@ export class RpcBridge {
         if (!win) {
           throw new Error('[RpcBridge] No BrowserWindow available');
         }
-        // Re-create the predicate inside the main-process context.
-        // Playwright serializes args via structured clone, so functions
-        // are not transferable -- we accept a stringified function body.
         const predicate = new Function(
           'msg',
           `return (${args.filterSource})(msg);`,
@@ -171,15 +160,12 @@ export class RpcBridge {
           patchable.send = (sendChannel: string, ...sendArgs: unknown[]) => {
             if (sendChannel === 'to-renderer') {
               const message = sendArgs[0];
-              try {
-                if (predicate(message)) {
-                  clearTimeout(timer);
-                  patchable.send = originalSend;
-                  resolve(message);
-                  return;
-                }
-              } catch {
-                // Predicate threw -- ignore and forward.
+
+              if (predicate(message)) {
+                clearTimeout(timer);
+                patchable.send = originalSend;
+                resolve(message);
+                return;
               }
             }
             originalSend(sendChannel, ...sendArgs);
@@ -195,8 +181,6 @@ export class RpcBridge {
    * Matches the `ipcRenderer.sendSync('get-state')` path used by preload.
    */
   async getState(_key?: string): Promise<unknown> {
-    // The Electron 'get-state' handler returns the entire cached state
-    // object (no per-key indexing). Callers can index the returned value.
     return this.app.evaluate(({ ipcMain, BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0];
       let captured: unknown = undefined;

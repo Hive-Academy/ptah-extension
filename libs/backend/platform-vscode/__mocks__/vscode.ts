@@ -14,11 +14,6 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// ---------------------------------------------------------------------------
-// Minimal IEvent<T> / disposable helpers (mock-local copy to avoid a circular
-// import from platform-core, which itself imports from us indirectly).
-// ---------------------------------------------------------------------------
-
 type Disposable = { dispose: () => void };
 type Listener<T> = (data: T) => void;
 
@@ -35,20 +30,12 @@ function createEmitter<T>(): {
     },
     fire: (data) => {
       for (const l of [...listeners]) {
-        try {
-          l(data);
-        } catch {
-          /* swallow */
-        }
+        l(data);
       }
     },
     listenerCount: () => listeners.size,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Uri
-// ---------------------------------------------------------------------------
 
 export const Uri = {
   file: (path: string) => ({
@@ -64,10 +51,6 @@ export const Uri = {
     toString: () => value,
   }),
 };
-
-// ---------------------------------------------------------------------------
-// FileType / FileSystemError
-// ---------------------------------------------------------------------------
 
 export enum FileType {
   Unknown = 0,
@@ -94,10 +77,6 @@ export class FileSystemError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// In-memory filesystem backing vscode.workspace.fs
-// ---------------------------------------------------------------------------
-
 interface FsEntry {
   type: FileType;
   ctime: number;
@@ -117,7 +96,6 @@ class InMemoryFs {
   }
 
   private ensureParents(keyPath: string): void {
-    // Normalise both forward and back slashes
     const parts = keyPath.replace(/\\/g, '/').split('/');
     for (let i = 1; i < parts.length; i++) {
       const dir = parts.slice(0, i).join('/') || '/';
@@ -127,9 +105,6 @@ class InMemoryFs {
           ctime: Date.now(),
           mtime: Date.now(),
         });
-      } else if (this.entries.get(dir)?.type !== FileType.Directory) {
-        // Parent exists as a file — technically invalid but the contract
-        // tests don't exercise this edge case.
       }
     }
   }
@@ -245,19 +220,11 @@ class InMemoryFs {
 
 const inMemoryFs = new InMemoryFs();
 
-// ---------------------------------------------------------------------------
-// Configuration store (keyed by `${section}.${key}`)
-// ---------------------------------------------------------------------------
-
 const configStore = new Map<string, unknown>();
 const configEmitter = createEmitter<{
   affectsConfiguration: (section: string) => boolean;
 }>();
 const workspaceFoldersEmitter = createEmitter<void>();
-
-// ---------------------------------------------------------------------------
-// Workspace folders (seedable)
-// ---------------------------------------------------------------------------
 
 type WorkspaceFolder = {
   uri: { fsPath: string; path: string };
@@ -267,10 +234,6 @@ type WorkspaceFolder = {
 
 let workspaceFoldersState: WorkspaceFolder[] = [];
 
-// ---------------------------------------------------------------------------
-// File system watchers (seedable per-path emitters)
-// ---------------------------------------------------------------------------
-
 const createdWatchers: Array<{
   pattern: string;
   fireChange: (uri: { fsPath: string }) => void;
@@ -278,15 +241,7 @@ const createdWatchers: Array<{
   fireDelete: (uri: { fsPath: string }) => void;
 }> = [];
 
-// ---------------------------------------------------------------------------
-// Command registry
-// ---------------------------------------------------------------------------
-
 const commandHandlers = new Map<string, (...args: unknown[]) => unknown>();
-
-// ---------------------------------------------------------------------------
-// Output channels (tracked for assertion)
-// ---------------------------------------------------------------------------
 
 interface MockOutputChannel {
   name: string;
@@ -301,10 +256,6 @@ interface MockOutputChannel {
 
 const outputChannels: MockOutputChannel[] = [];
 
-// ---------------------------------------------------------------------------
-// Editors / documents (seedable)
-// ---------------------------------------------------------------------------
-
 const activeEditorEmitter = createEmitter<
   { document: { uri: { fsPath: string } } } | undefined
 >();
@@ -313,16 +264,8 @@ let activeTextEditorState:
   | { document: { uri: { fsPath: string; path: string } } }
   | undefined = undefined;
 
-// ---------------------------------------------------------------------------
-// Diagnostics (seedable)
-// ---------------------------------------------------------------------------
-
 let diagnosticsState: Array<[{ fsPath: string; path: string }, Array<any>]> =
   [];
-
-// ---------------------------------------------------------------------------
-// Secret storage test double (constructor-injectable)
-// ---------------------------------------------------------------------------
 
 export class InMemorySecretStorage {
   private entries = new Map<string, string>();
@@ -343,10 +286,6 @@ export class InMemorySecretStorage {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Memento test double (constructor-injectable)
-// ---------------------------------------------------------------------------
-
 export class InMemoryMemento {
   private data = new Map<string, unknown>();
   get<T>(key: string, defaultValue?: T): T | undefined {
@@ -366,10 +305,6 @@ export class InMemoryMemento {
   }
 }
 
-// ---------------------------------------------------------------------------
-// lm (language model) test double
-// ---------------------------------------------------------------------------
-
 let chatModels: Array<{
   countTokens: (text: string) => Promise<number>;
   maxInputTokens: number;
@@ -378,10 +313,6 @@ let chatModels: Array<{
 export const lm = {
   selectChatModels: jest.fn(async (_selector?: unknown) => chatModels),
 };
-
-// ---------------------------------------------------------------------------
-// workspace
-// ---------------------------------------------------------------------------
 
 export const workspace = {
   get workspaceFolders(): WorkspaceFolder[] | undefined {
@@ -467,10 +398,6 @@ export const workspace = {
     ): boolean => true,
   ),
 };
-
-// ---------------------------------------------------------------------------
-// window
-// ---------------------------------------------------------------------------
 
 export enum ProgressLocation {
   SourceControl = 1,
@@ -569,10 +496,6 @@ export const window = {
   ),
 };
 
-// ---------------------------------------------------------------------------
-// commands
-// ---------------------------------------------------------------------------
-
 export const commands = {
   registerCommand: jest.fn(
     (id: string, handler: (...args: unknown[]) => unknown) => {
@@ -595,10 +518,6 @@ export const commands = {
   }),
 };
 
-// ---------------------------------------------------------------------------
-// languages
-// ---------------------------------------------------------------------------
-
 export const languages = {
   getDiagnostics: jest.fn(() => diagnosticsState),
   createDiagnosticCollection: jest.fn(() => ({
@@ -608,10 +527,6 @@ export const languages = {
     dispose: jest.fn(),
   })),
 };
-
-// ---------------------------------------------------------------------------
-// env
-// ---------------------------------------------------------------------------
 
 export const env = {
   appName: 'Visual Studio Code',
@@ -625,10 +540,6 @@ export const env = {
   },
   openExternal: jest.fn(async (_uri: any) => true),
 };
-
-// ---------------------------------------------------------------------------
-// Misc enums / primitives used across impls
-// ---------------------------------------------------------------------------
 
 export const EventEmitter = class<T> {
   private emitter = createEmitter<T>();
@@ -663,12 +574,6 @@ export enum DiagnosticSeverity {
   Information = 2,
   Hint = 3,
 }
-
-// ---------------------------------------------------------------------------
-// Test-driver surface — specs import { __vscodeState, __resetVscodeTestDouble }
-// via `jest.requireMock('vscode')` so they can prime state without typing the
-// whole vscode module.
-// ---------------------------------------------------------------------------
 
 export const __vscodeState = {
   fs: inMemoryFs,

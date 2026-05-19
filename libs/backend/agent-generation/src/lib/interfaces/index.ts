@@ -7,32 +7,18 @@
  *
  * @module @ptah-extension/agent-generation/interfaces
  */
-
-// Template Storage
 export { ITemplateStorageService } from './template-storage.interface';
-
-// Agent Selection
 export {
   IAgentSelectionService,
   SelectionResult,
 } from './agent-selection.interface';
-
-// Content Generation
 export {
   IContentGenerationService,
   type ContentGenerationSdkConfig,
 } from './content-generation.interface';
-
-// Output Validation
 export { IOutputValidationService } from './output-validation.interface';
-
-// Agent File Writer
 export { IAgentFileWriterService } from './agent-file-writer.interface';
-
-// Setup Wizard Orchestrator
 export { ISetupWizardOrchestrator } from './setup-wizard-orchestrator.interface';
-
-// Agent Customization Service
 export {
   IAgentCustomizationService,
   CustomizationRequest,

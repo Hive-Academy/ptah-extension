@@ -26,12 +26,9 @@
  * isPriceIdPlaceholder(undefined) // true (missing)
  */
 export function isPriceIdPlaceholder(priceId: string | undefined): boolean {
-  // Treat missing/empty price IDs as placeholders
   if (!priceId || priceId.trim() === '') {
     return true;
   }
-
-  // Check for known placeholder patterns (case-insensitive)
   const placeholderPatterns = [
     'REPLACE',
     'xxxxxxxxx',

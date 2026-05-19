@@ -65,15 +65,10 @@ export class TicketService implements OnModuleDestroy {
     tenantId: string,
     email: string
   ): Promise<string> {
-    // Generate cryptographically secure random ticket
     const ticket = randomBytes(32).toString('hex');
-
-    // Set up automatic cleanup after TTL
     const timeoutId = setTimeout(() => {
       this.tickets.delete(ticket);
     }, this.TICKET_TTL_MS);
-
-    // Store ticket with user context
     this.tickets.set(ticket, {
       userId,
       tenantId,
@@ -95,17 +90,10 @@ export class TicketService implements OnModuleDestroy {
     const ticketData = this.tickets.get(ticket);
 
     if (!ticketData) {
-      // Ticket expired or never existed
       return null;
     }
-
-    // Clear the timeout since we're consuming it now
     clearTimeout(ticketData.timeoutId);
-
-    // Consume ticket immediately (single-use enforcement)
     this.tickets.delete(ticket);
-
-    // Return user context
     return {
       userId: ticketData.userId,
       tenantId: ticketData.tenantId,
@@ -124,7 +112,6 @@ export class TicketService implements OnModuleDestroy {
    * Cleanup on module destroy
    */
   onModuleDestroy() {
-    // Clear all pending timeouts
     for (const ticketData of this.tickets.values()) {
       clearTimeout(ticketData.timeoutId);
     }

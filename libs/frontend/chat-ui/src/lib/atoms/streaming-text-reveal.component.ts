@@ -73,8 +73,6 @@ export class StreamingTextRevealComponent implements OnInit, OnDestroy {
 
   /** Cursor color class */
   readonly cursorColor = input<string>('text-neutral-content/70');
-
-  // Internal state: how many characters have been revealed
   private readonly revealedLength = signal(0);
   private revealInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -96,28 +94,23 @@ export class StreamingTextRevealComponent implements OnInit, OnDestroy {
   );
 
   constructor() {
-    // Effect to handle streaming state changes
     effect(() => {
       const streaming = this.isStreaming();
       const content = this.content();
 
       if (!streaming) {
-        // Streaming stopped - show all content immediately
         this.stopReveal();
         this.revealedLength.set(content.length);
       } else if (this.isRevealing() && !this.revealInterval) {
-        // New content arrived and we're not revealing - start reveal
         this.startReveal();
       }
     });
   }
 
   ngOnInit(): void {
-    // Start reveal animation if there's content
     if (this.content().length > 0 && this.isStreaming()) {
       this.startReveal();
     } else if (!this.isStreaming()) {
-      // Not streaming - show all content immediately
       this.revealedLength.set(this.content().length);
     }
   }
@@ -134,13 +127,10 @@ export class StreamingTextRevealComponent implements OnInit, OnDestroy {
       const total = this.content().length;
 
       if (current < total) {
-        // Reveal next character
         this.revealedLength.set(current + 1);
       } else if (!this.isStreaming()) {
-        // Caught up and streaming is done - stop interval
         this.stopReveal();
       }
-      // If streaming but caught up, keep interval alive to catch new content
     }, this.revealSpeed());
   }
 

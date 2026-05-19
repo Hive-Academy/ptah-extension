@@ -11,20 +11,8 @@
  * typed via an `import type` from `@ptah-extension/chat` so this lib stays
  * runtime-acyclic with chat.
  */
-
-// ============================================================================
-// SERVICES
-// ============================================================================
 export { AgentStatsService } from './lib/agent-stats.service';
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
 export { MAX_DEPTH } from './lib/execution-tree.constants';
-
-// ============================================================================
-// PURE BUILDER FUNCTIONS
-// ============================================================================
 export {
   buildAgentNode,
   buildInterleavedChildren,
@@ -38,10 +26,6 @@ export {
   buildToolChildren,
   collectTools,
 } from './lib/builders/tool-node.fn';
-
-// ============================================================================
-// TYPES
-// ============================================================================
 export type {
   BuilderDeps,
   BackgroundAgentLookup,

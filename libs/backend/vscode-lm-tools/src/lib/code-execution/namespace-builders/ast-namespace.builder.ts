@@ -186,10 +186,6 @@ export function buildAstNamespace(
   };
 }
 
-// ========================================
-// Helper Functions
-// ========================================
-
 /**
  * Read a file and detect its language for AST parsing
  */

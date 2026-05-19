@@ -27,27 +27,17 @@ export function registerCronSchedulerServices(
   logger: Logger,
 ): void {
   logger.info('[cron-scheduler] registering services');
-
-  // Stores first — they only depend on persistence + logger.
   container.registerSingleton(CRON_TOKENS.CRON_JOB_STORE, JobStore);
   container.registerSingleton(CRON_TOKENS.CRON_RUN_STORE, RunStore);
-
-  // Handler registry has no deps — register before runner.
   container.registerSingleton(
     CRON_TOKENS.CRON_HANDLER_REGISTRY,
     HandlerRegistry,
   );
-
-  // Runner depends on stores + SDK + handler registry.
   container.registerSingleton(CRON_TOKENS.CRON_JOB_RUNNER, JobRunner);
-
-  // Catchup depends on store + runner + power monitor.
   container.registerSingleton(
     CRON_TOKENS.CRON_CATCHUP_COORD,
     CatchupCoordinator,
   );
-
-  // Scheduler — top-level, depends on everything above.
   container.registerSingleton(CRON_TOKENS.CRON_SCHEDULER, CronScheduler);
 
   logger.info('[cron-scheduler] services registered', {

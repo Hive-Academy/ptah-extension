@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Translation Proxy
  *
  * Thin subclass of TranslationProxyBase that provides Copilot-specific
@@ -65,10 +65,6 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
     return COPILOT_PROVIDER_ENTRY.staticModels ?? [];
   }
 
-  // ---------------------------------------------------------------------------
-  // Copilot-specific model and routing overrides
-  // ---------------------------------------------------------------------------
-
   /**
    * Normalize Anthropic-format Claude model IDs to Copilot format.
    *
@@ -82,12 +78,6 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
     if (!modelId.startsWith('claude-')) {
       return modelId;
     }
-
-    // Match: claude-{family}-{major}-{minor}[-{anything}]
-    // e.g., 'claude-opus-4-6' â†’ 'claude-opus-4.6'
-    // e.g., 'claude-haiku-4-5-20251001' â†’ 'claude-haiku-4.5'
-    // e.g., 'claude-sonnet-5-0-preview-20261001' â†’ 'claude-sonnet-5.0'
-    // Strips everything after major.minor â€” Copilot uses short model names.
     const match = modelId.match(
       /^(claude-(?:opus|sonnet|haiku)-\d+)-(\d+)(?:-.+)?$/,
     );
@@ -132,8 +122,6 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
         );
         return this.staticModelsAsFull();
       }
-
-      // Filter to chat models only (exclude embeddings)
       const chatModels = response.data.filter(
         (m) => m.capabilities?.type === 'chat',
       );

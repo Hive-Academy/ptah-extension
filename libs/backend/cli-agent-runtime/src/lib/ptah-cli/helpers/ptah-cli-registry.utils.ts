@@ -79,21 +79,16 @@ export function summarizeToolInput(
  */
 export function sanitizeErrorMessage(message: string): string {
   let sanitized = message;
-  // Strip potential API key patterns (sk-*, key-*, token-* followed by 20+ alphanum chars)
   sanitized = sanitized.replace(
     /\b(sk-|key-|token-)[A-Za-z0-9_-]{20,}\b/g,
     '[REDACTED]',
   );
-  // Strip long hex/base64 strings that look like secrets (40+ chars)
   sanitized = sanitized.replace(/\b[A-Za-z0-9+/=_-]{40,}\b/g, '[REDACTED]');
-  // Strip URLs with auth credentials (user:pass@host or tokens in query strings)
   sanitized = sanitized.replace(
     /https?:\/\/[^\s]*[:@][^\s]*/g,
     '[REDACTED_URL]',
   );
-  // Strip stack traces (lines starting with "at ")
   sanitized = sanitized.replace(/^\s*at\s+.+$/gm, '').replace(/\n{2,}/g, '\n');
-  // Truncate to max 500 chars to prevent log flooding
   if (sanitized.length > 500) {
     sanitized = sanitized.substring(0, 497) + '...';
   }

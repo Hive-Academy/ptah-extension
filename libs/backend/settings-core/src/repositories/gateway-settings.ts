@@ -47,10 +47,6 @@ export class GatewaySettings extends BaseSettingsRepository {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Internal factory
-  // ---------------------------------------------------------------------------
-
   private secretHandleFor(key: string): SecretHandle {
     const store = this.store;
     return {

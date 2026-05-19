@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CLI Strategy
  *
  * Handles authentication via Claude CLI's own credential store (~/.claude/).
@@ -41,8 +41,6 @@ export class CliStrategy implements IAuthStrategy {
     _context: AuthConfigureContext,
   ): Promise<AuthConfigureResult> {
     this.logger.info(`[${this.name}] Configuring Claude CLI authentication`);
-
-    // Verify CLI is installed
     const health = await this.cliDetector.performHealthCheck();
 
     if (!health.available) {
@@ -60,13 +58,6 @@ export class CliStrategy implements IAuthStrategy {
     this.logger.info(
       `[${this.name}] Claude CLI found at ${health.path} (v${health.version ?? 'unknown'})`,
     );
-
-    // Don't set any API key env vars - the SDK will use the CLI's credential store.
-    // Direct Anthropic (CLI auth): let the CLI resolve its own tiers natively.
-    // Don't apply persisted tier overrides â€” those are for third-party providers
-    // (OpenRouter/Moonshot/Z.AI) that need tierâ†’provider-model mapping. Pinning
-    // the CLI's opus/sonnet/haiku via ANTHROPIC_DEFAULT_*_MODEL env vars blocks
-    // the CLI from returning its account-appropriate defaults.
     this.providerModels.clearAllTierEnvVars();
 
     this.logger.info(
@@ -82,6 +73,6 @@ export class CliStrategy implements IAuthStrategy {
   }
 
   async teardown(): Promise<void> {
-    // CLI strategy has no resources to tear down
+    console.log('CliStrategy.teardown called');
   }
 }

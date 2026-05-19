@@ -60,7 +60,6 @@ export class FileTreeComponent {
   }>();
 
   protected onBlankAreaRightClick(event: MouseEvent): void {
-    // Only fire if the click was directly on the aside (blank area), not on a node
     if (event.target === event.currentTarget) {
       event.preventDefault();
       this.contextMenuRequested.emit({ event, node: null });

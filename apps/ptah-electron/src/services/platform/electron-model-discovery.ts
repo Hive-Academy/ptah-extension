@@ -14,14 +14,12 @@ export class ElectronModelDiscovery implements IModelDiscovery {
   async getCopilotModels(): Promise<
     Array<{ id: string; name: string; contextLength: number }>
   > {
-    // VS Code Language Model API is not available in Electron
     return [];
   }
 
   async getCodexModels(): Promise<
     Array<{ id: string; name: string; contextLength: number }>
   > {
-    // VS Code Language Model API is not available in Electron
     return [];
   }
 }

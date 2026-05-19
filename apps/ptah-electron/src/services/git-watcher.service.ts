@@ -93,7 +93,6 @@ export class GitWatcherService {
     workspacePath: string,
     broadcast: (type: string, payload: unknown) => void,
   ): void {
-    // Clean up any previous watchers
     this.stop();
 
     this.workspacePath = workspacePath;
@@ -103,18 +102,7 @@ export class GitWatcherService {
     this.logger.info('[GitWatcher] Starting file system watchers', {
       workspacePath,
     } as unknown as Error);
-
-    // Watch workspace root recursively for file modifications and structural
-    // changes (file add/delete/rename → tree refresh). This must run for
-    // ALL workspaces, not only git repos — the file explorer depends on it
-    // to stay in sync when files are created via the UI, CLI agents, or
-    // external tools.
     this.watchWorkspaceRoot(workspacePath);
-
-    // Resolve the real git directory. In a normal repo `.git` is a directory;
-    // in worktrees and submodules it is a FILE containing `gitdir: <path>`
-    // pointing to the actual gitdir under the parent repo's `.git/worktrees/`.
-    // Without this resolution, worktree users get zero git-driven refresh.
     const gitDir = this.resolveGitDir(workspacePath);
     if (!gitDir) {
       this.logger.debug(
@@ -125,8 +113,6 @@ export class GitWatcherService {
     }
 
     const onGitOps = (): void => this.scheduleGitOpsRefresh();
-
-    // HEAD (branch switches), index (staging), refs/ (commits & remote updates).
     this.watchFile(path.join(gitDir, 'HEAD'), onGitOps);
     this.watchFile(path.join(gitDir, 'index'), onGitOps);
 
@@ -134,15 +120,9 @@ export class GitWatcherService {
     if (fs.existsSync(refsDir)) {
       this.watchDirectory(refsDir, onGitOps);
     }
-
-    // After `git gc` or on cloned repos, refs live in `packed-refs` and
-    // `git fetch` / `git push` may update only that file. ORIG_HEAD and
-    // FETCH_HEAD cover reset/merge/fetch operations that don't move HEAD.
     this.watchFile(path.join(gitDir, 'packed-refs'), onGitOps);
     this.watchFile(path.join(gitDir, 'ORIG_HEAD'), onGitOps);
     this.watchFile(path.join(gitDir, 'FETCH_HEAD'), onGitOps);
-
-    // Push initial git state immediately
     this.fetchAndPush();
   }
 
@@ -217,11 +197,7 @@ export class GitWatcherService {
     this.contentChangeTimers.clear();
 
     for (const watcher of this.watchers) {
-      try {
-        watcher.close();
-      } catch {
-        // Watcher may already be closed
-      }
+      watcher.close();
     }
     this.watchers = [];
   }
@@ -297,7 +273,6 @@ export class GitWatcherService {
         dirPath,
         { recursive: true },
         (eventType, filename) => {
-          // Skip .git directory changes — handled by dedicated git watchers
           if (
             typeof filename === 'string' &&
             (filename.startsWith('.git/') ||
@@ -306,8 +281,6 @@ export class GitWatcherService {
           ) {
             return;
           }
-
-          // Skip node_modules and dist to avoid noise
           if (typeof filename === 'string') {
             if (
               filename.startsWith('node_modules/') ||
@@ -318,12 +291,7 @@ export class GitWatcherService {
               return;
             }
           }
-
-          // Always update git status (debounced)
           this.scheduleUpdate(GitWatcherService.WORKSPACE_DEBOUNCE_MS);
-
-          // 'rename' events indicate file/directory add, delete, or rename —
-          // these require a file tree refresh
           if (eventType === 'rename') {
             this.scheduleTreeRefresh();
           }

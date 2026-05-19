@@ -126,6 +126,7 @@ export default [
           destructuredArrayIgnorePattern: '^_',
         },
       ],
+      '@typescript-eslint/no-empty-function': ['warn'],
     },
   },
   {

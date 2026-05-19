@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ModelResolver - Single source of truth for model ID resolution.
  *
  * Consolidates the 5 scattered model resolution paths:
@@ -48,8 +48,6 @@ export class ModelResolver {
    */
   resolve(model: string, envOverride?: AuthEnv): string {
     const env = envOverride ?? this.authEnv;
-
-    // Full Claude model ID
     if (model.startsWith('claude-')) {
       const tier = this.detectTierFromClaudeId(model);
       if (tier) {
@@ -63,38 +61,28 @@ export class ModelResolver {
     }
 
     const lower = model.toLowerCase();
-
-    // 'default' meta-tier â†’ resolve as opus (TIER_TO_MODEL_ID['default'] = claude-opus-4-7)
     if (lower === 'default') {
       return this.resolve('opus', env);
     }
-
-    // Known tier name
     if (this.isEnvMappedTier(lower)) {
       const envKey = TIER_ENV_VAR_MAP[lower as EnvMappedTier];
       const override = env[envKey];
       if (override) {
-        // Guard against circular env var (e.g., ANTHROPIC_DEFAULT_OPUS_MODEL='opus')
         if (
           !this.isModelTier(override.toLowerCase()) ||
           override.startsWith('claude-')
         ) {
           return override;
         }
-        // Circular â€” force hardcoded resolution
         this.logger.warn(
           `[ModelResolver] Circular env override for ${envKey}: '${override}' â†’ forced to '${TIER_TO_MODEL_ID[override.toLowerCase() as ModelTier]}'`,
         );
         return TIER_TO_MODEL_ID[override.toLowerCase() as ModelTier];
       }
     }
-
-    // Bare tier without env override â†’ hardcoded default
     if (this.isModelTier(lower)) {
       return TIER_TO_MODEL_ID[lower as ModelTier];
     }
-
-    // Unknown model (provider-specific like 'kimi-k2', 'glm-5.1') â†’ pass through
     return model;
   }
 
@@ -155,18 +143,9 @@ export class ModelResolver {
 
     const env = envOverride ?? this.authEnv;
     const baseUrl = env.ANTHROPIC_BASE_URL;
-
-    // Direct Anthropic â€” model ID is already correct for pricing
     if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
       return modelId;
     }
-
-    // Price by the RESOLVED model name â€” never by proxy URL.
-    // Forcing all localhost traffic to free 'local' pricing hid real cost for
-    // users running a LiteLLM/similar proxy on 127.0.0.1 that forwarded to
-    // paid upstream models. Genuinely free local inference (Ollama, LM Studio)
-    // should be expressed via an explicit tier override that maps to a zero-
-    // cost entry in the pricing map.
     const resolved = this.resolve(modelId, env);
 
     if (resolved === modelId) {

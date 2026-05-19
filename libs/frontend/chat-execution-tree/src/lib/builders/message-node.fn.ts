@@ -21,14 +21,10 @@ export function buildMessageNode(
   state: StreamingState,
   depth = 0,
 ): ExecutionNode | null {
-  // Use pre-indexed events for O(1) lookup. Defensive check — eventsByMessage
-  // might not be a Map if loaded from localStorage.
   const messageEvents =
     state.eventsByMessage instanceof Map
       ? state.eventsByMessage.get(messageId) || []
       : [];
-
-  // Sort by timestamp to handle out-of-order arrival.
   const sortedEvents = messageEvents.slice().sort((a, b) => {
     const timeA = a.timestamp || 0;
     const timeB = b.timestamp || 0;

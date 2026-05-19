@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copilot Provider Types
  *
  * Copilot-specific types only. OpenAI/Anthropic protocol types have been
@@ -6,10 +6,6 @@
  *
  * Backward-compatible re-exports ensure existing consumers continue to work.
  */
-
-// ---------------------------------------------------------------------------
-// Backward-compatible re-exports from shared openai-translation module
-// ---------------------------------------------------------------------------
 
 export type {
   ITranslationProxy as ICopilotTranslationProxy,
@@ -35,19 +31,11 @@ export type {
   AnthropicMessagesRequest,
 } from '../../translation';
 
-// ---------------------------------------------------------------------------
-// Copilot Constants
-// ---------------------------------------------------------------------------
-
 /** Placeholder API key used when the translation proxy manages auth internally */
 export const COPILOT_PROXY_TOKEN_PLACEHOLDER = 'copilot-proxy-managed';
 
 /** Sentinel value identifying a Copilot OAuth-based provider configuration */
 export const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
-
-// ---------------------------------------------------------------------------
-// Copilot Authentication Types
-// ---------------------------------------------------------------------------
 
 /**
  * Response from the Copilot token exchange endpoint.
@@ -136,16 +124,6 @@ export interface ICopilotAuthService {
   getHeaders(): Promise<Record<string, string>>;
   /** Clear cached auth state (logout) */
   logout(): Promise<void>;
-
-  // ---------------------------------------------------------------------------
-  // Headless-friendly device-code API
-  //
-  // The legacy `login()` is preserved verbatim for the webview UX. The split
-  // begin/poll/cancel surface lets the headless CLI surface the device-code
-  // metadata to the connected client over JSON-RPC and drive polling itself
-  // (so the CLI process can multiplex polling with stdio I/O and react to
-  // SIGINT cleanly).
-  // ---------------------------------------------------------------------------
 
   /**
    * Step 1: request a fresh GitHub device code and stash the metadata needed

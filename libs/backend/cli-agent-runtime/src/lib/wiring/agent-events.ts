@@ -249,8 +249,6 @@ export function persistCliSessionReference(
 ): void {
   const { parentSessionId } = info;
   if (!parentSessionId) return;
-
-  // PtahCli agents have no native CLI session — fall back to agentId as the key.
   const effectiveCliSessionId = info.cliSessionId || info.agentId;
 
   try {

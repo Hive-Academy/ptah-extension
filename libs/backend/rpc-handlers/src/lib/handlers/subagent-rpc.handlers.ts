@@ -113,14 +113,10 @@ export class SubagentRpcHandlers {
             toolCallId,
             sessionId,
           });
-
-          // Query by specific toolCallId
           if (toolCallId) {
             const record = this.registry.get(toolCallId);
             return { subagents: record ? [record] : [] };
           }
-
-          // Query by session ID (return only resumable for that session)
           if (sessionId) {
             const subagents = this.registry.getResumableBySession(sessionId);
             this.logger.debug('RPC: subagent:query by session result', {
@@ -129,8 +125,6 @@ export class SubagentRpcHandlers {
             });
             return { subagents };
           }
-
-          // Return all resumable subagents
           const subagents = this.registry.getResumable();
           this.logger.debug('RPC: subagent:query all resumable result', {
             count: subagents.length,
@@ -145,7 +139,6 @@ export class SubagentRpcHandlers {
             error instanceof Error ? error : new Error(String(error)),
             { errorSource: 'SubagentRpcHandlers.registerSubagentQuery' },
           );
-          // Return empty array on error
           return { subagents: [] };
         }
       },

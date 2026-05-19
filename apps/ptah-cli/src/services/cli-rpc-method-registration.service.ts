@@ -8,7 +8,7 @@
  * for every backend capability.
  */
 
-import { container } from 'tsyringe';
+import type { DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
@@ -40,24 +40,13 @@ import { SkillsShRpcHandlers } from './rpc/handlers/skills-sh-rpc.handlers.js';
  *
  */
 const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
-  // File operations — VS Code / Electron file pickers and save dialogs are
-  // GUI-only. The CLI exposes equivalent functionality via direct path args
-  // and `--out`/`--in` flags on the parent commands.
   'file:open',
   'file:pick',
   'file:pick-images',
   'file:read',
   'file:exists',
   'file:save-dialog',
-
-  // Command execution — VS Code command palette dispatch. CLI has no
-  // command palette; commands are invoked directly via the commander router.
   'command:execute',
-
-  // Editor operations — Angular editor pane inside the webview. The CLI has
-  // no embedded editor surface; consumers shell out to their own editor.
-  // Verified against `libs/shared/src/lib/types/rpc.types.ts` — these are
-  // every `editor:*` method declared in the RPC registry.
   'editor:openFile',
   'editor:saveFile',
   'editor:getFileTree',
@@ -70,21 +59,10 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'editor:updateSetting',
   'editor:searchInFiles',
   'editor:listAllFiles',
-
-  // Layout persistence — Electron / VS Code webview panel layout state.
-  // No webview means no layout to persist.
   'layout:persist',
   'layout:restore',
-
-  // Terminal operations — Electron embedded PTY (`node-pty`). The CLI runs
-  // inside the user's own terminal; spawning child PTYs is out of scope.
   'terminal:create',
   'terminal:kill',
-
-  // Cron / gateway / memory / skill-synthesis services depend on
-  // persistence-sqlite + croner + voice/gateway adapters that are
-  // Electron-only. Excluded from the CLI runtime; their RPC handlers
-  // are skipped during shared-handler registration.
   'cron:list',
   'cron:get',
   'cron:create',
@@ -117,18 +95,8 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'skillSynthesis:reject',
   'skillSynthesis:invocations',
   'skillSynthesis:stats',
-
-  // Persistence health/reset (db:health, db:reset) — require
-  // SqliteConnectionService which is only registered in the Electron host.
-  // The CLI runtime does not wire persistence-sqlite, so the handler is
-  // excluded to avoid a DI resolution failure at bootstrap.
   'db:health',
   'db:reset',
-
-  // IndexingRpcHandlers depends on IndexingControlService (memory-curator),
-  // which the CLI does not register. The CLI is a short-lived headless
-  // process; workspace indexing is an Electron-only user-controlled feature.
-  // Excluded so DI resolution does not fail at bootstrap.
   'indexing:getStatus',
   'indexing:start',
   'indexing:pause',
@@ -150,7 +118,7 @@ export class CliRpcMethodRegistrationService {
   private readonly logger: Logger;
   private readonly rpcHandler: RpcHandler;
 
-  constructor() {
+  constructor(private readonly container: DependencyContainer) {
     this.logger = container.resolve<Logger>(TOKENS.LOGGER);
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
   }
@@ -161,60 +129,31 @@ export class CliRpcMethodRegistrationService {
    * surfaces stay excluded via `CLI_EXCLUDED_RPC_METHODS`.
    */
   registerAll(): void {
-    registerChatServices(container);
-
-    // HarnessRpcHandlers depends on per-feature services (workspace context,
-    // file system, AI helpers) registered by `registerHarnessServices`. This
-    // MUST run before `registerAllRpcHandlers` resolves the handler. Same
-    // ordering used by Electron / VS Code.
-    registerHarnessServices(container);
-
-    // HarnessRpcHandlers joins the shared set for parity with Electron.
-    //
-    // Cron / gateway / memory / skill-synthesis services are Electron-only
-    // (require persistence-sqlite, croner, voice/gateway adapters not wired
-    // in the headless CLI). Exclude their RPC handlers so DI resolution does
-    // not fail at bootstrap.
-    registerAllRpcHandlers(container, {
+    const c = this.container;
+    registerChatServices(c);
+    registerHarnessServices(c);
+    registerAllRpcHandlers(c, {
       exclude: [
         CronRpcHandlers,
         GatewayRpcHandlers,
         MemoryRpcHandlers,
         SkillsSynthesisRpcHandlers,
-        // PersistenceRpcHandlers requires SqliteConnectionService which is
-        // never registered in the headless CLI runtime (better-sqlite3 lives
-        // in the Electron host only).
         PersistenceRpcHandlers,
-        // IndexingRpcHandlers depends on IndexingControlService
-        // (memory-curator), which the CLI does not register. Indexing is an
-        // Electron-only user-controlled feature.
         IndexingRpcHandlers,
       ],
     });
+    c.registerSingleton(SkillsShRpcHandlers);
+    c.resolve(SkillsShRpcHandlers).register();
+    c.registerSingleton(CliAgentRpcHandlers);
+    c.resolve(CliAgentRpcHandlers).register();
 
-    // Re-register `SkillsShRpcHandlers` (CLI copy of the Electron handler —
-    // `skills-sh-rpc.handlers.ts`). The Skills handler is intentionally NOT
-    // in the shared rpc-handlers library; both Electron and the CLI keep
-    // app-local copies because the upstream `npx skills` integration may
-    // diverge per-platform in the future.
-    container.registerSingleton(SkillsShRpcHandlers);
-    container.resolve(SkillsShRpcHandlers).register();
-
-    // Register `CliAgentRpcHandlers` — byte-for-byte parity copy of the
-    // Electron `AgentRpcHandlers`. Same 7 methods, same injection set, same
-    // dispatch bodies. Ships the agent surface for the CLI. Both classes
-    // expose `static readonly METHODS` (locked tuple, deep-equal verified by
-    // `cli-agent-rpc.handlers.spec.ts`).
-    container.registerSingleton(CliAgentRpcHandlers);
-    container.resolve(CliAgentRpcHandlers).register();
-
-    wireSdkCallbacks(container, {
+    wireSdkCallbacks(c, {
       logger: this.logger,
       platform: 'cli',
       options: { worktree: false },
     });
 
-    wireAgentEventListeners(container, {
+    wireAgentEventListeners(c, {
       logger: this.logger,
       platform: 'cli',
       options: {
@@ -222,12 +161,10 @@ export class CliRpcMethodRegistrationService {
         persistCliSession: false,
       },
     });
-
-    // `assertInDevelopment: false` keeps CLI boot permissive when Sentry is absent.
     verifyAndReportRpcRegistration({
       rpcHandler: this.rpcHandler,
       logger: this.logger,
-      container,
+      container: c,
       sentryToken: TOKENS.SENTRY_SERVICE,
       platform: 'cli',
       excluded: CLI_EXCLUDED_RPC_METHODS,

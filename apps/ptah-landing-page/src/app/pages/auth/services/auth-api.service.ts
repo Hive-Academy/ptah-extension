@@ -161,11 +161,8 @@ export class AuthApiService {
     let email: string | undefined;
 
     if (error.error instanceof ErrorEvent) {
-      // Client-side error
       message = error.error.message;
     } else if (error.error?.message) {
-      // Server-side error with message
-      // Check if it's a JSON-encoded error with special codes
       try {
         const parsed = JSON.parse(error.error.message);
         if (parsed.code === 'email_verification_required') {
@@ -177,11 +174,9 @@ export class AuthApiService {
           message = error.error.message;
         }
       } catch {
-        // Not JSON, use message directly
         message = error.error.message;
       }
     } else {
-      // Fallback messages by status code
       switch (error.status) {
         case 401:
           message =

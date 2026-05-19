@@ -12,6 +12,7 @@ import {
   type SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
@@ -61,10 +62,11 @@ export class SdkMessageTransformer implements TransformerState {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly sessionLifecycle: SessionLifecycleManager,

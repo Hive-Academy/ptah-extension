@@ -24,7 +24,6 @@ async function safeCountTokens(
   try {
     return await countTokens(text);
   } catch {
-    // Fallback: estimate tokens as ~4 chars per token
     return Math.ceil(text.length / 4);
   }
 }
@@ -40,7 +39,6 @@ export async function parseStructuredResponse(
   response: PromptDesignerResponse,
   countTokens: (text: string) => Promise<number>,
 ): Promise<PromptDesignerOutput> {
-  // Count tokens for each section using named object (avoids magic number indexing)
   const tokenCounts = {
     projectContext: await safeCountTokens(response.projectContext, countTokens),
     frameworkGuidelines: await safeCountTokens(
@@ -67,8 +65,6 @@ export async function parseStructuredResponse(
     architectureNotes: architectureNotesTokens,
     qualityGuidance: qualityGuidanceTokens,
   } = tokenCounts;
-
-  // Calculate total including optional qualityGuidance
   const totalTokens =
     projectContextTokens +
     frameworkGuidelinesTokens +
@@ -82,8 +78,6 @@ export async function parseStructuredResponse(
     codingStandards: codingStandardsTokens,
     architectureNotes: architectureNotesTokens,
   };
-
-  // Add qualityGuidance to breakdown if present
   if (qualityGuidanceTokens !== undefined) {
     tokenBreakdown.qualityGuidance = qualityGuidanceTokens;
   }
@@ -125,11 +119,8 @@ export async function parseTextResponse(
   const sections = extractSections(text);
 
   if (!sections.projectContext && !sections.frameworkGuidelines) {
-    // Not enough structure to parse
     return null;
   }
-
-  // Count tokens for each section using named object (avoids magic number indexing)
   const tokenCounts = {
     projectContext: await safeCountTokens(
       sections.projectContext || '',
@@ -159,8 +150,6 @@ export async function parseTextResponse(
     architectureNotes: architectureNotesTokens,
     qualityGuidance: qualityGuidanceTokens,
   } = tokenCounts;
-
-  // Calculate total including optional qualityGuidance
   const totalTokens =
     projectContextTokens +
     frameworkGuidelinesTokens +
@@ -174,8 +163,6 @@ export async function parseTextResponse(
     codingStandards: codingStandardsTokens,
     architectureNotes: architectureNotesTokens,
   };
-
-  // Add qualityGuidance to breakdown if present
   if (qualityGuidanceTokens !== undefined) {
     tokenBreakdown.qualityGuidance = qualityGuidanceTokens;
   }
@@ -206,8 +193,6 @@ export async function parseTextResponse(
  */
 function extractSections(text: string): ExtractedSections {
   const sections: ExtractedSections = {};
-
-  // Patterns for section headers
   const patterns: Record<string, RegExp[]> = {
     projectContext: [
       /(?:^|\n)#+\s*(?:\d+\.\s*)?Project\s*Context\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
@@ -225,7 +210,6 @@ function extractSections(text: string): ExtractedSections {
       /(?:^|\n)#+\s*(?:\d+\.\s*)?Architecture\s*(?:Notes?|Guidelines?)\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
       /(?:^|\n)\*\*Architecture\s*(?:Notes?|Guidelines?)\*\*\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
     ],
-    // Quality Guidance patterns
     qualityGuidance: [
       /(?:^|\n)#+\s*(?:\d+\.\s*)?Quality\s*(?:Guidance|Context|Issues?)\s*(?:\(Optional\))?\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
       /(?:^|\n)\*\*Quality\s*(?:Guidance|Context|Issues?)\*\*\s*\n([\s\S]*?)(?=\n#+\s*|\n\*\*[A-Z]|$)/i,
@@ -262,11 +246,7 @@ export function truncateToTokenBudget(
   if (currentTokens <= maxTokens) {
     return content;
   }
-
-  // Estimate characters per token (roughly 4 chars per token)
   const targetChars = Math.floor((maxTokens / currentTokens) * content.length);
-
-  // Find a good break point (end of sentence or line)
   let truncated = content.slice(0, targetChars);
   const lastPeriod = truncated.lastIndexOf('. ');
   const lastNewline = truncated.lastIndexOf('\n');
@@ -293,8 +273,6 @@ export function validateOutput(output: PromptDesignerOutput): {
   issues: string[];
 } {
   const issues: string[] = [];
-
-  // Check minimum content length (at least 50 chars per section)
   if (output.projectContext.length < 50) {
     issues.push('Project context is too brief');
   }
@@ -306,13 +284,6 @@ export function validateOutput(output: PromptDesignerOutput): {
   if (output.codingStandards.length < 50) {
     issues.push('Coding standards are too brief');
   }
-
-  // Architecture notes can be optional for simple projects
-  // No minimum check
-
-  // Quality guidance validation
-  // If present and non-empty (after trimming), it should have meaningful content (at least 30 chars)
-  // Empty string or whitespace-only is allowed (treated as absent)
   if (
     output.qualityGuidance !== undefined &&
     output.qualityGuidance.trim().length > 0 &&
@@ -320,16 +291,12 @@ export function validateOutput(output: PromptDesignerOutput): {
   ) {
     issues.push('Quality guidance is too brief');
   }
-
-  // Check for generic/templated content
   const genericPhrases = [
     'follow best practices',
     'write clean code',
     'use good naming',
     'keep it simple',
   ];
-
-  // Include qualityGuidance in content check
   const allContent = [
     output.projectContext,
     output.frameworkGuidelines,
@@ -345,8 +312,6 @@ export function validateOutput(output: PromptDesignerOutput): {
       issues.push(`Contains generic phrase: "${phrase}"`);
     }
   }
-
-  // Check total tokens within budget (increased to 2300 with quality guidance)
   const tokenBudget = output.qualityGuidance ? 2300 : 2000;
   if (output.totalTokens > tokenBudget) {
     issues.push(
@@ -404,8 +369,6 @@ export function formatAsPromptSection(output: PromptDesignerOutput): string {
     parts.push(output.architectureNotes);
     parts.push('');
   }
-
-  // Quality Guidance section
   if (output.qualityGuidance) {
     parts.push('## Quality Guidance');
     parts.push('');

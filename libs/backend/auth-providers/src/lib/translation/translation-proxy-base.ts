@@ -46,10 +46,6 @@ import {
   safeJsonParse,
 } from './translation-proxy-helpers';
 
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
 /** Configuration for a translation proxy instance */
 export interface TranslationProxyConfig {
   /** Display name for logging (e.g., 'Copilot', 'Codex') */
@@ -61,10 +57,6 @@ export interface TranslationProxyConfig {
   /** Path for the upstream responses endpoint (e.g., '/responses', '/v1/responses'). Defaults to '/responses'. */
   responsesPath?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Abstract Base Class
-// ---------------------------------------------------------------------------
 
 export abstract class TranslationProxyBase implements ITranslationProxy {
   private server: http.Server | null = null;
@@ -80,10 +72,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   ) {
     this.logPrefix = `[${this.config.name}Proxy]`;
   }
-
-  // ---------------------------------------------------------------------------
-  // Abstract methods — subclasses must implement
-  // ---------------------------------------------------------------------------
 
   /**
    * Get the upstream API base URL (e.g., 'https://api.githubcopilot.com').
@@ -110,17 +98,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    */
   protected abstract getStaticModels(): Array<{ id: string }>;
 
-  // ---------------------------------------------------------------------------
-  // ITranslationProxy implementation
-  // ---------------------------------------------------------------------------
-
   /**
    * Start the proxy server on a dynamically assigned port.
    * Returns the assigned port and full URL.
    */
   async start(): Promise<{ port: number; url: string }> {
     if (this.isRunning()) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const url = this.getUrl()!;
       this.logger.info(`${this.logPrefix} Already running at ${url}`);
       return { port: this.port!, url }; // eslint-disable-line @typescript-eslint/no-non-null-assertion
@@ -171,9 +154,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     if (!this.server) {
       return;
     }
-
-    // Null fields immediately so isRunning() returns false at once and any
-    // concurrent start() call doesn't re-use this half-closed server.
     const server = this.server;
     this.server = null;
     this.port = null;
@@ -183,15 +163,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         this.logger.warn(
           `${this.logPrefix} Graceful shutdown timed out, forcing close`,
         );
-        try {
-          const serverWithConnections = server as unknown as {
-            closeAllConnections?: () => void;
-          };
-          if (typeof serverWithConnections.closeAllConnections === 'function') {
-            serverWithConnections.closeAllConnections();
-          }
-        } catch {
-          // closeAllConnections not available in this Node version
+
+        const serverWithConnections = server as unknown as {
+          closeAllConnections?: () => void;
+        };
+        if (typeof serverWithConnections.closeAllConnections === 'function') {
+          serverWithConnections.closeAllConnections();
         }
         resolve();
       }, 5_000);
@@ -221,10 +198,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     return `http://127.0.0.1:${this.port}`;
   }
 
-  // ---------------------------------------------------------------------------
-  // Request routing
-  // ---------------------------------------------------------------------------
-
   /**
    * Route incoming HTTP requests to the appropriate handler.
    */
@@ -234,18 +207,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   ): Promise<void> {
     const method = req.method?.toUpperCase() ?? '';
     const rawUrl = req.url ?? '/';
-    // Strip query string for route matching (SDK sends ?beta=true, etc.)
     const url = rawUrl.split('?')[0];
 
     this.logger.debug(`${this.logPrefix} ${method} ${rawUrl}`);
-
-    // Health check
     if (url === '/health' && method === 'GET') {
       sendJson(res, 200, { status: 'ok' });
       return;
     }
-
-    // Models list (derived from provider entry — single source of truth)
     if (url === '/v1/models' && method === 'GET') {
       const models = this.getStaticModels().map((m) => ({
         id: m.id,
@@ -256,14 +224,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       sendJson(res, 200, { object: 'list', data: models });
       return;
     }
-
-    // Messages endpoint — the core translation path
     if (url === '/v1/messages' && method === 'POST') {
       await this.handleMessages(req, res);
       return;
     }
-
-    // Unknown route
     sendErrorResponse(
       res,
       404,
@@ -271,10 +235,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       `Unknown route: ${method} ${url}`,
     );
   }
-
-  // ---------------------------------------------------------------------------
-  // POST /v1/messages — core proxy logic
-  // ---------------------------------------------------------------------------
 
   /**
    * Handle POST /v1/messages:
@@ -289,8 +249,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     res: http.ServerResponse,
   ): Promise<void> {
     const requestId = this.generateRequestId();
-
-    // Parse incoming body
     let anthropicRequest: AnthropicMessagesRequest;
     try {
       const body = await readBody(req);
@@ -305,8 +263,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       sendErrorResponse(res, status, 'invalid_request_error', message);
       return;
     }
-
-    // Normalize model ID (provider-specific — subclasses can override)
     anthropicRequest.model = this.normalizeModelId(anthropicRequest.model);
 
     const useResponsesApi = this.shouldUseResponsesApi(anthropicRequest.model);
@@ -319,7 +275,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     );
 
     if (useResponsesApi) {
-      // GPT-5.3+ models → Responses API
       const responsesRequest = translateAnthropicToResponses(anthropicRequest, {
         modelPrefix: this.config.modelPrefix,
       });
@@ -350,7 +305,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         }
       }
     } else {
-      // All other models → Chat Completions API
       const openaiRequest = translateAnthropicToOpenAI(anthropicRequest, {
         modelPrefix: this.config.modelPrefix,
       });
@@ -380,10 +334,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       }
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Provider-specific hooks — subclasses may override
-  // ---------------------------------------------------------------------------
 
   /**
    * Normalize model ID before forwarding to the upstream API.
@@ -524,8 +474,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       onNonStreamingSuccess,
       retryFn,
     } = params;
-
-    // Get auth headers
     let headers: Record<string, string>;
     try {
       headers = await this.getHeaders();
@@ -540,8 +488,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       );
       return;
     }
-
-    // Get the API endpoint and build target URL
     const apiEndpoint = await this.getApiEndpoint();
     const targetUrl = buildUpstreamUrl(apiEndpoint, path);
 
@@ -564,13 +510,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         },
         (proxyRes) => {
           const statusCode = proxyRes.statusCode ?? 500;
-
-          // Handle 401 -- refresh token and retry once
           if (statusCode === 401 && !isRetry) {
             this.logger.warn(
               `${this.logPrefix} [${requestId}] Got 401 from ${apiLabel}, attempting token refresh and retry...`,
             );
-            // Consume the response body to free the socket
             proxyRes.resume();
             this.onAuthFailure()
               .then((success) => {
@@ -599,15 +542,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               });
             return;
           }
-
-          // Handle 429 -- rate limit
-          // IMPORTANT: Return 429 rate_limit_error (NOT 529 overloaded_error).
-          // The Claude Agent SDK retries 529 aggressively with backoff, which
-          // creates a retry amplification loop: each retry sends a new request
-          // to the upstream API, consuming another premium request, which gets
-          // rate-limited again → another 529 → another retry. This burns through
-          // Copilot premium requests until max_retries is exhausted.
-          // Returning 429 with retry-after lets the SDK handle rate limits properly.
           if (statusCode === 429) {
             const retryAfter = proxyRes.headers['retry-after'];
             const retryMsg = retryAfter
@@ -617,8 +551,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               `${this.logPrefix} [${requestId}] Rate limited by ${this.config.name} ${apiLabel}${retryMsg}`,
             );
             proxyRes.resume();
-
-            // Pass through retry-after header so the SDK can respect it
             const headers: Record<string, string> = {};
             if (retryAfter) {
               headers['retry-after'] = retryAfter;
@@ -634,8 +566,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             resolve();
             return;
           }
-
-          // Handle other error status codes
           if (statusCode >= 400) {
             const chunks: Buffer[] = [];
             proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -661,8 +591,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             });
             return;
           }
-
-          // Success -- translate response
           if (originalRequest.stream) {
             onStreamingSuccess(proxyRes, res, originalRequest.model, requestId);
             proxyRes.on('end', () => resolve());
@@ -708,10 +636,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Response handling
-  // ---------------------------------------------------------------------------
-
   /**
    * Handle a streaming response from the upstream Responses API.
    * Reads Responses SSE events, translates to Anthropic SSE, and writes to client.
@@ -730,8 +654,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     });
 
     const translator = new ResponsesStreamTranslator(model, requestId);
-
-    // Emit the initial message_start event
     res.write(translator.getInitialEvents());
 
     proxyRes.setEncoding('utf8');
@@ -776,8 +698,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         try {
           const body = Buffer.concat(chunks).toString('utf8');
           const responsesResponse = JSON.parse(body);
-
-          // Build an Anthropic-format non-streaming response from Responses API output
           const content: Array<Record<string, unknown>> = [];
           let stopReason = 'end_turn';
 
@@ -880,23 +800,16 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
     proxyRes.on('data', (chunk: string) => {
       buffer += chunk;
-
-      // Process complete SSE lines
       const lines = buffer.split('\n');
-      // Keep the last incomplete line in the buffer
       buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         const trimmed = line.trim();
-
-        // Skip empty lines and non-data lines
         if (!trimmed || !trimmed.startsWith('data: ')) {
           continue;
         }
 
         const data = trimmed.slice(6); // Remove 'data: ' prefix
-
-        // End of stream marker
         if (data === '[DONE]') {
           const finalEvents = translator.finalize();
           for (const event of finalEvents) {
@@ -904,8 +817,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           }
           continue;
         }
-
-        // Parse and translate the OpenAI chunk
         try {
           const openaiChunk = JSON.parse(data);
           const anthropicEvents = translator.translateChunk(openaiChunk);
@@ -926,18 +837,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     });
 
     proxyRes.on('end', () => {
-      // Process any remaining buffer content
       if (buffer.trim()) {
         const trimmed = buffer.trim();
         if (trimmed.startsWith('data: ') && trimmed.slice(6) !== '[DONE]') {
-          try {
-            const openaiChunk = JSON.parse(trimmed.slice(6));
-            const events = translator.translateChunk(openaiChunk);
-            for (const event of events) {
-              res.write(event);
-            }
-          } catch {
-            // Ignore parse errors in trailing buffer
+          const openaiChunk = JSON.parse(trimmed.slice(6));
+          const events = translator.translateChunk(openaiChunk);
+          for (const event of events) {
+            res.write(event);
           }
         }
       }
@@ -974,8 +880,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         try {
           const body = Buffer.concat(chunks).toString('utf8');
           const openaiResponse = JSON.parse(body);
-
-          // Build an Anthropic-format non-streaming response
           const choice = openaiResponse.choices?.[0];
           const content: Array<Record<string, unknown>> = [];
 
@@ -996,8 +900,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               });
             }
           }
-
-          // Map finish reason
           let stopReason = 'end_turn';
           if (choice?.finish_reason === 'tool_calls') stopReason = 'tool_use';
           else if (choice?.finish_reason === 'length')
@@ -1052,10 +954,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       });
     });
   }
-
-  // ---------------------------------------------------------------------------
-  // Utility methods
-  // ---------------------------------------------------------------------------
 
   /**
    * Generate a request ID scoped to this proxy instance. Uses instance state

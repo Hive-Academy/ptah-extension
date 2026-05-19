@@ -15,14 +15,8 @@
  * Server Setup:
  *   The license server must be running with ADMIN_SECRET configured in its .env
  */
-
-// Load environment variables
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 require('dotenv').config({ path: 'apps/ptah-license-server/.env' });
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 require('dotenv').config({ path: '.env' });
-
-// Parse command line arguments
 const args = process.argv.slice(2);
 
 /**
@@ -68,8 +62,6 @@ Prerequisites:
   3. Set ADMIN_SECRET for this script (same value as above)
 `);
 }
-
-// Show help if requested
 if (args.includes('--help')) {
   showUsage();
   process.exit(0);
@@ -83,8 +75,6 @@ async function main(): Promise<void> {
   console.log('Trial Reminder Cron Test Client');
   console.log('='.repeat(60));
   console.log('');
-
-  // Get configuration
   const urlArg = args.find((arg) => arg.startsWith('--url='));
   const secretArg = args.find((arg) => arg.startsWith('--secret='));
 
@@ -178,8 +168,6 @@ async function main(): Promise<void> {
   );
   console.log('');
 }
-
-// Run main
 main().catch((error) => {
   console.error('Fatal error:', error);
   process.exit(1);

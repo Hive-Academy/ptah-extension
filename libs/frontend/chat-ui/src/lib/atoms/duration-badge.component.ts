@@ -26,10 +26,6 @@ export class DurationBadgeComponent {
 
   protected formatDuration(): string {
     let ms = this.durationMs();
-
-    // Normalize: SDK message_complete.duration is in seconds while
-    // tree-builder timestamp diffs are in ms. Any value < 100 is almost
-    // certainly seconds (a real agent/tool never completes in < 100ms).
     if (ms > 0 && ms < 100) {
       ms = ms * 1000;
     }

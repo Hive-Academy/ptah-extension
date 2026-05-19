@@ -48,15 +48,11 @@ export class CommandRpcHandlers {
         if (!params?.command) {
           return { success: false, error: 'command is required' };
         }
-
-        // Map VS Code commands to Electron equivalents
         if (params.command === 'workbench.action.reloadWindow') {
           this.logger.info('[Electron RPC] command:execute - reloading window');
           setTimeout(() => this.platformCommands.reloadWindow(), 500);
           return { success: true };
         }
-
-        // Map ptah.* commands that have Electron equivalents
         const handled = await this.handlePtahCommand(params.command);
         if (handled !== null) {
           return handled;
@@ -82,7 +78,6 @@ export class CommandRpcHandlers {
     }
 
     switch (command) {
-      // Open external URLs in system browser (matches VS Code extension behavior)
       case 'ptah.openPricing': {
         const { shell } = await import('electron');
         await shell.openExternal(this.urls.PRICING_URL);
@@ -101,9 +96,6 @@ export class CommandRpcHandlers {
         } as unknown as Error);
         return { success: true };
       }
-
-      // Backward compat: sends 'orchestra-canvas' which AppStateManager.handleViewSwitch()
-      // maps to layoutMode('grid') + chat view at runtime.
       case 'ptah.openOrchestraCanvas': {
         await this.webviewManager.broadcastMessage(MESSAGE_TYPES.SWITCH_VIEW, {
           view: 'orchestra-canvas',
@@ -113,16 +105,12 @@ export class CommandRpcHandlers {
         );
         return { success: true };
       }
-
-      // Commands that are VS Code-specific and have no Electron equivalent
       case 'ptah.openFullPanel':
       case 'ptah.toggleChat':
         return {
           success: false,
           error: `Command not available in Electron: ${command}`,
         };
-
-      // Unknown ptah.* commands — fail explicitly to prevent silent no-ops
       default:
         this.logger.debug(
           '[Electron RPC] command:execute - unknown ptah command',

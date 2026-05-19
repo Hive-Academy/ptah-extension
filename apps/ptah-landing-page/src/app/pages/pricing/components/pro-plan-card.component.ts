@@ -424,7 +424,6 @@ export class ProPlanCardComponent {
     if (!ctx?.periodEndDate) {
       return 'Ending soon';
     }
-    // Use Intl for date formatting
     const date = new Date(ctx.periodEndDate);
     const options: Intl.DateTimeFormatOptions = {
       month: 'short',
@@ -442,11 +441,8 @@ export class ProPlanCardComponent {
    * Only disabled for loading states or invalid price IDs
    */
   public readonly isCtaDisabled = computed(() => {
-    // Disabled during loading
     if (this.isLoading()) return true;
     if (this.isLoadingContext()) return true;
-
-    // Disabled if price ID is invalid (only for checkout actions)
     const variant = this.ctaVariant();
     if (['start-trial', 'upgrade-now', 'upgrade'].includes(variant)) {
       return isPriceIdPlaceholder(this.activePlan().priceId);
@@ -487,14 +483,10 @@ export class ProPlanCardComponent {
     if (this.isCtaDisabled()) return;
 
     const variant = this.ctaVariant();
-
-    // Actions that go to Paddle portal
     if (isPortalAction(variant)) {
       this.manageSubscription.emit();
       return;
     }
-
-    // Actions that open checkout (including 'upgrade' for Community users)
     this.ctaClick.emit(this.activePlan());
   }
 }

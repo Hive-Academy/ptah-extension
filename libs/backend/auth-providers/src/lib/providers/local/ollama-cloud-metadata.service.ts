@@ -132,7 +132,6 @@ interface CacheEntry<T> {
 export function isCloudTag(name: string): boolean {
   if (!name) return false;
   if (name.endsWith(':cloud')) return true;
-  // Match `<base>:<...>-cloud` — `-cloud` must be in the tag portion (after ':')
   const colonIdx = name.indexOf(':');
   if (colonIdx < 0) return false;
   const tag = name.slice(colonIdx + 1);
@@ -149,18 +148,14 @@ export function isCloudTag(name: string): boolean {
  */
 function normalizeOllamaId(ollamaId: string): string {
   let s = ollamaId.toLowerCase().trim();
-  // Remove :cloud
   if (s.endsWith(':cloud')) s = s.slice(0, -':cloud'.length);
-  // Remove trailing -cloud in any tag portion
   const colonIdx = s.indexOf(':');
   if (colonIdx >= 0) {
     const base = s.slice(0, colonIdx);
     let tag = s.slice(colonIdx + 1);
     if (tag.endsWith('-cloud')) tag = tag.slice(0, -'-cloud'.length);
-    // Collapse `<base>:<tag>` into `<base>-<tag>` so slug tails line up.
     s = tag.length > 0 ? `${base}-${tag}` : base;
   }
-  // Remove dots
   s = s.replace(/\./g, '');
   return s;
 }
@@ -183,13 +178,9 @@ function normalizeOpenRouterSlug(id: string): string {
 function extractFamily(normalizedOllama: string): string {
   const parts = normalizedOllama.split('-').filter(Boolean);
   if (parts.length <= 1) return normalizedOllama;
-  // Drop trailing size suffixes (120b, 480b, 70b, 8b, etc.) then drop a
-  // trailing version token (v32, k25, m27, etc.) — both contain digits.
   while (parts.length > 1 && /\d/.test(parts[parts.length - 1])) {
     parts.pop();
   }
-  // If we ate everything with digits (e.g. kimi-k25 -> kimi), try keeping the
-  // version-ish token with its digits stripped so we still have a usable stem.
   if (parts.length === 0) return normalizedOllama;
   return parts.join('-');
 }
@@ -267,11 +258,6 @@ export class OllamaCloudMetadataService {
       }
 
       this.tagsCache = { value: tags, fetchedAt: Date.now() };
-
-      // Emit the FULL list of tag names so users can audit their Output
-      // channel to verify exactly what ollama.com/api/tags returned — this is
-      // the only way to tell whether the endpoint exposes the full cloud
-      // catalog or just the user's pulled models for a given account.
       this.logger.info(
         `[OllamaCloudMetadata] ollama.com/api/tags returned ${models.length} model entries. ` +
           `Full tag list: [${allNames.join(', ')}]`,
@@ -296,14 +282,11 @@ export class OllamaCloudMetadataService {
 
       return tags;
     } catch (error) {
-      // httpJson() formats the error with HTTP status + body snippet already.
       this.logger.warn(
         `[OllamaCloudMetadata] ${url} fetch failed — will fall back to bundled static catalog. ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      // Cache the empty result briefly so we don't hammer the endpoint on
-      // every subsequent listCloudModels() call within the TTL.
       this.tagsCache = { value: [], fetchedAt: Date.now() };
       return [];
     }
@@ -332,7 +315,6 @@ export class OllamaCloudMetadataService {
     try {
       const data = await this.httpJson<OpenRouterResponse>(
         OPENROUTER_MODELS_URL,
-        // No auth — explicitly pass null so we skip the Authorization header.
         null,
       );
 
@@ -345,8 +327,6 @@ export class OllamaCloudMetadataService {
         this.openRouterCache = { value: [], fetchedAt: Date.now() };
         return [];
       }
-
-      // Defensive filter: keep only entries with a usable id string.
       const models: OpenRouterModel[] = [];
       for (const m of raw) {
         if (m && typeof m.id === 'string' && m.id.length > 0) {
@@ -392,27 +372,18 @@ export class OllamaCloudMetadataService {
     if (openRouterModels.length === 0) return null;
     const normalized = normalizeOllamaId(ollamaId);
     if (!normalized) return null;
-
-    // Pre-compute slug tails once.
     const withSlug: Array<{ model: OpenRouterModel; slug: string }> =
       openRouterModels.map((m) => ({
         model: m,
         slug: normalizeOpenRouterSlug(m.id),
       }));
-
-    // 1. Exact slug match
     const exact = withSlug.find((x) => x.slug === normalized);
     if (exact) return exact.model;
-
-    // 2. Prefix match — pick the largest suffix lexicographically (likely
-    //    corresponds to the newest dated/versioned revision).
     const prefixes = withSlug.filter((x) => x.slug.startsWith(normalized));
     if (prefixes.length > 0) {
       prefixes.sort((a, b) => b.slug.localeCompare(a.slug));
       return prefixes[0].model;
     }
-
-    // 3. Family match
     const family = extractFamily(normalized);
     if (family && family !== normalized) {
       const fam = withSlug.filter((x) => x.slug.startsWith(family));
@@ -446,7 +417,6 @@ export class OllamaCloudMetadataService {
     for (const tag of tags) {
       const or = this.matchOllamaToOpenRouter(tag.id, openRouterModels);
       if (!or) {
-        // Register $0 so the stats panel shows $0.0000 instead of the default.
         entries[tag.id] = {
           inputCostPerToken: 0,
           outputCostPerToken: 0,
@@ -465,9 +435,6 @@ export class OllamaCloudMetadataService {
         typeof promptStr === 'string' ? parseFloat(promptStr) : NaN;
       const outputCostPerToken =
         typeof completionStr === 'string' ? parseFloat(completionStr) : NaN;
-
-      // If OpenRouter returned an entry without parseable pricing, treat it
-      // as unmatched (register $0). Better than NaN everywhere.
       if (
         !Number.isFinite(inputCostPerToken) ||
         !Number.isFinite(outputCostPerToken)
@@ -512,10 +479,6 @@ export class OllamaCloudMetadataService {
     }
 
     registerProviderPricing(entries);
-
-    // Emit a single info log with the full match table so users can audit in
-    // the Output channel exactly which Ollama tag mapped to which OpenRouter
-    // entry (and what it will cost).
     const matchedSection =
       matchedLines.length > 0
         ? `Price matches: ${matchedLines.join(', ')}`
@@ -553,8 +516,6 @@ export class OllamaCloudMetadataService {
       return {};
     }
     this.registerPricingForTags(tags, openRouterModels);
-    // We intentionally return {} — callers only use this for logging counts;
-    // the pricing is already globally registered via registerProviderPricing().
     return {};
   }
 
@@ -596,10 +557,6 @@ export class OllamaCloudMetadataService {
     this.tagsCache = null;
     this.openRouterCache = null;
   }
-
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
 
   private isFresh<T>(entry: CacheEntry<T>): boolean {
     return Date.now() - entry.fetchedAt < CACHE_TTL_MS;

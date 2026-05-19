@@ -143,8 +143,6 @@ export class WizardRpcService {
     }
   }
 
-  // === Analysis Cancellation ===
-
   /**
    * Cancel a running agentic workspace analysis.
    *
@@ -159,16 +157,12 @@ export class WizardRpcService {
     try {
       await this.rpcService.call('wizard:cancel-analysis', {});
     } catch (error) {
-      // Log but don't throw -- cancel is best-effort.
-      // The analysis may have already completed or the service may be unavailable.
       console.warn(
         '[WizardRpcService] cancelAnalysis failed:',
         error instanceof Error ? error.message : String(error),
       );
     }
   }
-
-  // === Deep Analysis Methods ===
 
   /**
    * Deep analyze the workspace project structure.
@@ -209,8 +203,6 @@ export class WizardRpcService {
     }
     throw new Error(result.error || 'Agent recommendation failed');
   }
-
-  // === Enhanced Prompts Methods ===
 
   /**
    * Run Enhanced Prompts wizard to generate project-specific prompt guidance.
@@ -271,8 +263,6 @@ export class WizardRpcService {
       error: result.error || 'Failed to get Enhanced Prompts status',
     };
   }
-
-  // === Enhanced Prompts Settings Methods ===
 
   /**
    * Toggle enhanced prompts on or off for a workspace.
@@ -372,8 +362,6 @@ export class WizardRpcService {
     };
   }
 
-  // === Analysis History Methods (Persistent Analysis) ===
-
   /**
    * List all saved analyses from .ptah/analysis/ directory.
    * Returns metadata only (lightweight, for listing cards).
@@ -416,8 +404,6 @@ export class WizardRpcService {
 
     throw new Error(result.error || 'Failed to load analysis');
   }
-
-  // === Community Agent Pack Methods ===
 
   /**
    * List available community agent packs.
@@ -468,8 +454,6 @@ export class WizardRpcService {
       error: result.error || 'Failed to install agents',
     };
   }
-
-  // === New Project Chat Handoff ===
 
   /**
    * Hand off the new-project flow to the chat surface.

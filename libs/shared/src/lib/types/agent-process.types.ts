@@ -6,10 +6,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { FlatStreamEventUnion } from './execution';
 
-// ========================================
-// Branded AgentId Type
-// ========================================
-
 /**
  * Branded AgentId type - prevents mixing with other string IDs
  * Pattern: libs/shared/src/lib/types/branded.types.ts:15
@@ -25,7 +21,6 @@ export const AgentId = {
     return uuidv4() as AgentId;
   },
   validate(id: string): id is AgentId {
-    // AgentIds are UUIDs
     return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       id,
     );
@@ -44,10 +39,6 @@ export const AgentId = {
   },
 };
 
-// ========================================
-// Agent Status Enum
-// ========================================
-
 export type AgentStatus =
   | 'running'
   | 'completed'
@@ -55,15 +46,7 @@ export type AgentStatus =
   | 'timeout'
   | 'stopped';
 
-// ========================================
-// CLI Type
-// ========================================
-
 export type CliType = 'gemini' | 'codex' | 'copilot' | 'cursor' | 'ptah-cli';
-
-// ========================================
-// Agent Process Info (tracked per agent)
-// ========================================
 
 export interface AgentProcessInfo {
   readonly agentId: AgentId;
@@ -94,10 +77,6 @@ export interface AgentProcessInfo {
    *  Frontend uses this to replace the old card instead of creating a new one. */
   readonly resumedFromAgentId?: string;
 }
-
-// ========================================
-// Spawn Agent Request
-// ========================================
 
 export interface SpawnAgentRequest {
   /** Task description for the CLI agent */
@@ -138,10 +117,6 @@ export interface SpawnAgentRequest {
   readonly resumedFromAgentId?: string;
 }
 
-// ========================================
-// Agent Output
-// ========================================
-
 export interface AgentOutput {
   readonly agentId: AgentId;
   readonly stdout: string;
@@ -151,10 +126,6 @@ export interface AgentOutput {
   /** Whether output was truncated due to buffer limit */
   readonly truncated: boolean;
 }
-
-// ========================================
-// Spawn Agent Result
-// ========================================
 
 export interface SpawnAgentResult {
   readonly agentId: AgentId;
@@ -168,10 +139,6 @@ export interface SpawnAgentResult {
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
   readonly ptahCliId?: string;
 }
-
-// ========================================
-// CLI Detection Result
-// ========================================
 
 export interface CliDetectionResult {
   readonly cli: CliType;
@@ -190,10 +157,6 @@ export interface CliDetectionResult {
   /** User's preferred rank (1 = highest). 0 or absent means unranked. Set by ptah_agent_list. */
   readonly preferredRank?: number;
 }
-
-// ========================================
-// Structured CLI Output Segments
-// ========================================
 
 /**
  * Discriminator for structured CLI output segments.
@@ -232,10 +195,6 @@ export interface CliOutputSegment {
   readonly toolCallId?: string;
 }
 
-// ========================================
-// Agent Output Delta (real-time streaming)
-// ========================================
-
 export interface AgentOutputDelta {
   readonly agentId: AgentId;
   readonly stdoutDelta: string;
@@ -246,10 +205,6 @@ export interface AgentOutputDelta {
   /** Rich streaming events from Ptah CLI adapter (optional — only ptah-cli uses this) */
   readonly streamEvents?: readonly FlatStreamEventUnion[];
 }
-
-// ========================================
-// CLI Session Reference (for session metadata persistence)
-// ========================================
 
 /**
  * Reference to a CLI agent session linked to a parent Ptah session.

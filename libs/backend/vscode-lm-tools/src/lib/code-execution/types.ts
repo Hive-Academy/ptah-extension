@@ -23,54 +23,27 @@ import type { SkillNamespace } from './namespace-builders/skill-namespace.builde
 import type { MemoryNamespace } from './namespace-builders/memory-namespace.builder';
 import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
 
-// ========================================
-// Ptah API - Main Interface
-// ========================================
-
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
  * Provides 15 namespaces for comprehensive workspace intelligence
  */
 export interface PtahAPI {
-  // Core namespaces
   workspace: WorkspaceNamespace;
   search: SearchNamespace;
   diagnostics: DiagnosticsNamespace;
   files: FilesNamespace;
-
-  // Extended namespaces
   context: ContextNamespace;
   project: ProjectNamespace;
   relevance: RelevanceNamespace;
-
-  // AST analysis namespace
   ast: AstNamespace;
-
-  // IDE superpowers namespace
   ide: IDENamespace;
-
-  // Orchestration workflow state management
   orchestration: OrchestrationNamespace;
-
-  // Agent orchestration namespace
   agent: AgentNamespace;
-
-  // Git worktree operations namespace
   git: GitNamespace;
-
-  // JSON validation and repair namespace
   json: JsonNamespace;
-
-  // Browser automation namespace
   browser: BrowserNamespace;
-
-  // Promoted skills namespace (ptah.skill.list + ptah.skill.describe)
   skill: SkillNamespace;
-
-  // Dependencies namespace (import-based dependency graph)
   dependencies: DependenciesNamespace;
-
-  // Web search namespace (multi-provider)
   webSearch?: {
     search(
       query: string,
@@ -84,14 +57,8 @@ export interface PtahAPI {
       resultCount: number;
     }>;
   };
-
-  // Harness builder namespace (skill search, creation, MCP registry)
   harness?: HarnessNamespace;
-
-  // Memory namespace (ptah.memory.search + ptah.memory.list)
   memory?: MemoryNamespace;
-
-  // Code symbol indexer namespace (ptah.code.searchSymbols + ptah.code.reindex)
   code?: CodeNamespace;
 
   /**
@@ -101,10 +68,6 @@ export interface PtahAPI {
    */
   help(topic?: string): Promise<string>;
 }
-
-// ========================================
-// Namespace Interfaces
-// ========================================
 
 /**
  * Workspace analysis capabilities
@@ -232,10 +195,6 @@ export interface FilesNamespace {
   ) => Promise<Array<{ name: string; type: 'file' | 'directory' }>>;
 }
 
-// ========================================
-// Agent Namespace
-// ========================================
-
 /**
  * Agent orchestration namespace
  * Enables spawning, monitoring, and steering CLI agents as background workers.
@@ -335,10 +294,6 @@ export interface GitNamespace {
   }): Promise<{ success: boolean; error?: string }>;
 }
 
-// ========================================
-// JSON Namespace
-// ========================================
-
 /**
  * JSON validation and repair namespace
  * Validates JSON files written by AI agents, repairs common issues,
@@ -393,10 +348,6 @@ export interface JsonValidateResult {
   /** Whether the file was overwritten with clean JSON */
   fileOverwritten: boolean;
 }
-
-// ========================================
-// Browser Namespace
-// ========================================
 
 /**
  * Viewport dimensions in pixels.
@@ -530,10 +481,6 @@ export interface BrowserStatusResult {
   /** Current viewport dimensions */
   viewport?: ViewportDimensions;
 }
-
-// ========================================
-// Browser Recording Types
-// ========================================
 
 /**
  * Result of starting a browser recording
@@ -684,10 +631,6 @@ export interface BrowserNamespace {
   recordStop(): Promise<BrowserRecordStopResult>;
 }
 
-// ========================================
-// MCP Protocol Types (JSON-RPC 2.0)
-// ========================================
-
 /**
  * MCP request following JSON-RPC 2.0 specification
  */
@@ -769,10 +712,6 @@ export interface MCPToolDefinition {
   };
 }
 
-// ========================================
-// Code Execution Types
-// ========================================
-
 /**
  * Parameters for execute_code tool
  */
@@ -815,10 +754,6 @@ export interface ApprovalPromptParams {
   /** Claude's unique tool use ID for correlation */
   readonly tool_use_id?: string;
 }
-
-// ========================================
-// New Namespaces
-// ========================================
 
 /**
  * Context optimization capabilities
@@ -1033,10 +968,6 @@ export interface FileRelevanceResult {
   reasons: string[];
 }
 
-// ========================================
-// AST Namespace
-// ========================================
-
 /**
  * AST analysis capabilities
  * Provides code structure analysis using tree-sitter parsing
@@ -1226,10 +1157,6 @@ export interface AstNode {
   children?: AstNode[];
 }
 
-// ========================================
-// IDE Namespace
-// ========================================
-
 /**
  * IDE superpowers namespace
  * Provides access to LSP, editor state, code actions, and testing
@@ -1248,10 +1175,6 @@ export interface IDENamespace {
   /** Test execution and coverage */
   testing: TestingNamespace;
 }
-
-// ========================================
-// LSP Namespace
-// ========================================
 
 /**
  * Language Server Protocol capabilities
@@ -1324,10 +1247,6 @@ export interface LSPNamespace {
   ) => Promise<SignatureHelp | null>;
 }
 
-// ========================================
-// Editor Namespace
-// ========================================
-
 /**
  * Editor state and context capabilities
  * Provides access to active editor, open files, and visible ranges
@@ -1364,10 +1283,6 @@ export interface EditorNamespace {
    */
   getVisibleRange: () => Promise<VisibleRange | null>;
 }
-
-// ========================================
-// Actions Namespace
-// ========================================
 
 /**
  * Code actions and refactoring capabilities
@@ -1422,10 +1337,6 @@ export interface ActionsNamespace {
   fixAll: (file: string, kind?: string) => Promise<boolean>;
 }
 
-// ========================================
-// Testing Namespace
-// ========================================
-
 /**
  * Test execution and coverage capabilities
  * Provides access to VS Code Test API for test discovery and execution
@@ -1457,10 +1368,6 @@ export interface TestingNamespace {
    */
   getCoverage: (file: string) => Promise<CoverageInfo | null>;
 }
-
-// ========================================
-// IDE Supporting Types
-// ========================================
 
 /**
  * Location in source code
@@ -1667,10 +1574,6 @@ export interface CoverageInfo {
   /** Branch coverage */
   branches: { covered: number; total: number };
 }
-
-// ========================================
-// Orchestration Namespace
-// ========================================
 
 /**
  * Orchestration workflow phase
