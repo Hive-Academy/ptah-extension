@@ -1,5 +1,5 @@
 {
-  "name": "auth-providers",
+  "name": "@ptah-extension/auth-providers",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/auth-providers/src",
