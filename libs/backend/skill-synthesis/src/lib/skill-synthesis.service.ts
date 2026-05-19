@@ -13,6 +13,7 @@
  */
 import { inject, injectable } from 'tsyringe';
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -115,20 +116,31 @@ export class SkillSynthesisService {
     }
     try {
       const settingsForMigration = this.readSettings();
-      const activeResult = migrateSkillMdFiles(
-        this.mdGenerator.activeRoot(),
-        this.logger,
+      const activeRoot = this.mdGenerator.activeRoot();
+      const candidatesRoot = this.mdGenerator.candidatesRoot(
+        settingsForMigration.candidatesDir,
       );
+      try {
+        fs.mkdirSync(activeRoot, { recursive: true });
+        fs.mkdirSync(candidatesRoot, { recursive: true });
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[skill-synthesis] failed to bootstrap skill directories (non-fatal)',
+          {
+            activeRoot,
+            candidatesRoot,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+      const activeResult = migrateSkillMdFiles(activeRoot, this.logger);
       this.logger.info(
         '[skill-synthesis] SKILL.md migration complete (active root)',
         {
           ...activeResult,
         },
       );
-      const candidatesResult = migrateSkillMdFiles(
-        this.mdGenerator.candidatesRoot(settingsForMigration.candidatesDir),
-        this.logger,
-      );
+      const candidatesResult = migrateSkillMdFiles(candidatesRoot, this.logger);
       this.logger.info(
         '[skill-synthesis] SKILL.md migration complete (candidates root)',
         {
