@@ -11,10 +11,8 @@
  * NOTE: Exact stream-json field names are based on community adapter
  * reverse-engineering. See // TODO comments in the JSONL parser.
  */
-import { execFile } from 'child_process';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
-import { promisify } from 'util';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -29,11 +27,10 @@ import type {
 import {
   stripAnsiCodes,
   buildTaskPrompt,
+  probeCliVersion,
   resolveCliPath,
   spawnCli,
 } from './cli-adapter.utils';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Cursor agent CLI stream-json event types.
@@ -80,15 +77,7 @@ export class CursorCliAdapter implements CliAdapter {
       if (!binaryPath) {
         return { cli: 'cursor', installed: false, supportsSteer: false };
       }
-
-      const { stdout: versionOutput } = await execFileAsync(
-        binaryPath,
-        ['--version'],
-        { timeout: 5000 },
-      );
-      const version: string | undefined = versionOutput
-        .trim()
-        .split(/\r?\n/)[0];
+      const version = await probeCliVersion(binaryPath);
 
       return {
         cli: 'cursor',

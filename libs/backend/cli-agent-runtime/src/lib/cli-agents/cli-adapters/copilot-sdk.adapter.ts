@@ -33,8 +33,6 @@
  * - session.error             -> error
  * - result                    -> info (final stats); resolves done promise
  */
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -49,12 +47,11 @@ import type {
 import {
   stripAnsiCodes,
   buildTaskPrompt,
+  probeCliVersion,
   resolveCliPath,
   spawnCli,
 } from './cli-adapter.utils';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
-
-const execFileAsync = promisify(execFile);
 
 /** Shell/command execution tool names across providers */
 function isShellTool(toolName: string): boolean {
@@ -163,13 +160,7 @@ export class CopilotSdkAdapter implements CliAdapter {
       if (!binaryPath) {
         return { cli: 'copilot', installed: false, supportsSteer: false };
       }
-
-      const { stdout: versionOutput } = await execFileAsync(
-        binaryPath,
-        ['--version'],
-        { timeout: 5000 },
-      );
-      const version = versionOutput.trim().split(/\r?\n/)[0];
+      const version = await probeCliVersion(binaryPath);
 
       return {
         cli: 'copilot',

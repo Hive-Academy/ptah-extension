@@ -23,8 +23,8 @@ import type {
 import {
   stripAnsiCodes,
   buildTaskPrompt,
+  probeCliVersion,
   resolveCliPath,
-  spawnCli,
 } from './cli-adapter.utils';
 
 /** Valid reasoning effort values for the Codex SDK. */
@@ -242,24 +242,32 @@ function resolveCodexNativeBinary(
     candidates.push(path.join(resourcesPath, 'app.asar.unpacked', relFromBin));
   }
 
-  const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
-  candidates.push(
-    path.join(
-      path.dirname(platformPkgJson),
-      'vendor',
-      targetTriple,
-      'codex',
-      binaryName,
-    ),
-  );
+  try {
+    const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
+    candidates.push(
+      path.join(
+        path.dirname(platformPkgJson),
+        'vendor',
+        targetTriple,
+        'codex',
+        binaryName,
+      ),
+    );
+  } catch {
+    // noop
+  }
 
-  const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
-  const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
-  const candidate = path.join(nodeModulesRoot, relFromNodeModules);
-  candidates.push(candidate);
-  candidates.push(
-    candidate.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked'),
-  );
+  try {
+    const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
+    const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
+    const candidate = path.join(nodeModulesRoot, relFromNodeModules);
+    candidates.push(candidate);
+    candidates.push(
+      candidate.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked'),
+    );
+  } catch {
+    // noop
+  }
   if (process.platform === 'win32') {
     const appData = process.env['APPDATA'];
     if (appData) {
@@ -334,29 +342,7 @@ export class CodexCliAdapter implements CliAdapter {
       if (!binaryPath) {
         return { cli: 'codex', installed: false, supportsSteer: false };
       }
-      const version = await new Promise<string | undefined>((resolve) => {
-        let stdout = '';
-        const child = spawnCli(binaryPath, ['--version'], {});
-
-        const timer = setTimeout(() => {
-          child.kill();
-          resolve(undefined);
-        }, 5000);
-
-        child.stdout?.setEncoding('utf8');
-        child.stdout?.on('data', (data: string) => {
-          stdout += data;
-        });
-        child.on('close', () => {
-          clearTimeout(timer);
-          const trimmed = stdout.trim().split(/\r?\n/)[0];
-          resolve(trimmed || undefined);
-        });
-        child.on('error', () => {
-          clearTimeout(timer);
-          resolve(undefined);
-        });
-      });
+      const version = await probeCliVersion(binaryPath);
 
       return {
         cli: 'codex',

@@ -88,7 +88,10 @@ let currentChild: FakeChildControls | null = null;
 
 const mockSpawnCli = jest.fn();
 const mockResolveCliPath = jest.fn();
+const mockProbeCliVersion = jest.fn();
 
+// probeCliVersion is mocked explicitly because `actual.probeCliVersion` closes
+// over the real `spawnCli` — `...actual` spread does not rewrite that closure.
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
     './cli-adapter.utils',
@@ -97,12 +100,16 @@ jest.mock('./cli-adapter.utils', () => {
     ...actual,
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
+    probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
   };
 });
 
-const mockExecFile = jest.fn();
+// Mock child_process defensively in case any transitive import reaches for it.
+// The adapter's detect() now uses probeCliVersion (via spawnCli), so execFile
+// is no longer on the production code path.
 jest.mock('child_process', () => ({
-  execFile: mockExecFile,
+  execFile: jest.fn(),
+  spawn: jest.fn(),
 }));
 
 // MCP config writes should be no-ops for these tests.
@@ -133,16 +140,7 @@ describe('CursorCliAdapter', () => {
   describe('detect()', () => {
     it('resolves `cursor-agent` (headless CLI), NOT `cursor` (GUI binary)', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/cursor-agent');
-      mockExecFile.mockImplementation(
-        (
-          _cmd: string,
-          _args: readonly string[],
-          _opts: Record<string, unknown>,
-          cb?: (err: Error | null, result: { stdout: string }) => void,
-        ) => {
-          cb?.(null, { stdout: 'cursor-agent 0.9.1\n' });
-        },
-      );
+      mockProbeCliVersion.mockResolvedValue('cursor-agent 0.9.1');
 
       const result = await adapter.detect();
 
@@ -154,6 +152,22 @@ describe('CursorCliAdapter', () => {
       expect(result.supportsSteer).toBe(false);
     });
 
+    it('forwards the resolved binary path to probeCliVersion (Windows .cmd safe)', async () => {
+      // Locks down the cross-platform fix: detect() must route the version
+      // probe through probeCliVersion (which uses cross-spawn) and pass the
+      // raw resolved path — including .cmd/.bat/.ps1 — so Node 18.20+/Electron
+      // 30+ don't refuse execFile on shell-script wrappers (CVE-2024-27980).
+      const cmdPath = 'C:\\Users\\dev\\AppData\\Roaming\\npm\\cursor-agent.cmd';
+      mockResolveCliPath.mockResolvedValue(cmdPath);
+      mockProbeCliVersion.mockResolvedValue('cursor-agent 0.9.1');
+
+      const result = await adapter.detect();
+
+      expect(mockProbeCliVersion).toHaveBeenCalledWith(cmdPath);
+      expect(result.installed).toBe(true);
+      expect(result.path).toBe(cmdPath);
+    });
+
     it('reports not installed when cursor-agent is missing (auth-required negative path)', async () => {
       // Without the binary there is no way to authenticate — the adapter
       // signals "not available" rather than failing open.
@@ -163,20 +177,12 @@ describe('CursorCliAdapter', () => {
 
       expect(result.cli).toBe('cursor');
       expect(result.installed).toBe(false);
+      expect(mockProbeCliVersion).not.toHaveBeenCalled();
     });
 
     it('still reports installed when the version probe itself fails', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/cursor-agent');
-      mockExecFile.mockImplementation(
-        (
-          _cmd: string,
-          _args: readonly string[],
-          _opts: Record<string, unknown>,
-          cb?: (err: Error | null) => void,
-        ) => {
-          cb?.(new Error('not authenticated'));
-        },
-      );
+      mockProbeCliVersion.mockResolvedValue(undefined);
 
       const result = await adapter.detect();
 

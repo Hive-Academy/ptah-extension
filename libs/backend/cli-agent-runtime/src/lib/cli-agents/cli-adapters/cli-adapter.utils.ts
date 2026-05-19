@@ -71,6 +71,48 @@ export const CLI_CLEAN_ENV: Record<string, string> = {
 };
 
 /**
+ * Cross-platform `--version` probe. Routes through `spawnCli` (cross-spawn)
+ * so Windows .cmd/.bat/.ps1 wrappers work — Node 18.20+/Electron 30+ refuse
+ * `execFile` on those (CVE-2024-27980). On macOS/Linux behaves identically
+ * to a plain `child_process.spawn` of the binary.
+ *
+ * Never throws. Returns the first non-empty stdout line on success, or
+ * `undefined` if the probe times out, errors, or produces no output.
+ * Callers should treat presence of the binary on PATH as the source of
+ * truth for "installed" and use the returned version as a best-effort
+ * UX hint.
+ */
+export function probeCliVersion(
+  binary: string,
+  args: string[] = ['--version'],
+  timeoutMs = 5000,
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    const child = spawnCli(binary, args, {});
+
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(undefined);
+    }, timeoutMs);
+
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (data: string) => {
+      stdout += data;
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      const trimmed = stdout.trim().split(/\r?\n/)[0];
+      resolve(trimmed || undefined);
+    });
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(undefined);
+    });
+  });
+}
+
+/**
  * Build a task prompt string from CLI command options.
  * Optionally prepends system prompt or project-specific guidance from enhanced prompts.
  * Prefers systemPrompt (full prompt harness) over projectGuidance when available.

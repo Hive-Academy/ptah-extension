@@ -11,12 +11,10 @@
  *
  * See: https://geminicli.com/docs/
  */
-import { execFile } from 'child_process';
 import { unlinkSync, writeFileSync } from 'fs';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
-import { promisify } from 'util';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -31,11 +29,10 @@ import type {
 import {
   stripAnsiCodes,
   buildTaskPrompt,
+  probeCliVersion,
   resolveCliPath,
   spawnCli,
 } from './cli-adapter.utils';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Gemini CLI stream-json event types.
@@ -80,12 +77,7 @@ export class GeminiCliAdapter implements CliAdapter {
       if (!binaryPath) {
         return { cli: 'gemini', installed: false, supportsSteer: false };
       }
-      const { stdout: versionOutput } = await execFileAsync(
-        binaryPath,
-        ['--version'],
-        { timeout: 5000 },
-      );
-      const version = versionOutput.trim().split(/\r?\n/)[0];
+      const version = await probeCliVersion(binaryPath);
 
       return {
         cli: 'gemini',
@@ -148,28 +140,36 @@ export class GeminiCliAdapter implements CliAdapter {
    * Non-fatal: errors are silently caught.
    */
   private async ensureFolderTrusted(folder: string): Promise<void> {
-    const geminiDir = join(homedir(), '.gemini');
-    const trustedPath = join(geminiDir, 'trustedFolders.json');
-    const normalizedFolder =
-      process.platform === 'win32' ? folder.replace(/\//g, '\\') : folder;
+    try {
+      const geminiDir = join(homedir(), '.gemini');
+      const trustedPath = join(geminiDir, 'trustedFolders.json');
+      const normalizedFolder =
+        process.platform === 'win32' ? folder.replace(/\//g, '\\') : folder;
 
-    let trustedFolders: Record<string, string> = {};
-
-    const content = await readFile(trustedPath, 'utf8');
-    trustedFolders = JSON.parse(content) as Record<string, string>;
-    if (
-      trustedFolders[folder] === 'TRUST_FOLDER' ||
-      trustedFolders[normalizedFolder] === 'TRUST_FOLDER'
-    ) {
-      return;
+      let trustedFolders: Record<string, string> = {};
+      try {
+        const content = await readFile(trustedPath, 'utf8');
+        trustedFolders = JSON.parse(content) as Record<string, string>;
+      } catch {
+        // Missing or malformed file — start fresh.
+      }
+      if (
+        trustedFolders[folder] === 'TRUST_FOLDER' ||
+        trustedFolders[normalizedFolder] === 'TRUST_FOLDER'
+      ) {
+        return;
+      }
+      trustedFolders[normalizedFolder] = 'TRUST_FOLDER';
+      await mkdir(geminiDir, { recursive: true });
+      await writeFile(
+        trustedPath,
+        JSON.stringify(trustedFolders, null, 2),
+        'utf8',
+      );
+    } catch {
+      // --yolo bypasses the trust prompt at runtime, so a failure here
+      // only re-surfaces the prompt on next interactive run.
     }
-    trustedFolders[normalizedFolder] = 'TRUST_FOLDER';
-    await mkdir(geminiDir, { recursive: true });
-    await writeFile(
-      trustedPath,
-      JSON.stringify(trustedFolders, null, 2),
-      'utf8',
-    );
   }
 
   /**
@@ -180,23 +180,30 @@ export class GeminiCliAdapter implements CliAdapter {
    * Non-fatal: errors are silently caught.
    */
   private async configureMcpServer(port: number): Promise<void> {
-    const geminiDir = join(homedir(), '.gemini');
-    const settingsPath = join(geminiDir, 'settings.json');
+    try {
+      const geminiDir = join(homedir(), '.gemini');
+      const settingsPath = join(geminiDir, 'settings.json');
 
-    let settings: Record<string, unknown> = {};
+      let settings: Record<string, unknown> = {};
+      try {
+        const content = await readFile(settingsPath, 'utf8');
+        settings = JSON.parse(content) as Record<string, unknown>;
+      } catch {
+        // Missing or malformed file — start fresh.
+      }
 
-    const content = await readFile(settingsPath, 'utf8');
-    settings = JSON.parse(content) as Record<string, unknown>;
+      const mcpServers =
+        (settings['mcpServers'] as Record<string, unknown>) || {};
+      mcpServers['ptah'] = {
+        httpUrl: `http://localhost:${port}`,
+      };
+      settings['mcpServers'] = mcpServers;
 
-    const mcpServers =
-      (settings['mcpServers'] as Record<string, unknown>) || {};
-    mcpServers['ptah'] = {
-      httpUrl: `http://localhost:${port}`,
-    };
-    settings['mcpServers'] = mcpServers;
-
-    await mkdir(geminiDir, { recursive: true });
-    await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+      await mkdir(geminiDir, { recursive: true });
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    } catch {
+      // MCP tools won't be available this run; CLI still functions.
+    }
   }
 
   /**
@@ -205,19 +212,23 @@ export class GeminiCliAdapter implements CliAdapter {
    * Non-fatal: errors are silently caught.
    */
   private async cleanupMcpEntry(): Promise<void> {
-    const settingsPath = join(homedir(), '.gemini', 'settings.json');
-    const content = await readFile(settingsPath, 'utf8');
-    const settings = JSON.parse(content) as Record<string, unknown>;
-    const mcpServers = settings['mcpServers'] as
-      | Record<string, unknown>
-      | undefined;
-    if (!mcpServers?.['ptah']) return;
+    try {
+      const settingsPath = join(homedir(), '.gemini', 'settings.json');
+      const content = await readFile(settingsPath, 'utf8');
+      const settings = JSON.parse(content) as Record<string, unknown>;
+      const mcpServers = settings['mcpServers'] as
+        | Record<string, unknown>
+        | undefined;
+      if (!mcpServers?.['ptah']) return;
 
-    delete mcpServers['ptah'];
-    if (Object.keys(mcpServers).length === 0) {
-      delete settings['mcpServers'];
+      delete mcpServers['ptah'];
+      if (Object.keys(mcpServers).length === 0) {
+        delete settings['mcpServers'];
+      }
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    } catch {
+      // Stale ptah entry will be overwritten on next configureMcpServer().
     }
-    await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
   }
 
   /**

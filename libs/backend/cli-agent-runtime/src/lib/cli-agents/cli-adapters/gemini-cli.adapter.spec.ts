@@ -97,8 +97,12 @@ let currentChild: FakeChildControls | null = null;
 
 const mockSpawnCli = jest.fn();
 const mockResolveCliPath = jest.fn();
+const mockProbeCliVersion = jest.fn();
 
-// Mock cli-adapter.utils so we can intercept spawnCli and resolveCliPath.
+// Mock cli-adapter.utils so we can intercept spawnCli, resolveCliPath, and
+// probeCliVersion. probeCliVersion MUST be mocked at this layer (not via its
+// spawnCli dependency) because `actual.probeCliVersion` closes over the real
+// `spawnCli` — jest's `...actual` spread does not rewrite internal closure refs.
 // stripAnsiCodes/buildTaskPrompt are preserved via jest.requireActual so the
 // real formatting helpers still run in the adapter under test.
 jest.mock('./cli-adapter.utils', () => {
@@ -109,24 +113,31 @@ jest.mock('./cli-adapter.utils', () => {
     ...actual,
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
+    probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
   };
 });
 
-// Mock child_process for detect() (execFileAsync path) and for any accidental imports.
-const mockExecFile = jest.fn();
+// Mock child_process defensively in case any transitive import reaches for it.
+// The adapter's detect() now uses probeCliVersion (via spawnCli), so execFile
+// is no longer on the production code path.
 jest.mock('child_process', () => ({
-  execFile: mockExecFile,
+  execFile: jest.fn(),
+  spawn: jest.fn(),
 }));
 
 // Mock fs / fs/promises so MCP config and trusted-folder writes are no-ops.
+// Lazy-binding wrappers so individual tests can override per-call behavior.
+const mockReadFile = jest.fn();
+const mockWriteFile = jest.fn();
+const mockMkdir = jest.fn();
 jest.mock('fs', () => ({
   writeFileSync: jest.fn(),
   unlinkSync: jest.fn(),
 }));
 jest.mock('fs/promises', () => ({
-  readFile: jest.fn().mockRejectedValue(new Error('ENOENT')),
-  writeFile: jest.fn().mockResolvedValue(undefined),
-  mkdir: jest.fn().mockResolvedValue(undefined),
+  readFile: (...args: unknown[]) => mockReadFile(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
 }));
 
 // Import adapter AFTER mocks are declared.
@@ -140,6 +151,12 @@ describe('GeminiCliAdapter', () => {
     jest.clearAllMocks();
     currentChild = null;
 
+    // Default fs/promises behavior: trusted-folders + settings files exist
+    // and contain empty JSON so runSdk's pre-spawn config writes succeed.
+    mockReadFile.mockResolvedValue('{}');
+    mockWriteFile.mockResolvedValue(undefined);
+    mockMkdir.mockResolvedValue(undefined);
+
     // Default: spawnCli returns a fresh fake child, stashed for driving.
     mockSpawnCli.mockImplementation(() => {
       currentChild = createFakeChild();
@@ -152,16 +169,7 @@ describe('GeminiCliAdapter', () => {
   describe('detect()', () => {
     it('reports installed when resolveCliPath finds the binary', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/gemini');
-      mockExecFile.mockImplementation(
-        (
-          _cmd: string,
-          _args: readonly string[],
-          _opts: Record<string, unknown>,
-          cb?: (err: Error | null, result: { stdout: string }) => void,
-        ) => {
-          cb?.(null, { stdout: 'gemini-cli 1.4.2\n' });
-        },
-      );
+      mockProbeCliVersion.mockResolvedValue('gemini-cli 1.4.2');
 
       const result = await adapter.detect();
 
@@ -172,6 +180,22 @@ describe('GeminiCliAdapter', () => {
       expect(result.supportsSteer).toBe(false);
     });
 
+    it('forwards the resolved binary path to probeCliVersion (Windows .cmd safe)', async () => {
+      // Locks down the cross-platform fix: detect() must route the version
+      // probe through probeCliVersion (which uses cross-spawn) and pass the
+      // raw resolved path — including .cmd/.bat/.ps1 — so Node 18.20+/Electron
+      // 30+ don't refuse execFile on shell-script wrappers (CVE-2024-27980).
+      const cmdPath = 'C:\\Users\\dev\\AppData\\Roaming\\npm\\gemini.cmd';
+      mockResolveCliPath.mockResolvedValue(cmdPath);
+      mockProbeCliVersion.mockResolvedValue('gemini-cli 1.4.2');
+
+      const result = await adapter.detect();
+
+      expect(mockProbeCliVersion).toHaveBeenCalledWith(cmdPath);
+      expect(result.installed).toBe(true);
+      expect(result.path).toBe(cmdPath);
+    });
+
     it('reports not installed when resolveCliPath returns null', async () => {
       mockResolveCliPath.mockResolvedValue(null);
 
@@ -180,20 +204,12 @@ describe('GeminiCliAdapter', () => {
       expect(result.cli).toBe('gemini');
       expect(result.installed).toBe(false);
       expect(result.supportsSteer).toBe(false);
+      expect(mockProbeCliVersion).not.toHaveBeenCalled();
     });
 
     it('still reports installed when version probe fails', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/gemini');
-      mockExecFile.mockImplementation(
-        (
-          _cmd: string,
-          _args: readonly string[],
-          _opts: Record<string, unknown>,
-          cb?: (err: Error | null) => void,
-        ) => {
-          cb?.(new Error('spawn ENOENT'));
-        },
-      );
+      mockProbeCliVersion.mockResolvedValue(undefined);
 
       const result = await adapter.detect();
 
@@ -232,6 +248,90 @@ describe('GeminiCliAdapter', () => {
 
     it('strips ANSI escape codes', () => {
       expect(adapter.parseOutput('\x1b[31mred\x1b[0m text')).toBe('red text');
+    });
+  });
+
+  describe('runSdk() — non-fatal pre-spawn config', () => {
+    // The trusted-folder + MCP config writes happen BEFORE the binary is
+    // spawned. Their JSDoc promises "Non-fatal: errors are silently caught" —
+    // these tests lock down that contract so a fresh machine without
+    // ~/.gemini/ (or with a read-only home dir) still reaches the spawn.
+    const defaultOptions = {
+      task: 'Implement feature X',
+      workingDirectory: '/proj',
+      mcpPort: 51820,
+    };
+
+    it('still spawns when ~/.gemini/trustedFolders.json is missing', async () => {
+      const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      mockReadFile.mockRejectedValueOnce(enoent).mockResolvedValue('{}');
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+      // ensureFolderTrusted should have proceeded past the missing file and
+      // written the trust entry with the new folder.
+      const writeCalls = mockWriteFile.mock.calls;
+      expect(
+        writeCalls.some(
+          (c) =>
+            typeof c[0] === 'string' &&
+            (c[0] as string).endsWith('trustedFolders.json'),
+        ),
+      ).toBe(true);
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('still spawns when trustedFolders.json write fails', async () => {
+      mockWriteFile.mockRejectedValueOnce(new Error('EACCES'));
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('still spawns when MCP settings.json write fails', async () => {
+      // Trusted-folder write succeeds (first call); MCP settings write fails
+      // (second call). runSdk must proceed regardless.
+      mockWriteFile
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('EACCES'));
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('does not crash when cleanupMcpEntry fails after the run', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+
+      // Cleanup runs after `done` resolves; have its readFile reject.
+      mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
+
+      currentChild?.emitClose(0);
+      await expect(handle.done).resolves.toBe(0);
+      // Allow the floating .then() callback to settle.
+      await new Promise((r) => setImmediate(r));
     });
   });
 

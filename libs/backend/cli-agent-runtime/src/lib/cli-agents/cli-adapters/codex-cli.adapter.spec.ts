@@ -99,6 +99,7 @@ jest.mock('@openai/codex-sdk', () => {
 // inside the adapter under test.
 const mockResolveCliPath = jest.fn();
 const mockSpawnCli = jest.fn();
+const mockProbeCliVersion = jest.fn();
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
     './cli-adapter.utils',
@@ -107,6 +108,7 @@ jest.mock('./cli-adapter.utils', () => {
     ...actual,
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
+    probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
   };
 });
 
@@ -120,7 +122,6 @@ jest.mock('child_process', () => ({
 // Import adapter AFTER mocks are declared
 import { CodexCliAdapter } from './codex-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
-import { EventEmitter } from 'events';
 
 describe('CodexCliAdapter', () => {
   let adapter: CodexCliAdapter;
@@ -149,37 +150,10 @@ describe('CodexCliAdapter', () => {
     jest.resetModules();
   });
 
-  /**
-   * Build a minimal fake ChildProcess that simulates the `--version` probe
-   * inside detect(). The adapter wires setEncoding + data + close listeners
-   * via spawnCli, so we emit a single stdout chunk and close.
-   */
-  function createFakeVersionChild(stdout: string): EventEmitter & {
-    stdout: EventEmitter & { setEncoding: jest.Mock };
-    kill: jest.Mock;
-  } {
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter & { setEncoding: jest.Mock };
-      kill: jest.Mock;
-    };
-    const stdoutEmitter = Object.assign(new EventEmitter(), {
-      setEncoding: jest.fn(),
-    });
-    child.stdout = stdoutEmitter;
-    child.kill = jest.fn();
-    // Emit stdout + close on the next tick so listeners (attached after
-    // spawnCli returns inside detect()) see the data.
-    setImmediate(() => {
-      stdoutEmitter.emit('data', stdout);
-      child.emit('close', 0);
-    });
-    return child;
-  }
-
   describe('detect()', () => {
     it('should return installed: true when codex binary is found', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/codex');
-      mockSpawnCli.mockImplementation(() => createFakeVersionChild('1.2.3\n'));
+      mockProbeCliVersion.mockResolvedValue('1.2.3');
 
       const result = await adapter.detect();
 
@@ -198,6 +172,7 @@ describe('CodexCliAdapter', () => {
       expect(result.cli).toBe('codex');
       expect(result.installed).toBe(false);
       expect(result.supportsSteer).toBe(false);
+      expect(mockProbeCliVersion).not.toHaveBeenCalled();
     });
   });
 
