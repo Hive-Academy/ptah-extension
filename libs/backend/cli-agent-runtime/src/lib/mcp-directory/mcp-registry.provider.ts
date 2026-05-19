@@ -5,6 +5,7 @@
  * No authentication required for read operations.
  */
 
+import { z } from 'zod';
 import type {
   McpRegistryEntry,
   McpRegistryListResponse,
@@ -27,17 +28,49 @@ interface CachedResponse<T> {
 }
 
 /**
+ * Minimal Zod schema for a registry entry. The registry server is third-
+ * party, so we validate the boundary defensively: `name` must be a non-empty
+ * string, everything else is optional + permissive. Schema is intentionally
+ * loose (`.passthrough()`) — we drop entries that are obviously malformed
+ * (missing `name`) but pass through unknown fields so the downstream
+ * `McpRegistryEntry` consumers still see new schema additions.
+ */
+const McpRegistryEntrySchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().optional(),
+    repository: z.unknown().optional(),
+    icons: z.unknown().optional(),
+    version_detail: z.unknown().optional(),
+    created_at: z.string().optional(),
+    updated_at: z.string().optional(),
+  })
+  .passthrough();
+
+/** Optional logger surface — keeps this provider DI-free for legacy call sites. */
+export interface RegistryLogger {
+  warn(message: string, context?: Record<string, unknown>): void;
+}
+
+/**
  * Unwrap a registry entry, tolerating both the legacy flat shape
  * (`{ name, description, ... }`) and the current envelope shape
  * (`{ server: { ... }, _meta: { ... } }`) defined by the
- * MCP Registry 2025-09 schema. Returns null if the entry has no
- * usable `name` field after unwrapping.
+ * MCP Registry 2025-09 schema. Returns null if the entry fails schema
+ * validation (no usable `name` after unwrapping or wrong field types).
  *
  * Why: the registry schema gained a `_meta` envelope which silently
  * caused all list rows to render blank. Future schema additions that
  * keep wrapping the payload under `server` will continue to work.
+ *
+ * When `logger` is supplied, malformed entries are audited with a warn
+ * line — including the extracted `name` if available — so we can spot
+ * upstream schema drift in production logs.
  */
-function unwrapRegistryEntry(item: unknown): McpRegistryEntry | null {
+function unwrapRegistryEntry(
+  item: unknown,
+  logger?: RegistryLogger,
+): McpRegistryEntry | null {
   if (!item || typeof item !== 'object') return null;
   const obj = item as Record<string, unknown>;
   const inner =
@@ -45,15 +78,29 @@ function unwrapRegistryEntry(item: unknown): McpRegistryEntry | null {
       ? (obj['server'] as Record<string, unknown>)
       : obj;
 
-  if (typeof inner['name'] !== 'string' || inner['name'].length === 0) {
+  const parsed = McpRegistryEntrySchema.safeParse(inner);
+  if (!parsed.success) {
+    const maybeName =
+      typeof inner['name'] === 'string' ? (inner['name'] as string) : undefined;
+    logger?.warn('MCP registry: dropping malformed entry', {
+      name: maybeName,
+      issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+    });
     return null;
   }
 
-  return inner as unknown as McpRegistryEntry;
+  return parsed.data as unknown as McpRegistryEntry;
 }
 
 export class McpRegistryProvider {
   private popularCache: CachedResponse<McpRegistryEntry[]> | null = null;
+
+  /**
+   * @param logger Optional audit logger for malformed registry entries. When
+   *   supplied (e.g. by the RPC handler), entries that fail Zod validation
+   *   are emitted as `warn` lines instead of being silently dropped.
+   */
+  constructor(private readonly logger?: RegistryLogger) {}
 
   /**
    * Search/list servers from the Official MCP Registry.
@@ -81,7 +128,7 @@ export class McpRegistryProvider {
 
     const servers: McpRegistryEntry[] = Array.isArray(body['servers'])
       ? (body['servers'] as unknown[])
-          .map((item) => unwrapRegistryEntry(item))
+          .map((item) => unwrapRegistryEntry(item, this.logger))
           .filter((entry): entry is McpRegistryEntry => entry !== null)
       : [];
 
@@ -112,7 +159,7 @@ export class McpRegistryProvider {
 
       const body = (await response.json()) as Record<string, unknown>;
 
-      return unwrapRegistryEntry(body);
+      return unwrapRegistryEntry(body, this.logger);
     } catch {
       return null;
     }

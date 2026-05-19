@@ -181,6 +181,34 @@ describe('McpRegistryProvider response shape handling', () => {
     );
   });
 
+  it('drops entries that fail Zod validation and audits via the supplied logger', async () => {
+    const warn = jest.fn();
+    const loggingProvider = new McpRegistryProvider({ warn });
+
+    mockFetchOnce({
+      servers: [
+        // Valid entry.
+        { server: { name: 'io.github.acme/good', description: 'ok' } },
+        // Wrong field type — description is a number, fails the schema.
+        {
+          server: {
+            name: 'io.github.acme/bad',
+            description: 42,
+          },
+        },
+      ],
+    });
+
+    const result = await loggingProvider.listServers();
+
+    expect(result.servers).toHaveLength(1);
+    expect(result.servers[0]?.name).toBe('io.github.acme/good');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('dropping malformed entry'),
+      expect.objectContaining({ name: 'io.github.acme/bad' }),
+    );
+  });
+
   it('caches popular servers and returns the cached list on a second call', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
