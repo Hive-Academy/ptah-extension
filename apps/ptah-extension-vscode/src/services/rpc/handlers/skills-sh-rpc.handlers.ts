@@ -995,57 +995,65 @@ export class SkillsShRpcHandlers {
     const languages: string[] = [];
     const tools: string[] = [];
 
-    const pkgJsonPath = path.join(workspaceRoot, 'package.json');
-    const pkgContent = await fs.readFile(pkgJsonPath, 'utf8');
-    const pkg = JSON.parse(pkgContent) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
+    try {
+      const pkgJsonPath = path.join(workspaceRoot, 'package.json');
+      const pkgContent = await fs.readFile(pkgJsonPath, 'utf8');
+      const pkg = JSON.parse(pkgContent) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
 
-    const allDeps = {
-      ...(pkg.dependencies || {}),
-      ...(pkg.devDependencies || {}),
-    };
+      const allDeps = {
+        ...(pkg.dependencies || {}),
+        ...(pkg.devDependencies || {}),
+      };
 
-    languages.push('javascript');
+      languages.push('javascript');
 
-    const frameworkChecks: [string, string][] = [
-      ['react', 'react'],
-      ['@angular/core', 'angular'],
-      ['vue', 'vue'],
-      ['next', 'next'],
-      ['express', 'express'],
-      ['@nestjs/core', 'nestjs'],
-      ['@prisma/client', 'prisma'],
-      ['prisma', 'prisma'],
-      ['tailwindcss', 'tailwindcss'],
-      ['remotion', 'remotion'],
-    ];
+      const frameworkChecks: [string, string][] = [
+        ['react', 'react'],
+        ['@angular/core', 'angular'],
+        ['vue', 'vue'],
+        ['next', 'next'],
+        ['express', 'express'],
+        ['@nestjs/core', 'nestjs'],
+        ['@prisma/client', 'prisma'],
+        ['prisma', 'prisma'],
+        ['tailwindcss', 'tailwindcss'],
+        ['remotion', 'remotion'],
+      ];
 
-    for (const [dep, name] of frameworkChecks) {
-      if (dep in allDeps && !frameworks.includes(name)) {
-        frameworks.push(name);
+      for (const [dep, name] of frameworkChecks) {
+        if (dep in allDeps && !frameworks.includes(name)) {
+          frameworks.push(name);
+        }
+      }
+    } catch {
+      // No package.json or unreadable — skip JS framework detection silently.
+    }
+
+    if (await this.probeFileExists(path.join(workspaceRoot, 'tsconfig.json'))) {
+      if (!languages.includes('typescript')) {
+        languages.push('typescript');
       }
     }
 
-    await fs.access(path.join(workspaceRoot, 'tsconfig.json'));
-    if (!languages.includes('typescript')) {
-      languages.push('typescript');
+    if (await this.probeFileExists(path.join(workspaceRoot, 'Cargo.toml'))) {
+      languages.push('rust');
     }
 
-    await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
-    languages.push('rust');
-
-    await fs.access(path.join(workspaceRoot, 'go.mod'));
-    languages.push('go');
+    if (await this.probeFileExists(path.join(workspaceRoot, 'go.mod'))) {
+      languages.push('go');
+    }
 
     const pyFiles = ['requirements.txt', 'pyproject.toml', 'setup.py'];
     for (const pyFile of pyFiles) {
-      await fs.access(path.join(workspaceRoot, pyFile));
-      if (!languages.includes('python')) {
-        languages.push('python');
+      if (await this.probeFileExists(path.join(workspaceRoot, pyFile))) {
+        if (!languages.includes('python')) {
+          languages.push('python');
+        }
+        break;
       }
-      break;
     }
 
     const dockerFiles = [
@@ -1054,17 +1062,28 @@ export class SkillsShRpcHandlers {
       'docker-compose.yaml',
     ];
     for (const dockerFile of dockerFiles) {
-      await fs.access(path.join(workspaceRoot, dockerFile));
-      if (!tools.includes('docker')) {
-        tools.push('docker');
+      if (await this.probeFileExists(path.join(workspaceRoot, dockerFile))) {
+        if (!tools.includes('docker')) {
+          tools.push('docker');
+        }
+        break;
       }
-      break;
     }
 
-    await fs.access(path.join(workspaceRoot, 'nx.json'));
-    tools.push('nx');
+    if (await this.probeFileExists(path.join(workspaceRoot, 'nx.json'))) {
+      tools.push('nx');
+    }
 
     return { frameworks, languages, tools };
+  }
+
+  private async probeFileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
