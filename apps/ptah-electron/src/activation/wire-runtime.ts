@@ -482,6 +482,88 @@ export async function wireRuntime(
         refs.cronScheduler = container.resolve<CronScheduler>(
           CRON_TOKENS.CRON_SCHEDULER,
         );
+        if (
+          container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) &&
+          container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY)
+        ) {
+          try {
+            const jobStore = container.resolve<IJobStore>(
+              CRON_TOKENS.CRON_JOB_STORE,
+            );
+            const handlerRegistry = container.resolve<IHandlerRegistry>(
+              CRON_TOKENS.CRON_HANDLER_REGISTRY,
+            );
+            const BACKUP_HANDLER_NAME = 'backup:daily';
+            if (!handlerRegistry.has(BACKUP_HANDLER_NAME)) {
+              handlerRegistry.register(BACKUP_HANDLER_NAME, async () => {
+                const sqliteConn = refs.sqliteConnection;
+                if (!sqliteConn) {
+                  return { summary: 'skipped: no sqlite connection' };
+                }
+                const backupSvc = container.resolve<IBackupService>(
+                  PERSISTENCE_TOKENS.BACKUP_SERVICE,
+                );
+                const backupPath = await backupSvc.backup(
+                  sqliteConn.db,
+                  'daily',
+                );
+                try {
+                  backupSvc.rotate('daily', 7);
+                } catch (rotateErr: unknown) {
+                  console.warn(
+                    '[Ptah Electron] Daily backup rotation failed (non-fatal):',
+                    rotateErr instanceof Error
+                      ? rotateErr.message
+                      : String(rotateErr),
+                  );
+                }
+                try {
+                  sqliteConn.db.pragma('incremental_vacuum(100)');
+                } catch (vacuumErr: unknown) {
+                  console.warn(
+                    '[Ptah Electron] Post-backup incremental_vacuum failed (non-fatal):',
+                    vacuumErr instanceof Error
+                      ? vacuumErr.message
+                      : String(vacuumErr),
+                  );
+                }
+                try {
+                  sqliteConn.db.pragma('optimize');
+                } catch (optimizeErr: unknown) {
+                  console.warn(
+                    '[Ptah Electron] Post-backup optimize failed (non-fatal):',
+                    optimizeErr instanceof Error
+                      ? optimizeErr.message
+                      : String(optimizeErr),
+                  );
+                }
+                return {
+                  summary: backupPath
+                    ? `backup written to ${backupPath}`
+                    : 'backup skipped (db.backup unavailable)',
+                };
+              });
+            }
+            jobStore.upsert({
+              id: '@ptah/daily-backup',
+              name: 'Daily SQLite Backup',
+              cronExpr: '0 3 * * *', // 03:00 UTC daily
+              timezone: 'UTC',
+              prompt: `handler:${BACKUP_HANDLER_NAME}`,
+              enabled: true,
+            });
+            console.log(
+              '[Ptah Electron] Daily backup cron job registered (@ptah/daily-backup)',
+            );
+          } catch (registerErr: unknown) {
+            console.warn(
+              '[Ptah Electron] Daily backup cron registration failed (non-fatal):',
+              registerErr instanceof Error
+                ? registerErr.message
+                : String(registerErr),
+            );
+          }
+        }
         await refs.cronScheduler.start({
           enabled: enabled ?? true,
           maxConcurrentJobs: maxConcurrentJobs ?? 3,
@@ -499,85 +581,6 @@ export async function wireRuntime(
         error instanceof Error ? error.message : String(error),
       );
       refs.cronScheduler = null;
-    }
-    try {
-      if (
-        refs.cronScheduler !== null &&
-        refs.sqliteConnection !== null &&
-        container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) &&
-        container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY)
-      ) {
-        const jobStore = container.resolve<IJobStore>(
-          CRON_TOKENS.CRON_JOB_STORE,
-        );
-        const handlerRegistry = container.resolve<IHandlerRegistry>(
-          CRON_TOKENS.CRON_HANDLER_REGISTRY,
-        );
-        const BACKUP_HANDLER_NAME = 'backup:daily';
-        if (!handlerRegistry.has(BACKUP_HANDLER_NAME)) {
-          handlerRegistry.register(BACKUP_HANDLER_NAME, async () => {
-            const sqliteConn = refs.sqliteConnection;
-            if (!sqliteConn) {
-              return { summary: 'skipped: no sqlite connection' };
-            }
-            const backupSvc = container.resolve<IBackupService>(
-              PERSISTENCE_TOKENS.BACKUP_SERVICE,
-            );
-            const backupPath = await backupSvc.backup(sqliteConn.db, 'daily');
-            try {
-              backupSvc.rotate('daily', 7);
-            } catch (rotateErr: unknown) {
-              console.warn(
-                '[Ptah Electron] Daily backup rotation failed (non-fatal):',
-                rotateErr instanceof Error
-                  ? rotateErr.message
-                  : String(rotateErr),
-              );
-            }
-            try {
-              sqliteConn.db.pragma('incremental_vacuum(100)');
-            } catch (vacuumErr: unknown) {
-              console.warn(
-                '[Ptah Electron] Post-backup incremental_vacuum failed (non-fatal):',
-                vacuumErr instanceof Error
-                  ? vacuumErr.message
-                  : String(vacuumErr),
-              );
-            }
-            try {
-              sqliteConn.db.pragma('optimize');
-            } catch (optimizeErr: unknown) {
-              console.warn(
-                '[Ptah Electron] Post-backup optimize failed (non-fatal):',
-                optimizeErr instanceof Error
-                  ? optimizeErr.message
-                  : String(optimizeErr),
-              );
-            }
-            return {
-              summary: backupPath
-                ? `backup written to ${backupPath}`
-                : 'backup skipped (db.backup unavailable)',
-            };
-          });
-        }
-        jobStore.upsert({
-          id: '@ptah/daily-backup',
-          name: 'Daily SQLite Backup',
-          cronExpr: '0 3 * * *', // 03:00 UTC daily
-          timezone: 'UTC',
-          prompt: `handler:${BACKUP_HANDLER_NAME}`,
-          enabled: true,
-        });
-        console.log(
-          '[Ptah Electron] Daily backup cron job registered (@ptah/daily-backup)',
-        );
-      }
-    } catch (err: unknown) {
-      console.warn(
-        '[Ptah Electron] Daily backup cron registration failed (non-fatal):',
-        err instanceof Error ? err.message : String(err),
-      );
     }
   }; // end of bootHeavyServices
   createApplicationMenu(container, getMainWindow);
