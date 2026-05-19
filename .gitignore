@@ -164,3 +164,5 @@ skills-lock.json
 
 
 apps/coverage/**
+
+libs/frontend/webview-e2e-harness/test-results/**
