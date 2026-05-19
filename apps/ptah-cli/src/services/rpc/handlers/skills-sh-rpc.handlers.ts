@@ -24,6 +24,7 @@
 import { injectable, inject } from 'tsyringe';
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -686,7 +687,12 @@ export class SkillsShRpcHandlers {
   ): Promise<InstalledSkill[]> {
     const skills: InstalledSkill[] = [];
 
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dirPath, { withFileTypes: true });
+    } catch {
+      return skills; // Dir missing — treat as empty.
+    }
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const skillMdPath = path.join(dirPath, entry.name, 'SKILL.md');
@@ -744,41 +750,46 @@ export class SkillsShRpcHandlers {
     const languages: string[] = [];
     const tools: string[] = [];
 
-    const pkgJsonPath = path.join(workspaceRoot, 'package.json');
-    const pkgContent = await fs.readFile(pkgJsonPath, 'utf8');
-    const pkg = JSON.parse(pkgContent) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
-    const allDeps = {
-      ...(pkg.dependencies || {}),
-      ...(pkg.devDependencies || {}),
-    };
-    languages.push('javascript');
-    const checks: [string, string][] = [
-      ['react', 'react'],
-      ['@angular/core', 'angular'],
-      ['vue', 'vue'],
-      ['next', 'next'],
-      ['express', 'express'],
-      ['@nestjs/core', 'nestjs'],
-      ['tailwindcss', 'tailwindcss'],
-      ['remotion', 'remotion'],
-    ];
-    for (const [dep, name] of checks) {
-      if (dep in allDeps && !frameworks.includes(name)) {
-        frameworks.push(name);
+    try {
+      const pkgJsonPath = path.join(workspaceRoot, 'package.json');
+      const pkgContent = await fs.readFile(pkgJsonPath, 'utf8');
+      const pkg = JSON.parse(pkgContent) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      const allDeps = {
+        ...(pkg.dependencies || {}),
+        ...(pkg.devDependencies || {}),
+      };
+      languages.push('javascript');
+      const checks: [string, string][] = [
+        ['react', 'react'],
+        ['@angular/core', 'angular'],
+        ['vue', 'vue'],
+        ['next', 'next'],
+        ['express', 'express'],
+        ['@nestjs/core', 'nestjs'],
+        ['tailwindcss', 'tailwindcss'],
+        ['remotion', 'remotion'],
+      ];
+      for (const [dep, name] of checks) {
+        if (dep in allDeps && !frameworks.includes(name)) {
+          frameworks.push(name);
+        }
       }
+    } catch {
+      // No package.json or unreadable — skip JS framework detection silently.
     }
 
-    await fs.access(path.join(workspaceRoot, 'tsconfig.json'));
-    if (!languages.includes('typescript')) languages.push('typescript');
-
-    await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
-    languages.push('rust');
-
-    await fs.access(path.join(workspaceRoot, 'go.mod'));
-    languages.push('go');
+    if (await this.probeFileExists(path.join(workspaceRoot, 'tsconfig.json'))) {
+      if (!languages.includes('typescript')) languages.push('typescript');
+    }
+    if (await this.probeFileExists(path.join(workspaceRoot, 'Cargo.toml'))) {
+      languages.push('rust');
+    }
+    if (await this.probeFileExists(path.join(workspaceRoot, 'go.mod'))) {
+      languages.push('go');
+    }
 
     const dockerFiles = [
       'Dockerfile',
@@ -786,15 +797,26 @@ export class SkillsShRpcHandlers {
       'docker-compose.yaml',
     ];
     for (const f of dockerFiles) {
-      await fs.access(path.join(workspaceRoot, f));
-      if (!tools.includes('docker')) tools.push('docker');
-      break;
+      if (await this.probeFileExists(path.join(workspaceRoot, f))) {
+        if (!tools.includes('docker')) tools.push('docker');
+        break;
+      }
     }
 
-    await fs.access(path.join(workspaceRoot, 'nx.json'));
-    tools.push('nx');
+    if (await this.probeFileExists(path.join(workspaceRoot, 'nx.json'))) {
+      tools.push('nx');
+    }
 
     return { frameworks, languages, tools };
+  }
+
+  private async probeFileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private matchSkillsToTechnologies(detected: {
@@ -837,7 +859,12 @@ export class SkillsShRpcHandlers {
   private async getInstalledSkillNames(): Promise<Set<string>> {
     const names = new Set<string>();
     const scanDir = async (dirPath: string) => {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      let entries: Dirent[];
+      try {
+        entries = await fs.readdir(dirPath, { withFileTypes: true });
+      } catch {
+        return; // Dir missing on first-run users — treat as empty set.
+      }
       for (const entry of entries) {
         if (entry.isDirectory()) names.add(entry.name.toLowerCase());
       }
