@@ -608,6 +608,55 @@ export class ChatSessionService {
   }
 
   /**
+   * Best-effort auto-resume for an inactive SDK session before a downstream
+   * operation (currently: `session:rewindFiles`) that requires a live Query
+   * handle. Idempotent: returns `{ alreadyActive: true }` when the session is
+   * already active. On a successful resume returns `{ resumed: true }`; on
+   * failure returns `{ resumed: false, error }` so the caller can surface a
+   * clean error and avoid an infinite resume-retry loop. Reuses the same
+   * premium-gated config + streaming code path as `chat:continue` auto-resume.
+   *
+   * Public entry point — wraps the private `autoResumeIfInactive` helper.
+   */
+  async ensureSessionActiveForRewind(
+    sessionId: SessionId,
+    tabId: string,
+    workspacePath: string,
+  ): Promise<
+    | { alreadyActive: true }
+    | { resumed: true }
+    | { resumed: false; error: string }
+  > {
+    if (this.sdkAdapter.isSessionActive(sessionId)) {
+      return { alreadyActive: true };
+    }
+
+    const outcome = await this.autoResumeIfInactive(
+      sessionId,
+      tabId,
+      workspacePath,
+      '',
+      {
+        sessionId,
+        tabId,
+        workspacePath,
+        prompt: '',
+      } as ChatContinueParams,
+    );
+
+    if ('error' in outcome) {
+      return {
+        resumed: false,
+        error: outcome.error.error ?? 'Auto-resume failed',
+      };
+    }
+    // outcome.justResumed is `boolean`; when `autoResumeIfInactive` returned
+    // `{ justResumed: false }` it meant "already active", which we already
+    // short-circuited above via `isSessionActive`. Coerce to `true`.
+    return { resumed: true };
+  }
+
+  /**
    * Auto-resume an inactive SDK session before continuing. Returns
    * `{ justResumed: false }` when already active; otherwise resumes via
    * premium-gated config and streams to the webview. `{ error }` carries a

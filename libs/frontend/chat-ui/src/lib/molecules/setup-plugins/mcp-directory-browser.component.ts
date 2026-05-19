@@ -709,6 +709,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
   private async loadPopular(): Promise<void> {
     this.isLoadingPopular.set(true);
+    this.error.set(null);
 
     try {
       const result = await this.rpcService.call('mcpDirectory:getPopular', {});
@@ -717,9 +718,14 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
       if (result.isSuccess()) {
         this.popularServers.set(result.data.servers);
+      } else {
+        this.error.set('Failed to load popular MCP servers');
+        this.popularServers.set([]);
       }
     } catch {
       if (this.destroyed) return;
+      this.error.set('Failed to load popular MCP servers');
+      this.popularServers.set([]);
     } finally {
       if (!this.destroyed) this.isLoadingPopular.set(false);
     }

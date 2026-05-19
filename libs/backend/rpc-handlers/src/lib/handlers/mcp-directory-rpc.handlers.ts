@@ -52,7 +52,7 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:getPopular',
   ] as const satisfies readonly RpcMethodName[];
 
-  private readonly registryProvider = new McpRegistryProvider();
+  private readonly registryProvider: McpRegistryProvider;
   private readonly installService = new McpInstallService();
 
   constructor(
@@ -62,7 +62,9 @@ export class McpDirectoryRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
-  ) {}
+  ) {
+    this.registryProvider = new McpRegistryProvider(this.logger);
+  }
 
   /**
    * Register all MCP Directory RPC methods
@@ -287,9 +289,10 @@ export class McpDirectoryRpcHandlers {
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'McpDirectoryRpcHandlers.registerGetPopular' },
         );
-        this.logger.error('RPC: mcpDirectory:getPopular failed', {
-          error: String(error),
-        });
+        this.logger.error(
+          'RPC: mcpDirectory:getPopular failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
         return { servers: [] };
       }
     });
