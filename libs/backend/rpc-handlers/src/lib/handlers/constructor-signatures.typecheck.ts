@@ -25,7 +25,11 @@ import type { AuthRpcHandlers } from './auth-rpc.handlers';
 import type { LlmRpcHandlers } from './llm-rpc-app.handlers';
 import type { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  RpcHandler,
+  SentryService,
+} from '@ptah-extension/vscode-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import type {
   SettingsExportService,
@@ -118,8 +122,9 @@ const _assertLlmParam1: _LlmParam1 extends RpcHandler ? true : never = true;
 void _assertLlmParam1;
 
 type _LlmParam2 = _LlmRpcHandlersArgs[2];
-const _assertLlmParam2: _LlmParam2 extends DependencyContainer ? true : never =
-  true;
+const _assertLlmParam2: _LlmParam2 extends SentryService | undefined
+  ? true
+  : never = true;
 void _assertLlmParam2;
 
 type _WorkspaceRpcHandlersArgs = ConstructorParameters<

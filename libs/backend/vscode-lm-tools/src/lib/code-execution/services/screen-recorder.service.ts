@@ -10,6 +10,8 @@
  * IBrowserCapabilities implementation to avoid cross-library dependencies.
  */
 
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
+/// <reference path="./gifenc.d.ts" />
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
