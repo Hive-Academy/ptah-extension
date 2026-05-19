@@ -47,6 +47,12 @@ interface IInternalQueryService {
 
 const HANDLER_PREFIX = 'handler:';
 
+function extractHandlerName(prompt: string): string | undefined {
+  if (!prompt.startsWith(HANDLER_PREFIX)) return undefined;
+  const rest = prompt.slice(HANDLER_PREFIX.length).trim();
+  return rest.length > 0 ? rest : undefined;
+}
+
 export interface JobRunnerRunOptions {
   /** Caller-provided abort signal (e.g. from `runNow` or shutdown). */
   signal?: AbortSignal;
@@ -118,10 +124,14 @@ export class JobRunner {
         });
         return;
       }
-      this.logger.error('[cron-scheduler] tryClaim failed', {
-        jobId: job.id,
-        scheduledFor,
-        err: (err as Error).message,
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.logger.logWithContext('error', '[cron-scheduler] tryClaim failed', {
+        error,
+        metadata: {
+          jobId: job.id,
+          scheduledFor,
+          handler: extractHandlerName(job.prompt),
+        },
       });
       return;
     }
@@ -155,7 +165,7 @@ export class JobRunner {
         runId,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const error = err instanceof Error ? err : new Error(String(err));
       if (localCtl.signal.aborted) {
         this.runs.markSkipped(runId, 'aborted');
         this.logger.info('[cron-scheduler] run aborted', {
@@ -163,14 +173,17 @@ export class JobRunner {
           runId,
         });
       } else {
-        this.runs.markFailed(runId, message);
+        this.runs.markFailed(runId, error.message);
         if (!opts.suppressJobTimestamps) {
           this.jobs.update(job.id, { lastRunAt: Date.now() });
         }
-        this.logger.error('[cron-scheduler] run failed', {
-          jobId: job.id,
-          runId,
-          err: message,
+        this.logger.logWithContext('error', '[cron-scheduler] run failed', {
+          error,
+          metadata: {
+            jobId: job.id,
+            runId,
+            handler: extractHandlerName(job.prompt),
+          },
         });
       }
     } finally {

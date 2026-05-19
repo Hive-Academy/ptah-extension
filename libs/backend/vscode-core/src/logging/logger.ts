@@ -186,8 +186,7 @@ export class Logger {
   /**
    * Dispose resources (called on extension deactivation)
    */
-  dispose(): void {
-  }
+  dispose(): void {}
 
   /**
    * Log message with arguments
@@ -280,6 +279,28 @@ export class Logger {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
           `  Error: ${entry.context.error.message}`,
+        );
+      }
+
+      const KNOWN_KEYS = new Set(['service', 'operation', 'metadata', 'error']);
+      const extras: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(
+        entry.context as Record<string, unknown>,
+      )) {
+        if (!KNOWN_KEYS.has(key) && value !== undefined) {
+          extras[key] = value;
+        }
+      }
+      if (Object.keys(extras).length > 0) {
+        let serializedExtras: string;
+        try {
+          serializedExtras = JSON.stringify(extras, null, 2);
+        } catch {
+          serializedExtras = '[Unserializable]';
+        }
+        this.outputManager.write(
+          Logger.CHANNEL_NAME,
+          `  Extras: ${serializedExtras}`,
         );
       }
     }
