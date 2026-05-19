@@ -71,14 +71,24 @@ export class ToolOutputFormatterService {
    * @returns Markdown-formatted string with code blocks
    */
   public formatToolInput(content: string, rawJson: string): string {
-    const parsed = JSON.parse(rawJson);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch {
+      return '```\n' + content + '\n```';
+    }
     if (parsed && typeof parsed === 'object') {
-      const filePath = parsed.file_path || parsed.path || '';
+      const obj = parsed as Record<string, unknown>;
+      const filePath =
+        (obj['file_path'] as string) || (obj['path'] as string) || '';
       if (filePath) {
         const language = this.getLanguageFromPath(filePath);
         if (language) {
           const codeContent =
-            parsed.content || parsed.command || parsed.pattern || '';
+            (obj['content'] as string) ||
+            (obj['command'] as string) ||
+            (obj['pattern'] as string) ||
+            '';
           if (codeContent) {
             return '```' + language + '\n' + codeContent + '\n```';
           }

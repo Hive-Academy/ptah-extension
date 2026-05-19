@@ -27,13 +27,11 @@ jest.mock('vscode', () => require('./vscode-shim'));
 import 'reflect-metadata';
 
 import { ConfigManager } from '@ptah-extension/vscode-core';
-// Deep imports into agent-sdk are intentional: these internal classes are the
-// real consumers exercised against the shim, and adding them to the public
-// barrel just to satisfy a test would leak implementation detail.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { ConfigWatcher } from '../../../../libs/backend/agent-sdk/src/lib/helpers/config-watcher';
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { PtahCliConfigPersistence } from '../../../../libs/backend/agent-sdk/src/lib/ptah-cli/helpers/ptah-cli-config-persistence.service';
+import { SdkAdapterEvents } from '../../../../libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service';
+import { PtahCliConfigPersistence } from '@ptah-extension/cli-agent-runtime';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { ISecretStorage } from '@ptah-extension/platform-core';
 
@@ -84,7 +82,9 @@ function buildConfigWatcher(
   config: ConfigManager,
   secretStorage: ISecretStorage,
 ): ConfigWatcher {
-  return new ConfigWatcher(makeLogger(), config, secretStorage);
+  const logger = makeLogger();
+  const events = new SdkAdapterEvents(logger);
+  return new ConfigWatcher(logger, config, secretStorage, events);
 }
 
 function buildPtahCliConfigPersistence(

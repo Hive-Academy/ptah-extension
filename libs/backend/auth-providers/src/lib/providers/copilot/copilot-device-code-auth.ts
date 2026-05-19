@@ -257,7 +257,11 @@ export async function executeDeviceCodeFlow(
     deviceCodeResponse.verification_uri,
   );
   if (callbacks.openBrowser) {
-    await callbacks.openBrowser(deviceCodeResponse.verification_uri);
+    try {
+      await callbacks.openBrowser(deviceCodeResponse.verification_uri);
+    } catch (error: unknown) {
+      void error;
+    }
   }
   const intervalMs = Math.max(deviceCodeResponse.interval, 5) * 1000;
   const startTime = Date.now();

@@ -93,47 +93,60 @@ export class WorkspaceMcpCollector {
 
     const tools: AnthropicToolDefinition[] = [];
     try {
-      const mcpResp = await this.rpcCall<
-        Record<string, never>,
-        { servers?: InstalledMcpServerLike[] }
-      >('mcpDirectory:listInstalled', {});
-      if (mcpResp.success && Array.isArray(mcpResp.data?.servers)) {
-        for (const server of mcpResp.data.servers) {
-          const tool = this.mcpServerToTool(server);
-          if (tool !== null) tools.push(tool);
+      try {
+        const mcpResp = await this.rpcCall<
+          Record<string, never>,
+          { servers?: InstalledMcpServerLike[] }
+        >('mcpDirectory:listInstalled', {});
+        if (mcpResp.success && Array.isArray(mcpResp.data?.servers)) {
+          for (const server of mcpResp.data.servers) {
+            const tool = this.mcpServerToTool(server);
+            if (tool !== null) tools.push(tool);
+          }
+        }
+      } catch {
+        this.cache.delete(workspacePath);
+      }
+
+      const pluginIds: string[] = [];
+      try {
+        const pluginsListResp = await this.rpcCall<
+          Record<string, never>,
+          { plugins?: Array<{ id?: string }> }
+        >('plugins:list', {});
+        if (
+          pluginsListResp.success &&
+          Array.isArray(pluginsListResp.data?.plugins)
+        ) {
+          for (const plugin of pluginsListResp.data.plugins) {
+            if (typeof plugin.id === 'string' && plugin.id.length > 0) {
+              pluginIds.push(plugin.id);
+            }
+          }
+        }
+      } catch {
+        this.cache.delete(workspacePath);
+      }
+
+      if (pluginIds.length > 0) {
+        try {
+          const skillsResp = await this.rpcCall<
+            { pluginIds: string[] },
+            { skills?: PluginSkillEntryLike[] }
+          >('plugins:list-skills', { pluginIds });
+          if (skillsResp.success && Array.isArray(skillsResp.data?.skills)) {
+            for (const skill of skillsResp.data.skills) {
+              const tool = this.skillToTool(skill);
+              if (tool !== null) tools.push(tool);
+            }
+          }
+        } catch {
+          this.cache.delete(workspacePath);
         }
       }
     } catch {
       this.cache.delete(workspacePath);
-    }
-
-    const pluginsListResp = await this.rpcCall<
-      Record<string, never>,
-      { plugins?: Array<{ id?: string }> }
-    >('plugins:list', {});
-    const pluginIds: string[] = [];
-    if (
-      pluginsListResp.success &&
-      Array.isArray(pluginsListResp.data?.plugins)
-    ) {
-      for (const plugin of pluginsListResp.data.plugins) {
-        if (typeof plugin.id === 'string' && plugin.id.length > 0) {
-          pluginIds.push(plugin.id);
-        }
-      }
-    }
-
-    if (pluginIds.length > 0) {
-      const skillsResp = await this.rpcCall<
-        { pluginIds: string[] },
-        { skills?: PluginSkillEntryLike[] }
-      >('plugins:list-skills', { pluginIds });
-      if (skillsResp.success && Array.isArray(skillsResp.data?.skills)) {
-        for (const skill of skillsResp.data.skills) {
-          const tool = this.skillToTool(skill);
-          if (tool !== null) tools.push(tool);
-        }
-      }
+      return [];
     }
 
     this.cache.set(workspacePath, {

@@ -320,7 +320,7 @@ export class IgnorePatternResolverService {
    * @returns Parsed ignore pattern or null if invalid
    */
   private parsePattern(raw: string, lineNumber: number): IgnorePattern | null {
-    let pattern = raw.trimEnd().trimStart();
+    let pattern = raw.trim();
     if (pattern === '') {
       return null;
     }
@@ -336,20 +336,9 @@ export class IgnorePatternResolverService {
     if (isAnchored) {
       pattern = pattern.slice(1);
     }
-    if (isDirectoryOnly) {
-      pattern = pattern.slice(0, -1);
-    }
 
-    const hasInternalSlash = pattern.includes('/');
-
-    if (!isAnchored && !hasInternalSlash) {
-      pattern = `**/${pattern}`;
-    }
-
-    if (isDirectoryOnly) {
-      pattern = `${pattern}/**`;
-    } else {
-      pattern = `{${pattern},${pattern}/**}`;
+    if (isDirectoryOnly && !pattern.includes('**')) {
+      pattern = `${pattern.slice(0, -1)}/**`;
     }
 
     return {

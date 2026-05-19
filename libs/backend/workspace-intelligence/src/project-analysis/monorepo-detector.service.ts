@@ -120,11 +120,15 @@ export class MonorepoDetectorService {
       let packageCount: number | undefined;
       if (nxExists) {
         const content = await this.fileSystem.readFile(nxJsonPath);
-        const nxJson = JSON.parse(content) as {
-          projects?: Record<string, unknown>;
-        };
-        if (nxJson.projects) {
-          packageCount = Object.keys(nxJson.projects).length;
+        try {
+          const nxJson = JSON.parse(content) as {
+            projects?: Record<string, unknown>;
+          };
+          if (nxJson.projects) {
+            packageCount = Object.keys(nxJson.projects).length;
+          }
+        } catch {
+          packageCount = undefined;
         }
       }
 
@@ -152,25 +156,34 @@ export class MonorepoDetectorService {
       let packageCount: number | undefined;
 
       const content = await this.fileSystem.readFile(lernaJsonPath);
-      const lernaJson = JSON.parse(content) as {
-        packages?: string[];
-        useWorkspaces?: boolean;
-      };
-      if (lernaJson.useWorkspaces) {
-        const packageJsonPath = path.join(workspacePath, 'package.json');
-        const packageJsonExists = await this.fileSystem.exists(packageJsonPath);
-        if (packageJsonExists) {
-          const packageContent =
-            await this.fileSystem.readFile(packageJsonPath);
-          const packageJson = JSON.parse(packageContent) as {
-            workspaces?: string[];
-          };
-          if (packageJson.workspaces) {
-            packageCount = packageJson.workspaces.length;
+      try {
+        const lernaJson = JSON.parse(content) as {
+          packages?: string[];
+          useWorkspaces?: boolean;
+        };
+        if (lernaJson.useWorkspaces) {
+          const packageJsonPath = path.join(workspacePath, 'package.json');
+          const packageJsonExists =
+            await this.fileSystem.exists(packageJsonPath);
+          if (packageJsonExists) {
+            const packageContent =
+              await this.fileSystem.readFile(packageJsonPath);
+            try {
+              const packageJson = JSON.parse(packageContent) as {
+                workspaces?: string[];
+              };
+              if (packageJson.workspaces) {
+                packageCount = packageJson.workspaces.length;
+              }
+            } catch {
+              packageCount = undefined;
+            }
           }
+        } else if (lernaJson.packages) {
+          packageCount = lernaJson.packages.length;
         }
-      } else if (lernaJson.packages) {
-        packageCount = lernaJson.packages.length;
+      } catch {
+        packageCount = undefined;
       }
 
       return {
@@ -197,11 +210,15 @@ export class MonorepoDetectorService {
       let packageCount: number | undefined;
 
       const content = await this.fileSystem.readFile(rushJsonPath);
-      const rushJson = JSON.parse(content) as {
-        projects?: Array<{ packageName: string }>;
-      };
-      if (rushJson.projects) {
-        packageCount = rushJson.projects.length;
+      try {
+        const rushJson = JSON.parse(content) as {
+          projects?: Array<{ packageName: string }>;
+        };
+        if (rushJson.projects) {
+          packageCount = rushJson.projects.length;
+        }
+      } catch {
+        packageCount = undefined;
       }
 
       return {
@@ -278,24 +295,28 @@ export class MonorepoDetectorService {
 
     if (exists) {
       const content = await this.fileSystem.readFile(packageJsonPath);
-      const packageJson = JSON.parse(content) as {
-        workspaces?: string[] | { packages?: string[] };
-      };
-
-      if (packageJson.workspaces) {
-        let packageCount: number | undefined;
-        if (Array.isArray(packageJson.workspaces)) {
-          packageCount = packageJson.workspaces.length;
-        } else if (packageJson.workspaces.packages) {
-          packageCount = packageJson.workspaces.packages.length;
-        }
-
-        return {
-          isMonorepo: true,
-          type: MonorepoType.YarnWorkspaces,
-          workspaceFiles: ['package.json'],
-          packageCount,
+      try {
+        const packageJson = JSON.parse(content) as {
+          workspaces?: string[] | { packages?: string[] };
         };
+
+        if (packageJson.workspaces) {
+          let packageCount: number | undefined;
+          if (Array.isArray(packageJson.workspaces)) {
+            packageCount = packageJson.workspaces.length;
+          } else if (packageJson.workspaces.packages) {
+            packageCount = packageJson.workspaces.packages.length;
+          }
+
+          return {
+            isMonorepo: true,
+            type: MonorepoType.YarnWorkspaces,
+            workspaceFiles: ['package.json'],
+            packageCount,
+          };
+        }
+      } catch {
+        return this.noMonorepoResult();
       }
     }
 

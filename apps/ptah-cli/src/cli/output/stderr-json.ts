@@ -64,5 +64,9 @@ export function emitFatalError(
     }
   }
 
-  process.stderr.write(`${JSON.stringify(payload)}\n`);
+  try {
+    process.stderr.write(`${JSON.stringify(payload)}\n`);
+  } catch {
+    return;
+  }
 }

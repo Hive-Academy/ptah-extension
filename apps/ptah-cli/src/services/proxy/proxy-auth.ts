@@ -84,7 +84,19 @@ export async function deleteProxyTokenFile(
 ): Promise<void> {
   const tokenPath = resolveProxyTokenPath(port, userDataPath);
 
-  await unlink(tokenPath);
+  try {
+    await unlink(tokenPath);
+  } catch (error: unknown) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
+    ) {
+      return;
+    }
+    throw error;
+  }
 }
 
 /**

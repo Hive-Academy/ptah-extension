@@ -298,13 +298,13 @@ export class OutputManager {
 
     try {
       channel.dispose();
-      this.outputChannels.delete(channelName);
-      this.channelMetrics.delete(channelName);
-
-      return true;
     } catch {
       return false;
     }
+    this.outputChannels.delete(channelName);
+    this.channelMetrics.delete(channelName);
+
+    return true;
   }
 
   /**
@@ -312,7 +312,13 @@ export class OutputManager {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    this.outputChannels.forEach((channel) => channel.dispose());
+    this.outputChannels.forEach((channel) => {
+      try {
+        channel.dispose();
+      } catch {
+        return;
+      }
+    });
     this.outputChannels.clear();
     this.channelMetrics.clear();
   }

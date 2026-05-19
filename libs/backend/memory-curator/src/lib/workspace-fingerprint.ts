@@ -65,17 +65,21 @@ export async function deriveWorkspaceFingerprint(
 
   const pkgRaw = await safeReadText(fs, join(workspaceRoot, 'package.json'));
   if (pkgRaw) {
-    const pkg = JSON.parse(pkgRaw) as {
-      name?: string;
-      repository?: { url?: string } | string;
-    };
-    const name = pkg.name ?? '';
-    const repo =
-      typeof pkg.repository === 'string'
-        ? pkg.repository
-        : (pkg.repository?.url ?? '');
-    if (name || repo) {
-      return { fp: HEX16(`pkg:${name}:${repo}`), source: 'package' };
+    try {
+      const pkg = JSON.parse(pkgRaw) as {
+        name?: string;
+        repository?: { url?: string } | string;
+      };
+      const name = pkg.name ?? '';
+      const repo =
+        typeof pkg.repository === 'string'
+          ? pkg.repository
+          : (pkg.repository?.url ?? '');
+      if (name || repo) {
+        return { fp: HEX16(`pkg:${name}:${repo}`), source: 'package' };
+      }
+    } catch {
+      return { fp: HEX16(`path:${workspaceRoot}`), source: 'path' };
     }
   }
   return { fp: HEX16(`path:${workspaceRoot}`), source: 'path' };

@@ -66,6 +66,25 @@ function buildMinimalContainer(): DependencyContainer {
   c.register(TOKENS.PLATFORM_COMMANDS, {
     useValue: { executeCommand: jest.fn(), registerCommand: jest.fn() },
   });
+  c.register(TOKENS.MODEL_DISCOVERY, {
+    useValue: {
+      getCopilotModels: jest.fn(async () => []),
+      getCodexModels: jest.fn(async () => []),
+    },
+  });
+  c.register(TOKENS.CONFIG_MANAGER, {
+    useValue: {
+      get: jest.fn(() => undefined),
+      set: jest.fn(async () => undefined),
+    },
+  });
+  c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
+    useValue: {
+      get: jest.fn(async () => undefined),
+      store: jest.fn(async () => undefined),
+      delete: jest.fn(async () => undefined),
+    },
+  });
 
   c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
     useValue: {

@@ -206,10 +206,14 @@ export function buildGitNamespace(
           };
         }
         if (onWorktreeChanged) {
-          onWorktreeChanged({
-            action: 'removed',
-            worktreePath: params.path,
-          });
+          try {
+            onWorktreeChanged({
+              action: 'removed',
+              worktreePath: params.path,
+            });
+          } catch {
+            void 0;
+          }
         }
 
         return { success: true };

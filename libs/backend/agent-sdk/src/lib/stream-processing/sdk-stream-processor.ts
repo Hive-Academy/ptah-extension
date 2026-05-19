@@ -264,6 +264,10 @@ export class SdkStreamProcessor {
     emitter: SdkStreamProcessorConfig['emitter'],
     event: Parameters<SdkStreamProcessorConfig['emitter']['emit']>[0],
   ): void {
-    emitter.emit(event);
+    try {
+      emitter.emit(event);
+    } catch {
+      return;
+    }
   }
 }

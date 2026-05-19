@@ -117,15 +117,35 @@ export async function readCopilotToken(): Promise<string | null> {
  */
 export async function writeCopilotToken(token: string): Promise<void> {
   const hostsPath = getCopilotHostsPath();
-  await mkdir(dirname(hostsPath), { recursive: true });
-  let hosts: CopilotHostsFile = {};
 
-  const raw = await readFile(hostsPath, 'utf-8');
-  hosts = JSON.parse(raw) as CopilotHostsFile;
+  try {
+    await mkdir(dirname(hostsPath), { recursive: true });
+  } catch (error: unknown) {
+    void error;
+  }
+
+  let hosts: CopilotHostsFile = {};
+  try {
+    const raw = await readFile(hostsPath, 'utf-8');
+    try {
+      hosts = JSON.parse(raw) as CopilotHostsFile;
+    } catch (error: unknown) {
+      void error;
+      hosts = {};
+    }
+  } catch (error: unknown) {
+    void error;
+    hosts = {};
+  }
+
   hosts['github.com'] = {
     ...hosts['github.com'],
     oauth_token: token,
   };
 
-  await writeFile(hostsPath, JSON.stringify(hosts, null, 2), 'utf-8');
+  try {
+    await writeFile(hostsPath, JSON.stringify(hosts, null, 2), 'utf-8');
+  } catch (error: unknown) {
+    void error;
+  }
 }

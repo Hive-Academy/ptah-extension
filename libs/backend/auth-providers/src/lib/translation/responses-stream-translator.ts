@@ -192,7 +192,14 @@ export class ResponsesStreamTranslator {
           continue;
         }
 
-        const parsed = JSON.parse(data) as ResponsesStreamEvent;
+        let parsed: ResponsesStreamEvent;
+        try {
+          parsed = JSON.parse(data) as ResponsesStreamEvent;
+        } catch (error: unknown) {
+          void error;
+          currentEventType = '';
+          continue;
+        }
         const eventType = parsed.type || currentEventType;
         events.push(...this.handleEvent(eventType, parsed));
         currentEventType = '';
