@@ -48,6 +48,7 @@ import type {
 import {
   MEMORY_CONTRACT_TOKENS,
   type IMemoryReader,
+  type ISymbolSink,
 } from '@ptah-extension/memory-contracts';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -459,6 +460,13 @@ export class CliDIContainer {
     };
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
       useValue: noopMemoryReader,
+    });
+    const noopSymbolSink: ISymbolSink = {
+      deleteSymbolsForFile: () => 0,
+      insertSymbols: async () => undefined,
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
+      useValue: noopSymbolSink,
     });
     try {
       container.register(TOKENS.WEBVIEW_MESSAGE_HANDLER, { useValue: {} });

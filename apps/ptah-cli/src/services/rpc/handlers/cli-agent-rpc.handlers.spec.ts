@@ -15,6 +15,11 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
 
+jest.mock('fs/promises', () => ({
+  readdir: jest.fn().mockResolvedValue([]),
+  access: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { CliAgentRpcHandlers } from './cli-agent-rpc.handlers.js';
 // Cross-app parity import: the Electron `AgentRpcHandlers` is the source of
 // truth for the agent RPC surface. Importing it here ensures any drift in

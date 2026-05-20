@@ -37,6 +37,7 @@ import {
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
   GatewayRpcHandlers,
+  IndexingRpcHandlers,
   registerHarnessServices,
   registerChatServices,
   registerSharedRpcHandlers,
@@ -103,6 +104,7 @@ export function registerPhase4Handlers(
   container.registerSingleton(SkillsSynthesisRpcHandlers);
   container.registerSingleton(CronRpcHandlers);
   container.registerSingleton(GatewayRpcHandlers);
+  container.registerSingleton(IndexingRpcHandlers);
 
   logger.info(
     '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
@@ -139,7 +141,7 @@ export function registerPhase4Handlers(
         c.resolve(TOKENS.RPC_HANDLER),
         c.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
         c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-        c,
+        c.resolve(PLATFORM_TOKENS.EDITOR_PROVIDER),
         c.resolve(TOKENS.WEBVIEW_MANAGER),
       ),
   });
