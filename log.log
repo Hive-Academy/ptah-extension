@@ -1,931 +1,312 @@
+ > nx run @ptah-extension/cli-agent-runtime:test --coverage
 
-(node:32876) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-(Use `electron --trace-deprecation ...` to show where the warning was created)
-[INFO] [Electron DI] Starting service registration...
-[INFO] [VS Code Core] Platform-agnostic services registered: {"services":["RPC_HANDLER","MESSAGE_VALIDATOR","SUBAGENT_REGISTRY_SERVICE","FEATURE_GATE_SERVICE","SENTRY_SERVICE","LICENSE_SERVICE","AUTH_SECRETS_SERVICE"]}
-[INFO] [Electron DI] FILE_SYSTEM_MANAGER shim registered (delegates to IFileSystemProvider)
-[INFO] [Electron DI] CONFIG_MANAGER registered (real ConfigManager + file-based settings routed via ElectronWorkspaceProvider.fileSettings)
-[INFO] [Electron DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)
-[INFO] [Electron DI] WorkspaceAwareStateStorage and WorkspaceContextManager registered (TASK_2025_208)
-[INFO] [Workspace Intelligence] Registering services...
-[INFO] TreeSitterParserService created. Initialization required.
-[INFO] [Quality Services] Registering quality assessment services...
-[INFO] [Quality Services] Quality assessment services registered: {"services":["ANTI_PATTERN_DETECTION_SERVICE","FILE_HASH_CACHE_SERVICE","CODE_QUALITY_ASSESSMENT_SERVICE","PRESCRIPTIVE_GUIDANCE_SERVICE","PROJECT_INTELLIGENCE_SERVICE","QUALITY_HISTORY_SERVICE","QUALITY_EXPORT_SERVICE"]}
-[INFO] [Workspace Intelligence] Services registered: {"services":["PATTERN_MATCHER_SERVICE","IGNORE_PATTERN_RESOLVER_SERVICE","FILE_TYPE_CLASSIFIER_SERVICE","FILE_SYSTEM_SERVICE","TOKEN_COUNTER_SERVICE","MONOREPO_DETECTOR_SERVICE","DEPENDENCY_ANALYZER_SERVICE","FRAMEWORK_DETECTOR_SERVICE","PROJECT_DETECTOR_SERVICE","WORKSPACE_INDEXER_SERVICE","WORKSPACE_ANALYZER_SERVICE","WORKSPACE_SERVICE","CONTEXT_SERVICE","FILE_RELEVANCE_SCORER","CONTEXT_SIZE_OPTIMIZER","CONTEXT_ORCHESTRATION_SERVICE","CONTEXT_ENRICHMENT_SERVICE","TREE_SITTER_PARSER_SERVICE","AST_ANALYSIS_SERVICE","DEPENDENCY_GRAPH_SERVICE","AGENT_DISCOVERY_SERVICE","COMMAND_DISCOVERY_SERVICE","CODE_SYMBOL_INDEXER","ANTI_PATTERN_DETECTION_SERVICE","CODE_QUALITY_ASSESSMENT_SERVICE","PRESCRIPTIVE_GUIDANCE_SERVICE","PROJECT_INTELLIGENCE_SERVICE"]}
-[INFO] [auth-providers] Registering auth + provider services...
-[INFO] [auth-providers] Services registered
-[INFO] [AgentSDK] Registering SDK services...
-[DEBUG] [ConfigWatcher] Disposed all watchers
-[INFO] [ConfigWatcher] Configuration changed (authMethod), emitting configChanged event...
-[INFO] [ConfigWatcher] Configuration changed (anthropicProviderId), emitting configChanged event...
-[DEBUG] [ConfigWatcher] Registered 2 config watchers + 1 secrets watcher (bus mode)
-[INFO] [AgentSDK] SDK services registered successfully: {"services":["SDK_AGENT_ADAPTER","SDK_SESSION_METADATA_STORE","SDK_SESSION_IMPORTER","SDK_SESSION_HISTORY_READER","SDK_PERMISSION_HANDLER","SDK_MESSAGE_TRANSFORMER","SDK_SESSION_LIFECYCLE_MANAGER","SDK_CONFIG_WATCHER","SDK_STREAM_TRANSFORMER","SDK_CLI_DETECTOR","SDK_ATTACHMENT_PROCESSOR","SDK_SUBAGENT_HOOK_HANDLER","SDK_COMPACTION_CONFIG_PROVIDER","SDK_COMPACTION_HOOK_HANDLER","SDK_COMPACTION_CALLBACK_REGISTRY","SDK_SESSION_END_CALLBACK_REGISTRY","SDK_WORKTREE_HOOK_HANDLER","SDK_MESSAGE_FACTORY","SDK_QUERY_OPTIONS_BUILDER","SDK_QUERY_RUNNER","SDK_MODULE_LOADER","SDK_MODEL_SERVICE","SDK_HISTORY_EVENT_FACTORY","SDK_JSONL_READER","SDK_AGENT_CORRELATION","SDK_SESSION_REPLAY","SDK_INTERNAL_QUERY_SERVICE","SDK_PLUGIN_LOADER","SDK_SLASH_COMMAND_INTERCEPTOR","SDK_SKILL_JUNCTION","SDK_SETTINGS_EXPORT","SDK_SETTINGS_IMPORT","SDK_LIVE_USAGE_TRACKER","SDK_MEMORY_PROMPT_INJECTOR","SDK_CURATOR_LLM_ADAPTER","SDK_SUBAGENT_MESSAGE_DISPATCHER","SDK_WARM_QUERY_MANAGER","SDK_SESSION_FORK_SERVICE","SDK_RUNTIME_STATE","SDK_ADAPTER_EVENTS"]}
-[INFO] [CliAgentRuntime] Registering CLI agent runtime services...
-[INFO] [CliAgentRuntime] CLI agent runtime services registered: {"services":["SDK_PTAH_CLI_CONFIG_PERSISTENCE","SDK_PTAH_CLI_SPAWN_OPTIONS","SDK_PTAH_CLI_REGISTRY"]}
-[INFO] [Electron DI] WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs registered (TASK_2025_214)
-[INFO] [AgentGeneration] Registering agent-generation services...
-[INFO] [AgentGeneration] Agent-generation services registered: {"services":["OUTPUT_VALIDATION_SERVICE","TEMPLATE_STORAGE_SERVICE","ANALYSIS_STORAGE_SERVICE","AGENTIC_ANALYSIS_SERVICE","MULTI_PHASE_ANALYSIS_SERVICE","WIZARD_WEBVIEW_LIFECYCLE","AGENT_SELECTION_SERVICE","AGENT_RECOMMENDATION_SERVICE","CONTENT_GENERATION_SERVICE","AGENT_FILE_WRITER_SERVICE","MULTI_CLI_AGENT_WRITER_SERVICE","AGENT_GENERATION_ORCHESTRATOR","SETUP_STATUS_SERVICE","SETUP_WIZARD_SERVICE","PROMPT_DESIGNER_AGENT","PROMPT_CACHE_SERVICE","ENHANCED_PROMPTS_SERVICE"]}
-[INFO] [Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)
-[INFO] [persistence-sqlite] registering services
-[INFO] [persistence-sqlite] SqliteConnectionService constructed: {"dbPath":"C:\\Users\\abdal\\.ptah\\state\\ptah.sqlite"}
-[INFO] [persistence-sqlite] services registered: {"tokens":["SQLITE_CONNECTION","SQLITE_MIGRATION_RUNNER","SQLITE_DB_PATH","EMBEDDER","EMBEDDER_WORKER_PATH","BACKUP_SERVICE"]}
-[INFO] [memory-curator] registering services
-[INFO] [memory-curator] services registered
-[INFO] [Electron DI] Memory curator services registered (Track 1): {"dbPath":"C:\\Users\\abdal\\.ptah\\state\\ptah.sqlite","workerEntry":"D:\\projects\\ptah-extension\\dist\\apps\\ptah-electron\\embedder-worker.mjs"}
-[INFO] [skill-synthesis] registering services
-[INFO] [skill-synthesis] services registered: {"tokens":["SKILL_SYNTHESIS_SERVICE","SKILL_PROMOTION_SERVICE","SKILL_INVOCATION_TRACKER","SKILL_CANDIDATE_STORE","SKILL_CLUSTER_DEDUP_SERVICE","SKILL_JUDGE_SERVICE","SKILL_CURATOR_SERVICE"]}
-[INFO] [cron-scheduler] registering services
-[INFO] [cron-scheduler] services registered: {"tokens":["CRON_SCHEDULER","CRON_JOB_RUNNER","CRON_CATCHUP_COORD","CRON_POWER_MONITOR","CRON_JOB_STORE","CRON_RUN_STORE","CRON_HANDLER_REGISTRY"]}
-[INFO] [Electron DI] Cron scheduler services registered (Track 3)
-[INFO] [messaging-gateway] registering services
-[INFO] [messaging-gateway] services registered: {"tokens":["GATEWAY_SERVICE","GATEWAY_TOKEN_VAULT","GATEWAY_BINDING_STORE","GATEWAY_MESSAGE_STORE","GATEWAY_STREAM_COALESCER","GATEWAY_WHISPER_TRANSCRIBER","GATEWAY_FFMPEG_DECODER"]}
-[INFO] [Electron DI] Messaging gateway services registered (Track 4)
-[INFO] [Electron DI] Platform abstraction implementations registered (TASK_2025_203): {"services":["PLATFORM_COMMANDS","PLATFORM_AUTH_PROVIDER","SAVE_DIALOG_PROVIDER","MODEL_DISCOVERY"]}
-[INFO] [Electron DI] ElectronPowerMonitor registered (Track 3)
-[INFO] [VS Code LM Tools] Registering services...
-[INFO] [VS Code LM Tools] Services registered: {"services":["PTAH_API_BUILDER","CODE_EXECUTION_MCP","MCP_SERVER_STATUS","PERMISSION_PROMPT_SERVICE"]}
-[INFO] [Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209): {"handlers":["SessionRpcHandlers","ChatRpcHandlers","ConfigRpcHandlers","AuthRpcHandlers","ContextRpcHandlers","SetupRpcHandlers","LicenseRpcHandlers","WizardGenerationRpcHandlers","AutocompleteRpcHandlers","SubagentRpcHandlers","PluginRpcHandlers","PtahCliRpcHandlers","EnhancedPromptsRpcHandlers","QualityRpcHandlers","ProviderRpcHandlers","LlmRpcHandlers","WebSearchRpcHandlers","HarnessRpcHandlers","McpDirectoryRpcHandlers","GitRpcHandlers","WorkspaceRpcHandlers"]}
-[INFO] [Electron DI] Electron-specific RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209): {"handlers":["EditorRpcHandlers","FileRpcHandlers","ConfigExtendedRpcHandlers","CommandRpcHandlers","AgentRpcHandlers","SkillsShRpcHandlers","LayoutRpcHandlers","TerminalRpcHandlers"]}
-[INFO] [Electron DI] All services registered successfully
-[Ptah Electron] Settings registered and migrations applied
-[INFO] [LicenseService.constructor] Service initialized: {"serverUrl":"http://localhost:3000","cacheTtlMs":3600000,"gracePeriodMs":604800000}
-[DEBUG] RpcHandler: Initialized with license middleware
-[Ptah Electron] DI verify: TOKENS.RPC_HANDLER -- OK
-[Ptah Electron] DI verify: TOKENS.LOGGER -- OK
-[Ptah Electron] DI verify: PLATFORM_TOKENS.WORKSPACE_PROVIDER -- OK
-[Ptah Electron] DI verify: PLATFORM_TOKENS.STATE_STORAGE -- OK
-[Ptah Electron] DI verify: PLATFORM_TOKENS.SECRET_STORAGE -- OK
-[Ptah Electron] DI verification: 5/5 tokens resolved
-[DEBUG] [LicenseService] Hydrated cache from persisted snapshot: {"tier":"trial_pro","persistedAt":1779212175780}
-[Ptah Electron] Restored 1 workspace(s) from persisted state
-[DEBUG] [LicenseService.verifyLicense] Returning cached status: {"tier":"trial_pro","valid":true,"cacheAge":3247423}
-[Ptah Electron] License verified (tier: trial_pro)
-[IpcBridge] Terminal IPC handlers initialized
-[IpcBridge] IPC listeners initialized
-[INFO] [AuthSecretsService.constructor] Service initialized
-[DEBUG] [SubagentRegistryService.constructor] Service initialized
-[INFO] [SdkPermissionHandler] Initializing permission event emitter...
-[INFO] [SdkPermissionHandler] Permission event emitter initialized successfully
-[INFO] [SdkAgentAdapter] Initializing SDK adapter...
-[DEBUG] [AuthManager] Configuring auth method: claudeCli
-[DEBUG] [ProviderModelsService] Cleared all tier environment variables
-[DEBUG] [AuthManager] Resolved strategy: cli (provider: anthropic)
-[INFO] [CliStrategy] Configuring Claude CLI authentication
-(node:32876) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
-[INFO] [CliStrategy] Claude CLI found at C:\Users\abdal\.local\bin\claude.exe (v2.1.144)
-[DEBUG] [ProviderModelsService] Cleared all tier environment variables
-[INFO] [CliStrategy] Using Claude CLI authentication (credentials managed by CLI)
-[INFO] [AuthManager] Authentication configured: Claude CLI v2.1.144 (credentials managed by CLI at C:\Users\abdal\.local\bin\claude.exe)
-[DEBUG] [AuthManager] Env summary: ANTHROPIC_API_KEY=unset, ANTHROPIC_BASE_URL=unset, ANTHROPIC_AUTH_TOKEN=unset
-[INFO] [SdkAgentAdapter] Detecting Claude CLI installation...
-[INFO] [SdkAgentAdapter] Claude CLI found: {"path":"C:\\Users\\abdal\\.local\\bin\\claude.exe","source":"which-where","cliJsPath":"C:\\Users\\abdal\\.local\\bin\\claude.exe","useDirectExecution":false}
-[INFO] [SdkAgentAdapter] Initialized successfully
-[Ptah Electron] Agent adapters initialized successfully
-[INFO] [SdkModuleLoader] Pre-loading SDK during activation...
-[INFO] [SdkModuleLoader] Loading bundled Claude Agent SDK...
-[INFO] Loaded context state: 0 included, 0 excluded
-[INFO] [EnhancedPrompts] Multi-phase analysis reader configured
-[INFO] [CliDetection] Service initialized with adapters: gemini, codex, copilot, cursor
-[INFO] [AgentProcessManager] Initialized
-[INFO] [PtahCliRegistry] Registry initialized
-[INFO] PtahAPIBuilder initialized with 15 namespaces
-[DEBUG] Building Ptah API with all namespaces
-[DEBUG] RpcHandler: Registered method "auth:getHealth"
-[DEBUG] RpcHandler: Registered method "auth:getAuthStatus"
-[DEBUG] RpcHandler: Registered method "auth:getStatus"
-[DEBUG] RpcHandler: Registered method "auth:saveSettings"
-[DEBUG] RpcHandler: Registered method "auth:setApiKey"
-[DEBUG] RpcHandler: Registered method "auth:testConnection"
-[DEBUG] RpcHandler: Registered method "auth:copilotLogin"
-[DEBUG] RpcHandler: Registered method "auth:copilotLogout"
-[DEBUG] RpcHandler: Registered method "auth:copilotStatus"
-[DEBUG] RpcHandler: Registered method "auth:codexLogin"
-[DEBUG] RpcHandler: Registered method "auth:getApiKeyStatus"
-[DEBUG] Auth RPC handlers registered: {"methods":["auth:getHealth","auth:getAuthStatus","auth:getStatus","auth:saveSettings","auth:setApiKey","auth:testConnection","auth:copilotLogin","auth:copilotLogout","auth:copilotStatus","auth:codexLogin","auth:getApiKeyStatus"]}
-[DEBUG] RpcHandler: Registered method "autocomplete:agents"
-[DEBUG] RpcHandler: Registered method "autocomplete:commands"
-[DEBUG] Autocomplete RPC handlers registered: {"methods":["autocomplete:agents","autocomplete:commands"]}
-[DEBUG] RpcHandler: Registered method "chat:start"
-[DEBUG] RpcHandler: Registered method "chat:continue"
-[DEBUG] RpcHandler: Registered method "chat:resume"
-[DEBUG] RpcHandler: Registered method "chat:abort"
-[DEBUG] RpcHandler: Registered method "chat:running-agents"
-[DEBUG] RpcHandler: Registered method "agent:backgroundList"
-[DEBUG] Chat RPC handlers registered: {"methods":["chat:start","chat:continue","chat:resume","chat:abort","chat:running-agents","agent:backgroundList","agent:backgroundStop"]}
-[DEBUG] [FeatureGateService] Service initialized
-[DEBUG] RpcHandler: Registered method "config:model-switch"
-[DEBUG] RpcHandler: Registered method "config:model-set"
-[DEBUG] RpcHandler: Registered method "config:model-get"
-[DEBUG] RpcHandler: Registered method "config:autopilot-toggle"
-[DEBUG] RpcHandler: Registered method "config:autopilot-get"
-[DEBUG] RpcHandler: Registered method "config:models-list"
-[DEBUG] RpcHandler: Registered method "config:effort-get"
-[DEBUG] RpcHandler: Registered method "config:effort-set"
-[INFO] [SdkPermissionHandler] Permission level changed: ask → ask
-[DEBUG] Config RPC handlers registered: {"methods":["config:model-switch","config:model-set","config:model-get","config:autopilot-toggle","config:autopilot-get","config:models-list","config:effort-get","config:effort-set"],"initialPermissionLevel":"ask"}
-[DEBUG] RpcHandler: Registered method "context:getAllFiles"
-[DEBUG] RpcHandler: Registered method "context:getFileSuggestions"
-[DEBUG] Context RPC handlers registered: {"methods":["context:getAllFiles","context:getFileSuggestions"]}
-[DEBUG] RpcHandler: Registered method "cron:list"
-[DEBUG] RpcHandler: Registered method "cron:get"
-[DEBUG] RpcHandler: Registered method "cron:create"
-[DEBUG] RpcHandler: Registered method "cron:update"
-[DEBUG] RpcHandler: Registered method "cron:delete"
-[DEBUG] RpcHandler: Registered method "cron:toggle"
-[DEBUG] RpcHandler: Registered method "cron:runNow"
-[DEBUG] RpcHandler: Registered method "cron:runs"
-[DEBUG] RpcHandler: Registered method "cron:nextFire"
-[INFO] [cron] RPC handlers registered
-[DEBUG] RpcHandler: Registered method "enhancedPrompts:getStatus"
-[DEBUG] RpcHandler: Registered method "enhancedPrompts:runWizard"
-[DEBUG] RpcHandler: Registered method "enhancedPrompts:setEnabled"
-[DEBUG] RpcHandler: Registered method "enhancedPrompts:regenerate"
-[DEBUG] RpcHandler: Registered method "enhancedPrompts:getPromptContent"
-[DEBUG] RpcHandler: Registered method "enhancedPrompts:download"
-[DEBUG] Enhanced Prompts RPC handlers registered: {"methods":["enhancedPrompts:getStatus","enhancedPrompts:runWizard","enhancedPrompts:setEnabled","enhancedPrompts:regenerate","enhancedPrompts:getPromptContent","enhancedPrompts:download"]}
-[DEBUG] RpcHandler: Registered method "gateway:status"
-[DEBUG] RpcHandler: Registered method "gateway:start"
-[DEBUG] RpcHandler: Registered method "gateway:stop"
-[DEBUG] RpcHandler: Registered method "gateway:setToken"
-[DEBUG] RpcHandler: Registered method "gateway:listBindings"
-[DEBUG] RpcHandler: Registered method "gateway:approveBinding"
-[DEBUG] RpcHandler: Registered method "gateway:blockBinding"
-[DEBUG] RpcHandler: Registered method "gateway:listMessages"
-[DEBUG] RpcHandler: Registered method "gateway:test"
-[DEBUG] Gateway RPC handlers registered: {"methods":["gateway:status","gateway:start","gateway:stop","gateway:setToken","gateway:listBindings","gateway:approveBinding","gateway:blockBinding","gateway:listMessages","gateway:test"]}
-[DEBUG] RpcHandler: Registered method "git:info"
-[DEBUG] RpcHandler: Registered method "git:worktrees"
-[DEBUG] RpcHandler: Registered method "git:addWorktree"
-[DEBUG] RpcHandler: Registered method "git:removeWorktree"
-[DEBUG] RpcHandler: Registered method "git:stage"
-[DEBUG] RpcHandler: Registered method "git:unstage"
-[DEBUG] RpcHandler: Registered method "git:discard"
-[DEBUG] RpcHandler: Registered method "git:commit"
-[DEBUG] RpcHandler: Registered method "git:showFile"
-[DEBUG] RpcHandler: Registered method "git:branches"
-[DEBUG] RpcHandler: Registered method "git:checkout"
-[DEBUG] RpcHandler: Registered method "git:stashList"
-[DEBUG] RpcHandler: Registered method "git:tags"
-[DEBUG] RpcHandler: Registered method "git:remotes"
-[DEBUG] RpcHandler: Registered method "git:lastCommit"
-[DEBUG] RpcHandler: Registered method "harness:initialize"
-[DEBUG] RpcHandler: Registered method "harness:suggest-config"
-[DEBUG] RpcHandler: Registered method "harness:search-skills"
-[DEBUG] RpcHandler: Registered method "harness:create-skill"
-[DEBUG] RpcHandler: Registered method "harness:discover-mcp"
-[DEBUG] RpcHandler: Registered method "harness:generate-prompt"
-[DEBUG] RpcHandler: Registered method "harness:generate-claude-md"
-[DEBUG] RpcHandler: Registered method "harness:apply"
-[DEBUG] RpcHandler: Registered method "harness:save-preset"
-[DEBUG] RpcHandler: Registered method "harness:load-presets"
-[DEBUG] RpcHandler: Registered method "harness:chat"
-[DEBUG] RpcHandler: Registered method "harness:design-agents"
-[DEBUG] RpcHandler: Registered method "harness:generate-skills"
-[DEBUG] RpcHandler: Registered method "harness:generate-document"
-[DEBUG] RpcHandler: Registered method "harness:analyze-intent"
-[DEBUG] RpcHandler: Registered method "harness:converse"
-[DEBUG] Harness RPC handlers registered: {"methods":["harness:initialize","harness:suggest-config","harness:search-skills","harness:create-skill","harness:discover-mcp","harness:generate-prompt","harness:generate-claude-md","harness:apply","harness:save-preset","harness:load-presets","harness:chat","harness:design-agents","harness:generate-skills","harness:generate-document","harness:analyze-intent","harness:converse"]}
-[DEBUG] RpcHandler: Registered method "indexing:getStatus"
-[DEBUG] RpcHandler: Registered method "indexing:start"
-[DEBUG] RpcHandler: Registered method "indexing:pause"
-[DEBUG] RpcHandler: Registered method "indexing:resume"
-[DEBUG] RpcHandler: Registered method "indexing:cancel"
-[DEBUG] RpcHandler: Registered method "indexing:setPipelineEnabled"
-[DEBUG] RpcHandler: Registered method "indexing:dismissStale"
-[DEBUG] RpcHandler: Registered method "indexing:acknowledgeDisclosure"
-[INFO] [indexing] RPC handlers registered
-[DEBUG] RpcHandler: Registered method "license:getStatus"
-[DEBUG] RpcHandler: Registered method "license:setKey"
-[DEBUG] RpcHandler: Registered method "license:clearKey"
-[DEBUG] License RPC handlers registered: {"methods":["license:getStatus","license:setKey","license:clearKey"]}
-[DEBUG] RpcHandler: Registered method "llm:getProviderStatus"
-[DEBUG] RpcHandler: Registered method "llm:setApiKey"
-[DEBUG] RpcHandler: Registered method "llm:removeApiKey"
-[DEBUG] RpcHandler: Registered method "llm:getDefaultProvider"
-[DEBUG] RpcHandler: Registered method "llm:setDefaultProvider"
-[DEBUG] RpcHandler: Registered method "llm:setDefaultModel"
-[DEBUG] RpcHandler: Registered method "llm:validateApiKeyFormat"
-[DEBUG] RpcHandler: Registered method "llm:listVsCodeModels"
-[DEBUG] RpcHandler: Registered method "llm:listProviderModels"
-[DEBUG] RpcHandler: Registered method "llm:setProviderBaseUrl"
-[DEBUG] RpcHandler: Registered method "llm:getProviderBaseUrl"
-[DEBUG] RpcHandler: Registered method "llm:clearProviderBaseUrl"
-[DEBUG] LLM RPC handlers registered: {"methods":["llm:getProviderStatus","llm:setApiKey","llm:removeApiKey","llm:getDefaultProvider","llm:setDefaultProvider","llm:setDefaultModel","llm:validateApiKeyFormat","llm:listVsCodeModels","llm:listProviderModels","llm:setProviderBaseUrl","llm:getProviderBaseUrl","llm:clearProviderBaseUrl"]}
-[DEBUG] RpcHandler: Registered method "mcpDirectory:search"
-[DEBUG] RpcHandler: Registered method "mcpDirectory:getDetails"
-[DEBUG] RpcHandler: Registered method "mcpDirectory:install"
-[DEBUG] RpcHandler: Registered method "mcpDirectory:uninstall"
-[DEBUG] RpcHandler: Registered method "mcpDirectory:listInstalled"
-[DEBUG] RpcHandler: Registered method "mcpDirectory:getPopular"
-[DEBUG] MCP Directory RPC handlers registered: {"methods":["mcpDirectory:search","mcpDirectory:getDetails","mcpDirectory:install","mcpDirectory:uninstall","mcpDirectory:listInstalled","mcpDirectory:getPopular"]}
-[DEBUG] RpcHandler: Registered method "memory:list"
-[DEBUG] RpcHandler: Registered method "memory:search"
-[DEBUG] RpcHandler: Registered method "memory:get"
-[DEBUG] RpcHandler: Registered method "memory:pin"
-[DEBUG] RpcHandler: Registered method "memory:unpin"
-[DEBUG] RpcHandler: Registered method "memory:forget"
-[DEBUG] RpcHandler: Registered method "memory:rebuildIndex"
-[DEBUG] RpcHandler: Registered method "memory:stats"
-[DEBUG] RpcHandler: Registered method "memory:purgeBySubjectPattern"
-[DEBUG] RpcHandler: Registered method "memory:purgeJunk"
-[INFO] [memory] RPC handlers registered
-[DEBUG] RpcHandler: Registered method "db:health"
-[DEBUG] RpcHandler: Registered method "db:reset"
-[INFO] [persistence] RPC handlers registered
-[DEBUG] RpcHandler: Registered method "plugins:list-available"
-[DEBUG] RpcHandler: Registered method "plugins:get-config"
-[DEBUG] RpcHandler: Registered method "plugins:save-config"
-[DEBUG] RpcHandler: Registered method "plugins:list-skills"
-[DEBUG] Plugin RPC handlers registered: {"methods":["plugins:list-available","plugins:get-config","plugins:save-config","plugins:list-skills"]}
-[DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"github-copilot"}
-[DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"openai-codex"}
-[DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"anthropic"}
-[DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"ollama"}
-[DEBUG] [ProviderModelsService] Registered dynamic model fetcher: {"providerId":"ollama-cloud"}
-[DEBUG] [ProviderRpc] Registered eager Ollama dynamic fetchers
-[DEBUG] RpcHandler: Registered method "provider:listModels"
-[DEBUG] RpcHandler: Registered method "provider:setModelTier"
-[DEBUG] RpcHandler: Registered method "provider:getModelTiers"
-[DEBUG] RpcHandler: Registered method "provider:clearModelTier"
-[DEBUG] Provider RPC handlers registered: {"methods":["provider:listModels","provider:setModelTier","provider:getModelTiers","provider:clearModelTier"]}
-[DEBUG] RpcHandler: Registered method "ptahCli:list"
-[DEBUG] RpcHandler: Registered method "ptahCli:create"
-[DEBUG] RpcHandler: Registered method "ptahCli:update"
-[DEBUG] RpcHandler: Registered method "ptahCli:delete"
-[DEBUG] RpcHandler: Registered method "ptahCli:testConnection"
-[DEBUG] RpcHandler: Registered method "ptahCli:listModels"
-[DEBUG] Ptah CLI RPC handlers registered: {"methods":["ptahCli:list","ptahCli:create","ptahCli:update","ptahCli:delete","ptahCli:testConnection","ptahCli:listModels"]}
-[DEBUG] AntiPatternDetectionService initialized: {"ruleCount":25}
-[DEBUG] FileHashCacheService initialized: {"maxSize":10000,"ttlMs":1800000}
-[DEBUG] CodeQualityAssessmentService initialized
-[DEBUG] PrescriptiveGuidanceService initialized
-[DEBUG] ProjectIntelligenceService initialized
-[DEBUG] QualityHistoryService initialized
-[DEBUG] QualityExportService initialized
-[DEBUG] RpcHandler: Registered method "quality:getAssessment"
-[DEBUG] RpcHandler: Registered method "quality:getHistory"
-[DEBUG] RpcHandler: Registered method "quality:export"
-[DEBUG] Quality RPC handlers registered: {"methods":["quality:getAssessment","quality:getHistory","quality:export"]}
-[DEBUG] RpcHandler: Registered method "session:list"
-[DEBUG] RpcHandler: Registered method "session:load"
-[DEBUG] RpcHandler: Registered method "session:delete"
-[DEBUG] RpcHandler: Registered method "session:rename"
-[DEBUG] RpcHandler: Registered method "session:validate"
-[DEBUG] RpcHandler: Registered method "session:cli-sessions"
-[DEBUG] RpcHandler: Registered method "session:stats-batch"
-[DEBUG] RpcHandler: Registered method "session:forkSession"
-[DEBUG] RpcHandler: Registered method "session:rewindFiles"
-[DEBUG] Session RPC handlers registered: {"methods":["session:list","session:load","session:delete","session:rename","session:validate","session:cli-sessions","session:stats-batch","session:forkSession","session:rewindFiles"]}
-[DEBUG] RpcHandler: Registered method "settings:export"
-[DEBUG] RpcHandler: Registered method "settings:import"
-[DEBUG] Settings RPC handlers registered: {"methods":["settings:export","settings:import"]}
-[DEBUG] RpcHandler: Registered method "setup-status:get-status"
-[DEBUG] RpcHandler: Registered method "setup-wizard:launch"
-[DEBUG] RpcHandler: Registered method "wizard:deep-analyze"
-[DEBUG] RpcHandler: Registered method "wizard:recommend-agents"
-[DEBUG] RpcHandler: Registered method "wizard:cancel-analysis"
-[DEBUG] RpcHandler: Registered method "wizard:list-analyses"
-[DEBUG] RpcHandler: Registered method "wizard:load-analysis"
-[DEBUG] RpcHandler: Registered method "wizard:list-agent-packs"
-[DEBUG] RpcHandler: Registered method "wizard:install-pack-agents"
-[DEBUG] RpcHandler: Registered method "wizard:start-new-project-chat"
-[DEBUG] Setup RPC handlers registered: {"methods":["setup-status:get-status","setup-wizard:launch","wizard:deep-analyze","wizard:recommend-agents","wizard:cancel-analysis","wizard:list-analyses","wizard:load-analysis","wizard:list-agent-packs","wizard:install-pack-agents","wizard:start-new-project-chat"]}
-[DEBUG] RpcHandler: Registered method "skillSynthesis:listCandidates"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:getCandidate"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:promote"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:reject"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:invocations"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:stats"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:getSettings"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:updateSettings"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:pin"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:unpin"
-[DEBUG] RpcHandler: Registered method "skillSynthesis:runCurator"
-[DEBUG] Skill Synthesis RPC handlers registered: {"methods":["skillSynthesis:listCandidates","skillSynthesis:getCandidate","skillSynthesis:promote","skillSynthesis:reject","skillSynthesis:invocations","skillSynthesis:stats","skillSynthesis:getSettings","skillSynthesis:updateSettings","skillSynthesis:pin","skillSynthesis:unpin","skillSynthesis:runCurator"]}
-[DEBUG] RpcHandler: Registered method "chat:subagent-query"
-[DEBUG] RpcHandler: Registered method "subagent:send-message"
-[DEBUG] RpcHandler: Registered method "subagent:stop"
-[DEBUG] RpcHandler: Registered method "subagent:interrupt"
-[DEBUG] Subagent RPC handlers registered: {"methods":["chat:subagent-query","subagent:send-message","subagent:stop","subagent:interrupt"]}
-[DEBUG] RpcHandler: Registered method "webSearch:getApiKeyStatus"
-[DEBUG] RpcHandler: Registered method "webSearch:setApiKey"
-[DEBUG] RpcHandler: Registered method "webSearch:deleteApiKey"
-[DEBUG] RpcHandler: Registered method "webSearch:test"
-[DEBUG] RpcHandler: Registered method "webSearch:getConfig"
-[DEBUG] RpcHandler: Registered method "webSearch:setConfig"
-[DEBUG] Web Search RPC handlers registered: {"methods":["webSearch:getApiKeyStatus","webSearch:setApiKey","webSearch:deleteApiKey","webSearch:test","webSearch:getConfig","webSearch:setConfig"]}
-[DEBUG] RpcHandler: Registered method "wizard:submit-selection"
-[DEBUG] RpcHandler: Registered method "wizard:cancel"
-[DEBUG] RpcHandler: Registered method "wizard:retry-item"
-[DEBUG] Wizard generation RPC handlers registered: {"methods":["wizard:submit-selection","wizard:cancel","wizard:retry-item"]}
-[DEBUG] RpcHandler: Registered method "workspace:getInfo"
-[DEBUG] RpcHandler: Registered method "workspace:addFolder"
-[DEBUG] RpcHandler: Registered method "workspace:registerFolder"
-[DEBUG] RpcHandler: Registered method "workspace:removeFolder"
-[DEBUG] RpcHandler: Registered method "workspace:switch"
-[DEBUG] RpcHandler: Registered method "file:open"
-[DEBUG] RpcHandler: Registered method "editor:openFile"
-[DEBUG] RpcHandler: Registered method "editor:revertFiles"
-[DEBUG] RpcHandler: Registered method "editor:saveFile"
-[DEBUG] RpcHandler: Registered method "editor:getFileTree"
-[DEBUG] RpcHandler: Registered method "editor:getDirectoryChildren"
-[DEBUG] RpcHandler: Registered method "editor:getSetting"
-[DEBUG] RpcHandler: Registered method "editor:updateSetting"
-[DEBUG] RpcHandler: Registered method "editor:searchInFiles"
-[DEBUG] RpcHandler: Registered method "editor:createFile"
-[DEBUG] RpcHandler: Registered method "editor:createFolder"
-[DEBUG] RpcHandler: Registered method "editor:renameItem"
-[DEBUG] RpcHandler: Registered method "editor:deleteItem"
-[DEBUG] RpcHandler: Registered method "editor:listAllFiles"
-[INFO] [Electron RPC] EditorRpcHandlers registered (Electron)
-[DEBUG] RpcHandler: Registered method "file:read"
-[DEBUG] RpcHandler: Registered method "file:exists"
-[DEBUG] RpcHandler: Registered method "file:save-dialog"
-[DEBUG] RpcHandler: Registered method "file:pick"
-[DEBUG] RpcHandler: Registered method "file:pick-images"
-[DEBUG] Electron File RPC handlers registered: {"methods":["file:read","file:exists","file:save-dialog","file:pick","file:pick-images"]}
-[INFO] [Electron RPC] FileRpcHandlers registered (Electron)
-[INFO] [Electron RPC] ConfigExtendedRpcHandlers registered (Electron)
-[DEBUG] RpcHandler: Registered method "command:execute"
-[INFO] [Electron RPC] CommandRpcHandlers registered (Electron)
-[DEBUG] RpcHandler: Registered method "agent:getConfig"
-[DEBUG] RpcHandler: Registered method "agent:setConfig"
-[DEBUG] RpcHandler: Registered method "agent:detectClis"
-[DEBUG] RpcHandler: Registered method "agent:listCliModels"
-[DEBUG] RpcHandler: Registered method "agent:permissionResponse"
-[DEBUG] RpcHandler: Registered method "agent:stop"
-[DEBUG] RpcHandler: Registered method "agent:resumeCliSession"
-[DEBUG] Electron Agent RPC handlers registered: {"methods":["agent:getConfig","agent:setConfig","agent:detectClis","agent:listCliModels","agent:permissionResponse","agent:stop","agent:resumeCliSession"]}
-[INFO] [Electron RPC] AgentRpcHandlers registered (Electron)
-[DEBUG] RpcHandler: Registered method "skillsSh:search"
-[DEBUG] RpcHandler: Registered method "skillsSh:listInstalled"
-[DEBUG] RpcHandler: Registered method "skillsSh:install"
-[DEBUG] RpcHandler: Registered method "skillsSh:uninstall"
-[DEBUG] RpcHandler: Registered method "skillsSh:getPopular"
-[DEBUG] RpcHandler: Registered method "skillsSh:detectRecommended"
-[DEBUG] Electron Skills.sh RPC handlers registered: {"methods":["skillsSh:search","skillsSh:listInstalled","skillsSh:install","skillsSh:uninstall","skillsSh:getPopular","skillsSh:detectRecommended"]}
-[INFO] [Electron RPC] SkillsShRpcHandlers registered (Electron)
-[DEBUG] RpcHandler: Registered method "layout:persist"
-[DEBUG] RpcHandler: Registered method "layout:restore"
-[DEBUG] Electron Layout RPC handlers registered: {"methods":["layout:persist","layout:restore"]}
-[INFO] [Electron RPC] LayoutRpcHandlers registered (Electron)
-[DEBUG] RpcHandler: Registered method "terminal:create"
-[DEBUG] RpcHandler: Registered method "terminal:kill"
-[INFO] [Electron RPC] TerminalRpcHandlers registered (Electron)
-[DEBUG] RpcHandler: Registered method "update:check-now"
-[DEBUG] RpcHandler: Registered method "update:install-now"
-[INFO] [Electron RPC] UpdateRpcHandlers registered (Electron)
-[INFO] [electron RPC] SDK callbacks wired (stats, sessionId, compaction, worktree)
-[INFO] [electron RPC] Copilot SDK permission forwarding registered
-[INFO] [electron RPC] Agent event listeners wired
-[INFO] [RPC Verification] All 231 RPC methods correctly registered
-[INFO] [RPC Verification] All 231 RPC methods correctly registered
-[INFO] [Electron RPC] All RPC methods registered: {"methods":["auth:getHealth","auth:getAuthStatus","auth:getStatus","auth:saveSettings","auth:setApiKey","auth:testConnection","auth:copilotLogin","auth:copilotLogout","auth:copilotStatus","auth:codexLogin","auth:getApiKeyStatus","autocomplete:agents","autocomplete:commands","chat:start","chat:continue","chat:resume","chat:abort","chat:running-agents","agent:backgroundList","config:model-switch","config:model-set","config:model-get","config:autopilot-toggle","config:autopilot-get","config:models-list","config:effort-get","config:effort-set","context:getAllFiles","context:getFileSuggestions","cron:list","cron:get","cron:create","cron:update","cron:delete","cron:toggle","cron:runNow","cron:runs","cron:nextFire","enhancedPrompts:getStatus","enhancedPrompts:runWizard","enhancedPrompts:setEnabled","enhancedPrompts:regenerate","enhancedPrompts:getPromptContent","enhancedPrompts:download","gateway:status","gateway:start","gateway:stop","gateway:setToken","gateway:listBindings","gateway:approveBinding","gateway:blockBinding","gateway:listMessages","gateway:test","git:info","git:worktrees","git:addWorktree","git:removeWorktree","git:stage","git:unstage","git:discard","git:commit","git:showFile","git:branches","git:checkout","git:stashList","git:tags","git:remotes","git:lastCommit","harness:initialize","harness:suggest-config","harness:search-skills","harness:create-skill","harness:discover-mcp","harness:generate-prompt","harness:generate-claude-md","harness:apply","harness:save-preset","harness:load-presets","harness:chat","harness:design-agents","harness:generate-skills","harness:generate-document","harness:analyze-intent","harness:converse","indexing:getStatus","indexing:start","indexing:pause","indexing:resume","indexing:cancel","indexing:setPipelineEnabled","indexing:dismissStale","indexing:acknowledgeDisclosure","license:getStatus","license:setKey","license:clearKey","llm:getProviderStatus","llm:setApiKey","llm:removeApiKey","llm:getDefaultProvider","llm:setDefaultProvider","llm:setDefaultModel","llm:validateApiKeyFormat","llm:listVsCodeModels","llm:listProviderModels","llm:setProviderBaseUrl","llm:getProviderBaseUrl","llm:clearProviderBaseUrl","mcpDirectory:search","mcpDirectory:getDetails","mcpDirectory:install","mcpDirectory:uninstall","mcpDirectory:listInstalled","mcpDirectory:getPopular","memory:list","memory:search","memory:get","memory:pin","memory:unpin","memory:forget","memory:rebuildIndex","memory:stats","memory:purgeBySubjectPattern","memory:purgeJunk","db:health","db:reset","plugins:list-available","plugins:get-config","plugins:save-config","plugins:list-skills","provider:listModels","provider:setModelTier","provider:getModelTiers","provider:clearModelTier","ptahCli:list","ptahCli:create","ptahCli:update","ptahCli:delete","ptahCli:testConnection","ptahCli:listModels","quality:getAssessment","quality:getHistory","quality:export","session:list","session:load","session:delete","session:rename","session:validate","session:cli-sessions","session:stats-batch","session:forkSession","session:rewindFiles","settings:export","settings:import","setup-status:get-status","setup-wizard:launch","wizard:deep-analyze","wizard:recommend-agents","wizard:cancel-analysis","wizard:list-analyses","wizard:load-analysis","wizard:list-agent-packs","wizard:install-pack-agents","wizard:start-new-project-chat","skillSynthesis:listCandidates","skillSynthesis:getCandidate","skillSynthesis:promote","skillSynthesis:reject","skillSynthesis:invocations","skillSynthesis:stats","skillSynthesis:getSettings","skillSynthesis:updateSettings","skillSynthesis:pin","skillSynthesis:unpin","skillSynthesis:runCurator","chat:subagent-query","subagent:send-message","subagent:stop","subagent:interrupt","webSearch:getApiKeyStatus","webSearch:setApiKey","webSearch:deleteApiKey","webSearch:test","webSearch:getConfig","webSearch:setConfig","wizard:submit-selection","wizard:cancel","wizard:retry-item","workspace:getInfo","workspace:addFolder","workspace:registerFolder","workspace:removeFolder","workspace:switch","file:open","editor:openFile","editor:revertFiles","editor:saveFile","editor:getFileTree","editor:getDirectoryChildren","editor:getSetting","editor:updateSetting","editor:searchInFiles","editor:createFile","editor:createFolder","editor:renameItem","editor:deleteItem","editor:listAllFiles","file:read","file:exists","file:save-dialog","file:pick","file:pick-images","command:execute","agent:getConfig","agent:setConfig","agent:detectClis","agent:listCliModels","agent:permissionResponse","agent:stop","agent:resumeCliSession","skillsSh:search","skillsSh:listInstalled","skillsSh:install","skillsSh:uninstall","skillsSh:getPopular","skillsSh:detectRecommended","layout:persist","layout:restore","terminal:create","terminal:kill","update:check-now","update:install-now"]}
-[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized
-[Ptah Electron] Booting deferred backend services for workspace...
-[Ptah Electron] Resolving SQLite connection service...
-[Ptah Electron] SQLite connection service resolved, calling openAndMigrate()...
-[INFO] [persistence-sqlite] Starting openAndMigrate...: {"dbPath":"C:\\Users\\abdal\\.ptah\\state\\ptah.sqlite"}
-[DEBUG] [persistence-sqlite] ensureParentDirectory: {"filePath":"C:\\Users\\abdal\\.ptah\\state\\ptah.sqlite","dir":"C:\\Users\\abdal\\.ptah\\state"}
-[DEBUG] [persistence-sqlite] Directory already exists: {"dir":"C:\\Users\\abdal\\.ptah\\state"}
-[DEBUG] [persistence-sqlite] Parent directory ensured
-[DEBUG] [persistence-sqlite] Database factory created
-[DEBUG] [persistence-sqlite] Pragmas applied
-[INFO] [persistence-sqlite] sqlite-vec loaded: {"extPath":"D:\\projects\\ptah-extension\\node_modules\\sqlite-vec-windows-x64\\vec0.dll"}
-[DEBUG] [persistence-sqlite] Vec extension loaded (or skipped)
-[INFO] [persistence-sqlite] connection health: {"dbSizeMb":36.35,"pageCount":9305,"pageSize":4096,"freelistCount":8204,"journalMode":"wal","vecExtensionLoaded":true}
-[INFO] [persistence-sqlite] quick_check passed
-[DEBUG] [persistence-sqlite] Migration runner created, applying migrations...
-[DEBUG] [persistence-sqlite] migrations up to date: {"finalVersion":13}
-[INFO] [persistence-sqlite] openAndMigrate complete: {"dbPath":"C:\\Users\\abdal\\.ptah\\state\\ptah.sqlite","vecExtensionLoaded":true,"applied":[],"finalVersion":13}
-[Ptah Electron] SQLite connection opened + migrated successfully
-[INFO] [SdkModuleLoader] SDK query function cached (bundled, 987.95ms)
-[INFO] [SdkModuleLoader] SDK pre-loaded successfully (2520.89ms)
-[INFO] [memory-curator] started — subscribed to PreCompact
-[Ptah Electron] Memory curator started
-[DEBUG] [skill-synthesis] migrateSkillMdFiles: dir not found or empty: {"skillsDir":"C:\\Users\\abdal\\.ptah\\skills","error":"ENOENT: no such file or directory, scandir 'C:\\Users\\abdal\\.ptah\\skills'"}
-[INFO] [skill-synthesis] SKILL.md migration complete (active root): {"migrated":0,"skipped":0,"errors":[]}
-[DEBUG] [skill-synthesis] migrateSkillMdFiles: dir not found or empty: {"skillsDir":"C:\\Users\\abdal\\.ptah\\skills\\_candidates","error":"ENOENT: no such file or directory, scandir 'C:\\Users\\abdal\\.ptah\\skills\\_candidates'"}
-[INFO] [skill-synthesis] SKILL.md migration complete (candidates root): {"migrated":0,"skipped":0,"errors":[]}
-[INFO] [skill-curator] scheduling periodic pass: {"intervalHours":24}
-[INFO] [skill-synthesis] started: {"vecExtensionLoaded":true}
-[Ptah Electron] Skill synthesis started
-[DEBUG] [PluginLoaderService] Initialized: {"pluginsBasePath":"C:\\Users\\abdal\\.ptah\\plugins","hasWorkspaceState":true}
-[DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":3,"resolvedCount":3,"pluginIds":["ptah-core","ptah-angular","ptah-nx-saas"]}
-[Ptah Electron] Plugin loader initialized (3 plugin paths)
-[DEBUG] [SkillJunctionService] Initialized: {"pluginsBasePath":"C:\\Users\\abdal\\.ptah\\plugins","synthesizedSkillsRoot":"C:\\Users\\abdal\\.ptah\\skills","workspaceRoot":"D:\\projects\\SellTime_Portal_Workspace"}
-[DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":3,"resolvedCount":3,"pluginIds":["ptah-core","ptah-angular","ptah-nx-saas"]}
-[INFO] [SkillJunctionService] Junctions and commands synced: {"created":0,"skipped":0,"removed":0,"errors":0,"workspaceRoot":"D:\\projects\\SellTime_Portal_Workspace"}
-[Ptah Electron] Skill junctions activated
-[Ptah Electron] Pricing pre-fetch initiated (background)
-[INFO] [CliDetection] Detecting installed CLI agents...
-[INFO] [SessionImporter] Scanning for existing sessions: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","limit":50}
-[DEBUG] [SessionImporter] findSessionsDirectory: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","escapedPath":"D--projects-SellTime_Portal_Workspace"}
-[INFO] [SessionImporter] Import complete: {"imported":0,"fromIndex":0}
-[INFO] [GitWatcher] Starting file system watchers: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace"}
-[Ptah Electron] Git file system watcher started
-[ERROR] [cron-scheduler] run failed
-[INFO] [cron-scheduler] started: {"armed":1,"maxConcurrent":3,"catchupWindowMs":86400000}
-[Ptah Electron] Cron scheduler started { enabled: true, maxConcurrentJobs: 3, catchupWindowMs: 86400000 }
-[DEBUG] [cron-scheduler] job upserted: {"id":"@ptah/daily-backup","name":"Daily SQLite Backup"}
-[Ptah Electron] Daily backup cron job registered (@ptah/daily-backup)
-[Ptah Electron] License reactivity binder initialized
-[DEBUG] [LicenseService.verifyLicense] Returning cached status: {"tier":"trial_pro","valid":true,"cacheAge":3253631}
-[Ptah Electron] Startup config registered: initialView=null, isLicensed=true
-[DEBUG] [LicenseReactivityBinder] Initial state: premium — bringing up subsystems
-[DEBUG] [LicenseService.verifyLicense] Returning cached status: {"tier":"trial_pro","valid":true,"cacheAge":3253723}
-[INFO] [gateway] master switch off; not starting adapters
-[INFO] [PremiumSubsystems] Starting MCP server...
-[Ptah Electron] Messaging gateway started
-[INFO] [UpdateManager] Skipped — development mode
-[Ptah Electron] UpdateManager started
-[Ptah Electron] License status watcher initialized
-[INFO] CodeExecutionMCP server started on http://localhost:51820: CodeExecutionMCP
-[INFO] [PremiumSubsystems] MCP server started on port 51820
-[INFO] [CodeExecutionMCP] Registered ptah in D:\projects\SellTime_Portal_Workspace\.mcp.json (port 51820): CodeExecutionMCP
-[DEBUG] [CliPluginSync] Service created
-[DEBUG] [CliPluginSync] Initialized: {"extensionPath":"C:\\Users\\abdal\\.ptah\\plugins"}
-[DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":3,"resolvedCount":3,"pluginIds":["ptah-core","ptah-angular","ptah-nx-saas"]}
-[DEBUG] [CliDetection] Detection already in progress, reusing in-flight promise
-[DEBUG] [FeatureGateService.invalidateCache] Cache invalidated
-[DEBUG] [PremiumSubsystems] FeatureGateService cache invalidated
-[Ptah Electron] Ptah premium features activated.
-[DEBUG] [CliPluginSync] Synthesized skills root does not exist, skipping: {"synthesizedSkillsRoot":"C:\\Users\\abdal\\.ptah\\skills"}
-[Ptah Electron] Synthesized skill CLI sync complete (0 results)
-[DEBUG] [CliDetection] Detection already in progress, reusing in-flight promise
-[DEBUG] [CliDetection] Gemini CLI not installed
-[INFO] [CliDetection] Codex CLI detected: {"path":"D:\\projects\\ptah-extension\\node_modules\\.bin\\codex.CMD","version":"codex-cli 0.104.0"}
-[DEBUG] [CliDetection] Copilot CLI not installed
-[DEBUG] RpcHandler: Handling method "config:autopilot-get": {"correlationId":"863d1962-4e0a-40be-add7-24d54458da42"}
-[DEBUG] RPC: config:autopilot-get called
-[DEBUG] RpcHandler: Method "config:autopilot-get" succeeded: {"correlationId":"863d1962-4e0a-40be-add7-24d54458da42"}
-[DEBUG] RpcHandler: Handling method "config:models-list": {"correlationId":"77d02c7c-3136-4bec-9f38-fe47dd64fe3b"}
-[DEBUG] RPC: config:models-list called
-[INFO] [SdkModelService] Fetching models: {"authMethod":"claudeCli","hasApiKey":false,"hasBaseUrl":false}
-[INFO] [SdkModuleLoader] CLI js path resolved: C:\Users\abdal\.local\bin\claude.exe
-[INFO] [SdkModelService] Fetching models via SDK supportedModels(): {"hasApiKey":false,"hasAuthToken":false,"hasBaseUrl":false,"cliJsPath":"C:\\Users\\abdal\\.local\\bin\\claude.exe","note":"No env credentials â€” SDK will use CLI credential store"}
-[DEBUG] RpcHandler: Handling method "ptahCli:list": {"correlationId":"b8b01388-0682-41ce-b4e4-23faee33f919"}
-[DEBUG] RPC: ptahCli:list called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: ptahCli:list success: {"agentCount":1}
-[DEBUG] RpcHandler: Method "ptahCli:list" succeeded: {"correlationId":"b8b01388-0682-41ce-b4e4-23faee33f919"}
-[DEBUG] RpcHandler: Handling method "config:effort-get": {"correlationId":"b9ab51c3-2466-4f0c-8099-1cd9127951ee"}
-[DEBUG] RPC: config:effort-get called
-[DEBUG] RpcHandler: Method "config:effort-get" succeeded: {"correlationId":"b9ab51c3-2466-4f0c-8099-1cd9127951ee"}
-[DEBUG] RpcHandler: Handling method "auth:getAuthStatus": {"correlationId":"9eee3841-8b12-4c5b-9091-d12e7298492f"}
-[DEBUG] RPC: auth:getAuthStatus called
-[DEBUG] [AuthSecretsService.getCredential] Retrieved status: {"type":"apiKey","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openrouter","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"moonshot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"z-ai","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openai-codex","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama-cloud","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"lm-studio","hasValue":false}
-[DEBUG] RpcHandler: Handling method "license:getStatus": {"correlationId":"883b3fdb-56f4-4292-a16b-487673f24744"}
-[DEBUG] RPC: license:getStatus called
-[DEBUG] [LicenseService.verifyLicense] Returning cached status: {"tier":"trial_pro","valid":true,"cacheAge":3258132}
-[DEBUG] RPC: license:getStatus success: {"tier":"trial_pro","isPremium":true,"isCommunity":false,"trialActive":true}
-[DEBUG] RpcHandler: Method "license:getStatus" succeeded: {"correlationId":"883b3fdb-56f4-4292-a16b-487673f24744"}
-[INFO] [ProviderModelsService] Pre-fetching pricing from OpenRouter (no auth): {"attempt":1}
-[DEBUG] RpcHandler: Handling method "workspace:getInfo": {"correlationId":"78107166-dca1-4b7a-8ccb-2c348792ded6"}
-[DEBUG] RpcHandler: Method "workspace:getInfo" succeeded: {"correlationId":"78107166-dca1-4b7a-8ccb-2c348792ded6"}
-[DEBUG] RpcHandler: Handling method "workspace:switch": {"correlationId":"d4ecd642-78f8-4f93-8398-1518091a0595"}
-[INFO] [SessionImporter] Scanning for existing sessions: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","limit":50}
-[DEBUG] [SessionImporter] findSessionsDirectory: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","escapedPath":"D--projects-SellTime_Portal_Workspace"}
-[INFO] MCP Request: initialize: CodeExecutionMCP {"id":0}
-[INFO] MCP initialize request received: CodeExecutionMCP {"clientInfo":{"name":"claude-code","title":"Claude Code","version":"2.1.144","description":"Anthropic's agentic coding tool","websiteUrl":"https://claude.com/claude-code"}}
-[INFO] [SessionImporter] Import complete: {"imported":0,"fromIndex":0}
-[INFO] [RPC] workspace:switch: {"path":"D:\\projects\\SellTime_Portal_Workspace","encodedPath":"RDpccHJvamVjdHNcU2VsbFRpbWVfUG9ydGFsX1dvcmtzcGFjZQ"}
-[DEBUG] RpcHandler: Method "workspace:switch" succeeded: {"correlationId":"d4ecd642-78f8-4f93-8398-1518091a0595"}
-[DEBUG] RpcHandler: Handling method "auth:getAuthStatus": {"correlationId":"653079c9-d83d-4a70-80dd-5c976ce79e1b"}
-[DEBUG] RPC: auth:getAuthStatus called
-[DEBUG] [AuthSecretsService.getCredential] Retrieved status: {"type":"apiKey","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openrouter","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"moonshot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"z-ai","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openai-codex","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama-cloud","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"lm-studio","hasValue":false}
-[INFO] [SdkWarmQueryManager] SDK subprocess pre-warmed and retained (10525.50ms)
-[DEBUG] RPC: auth:getAuthStatus result: {"hasApiKey":false,"hasOpenRouterKey":false,"hasAnyProviderKey":false,"authMethod":"claudeCli","anthropicProviderId":"github-copilot","copilotAuthenticated":false,"codexAuthenticated":true,"codexTokenStale":true,"claudeCliInstalled":true}
-[DEBUG] RpcHandler: Method "auth:getAuthStatus" succeeded: {"correlationId":"9eee3841-8b12-4c5b-9091-d12e7298492f"}
-[DEBUG] RpcHandler: Handling method "auth:getAuthStatus": {"correlationId":"0356032a-29d5-455b-9a6d-d360238a370b"}
-[DEBUG] RPC: auth:getAuthStatus called
-[DEBUG] [AuthSecretsService.getCredential] Retrieved status: {"type":"apiKey","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openrouter","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"moonshot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"z-ai","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openai-codex","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama-cloud","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"lm-studio","hasValue":false}
-[DEBUG] RpcHandler: Handling method "plugins:get-config": {"correlationId":"07ebb1b7-432d-4fd1-81d3-f11d4c6e3283"}
-[DEBUG] RPC: plugins:get-config called
-[DEBUG] RPC: plugins:get-config success: {"enabledCount":3,"lastUpdated":"2026-05-17T17:27:26.936Z"}
-[DEBUG] RpcHandler: Method "plugins:get-config" succeeded: {"correlationId":"07ebb1b7-432d-4fd1-81d3-f11d4c6e3283"}
-[DEBUG] RpcHandler: Handling method "plugins:list-available": {"correlationId":"3d2b7d92-9cfe-4fab-946d-bff09d44ddbc"}
-[DEBUG] RPC: plugins:list-available called
-[DEBUG] RPC: plugins:list-available success: {"pluginCount":4}
-[DEBUG] RpcHandler: Method "plugins:list-available" succeeded: {"correlationId":"3d2b7d92-9cfe-4fab-946d-bff09d44ddbc"}
-[DEBUG] RpcHandler: Handling method "autocomplete:agents": {"correlationId":"b9066acd-5aac-4b82-ac55-7df422d70d9e"}
-[DEBUG] RPC: autocomplete:agents called: {"query":"","maxResults":100}
-[DEBUG] RpcHandler: Handling method "session:list": {"correlationId":"cb282612-73f1-4603-968f-1aca62dc7e1a"}
-[DEBUG] RPC: session:list called: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","limit":30,"offset":0}
-[DEBUG] RpcHandler: Method "session:list" succeeded: {"correlationId":"cb282612-73f1-4603-968f-1aca62dc7e1a"}
-[INFO] MCP Request: tools/list: CodeExecutionMCP {"id":1}
-[INFO] [SdkModelService] Fetched supported models from SDK: {"count":3,"models":["default: Default (recommended)","sonnet: Sonnet","haiku: Haiku"]}
-[INFO] [SdkModelService] Models resolved: {"authMethod":"claudeCli","count":3,"models":[{"value":"default","displayName":"Default (recommended)"},{"value":"sonnet","displayName":"Sonnet"},{"value":"haiku","displayName":"Haiku"}]}
-[DEBUG] [SdkModelService] No auth credentials for /v1/models
-[INFO] RPC: config:models-list sources: {"sdkCount":3,"apiCount":0,"sdkValues":["default","sonnet","haiku"],"apiValues":[]}
-[INFO] RPC: config:models-list tier context: {"activeProviderId":"anthropic","tierOverrides":"null","savedModel":"claude-opus-4-7"}
-[INFO] [ModelDiag] config:models-list SENDING to frontend dropdown: {"savedModel":"claude-opus-4-7","tierOverrides":"none","models":[{"id":"default","name":"Default (recommended)","isSelected":false,"tier":"opus","providerModelId":"none"},{"id":"sonnet","name":"Sonnet","isSelected":false,"tier":"sonnet","providerModelId":"none"},{"id":"haiku","name":"Haiku","isSelected":false,"tier":"haiku","providerModelId":"none"}]}
-[DEBUG] RpcHandler: Method "config:models-list" succeeded: {"correlationId":"77d02c7c-3136-4bec-9f38-fe47dd64fe3b"}
-[DEBUG] RPC: auth:getAuthStatus result: {"hasApiKey":false,"hasOpenRouterKey":false,"hasAnyProviderKey":false,"authMethod":"claudeCli","anthropicProviderId":"github-copilot","copilotAuthenticated":false,"codexAuthenticated":true,"codexTokenStale":true,"claudeCliInstalled":true}
-[DEBUG] RpcHandler: Method "auth:getAuthStatus" succeeded: {"correlationId":"653079c9-d83d-4a70-80dd-5c976ce79e1b"}
-[DEBUG] RpcHandler: Handling method "chat:resume": {"correlationId":"993a7dbc-fc4a-479a-9568-a50c59a0b6ed"}
-[DEBUG] RPC: chat:resume called
-[INFO] RPC: chat:resume called: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","workspacePath":"D:\\projects\\SellTime_Portal_Workspace","resolvedWorkspacePath":"D:\\projects\\SellTime_Portal_Workspace","usedFallback":false}
-[DEBUG] [JsonlReader] findSessionsDirectory: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","escapedPath":"D--projects-SellTime_Portal_Workspace","dirCount":4,"sampleDirs":["C--Users-abdal","C--Users-abdal-AppData-Local-Programs-Ptah","D--projects-ptah-extension","D--projects-SellTime-Portal-Workspace"]}
-[AgentDiscovery] Directory C:\Users\abdal\.claude\agents not accessible: ENOENT: no such file or directory, scandir 'C:\Users\abdal\.claude\agents'
-[DEBUG] RpcHandler: Method "autocomplete:agents" succeeded: {"correlationId":"b9066acd-5aac-4b82-ac55-7df422d70d9e"}
-[ERROR] [SessionHistoryReader] Failed to read session history Error: ENOENT: no such file or directory, scandir 'C:\Users\abdal\.claude\projects\D--projects-SellTime-Portal-Workspace\09133c78-b824-4af2-a5fb-f26f1c231ce4\subagents'
-    at async readdir (node:internal/fs/promises:956:18)
-    at async JsonlReaderService.loadAgentSessions (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:31049:27)
-    at async SessionHistoryReaderService.readSessionHistory (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:35599:29)
-    at async ChatSessionService.resumeSession (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:90793:22)
-    at async file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:81904:24
-    at async RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:20)
-    at async IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:26) {
-  errno: -4058,
-  code: 'ENOENT',
-  syscall: 'scandir',
-  path: 'C:\\Users\\abdal\\.claude\\projects\\D--projects-SellTime-Portal-Workspace\\09133c78-b824-4af2-a5fb-f26f1c231ce4\\subagents'
-}
-[DEBUG] [JsonlReader] findSessionsDirectory: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","escapedPath":"D--projects-SellTime_Portal_Workspace","dirCount":4,"sampleDirs":["C--Users-abdal","C--Users-abdal-AppData-Local-Programs-Ptah","D--projects-ptah-extension","D--projects-SellTime-Portal-Workspace"]}
-[DEBUG] [SubagentRegistryService.registerFromHistoryEvents] No agent_start events found: {"parentSessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","eventCount":0}
-[DEBUG] [SubagentRegistryService.getResumable] Query result: {"totalRecords":0,"resumableCount":0}
-[INFO] [RPC] Session history loaded from JSONL: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","messageCount":8,"eventCount":0,"hasStats":false,"resumableSubagentCount":0,"cliSessionCount":0}
-[DEBUG] RPC: chat:resume success
-[DEBUG] RpcHandler: Method "chat:resume" succeeded: {"correlationId":"993a7dbc-fc4a-479a-9568-a50c59a0b6ed"}
-[INFO] [ProviderModelsService] Pre-fetched pricing from OpenRouter: {"totalModels":357,"modelsWithPricing":354}
-[DEBUG] [CliDetection] Cursor Agent CLI not installed
-[Ptah Electron] CLI detection complete: 1/4 CLIs found
-[Ptah Electron] CLI agent sync skipped (all CLIs up-to-date)
-[INFO] [CliDetection] Codex token refresh: fresh
-[DEBUG] RpcHandler: Handling method "session:list": {"correlationId":"1892c980-b61e-44d2-99ce-cdfcac27fe5e"}
-[DEBUG] RPC: session:list called: {"workspacePath":"D:/projects/SellTime_Portal_Workspace","limit":30,"offset":0}
-[DEBUG] RpcHandler: Method "session:list" succeeded: {"correlationId":"1892c980-b61e-44d2-99ce-cdfcac27fe5e"}
-[DEBUG] [CliPluginSync] codex already up-to-date
-[Ptah Electron] CLI skill sync complete (1 results)
-[DEBUG] RPC: auth:getAuthStatus result: {"hasApiKey":false,"hasOpenRouterKey":false,"hasAnyProviderKey":false,"authMethod":"claudeCli","anthropicProviderId":"github-copilot","copilotAuthenticated":false,"codexAuthenticated":true,"codexTokenStale":true,"claudeCliInstalled":true}
-[DEBUG] RpcHandler: Method "auth:getAuthStatus" succeeded: {"correlationId":"0356032a-29d5-455b-9a6d-d360238a370b"}
-[DEBUG] RpcHandler: Handling method "editor:getFileTree": {"correlationId":"45925473-ff76-423b-b677-5cc1b0c8fcee"}
-[DEBUG] RpcHandler: Handling method "git:info": {"correlationId":"6cc26763-e078-4c82-9940-2be86b9808da"}
-[DEBUG] RpcHandler: Method "git:info" succeeded: {"correlationId":"6cc26763-e078-4c82-9940-2be86b9808da"}
-[DEBUG] RpcHandler: Method "editor:getFileTree" succeeded: {"correlationId":"45925473-ff76-423b-b677-5cc1b0c8fcee"}
-dtype not specified for "model". Using the default dtype (fp32) for this device (cpu).
-dtype not specified for "model". Using the default dtype (fp32) for this device (cpu).
-[Ptah Electron] Embedder warmup complete (heap: 43.3 MB)
-[DEBUG] RpcHandler: Handling method "agent:getConfig": {"correlationId":"093f88dc-aee2-487c-b28e-5a17a606301d"}
-[DEBUG] RPC: agent:getConfig called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: agent:getConfig success: {"cliCount":5,"installedCount":2}
-[DEBUG] RpcHandler: Method "agent:getConfig" succeeded: {"correlationId":"093f88dc-aee2-487c-b28e-5a17a606301d"}
-[DEBUG] RpcHandler: Handling method "ptahCli:list": {"correlationId":"3f32afd5-58a0-4eed-9734-ed6d1f995672"}
-[DEBUG] RPC: ptahCli:list called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: ptahCli:list success: {"agentCount":1}
-[DEBUG] RpcHandler: Method "ptahCli:list" succeeded: {"correlationId":"3f32afd5-58a0-4eed-9734-ed6d1f995672"}
-[DEBUG] RpcHandler: Handling method "agent:listCliModels": {"correlationId":"760c82df-3f58-44f8-8037-0567ee1bd25b"}
-[DEBUG] RPC: agent:listCliModels called
-[DEBUG] RPC: agent:listCliModels success: {"geminiCount":0,"codexCount":6,"copilotCount":0}
-[DEBUG] RpcHandler: Method "agent:listCliModels" succeeded: {"correlationId":"760c82df-3f58-44f8-8037-0567ee1bd25b"}
-[DEBUG] RpcHandler: Handling method "ptahCli:list": {"correlationId":"8d998a1a-8f24-46d4-b74a-5495f3e95a6c"}
-[DEBUG] RPC: ptahCli:list called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: ptahCli:list success: {"agentCount":1}
-[DEBUG] RpcHandler: Method "ptahCli:list" succeeded: {"correlationId":"8d998a1a-8f24-46d4-b74a-5495f3e95a6c"}
-[DEBUG] RpcHandler: Handling method "provider:getModelTiers": {"correlationId":"0d03a762-9a60-40cb-84d9-5ae100692c0a"}
-[DEBUG] RPC: provider:getModelTiers called: {"providerId":"ollama-cloud","scope":"cliAgent"}
-[DEBUG] RPC: provider:getModelTiers result: {"providerId":"ollama-cloud","scope":"cliAgent","tiers":{"sonnet":"kimi-k2.6:cloud","opus":"kimi-k2.6:cloud","haiku":"kimi-k2.6:cloud"}}
-[DEBUG] RpcHandler: Method "provider:getModelTiers" succeeded: {"correlationId":"0d03a762-9a60-40cb-84d9-5ae100692c0a"}
-[DEBUG] RpcHandler: Handling method "webSearch:getConfig": {"correlationId":"98dd30fe-49f6-4d05-8fca-f05b0fb42ba2"}
-[DEBUG] RPC: webSearch:getConfig called
-[DEBUG] RpcHandler: Method "webSearch:getConfig" succeeded: {"correlationId":"98dd30fe-49f6-4d05-8fca-f05b0fb42ba2"}
-[DEBUG] RpcHandler: Handling method "enhancedPrompts:getStatus": {"correlationId":"9e664f6e-599c-4e68-a85e-ea22281e7916"}
-[DEBUG] RPC: enhancedPrompts:getStatus called: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace"}
-[DEBUG] RpcHandler: Handling method "agent:getConfig": {"correlationId":"43b70138-cb47-4ceb-9a43-1f9cb5e1ed6d"}
-[DEBUG] RPC: agent:getConfig called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: agent:getConfig success: {"cliCount":5,"installedCount":2}
-[DEBUG] RpcHandler: Method "agent:getConfig" succeeded: {"correlationId":"43b70138-cb47-4ceb-9a43-1f9cb5e1ed6d"}
-[DEBUG] RpcHandler: Handling method "llm:getProviderStatus": {"correlationId":"7b7807b7-bdf3-4e9c-98c7-30be70576a8b"}
-[DEBUG] RPC: llm:getProviderStatus called
-[DEBUG] RpcHandler: Method "llm:getProviderStatus" succeeded: {"correlationId":"7b7807b7-bdf3-4e9c-98c7-30be70576a8b"}
-[DEBUG] RpcHandler: Handling method "agent:getConfig": {"correlationId":"ca1285f6-9602-43a2-8c40-2e07aa35e260"}
-[DEBUG] RPC: agent:getConfig called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: agent:getConfig success: {"cliCount":5,"installedCount":2}
-[DEBUG] RpcHandler: Method "agent:getConfig" succeeded: {"correlationId":"ca1285f6-9602-43a2-8c40-2e07aa35e260"}
-[DEBUG] RpcHandler: Method "enhancedPrompts:getStatus" succeeded: {"correlationId":"9e664f6e-599c-4e68-a85e-ea22281e7916"}
-[DEBUG] RpcHandler: Handling method "webSearch:getApiKeyStatus": {"correlationId":"5d59f93c-3f6f-4ac9-8059-063183f7005f"}
-[DEBUG] RpcHandler: Method "webSearch:getApiKeyStatus" succeeded: {"correlationId":"5d59f93c-3f6f-4ac9-8059-063183f7005f"}
-[DEBUG] RpcHandler: Handling method "llm:listProviderModels": {"correlationId":"18128098-6364-445b-9258-29840928fc32"}
-[DEBUG] RPC: llm:listProviderModels called: {"provider":"vscode-lm"}
-[DEBUG] RpcHandler: Method "llm:listProviderModels" succeeded: {"correlationId":"18128098-6364-445b-9258-29840928fc32"}
-[DEBUG] RpcHandler: Handling method "skillsSh:listInstalled": {"correlationId":"1c83a33d-ad00-47a7-8bf5-fdb1705a77b3"}
-[DEBUG] RPC: skillsSh:listInstalled called
-[DEBUG] RpcHandler: Handling method "skillsSh:getPopular": {"correlationId":"b1f2b78f-415a-40c2-812f-6038cc4ea4ee"}
-[DEBUG] RPC: skillsSh:getPopular called
-[DEBUG] RpcHandler: Handling method "skillsSh:detectRecommended": {"correlationId":"82934bb6-1181-4e38-b084-337f78f2eebb"}
-[DEBUG] RPC: skillsSh:detectRecommended called
-[DEBUG] RpcHandler: Handling method "mcpDirectory:listInstalled": {"correlationId":"c2f24dde-f225-488f-9053-1cac22016d0b"}
-[DEBUG] RPC: mcpDirectory:listInstalled
-[DEBUG] RpcHandler: Method "mcpDirectory:listInstalled" succeeded: {"correlationId":"c2f24dde-f225-488f-9053-1cac22016d0b"}
-[DEBUG] RpcHandler: Handling method "mcpDirectory:getPopular": {"correlationId":"04d202f3-c9cd-4cb4-a449-ec5bd9b11ec6"}
-[DEBUG] RPC: mcpDirectory:getPopular
-[DEBUG] RpcHandler: Handling method "plugins:get-config": {"correlationId":"93e72b0b-99ac-4ef4-b974-3ce9882309bf"}
-[DEBUG] RPC: plugins:get-config called
-[DEBUG] RPC: plugins:get-config success: {"enabledCount":3,"lastUpdated":"2026-05-17T17:27:26.936Z"}
-[DEBUG] RpcHandler: Method "plugins:get-config" succeeded: {"correlationId":"93e72b0b-99ac-4ef4-b974-3ce9882309bf"}
-[DEBUG] RpcHandler: Handling method "plugins:list-available": {"correlationId":"1a1610dc-fd34-43b2-b3f6-870d438a431e"}
-[DEBUG] RPC: plugins:list-available called
-[DEBUG] RPC: plugins:list-available success: {"pluginCount":4}
-[DEBUG] RpcHandler: Method "plugins:list-available" succeeded: {"correlationId":"1a1610dc-fd34-43b2-b3f6-870d438a431e"}
-[ERROR] RPC: skillsSh:detectRecommended failed Error: ENOENT: no such file or directory, access 'D:\projects\SellTime_Portal_Workspace\tsconfig.json'
-    at async Module.access (node:internal/fs/promises:607:10)
-    at async SkillsShRpcHandlers.detectTechnologies (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:93388:5)
-    at async file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:93188:28
-    at async RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:20)
-    at async IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:26) {
-  errno: -4058,
-  code: 'ENOENT',
-  syscall: 'access',
-  path: 'D:\\projects\\SellTime_Portal_Workspace\\tsconfig.json'
-}
-[DEBUG] RpcHandler: Method "skillsSh:detectRecommended" succeeded: {"correlationId":"82934bb6-1181-4e38-b084-337f78f2eebb"}
-[ERROR] RPC: skillsSh:getPopular failed Error: ENOENT: no such file or directory, scandir 'C:\Users\abdal\.claude\skills'
-    at async readdir (node:internal/fs/promises:956:18)
-    at async scanDir (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:93437:23)
-    at async SkillsShRpcHandlers.getInstalledSkillNames (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:93446:5)
-    at async SkillsShRpcHandlers.enrichWithInstallStatus (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:93428:23)
-    at async file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:93156:20
-    at async RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:20)
-    at async IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:26) {
-  errno: -4058,
-  code: 'ENOENT',
-  syscall: 'scandir',
-  path: 'C:\\Users\\abdal\\.claude\\skills'
-}
-[DEBUG] RpcHandler: Method "skillsSh:getPopular" succeeded: {"correlationId":"b1f2b78f-415a-40c2-812f-6038cc4ea4ee"}
-[DEBUG] RPC: skillsSh:listInstalled success: {"totalCount":33}
-[DEBUG] RpcHandler: Method "skillsSh:listInstalled" succeeded: {"correlationId":"1c83a33d-ad00-47a7-8bf5-fdb1705a77b3"}
-[ERROR] RPC: mcpDirectory:getPopular failed
-[DEBUG] RpcHandler: Method "mcpDirectory:getPopular" succeeded: {"correlationId":"04d202f3-c9cd-4cb4-a449-ec5bd9b11ec6"}
-[DEBUG] RpcHandler: Handling method "git:branches": {"correlationId":"6779ab17-62da-46cc-8d25-a1d3566f1ab4"}
-[DEBUG] RpcHandler: Handling method "git:stashList": {"correlationId":"770fb9fc-7c60-409e-8132-df0da3eee12b"}
-[DEBUG] RpcHandler: Handling method "git:lastCommit": {"correlationId":"84f7ef59-b3b9-4886-bf5d-c3f2a1891d94"}
-[DEBUG] RpcHandler: Handling method "git:info": {"correlationId":"2cc99508-37de-4719-bb5c-cc0ab1b1456a"}
-[DEBUG] RpcHandler: Handling method "editor:getSetting": {"correlationId":"aa8f3436-0089-4b55-a58d-85f74d95da12"}
-[DEBUG] RpcHandler: Method "editor:getSetting" succeeded: {"correlationId":"aa8f3436-0089-4b55-a58d-85f74d95da12"}
-[DEBUG] RpcHandler: Method "git:stashList" succeeded: {"correlationId":"770fb9fc-7c60-409e-8132-df0da3eee12b"}
-[DEBUG] RpcHandler: Method "git:lastCommit" succeeded: {"correlationId":"84f7ef59-b3b9-4886-bf5d-c3f2a1891d94"}
-[DEBUG] RpcHandler: Method "git:info" succeeded: {"correlationId":"2cc99508-37de-4719-bb5c-cc0ab1b1456a"}
-[DEBUG] RpcHandler: Method "git:branches" succeeded: {"correlationId":"6779ab17-62da-46cc-8d25-a1d3566f1ab4"}
-[DEBUG] RpcHandler: Handling method "terminal:create": {"correlationId":"a6688793-582c-4872-9bd1-1f541f775025"}
-[INFO] [TerminalRpc] Creating terminal session: {"cwd":"D:\\projects\\SellTime_Portal_Workspace","name":"Terminal 1"}
-[INFO] [PtyManager] Creating PTY session: {"id":"3ef00ca9-7bd8-4243-befc-df43cb95349d","shell":"C:\\WINDOWS\\system32\\cmd.exe","cwd":"D:\\projects\\SellTime_Portal_Workspace"}
-[INFO] [PtyManager] PTY session created: {"id":"3ef00ca9-7bd8-4243-befc-df43cb95349d","pid":23324,"totalSessions":1}
-[DEBUG] RpcHandler: Method "terminal:create" succeeded: {"correlationId":"a6688793-582c-4872-9bd1-1f541f775025"}
-[DEBUG] RpcHandler: Handling method "git:branches": {"correlationId":"63a45d96-d3d8-4094-b727-60b07e99e6e8"}
-[DEBUG] RpcHandler: Handling method "git:stashList": {"correlationId":"fc4eccc3-7ff2-435a-bdc8-a50a064998ab"}
-[DEBUG] RpcHandler: Handling method "git:lastCommit": {"correlationId":"37de1087-05aa-4021-b8cf-47a92d53dcff"}
-[DEBUG] RpcHandler: Method "git:stashList" succeeded: {"correlationId":"fc4eccc3-7ff2-435a-bdc8-a50a064998ab"}
-[DEBUG] RpcHandler: Method "git:lastCommit" succeeded: {"correlationId":"37de1087-05aa-4021-b8cf-47a92d53dcff"}
-[DEBUG] RpcHandler: Method "git:branches" succeeded: {"correlationId":"63a45d96-d3d8-4094-b727-60b07e99e6e8"}
-[INFO] MCP Request: initialize: CodeExecutionMCP {"id":0}
-[INFO] MCP initialize request received: CodeExecutionMCP {"clientInfo":{"name":"github-copilot-developer","version":"1.0.45"}}
-[DEBUG] RpcHandler: Handling method "webSearch:getConfig": {"correlationId":"814794ea-53db-4bad-89a0-11abbf5f57ce"}
-[DEBUG] RPC: webSearch:getConfig called
-[DEBUG] RpcHandler: Method "webSearch:getConfig" succeeded: {"correlationId":"814794ea-53db-4bad-89a0-11abbf5f57ce"}
-[DEBUG] RpcHandler: Handling method "enhancedPrompts:getStatus": {"correlationId":"56d3263b-75df-486a-8f82-ed9b2bbbdf58"}
-[DEBUG] RPC: enhancedPrompts:getStatus called: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace"}
-[DEBUG] RpcHandler: Handling method "agent:getConfig": {"correlationId":"97781940-3db4-46b0-8df7-5d20ca9eacba"}
-[DEBUG] RPC: agent:getConfig called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: agent:getConfig success: {"cliCount":5,"installedCount":2}
-[DEBUG] RpcHandler: Method "agent:getConfig" succeeded: {"correlationId":"97781940-3db4-46b0-8df7-5d20ca9eacba"}
-[DEBUG] RpcHandler: Method "enhancedPrompts:getStatus" succeeded: {"correlationId":"56d3263b-75df-486a-8f82-ed9b2bbbdf58"}
-[DEBUG] RpcHandler: Handling method "agent:getConfig": {"correlationId":"bbd7d862-ad51-43d1-880e-a22c8e108f0d"}
-[DEBUG] RPC: agent:getConfig called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: agent:getConfig success: {"cliCount":5,"installedCount":2}
-[DEBUG] RpcHandler: Method "agent:getConfig" succeeded: {"correlationId":"bbd7d862-ad51-43d1-880e-a22c8e108f0d"}
-[DEBUG] RpcHandler: Handling method "llm:listProviderModels": {"correlationId":"063e7d34-4991-422c-a53e-09507d8d82bc"}
-[DEBUG] RPC: llm:listProviderModels called: {"provider":"vscode-lm"}
-[DEBUG] RpcHandler: Method "llm:listProviderModels" succeeded: {"correlationId":"063e7d34-4991-422c-a53e-09507d8d82bc"}
-[DEBUG] RpcHandler: Handling method "webSearch:getApiKeyStatus": {"correlationId":"834d3bd3-38bb-48ee-b84a-4fcbd5c49bed"}
-[DEBUG] RpcHandler: Method "webSearch:getApiKeyStatus" succeeded: {"correlationId":"834d3bd3-38bb-48ee-b84a-4fcbd5c49bed"}
-[DEBUG] RpcHandler: Handling method "agent:getConfig": {"correlationId":"f17853e2-c0c3-40ad-9a0e-faa5ce1c2ac8"}
-[DEBUG] RPC: agent:getConfig called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: agent:getConfig success: {"cliCount":5,"installedCount":2}
-[DEBUG] RpcHandler: Method "agent:getConfig" succeeded: {"correlationId":"f17853e2-c0c3-40ad-9a0e-faa5ce1c2ac8"}
-[DEBUG] RpcHandler: Handling method "ptahCli:list": {"correlationId":"e96f1095-c526-42f3-b38a-669083bec25a"}
-[DEBUG] RPC: ptahCli:list called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: ptahCli:list success: {"agentCount":1}
-[DEBUG] RpcHandler: Method "ptahCli:list" succeeded: {"correlationId":"e96f1095-c526-42f3-b38a-669083bec25a"}
-[DEBUG] RpcHandler: Handling method "agent:listCliModels": {"correlationId":"aab473ea-d9e5-430a-bdf1-dce17d30b186"}
-[DEBUG] RPC: agent:listCliModels called
-[DEBUG] RPC: agent:listCliModels success: {"geminiCount":0,"codexCount":6,"copilotCount":0}
-[DEBUG] RpcHandler: Method "agent:listCliModels" succeeded: {"correlationId":"aab473ea-d9e5-430a-bdf1-dce17d30b186"}
-[DEBUG] RpcHandler: Handling method "ptahCli:list": {"correlationId":"b6b36152-3eb8-4460-8afb-ecdf364a58ee"}
-[DEBUG] RPC: ptahCli:list called
-[INFO] [PtahCliRegistry] Listed 1 agents
-[DEBUG] RPC: ptahCli:list success: {"agentCount":1}
-[DEBUG] RpcHandler: Method "ptahCli:list" succeeded: {"correlationId":"b6b36152-3eb8-4460-8afb-ecdf364a58ee"}
-[DEBUG] RpcHandler: Handling method "provider:getModelTiers": {"correlationId":"942b1730-bd3e-4f30-bcd1-66148180558e"}
-[DEBUG] RPC: provider:getModelTiers called: {"providerId":"ollama-cloud","scope":"cliAgent"}
-[DEBUG] RPC: provider:getModelTiers result: {"providerId":"ollama-cloud","scope":"cliAgent","tiers":{"sonnet":"kimi-k2.6:cloud","opus":"kimi-k2.6:cloud","haiku":"kimi-k2.6:cloud"}}
-[DEBUG] RpcHandler: Method "provider:getModelTiers" succeeded: {"correlationId":"942b1730-bd3e-4f30-bcd1-66148180558e"}
-[DEBUG] RpcHandler: Handling method "session:load": {"correlationId":"28e0aa51-c38c-41d6-bc0a-035dd316412a"}
-[DEBUG] RPC: session:load called (metadata validation): {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4"}
-[DEBUG] RPC: session:load validated - call chat:resume next: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4"}
-[DEBUG] RpcHandler: Method "session:load" succeeded: {"correlationId":"28e0aa51-c38c-41d6-bc0a-035dd316412a"}
-[DEBUG] RpcHandler: Handling method "auth:getAuthStatus": {"correlationId":"b8a4997f-9fdf-4f0b-9b93-2f7691adfc02"}
-[DEBUG] RPC: auth:getAuthStatus called
-[DEBUG] [AuthSecretsService.getCredential] Retrieved status: {"type":"apiKey","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openrouter","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"moonshot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"z-ai","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"github-copilot","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"openai-codex","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"ollama-cloud","hasValue":false}
-[DEBUG] [AuthSecretsService.getProviderKey] Retrieved status: {"providerId":"lm-studio","hasValue":false}
-[DEBUG] RpcHandler: Handling method "chat:resume": {"correlationId":"9d913014-ff4e-47df-83f0-900ccceb8950"}
-[DEBUG] RPC: chat:resume called
-[INFO] RPC: chat:resume called: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","workspacePath":"D:\\projects\\SellTime_Portal_Workspace","resolvedWorkspacePath":"D:\\projects\\SellTime_Portal_Workspace","usedFallback":false}
-[DEBUG] [JsonlReader] findSessionsDirectory: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","escapedPath":"D--projects-SellTime_Portal_Workspace","dirCount":4,"sampleDirs":["C--Users-abdal","C--Users-abdal-AppData-Local-Programs-Ptah","D--projects-ptah-extension","D--projects-SellTime-Portal-Workspace"]}
-[ERROR] [SessionHistoryReader] Failed to read session history Error: ENOENT: no such file or directory, scandir 'C:\Users\abdal\.claude\projects\D--projects-SellTime-Portal-Workspace\09133c78-b824-4af2-a5fb-f26f1c231ce4\subagents'
-    at async readdir (node:internal/fs/promises:956:18)
-    at async JsonlReaderService.loadAgentSessions (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:31049:27)
-    at async SessionHistoryReaderService.readSessionHistory (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:35599:29)
-    at async ChatSessionService.resumeSession (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:90793:22)
-    at async file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:81904:24
-    at async RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:20)
-    at async IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:26) {
-  errno: -4058,
-  code: 'ENOENT',
-  syscall: 'scandir',
-  path: 'C:\\Users\\abdal\\.claude\\projects\\D--projects-SellTime-Portal-Workspace\\09133c78-b824-4af2-a5fb-f26f1c231ce4\\subagents'
-}
-[DEBUG] [JsonlReader] findSessionsDirectory: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","escapedPath":"D--projects-SellTime_Portal_Workspace","dirCount":4,"sampleDirs":["C--Users-abdal","C--Users-abdal-AppData-Local-Programs-Ptah","D--projects-ptah-extension","D--projects-SellTime-Portal-Workspace"]}
-[DEBUG] [SubagentRegistryService.registerFromHistoryEvents] No agent_start events found: {"parentSessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","eventCount":0}
-[DEBUG] [SubagentRegistryService.getResumable] Query result: {"totalRecords":0,"resumableCount":0}
-[INFO] [RPC] Session history loaded from JSONL: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","messageCount":8,"eventCount":0,"hasStats":false,"resumableSubagentCount":0,"cliSessionCount":0}
-[DEBUG] RPC: chat:resume success
-[DEBUG] RpcHandler: Method "chat:resume" succeeded: {"correlationId":"9d913014-ff4e-47df-83f0-900ccceb8950"}
-[DEBUG] RPC: auth:getAuthStatus result: {"hasApiKey":false,"hasOpenRouterKey":false,"hasAnyProviderKey":false,"authMethod":"claudeCli","anthropicProviderId":"github-copilot","copilotAuthenticated":false,"codexAuthenticated":true,"codexTokenStale":true,"claudeCliInstalled":true}
-[DEBUG] RpcHandler: Method "auth:getAuthStatus" succeeded: {"correlationId":"b8a4997f-9fdf-4f0b-9b93-2f7691adfc02"}
-[DEBUG] RpcHandler: Handling method "session:rewindFiles": {"correlationId":"eb3268ba-4955-4f69-a1ab-c6edb9f3d82b"}
-[DEBUG] RPC: session:rewindFiles called: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","userMessageId":"b114565c-29c7-4681-a0b4-71160a780bae","dryRun":true}
-[INFO] [SessionForkService] Rewinding files for session: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","userMessageId":"b114565c-29c7-4681-a0b4-71160a780bae","dryRun":true}
-[ERROR] RPC: session:rewindFiles failed SessionNotActiveError: Cannot rewind files: session 09133c78-b824-4af2-a5fb-f26f1c231ce4 is not active or has no live Query handle. rewindFiles requires the session to be currently active in SessionLifecycleManager — resume the session before invoking rewind.
-    at new SessionNotActiveError (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:25614:5)
-    at SessionForkService.rewindFiles (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:33010:13)
-    at SdkAgentAdapter.rewindFiles (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:33650:29)
-    at file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:77689:48
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:20)
-    at async IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:26)
-[ERROR] RpcHandler: Method "session:rewindFiles" failed Error: session-not-active: Cannot rewind files: session 09133c78-b824-4af2-a5fb-f26f1c231ce4 is not active or has no live Query handle. rewindFiles requires the session to be currently active in SessionLifecycleManager — resume the session before invoking rewind.
-    at file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:77734:19
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:20)
-    at async IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:26)
-[DEBUG] RpcHandler: Handling method "chat:resume": {"correlationId":"2cf55374-c986-462d-af88-88caa188152c"}
-[DEBUG] RPC: chat:resume called
-[INFO] RPC: chat:resume called: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","workspacePath":"D:\\projects\\SellTime_Portal_Workspace","resolvedWorkspacePath":"D:\\projects\\SellTime_Portal_Workspace","usedFallback":false}
-[DEBUG] [JsonlReader] findSessionsDirectory: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","escapedPath":"D--projects-SellTime_Portal_Workspace","dirCount":4,"sampleDirs":["C--Users-abdal","C--Users-abdal-AppData-Local-Programs-Ptah","D--projects-ptah-extension","D--projects-SellTime-Portal-Workspace"]}
-[ERROR] [SessionHistoryReader] Failed to read session history Error: ENOENT: no such file or directory, scandir 'C:\Users\abdal\.claude\projects\D--projects-SellTime-Portal-Workspace\09133c78-b824-4af2-a5fb-f26f1c231ce4\subagents'
-    at async readdir (node:internal/fs/promises:956:18)
-    at async JsonlReaderService.loadAgentSessions (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:31049:27)
-    at async SessionHistoryReaderService.readSessionHistory (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:35599:29)
-    at async ChatSessionService.resumeSession (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:90793:22)
-    at async file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:81904:24
-    at async RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:20)
-    at async IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:26) {
-  errno: -4058,
-  code: 'ENOENT',
-  syscall: 'scandir',
-  path: 'C:\\Users\\abdal\\.claude\\projects\\D--projects-SellTime-Portal-Workspace\\09133c78-b824-4af2-a5fb-f26f1c231ce4\\subagents'
-}
-[DEBUG] [JsonlReader] findSessionsDirectory: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","escapedPath":"D--projects-SellTime_Portal_Workspace","dirCount":4,"sampleDirs":["C--Users-abdal","C--Users-abdal-AppData-Local-Programs-Ptah","D--projects-ptah-extension","D--projects-SellTime-Portal-Workspace"]}
-[DEBUG] [SubagentRegistryService.registerFromHistoryEvents] No agent_start events found: {"parentSessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","eventCount":0}
-[DEBUG] [SubagentRegistryService.getResumable] Query result: {"totalRecords":0,"resumableCount":0}
-[INFO] [RPC] Session history loaded from JSONL: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","messageCount":8,"eventCount":0,"hasStats":false,"resumableSubagentCount":0,"cliSessionCount":0}
-[INFO] [RPC] Session 09133c78-b824-4af2-a5fb-f26f1c231ce4 not active, attempting resume...
-[DEBUG] [LicenseService.verifyLicense] Returning cached status: {"tier":"trial_pro","valid":true,"cacheAge":3509069}
-[INFO] [ptah.main] chat:continue resume - session config: {"tier":"trial_pro","isPremium":true,"mcpServerRunning":true,"mcpPort":51820,"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4"}
-[DEBUG] [PluginLoaderService] Resolved plugin paths: {"requestedCount":3,"resolvedCount":3,"pluginIds":["ptah-core","ptah-angular","ptah-nx-saas"]}
-[DEBUG] Resolved plugin paths for session: {"enabledCount":3,"resolvedCount":3}
-[INFO] [ptah.main] chat:continue resume - prompt config: {"hasEnhancedPrompts":true,"enhancedPromptsLength":6184,"pluginCount":3}
-[INFO] [SdkAgentAdapter] Resuming session: 09133c78-b824-4af2-a5fb-f26f1c231ce4: {"isPremium":true,"mcpServerRunning":true}
-[INFO] [SessionLifecycle] Executing query for session: 09133c78-b824-4af2-a5fb-f26f1c231ce4: {"isResume":true,"hasInitialPrompt":false}
-[INFO] [SdkQueryOptionsBuilder] SDK call with model: claude-opus-4-7: {"model":"claude-opus-4-7","envSonnet":"default","envOpus":"default","envHaiku":"default","baseUrl":"default"}
-[INFO] [SdkQueryOptionsBuilder] System prompt assembled: {"isPremium":true,"mcpServerRunning":true,"mode":"preset-append","hasEnhancedPrompts":true,"enhancedPromptsLength":6184,"hasPtahCorePrompt":true,"hasIdentityPrompt":false,"hasUserSystemPrompt":false,"hasMemoryBlock":false,"memoryBlockLength":0,"totalAppendLength":23397}
-[INFO] [SubagentHookHandler] Creating hooks for workspace: {"workspacePath":"D:\\projects\\SellTime_Portal_Workspace","parentSessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4"}
-[INFO] [CompactionHookHandler] Creating hooks for session: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","hasCallback":true}
-[INFO] [WorktreeHookHandler] Creating hooks: {"hasCreatedCallback":true,"hasRemovedCallback":true}
-[INFO] [SdkQueryOptionsBuilder] SDK hooks created for session: {"cwd":"D:\\projects\\SellTime_Portal_Workspace","sessionId":"09133c78...","hookEvents":["SubagentStart","SubagentStop","PreCompact","WorktreeCreate","WorktreeRemove"],"hasSubagentStart":true,"hasSubagentStop":true,"hasPreCompact":true,"hasWorktreeCreate":true,"hasWorktreeRemove":true,"subagentStartHooksCount":1,"subagentStopHooksCount":1,"preCompactHooksCount":1,"worktreeCreateHooksCount":1,"worktreeRemoveHooksCount":1,"hasCompactionCallback":true}
-[DEBUG] [CompactionConfigProvider] Retrieved compaction configuration: {"enabled":true,"contextTokenThreshold":100000,"usingDefaults":true}
-[INFO] [SdkQueryOptionsBuilder] Building SDK query options: {"cwd":"D:\\projects\\SellTime_Portal_Workspace","model":"claude-opus-4-7","isResume":true,"resumeSessionId":"09133c78...","permissionMode":"default","hasCanUseToolCallback":true,"compactionEnabled":true,"compactionThreshold":100000,"isPremium":true,"mcpEnabled":true,"hasEnhancedPrompts":true,"pluginCount":3}
-[INFO] [SdkQueryOptionsBuilder] MCP servers ENABLED: {"isPremium":true,"mcpServerRunning":true,"mcpUrl":"http://localhost:51820/session/09133c78-b824-4af2-a5fb-f26f1c231ce4"}
-[INFO] [SdkQueryOptionsBuilder] Enabling 1M context beta for Anthropic direct
-[INFO] [SessionLifecycle] Starting SDK query with options: {"model":"claude-opus-4-7","cwd":"D:\\projects\\SellTime_Portal_Workspace","permissionMode":"default","maxTurns":200,"isResume":true,"isSlashCommand":false,"promptMode":"idle+streamInput"}
-[DEBUG] [SessionLifecycle] Waiting for message (09133c78-b824-4af2-a5fb-f26f1c231ce4)...
-[INFO] [SessionLifecycle] Connected streamInput for session: 09133c78-b824-4af2-a5fb-f26f1c231ce4 (idle+streamInput)
-[DEBUG] [SessionLifecycle] Set query for session: 09133c78-b824-4af2-a5fb-f26f1c231ce4
-[INFO] [SessionLifecycle] Query started for session: 09133c78-b824-4af2-a5fb-f26f1c231ce4
-[INFO] [RPC] streamExecutionNodesToWebview STARTED for session 09133c78-b824-4af2-a5fb-f26f1c231ce4, tabId cd3d3c83-cc6d-4695-9244-5c53d807e982
-[INFO] [RPC] Session 09133c78-b824-4af2-a5fb-f26f1c231ce4 resumed successfully
-[DEBUG] RPC: chat:resume success
-[DEBUG] RpcHandler: Method "chat:resume" succeeded: {"correlationId":"2cf55374-c986-462d-af88-88caa188152c"}
-[DEBUG] RpcHandler: Handling method "session:rewindFiles": {"correlationId":"c2c6c45a-1523-40f3-9b81-7afeb797547d"}
-[DEBUG] RPC: session:rewindFiles called: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","userMessageId":"b114565c-29c7-4681-a0b4-71160a780bae","dryRun":true}
-[INFO] [SessionForkService] Rewinding files for session: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","userMessageId":"b114565c-29c7-4681-a0b4-71160a780bae","dryRun":true}
-[DEBUG] [SdkQueryOptionsBuilder] CLI stderr: Warning: Custom betas are only available for API key users. Ignoring provided betas.
+  (node:4340) Warning: Failed to load the ES module: /home/runner/work/ptah-extension/ptah-extension/libs/backend/cli-agent-runtime/jest.config.ts. Make sure to set "type": "module" in the nearest package.json file or use the .mjs extension.
+  (Use `node --trace-warnings ...` to show where the warning was created)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex-cli.adapter.spec.ts (9.018 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/copilot-sdk.adapter.spec.ts (9.821 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/gemini-cli.adapter.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cursor-cli.adapter.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/copilot-mcp.installer.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/gemini-mcp.installer.spec.ts
+   FAIL   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.spec.ts (21.575 s)
+    ● AgentProcessManager - SDK Execution Path › spawn() with SDK adapter › should call runSdk() instead of child_process.spawn for SDK adapters
 
-[INFO] MCP Request: initialize: CodeExecutionMCP {"id":0}
-[INFO] MCP initialize request received: CodeExecutionMCP {"clientInfo":{"name":"claude-code","title":"Claude Code","version":"2.1.144","description":"Anthropic's agentic coding tool","websiteUrl":"https://claude.com/claude-code"}}
-[INFO] MCP Request: tools/list: CodeExecutionMCP {"id":1}
-[INFO] [SessionForkService] rewindFiles completed: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","userMessageId":"b114565c-29c7-4681-a0b4-71160a780bae","canRewind":true,"filesChanged":0,"insertions":0,"deletions":0}
-[DEBUG] RpcHandler: Method "session:rewindFiles" succeeded: {"correlationId":"c2c6c45a-1523-40f3-9b81-7afeb797547d"}
-[DEBUG] RpcHandler: Handling method "git:branches": {"correlationId":"dbd64cc1-6f5f-43f0-819f-7d068f164fdb"}
-[DEBUG] RpcHandler: Handling method "git:stashList": {"correlationId":"cdda0d87-ebc6-41ff-9591-753ba6da58e1"}
-[DEBUG] RpcHandler: Handling method "git:lastCommit": {"correlationId":"98bbcf19-a144-4666-9571-fca6a193f7f6"}
-[DEBUG] RpcHandler: Method "git:stashList" succeeded: {"correlationId":"cdda0d87-ebc6-41ff-9591-753ba6da58e1"}
-[DEBUG] RpcHandler: Method "git:lastCommit" succeeded: {"correlationId":"98bbcf19-a144-4666-9571-fca6a193f7f6"}
-[DEBUG] RpcHandler: Method "git:branches" succeeded: {"correlationId":"dbd64cc1-6f5f-43f0-819f-7d068f164fdb"}
-[DEBUG] RpcHandler: Handling method "git:branches": {"correlationId":"8597ec4e-8427-4139-82e4-9dea4beea0ef"}
-[DEBUG] RpcHandler: Handling method "git:stashList": {"correlationId":"66f0823b-b288-44cc-8934-fef994349026"}
-[DEBUG] RpcHandler: Handling method "git:lastCommit": {"correlationId":"3e6ce037-cad4-40c9-b152-ee6608e84f5a"}
-[DEBUG] RpcHandler: Handling method "session:rewindFiles": {"correlationId":"6738d5ba-abf0-4441-9588-a9bb5e753d65"}
-[DEBUG] RPC: session:rewindFiles called: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","userMessageId":"b114565c-29c7-4681-a0b4-71160a780bae","dryRun":false}
-[INFO] [SessionForkService] Rewinding files for session: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","userMessageId":"b114565c-29c7-4681-a0b4-71160a780bae","dryRun":false}
-[INFO] [SessionForkService] rewindFiles completed: {"sessionId":"09133c78-b824-4af2-a5fb-f26f1c231ce4","userMessageId":"b114565c-29c7-4681-a0b4-71160a780bae","canRewind":true,"filesChanged":0}
-[DEBUG] RpcHandler: Method "session:rewindFiles" succeeded: {"correlationId":"6738d5ba-abf0-4441-9588-a9bb5e753d65"}
-[DEBUG] RpcHandler: Handling method "chat:resume": {"correlationId":"c3eba423-a05a-445f-ac67-2474bc92e789"}
-[DEBUG] RPC: chat:resume called
-[ERROR] RPC: chat:resume failed ZodError: [
-  {
-    "origin": "string",
-    "code": "invalid_format",
-    "format": "datetime",
-    "pattern": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$/",
-    "path": [
-      "resumeSessionAt"
-    ],
-    "message": "Invalid ISO datetime"
-  }
-]
-    at file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:81958:32
-    at file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:81904:30
-    at RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:26)
-    at IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:48)
-    at IpcMainImpl.emit (node:events:509:28)
-    at Session.<anonymous> (node:electron/js2c/browser_init:2:114672)
-    at Session.emit (node:events:509:28)
-[ERROR] RpcHandler: Method "chat:resume" failed ZodError: [
-  {
-    "origin": "string",
-    "code": "invalid_format",
-    "format": "datetime",
-    "pattern": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$/",
-    "path": [
-      "resumeSessionAt"
-    ],
-    "message": "Invalid ISO datetime"
-  }
-]
-    at file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:81958:32
-    at file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:81904:30
-    at RpcHandler.handleMessage (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:8808:26)
-    at IpcMainImpl.<anonymous> (file:///D:/projects/ptah-extension/dist/apps/ptah-electron/main.mjs:94623:48)
-    at IpcMainImpl.emit (node:events:509:28)
-    at Session.<anonymous> (node:electron/js2c/browser_init:2:114672)
-    at Session.emit (node:events:509:28)
-[DEBUG] RpcHandler: Method "git:stashList" succeeded: {"correlationId":"66f0823b-b288-44cc-8934-fef994349026"}
-[DEBUG] RpcHandler: Method "git:lastCommit" succeeded: {"correlationId":"3e6ce037-cad4-40c9-b152-ee6608e84f5a"}
-[DEBUG] RpcHandler: Method "git:branches" succeeded: {"correlationId":"8597ec4e-8427-4139-82e4-9dea4beea0ef"}
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:336:22)
+
+    ● AgentProcessManager - SDK Execution Path › spawn() with SDK adapter › should pass unsanitized task to runSdk (SDK runs in-process, not via shell)
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:352:7)
+
+    ● AgentProcessManager - SDK Execution Path › spawn() with SDK adapter › should set agent status to running initially
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:370:22)
+
+    ● AgentProcessManager - SDK Execution Path › SDK output in readOutput() › should capture SDK output in the stdout buffer
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:383:22)
+
+    ● AgentProcessManager - SDK Execution Path › stop() on SDK agent › should call AbortController.abort() when stopping an SDK agent
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:403:22)
+
+    ● AgentProcessManager - SDK Execution Path › stop() on SDK agent › should return current info if agent already completed
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:427:22)
+
+    ● AgentProcessManager - SDK Execution Path › timeout for SDK agents › should trigger handleTimeout when timeout expires for SDK agent
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:448:22)
+
+    ● AgentProcessManager - SDK Execution Path › handleExit for SDK agents › should set status to completed on exit code 0
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:469:22)
+
+    ● AgentProcessManager - SDK Execution Path › handleExit for SDK agents › should set status to failed on exit code 1
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:486:22)
+
+    ● AgentProcessManager - SDK Execution Path › handleExit for SDK agents › should set status to failed on SDK done promise rejection
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:501:22)
+
+    ● AgentProcessManager - SDK Execution Path › handleExit for SDK agents › should not double-exit when timeout fires after SDK already resolved
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:517:22)
+
+    ● AgentProcessManager - SDK Execution Path › steer() on SDK agent › should throw an error for SDK-based agents that do not support steering
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:544:22)
+
+    ● AgentProcessManager - SDK Execution Path › shutdownAll() with SDK agents › should stop all running SDK agents
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:558:7)
+
+    ● AgentProcessManager - SDK Execution Path › concurrent limit includes SDK agents › should count SDK agents towards the concurrent limit
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:590:7)
+
+    ● AgentProcessManager - SDK Execution Path › concurrent limit includes SDK agents › should allow new spawn after SDK agent completes
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:610:7)
+
+    ● AgentProcessManager - SDK Execution Path › getPreferredCli() auto-detect › should auto-detect codex when no preference is set
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:641:22)
+
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/cursor-mcp.installer.spec.ts (28.182 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/claude-mcp.installer.spec.ts (21.775 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/vscode-mcp.installer.spec.ts (30.105 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-registry.provider.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/fix-path.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-stream-loop.service.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry-tiers.spec.ts (5.107 s)
+
+  Test Suites: 1 failed, 14 passed, 15 total
+  Tests:       16 failed, 220 passed, 236 total
+  Snapshots:   0 total
+  Time:        50.65 s

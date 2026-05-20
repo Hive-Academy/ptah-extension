@@ -32,6 +32,21 @@ jest.mock('child_process', () => ({
   execFile: mockExecFile,
 }));
 
+// Mock fs.promises so validateWorkingDirectory()'s realpath() calls don't
+// hit the real filesystem (the tests use the synthetic path '/workspace/root'
+// which doesn't exist on CI runners). Identity-resolve any input so the
+// startsWith() prefix check downstream still works.
+jest.mock('fs', () => {
+  const actual = jest.requireActual('fs');
+  return {
+    ...actual,
+    promises: {
+      ...actual.promises,
+      realpath: jest.fn((p: string) => Promise.resolve(p)),
+    },
+  };
+});
+
 // Stub axios so resolveMcpPort()'s health check never performs a real HTTP
 // request. A rejection causes MCP to be disabled for the CLI agent, which
 // is the behavior we want in these unit tests (MCP wiring is out of scope

@@ -620,6 +620,85 @@ Content`;
       );
     });
 
+    it('rehydrates name from templateId when name is missing (kept by -v suffix strip)', async () => {
+      const content = `---
+templateId: backend-developer-v2
+version: 1.0.0
+applicabilityRules:
+  projectTypes: []
+  frameworks: []
+  monorepoTypes: []
+  minimumRelevanceScore: 50
+  alwaysInclude: false
+---
+content body
+`;
+      mockReadFile.mockResolvedValue(content);
+      const result = await service.loadTemplate('backend-developer-v2');
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.name).toBe('backend-developer');
+    });
+
+    it('rehydrates version from templateVersion when version is missing', async () => {
+      const content = `---
+id: backend-developer
+name: Backend Developer
+templateVersion: 2.5.0
+applicabilityRules:
+  projectTypes: []
+  frameworks: []
+  monorepoTypes: []
+  minimumRelevanceScore: 50
+  alwaysInclude: false
+---
+content body
+`;
+      mockReadFile.mockResolvedValue(content);
+      const result = await service.loadTemplate('backend-developer');
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.version).toBe('2.5.0');
+    });
+
+    it('coerces non-array frameworks in applicabilityRules to []', async () => {
+      const content = `---
+id: backend-developer
+name: Backend Developer
+version: 1.0.0
+applicabilityRules:
+  projectTypes: [Node]
+  frameworks: "Express"
+  monorepoTypes: []
+  minimumRelevanceScore: 50
+  alwaysInclude: false
+---
+content body
+`;
+      mockReadFile.mockResolvedValue(content);
+      const result = await service.loadTemplate('backend-developer');
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.applicabilityRules.frameworks).toEqual([]);
+    });
+
+    it('coerces non-array monorepoTypes in applicabilityRules to []', async () => {
+      const content = `---
+id: backend-developer
+name: Backend Developer
+version: 1.0.0
+applicabilityRules:
+  projectTypes: [Node]
+  frameworks: []
+  monorepoTypes: "Nx"
+  minimumRelevanceScore: 50
+  alwaysInclude: false
+---
+content body
+`;
+      mockReadFile.mockResolvedValue(content);
+      const result = await service.loadTemplate('backend-developer');
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.applicabilityRules.monorepoTypes).toEqual([]);
+    });
+
     it('should validate alwaysInclude is a boolean', async () => {
       // Arrange
       const invalidContent = `---
@@ -644,6 +723,154 @@ Content`;
       expect(result.error?.message).toContain(
         'alwaysInclude must be a boolean',
       );
+    });
+  });
+
+  describe('error pathways', () => {
+    it('wraps non-ENOENT readdir errors via the outer catch', async () => {
+      const error: NodeJS.ErrnoException = new Error('permission denied');
+      error.code = 'EACCES';
+      mockReaddir.mockRejectedValue(error);
+
+      const result = await service.loadAllTemplates();
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain(
+        'Unexpected error loading templates',
+      );
+      expect(result.error?.message).toContain('permission denied');
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Unexpected error loading templates',
+        expect.any(Error),
+      );
+    });
+
+    it('wraps non-ENOENT readFile errors when loading via loadTemplate', async () => {
+      const error: NodeJS.ErrnoException = new Error('disk failure');
+      error.code = 'EIO';
+      mockReadFile.mockRejectedValue(error);
+
+      const result = await service.loadTemplate('any-template');
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain(
+        'Unexpected error loading template',
+      );
+      expect(result.error?.message).toContain('disk failure');
+    });
+
+    it('captures unexpected throws via Sentry in loadTemplate outer catch', async () => {
+      let throwOnDebug = false;
+      const sentryService: MockSentryService = {
+        initialize: jest.fn() as any,
+        captureException: jest.fn() as any,
+        captureMessage: jest.fn() as any,
+        addBreadcrumb: jest.fn() as any,
+        flush: jest.fn() as any,
+        shutdown: jest.fn() as any,
+        isInitialized: jest.fn() as any,
+      };
+      const throwingLogger: MockLogger = {
+        debug: jest.fn(() => {
+          if (throwOnDebug) {
+            throw new Error('logger blew up');
+          }
+        }) as any,
+        info: jest.fn() as any,
+        warn: jest.fn() as any,
+        error: jest.fn() as any,
+        logWithContext: jest.fn() as any,
+        show: jest.fn() as any,
+        dispose: jest.fn() as any,
+      };
+      const local = new TemplateStorageService(
+        throwingLogger as any,
+        sentryService as any,
+        '/test/templates/agents',
+      );
+      throwOnDebug = true;
+
+      const result = await local.loadTemplate('anything');
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain(
+        'Error loading template anything',
+      );
+      expect(sentryService.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'TemplateStorageService.loadTemplate',
+        }),
+      );
+    });
+  });
+
+  describe('getApplicableTemplates branches', () => {
+    it('includes templates with empty projectTypes regardless of input', async () => {
+      const wideTemplate = `---
+id: wide
+name: Wide Template
+version: 1.0.0
+applicabilityRules:
+  projectTypes: []
+  frameworks: []
+  monorepoTypes: []
+  minimumRelevanceScore: 50
+  alwaysInclude: false
+---
+Wide template body
+`;
+      mockReaddir.mockResolvedValue(['wide.template.md'] as any);
+      mockReadFile.mockResolvedValue(wideTemplate);
+
+      const result = await service.getApplicableTemplates('Python');
+      expect(result.isOk()).toBe(true);
+      const ids = result.value!.map((t) => t.id);
+      expect(ids).toContain('wide');
+    });
+
+    it('propagates the inner error when loadAllTemplates fails', async () => {
+      mockReaddir.mockResolvedValue([
+        'broken1.template.md',
+        'broken2.template.md',
+      ] as any);
+      const broken = `---
+invalid: [yaml: syntax
+---`;
+      mockReadFile.mockResolvedValue(broken);
+
+      const result = await service.getApplicableTemplates('Node');
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain('Failed to load all templates');
+    });
+
+    it('routes unexpected errors through the catch block', async () => {
+      const valid = `---
+id: backend
+name: Backend
+version: 1.0.0
+applicabilityRules:
+  projectTypes: [Node]
+  frameworks: []
+  monorepoTypes: []
+  minimumRelevanceScore: 50
+  alwaysInclude: false
+---
+body content
+`;
+      mockReaddir.mockResolvedValue(['backend.template.md'] as any);
+      mockReadFile.mockResolvedValue(valid);
+
+      await service.loadAllTemplates();
+      let callCount = 0;
+      (mockLogger.info as jest.Mock).mockImplementation(() => {
+        callCount += 1;
+        if (callCount === 1) {
+          throw new Error('synthetic log failure');
+        }
+      });
+
+      const result = await service.getApplicableTemplates('Node');
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain('Error filtering templates');
+      expect(result.error?.message).toContain('synthetic log failure');
     });
   });
 });

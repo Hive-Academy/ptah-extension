@@ -67,6 +67,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 import {
   ProjectAnalysisZodSchema,
   normalizeAgentOutput,
+  buildAnalysisJsonSchema,
 } from './analysis-schema';
 
 /**
@@ -597,5 +598,211 @@ describe('normalizeAgentOutput', () => {
       expect(result.codeConventions.indentation).toBe('spaces');
       expect(result.testCoverage.hasTests).toBe(false);
     });
+  });
+
+  describe('alias loop matching (alphaOnly fallback)', () => {
+    it('resolves "Node JS" via PROJECT_TYPE_ALIASES alphaOnly loop', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ projectType: 'Node JS' }),
+      );
+      expect(result.projectType).toBe('node');
+    });
+
+    it('resolves keyword-pattern descriptive projectType strings', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ projectType: 'My Brand New React Application' }),
+      );
+      expect(result.projectType).toBe('react');
+    });
+
+    it('resolves "Nuxt js" framework via alias alphaOnly loop', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ frameworks: ['Nuxt js'] }),
+      );
+      expect(result.frameworks).toEqual(['nuxt']);
+    });
+
+    it('resolves "YARN!" monorepo via alias alphaOnly loop', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ monorepoType: 'YARN!' }),
+      );
+      expect(result.monorepoType).toBe('yarn-workspaces');
+    });
+
+    it('exposes projectTypeDescription when raw differs from resolved value', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ projectType: 'Node.js Backend Service' }),
+      );
+      expect(result.projectType).toBe('node');
+      expect(result.projectTypeDescription).toBe('Node.js Backend Service');
+    });
+  });
+
+  describe('preprocess fallbacks', () => {
+    it('normalizes string entries in architecturePatterns into objects', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({
+          architecturePatterns: ['Layered', 'Hexagonal'],
+        }),
+      );
+      expect(result.architecturePatterns).toHaveLength(2);
+      expect(result.architecturePatterns[0]).toEqual(
+        expect.objectContaining({
+          name: 'Layered',
+          confidence: 50,
+          evidence: [],
+          description: 'Layered',
+        }),
+      );
+    });
+
+    it('wraps string keyFileLocations values into arrays', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({
+          keyFileLocations: {
+            entryPoints: 'src/main.ts',
+            configs: 'tsconfig.json',
+            testDirectories: [],
+            apiRoutes: [],
+            components: [],
+            services: [],
+          },
+        }),
+      );
+      expect(result.keyFileLocations.entryPoints).toEqual(['src/main.ts']);
+      expect(result.keyFileLocations.configs).toEqual(['tsconfig.json']);
+    });
+
+    it('returns empty array when languageDistribution is a primitive', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ languageDistribution: 'not an array' }),
+      );
+      expect(result.languageDistribution).toEqual([]);
+    });
+  });
+
+  describe('qualityAssessment normalization', () => {
+    it('maps qualityScore, qualityGaps, prescriptiveGuidance, qualityAssessment', () => {
+      const result = parseAndNormalize({
+        projectType: 'node',
+        qualityAssessment: {
+          qualityScore: 78,
+          qualityIssues: [
+            {
+              area: 'TypeScript',
+              severity: 'high',
+              description: 'Wide any usage',
+              recommendation: 'Tighten types',
+            },
+            {
+              area: 'Testing',
+              severity: 'medium',
+              description: 'Low coverage',
+              recommendation: 'Add unit tests',
+            },
+          ],
+          strengths: ['Clear DI boundaries'],
+          recommendations: [
+            {
+              priority: 1,
+              category: 'TypeScript',
+              issue: 'Replace any with unknown',
+              solution: 'Add strict checks',
+            },
+            {
+              priority: 2,
+              category: 'Testing',
+              issue: 'Increase coverage',
+              solution: 'Write unit specs',
+            },
+            {
+              priority: 3,
+              category: 'Architecture',
+              issue: 'Split god module',
+              solution: 'Extract services',
+            },
+            {
+              priority: 4,
+              category: 'Security',
+              issue: 'Audit deps',
+              solution: 'Run npm audit',
+            },
+          ],
+        },
+      });
+
+      expect(result.qualityScore).toBe(78);
+      expect(result.qualityGaps).toBeDefined();
+      expect(result.qualityGaps).toHaveLength(2);
+      expect(result.qualityGaps![0].priority).toBe('high');
+
+      expect(result.prescriptiveGuidance).toBeDefined();
+      expect(result.prescriptiveGuidance!.recommendations).toHaveLength(4);
+      expect(result.prescriptiveGuidance!.summary).toContain(
+        'Replace any with unknown',
+      );
+      expect(result.prescriptiveGuidance!.totalTokens).toBe(0);
+      expect(result.prescriptiveGuidance!.wasTruncated).toBe(false);
+
+      expect(result.qualityAssessment).toBeDefined();
+      expect(result.qualityAssessment!.score).toBe(78);
+      expect(result.qualityAssessment!.strengths).toEqual([
+        'Clear DI boundaries',
+      ]);
+      expect(result.qualityAssessment!.antiPatterns).toEqual([]);
+      expect(result.qualityAssessment!.gaps).toBe(result.qualityGaps);
+      expect(result.qualityAssessment!.sampledFiles).toEqual([]);
+      expect(typeof result.qualityAssessment!.analysisTimestamp).toBe('number');
+    });
+
+    it('handles empty qualityIssues and recommendations without setting optional fields', () => {
+      const result = parseAndNormalize({
+        projectType: 'node',
+        qualityAssessment: {
+          qualityScore: 50,
+          qualityIssues: [],
+          strengths: [],
+          recommendations: [],
+        },
+      });
+
+      expect(result.qualityScore).toBe(50);
+      expect(result.qualityGaps).toBeUndefined();
+      expect(result.prescriptiveGuidance).toBeUndefined();
+      expect(result.qualityAssessment).toBeDefined();
+      expect(result.qualityAssessment!.gaps).toEqual([]);
+    });
+  });
+});
+
+describe('buildAnalysisJsonSchema', () => {
+  it('returns a JSON Schema with the expected top-level shape', () => {
+    const schema = buildAnalysisJsonSchema();
+    expect(schema).toMatchObject({
+      type: 'object',
+      properties: expect.any(Object),
+      required: expect.arrayContaining([
+        'projectType',
+        'frameworks',
+        'architecturePatterns',
+        'keyFileLocations',
+        'languageDistribution',
+        'existingIssues',
+        'codeConventions',
+        'testCoverage',
+        'qualityAssessment',
+      ]),
+    });
+  });
+
+  it('exposes qualityAssessment with required nested fields', () => {
+    const schema = buildAnalysisJsonSchema() as any;
+    const qa = schema.properties.qualityAssessment;
+    expect(qa.required).toEqual([
+      'qualityScore',
+      'qualityIssues',
+      'strengths',
+      'recommendations',
+    ]);
   });
 });

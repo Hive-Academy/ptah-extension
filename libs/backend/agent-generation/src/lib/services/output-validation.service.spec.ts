@@ -171,7 +171,7 @@ This is static content that should not be modified.
         expect.objectContaining({
           severity: 'error',
           message: 'Content is empty',
-        })
+        }),
       );
     });
 
@@ -191,7 +191,7 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor i
       expect(validation.issues).not.toContainEqual(
         expect.objectContaining({
           message: 'Missing YAML frontmatter',
-        })
+        }),
       );
     });
 
@@ -220,7 +220,7 @@ This content contains malicious code and should fail validation with a long enou
         expect.objectContaining({
           severity: 'error',
           message: expect.stringContaining('malicious code'),
-        })
+        }),
       );
     });
 
@@ -248,7 +248,7 @@ This content contains sensitive data that should be detected and flagged as a se
         expect.objectContaining({
           severity: 'error',
           message: expect.stringContaining('sensitive data'),
-        })
+        }),
       );
     });
 
@@ -272,7 +272,7 @@ Adding more content to meet minimum length requirements for proper validation an
 
       const result = await service.validate(
         mismatchedMarkersContent,
-        mockContext
+        mockContext,
       );
 
       expect(result.isOk()).toBe(true);
@@ -281,7 +281,7 @@ Adding more content to meet minimum length requirements for proper validation an
         expect.objectContaining({
           severity: 'error',
           message: expect.stringContaining('Mismatched LLM markers'),
-        })
+        }),
       );
     });
 
@@ -311,7 +311,7 @@ Some content here but missing name field in frontmatter and minimal structure. A
           expect.objectContaining({
             severity: 'warning',
             message: expect.stringContaining('borderline'),
-          })
+          }),
         );
       }
     });
@@ -376,7 +376,7 @@ This is test content with proper structure and sufficient length to pass minimum
         expect.objectContaining({
           severity: 'info',
           message: expect.stringContaining('Factual validation skipped'),
-        })
+        }),
       );
     });
 
@@ -410,7 +410,7 @@ This is well-structured content with all markers properly closed and no security
 
       const result = await service.validate(
         perfectSchemaAndSafety,
-        emptyContext
+        emptyContext,
       );
 
       expect(result.isOk()).toBe(true);
@@ -435,7 +435,7 @@ Also review libs/fake/module/index.ts
 
       expect(hallucinations.length).toBeGreaterThan(0);
       expect(hallucinations).toContainEqual(
-        expect.stringContaining('src/app/non-existent/file.ts')
+        expect.stringContaining('src/app/non-existent/file.ts'),
       );
     });
 
@@ -468,7 +468,7 @@ import { Helper } from 'fake-library';
 
       expect(hallucinations.length).toBeGreaterThan(0);
       expect(hallucinations.some((h) => h.includes('unknown-package'))).toBe(
-        true
+        true,
       );
       expect(hallucinations.some((h) => h.includes('fake-library'))).toBe(true);
     });
@@ -487,11 +487,11 @@ Also review libs/backend/core/index.ts
       // Should not flag these existing paths
       expect(
         hallucinations.some((h) =>
-          h.includes('src/app/services/auth.service.ts')
-        )
+          h.includes('src/app/services/auth.service.ts'),
+        ),
       ).toBe(false);
       expect(
-        hallucinations.some((h) => h.includes('libs/backend/core/index.ts'))
+        hallucinations.some((h) => h.includes('libs/backend/core/index.ts')),
       ).toBe(false);
     });
 
@@ -524,10 +524,10 @@ import { UserEntity } from '../entities/user.entity';
 
       // Should not flag relative imports
       expect(hallucinations.some((h) => h.includes('./auth.service'))).toBe(
-        false
+        false,
       );
       expect(
-        hallucinations.some((h) => h.includes('../entities/user.entity'))
+        hallucinations.some((h) => h.includes('../entities/user.entity')),
       ).toBe(false);
     });
 
@@ -574,7 +574,7 @@ Just plain text describing general concepts and ideas.
         expect.objectContaining({
           severity: 'error',
           message: expect.stringContaining('too short'),
-        })
+        }),
       );
     });
 
@@ -592,7 +592,7 @@ Just plain text describing general concepts and ideas.
         expect.objectContaining({
           severity: 'warning',
           message: expect.stringContaining('very long'),
-        })
+        }),
       );
     });
 
@@ -657,7 +657,7 @@ This is just plain text without any markdown headers at all. Just a long paragra
         expect.objectContaining({
           severity: 'warning',
           message: expect.stringContaining('No markdown headers'),
-        })
+        }),
       );
     });
 
@@ -683,7 +683,7 @@ This might be suspicious content encoded in base64 format for various purposes.
         expect.objectContaining({
           severity: 'info',
           message: expect.stringContaining('base64'),
-        })
+        }),
       );
     });
 
@@ -713,7 +713,155 @@ This content contains various URLs for testing URL validation logic with suffici
         expect.objectContaining({
           severity: 'warning',
           message: expect.stringContaining('external URL'),
-        })
+        }),
+      );
+    });
+  });
+
+  describe('Factual validation branches', () => {
+    it('flags invalid file paths against relevantFiles and deducts score', async () => {
+      const content = `---
+id: test
+name: Test
+version: 1.0.0
+---
+
+# Test Agent
+
+See src/app/missing-one/file.ts and libs/missing-two/file.ts and apps/missing-three/file.ts and packages/missing-four/file.ts and libs/missing-five/file.ts for details.
+
+This content references multiple paths that do not exist in the project to exercise factual validation thresholds for invalid path penalty.
+`;
+
+      const result = await service.validate(content, mockContext);
+      expect(result.isOk()).toBe(true);
+      const validation = result.value!;
+      const pathIssues = validation.issues.filter((i) =>
+        i.message.includes('not found in project'),
+      );
+      expect(pathIssues.length).toBeGreaterThan(0);
+      expect(pathIssues.length).toBeLessThanOrEqual(3);
+    });
+
+    it('flags non-techstack frameworks and deducts factual score', async () => {
+      const content = `---
+id: test
+name: Test
+version: 1.0.0
+---
+
+# Test Agent
+
+The project uses Django for backend and FastAPI for ML services along with Rails for legacy code paths.
+
+This must be long enough to satisfy the minimum content length threshold required by the validator for proper testing.
+`;
+
+      const result = await service.validate(content, mockContext);
+      expect(result.isOk()).toBe(true);
+      const validation = result.value!;
+      const fwIssues = validation.issues.filter((i) =>
+        i.message.includes('not in project tech stack'),
+      );
+      expect(fwIssues.length).toBeGreaterThan(0);
+      expect(fwIssues.length).toBeLessThanOrEqual(2);
+    });
+
+    it('flags non-techstack languages with info severity', async () => {
+      const content = `---
+id: test
+name: Test
+version: 1.0.0
+---
+
+# Test Agent
+
+We support Python, Rust, and Go in addition to the primary language used here for various tooling needs.
+
+Adding more text so the content passes the minimum length threshold required by the validation service for proper testing coverage.
+`;
+
+      const result = await service.validate(content, mockContext);
+      expect(result.isOk()).toBe(true);
+      const validation = result.value!;
+      const langIssue = validation.issues.find(
+        (i) =>
+          i.severity === 'info' &&
+          i.message.includes('language(s) not in project tech stack'),
+      );
+      expect(langIssue).toBeDefined();
+    });
+
+    it('flags mismatched STATIC markers as warning', async () => {
+      const content = `---
+id: test
+name: Test
+version: 1.0.0
+---
+
+# Test Agent
+
+<!-- STATIC:ONE -->
+Some static block
+<!-- /STATIC:ONE -->
+
+<!-- STATIC:TWO -->
+This second static block is never closed properly so STATIC markers mismatch.
+
+This content must be long enough to pass the minimum content length requirement for the validator to proceed past the size check.
+`;
+
+      const result = await service.validate(content, mockContext);
+      expect(result.isOk()).toBe(true);
+      const validation = result.value!;
+      expect(validation.issues).toContainEqual(
+        expect.objectContaining({
+          severity: 'warning',
+          message: expect.stringContaining('Mismatched STATIC markers'),
+        }),
+      );
+    });
+
+    it('treats paths with project file extensions as project paths via looksLikeProjectPath', async () => {
+      const content = `---
+id: test
+name: Test
+version: 1.0.0
+---
+
+# Test Agent
+
+See module/component.ts and helpers/utility.ts for the implementation details we need to verify here.
+
+Adding more body content so the validation service does not reject the input on minimum length grounds during this test.
+`;
+
+      const result = await service.validate(content, mockContext);
+      expect(result.isOk()).toBe(true);
+      const validation = result.value!;
+      const pathIssues = validation.issues.filter((i) =>
+        i.message.includes('not found in project'),
+      );
+      expect(pathIssues.length).toBeGreaterThan(0);
+    });
+
+    it('checkHallucinations returns error result when context access throws', async () => {
+      const brokenContext = {
+        ...mockContext,
+        get relevantFiles(): typeof mockContext.relevantFiles {
+          throw new Error('broken accessor');
+        },
+      } as unknown as AgentProjectContext;
+
+      const result = await service.checkHallucinations(
+        'See src/app/services/auth.service.ts here',
+        brokenContext,
+      );
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain('Hallucination check failed');
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Hallucination check failed with unexpected error',
+        expect.any(Error),
       );
     });
   });
@@ -738,7 +886,7 @@ Test content.
       if (result.isOk()) {
         // If ok, should have skipped factual validation
         expect(
-          result.value!.issues.some((i) => i.message.includes('skipped'))
+          result.value!.issues.some((i) => i.message.includes('skipped')),
         ).toBe(true);
       } else {
         // If err, should have error message
@@ -762,11 +910,11 @@ This is test content with proper structure and sufficient length for validation.
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
         'Validating generated content',
-        expect.any(Object)
+        expect.any(Object),
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Validation complete',
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -777,11 +925,11 @@ This is test content with proper structure and sufficient length for validation.
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
         'Checking for hallucinations',
-        expect.any(Object)
+        expect.any(Object),
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Hallucination check complete',
-        expect.any(Object)
+        expect.any(Object),
       );
     });
   });
