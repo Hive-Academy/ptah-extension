@@ -1,5 +1,5 @@
 /**
- * HarnessRpcHandlers — thin facade specs (Wave C7d). Locks four invariants:
+ * HarnessRpcHandlers — thin facade specs. Locks four invariants:
  *   1. `register()` wires exactly the sixteen `METHODS` entries, in order.
  *   2. Each method delegates to the expected service on the happy path.
  *   3. `runRpc` funnels thrown errors into Sentry + re-throws (via design-agents).
@@ -75,14 +75,12 @@ function buildSuite(): Suite {
 
   const workspaceContext = {
     requireWorkspaceRoot: jest.fn().mockReturnValue('/ws'),
-    resolveWorkspaceContext: jest
-      .fn()
-      .mockResolvedValue({
-        projectName: 'demo',
-        projectType: 'node',
-        frameworks: [],
-        languages: ['TypeScript'],
-      }),
+    resolveWorkspaceContext: jest.fn().mockResolvedValue({
+      projectName: 'demo',
+      projectType: 'node',
+      frameworks: [],
+      languages: ['TypeScript'],
+    }),
     getAvailableAgents: jest.fn().mockReturnValue([]),
     discoverAvailableSkills: jest.fn().mockReturnValue([]),
   } as unknown as Mocked<HarnessWorkspaceContextService>;

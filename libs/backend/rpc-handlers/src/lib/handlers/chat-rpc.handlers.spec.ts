@@ -1,10 +1,9 @@
 /**
- * ChatRpcHandlers — thin facade specs (Wave C7e cleanup pass 2). Locks five
- * invariants:
+ * ChatRpcHandlers — thin facade specs. Locks five invariants:
  * 1. `register()` wires exactly the six `METHODS` entries, in order.
  * 2. Each method delegates to `ChatSessionService` on the happy path.
  * 3. `register()` subscribes the broadcaster to background-agent events.
- * 4. `runRpc` matches the C7d shape: emits `RPC: {method} called` /
+ * 4. `runRpc` shape: emits `RPC: {method} called` /
  *    `success` debug logs on the happy path, and on a rejection logs
  *    `RPC: {method} failed`, captures Sentry under
  *    `errorSource: ChatRpcHandlers.{tag}`, and re-throws.
@@ -101,6 +100,12 @@ function getHandler(
   return match[1];
 }
 
+// UUID v4 fixtures — the chat RPC schemas (added for NODE-NESTJS-3Y
+// hardening) reject any tabId/sessionId that is not a UUID, so test inputs
+// for chat:start/continue/resume/abort must be valid UUIDs.
+const TAB_UUID = '11111111-2222-4333-8444-555555555555';
+const SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
+
 describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
   it('METHODS tuple is the six pre-extraction RPC names, in order', () => {
     expect([...ChatRpcHandlers.METHODS]).toEqual([
@@ -147,14 +152,18 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
       | 'listBackgroundAgents'
     >;
     const cases: ReadonlyArray<readonly [string, Delegate, unknown]> = [
-      ['chat:start', 'startSession', { tabId: 't1', prompt: 'hi' }],
+      ['chat:start', 'startSession', { tabId: TAB_UUID, prompt: 'hi' }],
       [
         'chat:continue',
         'continueSession',
-        { sessionId: 'sid', tabId: 't1', prompt: 'more' },
+        { sessionId: SESSION_UUID, tabId: TAB_UUID, prompt: 'more' },
       ],
-      ['chat:resume', 'resumeSession', { sessionId: 'sid' }],
-      ['chat:abort', 'abortSession', { sessionId: 'sid' }],
+      [
+        'chat:resume',
+        'resumeSession',
+        { sessionId: SESSION_UUID, tabId: TAB_UUID },
+      ],
+      ['chat:abort', 'abortSession', { sessionId: SESSION_UUID }],
       ['chat:running-agents', 'getRunningAgents', { sessionId: 'sid' }],
       ['agent:backgroundList', 'listBackgroundAgents', { sessionId: 'sid' }],
     ];
@@ -171,8 +180,7 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // chat:start mcpServersOverride passthrough
-  // TASK_2026_108 § 2 T2 — verifies the RPC facade does not strip the field.
+  // chat:start mcpServersOverride passthrough — verifies the RPC facade does not strip the field.
   // -------------------------------------------------------------------------
 
   describe('ChatRpcHandlers chat:start (mcpServersOverride passthrough)', () => {
@@ -181,7 +189,7 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
       suite.handlers.register();
 
       const params = {
-        tabId: 't1',
+        tabId: TAB_UUID,
         prompt: 'hi',
         mcpServersOverride: {
           ptah: {
@@ -205,7 +213,13 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
     it('emits "RPC: chat:start called" + "success" debug logs on the happy path', async () => {
       const suite = buildSuite();
       suite.handlers.register();
-      await getHandler(suite.rpc, 'chat:start')({ tabId: 't1', prompt: 'hi' });
+      await getHandler(
+        suite.rpc,
+        'chat:start',
+      )({
+        tabId: TAB_UUID,
+        prompt: 'hi',
+      });
       const debugCalls = (suite.logger.debug as jest.Mock).mock.calls.map(
         ([msg]) => msg as string,
       );
@@ -224,8 +238,8 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
           suite.rpc,
           'chat:continue',
         )({
-          sessionId: 'sid',
-          tabId: 't1',
+          sessionId: SESSION_UUID,
+          tabId: TAB_UUID,
           prompt: 'more',
         }),
       ).rejects.toBe(boom);
@@ -240,20 +254,49 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
       });
     });
 
+    // Each method paired with a fixture that PASSES the chat schema's UUID
+    // refines — otherwise the schema throws before the mocked delegate runs
+    // and the Sentry-on-rethrow contract cannot be observed.
     it.each([
-      ['chat:start', 'registerChatStart', 'startSession'],
-      ['chat:continue', 'registerChatContinue', 'continueSession'],
-      ['chat:resume', 'registerChatResume', 'resumeSession'],
-      ['chat:abort', 'registerChatAbort', 'abortSession'],
-      ['chat:running-agents', 'registerChatRunningAgents', 'getRunningAgents'],
+      [
+        'chat:start',
+        'registerChatStart',
+        'startSession',
+        { tabId: TAB_UUID, prompt: 'hi' },
+      ],
+      [
+        'chat:continue',
+        'registerChatContinue',
+        'continueSession',
+        { sessionId: SESSION_UUID, tabId: TAB_UUID, prompt: 'more' },
+      ],
+      [
+        'chat:resume',
+        'registerChatResume',
+        'resumeSession',
+        { sessionId: SESSION_UUID, tabId: TAB_UUID },
+      ],
+      [
+        'chat:abort',
+        'registerChatAbort',
+        'abortSession',
+        { sessionId: SESSION_UUID },
+      ],
+      [
+        'chat:running-agents',
+        'registerChatRunningAgents',
+        'getRunningAgents',
+        { sessionId: 'sid' },
+      ],
       [
         'agent:backgroundList',
         'registerBackgroundAgentHandlers',
         'listBackgroundAgents',
+        { sessionId: 'sid' },
       ],
-    ])(
+    ] as const)(
       '%s uses errorSource ChatRpcHandlers.%s',
-      async (method, tag, delegate) => {
+      async (method, tag, delegate, params) => {
         const suite = buildSuite();
         const boom = new Error(`fail-${method}`);
         (
@@ -261,9 +304,7 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
         ).mockRejectedValueOnce(boom);
         suite.handlers.register();
 
-        await expect(
-          getHandler(suite.rpc, method)({ sessionId: 'sid' }),
-        ).rejects.toBe(boom);
+        await expect(getHandler(suite.rpc, method)(params)).rejects.toBe(boom);
         expect(suite.sentry.captureException).toHaveBeenCalledWith(boom, {
           errorSource: `ChatRpcHandlers.${tag}`,
         });

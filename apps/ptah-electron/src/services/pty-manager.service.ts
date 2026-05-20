@@ -5,8 +5,6 @@
  * Spawns node-pty instances, tracks them by session ID, and forwards
  * data/exit events via registered callbacks.
  *
- * TASK_2025_227 Batch 4: Terminal integration backend
- *
  * Design:
  * - Plain class (NOT @injectable) -- instantiated in DI container setup
  * - Session ID: crypto.randomUUID()
@@ -67,14 +65,11 @@ export class PtyManagerService {
     id: string;
     pid: number;
   } {
-    // Enforce total session limit
     if (this.sessions.size >= MAX_TOTAL_SESSIONS) {
       throw new Error(
         `Maximum total terminal sessions reached (${MAX_TOTAL_SESSIONS})`,
       );
     }
-
-    // Enforce per-workspace session limit
     const workspaceSessions = this.getSessionsForWorkspace(params.cwd);
     if (workspaceSessions.length >= MAX_SESSIONS_PER_WORKSPACE) {
       throw new Error(
@@ -106,27 +101,19 @@ export class PtyManagerService {
     };
 
     this.sessions.set(id, session);
-
-    // Forward PTY output data to the registered callback
     ptyInstance.onData((data: string) => {
       if (this.dataCallback) {
         this.dataCallback(id, data);
       }
     });
-
-    // Handle PTY exit
     ptyInstance.onExit(({ exitCode }) => {
       this.logger.info('[PtyManager] PTY session exited', {
         id,
         exitCode,
       } as unknown as Error);
-
-      // Notify via callback before cleanup
       if (this.exitCallback) {
         this.exitCallback(id, exitCode);
       }
-
-      // Remove from session map
       this.sessions.delete(id);
     });
 
@@ -181,7 +168,6 @@ export class PtyManagerService {
 
     try {
       session.pty.kill();
-      // Note: The onExit handler will remove the session from the map
       this.logger.info('[PtyManager] PTY session killed', {
         id,
       } as unknown as Error);

@@ -1,8 +1,6 @@
 /**
  * `ptah license` command — license status / set-key / clear.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1) — all delegate to the shared
  * LicenseRpcHandlers:
  *
@@ -82,7 +80,6 @@ async function runStatus(
       'license:getStatus',
       {},
     );
-    // Backend never returns the license key in this payload — safe to forward verbatim.
     await formatter.writeNotification('license.status', wrapResult(result));
     return ExitCode.Success;
   });
@@ -110,38 +107,24 @@ async function runSet(
     if (result?.success === false) {
       throw new Error(result.error ?? 'license:setKey failed');
     }
-
-    // After a successful key write, fetch the verified status so we can
-    // surface a near-expiry warning to the operator. The backend may
-    // emit `daysRemaining: <14` for paid Pro keys when the License row
-    // still carries a stale trial `expiresAt` (server-side bug — see
-    // license-rpc.handlers.ts mapLicenseStatusToResponse comment).
     let expiryWarning: 'near_expiry' | 'critical' | null = null;
     let daysRemaining: number | null = null;
-    try {
-      const status = await callRpc<{
-        tier?: string;
-        daysRemaining?: number | null;
-        expiryWarning?: 'near_expiry' | 'critical' | null;
-      }>(ctx.transport, 'license:getStatus', {});
-      daysRemaining =
-        typeof status?.daysRemaining === 'number' ? status.daysRemaining : null;
-      // Prefer server/handler-computed warning; fall back to local math
-      // so we still warn if the remote omits the field. Thresholds match
-      // the user-facing spec: <7d critical, <30d near_expiry. Pro tier only
-      // (trial_pro expiring is the expected case, not a defensive warning).
-      if (status?.expiryWarning) {
-        expiryWarning = status.expiryWarning;
-      } else if (
-        status?.tier === 'pro' &&
-        typeof daysRemaining === 'number' &&
-        daysRemaining < 30
-      ) {
-        expiryWarning = daysRemaining < 7 ? 'critical' : 'near_expiry';
-      }
-    } catch {
-      // Status fetch is best-effort. A failure here must not turn a
-      // successful set-key into a failure exit.
+
+    const status = await callRpc<{
+      tier?: string;
+      daysRemaining?: number | null;
+      expiryWarning?: 'near_expiry' | 'critical' | null;
+    }>(ctx.transport, 'license:getStatus', {});
+    daysRemaining =
+      typeof status?.daysRemaining === 'number' ? status.daysRemaining : null;
+    if (status?.expiryWarning) {
+      expiryWarning = status.expiryWarning;
+    } else if (
+      status?.tier === 'pro' &&
+      typeof daysRemaining === 'number' &&
+      daysRemaining < 30
+    ) {
+      expiryWarning = daysRemaining < 7 ? 'critical' : 'near_expiry';
     }
 
     if (expiryWarning) {
@@ -185,10 +168,6 @@ async function runClear(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function wrapResult(result: unknown): Record<string, unknown> {
   if (result === null || result === undefined) return {};

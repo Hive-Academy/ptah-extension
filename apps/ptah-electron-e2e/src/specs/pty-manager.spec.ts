@@ -1,7 +1,7 @@
 import { test, expect } from '../support/fixtures';
 
 /**
- * PTY Manager Service E2E specs (Wave B.B3).
+ * PTY Manager Service E2E specs.
  *
  * Exercises the terminal IPC channels wired in apps/ptah-electron/src/ipc/ipc-bridge.ts:
  *   - terminal:create  (RPC) → spawn a node-pty session

@@ -1,7 +1,7 @@
 /**
  * SdkMessageTransformer helper functions — stateless predicates.
  *
- * Extracted from `sdk-message-transformer.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `sdk-message-transformer.ts` as .
  *
  * These are pure functions with no instance state; the coordinator's per-context
  * Maps and Sets remain on `SdkMessageTransformer`. Library-internal module.
@@ -26,15 +26,12 @@ export function generateEventId(): string {
  * filter is the isSynthetic/isMeta flag on the SDK message itself.
  */
 export function isSkillOrMetaContent(sdkMessage: SDKUserMessage): boolean {
-  // Check sourceToolUseID — Skill tool injects messages with sourceToolUseID like "Skill_0"
   const sourceToolUseId = (sdkMessage as unknown as Record<string, unknown>)[
     'sourceToolUseID'
   ] as string | undefined;
   if (sourceToolUseId && typeof sourceToolUseId === 'string') {
     return true;
   }
-
-  // Extract text content for pattern matching
   const content = sdkMessage.message?.content;
   if (!content) return false;
 
@@ -56,8 +53,6 @@ export function isSkillOrMetaContent(sdkMessage: SDKUserMessage): boolean {
   }
 
   if (!textContent) return false;
-
-  // Check for SDK meta content markers.
   if (textContent.includes('<skill-format>true</skill-format>')) return true;
   if (textContent.includes('<command-message>')) return true;
   if (textContent.includes('<command-name>')) return true;

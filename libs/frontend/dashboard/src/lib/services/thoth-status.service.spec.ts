@@ -78,6 +78,7 @@ describe('ThothStatusService', () => {
       core: 12,
       recall: 4,
       archival: 2,
+      codeIndex: 0,
       lastCuratedAt: null,
     };
     memoryRpc.stats.mockResolvedValue(memStats);
@@ -172,6 +173,7 @@ describe('ThothStatusService', () => {
       core: 1,
       recall: 0,
       archival: 0,
+      codeIndex: 0,
       lastCuratedAt: null,
     });
     skillsRpc.listCandidates.mockResolvedValue([]);
@@ -200,6 +202,7 @@ describe('ThothStatusService', () => {
       core: 0,
       recall: 0,
       archival: 0,
+      codeIndex: 0,
       lastCuratedAt: null,
     });
     skillsRpc.listCandidates.mockResolvedValue([]);

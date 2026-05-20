@@ -1,5 +1,5 @@
 /**
- * BranchPickerDropdownComponent — unit specs (TASK_2026_111 Batch 6).
+ * BranchPickerDropdownComponent — unit specs.
  *
  * Coverage:
  *   - filteredLocal computed: searchQuery filters local branches by substring

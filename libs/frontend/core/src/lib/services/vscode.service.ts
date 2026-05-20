@@ -14,7 +14,7 @@ export interface WebviewConfig {
   baseUri: string;
   iconUri: string;
   userIconUri: string;
-  /** Unique panel identifier for multi-webview support (TASK_2025_117). Empty string for sidebar. */
+  /** Unique panel identifier for multi-webview support. Empty string for sidebar. */
   panelId?: string;
   /** Session ID to auto-load when panel opens (used by pop-out feature). */
   initialSessionId?: string | null;
@@ -68,10 +68,7 @@ function getPtahWindow(): PtahWindow {
   providedIn: 'root',
 })
 export class VSCodeService implements MessageHandler {
-  // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
-
-  // Signal-based reactive state
   private readonly _config = signal<WebviewConfig>({
     isVSCode: false,
     theme: 'dark',
@@ -86,12 +83,8 @@ export class VSCodeService implements MessageHandler {
   });
 
   private readonly _isConnected = signal(false);
-
-  // Public readonly signals
   readonly config = this._config.asReadonly();
   readonly isConnected = this._isConnected.asReadonly();
-
-  // MessageHandler implementation — receives workspaceChanged from extension host
   readonly handledMessageTypes = [MESSAGE_TYPES.WORKSPACE_CHANGED] as const;
 
   /**
@@ -132,29 +125,21 @@ export class VSCodeService implements MessageHandler {
    */
   private initializeFromGlobals(): void {
     const ptahWindow = getPtahWindow();
-
-    // Check if we have the VS Code API (injected by extension host)
     if (ptahWindow.vscode) {
       this.vscode = ptahWindow.vscode;
       this._isConnected.set(true);
-
-      // Load configuration from injected global
       if (ptahWindow.ptahConfig) {
         this._config.set(ptahWindow.ptahConfig);
       } else {
         console.warn('VSCodeService: VS Code API found but no ptahConfig');
       }
-
-      // Restore previous state if available (no logging needed)
     } else {
-      // Development mode - no VS Code API available
       this._isConnected.set(false);
     }
   }
 
   getAssetUri(relativePath: string): string {
     const config = this.config();
-    // Electron: assets are co-located with index.html, use relative path
     if (config.isElectron) {
       return `./${relativePath}`;
     }
@@ -256,8 +241,6 @@ export class VSCodeService implements MessageHandler {
       );
       return;
     }
-
-    // Get existing state and merge with new key-value
     const currentState =
       (this.vscode.getState() as Record<string, unknown>) || {};
     const newState = { ...currentState, [key]: value };
@@ -273,8 +256,6 @@ export function initializeVSCodeService(
   _vscodeService: VSCodeService,
 ): () => void {
   return () => {
-    // Service is already initialized in constructor
-    // This function ensures it happens during APP_INITIALIZER phase
   };
 }
 

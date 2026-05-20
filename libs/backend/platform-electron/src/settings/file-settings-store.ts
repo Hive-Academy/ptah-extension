@@ -8,9 +8,6 @@
  * Secret operations are backed by SecretsFileStore (AES-256-GCM in
  * ~/.ptah/secrets.enc.json) with the master key from IMasterKeyProvider
  * (ElectronMasterKeyProvider uses safeStorage).
- *
- * WP-2B: Platform adapter creation.
- * WP-4A: Secret storage implementation.
  */
 
 import type { IDisposable } from '@ptah-extension/platform-core';
@@ -36,10 +33,6 @@ export class FileSettingsStore implements ISettingsStore {
     this.secretsStore = secretsStore;
   }
 
-  // ---------------------------------------------------------------------------
-  // Global settings — backed by PtahFileSettingsManager (~/.ptah/settings.json)
-  // ---------------------------------------------------------------------------
-
   readGlobal<T>(key: string): T | undefined {
     return this.fileSettings.get<T>(key);
   }
@@ -47,10 +40,6 @@ export class FileSettingsStore implements ISettingsStore {
   async writeGlobal<T>(key: string, value: T): Promise<void> {
     await this.fileSettings.set(key, value);
   }
-
-  // ---------------------------------------------------------------------------
-  // Secret storage — AES-256-GCM via SecretsFileStore
-  // ---------------------------------------------------------------------------
 
   /**
    * Read a secret from the encrypted secrets file.
@@ -66,8 +55,6 @@ export class FileSettingsStore implements ISettingsStore {
    *
    * The parameter name `plaintext` reflects that the adapter performs
    * AES-256-GCM encryption internally — callers pass the raw value.
-   * (The port parameter was historically named `ciphertext` because callers
-   * were expected to pre-encrypt; with WP-4A this responsibility moves here.)
    */
   async writeSecret(key: string, plaintext: string): Promise<void> {
     const masterKey = await this.getAndCacheMasterKey();
@@ -79,16 +66,11 @@ export class FileSettingsStore implements ISettingsStore {
     await this.secretsStore.delete(key);
   }
 
-  // ---------------------------------------------------------------------------
-  // Watchers
-  // ---------------------------------------------------------------------------
-
   /**
    * Subscribe to in-process changes for a global setting key.
    *
    * Delegates to PtahFileSettingsManager.watch() which fires after every
-   * successful in-process write. Cross-process reactivity (fs.watch on
-   * settings.json shared between Electron main and renderer) is Phase 5.
+   * successful in-process write.
    */
   watchGlobal(key: string, cb: (value: unknown) => void): IDisposable {
     return this.fileSettings.watch(key, cb);
@@ -96,17 +78,10 @@ export class FileSettingsStore implements ISettingsStore {
 
   /**
    * Subscribe to changes on a secret key.
-   * Phase 5: cross-process secret change notifications.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   watchSecret(_key: string, _cb: () => void): IDisposable {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
     return { dispose: () => {} };
   }
-
-  // ---------------------------------------------------------------------------
-  // Flush
-  // ---------------------------------------------------------------------------
 
   /**
    * Flush both the global settings file and the secrets file synchronously.
@@ -119,15 +94,10 @@ export class FileSettingsStore implements ISettingsStore {
   flushSync(): void {
     this.fileSettings.flushSync();
     if (this.cachedMasterKey === null) {
-      // Secrets were not accessed — nothing to flush.
       return;
     }
     this.secretsStore.flushSync(this.cachedMasterKey);
   }
-
-  // ---------------------------------------------------------------------------
-  // Internal
-  // ---------------------------------------------------------------------------
 
   private async getAndCacheMasterKey(): Promise<Buffer> {
     if (!this.cachedMasterKey) {

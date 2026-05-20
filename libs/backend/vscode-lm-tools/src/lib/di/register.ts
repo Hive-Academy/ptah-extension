@@ -1,9 +1,6 @@
 /**
  * DI Registration for VS Code LM Tools
  *
- * TASK_2025_071: DI Registration Standardization
- * Created: 2025-12-14
- *
  * This file centralizes all service registrations for the vscode-lm-tools library.
  * Following the standardized registration pattern established in agent-sdk and agent-generation.
  *
@@ -20,6 +17,10 @@
 import { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IMcpServerStatus,
+} from '@ptah-extension/platform-core';
 import { PtahAPIBuilder } from '../code-execution/ptah-api-builder.service';
 import { CodeExecutionMCP } from '../code-execution/code-execution-mcp.service';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
@@ -50,39 +51,50 @@ import { PermissionPromptService } from '../permission/permission-prompt.service
  */
 export function registerVsCodeLmToolsServices(
   container: DependencyContainer,
-  logger: Logger
+  logger: Logger,
 ): void {
-  // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
   if (!container.isRegistered(TOKENS.LOGGER)) {
     throw new Error(
-      '[VS Code LM Tools] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.'
+      '[VS Code LM Tools] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.',
     );
   }
-
-  // CodeExecutionMCP depends on workspace-intelligence's ContextOrchestrationService
   if (!container.isRegistered(TOKENS.CONTEXT_ORCHESTRATION_SERVICE)) {
     throw new Error(
       '[VS Code LM Tools] DEPENDENCY ERROR: workspace-intelligence services must be registered before vscode-lm-tools. ' +
-        'Ensure registerWorkspaceIntelligenceServices is called BEFORE registerVsCodeLmToolsServices in container.ts.'
+        'Ensure registerWorkspaceIntelligenceServices is called BEFORE registerVsCodeLmToolsServices in container.ts.',
     );
   }
 
   logger.info('[VS Code LM Tools] Registering services...');
-
-  // Code Execution MCP services (expose workspace-intelligence to Claude CLI)
   container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
   container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
-
-  // Permission Prompt Service (TASK_2025_026)
+  const mcpStatusShim: IMcpServerStatus = {
+    getPort: () => {
+      try {
+        if (!container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
+          return null;
+        }
+        return container
+          .resolve<CodeExecutionMCP>(TOKENS.CODE_EXECUTION_MCP)
+          .getPort();
+      } catch {
+        return null;
+      }
+    },
+  };
+  container.register(PLATFORM_TOKENS.MCP_SERVER_STATUS, {
+    useValue: mcpStatusShim,
+  });
   container.registerSingleton(
     TOKENS.PERMISSION_PROMPT_SERVICE,
-    PermissionPromptService
+    PermissionPromptService,
   );
 
   logger.info('[VS Code LM Tools] Services registered', {
     services: [
       'PTAH_API_BUILDER',
       'CODE_EXECUTION_MCP',
+      'MCP_SERVER_STATUS',
       'PERMISSION_PROMPT_SERVICE',
     ],
   });

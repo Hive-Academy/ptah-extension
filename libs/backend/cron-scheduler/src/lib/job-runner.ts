@@ -47,6 +47,12 @@ interface IInternalQueryService {
 
 const HANDLER_PREFIX = 'handler:';
 
+function extractHandlerName(prompt: string): string | undefined {
+  if (!prompt.startsWith(HANDLER_PREFIX)) return undefined;
+  const rest = prompt.slice(HANDLER_PREFIX.length).trim();
+  return rest.length > 0 ? rest : undefined;
+}
+
 export interface JobRunnerRunOptions {
   /** Caller-provided abort signal (e.g. from `runNow` or shutdown). */
   signal?: AbortSignal;
@@ -106,7 +112,6 @@ export class JobRunner {
     scheduledFor: number,
     opts: JobRunnerRunOptions = {},
   ): Promise<void> {
-    // ── 1. Try to claim the slot. UNIQUE collision = another runner has it. ──
     let runId: RunId;
     try {
       const claimed = this.runs.tryClaim(job.id, scheduledFor);
@@ -119,15 +124,17 @@ export class JobRunner {
         });
         return;
       }
-      this.logger.error('[cron-scheduler] tryClaim failed', {
-        jobId: job.id,
-        scheduledFor,
-        err: (err as Error).message,
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.logger.logWithContext('error', '[cron-scheduler] tryClaim failed', {
+        error,
+        metadata: {
+          jobId: job.id,
+          scheduledFor,
+          handler: extractHandlerName(job.prompt),
+        },
       });
       return;
     }
-
-    // ── 2. Concurrency gate. Persist skipped rows for visibility. ──
     if (this.inFlight >= this.maxConcurrent) {
       this.runs.markSkipped(runId, 'concurrency-limit');
       this.logger.warn('[cron-scheduler] skipped: concurrency cap reached', {
@@ -137,8 +144,6 @@ export class JobRunner {
       });
       return;
     }
-
-    // ── 3. Wire abort: caller signal OR our own controller. ──
     const localCtl = new AbortController();
     const onCallerAbort = (): void => localCtl.abort();
     if (opts.signal) {
@@ -160,7 +165,7 @@ export class JobRunner {
         runId,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const error = err instanceof Error ? err : new Error(String(err));
       if (localCtl.signal.aborted) {
         this.runs.markSkipped(runId, 'aborted');
         this.logger.info('[cron-scheduler] run aborted', {
@@ -168,14 +173,17 @@ export class JobRunner {
           runId,
         });
       } else {
-        this.runs.markFailed(runId, message);
+        this.runs.markFailed(runId, error.message);
         if (!opts.suppressJobTimestamps) {
           this.jobs.update(job.id, { lastRunAt: Date.now() });
         }
-        this.logger.error('[cron-scheduler] run failed', {
-          jobId: job.id,
-          runId,
-          err: message,
+        this.logger.logWithContext('error', '[cron-scheduler] run failed', {
+          error,
+          metadata: {
+            jobId: job.id,
+            runId,
+            handler: extractHandlerName(job.prompt),
+          },
         });
       }
     } finally {
@@ -185,10 +193,6 @@ export class JobRunner {
       }
     }
   }
-
-  // ────────────────────────────────────────────────────────────────────────
-  // Dispatch
-  // ────────────────────────────────────────────────────────────────────────
   private async dispatch(
     job: ScheduledJob,
     scheduledFor: number,
@@ -205,12 +209,8 @@ export class JobRunner {
       }
       return handler({ job, scheduledFor, signal: ctl.signal });
     }
-
-    // Prompt path: forward to SDK_INTERNAL_QUERY_SERVICE.
     const handle = await this.internalQuery.execute({
       cwd: job.workspaceRoot ?? process.cwd(),
-      // The scheduler does not pin a model — InternalQueryService resolves
-      // the active model via SdkModelService when given an empty string.
       model: '',
       prompt: job.prompt,
       isPremium: false,
@@ -222,8 +222,6 @@ export class JobRunner {
     try {
       for await (const msg of handle.stream) {
         if (ctl.signal.aborted) break;
-        // We don't need to interpret intermediate messages — only the final
-        // `result` carries the summary we care about.
         if (
           msg &&
           typeof msg === 'object' &&
@@ -238,11 +236,7 @@ export class JobRunner {
         }
       }
     } finally {
-      try {
-        handle.close();
-      } catch {
-        /* swallow close errors — abort path already recorded */
-      }
+      handle.close();
     }
     return { summary: summary ?? 'ok' };
   }

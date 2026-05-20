@@ -1,5 +1,5 @@
 /**
- * P3.B2 — Chat flow E2E specs: response render (markdown / code blocks).
+ * Chat flow E2E specs: response render (markdown / code blocks).
  *
  * The webview renders assistant messages as markdown with syntax-highlighted
  * code blocks and callouts. These specs validate the render contract via a

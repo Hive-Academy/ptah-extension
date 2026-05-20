@@ -9,8 +9,6 @@
  * - Uses atomic writes (temp + rename) for safety
  * - Handles first-run gracefully (directories don't exist)
  * - Write serialization via writePromise chain pattern
- *
- * TASK_2025_248
  */
 
 import * as fs from 'fs';
@@ -19,10 +17,6 @@ import * as path from 'path';
 import { homedir } from 'os';
 import * as https from 'https';
 import * as http from 'http';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /** Cache metadata stored at ~/.ptah/.content-cache.json */
 interface ContentCacheMetadata {
@@ -66,10 +60,6 @@ export interface ContentDownloadResult {
   error?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
-
 export class ContentDownloadService {
   private readonly ptahDir: string;
   private readonly pluginsDir: string;
@@ -96,10 +86,6 @@ export class ContentDownloadService {
     this.cacheMetadataPath = path.join(this.ptahDir, '.content-cache.json');
   }
 
-  // -------------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------------
-
   /**
    * Ensure content is available locally.
    *
@@ -115,7 +101,6 @@ export class ContentDownloadService {
     onProgress?: ContentProgressCallback,
     forceRefresh?: boolean,
   ): Promise<ContentDownloadResult> {
-    // Deduplicate concurrent calls — return the in-flight promise
     if (this.inFlightPromise) {
       return this.inFlightPromise;
     }
@@ -170,10 +155,6 @@ export class ContentDownloadService {
     return this.templatesDir;
   }
 
-  // -------------------------------------------------------------------------
-  // Internal implementation
-  // -------------------------------------------------------------------------
-
   /**
    * Core download logic, separated from the public guard wrapper.
    */
@@ -181,7 +162,6 @@ export class ContentDownloadService {
     onProgress?: ContentProgressCallback,
     forceRefresh?: boolean,
   ): Promise<ContentDownloadResult> {
-    // Step 1: Fetch manifest from GitHub
     onProgress?.('Fetching manifest', 0, 1);
     let manifest: ContentManifest;
 
@@ -204,7 +184,6 @@ export class ContentDownloadService {
       };
     }
 
-    // Step 2: Check if cache is up to date
     if (!forceRefresh) {
       const cachedMeta = this.loadCacheMetadata();
       if (cachedMeta && cachedMeta.contentHash === manifest.contentHash) {
@@ -218,18 +197,14 @@ export class ContentDownloadService {
       }
     }
 
-    // Step 3: Prune stale cached files no longer present in the manifest
     this.pruneStaleFiles(this.pluginsDir, manifest.plugins.files);
     this.pruneStaleFiles(this.templatesDir, manifest.templates.files);
 
-    // Step 4: Download all files
     const totalFiles =
       manifest.plugins.files.length + manifest.templates.files.length;
     let downloadedCount = 0;
 
     onProgress?.('Downloading plugins', 0, totalFiles);
-
-    // Download plugin files
     const pluginResults = await this.downloadFilesBatch(
       manifest.plugins.files,
       manifest.baseUrl,
@@ -242,8 +217,6 @@ export class ContentDownloadService {
     );
 
     onProgress?.('Downloading templates', pluginResults.succeeded, totalFiles);
-
-    // Download template files
     const templateResults = await this.downloadFilesBatch(
       manifest.templates.files,
       manifest.baseUrl,
@@ -254,8 +227,6 @@ export class ContentDownloadService {
         onProgress?.('Downloading templates', downloadedCount, totalFiles);
       },
     );
-
-    // Step 5: Update cache metadata (serialized through writePromise chain)
     const cacheMetadata: ContentCacheMetadata = {
       contentHash: manifest.contentHash,
       downloadedAt: new Date().toISOString(),
@@ -292,22 +263,14 @@ export class ContentDownloadService {
    * is not in the manifest file list.
    */
   private pruneStaleFiles(localDir: string, manifestFiles: string[]): void {
-    try {
-      const manifestSet = new Set(manifestFiles);
-      const localFiles = this.walkLocalDir(localDir, localDir);
+    const manifestSet = new Set(manifestFiles);
+    const localFiles = this.walkLocalDir(localDir, localDir);
 
-      for (const relPath of localFiles) {
-        if (!manifestSet.has(relPath)) {
-          try {
-            const fullPath = path.join(localDir, ...relPath.split('/'));
-            fs.unlinkSync(fullPath);
-          } catch {
-            // Non-fatal: file may already be removed
-          }
-        }
+    for (const relPath of localFiles) {
+      if (!manifestSet.has(relPath)) {
+        const fullPath = path.join(localDir, ...relPath.split('/'));
+        fs.unlinkSync(fullPath);
       }
-    } catch {
-      // Directory may not exist on first run — nothing to prune
     }
   }
 
@@ -327,15 +290,12 @@ export class ContentDownloadService {
 
     for (const entry of entries) {
       const fullPath = path.join(dir, entry);
-      try {
-        const stat = fs.statSync(fullPath);
-        if (stat.isDirectory()) {
-          results.push(...this.walkLocalDir(fullPath, baseDir));
-        } else if (stat.isFile()) {
-          results.push(path.relative(baseDir, fullPath).replace(/\\/g, '/'));
-        }
-      } catch {
-        // Skip inaccessible entries
+
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        results.push(...this.walkLocalDir(fullPath, baseDir));
+      } else if (stat.isFile()) {
+        results.push(path.relative(baseDir, fullPath).replace(/\\/g, '/'));
       }
     }
 
@@ -361,8 +321,6 @@ export class ContentDownloadService {
     let succeeded = 0;
     let failed = 0;
     let completed = 0;
-
-    // Process files in chunks of MAX_CONCURRENCY
     for (
       let i = 0;
       i < files.length;
@@ -374,8 +332,6 @@ export class ContentDownloadService {
         chunk.map(async (file) => {
           const url = `${baseUrl}/${basePath}/${file}`;
           const localPath = path.resolve(localDir, ...file.split('/'));
-
-          // Guard against path traversal from malicious manifest entries
           if (!localPath.startsWith(path.resolve(localDir) + path.sep)) {
             throw new Error(
               `Path traversal detected: "${file}" resolves outside target directory`,
@@ -409,12 +365,8 @@ export class ContentDownloadService {
    */
   private async downloadToFile(url: string, localPath: string): Promise<void> {
     const content = await this.downloadText(url);
-
-    // Ensure parent directory exists
     const dir = path.dirname(localPath);
     await fsPromises.mkdir(dir, { recursive: true });
-
-    // Atomic write: write to temp file, then rename
     const tmpPath = localPath + '.tmp';
     await fsPromises.writeFile(tmpPath, content, 'utf-8');
     await fsPromises.rename(tmpPath, localPath);
@@ -434,7 +386,6 @@ export class ContentDownloadService {
       const client = url.startsWith('https:') ? https : http;
 
       const req = client.get(url, (res) => {
-        // Follow redirects
         if (
           (res.statusCode === 301 || res.statusCode === 302) &&
           res.headers.location
@@ -444,13 +395,11 @@ export class ContentDownloadService {
             resolve,
             reject,
           );
-          // Consume the response to free up the socket
           res.resume();
           return;
         }
 
         if (res.statusCode !== 200) {
-          // Consume the response to free up the socket
           res.resume();
           reject(new Error(`HTTP ${res.statusCode} for ${url}`));
           return;
@@ -466,8 +415,6 @@ export class ContentDownloadService {
       });
 
       req.on('error', reject);
-
-      // Timeout after 30 seconds per request
       req.setTimeout(30_000, () => {
         req.destroy(new Error(`Request timeout for ${url}`));
       });
@@ -482,8 +429,6 @@ export class ContentDownloadService {
     try {
       const raw = fs.readFileSync(this.cacheMetadataPath, 'utf-8');
       const parsed = JSON.parse(raw) as ContentCacheMetadata;
-
-      // Validate required fields
       if (
         typeof parsed.contentHash === 'string' &&
         typeof parsed.downloadedAt === 'string'
@@ -493,7 +438,6 @@ export class ContentDownloadService {
 
       return null;
     } catch {
-      // File doesn't exist or is corrupted -- treat as no cache
       return null;
     }
   }
@@ -511,12 +455,9 @@ export class ContentDownloadService {
 
       const json = JSON.stringify(metadata, null, 2);
       const tmpPath = this.cacheMetadataPath + '.tmp';
-
-      // Atomic write: write to temp file, then rename
       await fsPromises.writeFile(tmpPath, json, 'utf-8');
       await fsPromises.rename(tmpPath, this.cacheMetadataPath);
     } catch (error: unknown) {
-      // Swallow persist errors -- matches PtahFileSettingsManager convention
       console.warn(
         `[ContentDownloadService] Failed to persist cache metadata: ${error instanceof Error ? error.message : String(error)}`,
       );

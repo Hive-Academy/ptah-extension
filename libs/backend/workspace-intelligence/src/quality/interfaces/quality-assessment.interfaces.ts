@@ -5,8 +5,6 @@
  * These interfaces define the public API for quality analysis,
  * anti-pattern detection, project intelligence, and prescriptive guidance.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -19,11 +17,6 @@ import type {
   PrescriptiveGuidance,
   QualityHistoryEntry,
 } from '@ptah-extension/shared';
-// No vscode dependency -- all interfaces use string paths
-
-// ============================================
-// Supporting Types
-// ============================================
 
 /**
  * Represents a sampled source file with its content and metadata.
@@ -39,10 +32,6 @@ export interface SampledFile {
   /** Estimated token count for the file content */
   estimatedTokens: number;
 }
-
-// ============================================
-// Service Interfaces
-// ============================================
 
 /**
  * Service for assessing code quality through intelligent file sampling
@@ -117,9 +106,9 @@ export interface IAntiPatternDetectionService {
    * Runs all applicable rules for the file type and returns
    * detected anti-patterns with locations and suggestions.
    *
-   * TASK_2025_291 B2: now async because some rules (e.g. `functionTooLargeRule`)
-   * perform tree-sitter AST analysis. Sync rules are still fully supported —
-   * they are transparently awaited.
+   * Async because some rules (e.g. `functionTooLargeRule`) perform tree-sitter
+   * AST analysis. Sync rules are still fully supported — they are transparently
+   * awaited.
    *
    * @param content - File content to analyze
    * @param filePath - Relative file path (used for extension detection and location)
@@ -294,10 +283,6 @@ export interface IPrescriptiveGuidanceService {
   ): PrescriptiveGuidance;
 }
 
-// ============================================
-// File Hash Cache Service Interface (Phase F - TASK_2025_144)
-// ============================================
-
 /**
  * Cache entry for storing file analysis state.
  * Tracks content hash, analysis timestamp, and detected patterns per file.
@@ -401,10 +386,6 @@ export interface IFileHashCacheService {
   getStats(): { totalCached: number; cacheHitRate: number };
 }
 
-// ============================================
-// Quality History Service Interface (Phase G - TASK_2025_144)
-// ============================================
-
 /**
  * Service for storing quality assessment snapshots for historical tracking.
  *
@@ -443,10 +424,6 @@ export interface IQualityHistoryService {
    */
   clearHistory(): Promise<void>;
 }
-
-// ============================================
-// Quality Export Service Interface (Phase G - TASK_2025_144)
-// ============================================
 
 /**
  * Service for generating quality reports in multiple formats.

@@ -1,7 +1,5 @@
 /**
  * Unit tests for the line-buffered NDJSON stdin reader.
- *
- * TASK_2026_104 Batch 3.
  */
 
 import { PassThrough } from 'node:stream';

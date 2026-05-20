@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah doctor` — Stream B item #7.
+ * Unit tests for `ptah doctor`.
  *
  * Exercises:
  *   - The full happy-path snapshot (license + auth + providers + effective)

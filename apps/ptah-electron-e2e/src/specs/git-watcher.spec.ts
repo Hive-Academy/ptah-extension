@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { test, expect } from '../support/fixtures';
 
 /**
- * Git Watcher Service E2E specs (Wave B.B3).
+ * Git Watcher Service E2E specs.
  *
  * Drives apps/ptah-electron/src/services/git-watcher.service.ts in the main
  * process. The watcher uses fs.watch (workspace recursive watcher) and pushes
@@ -18,7 +18,7 @@ import { test, expect } from '../support/fixtures';
  * in some tests. We capture broadcast calls into a global array.
  *
  * NOTE: If the built main bundle does not expose the watcher class on
- * globalThis, we skip these specs. Wave B.B1 harness already runs in test
+ * globalThis, we skip these specs. The harness already runs in test
  * mode (PTAH_E2E=1) — the bundle exports services for testing in that mode.
  */
 

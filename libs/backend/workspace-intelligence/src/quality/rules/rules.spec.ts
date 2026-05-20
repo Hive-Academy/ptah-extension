@@ -7,8 +7,6 @@
  * - Architecture rules
  * - Testing rules
  * - RuleRegistry methods
- *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
  */
 
 import {
@@ -580,7 +578,7 @@ export function add(a: number, b: number): number {
       expect(matches).toEqual([]);
     });
 
-    // --- 4 edge-case fixtures from TASK_2025_291 B2 brief ---------------
+    // --- 4 edge-case fixtures for the AST-backed function-too-large rule ---
     // These fixtures are the motivation for moving off brace counting.
     // The old heuristic would treat the `{` inside the literal as a
     // function-body opening and accumulate lines until a later `}`,

@@ -38,18 +38,10 @@ declare global {
 export class VimModeService {
   private readonly vscodeService = inject(VSCodeService);
 
-  // ============================================================================
-  // SIGNAL STATE
-  // ============================================================================
-
   private readonly _enabled = signal(false);
 
   /** Whether vim mode is currently enabled. */
   readonly enabled = this._enabled.asReadonly();
-
-  // ============================================================================
-  // INTERNAL STATE
-  // ============================================================================
 
   /** The current monaco-vim disposable instance. */
   private vimMode: { dispose: () => void } | null = null;
@@ -60,26 +52,18 @@ export class VimModeService {
   /** Whether the monaco-vim module has been confirmed as unavailable. */
   private loadFailed = false;
 
-  // ============================================================================
-  // PREFERENCE MANAGEMENT
-  // ============================================================================
-
   /**
    * Load the saved vim mode preference from backend settings.
    * Called once on editor panel initialization.
    */
   async loadPreference(): Promise<void> {
-    try {
-      const result = await rpcCall<{ value: boolean }>(
-        this.vscodeService,
-        'editor:getSetting',
-        { key: 'editor.vimMode' },
-      );
-      if (result.success && result.data) {
-        this._enabled.set(result.data.value ?? false);
-      }
-    } catch {
-      // Silently fall back to disabled if settings read fails
+    const result = await rpcCall<{ value: boolean }>(
+      this.vscodeService,
+      'editor:getSetting',
+      { key: 'editor.vimMode' },
+    );
+    if (result.success && result.data) {
+      this._enabled.set(result.data.value ?? false);
     }
   }
 
@@ -95,19 +79,11 @@ export class VimModeService {
       this.detach();
     }
 
-    try {
-      await rpcCall(this.vscodeService, 'editor:updateSetting', {
-        key: 'editor.vimMode',
-        value: newValue,
-      });
-    } catch {
-      // Preference persistence failure is non-critical
-    }
+    await rpcCall(this.vscodeService, 'editor:updateSetting', {
+      key: 'editor.vimMode',
+      value: newValue,
+    });
   }
-
-  // ============================================================================
-  // EDITOR ATTACHMENT
-  // ============================================================================
 
   /**
    * Attach vim mode to a Monaco editor instance.
@@ -124,19 +100,13 @@ export class VimModeService {
     if (!this._enabled() || !editor || !statusBarElement) {
       return;
     }
-
-    // If a previous load attempt failed, don't retry
     if (this.loadFailed) {
       return;
     }
-
-    // If MonacoVim is already available on window, use it immediately
     if (window.MonacoVim?.initVimMode) {
       this.vimMode = window.MonacoVim.initVimMode(editor, statusBarElement);
       return;
     }
-
-    // Otherwise, load the script dynamically
     this.loadMonacoVimScript().then((success) => {
       if (!success || !this._enabled()) {
         return;
@@ -154,7 +124,6 @@ export class VimModeService {
    */
   private async loadMonacoVimScript(): Promise<boolean> {
     if (this.isLoadingScript) {
-      // Wait for existing load to complete
       while (this.isLoadingScript) {
         await new Promise((r) => setTimeout(r, 50));
       }
@@ -188,11 +157,7 @@ export class VimModeService {
    */
   detach(): void {
     if (this.vimMode) {
-      try {
-        this.vimMode.dispose();
-      } catch {
-        // Dispose may throw if the editor was already destroyed
-      }
+      this.vimMode.dispose();
       this.vimMode = null;
     }
   }

@@ -1,8 +1,8 @@
 /**
  * @ptah-extension/messaging-gateway — public API.
  *
- * Track 4 of TASK_2026_HERMES. Exposes the GatewayService façade plus the
- * subset of stores / interfaces needed by:
+ * Exposes the GatewayService façade plus the subset of stores / interfaces
+ * needed by:
  *   - `apps/ptah-electron/src/services/platform/electron-safe-storage-vault.ts`
  *     (implements `ITokenVault`).
  *   - `libs/backend/rpc-handlers/src/lib/handlers/gateway-rpc.handlers.ts`

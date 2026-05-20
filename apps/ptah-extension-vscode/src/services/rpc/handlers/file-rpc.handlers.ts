@@ -1,12 +1,8 @@
 /**
- * File RPC Handlers
+ * File RPC Handlers — handles file:open, file:pick, file:pick-images.
  *
- * Handles file-related RPC methods: file:open, file:pick, file:pick-images
- * Opens files in VS Code editor with optional line navigation.
- * Provides native file picker dialogs for attaching files and images.
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_262: Added file:pick and file:pick-images for attachment buttons
+ * Opens files in VS Code editor with optional line navigation. Provides
+ * native file picker dialogs for attaching files and images.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -57,8 +53,6 @@ export class FileRpcHandlers {
         try {
           const { path, line } = params;
           this.logger.debug('RPC: file:open called', { path, line });
-
-          // Check if path is a directory (Claude sometimes reads directories by mistake)
           const stats = await fs.promises.stat(path).catch(() => null);
 
           if (!stats) {
@@ -66,18 +60,13 @@ export class FileRpcHandlers {
           }
 
           if (stats.isDirectory()) {
-            // For directories, reveal in explorer instead of opening as file
             const uri = vscode.Uri.file(path);
             await vscode.commands.executeCommand('revealInExplorer', uri);
             return { success: true, isDirectory: true };
           }
-
-          // Open the document and show it in editor
           const uri = vscode.Uri.file(path);
           const document = await vscode.workspace.openTextDocument(uri);
           const editor = await vscode.window.showTextDocument(document);
-
-          // If line number specified, navigate to it
           if (typeof line === 'number' && line > 0) {
             const position = new vscode.Position(line - 1, 0);
             editor.selection = new vscode.Selection(position, position);
@@ -168,10 +157,6 @@ export class FileRpcHandlers {
           this.logger.debug('RPC: file:pick-images called', {
             multiple: params?.multiple,
           });
-
-          // Only offer extensions that map to Anthropic-allowed media types.
-          // Magic-byte sniffing (below) is the source of truth — the filter
-          // is just a UX hint.
           const imageUris = await vscode.window.showOpenDialog({
             canSelectFiles: true,
             canSelectFolders: false,
@@ -216,8 +201,6 @@ export class FileRpcHandlers {
 
             const data = await fs.promises.readFile(uri.fsPath);
             const base64 = data.toString('base64');
-            // Sniff the bytes — extension/MIME are unreliable, magic bytes
-            // are the only thing the Anthropic API will accept.
             const mediaType = resolveImageMediaType(undefined, base64);
             if (mediaType === null) {
               this.logger.warn(

@@ -1,9 +1,8 @@
 /**
- * WizardPhaseAnalysis spec — TASK_2026_107 Phase 3.
+ * WizardPhaseAnalysis spec.
  *
  * Verifies that the analysis-stream + analysis-complete handlers route
- * through the WizardSurfaceFacade (replacing the deleted
- * `WizardStreamAccumulator`):
+ * through the WizardSurfaceFacade:
  *   - `handleAnalysisStream` forwards `payload.flatEvent` to
  *     `surfaces.routePhaseEvent(phaseKey, event)` where `phaseKey` is the
  *     event's `messageId` (matching the legacy accumulator's keying).

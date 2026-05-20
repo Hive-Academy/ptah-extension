@@ -1,7 +1,7 @@
-﻿/**
+/**
  * CompletionHandlerService - Chat Completion and Error Handling
  *
- * TASK_2025_101: This service is largely deprecated.
+ * This service is largely deprecated.
  *
  * The chat:complete event is NO LONGER used to control streaming state because
  * it fires multiple times during tool execution (once per message_complete).
@@ -18,6 +18,7 @@ import { Injectable, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '@ptah-extension/chat-streaming';
 import { TabState } from '@ptah-extension/chat-types';
+import { SessionId } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
 export class CompletionHandlerService {
@@ -32,21 +33,15 @@ export class CompletionHandlerService {
    */
   handleChatError(data: { sessionId: string; error: string }): void {
     console.error('[CompletionHandlerService] Chat error:', data);
-
-    // TASK_2026_106 Phase 4b — fan out to all tabs bound to this session.
-    // Canvas grid: when both tiles share a session, both must reset on error
-    // or one tile remains stuck in `streaming` status forever.
     let targetTabs: readonly TabState[] = [];
 
     if (data.sessionId) {
-      targetTabs = this.tabManager.findTabsBySessionId(data.sessionId);
+      targetTabs = this.tabManager.findTabsBySessionId(
+        SessionId.from(data.sessionId),
+      );
     }
-
-    // Fall back to active tab if no matching tab found
     if (targetTabs.length === 0) {
       const activeTab = this.tabManager.activeTab();
-
-      // Warn if session ID doesn't match active tab
       if (
         data.sessionId &&
         activeTab?.claudeSessionId &&
@@ -66,15 +61,10 @@ export class CompletionHandlerService {
 
       targetTabs = [activeTab];
     }
-
-    // Reset streaming state for every bound tab.
     for (const tab of targetTabs) {
       this.tabManager.applyStatusErrorReset(tab.id);
-      // Hide streaming indicator (visual only - no side effects)
       this.tabManager.markTabIdle(tab.id);
     }
-
-    // Session status is global to the SDK session — set once.
     this.sessionManager.setStatus('loaded');
 
     console.log(

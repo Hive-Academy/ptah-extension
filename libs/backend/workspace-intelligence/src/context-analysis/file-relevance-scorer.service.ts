@@ -55,8 +55,6 @@ export class FileRelevanceScorerService {
   ): FileRelevanceResult {
     const reasons: string[] = [];
     let score = 0;
-
-    // No query = all files equally relevant (baseline score)
     if (!query || query.trim().length === 0) {
       return {
         file,
@@ -69,29 +67,22 @@ export class FileRelevanceScorerService {
     const keywords = this.extractKeywords(normalizedQuery);
     const filePath = file.relativePath.toLowerCase();
     const fileName = filePath.split('/').pop() || '';
-
-    // 1. Path keyword matching (highest priority)
     keywords.forEach((keyword) => {
-      // Direct filename match (very high relevance)
       if (fileName.includes(keyword)) {
         score += 10;
         reasons.push(`Filename contains "${keyword}"`);
       }
-      // Path component match (high relevance)
       else if (filePath.includes(keyword)) {
         score += 5;
         reasons.push(`Path contains "${keyword}"`);
       }
     });
-
-    // 2. File type relevance (prefer source files over configs/docs)
     switch (file.type) {
       case FileType.Source:
         score += 3;
         reasons.push('Source code file (high relevance)');
         break;
       case FileType.Test:
-        // Tests are relevant if query mentions testing
         if (
           normalizedQuery.includes('test') ||
           normalizedQuery.includes('spec')
@@ -104,7 +95,6 @@ export class FileRelevanceScorerService {
         }
         break;
       case FileType.Config:
-        // Config files relevant if query mentions configuration
         if (
           normalizedQuery.includes('config') ||
           normalizedQuery.includes('setup')
@@ -117,7 +107,6 @@ export class FileRelevanceScorerService {
         }
         break;
       case FileType.Documentation:
-        // Docs relevant if query asks for documentation/info
         if (
           normalizedQuery.includes('how') ||
           normalizedQuery.includes('what') ||
@@ -135,17 +124,9 @@ export class FileRelevanceScorerService {
         reasons.push('Asset file (minimal relevance)');
         break;
     }
-
-    // 3. Language-specific patterns
     score += this.scoreByLanguagePattern(file, normalizedQuery, reasons);
-
-    // 4. Framework-specific patterns (Angular, React, Vue, etc.)
     score += this.scoreByFrameworkPattern(file, normalizedQuery, reasons);
-
-    // 5. Common coding task patterns
     score += this.scoreByTaskPattern(file, normalizedQuery, reasons);
-
-    // 6. Symbol-aware scoring (when dependency graph data is available)
     score += this.scoreBySymbols(
       file,
       keywords,
@@ -153,8 +134,6 @@ export class FileRelevanceScorerService {
       symbolIndex,
       activeFileImports
     );
-
-    // Normalize score to 0-100 range
     const normalizedScore = Math.min(100, Math.max(0, score));
 
     return {
@@ -178,8 +157,6 @@ export class FileRelevanceScorerService {
     activeFileImports?: ImportInfo[]
   ): Map<IndexedFile, number> {
     const scores = new Map<IndexedFile, number>();
-
-    // Score all files
     files.forEach((file) => {
       const result = this.scoreFile(
         file,
@@ -189,8 +166,6 @@ export class FileRelevanceScorerService {
       );
       scores.set(file, result.score);
     });
-
-    // Sort by score (highest first)
     const sortedEntries = Array.from(scores.entries()).sort(
       (a, b) => b[1] - a[1]
     );
@@ -280,8 +255,6 @@ export class FileRelevanceScorerService {
     reasons: string[]
   ): number {
     let score = 0;
-
-    // TypeScript/JavaScript patterns
     if (file.language === 'typescript' || file.language === 'javascript') {
       if (query.includes('service') && file.relativePath.includes('service')) {
         score += 5;
@@ -299,8 +272,6 @@ export class FileRelevanceScorerService {
         reasons.push('Utility file matches pattern');
       }
     }
-
-    // Python patterns
     if (file.language === 'python') {
       if (query.includes('model') && file.relativePath.includes('model')) {
         score += 5;
@@ -326,8 +297,6 @@ export class FileRelevanceScorerService {
     reasons: string[]
   ): number {
     let score = 0;
-
-    // Angular patterns
     if (file.relativePath.includes('.component.')) {
       if (query.includes('component') || query.includes('ui')) {
         score += 6;
@@ -346,8 +315,6 @@ export class FileRelevanceScorerService {
         reasons.push('Angular guard matches query');
       }
     }
-
-    // React patterns
     if (
       file.relativePath.includes('.tsx') ||
       file.relativePath.includes('.jsx')
@@ -372,8 +339,6 @@ export class FileRelevanceScorerService {
     reasons: string[]
   ): number {
     let score = 0;
-
-    // Authentication/Authorization
     if (
       query.includes('auth') ||
       query.includes('login') ||
@@ -388,8 +353,6 @@ export class FileRelevanceScorerService {
         reasons.push('Authentication-related file matches query');
       }
     }
-
-    // Database/Data
     if (
       query.includes('database') ||
       query.includes('data') ||
@@ -404,8 +367,6 @@ export class FileRelevanceScorerService {
         reasons.push('Data layer file matches query');
       }
     }
-
-    // API/HTTP
     if (
       query.includes('api') ||
       query.includes('http') ||
@@ -444,8 +405,6 @@ export class FileRelevanceScorerService {
     if (!symbolIndex) {
       return 0;
     }
-
-    // Lookup exports for this file by absolute path or relative path
     const fileExports =
       symbolIndex.get(file.path) ?? symbolIndex.get(file.relativePath);
 
@@ -454,8 +413,6 @@ export class FileRelevanceScorerService {
     }
 
     let score = 0;
-
-    // Check each keyword against exported symbol names
     for (const keyword of keywords) {
       const keywordLower = keyword.toLowerCase();
       for (const exp of fileExports) {
@@ -465,10 +422,7 @@ export class FileRelevanceScorerService {
         }
       }
     }
-
-    // Check if any exported symbol is imported by the active file
     if (activeFileImports && activeFileImports.length > 0) {
-      // Build a set of all symbol names imported by the active file for O(1) lookup
       const importedSymbolNames = new Set<string>();
       for (const imp of activeFileImports) {
         if (imp.importedSymbols) {
@@ -489,8 +443,6 @@ export class FileRelevanceScorerService {
         }
       }
     }
-
-    // Cap total symbol score so symbols remain one signal among many
     return Math.min(score, 30);
   }
 }

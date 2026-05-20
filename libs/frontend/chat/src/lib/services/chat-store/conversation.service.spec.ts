@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ConversationService specs â€” routes send/queue/abort for chat conversations.
  *
  * Full integration of this service (continueConversation, abortCurrentMessage

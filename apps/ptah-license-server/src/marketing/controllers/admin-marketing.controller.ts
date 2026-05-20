@@ -42,18 +42,13 @@ export class AdminMarketingController {
 
   @Post('templates')
   async saveTemplate(@Body() dto: SaveTemplateDto) {
-    // 1. Check for duplicate name
     const existing = await this.prisma.marketingCampaignTemplate.findUnique({
       where: { name: dto.name },
     });
     if (existing) {
       throw new ConflictException('TEMPLATE_NAME_TAKEN');
     }
-
-    // 2. Sanitize and validate HTML (throws TEMPLATE_SANITISE_REJECTED on diff)
     const sanitizedHtml = this.templateRender.sanitizeForStorage(dto.htmlBody);
-
-    // 3. Save to database
     return this.prisma.marketingCampaignTemplate.create({
       data: {
         name: dto.name,

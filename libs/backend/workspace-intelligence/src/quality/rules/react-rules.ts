@@ -11,8 +11,6 @@
  * - Large component files (>300 lines)
  * - Inline function props (unnecessary re-renders)
  *
- * TASK_2025_144: Phase E2 - Framework-Specific Anti-Pattern Rules
- *
  * @packageDocumentation
  */
 
@@ -22,10 +20,6 @@ import {
   createHeuristicRule,
   getLineFromPosition,
 } from './rule-base';
-
-// ============================================
-// React Rules
-// ============================================
 
 /**
  * Detects .map() calls in JSX that return elements without key props.
@@ -57,21 +51,14 @@ export const missingKeyRule: AntiPatternRule = createHeuristicRule({
   fileExtensions: ['.tsx', '.jsx'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
     const matches: AntiPatternMatch[] = [];
-
-    // Find .map( calls that likely return JSX
-    // Look for .map(...) followed by content containing < (JSX)
-    // This heuristic checks for .map( followed by an arrow function or function returning JSX
     const mapPattern = /\.map\s*\(\s*(?:\([^)]*\)|[a-zA-Z_$]\w*)\s*=>\s*/g;
     let mapMatch: RegExpExecArray | null;
 
     while ((mapMatch = mapPattern.exec(content)) !== null) {
-      // Extract a window of content after the arrow to check for JSX
       const afterArrow = content.substring(
         mapMatch.index + mapMatch[0].length,
-        Math.min(content.length, mapMatch.index + mapMatch[0].length + 500)
+        Math.min(content.length, mapMatch.index + mapMatch[0].length + 500),
       );
-
-      // Check if the map body contains JSX (starts with < or has return with <)
       const hasJSX =
         /^(?:\s*\{?\s*(?:return\s+)?)?<\w/.test(afterArrow) ||
         /^\s*\(?\s*<\w/.test(afterArrow);
@@ -79,8 +66,6 @@ export const missingKeyRule: AntiPatternRule = createHeuristicRule({
       if (!hasJSX) {
         continue;
       }
-
-      // Check if the first JSX element has a key prop
       const firstJSXMatch = afterArrow.match(/<\w[^>]*/);
       if (firstJSXMatch) {
         const elementAttributes = firstJSXMatch[0];
@@ -177,20 +162,13 @@ export const useEffectDependenciesRule: AntiPatternRule = createHeuristicRule({
   fileExtensions: ['.tsx', '.jsx', '.ts', '.js'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
     const matches: AntiPatternMatch[] = [];
-
-    // Find useEffect calls
     const useEffectPattern = /useEffect\s*\(\s*/g;
     let effectMatch: RegExpExecArray | null;
 
     while ((effectMatch = useEffectPattern.exec(content)) !== null) {
       const startPos = effectMatch.index + effectMatch[0].length;
-
-      // Find the matching closing parenthesis for useEffect(...)
-      // We need to find the callback body and the dependency array
       let parenCount = 1;
       let pos = startPos;
-
-      // Find the end of the first argument (callback)
       let callbackEnd = -1;
       let braceCount = 0;
       let inCallback = false;
@@ -215,19 +193,13 @@ export const useEffectDependenciesRule: AntiPatternRule = createHeuristicRule({
       if (callbackEnd === -1) {
         continue;
       }
-
-      // Extract the callback body
       const callbackBody = content.substring(startPos, callbackEnd + 1);
-
-      // Check for empty dependency array after callback
       const afterCallback = content.substring(callbackEnd + 1, pos);
       const hasEmptyDeps = /,\s*\[\s*\]/.test(afterCallback);
 
       if (!hasEmptyDeps) {
         continue;
       }
-
-      // Check if callback references props or state
       const referencesProps =
         /\bprops\s*\./.test(callbackBody) || /\bprops\s*\[/.test(callbackBody);
       const referencesState =
@@ -284,13 +256,9 @@ export const largeComponentRule: AntiPatternRule = createHeuristicRule({
   category: 'react',
   fileExtensions: ['.tsx', '.jsx'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Check for React component patterns:
-    // - Function returning JSX: function Xxx or const Xxx = ... with return <
-    // - Class extending Component/PureComponent
-    // - React.FC / React.Component
     const hasReactComponent =
       /(?:function\s+[A-Z]|const\s+[A-Z]\w*\s*[:=]|class\s+\w+\s+extends\s+(?:React\.)?(?:Component|PureComponent)|React\.(?:FC|FunctionComponent))/.test(
-        content
+        content,
       );
 
     if (!hasReactComponent) {
@@ -353,10 +321,6 @@ export const inlineFunctionPropRule: AntiPatternRule = createRegexRule({
     'Extract inline functions to named handlers or use `useCallback()` to ' +
     'prevent unnecessary re-renders of child components.',
 });
-
-// ============================================
-// Exports
-// ============================================
 
 /**
  * All React anti-pattern detection rules.

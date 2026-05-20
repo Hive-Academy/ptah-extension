@@ -290,8 +290,6 @@ export class HexagonalHeroDemoComponent {
     'Standalone',
     'Instanced',
   ];
-
-  // Warm honey/gold color palette for varied edge colors
   protected readonly honeyPalette = [
     SCENE_COLORS.warmWhite, // Cream/white edges
     SCENE_COLORS.lightHoney, // Peachy gold edges

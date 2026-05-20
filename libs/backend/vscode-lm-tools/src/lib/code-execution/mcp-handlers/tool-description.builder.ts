@@ -72,10 +72,6 @@ export function buildApprovalPromptTool(): MCPToolDefinition {
   };
 }
 
-// ========================================
-// Individual First-Class MCP Tools
-// ========================================
-
 /**
  * Build the ptah_workspace_analyze tool definition
  * One-call project understanding — replaces manual exploration
@@ -246,10 +242,6 @@ export function buildCountTokensTool(): MCPToolDefinition {
     annotations: { readOnlyHint: true },
   };
 }
-
-// ========================================
-// Agent Orchestration MCP Tools (TASK_2025_157)
-// ========================================
 
 /**
  * Build the ptah_agent_spawn tool definition
@@ -468,10 +460,6 @@ export function buildAgentStopTool(): MCPToolDefinition {
   };
 }
 
-// ========================================
-// Web Search MCP Tool (TASK_2025_189)
-// ========================================
-
 /**
  * Build the ptah_web_search tool definition
  * Multi-provider web search (Tavily, Serper, Exa)
@@ -506,10 +494,6 @@ export function buildWebSearchTool(): MCPToolDefinition {
     annotations: { readOnlyHint: true, openWorldHint: true },
   };
 }
-
-// ========================================
-// Git Worktree MCP Tools (TASK_2025_236)
-// ========================================
 
 /**
  * Build the ptah_git_worktree_list tool definition
@@ -590,13 +574,9 @@ export function buildWorktreeRemoveTool(): MCPToolDefinition {
   };
 }
 
-// ========================================
-// JSON Validation MCP Tool (TASK_2025_240)
-// ========================================
-
 /**
  * Build the ptah_json_validate tool definition
- * Validate and repair JSON files written by AI agents (TASK_2025_240)
+ * Validate and repair JSON files written by AI agents
  */
 export function buildJsonValidateTool(): MCPToolDefinition {
   return {
@@ -628,10 +608,6 @@ export function buildJsonValidateTool(): MCPToolDefinition {
     annotations: { idempotentHint: true },
   };
 }
-
-// ========================================
-// Browser Automation MCP Tools (TASK_2025_244)
-// ========================================
 
 /**
  * Build the ptah_browser_navigate tool definition
@@ -895,10 +871,6 @@ export function buildBrowserStatusTool(): MCPToolDefinition {
   };
 }
 
-// ========================================
-// Browser Enhancement MCP Tools (TASK_2025_254)
-// ========================================
-
 /**
  * Build the ptah_browser_record_start tool definition
  * Start recording the browser session as a GIF
@@ -944,10 +916,6 @@ export function buildBrowserRecordStopTool(): MCPToolDefinition {
     },
   };
 }
-
-// ========================================
-// Harness Builder MCP Tools (TASK_2025_285)
-// ========================================
 
 /**
  * Build the ptah_harness_search_skills tool definition
@@ -1152,35 +1120,22 @@ try { const files = await ptah.search.findFiles('**/*.ts'); } catch(e) { return 
 ## Usage Examples
 
 \`\`\`typescript
-// BEST: Discover files FIRST, then read them
 const tsFiles = await ptah.search.findFiles('**/*.ts', 100);
 const packageFiles = tsFiles.filter(f => f.includes('package'));
 if (packageFiles.length > 0) {
   const packageJson = await ptah.files.readJson(packageFiles[0]); // Absolute path from search
   return packageJson.dependencies;
 }
-
-// OK: If you KNOW the file exists, use relative path from workspace root
 const pkg = await ptah.files.readJson('package.json'); // Resolved to workspace root
 return pkg.version;
-
-// Get workspace overview
 const {info, structure} = await ptah.workspace.analyze();
 return {projectType: info.projectType, frameworks: info.frameworks};
-
-// Find files and filter (findFiles returns string paths)
 const files = await ptah.search.findFiles('**/*', 500);
 return files.filter(f => f.endsWith('.ts'));
-
-// Find references before refactoring
 const refs = await ptah.ide.lsp.getReferences('src/app.ts', 10, 5);
 return refs.map(r => r.file + ':' + r.line);
-
-// Check for TypeScript errors
 const errors = await ptah.diagnostics.getErrors();
 return errors.filter(e => e.file.endsWith('.ts'));
-
-// Analyze code structure (AST)
 const insights = await ptah.ast.analyze('src/services/auth.service.ts');
 return { functions: insights.functions.map(f => f.name), classes: insights.classes.map(c => c.name) };
 \`\`\``;

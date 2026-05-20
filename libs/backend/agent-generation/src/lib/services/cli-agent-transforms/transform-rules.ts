@@ -1,7 +1,7 @@
 /**
  * Agent Transform Rules
- * TASK_2025_160: Shared transformation rules and regex patterns
  *
+ * Shared transformation rules and regex patterns.
  * Used by both CopilotAgentTransformer and GeminiAgentTransformer.
  * Extracts common rewrite logic to avoid duplication.
  *
@@ -15,10 +15,6 @@
 
 import { basename, parse } from 'path';
 import type { CliTarget } from '@ptah-extension/shared';
-
-// ========================================
-// Claude-Specific Content Patterns
-// ========================================
 
 /**
  * Factory functions for regex patterns detecting Claude-specific content.
@@ -46,10 +42,6 @@ function createClaudePatterns() {
     skillTool: /Skill\s+tool\s+(?:to\s+)?invoke/gi,
   };
 }
-
-// ========================================
-// CLI-Specific Tool Mappings
-// ========================================
 
 /**
  * Mapping of Claude tools to CLI-specific equivalents.
@@ -89,10 +81,6 @@ const CLI_TOOL_MAPPINGS: Record<
   },
 };
 
-// ========================================
-// Shared Utilities
-// ========================================
-
 /**
  * Extract agent ID from file path using Node.js path utilities.
  * Cross-platform safe — handles both forward and backslash separators.
@@ -113,10 +101,6 @@ function normalizeCrlf(content: string): string {
   return content.replace(/\r\n/g, '\n');
 }
 
-// ========================================
-// Transform Functions
-// ========================================
-
 /**
  * Strip lines containing @ptah-extension/ internal references.
  * These are TypeScript import paths that have no meaning in CLI agents.
@@ -124,7 +108,6 @@ function normalizeCrlf(content: string): string {
 export function stripInternalReferences(content: string): string {
   const patterns = createClaudePatterns();
   return content.replace(patterns.internalImport, '').replace(
-    // Clean up consecutive blank lines left by stripping
     /\n{3,}/g,
     '\n\n',
   );
@@ -150,20 +133,12 @@ export function rewriteFrontmatter(
   agentId: string,
   description: string,
 ): string {
-  // Normalize CRLF for reliable regex on Windows
   const normalized = normalizeCrlf(content);
-
-  // Prefix agent name for cleanup identification
   const prefixedName = `ptah-${agentId}`;
-
-  // Match existing frontmatter
   const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
-    // No frontmatter, add one
     return `---\nname: ${prefixedName}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---\n\n${normalized}`;
   }
-
-  // Rebuild frontmatter with name, description, and source tracking
   const newFrontmatter = `---\nname: ${prefixedName}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---`;
   return normalized.replace(frontmatterMatch[0], newFrontmatter);
 }
@@ -180,20 +155,12 @@ export function rewriteToolReferences(content: string, cli: CliTarget): string {
   const mapping = CLI_TOOL_MAPPINGS[cli];
   const patterns = createClaudePatterns();
   let result = content;
-
-  // Replace AskUserQuestion references
   result = result.replace(patterns.askUserQuestion, mapping.askUser);
-
-  // Replace Task(subagent_type='name' ...) invocation pattern
   result = result.replace(
     patterns.taskToolInvocation,
     `${mapping.taskDelegate} $1`,
   );
-
-  // Replace "Task tool to" references
   result = result.replace(patterns.taskTool, `${mapping.taskDelegate} `);
-
-  // Replace Skill tool references
   result = result.replace(patterns.skillTool, `${mapping.slashPrefix} skill `);
 
   return result;
@@ -211,7 +178,6 @@ export function rewriteSlashCommands(content: string, cli: CliTarget): string {
   const patterns = createClaudePatterns();
 
   return content.replace(patterns.slashCommand, (match) => {
-    // Extract command name (strip leading /)
     const commandName = match.substring(1);
     return `${mapping.slashPrefix} ${commandName}`;
   });

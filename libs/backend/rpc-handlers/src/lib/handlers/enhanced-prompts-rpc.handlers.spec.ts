@@ -1,5 +1,5 @@
 /**
- * EnhancedPromptsRpcHandlers — unit specs (TASK_2025_294 W2.B1.2).
+ * EnhancedPromptsRpcHandlers — unit specs.
  *
  * Surface under test: six RPC methods exposing the Enhanced Prompts feature
  * to the webview (`getStatus`, `runWizard`, `setEnabled`, `regenerate`,
@@ -32,6 +32,89 @@
 
 import 'reflect-metadata';
 
+// ---------------------------------------------------------------------------
+// Jest transitive-import guard.
+//
+// The SUT imports from `@ptah-extension/agent-generation`, whose barrel
+// re-exports from `@ptah-extension/workspace-intelligence`. The
+// workspace-intelligence barrel eagerly re-exports `TreeSitterParserService`,
+// whose module top-level evaluates `path.dirname(fileURLToPath(import.meta.url))`
+// — a construct Jest's ts-jest CJS transform cannot parse. Mirrors the pattern
+// used in `wizard-generation-rpc.handlers.spec.ts`.
+// ---------------------------------------------------------------------------
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: {
+    Node: 'node',
+    React: 'react',
+    Vue: 'vue',
+    Angular: 'angular',
+    NextJS: 'nextjs',
+    Python: 'python',
+    Java: 'java',
+    Rust: 'rust',
+    Go: 'go',
+    DotNet: 'dotnet',
+    PHP: 'php',
+    Ruby: 'ruby',
+    General: 'general',
+    Unknown: 'unknown',
+  },
+  Framework: {
+    React: 'react',
+    Vue: 'vue',
+    Angular: 'angular',
+    NextJS: 'nextjs',
+    Nuxt: 'nuxt',
+    Express: 'express',
+    Django: 'django',
+    Laravel: 'laravel',
+    Rails: 'rails',
+    Svelte: 'svelte',
+    Astro: 'astro',
+    NestJS: 'nestjs',
+    Fastify: 'fastify',
+    Flask: 'flask',
+    FastAPI: 'fastapi',
+    Spring: 'spring',
+  },
+  MonorepoType: {
+    Nx: 'nx',
+    Lerna: 'lerna',
+    Rush: 'rush',
+    Turborepo: 'turborepo',
+    PnpmWorkspaces: 'pnpm-workspaces',
+    YarnWorkspaces: 'yarn-workspaces',
+  },
+  FileType: {
+    Source: 'source',
+    Test: 'test',
+    Config: 'config',
+    Documentation: 'docs',
+    Asset: 'asset',
+  },
+  TreeSitterParserService: class TreeSitterParserServiceStub {},
+  AstAnalysisService: class AstAnalysisServiceStub {},
+  DependencyGraphService: class DependencyGraphServiceStub {},
+  WorkspaceAnalyzerService: class WorkspaceAnalyzerServiceStub {},
+  ContextService: class ContextServiceStub {},
+  ContextOrchestrationService: class ContextOrchestrationServiceStub {},
+  WorkspaceService: class WorkspaceServiceStub {},
+  TokenCounterService: class TokenCounterServiceStub {},
+  FileSystemService: class FileSystemServiceStub {},
+  FileSystemError: class FileSystemErrorStub extends Error {},
+  ProjectDetectorService: class ProjectDetectorServiceStub {},
+  FrameworkDetectorService: class FrameworkDetectorServiceStub {},
+  DependencyAnalyzerService: class DependencyAnalyzerServiceStub {},
+  MonorepoDetectorService: class MonorepoDetectorServiceStub {},
+  PatternMatcherService: class PatternMatcherServiceStub {},
+  IgnorePatternResolverService: class IgnorePatternResolverServiceStub {},
+  WorkspaceIndexerService: class WorkspaceIndexerServiceStub {},
+  FileTypeClassifierService: class FileTypeClassifierServiceStub {},
+  FileRelevanceScorerService: class FileRelevanceScorerServiceStub {},
+  ContextSizeOptimizerService: class ContextSizeOptimizerServiceStub {},
+  ContextEnrichmentService: class ContextEnrichmentServiceStub {},
+}));
+
 import type { DependencyContainer } from 'tsyringe';
 import type {
   Logger,
@@ -53,10 +136,8 @@ import {
   createMockWorkspaceProvider,
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
-import type {
-  EnhancedPromptsService,
-  PluginLoaderService,
-} from '@ptah-extension/agent-sdk';
+import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
+import type { EnhancedPromptsService } from '@ptah-extension/agent-generation';
 import {
   createMockLogger,
   type MockLogger,
@@ -183,8 +264,9 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     pluginLoader as unknown as PluginLoaderService,
     workspace as unknown as IWorkspaceProvider,
     saveDialog as unknown as ISaveDialogProvider,
-    container as unknown as DependencyContainer,
     sentry as unknown as SentryService,
+    undefined,
+    undefined,
   );
 
   return {

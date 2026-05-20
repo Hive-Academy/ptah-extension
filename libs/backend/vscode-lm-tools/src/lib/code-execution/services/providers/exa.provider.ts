@@ -49,7 +49,6 @@ export class ExaSearchProvider implements IWebSearchProvider {
 
       return {
         results,
-        // Exa does not provide a native narrative summary
         summary: undefined,
       };
     } catch (error: unknown) {

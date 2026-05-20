@@ -5,7 +5,7 @@
  * forward-only migration runner shared by memory-curator, skill-synthesis,
  * cron-scheduler, and messaging-gateway. Defines the `IEmbedder` contract
  * that those libraries consume; the implementation is registered by
- * memory-curator (Track 1).
+ * memory-curator.
  */
 export { SqliteConnectionService } from './lib/sqlite-connection.service';
 export type {

@@ -534,8 +534,6 @@ export class ElectronShellComponent {
       }
     });
   }
-
-  // Icons
   readonly SettingsIcon = Settings;
   readonly BarChart3Icon = BarChart3;
   readonly ZapIcon = Zap;
@@ -545,11 +543,7 @@ export class ElectronShellComponent {
   readonly MessageSquareIcon = MessageSquare;
   readonly LayoutGridIcon = LayoutGrid;
   readonly WrenchIcon = Wrench;
-
-  // Asset URIs
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
-
-  // Platform detection from Electron main process (reliable, not deprecated)
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
   onCanvasTab(): void {

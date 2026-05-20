@@ -1,7 +1,7 @@
 /**
- * Unit tests for `ptah setup` — TASK_2026_104 Sub-batch B9d.
+ * Unit tests for `ptah setup`.
  *
- * Coverage (per spec § B9d sub-task 2):
+ * Coverage:
  *   1. Happy path: 5 phases complete → exit 0, `setup.complete` emitted with
  *      non-zero counters.
  *   2. Phase 3 fails → exit 1 with `data.phase: 'install_pack'`; phase 1+2

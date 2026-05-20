@@ -1,8 +1,7 @@
 /**
- * Branded identity types for the chat domain — TASK_2026_106 Phase 1.
+ * Branded identity types for the chat domain.
  *
- * Distinguishes the four identifiers that the legacy code conflated behind
- * a single `claudeSessionId`:
+ * Distinguishes the four identifiers used across the chat layer:
  *
  *   - TabId             — UI surface (a slot in navbar / canvas tile)
  *   - ClaudeSessionId   — backend SDK session (stable across compactions)
@@ -28,28 +27,19 @@ import { TabId as SharedTabId } from '@ptah-extension/shared';
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// ---------------------------------------------------------------------------
-// TabId
-// ---------------------------------------------------------------------------
-
 /**
  * Identifies a tab — a UI surface a user can open, close, or arrange in the
  * canvas grid. Lives only in the renderer; never round-trips through the SDK.
  *
- * TASK_2026_120 Phase B — `TabId` has been promoted to `@ptah-extension/shared`
- * so backend signatures can refer to the same brand (see `branded.types.ts`).
- * Re-exported here unchanged so all existing
- * `import { TabId } from '@ptah-extension/chat-state'` callers continue to
- * resolve `.create()`, `.validate()`, `.from()`, and `.safeParse()` against
+ * `TabId` is canonically defined in `@ptah-extension/shared` so backend
+ * signatures can refer to the same brand (see `branded.types.ts`). It is
+ * re-exported here so `import { TabId } from '@ptah-extension/chat-state'`
+ * resolves `.create()`, `.validate()`, `.from()`, and `.safeParse()` against
  * the canonical brand.
  */
 export type TabId = SharedTabId;
 
 export const TabId = SharedTabId;
-
-// ---------------------------------------------------------------------------
-// ClaudeSessionId
-// ---------------------------------------------------------------------------
 
 /**
  * Alias for the cross-platform `SessionId` brand from `@ptah-extension/shared`.
@@ -60,10 +50,6 @@ export const TabId = SharedTabId;
  * explicit (this is the SDK session id, not a frontend identity).
  */
 export type ClaudeSessionId = SessionId;
-
-// ---------------------------------------------------------------------------
-// ConversationId
-// ---------------------------------------------------------------------------
 
 /**
  * Identifies a user-perceived conversation thread that survives compaction
@@ -95,14 +81,10 @@ export const ConversationId = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// BackgroundAgentId
-// ---------------------------------------------------------------------------
-
 /**
  * Identifies a background sub-agent spawned inside a session. Distinct from
  * `ClaudeSessionId` so the background-agent store can never collide with
- * the parent session's keys (the legacy bug Phase 5 retires).
+ * the parent session's keys.
  */
 export type BackgroundAgentId = string & {
   readonly __brand: 'BackgroundAgentId';
@@ -125,10 +107,6 @@ export const BackgroundAgentId = {
     return BackgroundAgentId.validate(id) ? (id as BackgroundAgentId) : null;
   },
 };
-
-// ---------------------------------------------------------------------------
-// SurfaceId — TASK_2026_107 Phase 1
-// ---------------------------------------------------------------------------
 
 /**
  * Identifies a non-tab consumer of a streaming pipeline — currently a

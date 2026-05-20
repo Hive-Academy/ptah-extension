@@ -1,5 +1,5 @@
 /**
- * VS Code Platform Commands Implementation (TASK_2025_203)
+ * VS Code Platform Commands Implementation.
  *
  * Implements IPlatformCommands using VS Code APIs:
  * - reloadWindow: vscode.commands.executeCommand('workbench.action.reloadWindow')

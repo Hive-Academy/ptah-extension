@@ -6,8 +6,7 @@
  * `WizardSubmitSelectionParams`, `WizardCancelParams`, `WizardRetryItemParams`)
  * plus inline guards like `if (!params?.selectedAgentIds?.length)` and
  * `if (!params?.itemId)`. No `z.object({...})` literals existed in
- * `wizard-generation-rpc.handlers.ts` at the time of TASK_2025_294 W2.B6
- * extraction.
+ * `wizard-generation-rpc.handlers.ts` at the time of the schema extraction.
  *
  * This empty export exists so every handler has a consistent `*.schema.ts`
  * sibling, and so future tasks can add Zod validation here without having to

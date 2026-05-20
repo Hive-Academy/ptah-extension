@@ -1,5 +1,5 @@
 /**
- * P3.B2 — Chat flow E2E specs: permission prompt dialog.
+ * Chat flow E2E specs: permission prompt dialog.
  *
  * Validates the allow / deny / always-allow handshake. The host sends
  * `permission:request` with `{ id, tool, action }`; the webview shows a

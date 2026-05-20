@@ -92,8 +92,6 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
  */
 function buildHarness() {
   const prisma = createMockPrisma();
-
-  // Orthogonal collaborators are no-ops for the verify/me paths.
   const events = {
     emitLicenseUpdated: jest.fn(),
     emitSubscriptionUpdated: jest.fn(),
@@ -161,7 +159,6 @@ describe('license-verify e2e :: POST /v1/licenses/verify', () => {
       firstName: USER.firstName,
       lastName: USER.lastName,
     });
-    // Signing disabled in CI — signature must NOT be attached.
     expect(result.signature).toBeUndefined();
     expect(prisma.license.findUnique).toHaveBeenCalledWith({
       where: { licenseKey: VALID_KEY },
@@ -243,8 +240,6 @@ describe('license-verify e2e :: POST /v1/licenses/verify', () => {
       makeLicense({
         licenseKey: TRIAL_ENDED_KEY,
         plan: 'pro',
-        // License itself hasn't hit its expiresAt yet — but the
-        // subscription trial window has elapsed.
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         user: {
           ...USER,
@@ -325,8 +320,6 @@ describe('license-verify e2e :: GET /v1/licenses/me (JWT-guarded)', () => {
 
     expect(result['plan']).toBe('pro');
     expect(result['status']).toBe('active');
-    // CRITICAL: /me must NEVER return the raw key (reveal-key is a separate
-    // strictly rate-limited endpoint).
     expect(JSON.stringify(result)).not.toContain(VALID_KEY);
     expect(result['licenseKey']).toBeUndefined();
   });

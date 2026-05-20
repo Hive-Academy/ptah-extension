@@ -9,7 +9,7 @@
  * - mcpDirectory:listInstalled - List all installed MCP servers
  * - mcpDirectory:getPopular - Get popular/trending servers (cached)
  *
- * TASK_2026_104 Batch 6a: Lifted from
+ * Lifted from
  * `apps/ptah-extension-vscode/src/services/rpc/handlers/` so all three apps
  * (VS Code, Electron, CLI) consume it via `registerAllRpcHandlers()`.
  * Replaced `vscode.workspace.workspaceFolders` with `IWorkspaceProvider`
@@ -24,7 +24,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   McpRegistryProvider,
   McpInstallService,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   McpDirectorySearchParams,
   McpDirectorySearchResult,
@@ -52,7 +52,7 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:getPopular',
   ] as const satisfies readonly RpcMethodName[];
 
-  private readonly registryProvider = new McpRegistryProvider();
+  private readonly registryProvider: McpRegistryProvider;
   private readonly installService = new McpInstallService();
 
   constructor(
@@ -62,7 +62,9 @@ export class McpDirectoryRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
-  ) {}
+  ) {
+    this.registryProvider = new McpRegistryProvider(this.logger);
+  }
 
   /**
    * Register all MCP Directory RPC methods
@@ -86,8 +88,6 @@ export class McpDirectoryRpcHandlers {
       ],
     });
   }
-
-  // ─── RPC Method: mcpDirectory:search ───
 
   private registerSearch(): void {
     this.rpcHandler.registerMethod<
@@ -120,8 +120,6 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
-  // ─── RPC Method: mcpDirectory:getDetails ───
-
   private registerGetDetails(): void {
     this.rpcHandler.registerMethod<
       McpDirectoryGetDetailsParams,
@@ -153,8 +151,6 @@ export class McpDirectoryRpcHandlers {
       }
     });
   }
-
-  // ─── RPC Method: mcpDirectory:install ───
 
   private registerInstall(): void {
     this.rpcHandler.registerMethod<
@@ -220,8 +216,6 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
-  // ─── RPC Method: mcpDirectory:uninstall ───
-
   private registerUninstall(): void {
     this.rpcHandler.registerMethod<
       McpDirectoryUninstallParams,
@@ -255,8 +249,6 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
-  // ─── RPC Method: mcpDirectory:listInstalled ───
-
   private registerListInstalled(): void {
     this.rpcHandler.registerMethod<
       McpDirectoryListInstalledParams,
@@ -282,8 +274,6 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
-  // ─── RPC Method: mcpDirectory:getPopular ───
-
   private registerGetPopular(): void {
     this.rpcHandler.registerMethod<
       McpDirectoryGetPopularParams,
@@ -299,15 +289,14 @@ export class McpDirectoryRpcHandlers {
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'McpDirectoryRpcHandlers.registerGetPopular' },
         );
-        this.logger.error('RPC: mcpDirectory:getPopular failed', {
-          error: String(error),
-        });
+        this.logger.error(
+          'RPC: mcpDirectory:getPopular failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
         return { servers: [] };
       }
     });
   }
-
-  // ─── Helpers ───
 
   private getWorkspaceRoot(): string | undefined {
     return this.workspaceProvider.getWorkspaceRoot();

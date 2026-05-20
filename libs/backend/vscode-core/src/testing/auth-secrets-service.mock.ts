@@ -44,8 +44,6 @@ export function createMockAuthSecretsService(
 ): MockAuthSecretsService {
   const credentials = new Map<AuthCredentialType, string>();
   const providerKeys = new Map<string, string>();
-
-  // Seed
   if (overrides?.credentials) {
     for (const [key, value] of Object.entries(overrides.credentials) as [
       AuthCredentialType,

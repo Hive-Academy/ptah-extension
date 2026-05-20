@@ -1,11 +1,10 @@
 /**
- * permission-prompt.service — unit specs (P1.B8, TASK_2026_100).
+ * permission-prompt.service — unit specs.
  *
  * `PermissionPromptService` sits between the `approval_prompt` MCP handler and
  * the VS Code webview. It:
  *   1. Creates permission requests with UUIDs and human-readable descriptions.
- *   2. Stores Promise resolvers while the user decides (blocks indefinitely —
- *      no 5-minute timeout per TASK_2025_215).
+ *   2. Stores Promise resolvers while the user decides (blocks indefinitely).
  *   3. Resolves pending requests when the webview responds, optionally
  *      persisting "Always Allow" rules to workspace state.
  *   4. Pre-authorises tool calls by matching `ToolName:JSON(input)` against

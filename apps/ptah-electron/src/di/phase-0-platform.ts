@@ -1,8 +1,6 @@
 /**
  * Electron DI — Phase 0: Platform abstraction layer + Logger adapter.
  *
- * TASK_2025_291 Wave C1 Step 2b: Split from the monolithic container.ts.
- *
  * Registers:
  *   - All 10 PLATFORM_TOKENS via registerPlatformElectronServices
  *   - TOKENS.OUTPUT_MANAGER (ElectronOutputManagerAdapter)
@@ -40,27 +38,12 @@ export function registerPhase0Platform(
   container: DependencyContainer,
   options: ElectronPlatformOptions,
 ): Phase0Result {
-  // ========================================
-  // PHASE 0: Platform Abstraction Layer
-  // ========================================
-  // Register all 10 platform tokens (IPlatformInfo + 8 providers + WORKSPACE_STATE_STORAGE).
-  // MUST be before any library services (they inject PLATFORM_TOKENS).
   registerPlatformElectronServices(container, options);
-
-  // ========================================
-  // PHASE 1: Logger + OutputManager adapters
-  // ========================================
-  // OutputManager adapter wraps the platform-electron IOutputChannel.
-  // Logger depends on OutputManager, so this must be registered first.
   const outputChannel = container.resolve<IOutputChannel>(
     PLATFORM_TOKENS.OUTPUT_CHANNEL,
   );
   const outputManager = new ElectronOutputManagerAdapter(outputChannel);
   container.register(TOKENS.OUTPUT_MANAGER, { useValue: outputManager });
-
-  // Logger adapter: uses ElectronOutputManagerAdapter instead of VS Code OutputManager.
-  // Cast to Logger type so library registration functions accept it — safe because
-  // they only call public methods (info, warn, error, debug).
   const loggerAdapter = new ElectronLoggerAdapter(outputManager);
   const logger = loggerAdapter as unknown as Logger;
   container.register(TOKENS.LOGGER, { useValue: logger });

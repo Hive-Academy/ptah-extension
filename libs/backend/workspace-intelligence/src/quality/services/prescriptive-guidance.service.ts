@@ -4,8 +4,6 @@
  * Generates prioritized, actionable recommendations from quality assessment results.
  * Transforms anti-patterns into prescriptive guidance with token budget management.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -20,10 +18,6 @@ import type {
 } from '@ptah-extension/shared';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { IPrescriptiveGuidanceService } from '../interfaces';
-
-// ============================================
-// Constants
-// ============================================
 
 /**
  * Severity weights for prioritization.
@@ -61,10 +55,6 @@ const CATEGORY_DISPLAY_NAMES: Record<string, string> = {
   test: 'Testing',
 };
 
-// ============================================
-// Internal Types
-// ============================================
-
 /**
  * Grouped anti-pattern data for recommendation generation.
  */
@@ -82,10 +72,6 @@ interface PatternGroup {
   /** Priority score (frequency * severity weight) */
   priorityScore: number;
 }
-
-// ============================================
-// Service Implementation
-// ============================================
 
 /**
  * PrescriptiveGuidanceService
@@ -117,9 +103,7 @@ interface PatternGroup {
  * ```
  */
 @injectable()
-export class PrescriptiveGuidanceService
-  implements IPrescriptiveGuidanceService
-{
+export class PrescriptiveGuidanceService implements IPrescriptiveGuidanceService {
   /**
    * Creates a new PrescriptiveGuidanceService.
    *
@@ -155,7 +139,7 @@ export class PrescriptiveGuidanceService
   generateGuidance(
     assessment: QualityAssessment,
     context: WorkspaceContext,
-    tokenBudget: number = DEFAULT_TOKEN_BUDGET
+    tokenBudget: number = DEFAULT_TOKEN_BUDGET,
   ): PrescriptiveGuidance {
     this.logger.debug('Generating prescriptive guidance', {
       antiPatternCount: assessment.antiPatterns.length,
@@ -163,23 +147,13 @@ export class PrescriptiveGuidanceService
       tokenBudget,
       projectType: context.projectType,
     });
-
-    // Handle clean codebase case
     if (assessment.antiPatterns.length === 0) {
       return this.generateCleanCodebaseGuidance(assessment, context);
     }
-
-    // Group patterns by type and calculate priority
     const groups = this.groupAndPrioritizePatterns(assessment.antiPatterns);
-
-    // Generate recommendations from groups
     const allRecommendations = this.generateRecommendations(groups);
-
-    // Apply token budget truncation
     const { recommendations, wasTruncated, totalTokens } =
       this.applyTokenBudget(allRecommendations, tokenBudget);
-
-    // Generate executive summary from top recommendations
     const summary = this.generateSummary(recommendations, assessment.score);
 
     const guidance: PrescriptiveGuidance = {
@@ -198,10 +172,6 @@ export class PrescriptiveGuidanceService
     return guidance;
   }
 
-  // ============================================
-  // Private Helper Methods
-  // ============================================
-
   /**
    * Generates guidance for a clean codebase with no anti-patterns.
    *
@@ -211,11 +181,9 @@ export class PrescriptiveGuidanceService
    */
   private generateCleanCodebaseGuidance(
     assessment: QualityAssessment,
-    context: WorkspaceContext
+    context: WorkspaceContext,
   ): PrescriptiveGuidance {
     const advancedRecommendations: Recommendation[] = [];
-
-    // Add framework-specific advanced recommendations
     if (context.framework) {
       advancedRecommendations.push({
         priority: 1,
@@ -224,11 +192,9 @@ export class PrescriptiveGuidanceService
         solution: `Your ${context.framework} codebase is clean. Consider implementing advanced patterns like lazy loading, state management optimization, or performance profiling.`,
       });
     }
-
-    // Add testing recommendations if no test patterns detected
     if (
       !assessment.sampledFiles.some(
-        (f) => f.includes('.spec.') || f.includes('.test.')
+        (f) => f.includes('.spec.') || f.includes('.test.'),
       )
     ) {
       advancedRecommendations.push({
@@ -239,8 +205,6 @@ export class PrescriptiveGuidanceService
           'Continue writing comprehensive tests to maintain code quality. Consider property-based testing or mutation testing for critical paths.',
       });
     }
-
-    // Add documentation recommendation
     advancedRecommendations.push({
       priority: 3,
       category: 'Documentation',
@@ -266,7 +230,7 @@ export class PrescriptiveGuidanceService
    * @returns Sorted array of pattern groups (highest priority first)
    */
   private groupAndPrioritizePatterns(
-    antiPatterns: AntiPattern[]
+    antiPatterns: AntiPattern[],
   ): PatternGroup[] {
     const groupMap = new Map<string, PatternGroup>();
 
@@ -276,8 +240,6 @@ export class PrescriptiveGuidanceService
       if (existing) {
         existing.patterns.push(pattern);
         existing.totalFrequency += pattern.frequency;
-
-        // Update max severity if this pattern has higher severity
         if (
           SEVERITY_WEIGHTS[pattern.severity] >
           SEVERITY_WEIGHTS[existing.maxSeverity]
@@ -285,7 +247,6 @@ export class PrescriptiveGuidanceService
           existing.maxSeverity = pattern.severity;
         }
       } else {
-        // Extract category from type (e.g., 'typescript' from 'typescript-explicit-any')
         const category = pattern.type.split('-')[0];
 
         groupMap.set(pattern.type, {
@@ -298,16 +259,12 @@ export class PrescriptiveGuidanceService
         });
       }
     }
-
-    // Calculate priority scores and sort
     const groups = Array.from(groupMap.values());
 
     for (const group of groups) {
       group.priorityScore =
         group.totalFrequency * SEVERITY_WEIGHTS[group.maxSeverity];
     }
-
-    // Sort by priority score (descending)
     groups.sort((a, b) => b.priorityScore - a.priorityScore);
 
     this.logger.debug('Patterns grouped and prioritized', {
@@ -327,18 +284,11 @@ export class PrescriptiveGuidanceService
    */
   private generateRecommendations(groups: PatternGroup[]): Recommendation[] {
     return groups.map((group, index) => {
-      // Get the first pattern for message and suggestion
       const firstPattern = group.patterns[0];
-
-      // Collect unique file paths for examples
       const exampleFiles = this.collectExampleFiles(group.patterns);
-
-      // Get human-readable category name
       const categoryName =
         CATEGORY_DISPLAY_NAMES[group.category] ||
         this.titleCase(group.category);
-
-      // Build issue description
       const issue = this.buildIssueDescription(group, firstPattern);
 
       return {
@@ -382,12 +332,10 @@ export class PrescriptiveGuidanceService
    */
   private buildIssueDescription(
     group: PatternGroup,
-    firstPattern: AntiPattern
+    firstPattern: AntiPattern,
   ): string {
     const occurrences = group.totalFrequency;
     const fileCount = new Set(group.patterns.map((p) => p.location.file)).size;
-
-    // Extract core message without frequency info
     const baseMessage = firstPattern.message.split('(')[0].trim();
 
     if (occurrences === 1) {
@@ -408,28 +356,23 @@ export class PrescriptiveGuidanceService
    */
   private applyTokenBudget(
     recommendations: Recommendation[],
-    tokenBudget: number
+    tokenBudget: number,
   ): {
     recommendations: Recommendation[];
     wasTruncated: boolean;
     totalTokens: number;
   } {
-    // Reserve tokens for summary (~100 tokens)
     const availableForRecommendations = tokenBudget - 100;
-
-    // Calculate how many recommendations fit
     const maxRecommendations = Math.max(
       1, // Always include at least one recommendation
-      Math.floor(availableForRecommendations / TOKENS_PER_RECOMMENDATION)
+      Math.floor(availableForRecommendations / TOKENS_PER_RECOMMENDATION),
     );
 
     const wasTruncated = recommendations.length > maxRecommendations;
     const truncatedRecommendations = recommendations.slice(
       0,
-      maxRecommendations
+      maxRecommendations,
     );
-
-    // Estimate total tokens
     const totalTokens = this.estimateTokens('', truncatedRecommendations) + 100;
 
     if (wasTruncated) {
@@ -456,13 +399,11 @@ export class PrescriptiveGuidanceService
    */
   private generateSummary(
     recommendations: Recommendation[],
-    qualityScore: number
+    qualityScore: number,
   ): string {
     if (recommendations.length === 0) {
       return `Code quality score: ${qualityScore}/100. No significant issues detected.`;
     }
-
-    // Get quality level description
     let qualityLevel: string;
     if (qualityScore >= 80) {
       qualityLevel = 'good';
@@ -473,8 +414,6 @@ export class PrescriptiveGuidanceService
     } else {
       qualityLevel = 'poor';
     }
-
-    // Build summary from top 3 recommendations
     const topIssues = recommendations
       .slice(0, 3)
       .map((r) => r.category.toLowerCase())
@@ -496,9 +435,8 @@ export class PrescriptiveGuidanceService
    */
   private estimateTokens(
     summary: string,
-    recommendations: Recommendation[]
+    recommendations: Recommendation[],
   ): number {
-    // Rough estimation: ~4 characters per token
     const summaryTokens = Math.ceil(summary.length / 4);
     const recommendationTokens =
       recommendations.length * TOKENS_PER_RECOMMENDATION;

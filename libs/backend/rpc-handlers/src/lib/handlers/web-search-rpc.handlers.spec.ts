@@ -1,5 +1,5 @@
 /**
- * WebSearchRpcHandlers — unit specs (TASK_2025_294 W2.B5).
+ * WebSearchRpcHandlers — unit specs.
  *
  * Surface under test: six RPC methods covering web-search API-key management
  * (`getApiKeyStatus`, `setApiKey`, `deleteApiKey`), live-test smoke

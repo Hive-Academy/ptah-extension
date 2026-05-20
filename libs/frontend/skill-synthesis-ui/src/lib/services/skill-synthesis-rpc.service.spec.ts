@@ -1,5 +1,5 @@
 /**
- * SkillSynthesisRpcService — RPC roundtrip tests (Batch C1).
+ * SkillSynthesisRpcService — RPC roundtrip tests.
  *
  * Stubs `ClaudeRpcService.call` so each method is exercised against the
  * actual `skillSynthesis:*` RPC names without standing up the message bus.

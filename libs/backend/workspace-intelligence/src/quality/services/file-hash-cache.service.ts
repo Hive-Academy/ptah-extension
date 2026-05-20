@@ -12,8 +12,6 @@
  * - Per-file anti-pattern result caching
  * - Cache hit/miss statistics tracking
  *
- * TASK_2025_144: Phase F - Performance Optimizations
- *
  * @packageDocumentation
  */
 
@@ -23,10 +21,6 @@ import type { AntiPattern } from '@ptah-extension/shared';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { IFileHashCacheService, FileHashCacheEntry } from '../interfaces';
 
-// ============================================
-// Constants
-// ============================================
-
 /** Maximum number of entries before LRU eviction triggers */
 const MAX_CACHE_SIZE = 10_000;
 
@@ -35,10 +29,6 @@ const CACHE_TTL_MS = 30 * 60 * 1000;
 
 /** Length of hex hash prefix to store (64 bits = negligible collision for <10k files) */
 const HASH_PREFIX_LENGTH = 16;
-
-// ============================================
-// Service Implementation
-// ============================================
 
 /**
  * FileHashCacheService
@@ -113,8 +103,6 @@ export class FileHashCacheService implements IFileHashCacheService {
       this.cache.delete(filePath);
       return undefined;
     }
-
-    // Update access timestamp for LRU tracking
     entry.lastAccessTimestamp = Date.now();
 
     return entry.hash;
@@ -163,7 +151,6 @@ export class FileHashCacheService implements IFileHashCacheService {
 
     if (!changed) {
       this.hitCount++;
-      // Update access timestamp for LRU tracking
       entry.lastAccessTimestamp = Date.now();
     }
 
@@ -205,8 +192,6 @@ export class FileHashCacheService implements IFileHashCacheService {
       this.cache.delete(filePath);
       return undefined;
     }
-
-    // Update access timestamp for LRU tracking
     entry.lastAccessTimestamp = Date.now();
 
     return entry.patterns;
@@ -225,7 +210,7 @@ export class FileHashCacheService implements IFileHashCacheService {
     } else {
       this.logger.warn(
         'setCachedPatterns called for file without cached hash, creating entry',
-        { filePath }
+        { filePath },
       );
       this.evictIfNeeded();
       const now = Date.now();
@@ -278,10 +263,6 @@ export class FileHashCacheService implements IFileHashCacheService {
     };
   }
 
-  // ============================================
-  // Private Helpers
-  // ============================================
-
   /**
    * Check if a cache entry has expired based on TTL.
    */
@@ -297,11 +278,9 @@ export class FileHashCacheService implements IFileHashCacheService {
     if (this.cache.size < MAX_CACHE_SIZE) {
       return;
     }
-
-    // Find and remove the oldest entries (evict 10% to avoid frequent eviction)
     const evictionCount = Math.ceil(MAX_CACHE_SIZE * 0.1);
     const entries = Array.from(this.cache.entries()).sort(
-      ([, a], [, b]) => a.lastAccessTimestamp - b.lastAccessTimestamp
+      ([, a], [, b]) => a.lastAccessTimestamp - b.lastAccessTimestamp,
     );
 
     for (let i = 0; i < evictionCount && i < entries.length; i++) {

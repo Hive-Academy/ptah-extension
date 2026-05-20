@@ -1,5 +1,5 @@
 /**
- * WP-4T Batch 4 validation — encryption + secret store tests.
+ * Encryption + secret store tests.
  *
  * TC-20: Envelope round-trip (encrypt → decrypt → original plaintext).
  * TC-21: AAD binding (wrong aadKey must throw authentication error).

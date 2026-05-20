@@ -36,6 +36,9 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
     handler = new RpcHandler(
       logger as unknown as ConstructorParameters<typeof RpcHandler>[0],
       licenseService as unknown as ConstructorParameters<typeof RpcHandler>[1],
+      {
+        captureException,
+      } as unknown as ConstructorParameters<typeof RpcHandler>[2],
     );
   });
 
@@ -130,6 +133,7 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
       {
         getCachedStatus: jest.fn().mockReturnValue(null),
       } as unknown as ConstructorParameters<typeof RpcHandler>[1],
+      undefined,
     );
 
     unlicensedHandler.registerMethod('db:health', async () => ({

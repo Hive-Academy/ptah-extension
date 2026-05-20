@@ -1,5 +1,5 @@
 /**
- * Skill Junction Service (TASK_2025_201)
+ * Skill Junction Service
  *
  * Creates filesystem junctions from {workspace}/.claude/skills/{skillName}/
  * to {pluginsBasePath}/{pluginId}/skills/{skillName}/.
@@ -200,24 +200,6 @@ export class SkillJunctionService {
       );
       return result;
     }
-
-    // One-time migration: move junctions from old .ptah/skills/ to .claude/skills/
-    // (previous versions used .ptah/ which Claude Code doesn't discover)
-    this.migrateFromPtahDir(result);
-
-    // Build skills map: skillName -> source absolute path
-    const skillsMap = this.buildSkillsMap(
-      pluginPaths,
-      new Set(disabledSkillIds),
-    );
-    if (skillsMap.size === 0) {
-      this.logger.debug(
-        '[SkillJunctionService] No skills found in enabled plugins',
-      );
-      return result;
-    }
-
-    // Ensure .claude/skills/ directory exists
     const skillsDir = join(this.workspaceRoot, CLAUDE_WORKSPACE_DIR, 'skills');
     try {
       mkdirSync(skillsDir, { recursive: true });
@@ -229,52 +211,45 @@ export class SkillJunctionService {
       );
       return result;
     }
-
-    // Remove stale junctions (from previously enabled but now disabled plugins)
+    this.migrateFromPtahDir(result);
+    const skillsMap = this.buildSkillsMap(
+      pluginPaths,
+      new Set(disabledSkillIds),
+    );
+    if (skillsMap.size === 0) {
+      this.logger.debug(
+        '[SkillJunctionService] No skills found in enabled plugins',
+      );
+      return result;
+    }
     result.removed = this.removeStaleJunctions(skillsDir, skillsMap);
-
-    // Create junctions for each skill
     for (const [skillName, sourcePath] of skillsMap) {
       const linkPath = join(skillsDir, skillName);
 
       try {
-        // Check if something already exists at the link path
         let existingStat: Stats | null = null;
-        try {
-          existingStat = lstatSync(linkPath);
-        } catch {
-          // Path doesn't exist — good, we'll create it
-        }
+
+        existingStat = lstatSync(linkPath);
 
         if (existingStat) {
           if (existingStat.isSymbolicLink()) {
-            // Junction/symlink exists — check if it points to the correct target
             const existingTarget = readlinkSync(linkPath);
             if (this.pathsEqual(existingTarget, sourcePath)) {
-              // Already correct, skip
               this.managedJunctions.add(linkPath);
               continue;
             }
-            // Symlink points elsewhere — check if the target is valid (e.g., SDK-created)
-            // If the symlink resolves to a valid directory, skip it rather than replacing
-            try {
-              const resolvedStat = statSync(linkPath); // follows symlink
-              if (resolvedStat.isDirectory()) {
-                this.logger.debug(
-                  `[SkillJunctionService] Skipping ${skillName}: valid symlink already exists (likely SDK-created)`,
-                  { linkPath, existingTarget },
-                );
-                result.skipped++;
-                continue;
-              }
-            } catch {
-              // Symlink is broken (dangling) — remove and recreate
+
+            const resolvedStat = statSync(linkPath); // follows symlink
+            if (resolvedStat.isDirectory()) {
+              this.logger.debug(
+                `[SkillJunctionService] Skipping ${skillName}: valid symlink already exists (likely SDK-created)`,
+                { linkPath, existingTarget },
+              );
+              result.skipped++;
+              continue;
             }
-            // Broken or non-directory symlink — remove and recreate
-            // Use unlinkSync (not rmSync) to safely remove the link without following it
             unlinkSync(linkPath);
           } else if (existingStat.isDirectory()) {
-            // Real directory exists — DO NOT touch it (likely SDK-created via pluginPaths)
             this.logger.debug(
               `[SkillJunctionService] Skipping ${skillName}: real directory exists (likely SDK-created)`,
               { linkPath },
@@ -282,7 +257,6 @@ export class SkillJunctionService {
             result.skipped++;
             continue;
           } else {
-            // Regular file or other entry — skip with clear message
             this.logger.debug(
               `[SkillJunctionService] Skipping ${skillName}: non-directory entry exists`,
               { linkPath },
@@ -291,8 +265,6 @@ export class SkillJunctionService {
             continue;
           }
         }
-
-        // Create the junction/symlink
         this.createJunction(sourcePath, linkPath);
         this.managedJunctions.add(linkPath);
         result.created++;
@@ -304,10 +276,6 @@ export class SkillJunctionService {
         );
       }
     }
-
-    // Sync command files from plugins into .ptah/commands/
-    // Commands are individual .md files. On Unix: symlinked. On Windows: copied
-    // (file symlinks require Developer Mode, unlike directory junctions).
     this.syncCommandFiles(pluginPaths, result);
 
     this.logger.info('[SkillJunctionService] Junctions and commands synced', {
@@ -328,7 +296,6 @@ export class SkillJunctionService {
     getPluginPaths: () => string[],
     getDisabledSkillIds: () => string[],
   ): void {
-    // Dispose existing subscription if any
     this.workspaceFolderDisposer?.();
 
     const disposable = this.workspaceProvider.onDidChangeWorkspaceFolders(
@@ -337,15 +304,9 @@ export class SkillJunctionService {
           this.logger.debug(
             '[SkillJunctionService] Workspace folders changed, re-creating junctions',
           );
-
-          // Clean up old workspace junctions
           this.removeAllManagedJunctions();
-
-          // Re-resolve workspace root
           this.workspaceRoot =
             this.workspaceProvider.getWorkspaceRoot() ?? null;
-
-          // Create junctions in new workspace
           if (this.workspaceRoot) {
             this.createJunctions(getPluginPaths(), getDisabledSkillIds());
           }
@@ -366,11 +327,8 @@ export class SkillJunctionService {
    * Removes all managed junctions and unsubscribes from workspace changes.
    */
   deactivateSync(): void {
-    // Unsubscribe from workspace folder changes
     this.workspaceFolderDisposer?.();
     this.workspaceFolderDisposer = null;
-
-    // Remove all managed junctions and clean up the manifest
     this.removeAllManagedJunctions();
     this.cleanupManifest();
 
@@ -389,16 +347,9 @@ export class SkillJunctionService {
       'commands',
       COMMANDS_MANIFEST,
     );
-    try {
-      unlinkSync(manifestPath);
-    } catch {
-      // Manifest may not exist — non-fatal
-    }
-  }
 
-  // ============================================================
-  // Private Methods
-  // ============================================================
+    unlinkSync(manifestPath);
+  }
 
   /**
    * Build a map of skillName -> source absolute path from all enabled plugins.
@@ -428,16 +379,12 @@ export class SkillJunctionService {
         } catch {
           continue;
         }
-
-        // Check for SKILL.md presence (validates it's actually a skill)
         const skillMdPath = join(entryPath, 'SKILL.md');
         try {
           accessSync(skillMdPath, fsConstants.R_OK);
         } catch {
           continue; // No SKILL.md, not a skill directory
         }
-
-        // Skip disabled skills
         if (disabledSkillIds.has(entry)) {
           this.logger.debug(
             `[SkillJunctionService] Skipping disabled skill: "${entry}"`,
@@ -456,9 +403,6 @@ export class SkillJunctionService {
         skillsMap.set(entry, entryPath);
       }
     }
-
-    // Also scan synthesized skills root (~/.ptah/skills/) if set.
-    // Plugin skills take precedence on slug collision.
     if (this.synthesizedSkillsRoot) {
       const synthSkillsDir = this.synthesizedSkillsRoot;
       let synthEntries: string[];
@@ -469,21 +413,16 @@ export class SkillJunctionService {
       }
 
       for (const entry of synthEntries) {
-        // R7: explicit guard — skip candidate staging area
         if (entry === '_candidates') continue;
         if (disabledSkillIds.has(entry)) continue;
 
         const entryPath = join(synthSkillsDir, entry);
-
-        // Validate it's a directory
         try {
           const stat = statSync(entryPath);
           if (!stat.isDirectory()) continue;
         } catch {
           continue;
         }
-
-        // Validate SKILL.md presence
         const skillMdPath = join(entryPath, 'SKILL.md');
         try {
           accessSync(skillMdPath, fsConstants.R_OK);
@@ -492,7 +431,6 @@ export class SkillJunctionService {
         }
 
         if (skillsMap.has(entry)) {
-          // Plugin skill takes precedence
           this.logger.warn(
             `[SkillJunctionService] Synthesized skill "${entry}" collides with plugin skill — plugin skill takes precedence`,
           );
@@ -542,18 +480,10 @@ export class SkillJunctionService {
       );
       return;
     }
-
-    // Load the manifest of Ptah-managed command files.
-    // On Windows, copies lose their identity after restart (in-memory set is gone).
-    // The manifest persists ownership so we know which files to update/remove.
     const manifest = this.loadCommandManifest(commandsDir);
-
-    // Rebuild the managedJunctions set from the manifest (restores state after restart)
     for (const filename of Object.keys(manifest)) {
       this.managedJunctions.add(join(commandsDir, filename));
     }
-
-    // Build a set of all command filenames from currently enabled plugins
     const currentCommandSources = new Map<string, string>(); // filename -> sourcePath
     for (const pluginPath of pluginPaths) {
       const pluginCommandsDir = join(pluginPath, 'commands');
@@ -575,69 +505,47 @@ export class SkillJunctionService {
         }
       }
     }
-
-    // Clean up stale command files (from previously enabled but now disabled plugins)
     for (const [filename] of Object.entries(manifest)) {
       if (!currentCommandSources.has(filename)) {
         const entryPath = join(commandsDir, filename);
-        try {
-          unlinkSync(entryPath);
-          this.managedJunctions.delete(entryPath);
-          delete manifest[filename];
-          result.removed++;
-        } catch {
-          /* non-fatal */
-        }
+
+        unlinkSync(entryPath);
+        this.managedJunctions.delete(entryPath);
+        delete manifest[filename];
+        result.removed++;
       }
-    }
-    // Also clean symlink-based entries we detect as ours (Unix path, or previous runs)
-    try {
-      const existingEntries = readdirSync(commandsDir);
-      for (const entry of existingEntries) {
-        if (entry === COMMANDS_MANIFEST) continue;
-        const entryPath = join(commandsDir, entry);
-        if (
-          !currentCommandSources.has(entry) &&
-          this.isExtensionJunction(entryPath)
-        ) {
-          try {
-            unlinkSync(entryPath);
-            this.managedJunctions.delete(entryPath);
-            result.removed++;
-          } catch {
-            /* non-fatal */
-          }
-        }
-      }
-    } catch {
-      /* commandsDir listing failed — non-fatal */
     }
 
-    // Sync each command from enabled plugins
+    const existingEntries = readdirSync(commandsDir);
+    for (const entry of existingEntries) {
+      if (entry === COMMANDS_MANIFEST) continue;
+      const entryPath = join(commandsDir, entry);
+      if (
+        !currentCommandSources.has(entry) &&
+        this.isExtensionJunction(entryPath)
+      ) {
+        unlinkSync(entryPath);
+        this.managedJunctions.delete(entryPath);
+        result.removed++;
+      }
+    }
     let manifestDirty = false;
     for (const [filename, sourcePath] of currentCommandSources) {
       const targetPath = join(commandsDir, filename);
 
       try {
-        // Get source file stats for change detection (size + mtime)
         const sourceStat = statSync(sourcePath);
         const sourceEntry: CommandManifestEntry = {
           source: sourcePath,
           size: sourceStat.size,
           mtimeMs: sourceStat.mtimeMs,
         };
-
-        // Check if something already exists at the target
         let existingStat: Stats | null = null;
-        try {
-          existingStat = lstatSync(targetPath);
-        } catch {
-          // Doesn't exist — will create
-        }
+
+        existingStat = lstatSync(targetPath);
 
         if (existingStat) {
           if (existingStat.isSymbolicLink()) {
-            // Symlink exists — check if it points to the correct source
             const existingTarget = readlinkSync(targetPath);
             if (this.pathsEqual(existingTarget, sourcePath)) {
               this.managedJunctions.add(targetPath);
@@ -645,20 +553,14 @@ export class SkillJunctionService {
               manifestDirty = true;
               continue; // Already correct
             }
-            // Broken or wrong-target symlink — remove and recreate
-            try {
-              const resolvedStat = statSync(targetPath);
-              if (resolvedStat.isFile()) {
-                // Valid symlink to a different source — skip (likely user-created)
-                result.skipped++;
-                continue;
-              }
-            } catch {
-              // Broken symlink — remove
+
+            const resolvedStat = statSync(targetPath);
+            if (resolvedStat.isFile()) {
+              result.skipped++;
+              continue;
             }
             unlinkSync(targetPath);
           } else if (manifest[filename]) {
-            // We own this file (per manifest). Check if source changed.
             const prev = manifest[filename];
             if (
               prev.size === sourceEntry.size &&
@@ -667,10 +569,8 @@ export class SkillJunctionService {
               this.managedJunctions.add(targetPath);
               continue; // Unchanged, skip re-copy
             }
-            // Source changed — re-copy
             unlinkSync(targetPath);
           } else {
-            // Real file exists that we don't own — user-created, never touch it
             this.logger.debug(
               `[SkillJunctionService] Skipping command ${filename}: user-created file exists`,
               { targetPath },
@@ -679,8 +579,6 @@ export class SkillJunctionService {
             continue;
           }
         }
-
-        // Create the command file
         if (IS_WINDOWS) {
           copyFileSync(sourcePath, targetPath);
         } else {
@@ -698,8 +596,6 @@ export class SkillJunctionService {
         );
       }
     }
-
-    // Persist the manifest if anything changed
     if (manifestDirty || result.removed > 0) {
       this.saveCommandManifest(commandsDir, manifest);
     }
@@ -725,15 +621,11 @@ export class SkillJunctionService {
     commandsDir: string,
     manifest: CommandManifest,
   ): void {
-    try {
-      writeFileSync(
-        join(commandsDir, COMMANDS_MANIFEST),
-        JSON.stringify(manifest, null, 2),
-        'utf-8',
-      );
-    } catch {
-      // Non-fatal — manifest is an optimization, not a hard requirement
-    }
+    writeFileSync(
+      join(commandsDir, COMMANDS_MANIFEST),
+      JSON.stringify(manifest, null, 2),
+      'utf-8',
+    );
   }
 
   /**
@@ -755,14 +647,8 @@ export class SkillJunctionService {
 
     for (const entry of entries) {
       const entryPath = join(skillsDir, entry);
-
-      // Only remove junctions we manage (those pointing to our extension path)
       if (!this.isExtensionJunction(entryPath)) continue;
-
-      // If the skill is still in the current map, keep it
       if (currentSkills.has(entry)) continue;
-
-      // Stale junction — remove the link (not the target)
       try {
         unlinkSync(entryPath);
         this.managedJunctions.delete(entryPath);
@@ -792,14 +678,10 @@ export class SkillJunctionService {
       if (!stat.isSymbolicLink()) return false;
       const target = readlinkSync(entryPath);
       const normalizedTarget = this.normalizePath(target);
-
-      // Check plugins base path (existing)
       if (this.pluginsBasePath !== null) {
         const normalizedPluginsPath = this.normalizePath(this.pluginsBasePath);
         if (normalizedTarget.startsWith(normalizedPluginsPath)) return true;
       }
-
-      // Check synthesized skills root (new — TASK_2026_THOTH_SKILL_LIFECYCLE)
       if (this.synthesizedSkillsRoot !== null) {
         const normalizedSynthPath = this.normalizePath(
           this.synthesizedSkillsRoot,
@@ -834,13 +716,9 @@ export class SkillJunctionService {
    */
   private removeAllManagedJunctions(): void {
     for (const managedPath of this.managedJunctions) {
-      try {
-        const stat = lstatSync(managedPath);
-        if (stat.isSymbolicLink() || stat.isFile()) {
-          unlinkSync(managedPath);
-        }
-      } catch {
-        // Entry may already be removed or inaccessible — safe to ignore
+      const stat = lstatSync(managedPath);
+      if (stat.isSymbolicLink() || stat.isFile()) {
+        unlinkSync(managedPath);
       }
     }
     this.managedJunctions.clear();
@@ -882,15 +760,11 @@ export class SkillJunctionService {
           this.isExtensionJunction(entryPath) ||
           this.isOldExtensionEntry(entryPath)
         ) {
-          try {
-            unlinkSync(entryPath);
-            result.removed++;
-            this.logger.debug(
-              `[SkillJunctionService] Migrated old .ptah/ entry: ${entry}`,
-            );
-          } catch {
-            // Non-fatal — old entry may be locked or already removed
-          }
+          unlinkSync(entryPath);
+          result.removed++;
+          this.logger.debug(
+            `[SkillJunctionService] Migrated old .ptah/ entry: ${entry}`,
+          );
         }
       }
     }
@@ -910,7 +784,6 @@ export class SkillJunctionService {
       const stat = lstatSync(entryPath);
 
       if (stat.isSymbolicLink()) {
-        // Old junctions pointed to the extension's assets/plugins/ directory
         const target = this.normalizePath(readlinkSync(entryPath));
         return (
           target.includes('/assets/plugins/') ||
@@ -918,9 +791,6 @@ export class SkillJunctionService {
           target.includes('/ptah-extension/')
         );
       }
-
-      // On Windows, old command files were copies. Check the old manifest
-      // to confirm ownership rather than deleting all .md files blindly.
       if (IS_WINDOWS && stat.isFile() && basename(entryPath).endsWith('.md')) {
         const dir = join(entryPath, '..');
         const oldManifest = this.loadCommandManifest(dir);
@@ -939,7 +809,6 @@ export class SkillJunctionService {
    * normalizes separators to forward slashes, and lowercases on Windows.
    */
   private normalizePath(p: string): string {
-    // Strip \\?\ prefix that readlinkSync returns for Windows junctions
     let normalized = p.replace(/^\\\\\?\\/, '');
     normalized = normalized.replace(/[\\/]/g, '/');
     if (IS_WINDOWS) {

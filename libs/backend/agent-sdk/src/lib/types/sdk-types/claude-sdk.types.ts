@@ -8,11 +8,6 @@
  *   - Ptah-specific FlatStreamEvent* types for UI rendering
  */
 
-// =============================================================================
-// RE-EXPORT SDK TYPES
-// All SDK types are imported and re-exported so consumers have a single import.
-// =============================================================================
-
 export type {
   AccountInfo,
   AgentDefinition,
@@ -135,16 +130,10 @@ export type {
   WorktreeCreateHookInput,
   WorktreeRemoveHookInput,
 } from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };
-
-// Re-export the canonical SDK result type names.
-// The legacy aliases SDKResultMessageSuccess / SDKResultMessageError have been
-// removed in Phase 0 — all consumers must use SDKResultSuccess / SDKResultError.
 export type {
   SDKResultSuccess,
   SDKResultError,
 } from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };
-
-// Internal imports for type guard parameter types
 import type {
   SDKMessage,
   SDKPartialAssistantMessage,
@@ -183,10 +172,6 @@ import type {
   Query,
 } from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };
 
-// =============================================================================
-// CONVENIENCE ALIASES
-// =============================================================================
-
 export type UUID = `${string}-${string}-${string}-${string}-${string}`;
 
 /** Type alias for the SDK's query() function signature */
@@ -194,12 +179,6 @@ export type QueryFunction = (params: {
   prompt: string | AsyncIterable<SDKUserMessage>;
   options?: Options;
 }) => Query;
-
-// =============================================================================
-// ANTHROPIC API CONTENT BLOCK TYPES
-// The agent SDK uses BetaContentBlock from @anthropic-ai/sdk internally,
-// but we define simplified versions that match the subset we actually handle.
-// =============================================================================
 
 export interface TextBlock {
   type: 'text';
@@ -257,10 +236,6 @@ export interface APIAssistantMessage {
   stop_sequence: string | null;
   usage: Usage;
 }
-
-// =============================================================================
-// USAGE & STREAM EVENT TYPES (from @anthropic-ai/sdk, simplified)
-// =============================================================================
 
 export interface Usage {
   input_tokens: number;
@@ -333,10 +308,6 @@ export type RawMessageStreamEvent =
   | ContentBlockStopEvent
   | MessageDeltaEvent
   | MessageStopEvent;
-
-// =============================================================================
-// SDK MESSAGE TYPE GUARDS
-// =============================================================================
 
 export function isStreamEvent(
   msg: SDKMessage,
@@ -448,10 +419,6 @@ export function isTaskNotification(
   );
 }
 
-// =============================================================================
-// STREAM EVENT TYPE GUARDS
-// =============================================================================
-
 export function isMessageStart(
   event: RawMessageStreamEvent | { type: string },
 ): event is MessageStartEvent {
@@ -488,10 +455,6 @@ export function isMessageStop(
   return event.type === 'message_stop';
 }
 
-// =============================================================================
-// CONTENT BLOCK TYPE GUARDS
-// =============================================================================
-
 export function isTextBlock(
   block: ContentBlock | { type: string },
 ): block is TextBlock {
@@ -516,10 +479,6 @@ export function isThinkingBlock(
   return block.type === 'thinking';
 }
 
-// =============================================================================
-// DELTA TYPE GUARDS
-// =============================================================================
-
 export function isTextDelta(
   delta: Delta | { type: string },
 ): delta is TextDelta {
@@ -537,10 +496,6 @@ export function isThinkingDelta(
 ): delta is ThinkingDelta {
   return delta.type === 'thinking_delta';
 }
-
-// =============================================================================
-// HOOK TYPE GUARDS
-// =============================================================================
 
 export function isSubagentStartHook(
   input: HookInput,
@@ -593,10 +548,6 @@ export function isWorktreeRemoveHook(
 ): input is WorktreeRemoveHookInput {
   return input.hook_event_name === 'WorktreeRemove';
 }
-
-// =============================================================================
-// FLAT STREAM EVENTS (Ptah-specific, NOT from SDK)
-// =============================================================================
 
 export type FlatStreamEventType =
   | 'message_start'

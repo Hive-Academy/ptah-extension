@@ -2,8 +2,6 @@
  * Sensitive-key redactor for `config list` and any other surface that emits
  * arbitrary configuration payloads.
  *
- * TASK_2026_104 Batch 3.
- *
  * Walks an arbitrary value (object/array/scalar) recursively. For object
  * keys matching `/apikey|api_key|token|secret|password/i`, the value is
  * replaced with the literal string `'<redacted>'`. The `reveal` option
@@ -49,7 +47,6 @@ function walk(
   }
 
   if (seen.has(value as object)) {
-    // Cycle — leave the back-reference alone rather than infinite-loop.
     return value;
   }
   seen.add(value as object);
@@ -61,9 +58,6 @@ function walk(
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     if (SENSITIVE_KEY_PATTERN.test(key)) {
-      // Always mask sensitive keys, regardless of child type. Empty string
-      // and null still get masked — the caller asked for redaction, not
-      // "redact non-empty".
       out[key] = replacement;
       continue;
     }

@@ -2,10 +2,6 @@
  * provideEditorInternalState — Composition-root helper for binding the
  * `EDITOR_INTERNAL_STATE` token to the `EditorService` instance.
  *
- * TASK_2026_103 Wave F3. Mirrors B1's `provideStreamingControl()` and F1's
- * `provideWizardInternalState()` shapes so the webview app config wires
- * the inverted contract alongside the other cycle-breaking providers.
- *
  * Usage in app.config.ts:
  *
  *   providers: [

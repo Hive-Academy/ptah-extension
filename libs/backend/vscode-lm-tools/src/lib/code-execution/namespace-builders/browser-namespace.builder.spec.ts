@@ -1,5 +1,5 @@
 /**
- * Specs for buildBrowserNamespace (TASK_2026_100 P1.B5).
+ * Specs for buildBrowserNamespace.
  *
  * Covers ptah.browser.* in two modes:
  *   - Capability-backed — delegation to IBrowserCapabilities, URL blocklist

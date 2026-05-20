@@ -1,8 +1,8 @@
 /**
  * `ptah skill` command — Skills.sh marketplace operations.
  *
- * TASK_2026_104 Sub-batch B6b. Backed by `SkillsShRpcHandlers` re-registered
- * inside the CLI app (`apps/ptah-cli/src/services/rpc/handlers/skills-sh-rpc.handlers.ts`)
+ * Backed by `SkillsShRpcHandlers` re-registered inside the CLI app
+ * (`apps/ptah-cli/src/services/rpc/handlers/skills-sh-rpc.handlers.ts`)
  * mirroring the Electron implementation verbatim. The `create` sub-subcommand
  * additionally hits the shared `harness:create-skill` RPC for AI-driven skill
  * creation from a wizard spec.
@@ -135,10 +135,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-commands
-// ---------------------------------------------------------------------------
-
 async function runSearch(
   opts: SkillOptions,
   globals: GlobalOptions,
@@ -206,8 +202,6 @@ async function runInstall(
   }
 
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // Idempotency probe — if the source/skillId is already installed at the
-    // requested scope, short-circuit with `changed: false`.
     const before = await callRpc<{ skills: InstalledSkill[] }>(
       ctx.transport,
       'skillsSh:listInstalled',
@@ -275,8 +269,6 @@ async function runRemove(
   }
 
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // Idempotency probe — if the name isn't installed at the requested scope,
-    // short-circuit with `changed: false`.
     const before = await callRpc<{ skills: InstalledSkill[] }>(
       ctx.transport,
       'skillsSh:listInstalled',
@@ -407,10 +399,6 @@ async function runCreate(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 function parseScope(raw: string | undefined): SkillScope | null {
   if (raw === undefined) return 'project';

@@ -1,5 +1,5 @@
 /**
- * Unit tests for IndexingRpcHandlers (TASK_2026_114 Batch 5).
+ * Unit tests for IndexingRpcHandlers.
  *
  * Verifies that each of the 8 RPC methods correctly delegates to
  * IndexingControlService and returns the expected result shape.
@@ -71,11 +71,8 @@ function makeIndexingControlService(statusOverride?: Partial<IndexingStatus>) {
     setPipelineEnabled: jest.fn().mockResolvedValue(undefined),
     dismissStale: jest.fn().mockResolvedValue(undefined),
     acknowledgeDisclosure: jest.fn().mockResolvedValue(undefined),
-    markStale: jest.fn().mockResolvedValue(undefined),
     setSymbolWatcher: jest.fn(),
-    startAutoIndex: jest.fn().mockResolvedValue(undefined),
     onProgress: jest.fn().mockReturnValue(() => undefined),
-    evaluateBootStrategy: jest.fn().mockResolvedValue('skip'),
   };
 }
 

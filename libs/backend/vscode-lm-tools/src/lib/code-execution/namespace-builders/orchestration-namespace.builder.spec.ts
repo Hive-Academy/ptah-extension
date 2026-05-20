@@ -1,5 +1,5 @@
 /**
- * Specs for buildOrchestrationNamespace (TASK_2026_100 P1.B5).
+ * Specs for buildOrchestrationNamespace.
  *
  * The orchestration namespace persists workflow state to
  *   <workspaceRoot>/task-tracking/<taskId>/.orchestration-state.json

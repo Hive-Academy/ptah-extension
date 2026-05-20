@@ -2,8 +2,8 @@
  * Unit tests for MemorySearchService.
  *
  * Covers:
- *   - `escapeFtsQuery` behaviour (Batch 6 / R2)
- *   - Reranker integration (Batch 7 / R1): happy path, skip on <5 candidates,
+ *   - `escapeFtsQuery` behaviour
+ *   - Reranker integration: happy path, skip on <5 candidates,
  *     error fallback to RRF order
  *   - Porter stemming integration test (skipped without native better-sqlite3)
  */
@@ -291,7 +291,7 @@ describe('MemorySearchService.escapeFtsQuery', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Reranker integration (R1)
+// Reranker integration
 // ---------------------------------------------------------------------------
 
 /** Build a minimal FTS row for test use. */
@@ -499,7 +499,7 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// LRU result cache (R3)
+// LRU result cache
 // ---------------------------------------------------------------------------
 
 describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
@@ -672,7 +672,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Weighted RRF (R5)
+// Weighted RRF
 // ---------------------------------------------------------------------------
 
 /** Row type used in rrfFuse tests. */
@@ -823,7 +823,7 @@ describe('MemorySearchService — weighted RRF (R5)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// workspaceRoot filtering — BM25 and vec path (TASK_2026_122)
+// workspaceRoot filtering — BM25 and vec path
 // ---------------------------------------------------------------------------
 
 describe('MemorySearchService — workspaceRoot filtering', () => {

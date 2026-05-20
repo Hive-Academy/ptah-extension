@@ -2,8 +2,6 @@
  * `workspace-mcp-collector` — discovers workspace MCP servers + plugin skills
  * and projects them onto Anthropic-compatible tool definitions.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
- *
  * Two RPC dependencies:
  *   - `mcpDirectory:listInstalled` → `{ servers: InstalledMcpServer[] }`
  *   - `plugins:list-skills` (optional)
@@ -94,56 +92,61 @@ export class WorkspaceMcpCollector {
     }
 
     const tools: AnthropicToolDefinition[] = [];
-
-    // -- MCP servers ----------------------------------------------------
     try {
-      const mcpResp = await this.rpcCall<
-        Record<string, never>,
-        { servers?: InstalledMcpServerLike[] }
-      >('mcpDirectory:listInstalled', {});
-      if (mcpResp.success && Array.isArray(mcpResp.data?.servers)) {
-        for (const server of mcpResp.data.servers) {
-          const tool = this.mcpServerToTool(server);
-          if (tool !== null) tools.push(tool);
-        }
-      }
-    } catch {
-      // RPC threw — collector continues with skills-only.
-      this.cache.delete(workspacePath);
-    }
-
-    // -- Plugin skills -------------------------------------------------
-    try {
-      const pluginsListResp = await this.rpcCall<
-        Record<string, never>,
-        { plugins?: Array<{ id?: string }> }
-      >('plugins:list', {});
-      const pluginIds: string[] = [];
-      if (
-        pluginsListResp.success &&
-        Array.isArray(pluginsListResp.data?.plugins)
-      ) {
-        for (const plugin of pluginsListResp.data.plugins) {
-          if (typeof plugin.id === 'string' && plugin.id.length > 0) {
-            pluginIds.push(plugin.id);
-          }
-        }
-      }
-
-      if (pluginIds.length > 0) {
-        const skillsResp = await this.rpcCall<
-          { pluginIds: string[] },
-          { skills?: PluginSkillEntryLike[] }
-        >('plugins:list-skills', { pluginIds });
-        if (skillsResp.success && Array.isArray(skillsResp.data?.skills)) {
-          for (const skill of skillsResp.data.skills) {
-            const tool = this.skillToTool(skill);
+      try {
+        const mcpResp = await this.rpcCall<
+          Record<string, never>,
+          { servers?: InstalledMcpServerLike[] }
+        >('mcpDirectory:listInstalled', {});
+        if (mcpResp.success && Array.isArray(mcpResp.data?.servers)) {
+          for (const server of mcpResp.data.servers) {
+            const tool = this.mcpServerToTool(server);
             if (tool !== null) tools.push(tool);
           }
         }
+      } catch {
+        this.cache.delete(workspacePath);
+      }
+
+      const pluginIds: string[] = [];
+      try {
+        const pluginsListResp = await this.rpcCall<
+          Record<string, never>,
+          { plugins?: Array<{ id?: string }> }
+        >('plugins:list', {});
+        if (
+          pluginsListResp.success &&
+          Array.isArray(pluginsListResp.data?.plugins)
+        ) {
+          for (const plugin of pluginsListResp.data.plugins) {
+            if (typeof plugin.id === 'string' && plugin.id.length > 0) {
+              pluginIds.push(plugin.id);
+            }
+          }
+        }
+      } catch {
+        this.cache.delete(workspacePath);
+      }
+
+      if (pluginIds.length > 0) {
+        try {
+          const skillsResp = await this.rpcCall<
+            { pluginIds: string[] },
+            { skills?: PluginSkillEntryLike[] }
+          >('plugins:list-skills', { pluginIds });
+          if (skillsResp.success && Array.isArray(skillsResp.data?.skills)) {
+            for (const skill of skillsResp.data.skills) {
+              const tool = this.skillToTool(skill);
+              if (tool !== null) tools.push(tool);
+            }
+          }
+        } catch {
+          this.cache.delete(workspacePath);
+        }
       }
     } catch {
-      // Plugin RPCs may not be registered (e.g. minimal mode). Skip silently.
+      this.cache.delete(workspacePath);
+      return [];
     }
 
     this.cache.set(workspacePath, {
@@ -157,10 +160,6 @@ export class WorkspaceMcpCollector {
   invalidate(): void {
     this.cache.clear();
   }
-
-  // -------------------------------------------------------------------------
-  // Projection helpers
-  // -------------------------------------------------------------------------
 
   /**
    * Transform an installed MCP server into an Anthropic tool placeholder.

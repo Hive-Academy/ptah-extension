@@ -116,11 +116,6 @@ export class BoltSlackAdapter implements IMessagingAdapter {
     if (!token) throw new Error('Slack bot token is empty');
     if (!opts?.appToken)
       throw new Error('Slack app token is required for Socket Mode');
-    // SECURITY: validate token shape so a swapped pair (bot token in the
-    // app-token slot) is rejected loudly rather than silently emitting a bot
-    // token over the Socket Mode WebSocket handshake. Slack token prefixes:
-    //   xoxb-... → bot token (HTTP API)
-    //   xapp-... → app-level token (Socket Mode)
     if (!token.startsWith('xoxb-')) {
       throw new Error(
         'Slack adapter: bot token must start with "xoxb-" (got a different prefix — did you swap bot/app tokens?)',
@@ -193,10 +188,6 @@ export class BoltSlackAdapter implements IMessagingAdapter {
     if (!this.listener) return;
     const teamId = args.context.teamId ?? args.event.team;
     if (this.allowedTeamIds.size) {
-      // SECURITY: when an allowlist is configured, drop events where teamId
-      // cannot be determined (both context and event fields undefined). A
-      // falsy teamId cannot be verified against the allowlist, so it must
-      // be rejected rather than passed through by accident.
       if (!teamId || !this.allowedTeamIds.has(teamId)) {
         this.logger.debug('[gateway] slack event rejected by allow-list', {
           teamId: teamId ?? '(undefined)',

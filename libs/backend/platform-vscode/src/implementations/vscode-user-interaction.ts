@@ -57,8 +57,6 @@ export class VscodeUserInteraction implements IUserInteraction {
 
     const result = await vscode.window.showQuickPick(vsItems, vsOptions);
     if (!result) return undefined;
-
-    // Preserve all QuickPickItem fields from the result
     const vsResult = result as vscode.QuickPickItem;
     return {
       label: vsResult.label,
@@ -103,11 +101,7 @@ export class VscodeUserInteraction implements IUserInteraction {
       opened = false;
     }
     if (params.userCode) {
-      try {
-        await vscode.env.clipboard.writeText(params.userCode);
-      } catch {
-        /* clipboard failure is non-fatal */
-      }
+      await vscode.env.clipboard.writeText(params.userCode);
       void vscode.window.showInformationMessage(
         `Device code: ${params.userCode} (copied to clipboard). Paste at ${params.verificationUri}.`,
       );
@@ -134,7 +128,6 @@ export class VscodeUserInteraction implements IUserInteraction {
         cancellable: options.cancellable,
       },
       async (vsProgress, vsToken) => {
-        // Wrap VS Code CancellationToken into platform ICancellationToken
         const [onCancellationRequested, fireCancellation] = createEvent<void>();
         const tokenDisposable = vsToken.onCancellationRequested(() =>
           fireCancellation(undefined as unknown as void),

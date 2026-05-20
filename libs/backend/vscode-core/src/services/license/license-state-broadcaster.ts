@@ -1,7 +1,8 @@
 /**
- * License State Broadcaster (Wave C7a — TASK_2025_291)
+ * License State Broadcaster
  *
- * Extracted from {@link LicenseService}.
+ * Library-internal helper that owns license-event deduplication for
+ * {@link LicenseService}.
  *
  * Responsibilities:
  * - Duplicate-suppressed license event decisions (verified / expired)

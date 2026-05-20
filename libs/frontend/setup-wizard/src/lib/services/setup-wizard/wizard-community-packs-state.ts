@@ -4,7 +4,7 @@ import type { WizardInternalState } from './wizard-internal-state';
 /**
  * WizardCommunityPacksState — owns community agent pack discovery,
  * loading state, per-agent install status, and the currently expanded
- * pack accordion source (TASK_2025_258).
+ * pack accordion source.
  *
  * Plain TypeScript class (no `@Injectable`, no `inject()`). Receives the
  * shared {@link WizardInternalState} handle via constructor; mutates the

@@ -1,7 +1,5 @@
 /**
  * Message envelope / request-response / metadata types.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { SessionId, CorrelationId } from '../branded.types';
@@ -14,11 +12,7 @@ import type {
 } from '../content-block.types';
 
 import type { MessagePayloadMap } from './payload-map';
-
-// Re-export for convenience
 export { CorrelationId };
-
-// Re-export ContentBlock types from foundation layer
 export type {
   ContentBlock,
   TextContentBlock,

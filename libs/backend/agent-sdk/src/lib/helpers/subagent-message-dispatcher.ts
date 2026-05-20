@@ -1,7 +1,7 @@
 /**
- * SubagentMessageDispatcher — bidirectional messaging for running subagents
+ * SubagentMessageDispatcher — bidirectional messaging for running subagents.
  *
- * Phase 2 addition. Provides three operations:
+ * Provides three operations:
  *   - `sendToSubagent` — push a user message into a running subagent via
  *     the session's streamInput channel, scoped by parentToolUseId.
  *   - `stopSubagent` — call Query.stopTask(taskId) to gracefully stop a
@@ -57,7 +57,6 @@ async function serialisedPush(
   try {
     await next;
   } finally {
-    // Only clean up if our slot is still the tail (no new push arrived)
     if (sessionPushLocks.get(sessionId) === next) {
       sessionPushLocks.delete(sessionId);
     }
@@ -112,8 +111,6 @@ export class SubagentMessageDispatcher {
         '[SubagentMessageDispatcher] sendToSubagent: pushing message',
         { sessionId, parentToolUseId, textLength: text.length },
       );
-
-      // Build SDKUserMessage with parent_tool_use_id for subagent routing
       const msg: SDKUserMessage = {
         type: 'user',
         message: { role: 'user', content: text },
@@ -124,8 +121,6 @@ export class SubagentMessageDispatcher {
         session_id: sessionId,
         timestamp: new Date().toISOString(),
       } as SDKUserMessage;
-
-      // Deliver via streamInput so the SDK routes it to the subagent
       async function* single(): AsyncGenerator<SDKUserMessage> {
         yield msg;
       }

@@ -1,5 +1,5 @@
 /**
- * HarnessSkillGenerationService — Wave C7d.
+ * HarnessSkillGenerationService.
  *
  * LLM-powered skill specification generation for the harness wizard. Delegates
  * the streaming LLM call to {@link HarnessLlmRunner} and validates / sanitises

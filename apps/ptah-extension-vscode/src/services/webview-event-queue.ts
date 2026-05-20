@@ -9,8 +9,6 @@
  * - L: Substitutable (could implement IEventQueue interface)
  * - I: Focused interface (ready, enqueue, flush, clear)
  * - D: Depends on Logger abstraction
- *
- * Extracted from AngularWebviewProvider to reduce class size from 600+ to <200 lines
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -85,7 +83,7 @@ export class WebviewEventQueue {
 
     this._isReady = true;
     this.logger.info(
-      `WebviewEventQueue: Marked as ready (${this._queue.length} events queued)`
+      `WebviewEventQueue: Marked as ready (${this._queue.length} events queued)`,
     );
   }
 
@@ -106,21 +104,15 @@ export class WebviewEventQueue {
    * @returns true if queued successfully, false if ready (caller should send directly)
    */
   enqueue(message: WebviewMessage): boolean {
-    // If already ready, don't queue
     if (this._isReady) {
       return false;
     }
-
-    // Check queue size limit
     if (this._queue.length >= MAX_EVENT_QUEUE_SIZE) {
       this.logger.warn(
-        `WebviewEventQueue: Queue full (${MAX_EVENT_QUEUE_SIZE}), dropping oldest event to queue: ${message.type}`
+        `WebviewEventQueue: Queue full (${MAX_EVENT_QUEUE_SIZE}), dropping oldest event to queue: ${message.type}`,
       );
-      // Remove oldest event (FIFO)
       this._queue.shift();
     }
-
-    // Queue event
     this._queue.push({
       type: message.type,
       payload: message.payload,
@@ -128,7 +120,7 @@ export class WebviewEventQueue {
     });
 
     this.logger.debug(
-      `WebviewEventQueue: Queued ${message.type} (size: ${this._queue.length}/${MAX_EVENT_QUEUE_SIZE})`
+      `WebviewEventQueue: Queued ${message.type} (size: ${this._queue.length}/${MAX_EVENT_QUEUE_SIZE})`,
     );
 
     return true;
@@ -148,8 +140,6 @@ export class WebviewEventQueue {
 
     const queuedCount = this._queue.length;
     this.logger.info(`WebviewEventQueue: Flushing ${queuedCount} events`);
-
-    // Deliver all queued events in order
     const events = [...this._queue]; // Copy to avoid modification during iteration
     this._queue = []; // Clear queue before delivery
 
@@ -160,10 +150,8 @@ export class WebviewEventQueue {
       try {
         const ageMs = Date.now() - event.timestamp;
         this.logger.debug(
-          `WebviewEventQueue: Delivering ${event.type} (queued ${ageMs}ms ago)`
+          `WebviewEventQueue: Delivering ${event.type} (queued ${ageMs}ms ago)`,
         );
-
-        // Deliver event
         deliveryFn({
           type: event.type,
           payload: event.payload,
@@ -177,13 +165,13 @@ export class WebviewEventQueue {
           {
             error,
             event,
-          }
+          },
         );
       }
     }
 
     this.logger.info(
-      `WebviewEventQueue: Flush complete (${successCount} delivered, ${errorCount} failed)`
+      `WebviewEventQueue: Flush complete (${successCount} delivered, ${errorCount} failed)`,
     );
   }
 
@@ -194,7 +182,7 @@ export class WebviewEventQueue {
   clear(): void {
     if (this._queue.length > 0) {
       this.logger.warn(
-        `WebviewEventQueue: Clearing ${this._queue.length} undelivered events`
+        `WebviewEventQueue: Clearing ${this._queue.length} undelivered events`,
       );
       this._queue = [];
     }

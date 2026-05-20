@@ -1,10 +1,10 @@
-﻿/**
+/**
  * Agent Monitor Store
  *
  * Signal-based store for real-time agent process monitoring.
  * Tracks spawned agents, streams output, and manages the sidebar panel state.
  *
- * State shape (TASK_2026_103 wave E3):
+ * State shape:
  * Backing store is `signal<readonly MonitoredAgent[]>([])` plus a derived
  * `_byId` computed for O(1) lookups. Previously this was `signal<Map<...>>`
  * which forced every writer to clone the Map â€” and silently broke `computed()`
@@ -40,7 +40,7 @@ const MAX_EXPANDED_AGENTS = 2;
 /** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
 const MAX_STREAM_EVENTS = 2000;
 
-/** TASK_2025_264 P6: Maximum completed/failed agents retained in the store.
+/** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
  * 'interrupted' agents are always preserved. */
 const MAX_COMPLETED_AGENTS = 20;
@@ -86,7 +86,7 @@ export interface MonitoredAgent {
 }
 
 /**
- * Per-subagent record for SDK task_* events (Phase 3).
+ * Per-subagent record for SDK task_* events.
  *
  * Distinct from `MonitoredAgent` (CLI process). Keyed by `parentToolUseId`
  * (the Task tool_use ID), which is also the `toolCallId` on the
@@ -142,10 +142,6 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpc = inject(ClaudeRpcService);
-
-  // Private mutable state â€” readonly array of agents.
-  // All writers MUST produce a new array (immutable update); reads go through
-  // the public `agents` computed or the internal `_byId` computed.
   private readonly _agents = signal<readonly MonitoredAgent[]>([]);
 
   /**
@@ -169,7 +165,7 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Buffer for permission requests that arrive before the agent spawn event.
    * Keyed by agentId. Replayed in onAgentSpawned() when the agent card is created.
-   * Prevents silent permission loss due to message ordering (TASK_2025_255).
+   * Prevents silent permission loss due to message ordering.
    */
   private _pendingPermissionBuffer = new Map<
     string,
@@ -177,23 +173,19 @@ export class AgentMonitorStore implements OnDestroy {
   >();
 
   /**
-   * TASK_2025_211: Tracks agent descriptions (tasks) that have been resumed.
+   * Tracks agent descriptions (tasks) that have been resumed.
    * Used by inline-agent-bubble to upgrade 'interrupted' â†’ 'resumed' visuals.
    * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
    */
   private readonly _resumedAgentKeys = signal<Set<string>>(new Set());
 
   /**
-   * TASK_2025_211: Tracks specific agent node IDs that have been resumed.
+   * Tracks specific agent node IDs that have been resumed.
    * When a new agent of the same type is spawned while an interrupted agent
    * of that type exists, the SPECIFIC interrupted agent's node ID is stored here.
    * This prevents false positives when multiple agents of the same type exist.
    */
   private readonly _resumedAgentNodeIds = signal<Set<string>>(new Set());
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Phase 3: SDK task_* per-subagent records (keyed by parentToolUseId)
-  // ─────────────────────────────────────────────────────────────────────
 
   /**
    * Per-subagent records, keyed by parentToolUseId. Backed by a signal of
@@ -246,10 +238,7 @@ export class AgentMonitorStore implements OnDestroy {
    */
   readonly tick = signal(0);
   private _tickInterval: ReturnType<typeof setInterval> | null = null;
-
-  // Public computed signals â€” ALL agents (used for global indicators like header badges)
   readonly agents = computed(() => {
-    // Copy then sort â€” never mutate the underlying readonly array.
     return [...this._agents()].sort((a, b) => b.startedAt - a.startedAt);
   });
 
@@ -359,8 +348,6 @@ export class AgentMonitorStore implements OnDestroy {
       this.stopTick();
     }
   }
-
-  // Panel control
   togglePanel(): void {
     this._panelOpen.update((v) => !v);
   }
@@ -375,7 +362,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * TASK_2025_211: Check if a specific interrupted agent has been resumed.
+   * Check if a specific interrupted agent has been resumed.
    * Two matching strategies:
    * 1. SDK subagents: matches by specific node ID (nodeId or toolCallId)
    * 2. CLI agents: matches by parentSessionId + task description
@@ -387,12 +374,8 @@ export class AgentMonitorStore implements OnDestroy {
     taskOrDescription: string,
   ): boolean {
     const resumedIds = this._resumedAgentNodeIds();
-
-    // Strategy 1: SDK subagent resume (matched by specific node ID or toolCallId)
     if (nodeId && resumedIds.has(nodeId)) return true;
     if (toolCallId && resumedIds.has(toolCallId)) return true;
-
-    // Strategy 2: CLI agent resume (matched by parentSessionId::task)
     const keys = this._resumedAgentKeys();
     for (const key of keys) {
       if (key.endsWith(`::${taskOrDescription}`)) return true;
@@ -401,7 +384,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * TASK_2025_211: Mark specific agent node IDs as resumed.
+   * Mark specific agent node IDs as resumed.
    * Called by the streaming handler when a new agent_start arrives and
    * a specific interrupted agent of the same type is found.
    */
@@ -415,21 +398,13 @@ export class AgentMonitorStore implements OnDestroy {
       return next;
     });
   }
-
-  // Agent lifecycle
   onAgentSpawned(info: AgentProcessInfo): void {
-    // Check before adding â€” auto-open on 0â†’1 transition only
     const hadAgents = this._agents().length > 0;
 
     this._agents.update((list) => {
-      // Strategy 1: Replace by resumedFromAgentId (explicit resume from sidebar button)
-      // Strategy 2: Replace by cliSessionId (MCP-triggered respawn during session resume â€”
-      //   resumedFromAgentId is unavailable because the MCP spawn path doesn't know the old card ID)
       const oldCard = this.findReplacementCard(list, info);
 
       if (oldCard) {
-        // TASK_2025_211: Track this agent as resumed so inline bubbles can
-        // show 'Resumed' badge instead of 'Interrupted'.
         if (oldCard.parentSessionId && oldCard.task) {
           this._resumedAgentKeys.update((set) => {
             const next = new Set(set);
@@ -437,7 +412,6 @@ export class AgentMonitorStore implements OnDestroy {
             return next;
           });
         }
-        // Replace old card with new agent â€” drop oldCard entry, append new entry
         const replacement: MonitoredAgent = {
           agentId: info.agentId,
           cli: info.cli,
@@ -485,8 +459,6 @@ export class AgentMonitorStore implements OnDestroy {
       };
       return this.enforceMaxExpanded([...list, fresh]);
     });
-
-    // TASK_2025_255: Replay any buffered permission requests that arrived before spawn.
     const buffered = this._pendingPermissionBuffer.get(info.agentId);
     if (buffered && buffered.length > 0) {
       this._pendingPermissionBuffer.delete(info.agentId);
@@ -499,8 +471,6 @@ export class AgentMonitorStore implements OnDestroy {
         this.onPermissionRequest(req);
       }
     }
-
-    // Auto-open panel on 0â†’1 agent transition (unless user explicitly closed)
     if (!hadAgents && !this._userExplicitlyClosed) {
       this._panelOpen.set(true);
     }
@@ -535,8 +505,6 @@ export class AgentMonitorStore implements OnDestroy {
         );
       }
       if (delta.segments && delta.segments.length > 0) {
-        // Merge last existing segment with first incoming segment of the same
-        // streamable type (text or thinking) to prevent fragmentation across flush boundaries
         const existing = updated.segments;
         const incoming = delta.segments;
         const lastIdx = existing.length - 1;
@@ -560,8 +528,6 @@ export class AgentMonitorStore implements OnDestroy {
           updated.segments = [...existing, ...incoming];
         }
       }
-
-      // Accumulate FlatStreamEventUnion events (Ptah CLI only)
       if (delta.streamEvents && delta.streamEvents.length > 0) {
         const combined = [...agent.streamEvents, ...delta.streamEvents];
         if (combined.length > MAX_STREAM_EVENTS) {
@@ -602,9 +568,6 @@ export class AgentMonitorStore implements OnDestroy {
         completedAt,
         permissionQueue: [],
       };
-
-      // TASK_2025_264 P6: Evict oldest completed/failed agents beyond the limit.
-      // NEVER evict 'running' or 'interrupted' agents.
       return this.evictOldCompletedAgents(next);
     });
 
@@ -612,7 +575,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * TASK_2025_264 P6: Evict the oldest completed/failed agents when count exceeds
+   * Evict the oldest completed/failed agents when count exceeds
    * MAX_COMPLETED_AGENTS. Preserves 'running' and 'interrupted' agents.
    * Returns a new array (does not mutate the input).
    */
@@ -624,13 +587,9 @@ export class AgentMonitorStore implements OnDestroy {
     );
 
     if (completedAgents.length <= MAX_COMPLETED_AGENTS) return [...list];
-
-    // Sort by completedAt ascending â€” oldest first
     const sortedCompleted = [...completedAgents].sort(
       (a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0),
     );
-
-    // Identify oldest IDs to evict
     const toEvictCount = sortedCompleted.length - MAX_COMPLETED_AGENTS;
     const evictedIds = new Set<string>();
     for (let i = 0; i < toEvictCount; i++) {
@@ -651,9 +610,6 @@ export class AgentMonitorStore implements OnDestroy {
         }
       }
       if (foundIndex === -1) {
-        // Agent not yet in store (spawn event hasn't arrived yet).
-        // Buffer the request â€” it will be replayed in onAgentSpawned().
-        // TASK_2025_255: Prevents silent permission loss from message ordering.
         console.warn(
           '[AgentMonitorStore] Permission buffered â€” agent not yet spawned:',
           request.agentId,
@@ -665,8 +621,6 @@ export class AgentMonitorStore implements OnDestroy {
       }
 
       const agent = list[foundIndex];
-
-      // Auto-expand the card so the user can see and respond to the permission
       const needsExpand = !agent.expanded;
       const order = needsExpand ? this._expandOrder++ : agent.expandedAt;
 
@@ -679,12 +633,8 @@ export class AgentMonitorStore implements OnDestroy {
       };
 
       const result = needsExpand ? this.enforceMaxExpanded(next) : next;
-
-      // Side-effect: panel open scheduled below
       return result;
     });
-
-    // Also ensure the panel is open so the user sees the permission
     this._panelOpen.set(true);
   }
 
@@ -727,12 +677,9 @@ export class AgentMonitorStore implements OnDestroy {
       const next = [...list];
 
       if (agent.expanded) {
-        // Collapsing â€” just toggle off
         next[foundIndex] = { ...agent, expanded: false, expandedAt: undefined };
         return next;
       }
-
-      // Expanding â€” assign order and enforce max-2 rule
       const order = this._expandOrder++;
       next[foundIndex] = { ...agent, expanded: true, expandedAt: order };
       return this.enforceMaxExpanded(next);
@@ -751,14 +698,11 @@ export class AgentMonitorStore implements OnDestroy {
     list: readonly MonitoredAgent[],
     info: AgentProcessInfo,
   ): MonitoredAgent | null {
-    // Strategy 1: explicit resumedFromAgentId
     if (info.resumedFromAgentId) {
       for (const a of list) {
         if (a.agentId === info.resumedFromAgentId) return a;
       }
     }
-
-    // Strategy 2: match by cliSessionId within the same parent session
     if (info.cliSessionId) {
       for (const a of list) {
         if (
@@ -784,13 +728,9 @@ export class AgentMonitorStore implements OnDestroy {
   ): MonitoredAgent[] {
     const expanded = list.filter((a) => a.expanded);
     if (expanded.length <= MAX_EXPANDED_AGENTS) return [...list];
-
-    // Sort by expandedAt ascending â€” oldest first
     const sortedExpanded = [...expanded].sort(
       (a, b) => (a.expandedAt ?? 0) - (b.expandedAt ?? 0),
     );
-
-    // Identify oldest agentIds to collapse
     const toCollapse = sortedExpanded.length - MAX_EXPANDED_AGENTS;
     const collapseIds = new Set<string>();
     for (let i = 0; i < toCollapse; i++) {
@@ -805,7 +745,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * Load CLI sessions from a saved session's metadata (TASK_2025_168).
+   * Load CLI sessions from a saved session's metadata.
    * Converts CliSessionReference[] to MonitoredAgent[] and adds them to the store.
    * Called when loading/resuming a session that had CLI agents spawned.
    * Agents from other sessions are preserved â€” activeTabAgents handles display filtering.
@@ -818,8 +758,6 @@ export class AgentMonitorStore implements OnDestroy {
     if (cliSessions.length === 0) return;
 
     this._agents.update((list) => {
-      // Preserve all existing agents â€” tab-scoped filtering handles display.
-      // Only clear stale non-running agents for THIS session to allow fresh reload.
       let next: MonitoredAgent[] = list.filter((a) => {
         if (parentSessionId === undefined) return true;
         if (a.parentSessionId !== parentSessionId) return true;
@@ -829,7 +767,6 @@ export class AgentMonitorStore implements OnDestroy {
       const existingIds = new Set(next.map((a) => a.agentId));
 
       for (const ref of cliSessions) {
-        // Skip if a live agent with same ID is already running
         if (existingIds.has(ref.agentId)) continue;
 
         const ts = new Date(ref.startedAt).getTime();
@@ -856,8 +793,6 @@ export class AgentMonitorStore implements OnDestroy {
       }
       return next;
     });
-
-    // Auto-open panel to show loaded sessions
     if (!this._userExplicitlyClosed) {
       this._panelOpen.set(true);
     }
@@ -873,7 +808,6 @@ export class AgentMonitorStore implements OnDestroy {
       const next = list.filter(
         (a) => !(a.parentSessionId === sessionId && a.status !== 'running'),
       );
-      // Reference equality optimisation: only emit a new array when something changed.
       return next.length === list.length ? list : next;
     });
   }
@@ -907,8 +841,6 @@ export class AgentMonitorStore implements OnDestroy {
 
   clearCompleted(): void {
     this._agents.update((list) => list.filter((a) => a.status === 'running'));
-
-    // Reset explicit-close flag when all agents cleared â€” next spawn will auto-open
     if (this._agents().length === 0) {
       this._userExplicitlyClosed = false;
     }
@@ -935,10 +867,6 @@ export class AgentMonitorStore implements OnDestroy {
 
     this.syncTick();
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Phase 3: SDK task_* event reducers
-  // ─────────────────────────────────────────────────────────────────────
 
   /**
    * Capture / upgrade a subagent record from an `agent_start` event.
@@ -1050,14 +978,6 @@ export class AgentMonitorStore implements OnDestroy {
       return next;
     });
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Phase 3: Bidirectional messaging actions
-  //
-  // These dispatch RPC calls but never mutate per-record state optimistically.
-  // The SDK's task_* events drive UI lifecycle. RPC errors land in
-  // `subagentRpcError` for transient surfacing.
-  // ─────────────────────────────────────────────────────────────────────
 
   /**
    * Send a follow-up message to a running subagent. Requires the parent
@@ -1180,7 +1100,6 @@ export class AgentMonitorStore implements OnDestroy {
 
 function capBuffer(str: string, max: number): string {
   if (str.length <= max) return str;
-  // Trim from beginning, align to newline
   const excess = str.length - max;
   const idx = str.indexOf('\n', excess);
   return idx > -1 ? str.substring(idx + 1) : str.substring(excess);
@@ -1207,8 +1126,6 @@ function capStreamEvents(
   max: number,
 ): FlatStreamEventUnion[] {
   if (events.length <= max) return events;
-
-  // Partition into landmarks and deltas, tracking original indices
   const landmarks: Array<{ event: FlatStreamEventUnion; index: number }> = [];
   const deltas: Array<{ event: FlatStreamEventUnion; index: number }> = [];
   for (let i = 0; i < events.length; i++) {
@@ -1218,17 +1135,12 @@ function capStreamEvents(
       deltas.push({ event: events[i], index: i });
     }
   }
-
-  // Keep all landmarks + most recent deltas to fill remaining budget
   const deltasBudget = max - landmarks.length;
   if (deltasBudget <= 0) {
-    // Extreme case: more landmarks than budget -- keep most recent landmarks
     return landmarks.slice(-max).map((l) => l.event);
   }
 
   const keptDeltas = deltas.slice(-deltasBudget);
-
-  // Merge back in original order
   const merged = [...landmarks, ...keptDeltas].sort(
     (a, b) => a.index - b.index,
   );

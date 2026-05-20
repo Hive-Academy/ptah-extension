@@ -1,8 +1,6 @@
 /**
  * CLI Message Transport -- In-process RPC for the CLI application.
  *
- * TASK_2025_263 Batch 3
- *
  * Replaces IpcBridge: instead of ipcMain.on('rpc', handler) -> event.sender.send('to-renderer'),
  * the TUI calls rpcHandler.handleMessage() directly and awaits the response.
  *

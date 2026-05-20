@@ -1,5 +1,5 @@
 {
-  "name": "messaging-gateway",
+  "name": "@ptah-extension/messaging-gateway",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/messaging-gateway/src",

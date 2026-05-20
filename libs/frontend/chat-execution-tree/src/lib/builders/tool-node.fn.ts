@@ -1,7 +1,6 @@
 /**
- * Tool-node pure builders — extracted from ToolNodeBuilderService and
- * ToolTaskDispatchService. The streaming "placeholder agent" branch is
- * now `tryBuildPlaceholderAgent` below.
+ * Tool-node pure builders. The streaming "placeholder agent" branch is
+ * `tryBuildPlaceholderAgent` below.
  *
  * Recurses via `deps.buildAgentNode` and `deps.buildMessageNode`. No
  * direct imports of the other .fn modules — recursion is callback-driven
@@ -23,7 +22,7 @@ import type { StreamingState } from '@ptah-extension/chat-types';
 import { MAX_DEPTH } from '../execution-tree.constants';
 import type { BuilderDeps } from './builder-deps';
 
-/** Result of safe JSON parsing with error tracking (TASK_2025_088 Batch 2). */
+/** Result of safe JSON parsing with error tracking. */
 interface ParseResult<T> {
   success: boolean;
   data?: T;
@@ -38,23 +37,16 @@ export function collectTools(
   depth: number,
 ): ExecutionNode[] {
   const tools: ExecutionNode[] = [];
-
-  // TASK_2025_095 FIX: Collect tools based on messageId AND context depth
   const toolStarts = [...state.events.values()].filter((e) => {
     if (e.eventType !== 'tool_start') return false;
     if (e.messageId !== messageId) return false;
     if (depth === 0 && e.parentToolUseId) return false;
     return true;
   }) as ToolStartEvent[];
-
-  // Track used agent event IDs to prevent duplicate agent nodes for parallel
-  // same-type agents.
   const usedAgentEventIds = new Set<string>();
   const usedToolCallIds = new Set<string>();
 
   for (const toolStart of toolStarts) {
-    // TASK_2025_211 Bug 6: Broaden detection to handle dispatch_agent /
-    // dispatch_subagent and data-driven detection via subagent_type.
     let isAgentDispatch =
       toolStart.isTaskTool || isAgentDispatchTool(toolStart.toolName);
 
@@ -70,7 +62,6 @@ export function collectTools(
     }
 
     if (isAgentDispatch) {
-      // TASK_2025_128 FIX: parentToolUseId may use UUID vs toolu_* mismatch.
       let agentStarts = [...state.events.values()].filter(
         (e) =>
           e.eventType === 'agent_start' &&
@@ -92,8 +83,6 @@ export function collectTools(
                 e.parentToolUseId === toolStart.toolCallId ||
                 !e.parentToolUseId.startsWith('toolu_')),
           ) as AgentStartEvent[];
-
-          // BUGFIX: Sort by timestamp proximity to the tool_start.
           agentStarts.sort(
             (a, b) =>
               Math.abs(a.timestamp - toolStart.timestamp) -
@@ -143,7 +132,6 @@ export function collectTools(
             },
           );
         }
-        // TASK_2025_099 FIX: streaming placeholder when no agent_start yet.
         const dispatchResult = tryBuildPlaceholderAgent(
           deps,
           toolStart,
@@ -159,7 +147,6 @@ export function collectTools(
         if (dispatchResult.kind === 'skip') {
           continue;
         }
-        // 'fallthrough' — tool already has a result; build normal tool node.
       }
     }
 
@@ -182,9 +169,6 @@ export function buildToolNode(
 
   const inputKey = `${toolStart.toolCallId}-input`;
   const inputString = state.toolInputAccumulators.get(inputKey) || '';
-
-  // FIX: Defer JSON parsing until tool_result arrives (incomplete JSON during
-  // streaming would otherwise cause ~15+ SyntaxError warnings per tool call).
   let toolInput: Record<string, unknown> | undefined;
   if (inputString && resultEvent) {
     const result = parseToolInput(inputString);
@@ -194,15 +178,12 @@ export function buildToolNode(
       toolStart.toolInput &&
       Object.keys(toolStart.toolInput).length > 0
     ) {
-      // FIX: Accumulator partial/corrupt — fall back to 'complete' source toolInput.
       toolInput = toolStart.toolInput;
     } else {
       toolInput = {
         __parseError: result.error,
         __raw: result.raw,
       } as Record<string, unknown>;
-
-      // TASK_2025_100 FIX: Only warn if JSON looks complete.
       const trimmed = result.raw?.trim() || '';
       const looksComplete = trimmed.endsWith('}') || trimmed.endsWith(']');
       if (looksComplete) {
@@ -223,7 +204,6 @@ export function buildToolNode(
     toolStart.toolInput &&
     Object.keys(toolStart.toolInput).length > 0
   ) {
-    // Fallback to toolStart.toolInput for historical sessions.
     toolInput = toolStart.toolInput;
   } else {
     toolInput = undefined;
@@ -306,7 +286,6 @@ function tryBuildPlaceholderAgent(
   | { kind: 'fallthrough' }
   | { kind: 'skip' }
   | { kind: 'placeholder'; node: ExecutionNode } {
-  // TASK_2025_099 FIX: only create placeholder if tool is still streaming.
   const toolResult = [...state.events.values()].find(
     (e) =>
       e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId,
@@ -334,8 +313,6 @@ function tryBuildPlaceholderAgent(
   if (descMatch) {
     agentDescription = descMatch[1];
   }
-
-  // TASK_2025_100 FIX: Build children from sub-agent messages even during streaming.
   const agentMessageStarts = [...state.events.values()].filter(
     (e) =>
       e.eventType === 'message_start' &&
@@ -354,9 +331,6 @@ function tryBuildPlaceholderAgent(
       agentChildren.push(...messageNode.children);
     }
   }
-
-  // BUGFIX: Use timestamp proximity instead of .find() to avoid matching
-  // historical agents when multiple agents of the same type exist.
   let hookAgentStart: AgentStartEvent | undefined;
   let bestPlaceholderTimeDiff = Infinity;
   for (const e of state.events.values()) {
@@ -385,8 +359,6 @@ function tryBuildPlaceholderAgent(
   }
 
   const placeholderAgentId = hookAgentStart?.agentId;
-
-  // TASK_2025_102: structured content blocks for proper interleaving.
   const placeholderContentBlocks = placeholderAgentId
     ? state.agentContentBlocksMap.get(placeholderAgentId) || []
     : [];
@@ -394,11 +366,6 @@ function tryBuildPlaceholderAgent(
   const placeholderSummaryContent = placeholderAgentId
     ? state.agentSummaryAccumulators.get(placeholderAgentId) || undefined
     : state.agentSummaryAccumulators.get(toolStart.toolCallId) || undefined;
-
-  // TASK_2026_TREE_STABILITY Fix 1/8: Share the same `agent:${toolCallId}`
-  // id with the real agent_start path in agent-node.fn.ts. When the real
-  // `agent_start` event arrives, the agent node id stays stable — Angular's
-  // `track` reuses the same component instance instead of remounting.
   const stableAgentId = `agent:${toolStart.toolCallId}`;
 
   let finalPlaceholderChildren: ExecutionNode[];
@@ -424,8 +391,6 @@ function tryBuildPlaceholderAgent(
   } else {
     finalPlaceholderChildren = [...agentChildren];
   }
-
-  // TASK_2025_132: Aggregate stats from child message events.
   const placeholderStats = deps.agentStats.aggregateAgentStats(
     toolStart.toolCallId,
     state,

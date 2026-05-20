@@ -41,8 +41,6 @@ export function freezeTime(instant: Date | string | number): FrozenClock {
       return Date.now();
     },
     advanceBy(ms: number): void {
-      // `jest.advanceTimersByTime` advances both the fake system clock and
-      // fires any timers that fall within the window in one shot.
       jest.advanceTimersByTime(ms);
     },
     restore(): void {

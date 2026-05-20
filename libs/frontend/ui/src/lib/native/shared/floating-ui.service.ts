@@ -93,7 +93,6 @@ export class FloatingUIService {
   private isDestroyed = false;
 
   constructor() {
-    // Ensure cleanup on component destroy
     this.destroyRef.onDestroy(() => {
       this.isDestroyed = true;
       this.cleanup();
@@ -121,7 +120,6 @@ export class FloatingUIService {
     floatingEl: HTMLElement,
     options: FloatingUIOptions = {},
   ): Promise<void> {
-    // Cleanup any existing auto-update listener
     this.cleanup();
 
     const {
@@ -131,33 +129,22 @@ export class FloatingUIService {
       shift: enableShift = true,
       shiftPadding = 8,
     } = options;
-
-    // Build middleware array based on options
     const middleware = [
       offset(offsetValue),
       ...(enableFlip ? [flip()] : []),
       ...(enableShift ? [shift({ padding: shiftPadding })] : []),
     ];
-
-    // Compute initial position
     const { x, y } = await computePosition(referenceEl, floatingEl, {
       placement,
       middleware,
     });
-
-    // Don't apply if destroyed during async computation
     if (this.isDestroyed) return;
-
-    // Apply position styles
     this.applyPosition(floatingEl, x, y);
-
-    // Set up auto-update for scroll/resize
     this.cleanupFn = autoUpdate(referenceEl, floatingEl, async () => {
       const result = await computePosition(referenceEl, floatingEl, {
         placement,
         middleware,
       });
-      // Don't apply if destroyed during async computation
       if (this.isDestroyed) return;
       this.applyPosition(floatingEl, result.x, result.y);
     });
@@ -172,7 +159,6 @@ export class FloatingUIService {
       position: 'fixed',
       left: `${x}px`,
       top: `${y}px`,
-      // Ensure visibility after positioning to prevent flash at 0,0
       visibility: 'visible',
     });
   }

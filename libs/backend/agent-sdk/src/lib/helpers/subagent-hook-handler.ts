@@ -17,14 +17,9 @@
  *    SdkMessageTransformer.
  * 3. SubagentStop hook fires -> registry.update() to mark as 'completed'.
  *
- * TASK_2026_109 Fix 2: removed dependency on AgentSessionWatcherService —
- * the JSONL tail-watching path it owned is replaced by the SDK's built-in
- * task_* event stream. The watcher is now a no-op stub that retains its
- * public API for legacy consumers.
- *
- * @see TASK_2025_099 - Real-Time Subagent Text Streaming via SDK Hooks
- * @see TASK_2025_103 - Subagent Resumption Feature
- * @see TASK_2026_109 - SDK improvement bundle (Fix 2)
+ * Subagent visibility flows via the SDK's built-in task_* event stream
+ * (`agentProgressSummaries: true` Option). The legacy AgentSessionWatcherService
+ * is a no-op stub retained for legacy consumers.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -79,12 +74,9 @@ export class SubagentHookHandler {
    * (start/stop) are informational and complete instantly - there's no long-running
    * operation to abort. The signal is preserved for SDK API compliance.
    *
-   * TASK_2025_103: Now accepts parentSessionId for registry tracking.
-   * This enables tracking which session spawned which subagents.
-   *
-   * FIX (TASK_2025_103 QA): parentSessionId is now captured in closure instead
-   * of stored as instance state. This prevents state corruption when multiple
-   * sessions run concurrently (singleton service would overwrite shared state).
+   * parentSessionId is captured in closure (not stored as instance state) to
+   * prevent state corruption when multiple sessions run concurrently —
+   * a singleton service would otherwise overwrite shared state.
    *
    * @param workspacePath - Workspace path for agent file detection
    * @param parentSessionId - Optional parent session ID for registry tracking
@@ -94,11 +86,7 @@ export class SubagentHookHandler {
     workspacePath: string,
     parentSessionId?: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // FIX: Capture parentSessionId in closure instead of storing on instance
-    // This prevents concurrent session corruption (multiple sessions would overwrite)
     const capturedParentSessionId = parentSessionId;
-
-    // DIAGNOSTIC: Log hook creation
     this.logger.info('[SubagentHookHandler] Creating hooks for workspace', {
       workspacePath,
       parentSessionId: capturedParentSessionId,
@@ -113,7 +101,6 @@ export class SubagentHookHandler {
               toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
-              // DIAGNOSTIC: Log that the hook was actually invoked by SDK
               this.logger.info(
                 '[SubagentHookHandler] >>> SubagentStart HOOK INVOKED <<<',
                 {
@@ -123,8 +110,6 @@ export class SubagentHookHandler {
                   parentSessionId: capturedParentSessionId,
                 },
               );
-
-              // Use type guard instead of type assertion for type safety
               if (!isSubagentStartHook(input)) {
                 this.logger.warn(
                   '[SubagentHookHandler] Unexpected hook input type for SubagentStart',
@@ -135,7 +120,6 @@ export class SubagentHookHandler {
                 );
                 return { continue: true };
               }
-              // FIX: Pass capturedParentSessionId from closure
               return this.handleSubagentStart(
                 input,
                 toolUseId,
@@ -154,7 +138,6 @@ export class SubagentHookHandler {
               toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
-              // DIAGNOSTIC: Log that the hook was actually invoked by SDK
               this.logger.info(
                 '[SubagentHookHandler] >>> SubagentStop HOOK INVOKED <<<',
                 {
@@ -163,8 +146,6 @@ export class SubagentHookHandler {
                   sessionId: input.session_id,
                 },
               );
-
-              // Use type guard instead of type assertion for type safety
               if (!isSubagentStopHook(input)) {
                 this.logger.warn(
                   '[SubagentHookHandler] Unexpected hook input type for SubagentStop',
@@ -190,17 +171,6 @@ export class SubagentHookHandler {
    * for the agent's JSONL transcript file AND registers the subagent
    * in the SubagentRegistryService for resumption tracking.
    *
-   * TASK_2025_100 FIX: Now passes agentType to startWatching so that
-   * AgentSessionWatcherService can emit an 'agent-start' event early.
-   * This fixes the race condition where summary chunks arrived before
-   * the agent node was created.
-   *
-   * TASK_2025_103: Now registers subagent with SubagentRegistryService
-   * to enable resumption of interrupted subagents.
-   *
-   * FIX (TASK_2025_103 QA): parentSessionId is now passed as parameter
-   * (captured in closure) instead of read from instance state.
-   *
    * @param input - SubagentStart hook input containing agentId, sessionId, etc.
    * @param toolUseId - Optional Task tool_use ID (may not be available at start)
    * @param workspacePath - Workspace path for finding sessions directory
@@ -222,17 +192,6 @@ export class SubagentHookHandler {
         workspacePath,
         parentSessionId,
       });
-
-      // TASK_2026_109 Fix 2: AgentSessionWatcherService is now a no-op stub —
-      // subagent visibility flows via `agentProgressSummaries: true` Option +
-      // task_* system messages handled by SdkMessageTransformer. No file
-      // watching is started here.
-
-      // TASK_2025_103: Register subagent with registry for resumption tracking
-      // Only register if we have both toolUseId and parentSessionId
-      // NOTE: input.session_id from the hook IS the parent session ID, not the subagent's own.
-      // The subagent's own session ID is not exposed by the SDK hook.
-      // For resumption, we use agentId (short hex) with the Task tool's resume parameter.
       if (toolUseId && parentSessionId) {
         this.subagentRegistry.register({
           toolCallId: toolUseId,
@@ -269,14 +228,11 @@ export class SubagentHookHandler {
         },
       );
     } catch (error) {
-      // CRITICAL: Never throw from hooks - it would break SDK
       this.logger.error(
         '[SubagentHookHandler] Error in SubagentStart hook',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-
-    // Always return continue: true to not block SDK
     return { continue: true };
   }
 
@@ -290,9 +246,6 @@ export class SubagentHookHandler {
    * For background agents: marks as 'background_completed' and emits
    * a BackgroundAgentCompletedEvent through the agent watcher so the
    * webview is notified even after the main turn has completed.
-   *
-   * TASK_2025_103: Now updates SubagentRegistryService to mark
-   * the subagent as 'completed' when SubagentStop hook fires.
    *
    * @param input - SubagentStop hook input containing agentId, transcriptPath, etc.
    * @param toolUseId - Task tool_use ID (usually available at stop)
@@ -309,15 +262,6 @@ export class SubagentHookHandler {
         stopHookActive: input.stop_hook_active,
         toolUseId,
       });
-
-      // TASK_2026_109 Fix 2: setToolUseId on the watcher is now a no-op
-      // (watcher is a stub). Subagent visibility routes through the SDK's
-      // task_* event stream via `agentProgressSummaries: true` Option.
-
-      // FIX: Resolve the registry record using toolUseId first, then agentId fallback.
-      // The SDK may provide different toolUseId formats between SubagentStart (UUID)
-      // and SubagentStop (toolu_* format), causing registry.get(toolUseId) to miss.
-      // The agentId (short hex, e.g., "a329b32") is stable across both hooks.
       let resolvedToolCallId = toolUseId ?? undefined;
       let record = resolvedToolCallId
         ? this.subagentRegistry.get(resolvedToolCallId)
@@ -346,8 +290,6 @@ export class SubagentHookHandler {
       const isBackground = record?.isBackground === true;
 
       if (isBackground && resolvedToolCallId) {
-        // Background agent completed - emit completion event via watcher
-        // and mark as background_completed in registry
         this.logger.info(
           '[SubagentHookHandler] Background subagent completed',
           {
@@ -356,21 +298,11 @@ export class SubagentHookHandler {
             agentType: record?.agentType,
           },
         );
-
-        // TASK_2026_109 Fix 2: watcher event emission and stopWatching are
-        // no-ops now. Background completion is observed solely via
-        // SubagentRegistryService transitions.
-
-        // Mark as background_completed (deletes from registry)
         this.subagentRegistry.update(resolvedToolCallId, {
           status: 'background_completed',
           completedAt: Date.now(),
         });
       } else {
-        // Foreground agent - normal completion flow
-        // TASK_2026_109 Fix 2: stopWatching is a no-op (watcher stub).
-
-        // TASK_2025_103: Mark subagent as completed in registry
         if (resolvedToolCallId) {
           this.subagentRegistry.update(resolvedToolCallId, {
             status: 'completed',
@@ -396,14 +328,11 @@ export class SubagentHookHandler {
         },
       );
     } catch (error) {
-      // CRITICAL: Never throw from hooks - it would break SDK
       this.logger.error(
         '[SubagentHookHandler] Error in SubagentStop hook',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-
-    // Always return continue: true to not block SDK
     return { continue: true };
   }
 

@@ -18,14 +18,11 @@
  * - git:remotes          - List configured remotes
  * - git:lastCommit       - Get the last commit details for a ref
  *
- * TASK_2025_227 Batch 2: Git info bar + worktree management.
- * TASK_2026_104 Sub-batch B5b: Lifted from `apps/ptah-electron/...` into the
+ * Lifted from `apps/ptah-electron/...` into the
  * shared `rpc-handlers` library so all hosts (Electron, CLI, and the VS Code
  * extension if it registers `TOKENS.GIT_INFO_SERVICE`) can serve `git:*`
- * uniformly. The handler now reads `GitInfoService` from the shared
- * `vscode-core` library and resolves it via `TOKENS.GIT_INFO_SERVICE`
- * (no more `ELECTRON_TOKENS` dependency).
- * TASK_2026_111 Batch 2: Branches, checkout, stash, tags, remotes, last-commit.
+ * uniformly. The handler reads `GitInfoService` from the shared
+ * `vscode-core` library and resolves it via `TOKENS.GIT_INFO_SERVICE`.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -107,13 +104,11 @@ export class GitRpcHandlers {
     this.registerGitWorktrees();
     this.registerAddWorktree();
     this.registerRemoveWorktree();
-    // Source control methods (TASK_2025_273)
     this.registerGitStage();
     this.registerGitUnstage();
     this.registerGitDiscard();
     this.registerGitCommit();
     this.registerGitShowFile();
-    // Branch/tag/remote/stash methods (TASK_2026_111)
     this.registerGitBranches();
     this.registerGitCheckout();
     this.registerGitStashList();
@@ -235,10 +230,6 @@ export class GitRpcHandlers {
     });
   }
 
-  // ==========================================================================
-  // Source Control Handlers (TASK_2025_273)
-  // ==========================================================================
-
   /**
    * git:stage - Stage files in the git index.
    */
@@ -348,10 +339,6 @@ export class GitRpcHandlers {
       },
     );
   }
-
-  // ==========================================================================
-  // Branch, Checkout, Stash, Tag, Remote, Last-Commit Handlers (TASK_2026_111)
-  // ==========================================================================
 
   /**
    * git:branches - List local (and optionally remote) branches with ahead/behind counts.

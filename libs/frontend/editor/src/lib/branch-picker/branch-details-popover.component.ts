@@ -26,8 +26,6 @@ import { GitBranchesService } from '../services/git-branches.service';
  * Lazy fetches: when `isOpen` becomes true, this component asks
  * `GitBranchesService` to refresh remotes (and tags) so the data is fresh
  * without paying the cost on every status update.
- *
- * Wave: TASK_2026_111 Batch 4.
  */
 @Component({
   selector: 'ptah-branch-details-popover',
@@ -134,18 +132,10 @@ export class BranchDetailsPopoverComponent {
   readonly isOpen = input.required<boolean>();
   readonly closed = output<void>();
 
-  // ============================================================================
-  // ICONS
-  // ============================================================================
-
   protected readonly GitBranchIcon = GitBranch;
   protected readonly GitCommitIcon = GitCommit;
   protected readonly GlobeIcon = Globe;
   protected readonly DatabaseIcon = Database;
-
-  // ============================================================================
-  // DATA
-  // ============================================================================
 
   protected readonly stashCount = this.gitBranches.stashCount;
   protected readonly lastCommit = this.gitBranches.lastCommit;
@@ -155,18 +145,12 @@ export class BranchDetailsPopoverComponent {
   });
 
   constructor() {
-    // Lazy refresh when the popover opens — keeps the hot status-bar refresh
-    // path cheap and only pulls remotes/tags on-demand.
     effect(() => {
       if (this.isOpen()) {
         void this.gitBranches.refreshRemotes();
       }
     });
   }
-
-  // ============================================================================
-  // OUTSIDE-CLICK
-  // ============================================================================
 
   onDocumentClick(event: MouseEvent): void {
     if (!this.isOpen()) return;
@@ -178,10 +162,6 @@ export class BranchDetailsPopoverComponent {
       this.closed.emit();
     }
   }
-
-  // ============================================================================
-  // FORMATTING
-  // ============================================================================
 
   /**
    * Convert a Unix-ms timestamp into a short relative-time string. Mirrors

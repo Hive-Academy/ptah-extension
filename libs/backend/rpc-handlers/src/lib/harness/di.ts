@@ -1,5 +1,5 @@
 /**
- * Harness sub-service DI registration (Wave C7d).
+ * Harness sub-service DI registration.
  *
  * Registers all extracted harness services + the stream broadcaster as
  * tsyringe singletons bound to the tokens in `./tokens.ts`.
@@ -37,7 +37,6 @@ import { HarnessChatService } from './ai/harness-chat.service';
 export { HARNESS_TOKENS } from './tokens';
 
 export function registerHarnessServices(container: DependencyContainer): void {
-  // Leaf-level services (no sibling harness deps) first.
   container.registerSingleton(
     HARNESS_TOKENS.STREAM_BROADCASTER,
     HarnessStreamBroadcaster,
@@ -50,13 +49,9 @@ export function registerHarnessServices(container: DependencyContainer): void {
     HARNESS_TOKENS.PROMPT_BUILDER,
     HarnessPromptBuilderService,
   );
-
-  // Services that depend on the leaf trio above.
   container.registerSingleton(HARNESS_TOKENS.CONFIG_STORE, HarnessConfigStore);
   container.registerSingleton(HARNESS_TOKENS.IO_FS, HarnessFsService);
   container.registerSingleton(HARNESS_TOKENS.LLM_RUNNER, HarnessLlmRunner);
-
-  // AI services depend on stream broadcaster + workspace context + llm runner.
   container.registerSingleton(
     HARNESS_TOKENS.SUGGESTION,
     HarnessSuggestionService,

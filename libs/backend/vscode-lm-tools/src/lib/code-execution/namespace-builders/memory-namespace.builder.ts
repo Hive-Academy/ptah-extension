@@ -8,9 +8,8 @@
  * without SQLite support). Following the established pattern from
  * `agent-namespace.builder.ts` and `git-namespace.builder.ts`.
  *
- * TASK_2026_THOTH_MEMORY_READ
- * TASK_2026_122 (follow-up B): added workspace-scope option bag to ptah.memory.search
- * TASK_2026_122 (Critical Issue 1): Zod validation at MCP boundary for MemorySearchOptions
+ * Workspace-scope option bag is supported on ptah.memory.search.
+ * Zod validation is applied at the MCP boundary for MemorySearchOptions.
  */
 
 import { z } from 'zod';
@@ -122,7 +121,6 @@ function resolveSearchScope(
   noWorkspaceFallback: boolean;
   validatedOpts: MemorySearchOptions | undefined;
 } {
-  // Backward-compat: positional number or undefined → global search
   if (
     optionsOrMaxResults === undefined ||
     typeof optionsOrMaxResults === 'number'
@@ -134,8 +132,6 @@ function resolveSearchScope(
       validatedOpts: undefined,
     };
   }
-
-  // Non-object values (string, null, array, boolean, etc.) → treat as no opts
   if (
     optionsOrMaxResults === null ||
     typeof optionsOrMaxResults !== 'object' ||
@@ -148,11 +144,8 @@ function resolveSearchScope(
       validatedOpts: undefined,
     };
   }
-
-  // Object input: validate at the MCP boundary via Zod before touching any fields
   const parsed = MemorySearchOptionsSchema.safeParse(optionsOrMaxResults);
   if (!parsed.success) {
-    // Invalid shape (e.g. workspaceRoot: 123, maxResults: -1) → treat as no opts
     return {
       workspaceRoot: undefined,
       scope: 'global',
@@ -162,10 +155,7 @@ function resolveSearchScope(
   }
 
   const opts = parsed.data;
-
-  // Explicit absolute path wins over workspace flag
   if (opts.workspaceRoot !== undefined) {
-    // workspaceRoot already passed min(1) so it is a non-empty string
     return {
       workspaceRoot: opts.workspaceRoot,
       scope: 'workspace',
@@ -177,7 +167,6 @@ function resolveSearchScope(
   if (opts.workspace === true) {
     const root = getWorkspaceRoot();
     if (!root) {
-      // No active workspace — fall back to global with a hint
       return {
         workspaceRoot: undefined,
         scope: 'global',
@@ -192,8 +181,6 @@ function resolveSearchScope(
       validatedOpts: opts,
     };
   }
-
-  // Options bag supplied but neither workspace nor workspaceRoot → global
   return {
     workspaceRoot: undefined,
     scope: 'global',
@@ -225,8 +212,6 @@ export function buildMemoryNamespace(
 
       const { workspaceRoot, scope, noWorkspaceFallback, validatedOpts } =
         resolveSearchScope(optionsOrMaxResults, getWorkspaceRoot);
-
-      // Resolve maxResults — positional number wins; validated opts bag next; then default
       const maxResults =
         typeof optionsOrMaxResults === 'number'
           ? optionsOrMaxResults

@@ -53,7 +53,6 @@ export class EventsController implements OnModuleDestroy {
     private readonly ticketService: TicketService,
     @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
-    // Configure heartbeat interval from env or default to 30 seconds
     this.heartbeatInterval =
       this.configService.get<number>('SSE_HEARTBEAT_INTERVAL') || 30000;
   }
@@ -83,8 +82,6 @@ export class EventsController implements OnModuleDestroy {
         'Authentication ticket is required. Obtain one from POST /auth/stream/ticket',
       );
     }
-
-    // Validate and consume the ticket (single-use)
     const ticketData = await this.ticketService.validate(ticket);
 
     if (!ticketData) {
@@ -92,8 +89,6 @@ export class EventsController implements OnModuleDestroy {
         'Invalid or expired ticket. Please obtain a new one from POST /auth/stream/ticket',
       );
     }
-
-    // Extract user email from ticket data
     const email = ticketData.email?.toLowerCase();
 
     if (!email) {
@@ -102,8 +97,6 @@ export class EventsController implements OnModuleDestroy {
     }
 
     this.logger.log(`SSE connection established for: ${email}`);
-
-    // Create connection event
     const connectionEvent: ConnectionEvent = {
       type: 'connected',
       timestamp: new Date().toISOString(),
@@ -111,14 +104,10 @@ export class EventsController implements OnModuleDestroy {
         message: 'Connected to Ptah real-time events',
       },
     };
-
-    // Initial connection message
     const connectionMessage: MessageEvent<string> = {
       data: JSON.stringify(connectionEvent),
       type: 'connected',
     } as MessageEvent<string>;
-
-    // Heartbeat stream
     const heartbeat$ = interval(this.heartbeatInterval).pipe(
       map(
         () =>
@@ -132,20 +121,13 @@ export class EventsController implements OnModuleDestroy {
           }) as MessageEvent<string>,
       ),
     );
-
-    // User-specific event stream
     const userEvents$ = this.eventsService.getEventStream(email);
-
-    // Merge all streams with cleanup on disconnect
     return merge(
-      // Send connection event immediately
       new Observable<MessageEvent<string>>((subscriber) => {
         subscriber.next(connectionMessage);
         subscriber.complete();
       }),
-      // Heartbeat stream
       heartbeat$,
-      // User events
       userEvents$,
     ).pipe(
       finalize(() => {

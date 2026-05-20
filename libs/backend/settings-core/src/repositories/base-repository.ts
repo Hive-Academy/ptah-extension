@@ -47,7 +47,6 @@ export class BaseSettingsRepository {
           const parsed = def.schema.safeParse(raw);
           cb(parsed.success ? parsed.data : def.default);
         });
-        // Fire immediately with the current value.
         const current = store.readGlobal<unknown>(def.key);
         const parsedCurrent = def.schema.safeParse(current);
         cb(parsedCurrent.success ? parsedCurrent.data : def.default);

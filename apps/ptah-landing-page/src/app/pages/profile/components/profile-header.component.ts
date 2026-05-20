@@ -203,16 +203,12 @@ export class ProfileHeaderComponent {
 
   /** License data input */
   public readonly license = input<LicenseData | null>(null);
-
-  // Animation config
   public readonly cardConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,
     threshold: 0.1,
     ease: 'power2.out',
   };
-
-  // Computed signals for derived state
   public readonly userInitials = computed(() => {
     const user = this.license()?.user;
     if (user?.firstName && user?.lastName) {
@@ -248,7 +244,6 @@ export class ProfileHeaderComponent {
   }
 
   public getPlanBadgeClass(): string {
-    // Trial ended = show error badge
     if (this.isTrialEnded()) return 'badge-error';
 
     const plan = this.license()?.plan;
@@ -267,7 +262,6 @@ export class ProfileHeaderComponent {
   }
 
   public getStatusBadgeClass(): string {
-    // Trial ended = expired state
     if (this.isTrialEnded()) return 'badge-error';
 
     const status = this.license()?.status;
@@ -277,7 +271,6 @@ export class ProfileHeaderComponent {
   }
 
   public getStatusLabel(): string {
-    // Trial ended = show Expired
     if (this.isTrialEnded()) return 'Expired';
 
     const status = this.license()?.status;

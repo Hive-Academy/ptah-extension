@@ -1,5 +1,5 @@
 /**
- * Parity test for the CLI Agent RPC Handlers — TASK_2026_104 B7.
+ * Parity test for the CLI Agent RPC Handlers.
  *
  * Asserts that `CliAgentRpcHandlers` re-registers the same seven `agent:*`
  * methods as the Electron `AgentRpcHandlers`, in the same registration order.
@@ -15,12 +15,17 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
 
+jest.mock('fs/promises', () => ({
+  readdir: jest.fn().mockResolvedValue([]),
+  access: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { CliAgentRpcHandlers } from './cli-agent-rpc.handlers.js';
 // Cross-app parity import: the Electron `AgentRpcHandlers` is the source of
 // truth for the agent RPC surface. Importing it here ensures any drift in
 // either tuple fails this test before the apps diverge in production. The
 // `@nx/enforce-module-boundaries` rule normally rejects cross-app imports,
-// but parity guards are the documented exception (TASK_2026_104 B7).
+// but parity guards are the documented exception.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { AgentRpcHandlers } from '../../../../../ptah-electron/src/services/rpc/handlers/agent-rpc.handlers.js';
 
@@ -127,6 +132,11 @@ function buildHandler<T extends new (...args: never[]) => unknown>(
   const workspace = buildWorkspaceProviderStub();
   const storage = buildStateStorageStub();
 
+  const runtimeContainer = {
+    isRegistered: jest.fn(() => false),
+    resolve: jest.fn(),
+  };
+
   const instance = new (Ctor as unknown as new (
     logger: unknown,
     rpc: unknown,
@@ -136,6 +146,7 @@ function buildHandler<T extends new (...args: never[]) => unknown>(
     sessionMetadata: unknown,
     workspace: unknown,
     storage: unknown,
+    runtimeContainer: unknown,
   ) => InstanceType<T>)(
     new StubLogger(),
     rpc,
@@ -145,6 +156,7 @@ function buildHandler<T extends new (...args: never[]) => unknown>(
     sessionMetadata,
     workspace,
     storage,
+    runtimeContainer,
   );
 
   return {

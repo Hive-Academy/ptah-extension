@@ -10,7 +10,7 @@
  *   - "Duration: 2.3s" or "duration_ms: 2300"
  *   - "Total tokens: 1801"
  *
- * TASK_2025_177: Uses CliAgentStats as the unified stats type.
+ * Uses CliAgentStats as the unified stats type.
  */
 
 import type { CliAgentStats, StatsSegment } from './stats-bar.utils';
@@ -28,7 +28,7 @@ export type GeminiStats = CliAgentStats;
  * @returns Parsed CliAgentStats or null if no recognizable stats found
  */
 export function extractGeminiStats(
-  infoSegments: readonly StatsSegment[]
+  infoSegments: readonly StatsSegment[],
 ): CliAgentStats | null {
   if (infoSegments.length === 0) return null;
 
@@ -40,22 +40,16 @@ export function extractGeminiStats(
   for (const seg of infoSegments) {
     const content = seg.content;
     if (!content) continue;
-
-    // Split by newlines to handle multi-line info segments
     const lines = content.split('\n');
 
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-
-      // Model patterns: "Model: gemini-2.0-flash", "model: gemini-2.5-pro"
       const modelMatch = trimmed.match(/^model\s*:\s*(.+)$/i);
       if (modelMatch && !model) {
         model = modelMatch[1].trim();
         continue;
       }
-
-      // Input tokens: "Input tokens: 1234", "input: 1234 tokens", "Input: 1234"
       const inputMatch =
         trimmed.match(/input\s*(?:tokens)?\s*:\s*(\d[\d,]*)/i) ??
         trimmed.match(/input\s*:\s*(\d[\d,]*)\s*tokens?/i);
@@ -63,8 +57,6 @@ export function extractGeminiStats(
         inputTokens = parseTokenCount(inputMatch[1]);
         continue;
       }
-
-      // Output tokens: "Output tokens: 567", "output: 567 tokens", "Output: 567"
       const outputMatch =
         trimmed.match(/output\s*(?:tokens)?\s*:\s*(\d[\d,]*)/i) ??
         trimmed.match(/output\s*:\s*(\d[\d,]*)\s*tokens?/i);
@@ -72,22 +64,17 @@ export function extractGeminiStats(
         outputTokens = parseTokenCount(outputMatch[1]);
         continue;
       }
-
-      // Total tokens (fallback for input if no separate input/output)
       const totalMatch = trimmed.match(/total\s*(?:tokens)?\s*:\s*(\d[\d,]*)/i);
       if (
         totalMatch &&
         inputTokens === undefined &&
         outputTokens === undefined
       ) {
-        // Store as inputTokens as a rough indicator when no breakdown is available
         inputTokens = parseTokenCount(totalMatch[1]);
         continue;
       }
-
-      // Duration: "Duration: 2.3s", "duration_ms: 2300", "Duration: 2300ms"
       const durationSecsMatch = trimmed.match(
-        /duration\s*:\s*(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?$/i
+        /duration\s*:\s*(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?$/i,
       );
       if (durationSecsMatch && durationMs === undefined) {
         durationMs = Math.round(parseFloat(durationSecsMatch[1]) * 1000);
@@ -95,7 +82,7 @@ export function extractGeminiStats(
       }
 
       const durationMsMatch = trimmed.match(
-        /duration(?:_ms)?\s*:\s*(\d+)\s*ms/i
+        /duration(?:_ms)?\s*:\s*(\d+)\s*ms/i,
       );
       if (durationMsMatch && durationMs === undefined) {
         durationMs = parseInt(durationMsMatch[1], 10);
@@ -103,8 +90,6 @@ export function extractGeminiStats(
       }
     }
   }
-
-  // Return null if nothing was extracted
   if (
     inputTokens === undefined &&
     outputTokens === undefined &&

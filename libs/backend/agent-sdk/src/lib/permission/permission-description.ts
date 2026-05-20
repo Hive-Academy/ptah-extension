@@ -1,7 +1,7 @@
 /**
  * Permission Description Helpers — pure functions.
  *
- * Extracted from `sdk-permission-handler.ts` as part of TASK_2025_291 Wave C7a.
+ * Extracted from `sdk-permission-handler.ts` as .
  * Contains:
  *   - `generateDescription()` — human-readable tool description for the UI prompt.
  *   - `sanitizeToolInput()` — redacts secrets from tool inputs before display.
@@ -10,6 +10,7 @@
  * Pure functions; no DI, no state. Library-internal.
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import {
   isBashToolInput,
   isEditToolInput,
@@ -32,7 +33,6 @@ export function generateDescription(
   toolName: string,
   input: Record<string, unknown>,
 ): string {
-  // Handle MCP tools (format: mcp__server-name__tool-name)
   if (isMcpTool(toolName)) {
     const parts = toolName.split('__');
     if (parts.length >= 3) {
@@ -146,14 +146,11 @@ export function sanitizeToolInput(
   }
 
   const sanitized = { ...input };
-
-  // Sanitize environment variables
   const env = sanitized['env'];
   if (env && typeof env === 'object' && !Array.isArray(env)) {
     const envRecord = env as Record<string, unknown>;
     sanitized['env'] = Object.keys(envRecord).reduce(
       (acc, key) => {
-        // Redact keys that likely contain secrets
         const isSecret =
           key.toUpperCase().includes('KEY') ||
           key.toUpperCase().includes('TOKEN') ||
@@ -167,11 +164,8 @@ export function sanitizeToolInput(
       {} as Record<string, unknown>,
     );
   }
-
-  // Sanitize command strings that might contain secrets
   const command = sanitized['command'];
   if (command && typeof command === 'string') {
-    // Simple heuristic: if command contains key-like patterns, warn user
     if (
       command.includes('KEY=') ||
       command.includes('TOKEN=') ||
@@ -185,9 +179,6 @@ export function sanitizeToolInput(
   return sanitized;
 }
 
-/**
- * Generate unique request ID
- */
 export function generateRequestId(): string {
-  return `perm_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return uuidv4();
 }

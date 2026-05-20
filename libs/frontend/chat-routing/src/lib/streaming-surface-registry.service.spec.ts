@@ -1,5 +1,5 @@
 /**
- * StreamingSurfaceRegistry specs — TASK_2026_107 Phase 2.
+ * StreamingSurfaceRegistry specs.
  *
  * What is in scope:
  *   - register / unregister / getAdapter happy paths
@@ -58,7 +58,7 @@ function makeSurface(): SurfaceProbe {
 
 // ---------- Suite ----------------------------------------------------------
 
-describe('StreamingSurfaceRegistry (TASK_2026_107 Phase 2)', () => {
+describe('StreamingSurfaceRegistry', () => {
   let registry: StreamingSurfaceRegistry;
 
   beforeEach(() => {

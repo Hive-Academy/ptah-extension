@@ -57,20 +57,14 @@ export class SdkStreamProcessor {
     const { emitter, timeout, phaseTracker, logger, serviceTag } = this.config;
     const toolCallIdFactory =
       this.config.toolCallIdFactory ?? ((_, __, id) => id);
-
-    // Throttle state
     let lastTextEmit = 0;
     let lastThinkingEmit = 0;
-
-    // Tool tracking state
     let toolCallCount = 0;
     const activeToolBlocks = new Map<
       number,
       { name: string; inputBuffer: string; toolCallId: string }
     >();
     const completedToolNames = new Map<string, string>();
-
-    // Timeout setup
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     if (timeout) {
       timeoutId = setTimeout(() => {
@@ -81,9 +75,6 @@ export class SdkStreamProcessor {
 
     try {
       for await (const message of stream) {
-        // =============================================================
-        // Result message — extract structured_output
-        // =============================================================
         if (message.type === 'result') {
           if (timeoutId !== undefined) clearTimeout(timeoutId);
 
@@ -102,22 +93,15 @@ export class SdkStreamProcessor {
               inputTokens: message.usage.input_tokens,
               outputTokens: message.usage.output_tokens,
             };
-
-            // When skipStructuredOutput is set (e.g., multi-phase markdown pipeline),
-            // skip JSON extraction entirely — the caller captures text via its own mechanism.
             if (this.config.skipStructuredOutput) {
               return { structuredOutput: null, resultMeta };
             }
-
-            // Primary: SDK structured output
             if (message.structured_output) {
               return {
                 structuredOutput: message.structured_output,
                 resultMeta,
               };
             }
-
-            // Fallback: parse from result text
             if (message.result) {
               logger.warn(
                 `${serviceTag} No structured_output, falling back to text parsing`,
@@ -136,8 +120,6 @@ export class SdkStreamProcessor {
 
             return { structuredOutput: null, resultMeta };
           }
-
-          // Error result
           const errorResult = message as {
             subtype: string;
             errors?: string[];
@@ -148,16 +130,9 @@ export class SdkStreamProcessor {
           });
           return { structuredOutput: null };
         }
-
-        // =============================================================
-        // Stream events — live UI updates
-        // =============================================================
         if (message.type === 'stream_event') {
           const event = message.event;
-
-          // Content block deltas
           if (isContentBlockDelta(event)) {
-            // Text delta
             if (isTextDelta(event.delta)) {
               const now = Date.now();
               if (now - lastTextEmit >= THROTTLE_MS) {
@@ -172,16 +147,12 @@ export class SdkStreamProcessor {
                 }
               }
             }
-
-            // JSON input accumulation
             if (isInputJsonDelta(event.delta)) {
               const activeBlock = activeToolBlocks.get(event.index);
               if (activeBlock) {
                 activeBlock.inputBuffer += event.delta.partial_json;
               }
             }
-
-            // Thinking delta
             if (isThinkingDelta(event.delta)) {
               const now = Date.now();
               if (now - lastThinkingEmit >= THROTTLE_MS) {
@@ -196,8 +167,6 @@ export class SdkStreamProcessor {
               }
             }
           }
-
-          // Tool use start
           if (
             isContentBlockStart(event) &&
             event.content_block.type === 'tool_use'
@@ -224,8 +193,6 @@ export class SdkStreamProcessor {
               timestamp: Date.now(),
             });
           }
-
-          // Tool use stop
           if (isContentBlockStop(event)) {
             const completedBlock = activeToolBlocks.get(event.index);
             if (completedBlock) {
@@ -250,20 +217,12 @@ export class SdkStreamProcessor {
             }
           }
         }
-
-        // =============================================================
-        // Assistant messages — log only
-        // =============================================================
         if (message.type === 'assistant') {
           logger.debug(`${serviceTag} Assistant message`, {
             contentBlocks: message.message.content.length,
             stopReason: message.message.stop_reason,
           });
         }
-
-        // =============================================================
-        // Tool results from user messages
-        // =============================================================
         if (message.type === 'user') {
           const content = (message as { message?: { content?: unknown } })
             .message?.content;
@@ -308,7 +267,7 @@ export class SdkStreamProcessor {
     try {
       emitter.emit(event);
     } catch {
-      // Fire-and-forget: swallow callback errors
+      return;
     }
   }
 }

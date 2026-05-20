@@ -76,6 +76,18 @@ describe('SkillSynthesisService', () => {
         reused: false,
       })),
       updateStatus: jest.fn(() => fakeRow({ status: 'rejected' })),
+      recordInvocation: jest.fn(() => ({
+        invocation: {
+          id: 'inv_1',
+          skillId: 'cand_existing',
+          sessionId: 's1',
+          succeeded: true,
+          invokedAt: 1,
+          notes: null,
+          contextId: 'ctx_1',
+        },
+        candidate: fakeRow(),
+      })),
     } as unknown as jest.Mocked<SkillCandidateStore>;
     const md = {
       candidatesRoot: jest.fn(() => '/tmp/cands'),

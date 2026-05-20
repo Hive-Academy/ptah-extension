@@ -1,25 +1,25 @@
 /**
- * Bug 8 — `--key` flag normalisation: commander may surface a repeated
+ * `--key` flag normalisation: commander may surface a repeated
  * `--key` flag as a `string[]`; the CLI must coerce to the first element
  * so the downstream RPC sees a raw string (not `['abc']`).
  *
- * Bug 9 (commit `5dd76fd0`) — cold-start license cache hydration: the
- * `LicenseCache` must hydrate from the persisted snapshot in
- * `~/.ptah/global-state.json` (key `ptah.licenseCache`) on cold start so
- * `license get` reflects the previously-stored tier without waiting for
- * a server round-trip.
+ * Cold-start license cache hydration: the `LicenseCache` must hydrate from
+ * the persisted snapshot in `~/.ptah/global-state.json` (key
+ * `ptah.licenseCache`) on cold start so `license get` reflects the
+ * previously-stored tier without waiting for a server round-trip.
  *
  * The `license:setKey` RPC contacts the production license server, which
- * will reject `sk-ant-e2e-fake-key-not-real-do-not-call-upstream` with a
- * 4xx response. Bug 8 is observable BEFORE that round-trip via the CLI's
- * stderr trace and the absence of a `usage_error` exit. We therefore
- * assert the absence of the pre-fix symptom (stderr containing
- * `["ptah_lic_...]"` or "TypeError"), not server success.
+ * will reject the fake key with a 4xx response. The normalization is
+ * observable BEFORE that round-trip via the CLI's stderr trace and the
+ * absence of a `usage_error` exit. We therefore assert the absence of the
+ * pre-fix symptom (stderr containing `["ptah_lic_...]"` or "TypeError"),
+ * not server success.
  *
- * Bug 9 is direct: pre-seed `global-state.json`, run `license status`,
- * assert the persisted tier appears in the `license.status` notification
- * BEFORE any network call could complete. The pre-fix code returned
- * `tier: 'free'` cold; post-fix it returns the persisted snapshot.
+ * Cold-start hydration is direct: pre-seed `global-state.json`, run
+ * `license status`, assert the persisted tier appears in the
+ * `license.status` notification BEFORE any network call could complete.
+ * The pre-fix code returned `tier: 'free'` cold; post-fix it returns the
+ * persisted snapshot.
  */
 
 import * as path from 'node:path';
@@ -148,7 +148,7 @@ describe('license CLI flag handling + cold-start cache (Bug 8 + Bug 9)', () => {
     );
     expect(note).toBeTruthy();
     // The persisted tier must surface in the notification — cold start
-    // hydration proves Bug 9's fix is live. The serialized payload may
+    // hydration proves the fix is live. The serialized payload may
     // nest the value differently, so we scan the JSON for 'pro'.
     const haystack = JSON.stringify(note!.params).toLowerCase();
     expect(haystack).toContain('pro');

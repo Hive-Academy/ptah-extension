@@ -1,7 +1,7 @@
 import { test, expect } from '../support/fixtures';
 
 /**
- * Electron native dialog & notification specs (Wave B.B3).
+ * Electron native dialog & notification specs.
  *
  * Targets the dialog usage in:
  *   apps/ptah-electron/src/services/rpc/handlers/file-rpc.handlers.ts

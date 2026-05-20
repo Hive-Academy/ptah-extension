@@ -1,5 +1,5 @@
 {
-  "name": "persistence-sqlite",
+  "name": "@ptah-extension/persistence-sqlite",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/persistence-sqlite/src",

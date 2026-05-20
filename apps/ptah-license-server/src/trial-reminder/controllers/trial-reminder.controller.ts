@@ -71,7 +71,6 @@ export class TrialReminderController {
   async triggerCronJob(
     @Headers('x-admin-secret') adminSecret: string,
   ): Promise<{ success: boolean; message: string }> {
-    // Validate admin secret
     if (!this.adminSecret) {
       throw new UnauthorizedException(
         'Admin endpoints are disabled (ADMIN_SECRET not configured)',
@@ -86,7 +85,6 @@ export class TrialReminderController {
     this.logger.log('Manual trigger requested via admin endpoint');
 
     try {
-      // Call the actual cron job handler
       await this.trialReminderService.triggerManually();
 
       return {

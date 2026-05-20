@@ -1,7 +1,7 @@
 /**
  * PtahCliStateService - Signal-based state management for Ptah CLI agent selection
- * TASK_2025_167 Batch 4: Tracks selected Ptah CLI agent for chat routing
- * TASK_2025_170: Renamed from CustomAgentStateService to PtahCliStateService
+ *
+ * Tracks the selected Ptah CLI agent for chat routing.
  *
  * Manages:
  * - List of enabled Ptah CLI agents (fetched via RPC)
@@ -18,21 +18,17 @@ import type { PtahCliSummary } from '@ptah-extension/shared';
 @Injectable({ providedIn: 'root' })
 export class PtahCliStateService {
   private readonly rpc = inject(ClaudeRpcService);
-
-  // Private mutable signals
   private readonly _agents = signal<PtahCliSummary[]>([]);
   private readonly _selectedAgentId = signal<string | null>(null);
   private readonly _isLoading = signal(false);
   private readonly _isLoaded = signal(false);
-
-  // Public readonly signals
 
   /** All Ptah CLI agents (enabled and disabled) */
   readonly agents = this._agents.asReadonly();
 
   /** Only enabled Ptah CLI agents (shown in agent selector dropdown) */
   readonly enabledAgents = computed(() =>
-    this._agents().filter((a) => a.enabled && a.status === 'available')
+    this._agents().filter((a) => a.enabled && a.status === 'available'),
   );
 
   /** Currently selected Ptah CLI agent ID (null = default provider) */
@@ -40,7 +36,7 @@ export class PtahCliStateService {
 
   /** Whether a Ptah CLI agent is currently selected */
   readonly hasPtahCliSelected = computed(
-    () => this._selectedAgentId() !== null
+    () => this._selectedAgentId() !== null,
   );
 
   /** The selected Ptah CLI agent summary (null if none selected) */
@@ -63,7 +59,6 @@ export class PtahCliStateService {
   readonly isLoaded = this._isLoaded.asReadonly();
 
   constructor() {
-    // Load Ptah CLI agents on initialization
     this.loadAgents();
   }
 
@@ -92,17 +87,15 @@ export class PtahCliStateService {
     try {
       const result = await this.rpc.call(
         'ptahCli:list',
-        {} as Record<string, never>
+        {} as Record<string, never>,
       );
       if (result.isSuccess()) {
         this._agents.set(result.data.agents);
-
-        // If selected agent was deleted or disabled, clear selection
         const selectedId = this._selectedAgentId();
         if (selectedId) {
           const stillValid = result.data.agents.some(
             (a: PtahCliSummary) =>
-              a.id === selectedId && a.enabled && a.status === 'available'
+              a.id === selectedId && a.enabled && a.status === 'available',
           );
           if (!stillValid) {
             this._selectedAgentId.set(null);

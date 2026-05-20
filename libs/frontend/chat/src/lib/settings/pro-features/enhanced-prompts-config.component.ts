@@ -203,14 +203,10 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 })
 export class EnhancedPromptsConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
-
-  // Lucide icons
   readonly SparklesIcon = Sparkles;
   readonly ClockIcon = Clock;
   readonly ArrowLeftIcon = ArrowLeft;
   readonly ExternalLinkIcon = ExternalLink;
-
-  // State signals
   readonly enhancedPromptsStatus =
     signal<EnhancedPromptsGetStatusResponse | null>(null);
   readonly enhancedPromptsLoading = signal(false);
@@ -220,8 +216,6 @@ export class EnhancedPromptsConfigComponent implements OnInit {
   readonly promptPreviewExpanded = signal(false);
   readonly isDownloading = signal(false);
   readonly systemPromptPreset = signal<'claude_code' | 'enhanced'>('enhanced');
-
-  // Computed signals
   readonly enhancedPromptsEnabled = computed(
     () => this.enhancedPromptsStatus()?.enabled ?? false,
   );

@@ -1,13 +1,10 @@
 /**
  * LlmProviderStateService - Signal-Based LLM Provider State Management
- * TASK_2025_155: LLM Provider Configuration UI
- * SDK-only migration: Simplified to vscode-lm only, CLI auth removed
  *
  * Centralizes all LLM provider state: configured providers, default provider selection,
- * and loading/error status.
+ * and loading/error status. Currently limited to vscode-lm (CLI auth removed).
  *
  * Follows AuthStateService signal-based pattern (private _signal, public asReadonly).
- * RPC integration: claude-rpc.service.ts (RpcResult pattern)
  */
 
 import { Injectable, signal, inject, computed } from '@angular/core';
@@ -43,8 +40,6 @@ import { ClaudeRpcService } from './claude-rpc.service';
 export class LlmProviderStateService {
   private readonly rpc = inject(ClaudeRpcService);
 
-  // --- Private mutable signals ---
-
   /** Available LLM providers with their configuration status */
   private readonly _providers = signal<
     Array<{
@@ -79,8 +74,6 @@ export class LlmProviderStateService {
   /** Cached in-flight promise for loadProviderStatus deduplication */
   private _loadPromise: Promise<void> | null = null;
 
-  // --- Public readonly signals ---
-
   /** Available LLM providers with configuration status */
   readonly providers = this._providers.asReadonly();
 
@@ -101,10 +94,8 @@ export class LlmProviderStateService {
 
   /** Available VS Code Language Models for dropdown selection (backward-compatible) */
   readonly vsCodeModels = computed(
-    () => this._providerModels().get('vscode-lm') ?? []
+    () => this._providerModels().get('vscode-lm') ?? [],
   );
-
-  // --- Public methods ---
 
   /**
    * Load provider status from backend.
@@ -116,11 +107,9 @@ export class LlmProviderStateService {
     if (this._isLoaded) {
       return;
     }
-    // Deduplicate concurrent calls: return the same in-flight promise
     if (!this._loadPromise) {
       this._loadPromise = this.fetchProviderStatus()
         .then((success) => {
-          // Only mark as loaded on success (failure leaves _isLoaded false for retry)
           if (success) {
             this._isLoaded = true;
           }
@@ -147,7 +136,6 @@ export class LlmProviderStateService {
    * @param provider - The LLM provider to load models for
    */
   async loadProviderModels(provider: LlmProviderName): Promise<void> {
-    // Track loading state
     const loading = new Set(this._loadingModels());
     loading.add(provider);
     this._loadingModels.set(loading);
@@ -169,7 +157,7 @@ export class LlmProviderStateService {
     } catch (error) {
       console.error(
         `[LlmProviderStateService] loadProviderModels(${provider}) error:`,
-        error
+        error,
       );
     } finally {
       const doneLoading = new Set(this._loadingModels());
@@ -191,7 +179,7 @@ export class LlmProviderStateService {
     try {
       const result = await this.rpc.call(
         'llm:getProviderStatus',
-        {} as Record<string, never>
+        {} as Record<string, never>,
       );
 
       if (result.isSuccess() && result.data) {
@@ -204,7 +192,7 @@ export class LlmProviderStateService {
         this._error.set(errorMsg);
         console.error(
           '[LlmProviderStateService] Failed to load provider status:',
-          errorMsg
+          errorMsg,
         );
         return false;
       }
@@ -216,7 +204,7 @@ export class LlmProviderStateService {
       this._error.set(errorMsg);
       console.error(
         '[LlmProviderStateService] loadProviderStatus error:',
-        error
+        error,
       );
       return false;
     } finally {
@@ -240,7 +228,6 @@ export class LlmProviderStateService {
 
       if (result.isSuccess() && result.data?.success) {
         await this.fetchProviderStatus();
-        // Auto-load available models after key save (validates key + populates dropdown)
         this.loadProviderModels(provider);
         return true;
       }
@@ -250,7 +237,7 @@ export class LlmProviderStateService {
       this._error.set(errorMsg);
       console.error(
         '[LlmProviderStateService] Failed to set API key:',
-        errorMsg
+        errorMsg,
       );
       return false;
     } catch (error) {
@@ -285,7 +272,7 @@ export class LlmProviderStateService {
       this._error.set(errorMsg);
       console.error(
         '[LlmProviderStateService] Failed to remove API key:',
-        errorMsg
+        errorMsg,
       );
       return false;
     } catch (error) {
@@ -307,7 +294,7 @@ export class LlmProviderStateService {
    */
   async setDefaultModel(
     provider: LlmProviderName,
-    model: string
+    model: string,
   ): Promise<boolean> {
     this._error.set('');
 
@@ -324,14 +311,13 @@ export class LlmProviderStateService {
 
       const rawError =
         result.data?.error || result.error || 'Failed to set default model';
-      // Provide a friendlier message for VS Code settings-write conflict
       const errorMsg = rawError.includes('unsaved changes')
         ? 'Could not save model — please save and close your VS Code settings file, then try again.'
         : rawError;
       this._error.set(errorMsg);
       console.error(
         '[LlmProviderStateService] Failed to set default model:',
-        rawError
+        rawError,
       );
       return false;
     } catch (error) {
@@ -368,7 +354,7 @@ export class LlmProviderStateService {
       this._error.set(errorMsg);
       console.error(
         '[LlmProviderStateService] Failed to set default provider:',
-        errorMsg
+        errorMsg,
       );
       return false;
     } catch (error) {
@@ -379,7 +365,7 @@ export class LlmProviderStateService {
       this._error.set(errorMsg);
       console.error(
         '[LlmProviderStateService] setDefaultProvider error:',
-        error
+        error,
       );
       return false;
     }

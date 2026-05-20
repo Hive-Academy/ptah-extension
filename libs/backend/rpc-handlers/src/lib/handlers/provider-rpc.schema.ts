@@ -1,10 +1,10 @@
 /**
  * Zod schemas for {@link ProviderRpcHandlers}.
  *
- * Extracted from `provider-rpc.handlers.ts` (TASK_2025_294 W2.B2) so the
- * schemas can be unit-tested in isolation without spinning up the full
- * handler surface, and so call-site code stays focused on RPC plumbing
- * rather than validation shape.
+ * Extracted from `provider-rpc.handlers.ts` so the schemas can be
+ * unit-tested in isolation without spinning up the full handler surface,
+ * and so call-site code stays focused on RPC plumbing rather than
+ * validation shape.
  *
  * IMPORTANT — extraction contract:
  *   - The parse behaviour here MUST match the inline `z.object({...})`

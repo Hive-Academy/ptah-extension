@@ -4,9 +4,9 @@
  * A standalone dropdown component for selecting Claude agents and custom agents.
  * Separated from @ trigger to provide cleaner UX - @ is now for files/folders only.
  *
- * TASK_2025_167: Extended to show custom agents alongside built-in agents.
- * Ptah CLI agents are fetched from PtahCliStateService and displayed in a
- * separate section with provider badges and a "clear" option.
+ * Shows custom agents alongside built-in agents. Ptah CLI agents are fetched
+ * from PtahCliStateService and displayed in a separate section with provider
+ * badges and a "clear" option.
  *
  * Pattern: Signal-based state from AgentDiscoveryFacade + PtahCliStateService
  * UI: NativeDropdownComponent from @ptah-extension/ui with Floating UI positioning
@@ -142,29 +142,18 @@ import {
 export class AgentSelectorComponent implements OnInit {
   private readonly agentDiscovery = inject(AgentDiscoveryFacade);
   private readonly keyboardNav = inject(KeyboardNavigationService);
-
-  // Lucide icons
   readonly UsersIcon = Users;
   readonly ChevronDownIcon = ChevronDown;
-
-  // Output events
   readonly agentSelected = output<string>();
-
-  // Local state
   private readonly _isLoading = signal(false);
   private readonly _agents = signal<AgentSuggestion[]>([]);
   private readonly _isOpen = signal(false);
-
-  // Public signals
   readonly isLoading = this._isLoading.asReadonly();
   readonly agents = this._agents.asReadonly();
   readonly isOpen = this._isOpen.asReadonly();
-
-  // Keyboard navigation - expose activeIndex for template
   readonly activeIndex = this.keyboardNav.activeIndex;
 
   ngOnInit(): void {
-    // Pre-load agents on component init for better UX
     this.preloadAgents();
   }
 
@@ -191,8 +180,6 @@ export class AgentSelectorComponent implements OnInit {
       this.closeDropdown();
       return;
     }
-
-    // Load agents if not already loaded
     if (this._agents().length === 0) {
       this._isLoading.set(true);
       try {

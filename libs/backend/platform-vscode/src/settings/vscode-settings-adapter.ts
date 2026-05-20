@@ -17,9 +17,6 @@
  * Secret operations are backed by SecretsFileStore (AES-256-GCM in
  * ~/.ptah/secrets.enc.json) with the master key from VscodeMasterKeyProvider
  * (which uses vscode.SecretStorage — OS keychain backed).
- *
- * WP-2B: Platform adapter creation.
- * WP-4A: Secret storage implementation.
  */
 
 import type {
@@ -70,10 +67,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     this.secretsStore = secretsStore;
   }
 
-  // ---------------------------------------------------------------------------
-  // Global settings — routed between fileSettings and VS Code configuration
-  // ---------------------------------------------------------------------------
-
   readGlobal<T>(key: string): T | undefined {
     if (isFileBasedSettingKey(key)) {
       return this.workspaceProvider.fileSettings.get<T>(key);
@@ -90,10 +83,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
       .getConfiguration('ptah')
       .update(key, value, this.vscode.ConfigurationTarget.Global);
   }
-
-  // ---------------------------------------------------------------------------
-  // Secret storage — AES-256-GCM via SecretsFileStore
-  // ---------------------------------------------------------------------------
 
   /**
    * Read a secret from the encrypted secrets file.
@@ -120,10 +109,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     await this.secretsStore.delete(key);
   }
 
-  // ---------------------------------------------------------------------------
-  // Watchers
-  // ---------------------------------------------------------------------------
-
   /**
    * Subscribe to changes on a global setting key.
    *
@@ -139,8 +124,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     if (isFileBasedSettingKey(key)) {
       return this.workspaceProvider.fileSettings.watch(key, cb);
     }
-
-    // VS Code configuration watcher
     const fullKey = `ptah.${key}`;
     const disposable = this.vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration(fullKey)) {
@@ -155,19 +138,14 @@ export class VscodeSettingsAdapter implements ISettingsStore {
 
   /**
    * Subscribe to changes on a secret key.
-   * Phase 5: cross-process secret change notifications via vscode.SecretStorage.onDidChange.
    */
   watchSecret(_key: string, _cb: () => void): IDisposable {
     return {
       dispose: () => {
-        /* Phase 5: vscode.SecretStorage.onDidChange integration */
+        /* vscode.SecretStorage.onDidChange integration */
       },
     };
   }
-
-  // ---------------------------------------------------------------------------
-  // Flush
-  // ---------------------------------------------------------------------------
 
   /**
    * Flush both file-based settings and the secrets file synchronously.
@@ -180,10 +158,6 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     this.workspaceProvider.fileSettings.flushSync();
     this.secretsStore.flushSync(this.cachedMasterKey);
   }
-
-  // ---------------------------------------------------------------------------
-  // Internal
-  // ---------------------------------------------------------------------------
 
   private async getAndCacheMasterKey(): Promise<Buffer> {
     if (!this.cachedMasterKey) {

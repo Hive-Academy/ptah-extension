@@ -6,10 +6,7 @@
  * PLATFORM_TOKENS.WORKSPACE_PROVIDER) and BEFORE any library that resolves
  * settings repositories.
  *
- * Called from WP-3C (app-level bootstrap). NOT called here.
- *
- * WP-2B: Platform adapter creation.
- * WP-4A: Master key provider + SecretsFileStore wiring.
+ * Called from app-level bootstrap. NOT called here.
  */
 
 import * as os from 'os';
@@ -55,17 +52,9 @@ import type { IUserInteraction } from '@ptah-extension/platform-core';
  */
 export function registerCliSettings(container: DependencyContainer): void {
   const ptahDir = path.join(os.homedir(), '.ptah');
-
-  // 1. Resolve the workspace provider that owns the shared PtahFileSettingsManager.
   const workspaceProvider = container.resolve<CliWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
-
-  // 2. Master key provider — keytar with HKDF-SHA256 fallback.
-  // IUserInteraction is resolved from the container (registered by
-  // registerPlatformCliServices before this function runs) so that
-  // notifyCorruption() shows a user-visible error instead of falling
-  // back to console.error. The TODO in CliMasterKeyProvider is now closed.
   const userInteraction = container.resolve<IUserInteraction>(
     PLATFORM_TOKENS.USER_INTERACTION,
   );
@@ -73,31 +62,17 @@ export function registerCliSettings(container: DependencyContainer): void {
   container.register(SETTINGS_TOKENS.MASTER_KEY_PROVIDER, {
     useValue: masterKeyProvider,
   });
-
-  // 3. Secrets file store — reads/writes ~/.ptah/secrets.enc.json.
   const secretsStore = new SecretsFileStore(ptahDir);
-
-  // 4. Wrap PtahFileSettingsManager + encryption in the ISettingsStore port.
   const rawStore = new FileSettingsStore(
     workspaceProvider.fileSettings,
     masterKeyProvider,
     secretsStore,
   );
-
-  // WP-5A: Enable cross-process reactivity so that when another process
-  // (e.g. Electron main) writes to ~/.ptah/settings.json, this CLI process
-  // fires listeners for the changed keys.
-  // persistent: false (set inside enableCrossProcessWatch) ensures the watcher
-  // does not block the headless CLI process from exiting normally.
   workspaceProvider.fileSettings.enableCrossProcessWatch();
-
-  // 5. Add in-process reactivity layer.
   const reactiveStore = new ReactiveSettingsStore(rawStore);
   container.register(SETTINGS_TOKENS.SETTINGS_STORE, {
     useValue: reactiveStore,
   });
-
-  // 6. Per-namespace repositories — each takes the reactive store.
   container.register(SETTINGS_TOKENS.AUTH_SETTINGS, {
     useValue: new AuthSettings(reactiveStore),
   });
@@ -125,9 +100,6 @@ export function registerCliSettings(container: DependencyContainer): void {
   container.register(SETTINGS_TOKENS.CRON_SETTINGS, {
     useValue: new CronSettings(reactiveStore),
   });
-
-  // 7. MigrationRunner — v1, v2, and v3 (gateway cipher migration).
-  //    v3 is bound to this registration's masterKeyProvider.
   const boundV3 = (dir: string) => runV3Migration(dir, masterKeyProvider);
   container.register(SETTINGS_TOKENS.MIGRATION_RUNNER, {
     useValue: new MigrationRunner(ptahDir, [

@@ -6,8 +6,6 @@
  *
  * This class is not an ISettingsStore — it is a pure I/O helper used by
  * the platform adapters' readSecret / writeSecret / deleteSecret methods.
- *
- * WP-4A: Encrypted secrets file abstraction.
  */
 
 import * as fs from 'fs';
@@ -83,11 +81,9 @@ export class SecretsFileStore {
    */
   flushSync(masterKey: Buffer | null): void {
     if (masterKey === null) {
-      // Master key not yet loaded — no dirty secrets to flush.
       return;
     }
     if (!this.loaded) {
-      // Nothing was read or written in this process — nothing to flush.
       return;
     }
     const tmpPath = this.filePath + TMP_SUFFIX;
@@ -96,18 +92,12 @@ export class SecretsFileStore {
       fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
       fs.renameSync(tmpPath, this.filePath);
     } catch (err) {
-      // Swallow sync flush errors (same pattern as PtahFileSettingsManager).
-      // The async write path is the primary durability path.
       console.error(
         '[SecretsFileStore] flushSync failed:',
         err instanceof Error ? err.message : String(err),
       );
     }
   }
-
-  // -------------------------------------------------------------------------
-  // Internal
-  // -------------------------------------------------------------------------
 
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
@@ -121,7 +111,6 @@ export class SecretsFileStore {
       raw = await fsPromises.readFile(this.filePath, 'utf8');
     } catch (err: unknown) {
       if (isNodeError(err) && err.code === 'ENOENT') {
-        // File does not exist yet — start with an empty store.
         this.entries = new Map();
         return;
       }
@@ -132,13 +121,11 @@ export class SecretsFileStore {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      // Corrupt file — start fresh (entries will be re-written on next write).
       this.entries = new Map();
       return;
     }
 
     if (!isSecretsFileFormat(parsed)) {
-      // Unrecognised format — start fresh.
       this.entries = new Map();
       return;
     }
@@ -168,8 +155,6 @@ export class SecretsFileStore {
     };
   }
 }
-
-// ---- helpers ----------------------------------------------------------------
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return (

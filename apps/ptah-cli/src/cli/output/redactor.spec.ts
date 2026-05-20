@@ -1,7 +1,5 @@
 /**
  * Unit tests for the sensitive-key redactor.
- *
- * TASK_2026_104 Batch 3.
  */
 
 import { DEFAULT_REDACTION, redact } from './redactor.js';

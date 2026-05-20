@@ -99,18 +99,12 @@ export class KeyboardNavigationService {
    */
   configure(config: KeyboardNavigationConfig): void {
     this.config = config;
-
-    // Initialize to first item if we have items and no active selection
     if (config.itemCount > 0 && this._activeIndex() === -1) {
       this._activeIndex.set(0);
     }
-
-    // Reset to valid index if current is out of bounds
     if (config.itemCount > 0 && this._activeIndex() >= config.itemCount) {
       this._activeIndex.set(config.itemCount - 1);
     }
-
-    // Reset if no items
     if (config.itemCount === 0) {
       this._activeIndex.set(-1);
     }

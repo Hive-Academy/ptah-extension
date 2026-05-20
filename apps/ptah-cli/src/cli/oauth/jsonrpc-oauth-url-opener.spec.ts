@@ -5,8 +5,6 @@
  *   - happy path: response within timeout → returned verbatim
  *   - timeout: server.request never resolves → returns { opened: false }
  *   - error: server.request rejects → returns { opened: false }
- *
- * TASK_2026_104 Batch 8c.
  */
 
 import { JsonRpcOAuthUrlOpener } from './jsonrpc-oauth-url-opener.js';

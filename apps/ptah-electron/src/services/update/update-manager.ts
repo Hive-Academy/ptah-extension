@@ -11,7 +11,7 @@
  *   - `fetchReleaseNotes()` — GitHub Releases API fetch, main-process only,
  *     result embedded in `update-available` / `update-downloaded` payloads
  *
- * TASK_2026_117: In-App Electron Auto-Update UX (VS Code-Style)
+ * In-App Electron Auto-Update UX (VS Code-Style).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -79,8 +79,6 @@ export class UpdateManager {
       this.logger.info('[UpdateManager] Skipped — development mode');
       return;
     }
-
-    // Idempotency guard — do not create a second interval if already started.
     if (this._checkInterval !== null) {
       return;
     }
@@ -101,10 +99,7 @@ export class UpdateManager {
       autoUpdater.on(
         'update-available',
         (info: { version: string; releaseDate?: string }) => {
-          // FIX 1: Cache the pending version BEFORE the async fetch so that
-          // download-progress events fired during the fetch window can use it.
           this._pendingVersion = info.version;
-          // Fetch release notes async; broadcast once resolved (non-blocking)
           void this.fetchReleaseNotes(info.version).then(
             (releaseNotesMarkdown) => {
               this._broadcast({
@@ -140,7 +135,6 @@ export class UpdateManager {
             this._broadcast({
               state: 'downloading',
               currentVersion: autoUpdater.currentVersion?.version ?? '',
-              // FIX 1: use cached _pendingVersion (set in update-available handler)
               newVersion: this._pendingVersion,
               percent: progress.percent,
               bytesPerSecond: progress.bytesPerSecond,
@@ -154,7 +148,6 @@ export class UpdateManager {
       autoUpdater.on(
         'update-downloaded',
         (info: { version: string; releaseDate?: string }) => {
-          // FIX 1: Keep _pendingVersion up-to-date in the downloaded event as well.
           this._pendingVersion = info.version;
           void this.fetchReleaseNotes(info.version).then(
             (releaseNotesMarkdown) => {
@@ -179,16 +172,12 @@ export class UpdateManager {
         this._broadcast({ state: 'error', message });
       });
     }
-
-    // Trigger an immediate check on startup
     void autoUpdater.checkForUpdates()?.catch((err: unknown) => {
       this.logger.warn(
         '[UpdateManager] Initial check failed',
         err instanceof Error ? err : new Error(String(err)),
       );
     });
-
-    // Schedule periodic background checks every 4 hours.
     this._checkInterval = setInterval(() => {
       void autoUpdater.checkForUpdates()?.catch((err: unknown) => {
         this.logger.warn(
@@ -235,11 +224,6 @@ export class UpdateManager {
       clearInterval(this._checkInterval);
       this._checkInterval = null;
     }
-
-    // Remove all autoUpdater listeners so the singleton does not accumulate
-    // handlers across UpdateManager instances. Runs synchronously against the
-    // cached reference — dynamic imports inside `will-quit` are unsafe because
-    // the module may already be torn down by the time the Promise resolves.
     if (this._listenersRegistered && this._autoUpdater) {
       const au = this._autoUpdater;
       try {
@@ -291,7 +275,6 @@ export class UpdateManager {
       const data = (await resp.json()) as { body?: string | null };
       return data.body ?? null;
     } catch {
-      // Covers AbortError (timeout), network errors, JSON parse errors — all silent.
       return null;
     } finally {
       clearTimeout(timeoutId);

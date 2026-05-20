@@ -1,8 +1,8 @@
 /**
- * SkillSynthesisService — top-level orchestrator (architecture §1.3, §6.5).
+ * SkillSynthesisService — top-level orchestrator.
  *
  * Lifecycle:
- *   - `start()` is invoked by Electron `wire-runtime.ts` Phase 4.53. It
+ *   - `start()` is invoked by Electron `wire-runtime.ts`. It
  *     ensures the underlying SQLite connection is open and migrations are
  *     applied. It subscribes to the session-end registry so that every
  *     completed session is automatically analyzed for skill candidates.
@@ -13,6 +13,7 @@
  */
 import { inject, injectable } from 'tsyringe';
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -39,7 +40,7 @@ import type {
 
 /**
  * Cross-library token for the session-end callback registry.
- * R2 mitigation: use Symbol.for() directly instead of importing from
+ * Uses Symbol.for() directly instead of importing from
  * @ptah-extension/agent-sdk to avoid circular dependency.
  */
 const SESSION_END_CALLBACK_REGISTRY = Symbol.for(
@@ -99,15 +100,12 @@ export class SkillSynthesisService {
   ) {}
 
   /**
-   * Idempotent. Ensures DB is open + migrated. Caller (Phase 4.53) wraps in
+   * Idempotent. Ensures DB is open + migrated. Caller wraps in
    * try/catch so a failure here NEVER blocks app activation.
    */
   async start(): Promise<void> {
     if (this.started) return;
     if (!this.readSettings().enabled) {
-      // Do NOT latch `started` here — leave it false so a later start() call
-      // (after the user toggles `skillSynthesis.enabled` to true at runtime)
-      // re-evaluates the setting and wires up the subscription.
       this.logger.info(
         '[skill-synthesis] disabled via settings; skipping start',
       );
@@ -116,25 +114,33 @@ export class SkillSynthesisService {
     if (!this.connection.isOpen) {
       await this.connection.openAndMigrate();
     }
-
-    // Run SKILL.md format migration (agentskills.io when_to_use field).
-    // Non-fatal — wrapped in try/catch so startup proceeds regardless.
     try {
       const settingsForMigration = this.readSettings();
-      const activeResult = migrateSkillMdFiles(
-        this.mdGenerator.activeRoot(),
-        this.logger,
+      const activeRoot = this.mdGenerator.activeRoot();
+      const candidatesRoot = this.mdGenerator.candidatesRoot(
+        settingsForMigration.candidatesDir,
       );
+      try {
+        fs.mkdirSync(activeRoot, { recursive: true });
+        fs.mkdirSync(candidatesRoot, { recursive: true });
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[skill-synthesis] failed to bootstrap skill directories (non-fatal)',
+          {
+            activeRoot,
+            candidatesRoot,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+      const activeResult = migrateSkillMdFiles(activeRoot, this.logger);
       this.logger.info(
         '[skill-synthesis] SKILL.md migration complete (active root)',
         {
           ...activeResult,
         },
       );
-      const candidatesResult = migrateSkillMdFiles(
-        this.mdGenerator.candidatesRoot(settingsForMigration.candidatesDir),
-        this.logger,
-      );
+      const candidatesResult = migrateSkillMdFiles(candidatesRoot, this.logger);
       this.logger.info(
         '[skill-synthesis] SKILL.md migration complete (candidates root)',
         {
@@ -163,8 +169,6 @@ export class SkillSynthesisService {
         );
       },
     );
-
-    // Start Curator daemon if registered and enabled.
     const settings = this.readSettings();
     try {
       this.curator?.start(settings);
@@ -185,9 +189,6 @@ export class SkillSynthesisService {
     this._sessionEndDisposer = undefined;
     this.curator?.stop();
     this.started = false;
-    // Reset the per-process dedup so a future start() re-analyzes sessions
-    // that were skipped during a prior on/off/on cycle. The DB-level dedup
-    // via findByTrajectoryHash keeps this safe across restarts.
     this.analyzedSessions.clear();
   }
 
@@ -224,8 +225,6 @@ export class SkillSynthesisService {
       );
       return null;
     }
-
-    // Signal 3: Trajectory fidelity ratio — how many session turns were useful.
     const fidelityRatio =
       trajectory.sessionTurnCount > 0
         ? trajectory.turnCount / trajectory.sessionTurnCount
@@ -241,8 +240,6 @@ export class SkillSynthesisService {
       );
       return null;
     }
-
-    // Avoid duplicate work for trajectories we've already captured.
     const existing = this.store.findByTrajectoryHash(trajectory.hash);
     if (existing) {
       return { candidate: existing, reused: true };
@@ -263,9 +260,6 @@ export class SkillSynthesisService {
         );
       }
     }
-
-    // Signal 6: Abstraction edit-distance — ensure trajectory is different enough
-    // from its synthesized body (guards against overly literal captures).
     const synthesizedBody = this.synthesizeBody(
       trajectory.canonicalText,
       trajectory.shortDescription,
@@ -306,9 +300,6 @@ export class SkillSynthesisService {
       });
       return null;
     }
-
-    // Derive a short context ID from the workspace root — used for
-    // cross-context generalization tracking.
     const contextId = workspaceRoot
       ? crypto
           .createHash('sha256')
@@ -326,20 +317,14 @@ export class SkillSynthesisService {
       embedding,
       createdAt: Date.now(),
     });
-
-    // Record an initial invocation for the session that produced this candidate.
     if (!result.reused && contextId) {
-      try {
-        this.store.recordInvocation({
-          skillId: result.candidate.id,
-          sessionId,
-          succeeded: true,
-          invokedAt: Date.now(),
-          contextId,
-        });
-      } catch {
-        // Non-fatal — candidate was registered, invocation tracking is best-effort.
-      }
+      this.store.recordInvocation({
+        skillId: result.candidate.id,
+        sessionId,
+        succeeded: true,
+        invokedAt: Date.now(),
+        contextId,
+      });
     }
     this.logger.info('[skill-synthesis] candidate registered', {
       candidateId: result.candidate.id,
@@ -478,8 +463,6 @@ export function computeNormalizedLevenshtein(a: string, b: string): number {
   if (m === 0 && n === 0) return 0;
   if (m === 0) return 1;
   if (n === 0) return 1;
-
-  // Use two-row DP to bound memory at O(n).
   let prev = new Array<number>(n + 1);
   let curr = new Array<number>(n + 1);
   for (let j = 0; j <= n; j++) prev[j] = j;

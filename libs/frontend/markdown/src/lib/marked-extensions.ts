@@ -36,7 +36,6 @@ function createCalloutExtension(): MarkedExtension {
       if (token.type !== 'blockquote') return;
 
       const bq = token as Tokens.Blockquote;
-      // Look at the first paragraph token inside the blockquote
       const firstChild = bq.tokens?.[0];
       if (!firstChild || firstChild.type !== 'paragraph') return;
 
@@ -46,10 +45,7 @@ function createCalloutExtension(): MarkedExtension {
       if (!match) return;
 
       const calloutType = match[1].toUpperCase();
-      // Tag the blockquote token so the renderer can detect it
       (bq as unknown as Record<string, unknown>)['calloutType'] = calloutType;
-
-      // Strip the [!TYPE] prefix from the paragraph text
       const prefix = match[0];
       if (para.raw) {
         para.raw = para.raw.replace(prefix, '');
@@ -57,7 +53,6 @@ function createCalloutExtension(): MarkedExtension {
       if (para.text) {
         para.text = para.text.replace(prefix, '');
       }
-      // Also strip from inline tokens if present
       if (para.tokens && para.tokens.length > 0) {
         const first = para.tokens[0];
         if (first.type === 'text' && 'text' in first) {
@@ -85,7 +80,6 @@ function createCalloutExtension(): MarkedExtension {
         if (!meta) return false;
 
         const typeLower = calloutType.toLowerCase();
-        // Use the built-in parser to render inner content
         const body = (
           this as { parser: { parse: (tokens: Tokens.Generic[]) => string } }
         ).parser.parse(token.tokens);
@@ -275,8 +269,6 @@ function createEnhancedHeadingsExtension(): MarkedExtension {
         if (depth === 3) {
           return `<h3 class="prose-heading-bordered">${text}</h3>\n`;
         }
-
-        // H4-H6: fall through to default renderer
         return false;
       },
     },

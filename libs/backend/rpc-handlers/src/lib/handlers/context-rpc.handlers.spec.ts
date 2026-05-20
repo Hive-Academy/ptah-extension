@@ -1,5 +1,5 @@
 /**
- * ContextRpcHandlers — unit specs (TASK_2025_294 W2.B5).
+ * ContextRpcHandlers — unit specs.
  *
  * Surface under test: two RPC methods (`context:getAllFiles`,
  * `context:getFileSuggestions`) that proxy into ContextOrchestrationService.

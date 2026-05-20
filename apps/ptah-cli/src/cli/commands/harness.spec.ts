@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah harness` command — TASK_2026_104 Sub-batch B6c.
+ * Unit tests for `ptah harness` command.
  *
  * Coverage:
  *   - init:
@@ -438,8 +438,8 @@ describe('ptah harness preset load', () => {
 });
 
 // ---------------------------------------------------------------------------
-// chat — TASK_2026_104 Sub-batch B10d delegates to `session start --scope
-// harness-skill` via `executeSessionStart`. The body is a thin pass-through;
+// chat — delegates to `session start --scope harness-skill` via
+// `executeSessionStart`. The body is a thin pass-through;
 // these tests verify the delegation surface (option forwarding + exit-code
 // propagation) without exercising the full session DI bootstrap.
 // ---------------------------------------------------------------------------
@@ -695,8 +695,8 @@ describe('ptah harness unknown sub-command', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Router-level harness chat parser sanity (TASK_2026_104 B10d — flag set must
-// mirror `session start --scope harness-skill` since the body now delegates).
+// Router-level harness chat parser sanity (flag set must mirror
+// `session start --scope harness-skill` since the body now delegates).
 // ---------------------------------------------------------------------------
 describe('ptah harness chat — router parsing', () => {
   it('accepts --task / --profile / --session / --auto-approve without parser error', async () => {

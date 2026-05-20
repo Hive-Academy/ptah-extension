@@ -1,4 +1,4 @@
-﻿import {
+import {
   Component,
   inject,
   ChangeDetectionStrategy,
@@ -47,10 +47,10 @@ interface ProviderOption {
  */
 const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
 
-/** Sentinel for local providers that don't need an API key (TASK_2025_282) */
+/** Sentinel for local providers that don't need an API key */
 const LOCAL_PROVIDER_SENTINEL = 'ollama';
 
-/** Provider IDs that use authType: 'none' â€” no API key required (TASK_2025_282) */
+/** Provider IDs that use authType: 'none' — no API key required */
 const LOCAL_PROVIDER_IDS = new Set(['ollama', 'ollama-cloud', 'lm-studio']);
 
 const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
@@ -88,8 +88,6 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
 
 /**
  * PtahCliConfigComponent - CRUD management for Ptah CLI agent instances
- *
- * TASK_2025_170: Renamed from CustomAgentConfigComponent
  *
  * Complexity Level: 2 (Medium - form with CRUD operations and service delegation)
  * Patterns: Signal-based state, composition, DaisyUI styling
@@ -592,8 +590,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
 
   /** Emitted after successful create/update/delete so siblings can refresh */
   readonly ptahCliChanged = output<void>();
-
-  // Lucide icons
   readonly BotIcon = Bot;
   readonly PlusIcon = Plus;
   readonly PencilIcon = Pencil;
@@ -606,33 +602,19 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   readonly EyeOffIcon = EyeOff;
   readonly LayersIcon = Layers;
   readonly GithubIcon = Github;
-
-  // Provider options
   readonly providers = AVAILABLE_PROVIDERS;
-
-  // ============================================================================
-  // STATE SIGNALS
-  // ============================================================================
-
-  // Agent list
   readonly agents = signal<PtahCliSummary[]>([]);
   readonly isLoading = signal(false);
   readonly error = signal<string | null>(null);
   readonly successMessage = signal<string | null>(null);
-
-  // Add form state
   readonly showAddForm = signal(false);
   readonly newAgentName = signal('');
   readonly newAgentProvider = signal('');
   readonly newAgentApiKey = signal('');
   readonly showNewApiKey = signal(false);
   readonly isCreating = signal(false);
-
-  // Edit state
   readonly editingAgentId = signal<string | null>(null);
   readonly editName = signal('');
-
-  // Test connection state
   readonly testingAgentId = signal<string | null>(null);
   readonly testResultAgentId = signal<string | null>(null);
   readonly testResult = signal<{
@@ -640,17 +622,11 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     latencyMs?: number;
     error?: string;
   } | null>(null);
-
-  // Toggle concurrency guard
   readonly isUpdating = signal(false);
-
-  // Copilot OAuth state (TASK_2025_186)
   readonly copilotLoginStatus = signal<
     'idle' | 'logging-in' | 'connected' | 'error'
   >('idle');
   readonly copilotUsername = signal<string | null>(null);
-
-  // Model mapping state
   readonly providerTierMappings = signal<
     Record<
       string,
@@ -660,36 +636,22 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   readonly modelMappingAgent = signal<PtahCliSummary | null>(null);
   private readonly modelMappingDialog =
     viewChild<ElementRef<HTMLDialogElement>>('modelMappingDialog');
-
-  // Auto-clear timers
   private successTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // ============================================================================
-  // COMPUTED SIGNALS
-  // ============================================================================
 
   readonly canCreate = computed(() => {
     const hasName = this.newAgentName().trim().length > 0;
     const hasProvider = this.newAgentProvider().length > 0;
-
-    // GitHub Copilot uses OAuth â€” no API key needed, but must be connected
     if (this.newAgentProvider() === 'github-copilot') {
       return (
         hasName && hasProvider && this.copilotLoginStatus() === 'connected'
       );
     }
-
-    // Local providers (Ollama, LM Studio) â€” no API key needed (TASK_2025_282)
     if (LOCAL_PROVIDER_IDS.has(this.newAgentProvider())) {
       return hasName && hasProvider;
     }
 
     return hasName && hasProvider && this.newAgentApiKey().trim().length > 0;
   });
-
-  // ============================================================================
-  // LIFECYCLE
-  // ============================================================================
 
   async ngOnInit(): Promise<void> {
     await this.loadAgents();
@@ -703,10 +665,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ============================================================================
-  // AGENT LIST
-  // ============================================================================
-
   async loadAgents(): Promise<void> {
     this.isLoading.set(true);
     this.error.set(null);
@@ -717,11 +675,7 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       );
       if (result.isSuccess()) {
         this.agents.set(result.data.agents);
-        // TASK_2025_170: Refresh PtahCliStateService so agent selector
-        // dropdown stays in sync with settings changes
-        this.ptahCliState.refresh().catch(() => {
-          // Non-critical: agent selector will refresh on next open
-        });
+        this.ptahCliState.refresh().catch(() => {});
       } else {
         this.error.set(result.error ?? 'Failed to load Ptah CLI agents');
       }
@@ -736,10 +690,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       this.isLoading.set(false);
     }
   }
-
-  // ============================================================================
-  // CREATE AGENT
-  // ============================================================================
 
   toggleAddForm(): void {
     this.showAddForm.update((v) => !v);
@@ -763,7 +713,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     if (providerId === 'github-copilot') {
       this.checkCopilotStatus();
     } else {
-      // Reset copilot state when switching away
       this.copilotLoginStatus.set('idle');
       this.copilotUsername.set(null);
     }
@@ -820,10 +769,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     this.copilotUsername.set(null);
   }
 
-  // ============================================================================
-  // COPILOT AUTH (TASK_2025_186)
-  // ============================================================================
-
   /**
    * Initiate GitHub OAuth login for Copilot provider.
    * Calls the backend RPC which triggers VS Code's GitHub auth flow.
@@ -877,15 +822,10 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
         this.copilotUsername.set(null);
       }
     } catch {
-      // Non-fatal: user can still click login button
       this.copilotLoginStatus.set('idle');
       this.copilotUsername.set(null);
     }
   }
-
-  // ============================================================================
-  // EDIT AGENT
-  // ============================================================================
 
   startEdit(agent: PtahCliSummary): void {
     this.editingAgentId.set(agent.id);
@@ -929,10 +869,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ============================================================================
-  // TOGGLE ENABLED
-  // ============================================================================
-
   async toggleEnabled(agent: PtahCliSummary): Promise<void> {
     if (this.isUpdating()) return;
     this.isUpdating.set(true);
@@ -944,16 +880,12 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       });
 
       if (result.isSuccess() && result.data.success) {
-        // Optimistic update
         this.agents.update((agents) =>
           agents.map((a) =>
             a.id === agent.id ? { ...a, enabled: !a.enabled } : a,
           ),
         );
-        // Refresh state service for agent selector sync
-        this.ptahCliState.refresh().catch(() => {
-          // Non-critical: agent selector will refresh on next open
-        });
+        this.ptahCliState.refresh().catch(() => {});
         this.ptahCliChanged.emit();
       } else {
         this.error.set(
@@ -971,10 +903,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       this.isUpdating.set(false);
     }
   }
-
-  // ============================================================================
-  // DELETE AGENT
-  // ============================================================================
 
   async deleteAgent(agent: PtahCliSummary): Promise<void> {
     const confirmed = await this.confirmDialog.confirm({
@@ -1011,10 +939,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       );
     }
   }
-
-  // ============================================================================
-  // TEST CONNECTION
-  // ============================================================================
 
   async testConnection(agentId: string): Promise<void> {
     this.testingAgentId.set(agentId);
@@ -1055,10 +979,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ============================================================================
-  // MODEL MAPPING
-  // ============================================================================
-
   async loadTierMappings(): Promise<void> {
     const agents = this.agents();
     const uniqueProviderIds = [
@@ -1072,25 +992,21 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
 
     await Promise.all(
       uniqueProviderIds.map(async (providerId) => {
-        try {
-          const result = await this.rpcService.call('provider:getModelTiers', {
-            providerId,
-            scope: 'cliAgent',
-          });
-          if (result.isSuccess() && result.data) {
-            const data = result.data as unknown as {
-              sonnet?: string | null;
-              opus?: string | null;
-              haiku?: string | null;
-            };
-            mappings[providerId] = {
-              sonnet: data.sonnet ?? null,
-              opus: data.opus ?? null,
-              haiku: data.haiku ?? null,
-            };
-          }
-        } catch {
-          // Non-fatal
+        const result = await this.rpcService.call('provider:getModelTiers', {
+          providerId,
+          scope: 'cliAgent',
+        });
+        if (result.isSuccess() && result.data) {
+          const data = result.data as unknown as {
+            sonnet?: string | null;
+            opus?: string | null;
+            haiku?: string | null;
+          };
+          mappings[providerId] = {
+            sonnet: data.sonnet ?? null,
+            opus: data.opus ?? null,
+            haiku: data.haiku ?? null,
+          };
         }
       }),
     );
@@ -1116,10 +1032,6 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     this.modelMappingAgent.set(null);
     await this.loadTierMappings();
   }
-
-  // ============================================================================
-  // HELPERS
-  // ============================================================================
 
   private showSuccess(message: string): void {
     this.successMessage.set(message);

@@ -56,18 +56,13 @@ export interface FileSuggestion {
   providedIn: 'root',
 })
 export class FilePickerService {
-  // === ANGULAR 20 PATTERN: Injected services ===
   private readonly rpcService = inject(ClaudeRpcService);
-
-  // === ANGULAR 20 PATTERN: Private signals for internal state ===
   private readonly _workspaceFiles = signal<FileSuggestion[]>([]);
   private readonly _includedFiles = signal<ChatFile[]>([]);
   private readonly _isLoading = signal(false);
   private readonly _lastUpdate = signal<number>(0);
   private readonly _fetchError = signal<string | null>(null);
   private _pendingFetch: Promise<void> | null = null;
-
-  // Remote search state (server-side results via context:getFileSuggestions)
   private readonly _remoteResults = signal<FileSuggestion[]>([]);
   private readonly _isRemoteSearching = signal(false);
   private _remoteSearchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,15 +70,11 @@ export class FilePickerService {
 
   /** Last error from file fetch, exposed for UI display */
   readonly fetchError = this._fetchError.asReadonly();
-
-  // === ANGULAR 20 PATTERN: Readonly signals for external access ===
   readonly workspaceFiles = this._workspaceFiles.asReadonly();
   readonly includedFiles = this._includedFiles.asReadonly();
   readonly isLoading = this._isLoading.asReadonly();
   readonly remoteResults = this._remoteResults.asReadonly();
   readonly isRemoteSearching = this._isRemoteSearching.asReadonly();
-
-  // === ANGULAR 20 PATTERN: Computed signals for derived state ===
   readonly fileCount = computed(() => this._includedFiles().length);
 
   readonly totalSize = computed(() =>
@@ -106,7 +97,6 @@ export class FilePickerService {
     const suggestions: string[] = [];
 
     if (this.totalSize() > 1024 * 1024) {
-      // > 1MB
       suggestions.push('Consider excluding large files to improve performance');
     }
 
@@ -123,8 +113,6 @@ export class FilePickerService {
 
     return suggestions;
   });
-
-  // Image file extensions
   private readonly imageExtensions = new Set([
     '.png',
     '.jpg',
@@ -135,8 +123,6 @@ export class FilePickerService {
     '.webp',
     '.ico',
   ]);
-
-  // Text file extensions
   private readonly textExtensions = new Set([
     '.ts',
     '.js',
@@ -164,11 +150,10 @@ export class FilePickerService {
   ]);
 
   /**
-   * Fetch workspace files from backend via RPC
-   * TASK_2025_019 Phase 1: Populates _workspaceFiles signal for @ autocomplete
+   * Fetch workspace files from backend via RPC.
+   * Populates _workspaceFiles signal for @ autocomplete.
    */
   async fetchWorkspaceFiles(): Promise<void> {
-    // Deduplicate: if a fetch is already in-flight, await it instead of returning empty
     if (this._isLoading() && this._pendingFetch) {
       return this._pendingFetch;
     }
@@ -190,8 +175,6 @@ export class FilePickerService {
         includeImages: false,
         limit: 1000,
       });
-
-      // Check both RPC-level success AND backend-level success (nested in data)
       const backendData = result.data as
         | { success?: boolean; error?: { message: string }; files?: unknown[] }
         | undefined;
@@ -200,15 +183,12 @@ export class FilePickerService {
       if (result.success && !backendFailed && backendData?.files) {
         const files = result.data!.files!; // eslint-disable-line @typescript-eslint/no-non-null-assertion
         const suggestions: FileSuggestion[] = files.map((file) => {
-          // Normalize Windows backslashes for directory extraction
           const normalizedPath = file.relativePath.replace(/\\/g, '/');
           const lastSlashIndex = normalizedPath.lastIndexOf('/');
           const directory =
             lastSlashIndex > 0
               ? normalizedPath.substring(0, lastSlashIndex)
               : '';
-
-          // Extract actual file extension from fileName (not fileType category)
           const dotIndex = file.fileName.lastIndexOf('.');
           const ext =
             dotIndex > 0 ? file.fileName.substring(dotIndex).toLowerCase() : '';
@@ -232,7 +212,6 @@ export class FilePickerService {
           `[FilePickerService] Loaded ${suggestions.length} workspace files`,
         );
       } else {
-        // Extract error from nested backend response or RPC-level error
         const errorMsg =
           backendData?.error?.message ||
           result.error ||
@@ -267,8 +246,6 @@ export class FilePickerService {
 
     if (files.length === 0 || lastUpdate < fiveMinutesAgo) {
       await this.fetchWorkspaceFiles();
-
-      // Retry once with delay — skip if error was a timeout (would just timeout again)
       const error = this._fetchError();
       if (
         this._workspaceFiles().length === 0 &&
@@ -299,8 +276,6 @@ export class FilePickerService {
     }
 
     const searchTerm = query.toLowerCase();
-
-    // Score each file and collect matches
     const scored: Array<{ file: FileSuggestion; score: number }> = [];
 
     for (const file of this._workspaceFiles()) {
@@ -309,8 +284,6 @@ export class FilePickerService {
         scored.push({ file, score });
       }
     }
-
-    // Sort by score descending, then alphabetically
     scored.sort((a, b) => {
       if (a.score !== b.score) return b.score - a.score;
       return a.file.name.localeCompare(b.file.name);
@@ -329,27 +302,15 @@ export class FilePickerService {
     const dirLower = file.directory.toLowerCase();
 
     let score = 0;
-
-    // Tier 1: Exact name match (200 points)
     if (nameLower === searchTerm) return 200;
-
-    // Tier 2: Name starts with query (100 points)
     if (nameLower.startsWith(searchTerm)) score = 100;
-    // Tier 3: Name contains query as substring (80 points)
     else if (nameLower.includes(searchTerm)) score = 80;
-    // Tier 4: Path contains query (40 points)
     else if (pathLower.includes(searchTerm)) score = 40;
-    // Tier 5: Directory contains query (30 points)
     else if (dirLower.includes(searchTerm)) score = 30;
-
-    // If exact substring matched, add bonus for text files and return
     if (score > 0) {
       if (file.isText) score += 5;
       return score;
     }
-
-    // Tier 6: Fuzzy token matching (20 base points)
-    // Split both query and filename into tokens on delimiters
     const queryTokens = this.tokenize(searchTerm);
     const fileTokens = this.tokenize(nameLower);
     const pathTokens = this.tokenize(dirLower);
@@ -360,14 +321,10 @@ export class FilePickerService {
       this.tokensMatch(queryTokens, allFileTokens)
     ) {
       score = 20;
-      // Bonus: if all query tokens match name tokens (not just path)
       if (this.tokensMatch(queryTokens, fileTokens)) score = 25;
       if (file.isText) score += 5;
       return score;
     }
-
-    // Tier 7: Contiguous character matching (for queries without delimiters)
-    // e.g., "chatinp" should match "chat-input" by matching chars sequentially
     if (
       searchTerm.length >= 3 &&
       this.sequentialCharMatch(searchTerm, nameLower)
@@ -408,11 +365,8 @@ export class FilePickerService {
    * e.g., "chatinput" matches "chat-input.component.ts"
    */
   private sequentialCharMatch(query: string, target: string): boolean {
-    // Strip delimiters from target for contiguous matching
     const stripped = target.replace(/[-._/\\]/g, '');
     if (stripped.includes(query)) return true;
-
-    // Subsequence match: each query char appears in order
     let qi = 0;
     for (let ti = 0; ti < stripped.length && qi < query.length; ti++) {
       if (stripped[ti] === query[qi]) qi++;
@@ -426,13 +380,10 @@ export class FilePickerService {
    * Calling components should read remoteResults() for the results.
    */
   searchFilesRemote(query: string): void {
-    // Clear pending timer
     if (this._remoteSearchTimer) {
       clearTimeout(this._remoteSearchTimer);
       this._remoteSearchTimer = null;
     }
-
-    // Clear results if query too short
     if (!query || query.length < 2) {
       this._remoteResults.set([]);
       this._isRemoteSearching.set(false);
@@ -448,8 +399,6 @@ export class FilePickerService {
           'context:getFileSuggestions',
           { query: query.trim(), limit: 30 },
         );
-
-        // Discard if a newer search was started
         if (searchId !== this._remoteSearchAbortId) return;
 
         const backendData = result.data as
@@ -459,8 +408,6 @@ export class FilePickerService {
               suggestions?: Array<Record<string, unknown>>;
             }
           | undefined;
-
-        // Handle both `files` (correct) and `suggestions` (legacy) field names
         const rawFiles = backendData?.files ?? backendData?.suggestions;
 
         if (result.success && rawFiles && rawFiles.length > 0) {
@@ -498,7 +445,6 @@ export class FilePickerService {
         }
       } catch (error) {
         console.warn('[FilePickerService] Remote file search failed:', error);
-        // Don't clear results on error — keep stale results visible
       } finally {
         if (searchId === this._remoteSearchAbortId) {
           this._isRemoteSearching.set(false);
@@ -555,8 +501,6 @@ export class FilePickerService {
    */
   private estimateTokens(size: number, isText: boolean): number {
     if (!isText) return 0;
-
-    // Rough estimate: ~4 characters per token for code/text files
     return Math.ceil(size / 4);
   }
 

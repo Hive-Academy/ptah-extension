@@ -51,7 +51,7 @@ const GATEWAY_RPC_TIMEOUTS = {
  * - gateway:approveBinding
  * - gateway:blockBinding
  * - gateway:listMessages
- * - gateway:test  (NEW — Batch A6)
+ * - gateway:test
  */
 @Injectable({ providedIn: 'root' })
 export class GatewayRpcService {

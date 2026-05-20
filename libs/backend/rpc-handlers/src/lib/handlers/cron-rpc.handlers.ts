@@ -1,5 +1,5 @@
 /**
- * Cron Scheduler RPC Handlers (TASK_2026_HERMES Track 3).
+ * Cron Scheduler RPC Handlers.
  *
  * Bridges the frontend Cron Scheduler UI to the backend `CronScheduler`
  * service. Surfaces nine `cron:*` methods:

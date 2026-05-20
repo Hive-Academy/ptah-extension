@@ -1,8 +1,6 @@
 /**
  * Electron DI — Phase 3: Storage adapters + platform abstractions + vscode-lm-tools.
  *
- * TASK_2025_291 Wave C1 Step 2b: Split from the monolithic container.ts.
- *
  * Registers (in order):
  *   - Phase 3: TOKENS.STORAGE_SERVICE, TOKENS.GLOBAL_STATE adapters
  *   - Phase 3.5: TOKENS.PLATFORM_COMMANDS, PLATFORM_AUTH_PROVIDER, SAVE_DIALOG_PROVIDER,
@@ -43,11 +41,6 @@ export function registerPhase3Storage(
   container: DependencyContainer,
   logger: Logger,
 ): void {
-  // ========================================
-  // PHASE 3: Storage Adapters
-  // ========================================
-  // Storage adapter (workspace-scoped state storage)
-  // Maps TOKENS.STORAGE_SERVICE to the platform-electron workspace state storage.
   const workspaceStateStorage = container.resolve<IStateStorage>(
     PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
   );
@@ -61,18 +54,10 @@ export function registerPhase3Storage(
     },
   };
   container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
-
-  // Global state adapter (for pricing cache — uses global state storage).
   const globalStateStorage = container.resolve<IStateStorage>(
     PLATFORM_TOKENS.STATE_STORAGE,
   );
   container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
-
-  // ========================================
-  // PHASE 3.5: Platform Abstraction Implementations (TASK_2025_203)
-  // ========================================
-  // Must be registered BEFORE shared handler classes that depend on these tokens.
-  // Each registration is individually wrapped to prevent a single failure from cascading.
   const platformAbstractions: Array<{
     token: symbol;
     impl: new (...args: unknown[]) => unknown;
@@ -129,14 +114,6 @@ export function registerPhase3Storage(
       services: registeredAbstractions,
     },
   );
-
-  // ========================================
-  // PHASE 3.6: Cron Power Monitor (TASK_2026_HERMES Track 3)
-  // ========================================
-  // CronScheduler's CatchupCoordinator depends on IPowerMonitor to re-arm
-  // jobs after the system resumes from sleep. ElectronPowerMonitor wraps
-  // electron.powerMonitor — registered here (Phase 3) so it is available
-  // before wire-runtime Phase 4.54 calls scheduler.start().
   try {
     container.registerSingleton(
       CRON_TOKENS.CRON_POWER_MONITOR,
@@ -149,29 +126,12 @@ export function registerPhase3Storage(
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
-
-  // ========================================
-  // PHASE 4 prelude: Code Execution MCP + Browser Capabilities (TASK_2025_226, TASK_2025_244)
-  // ========================================
-  // TASK_2025_226: Register the real vscode-lm-tools services instead of a stub.
-  // The library is now platform-agnostic:
-  //   - WebviewManager is optional (auto-resolved via container.isRegistered)
-  //   - IDE capabilities gracefully degrade (no VscodeIDECapabilities registered)
-  //   - Diagnostics use ElectronDiagnosticsProvider (registered in Phase 0)
-  //   - approval_prompt auto-allows when WebviewManager is absent
   registerVsCodeLmToolsServices(container, logger);
-
-  // Phase 4.0.1: Browser capabilities (TASK_2025_244)
-  // Uses ChromeLauncherBrowserCapabilities (same as VS Code) to launch a real Chrome
-  // instance via chrome-launcher + chrome-remote-interface for CDP automation.
-  // This avoids the Electron BrowserWindow approach which confusingly opens
-  // another Ptah Desktop window instead of a separate browser.
   const workspaceProvider = container.resolve<IWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
   container.register(BROWSER_CAPABILITIES_TOKEN, {
     useValue: new ChromeLauncherBrowserCapabilities(
-      // getRecordingDir — defaults to {workspace}/.ptah/recordings/
       () => {
         const configured =
           workspaceProvider.getConfiguration<string>(

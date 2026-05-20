@@ -70,10 +70,6 @@ export class MarketingService {
     return this.segmentResolver.getSegmentCounts();
   }
 
-  // ===========================================================================
-  // T-B5-01: sendCampaign — orchestrator
-  // ===========================================================================
-
   async sendCampaign(
     dto: SendCampaignDto,
     actor: { email: string },
@@ -83,9 +79,6 @@ export class MarketingService {
     skippedCount: number;
     status: 'in_progress';
   }> {
-    // 1. Content validation. The DTO permits both fields optional; we enforce
-    //    the mutual-exclusion contract here so the controller and the service
-    //    share one source of truth (defence-in-depth — controller also checks).
     const hasInline =
       typeof dto.subject === 'string' &&
       dto.subject.length > 0 &&
@@ -100,8 +93,6 @@ export class MarketingService {
     if (hasTemplate && (dto.subject || dto.htmlBody)) {
       throw new BadRequestException('CONTENT_AMBIGUOUS');
     }
-
-    // 2. Resolve template if provided (404 not 400 per task: TEMPLATE_NOT_FOUND).
     let resolvedSubject = dto.subject ?? '';
     let resolvedHtml = dto.htmlBody ?? '';
     let templateId: string | null = null;
@@ -117,17 +108,12 @@ export class MarketingService {
       resolvedHtml = template.htmlBody;
       templateId = template.id;
     }
-
-    // 3. Resolve recipient segment (segment + explicit userIds union, opt-in checked).
     const { optedInUserIds, skippedUserIds } =
       await this.segmentResolver.resolve(dto.segment, dto.userIds);
 
     if (optedInUserIds.length === 0) {
       throw new BadRequestException('EMPTY_SEGMENT');
     }
-
-    // 4. Persist the campaign row before dispatching so the runCampaign worker
-    //    has a stable id and we have a record even if the process crashes.
     const segmentLabel = dto.segment
       ? dto.segment
       : dto.userIds && dto.userIds.length > 0
@@ -145,10 +131,6 @@ export class MarketingService {
         createdBy: actor.email,
       },
     });
-
-    // 5. Fire-and-forget worker. We deliberately do NOT await — the controller
-    //    returns 202 immediately. Errors inside `runCampaign` are caught and
-    //    logged; they do not propagate to the HTTP layer.
     void this.runCampaign(campaign.id, {
       recipients: optedInUserIds,
       subject: resolvedSubject,
@@ -170,10 +152,6 @@ export class MarketingService {
       status: 'in_progress',
     };
   }
-
-  // ===========================================================================
-  // T-B5-02: runCampaign — chunked dispatch with per-email re-check (R3)
-  // ===========================================================================
 
   /**
    * Background worker invoked from `sendCampaign`. Splits recipients into
@@ -223,20 +201,12 @@ export class MarketingService {
         sent += chunkResult.sent;
         failed += chunkResult.failed;
         skippedMidLoop += chunkResult.skippedMidLoop;
-
-        // Persist incremental progress so observers see the campaign tick up.
-        // Wrapped in try/catch so a transient DB hiccup on the progress write
-        // doesn't abort the whole run — the finally block still records final
-        // outcome via an atomic transaction.
         try {
           await this.prisma.marketingCampaign.update({
             where: { id: campaignId },
             data: { sentCount: sent },
           });
         } catch (progressErr) {
-          // Surface as a caught error so the finally records 'failed'/'partial'
-          // status with errorMessage. Re-throw to halt further chunks — there's
-          // no safe way to keep dispatching when DB writes are failing.
           caughtError =
             progressErr instanceof Error
               ? progressErr
@@ -250,11 +220,6 @@ export class MarketingService {
       }
     } finally {
       const durationMs = Date.now() - start;
-
-      // Determine final status based on observed outcome.
-      //   completed → no errors and no failures
-      //   partial   → no caught error but some emails failed or were skipped mid-loop
-      //   failed    → caught error during run
       const status: 'completed' | 'partial' | 'failed' = caughtError
         ? 'failed'
         : failed > 0 || skippedMidLoop > 0
@@ -262,11 +227,6 @@ export class MarketingService {
           : 'completed';
 
       const errorMessage = caughtError ? caughtError.message : undefined;
-
-      // Atomic completion + audit. ALWAYS runs — even on failure — so the
-      // campaign row never sits stuck `in_progress` and the audit trail is
-      // populated with the actual outcome. Wrapped in its own try/catch so
-      // a tx failure here can't crash the worker without surfacing.
       try {
         await this.prisma.$transaction(async (tx) => {
           await tx.marketingCampaign.update({
@@ -295,9 +255,6 @@ export class MarketingService {
           });
         });
       } catch (finalErr) {
-        // Last-resort log so observability still sees the campaign attempted
-        // to finalize. Operational follow-up: the row may remain without
-        // completedAt — surface via the campaigns list page.
         this.logger.error(
           `runCampaign final commit failed for campaignId=${campaignId}: ${
             finalErr instanceof Error ? finalErr.message : String(finalErr)
@@ -305,8 +262,6 @@ export class MarketingService {
           finalErr instanceof Error ? finalErr.stack : undefined,
         );
       }
-
-      // Structured log line — fields enumerated per plan §6.4.
       this.logger.log({
         message: 'marketing campaign send completed',
         campaignId,
@@ -340,9 +295,6 @@ export class MarketingService {
     let sent = 0;
     let failed = 0;
     let skippedMidLoop = 0;
-
-    // Hand-rolled semaphore — no new npm dep. We slot a fixed-size pool of
-    // workers each draining the queue serially.
     const queue = [...userIds];
     const workerCount = Math.min(MarketingService.CONCURRENCY, queue.length);
 
@@ -379,8 +331,6 @@ export class MarketingService {
     },
   ): Promise<'sent' | 'skipped' | 'failed'> {
     try {
-      // R3: per-email re-read of opt-in. Cheap (single SELECT) and
-      // eliminates the resolve→dispatch race window.
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -443,10 +393,6 @@ export class MarketingService {
     ).replace(/\/$/, '');
   }
 
-  // ===========================================================================
-  // T-B5-04: handleResendWebhook
-  // ===========================================================================
-
   /**
    * Handles Resend webhook events for campaign correlation:
    *   - email.bounced   → hard: opt-out + counter; soft: counter only.
@@ -469,16 +415,11 @@ export class MarketingService {
       return;
     }
     this.rememberEventId(dedupKey);
-
-    // Resend has shipped tags in two shapes — normalize before reading.
     const tags = this.normalizeTags(event.data.tags);
     const userId = tags['userId'];
     const campaignId = tags['campaignId'];
 
     if (!userId && !campaignId) {
-      // Neither correlation id present — likely a malformed/unknown payload
-      // shape. Warn so observability surfaces silent contract drift.
-      // Fingerprint = svix-id + event type only (no PII).
       this.logger.warn(
         `Resend webhook tags yielded no userId/campaignId: svixId=${
           svixId ?? 'none'
@@ -517,7 +458,6 @@ export class MarketingService {
       }
 
       case 'email.delivery_delayed': {
-        // Soft-bounce-equivalent. Per plan §6.4: counter only, no opt-out flip.
         if (campaignId) {
           await this.bumpCampaignCounter(campaignId, 'bouncedCount');
         }
@@ -525,8 +465,6 @@ export class MarketingService {
       }
 
       default:
-        // Other event types (sent, delivered, opened, clicked) are not
-        // tracked at the campaign level for this batch.
         return;
     }
   }
@@ -548,8 +486,6 @@ export class MarketingService {
    */
   private normalizeTags(tags: unknown): Record<string, string> {
     if (!tags) return {};
-
-    // Array shape: [{ name, value }, ...]
     if (Array.isArray(tags)) {
       const out: Record<string, string> = {};
       for (const entry of tags) {
@@ -568,8 +504,6 @@ export class MarketingService {
       }
       return out;
     }
-
-    // Object shape: { key: value, ... }
     if (typeof tags === 'object') {
       const out: Record<string, string> = {};
       for (const [key, value] of Object.entries(
@@ -581,8 +515,6 @@ export class MarketingService {
       }
       return out;
     }
-
-    // Anything else (string, number, boolean) — unknown shape.
     return {};
   }
 
@@ -615,8 +547,6 @@ export class MarketingService {
         });
       });
     } catch (err) {
-      // User may have been hard-deleted between send and webhook arrival.
-      // Log and move on — the campaign counter still gets bumped by the caller.
       this.logger.warn(
         `flipOptOut(${action}) skipped for userId=${userId}: ${
           err instanceof Error ? err.message : String(err)
@@ -642,7 +572,6 @@ export class MarketingService {
         data: { [column]: { increment: 1 } },
       });
     } catch (err) {
-      // Campaign id from a tag may not match a real row (e.g. ad-hoc test send).
       this.logger.debug(
         `bumpCampaignCounter(${column}) skipped for campaignId=${campaignId}: ${
           err instanceof Error ? err.message : String(err)

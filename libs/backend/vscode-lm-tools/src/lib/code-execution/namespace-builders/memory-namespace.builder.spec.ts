@@ -1,5 +1,5 @@
 /**
- * Specs for buildMemoryNamespace (TASK_2026_THOTH_MEMORY_READ).
+ * Specs for buildMemoryNamespace.
  *
  * Covers:
  *   - shape: exposes search and list
@@ -10,10 +10,7 @@
  *   - list: delegates to IMemoryLister with correct args; applies defaults;
  *     error envelope when lister is absent or throws
  *   - purgeBySubjectPattern: delegates to IMemoryWriter; all error envelopes
- *   - input validation: Zod boundary guard at MCP boundary (TASK_2026_122 Critical Issue 1)
- *
- * TASK_2026_122 (follow-up B): added workspace-scope tests
- * TASK_2026_122 (Critical Issue 1): added MCP boundary input validation tests
+ *   - input validation: Zod boundary guard at MCP boundary
  */
 
 import type {
@@ -439,7 +436,7 @@ describe('buildMemoryNamespace — purgeBySubjectPattern', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ptah.memory.search input validation — MCP boundary (TASK_2026_122 Critical Issue 1)
+// ptah.memory.search input validation — MCP boundary
 // ---------------------------------------------------------------------------
 
 describe('ptah.memory.search input validation', () => {

@@ -1,7 +1,7 @@
 /**
  * Unit tests for FilePickerService - searchFiles() relevance sorting
  *
- * Tests the @ trigger autocomplete filtering bug fix (TASK_2025_163):
+ * Tests the @ trigger autocomplete filtering bug fix:
  * - searchFiles() relevance-based sorting (exact > startsWith > nameContains > type preference > alphabetical)
  * - Empty query returns first 50 files
  * - Directory field is included in search

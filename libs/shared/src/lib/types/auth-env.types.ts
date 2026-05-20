@@ -2,8 +2,6 @@
  * Authentication environment variables as a value object.
  * Instead of mutating process.env, auth configuration produces this object.
  * Consumers merge it with process.env when needed: { ...process.env, ...authEnv }
- *
- * @see TASK_2025_164 - Encapsulate AuthEnv
  */
 export interface AuthEnv {
   ANTHROPIC_API_KEY?: string;

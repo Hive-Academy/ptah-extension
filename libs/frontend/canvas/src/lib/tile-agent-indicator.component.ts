@@ -6,8 +6,6 @@
  * the expanded mini-panel (managed by parent via viewChild access).
  *
  * Hidden when no agents are associated with the tile's session.
- *
- * TASK_2025_272 Batch 3
  */
 
 import {
@@ -50,18 +48,11 @@ import { TabManagerService } from '@ptah-extension/chat-state';
   `,
 })
 export class TileAgentIndicatorComponent {
-  // ---- Inputs ----
   readonly tabId = input.required<string>();
-
-  // ---- Dependencies ----
   private readonly tabManager = inject(TabManagerService);
   private readonly agentStore = inject(AgentMonitorStore);
-
-  // ---- State ----
   /** Whether the mini-panel is expanded. Public for parent viewChild access. */
   readonly expanded = signal(false);
-
-  // ---- Computed signals ----
 
   /** Resolve tabId to the real Claude session ID via TabManagerService. */
   private readonly sessionId = computed(() => {
@@ -98,8 +89,6 @@ export class TileAgentIndicatorComponent {
     if (pending > 0) summary += `, ${pending} awaiting permission`;
     return summary;
   });
-
-  // ---- Event handlers ----
 
   toggleExpanded(event: Event): void {
     event.stopPropagation();

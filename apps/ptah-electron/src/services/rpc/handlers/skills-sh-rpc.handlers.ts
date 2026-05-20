@@ -16,6 +16,7 @@
 import { injectable, inject } from 'tsyringe';
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -27,8 +28,6 @@ import type {
   InstalledSkill,
   SkillDetectionResult,
 } from '@ptah-extension/shared';
-
-// ─── Curated Popular Skills (fallback when CLI is unavailable) ───
 
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
   {
@@ -98,8 +97,6 @@ const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
     isInstalled: false,
   },
 ];
-
-// ─── Technology-to-skill keyword mapping ───
 
 const TECH_SKILL_KEYWORDS: Record<string, string[]> = {
   react: [
@@ -215,8 +212,6 @@ export class SkillsShRpcHandlers {
 
         const workspaceRoot = this.getWorkspaceRoot();
         const skills: InstalledSkill[] = [];
-
-        // Try CLI for project scope
         try {
           const projectResult = await this.runSkillsCli(
             ['list', '--json'],
@@ -250,8 +245,6 @@ export class SkillsShRpcHandlers {
             skills.push(...projectSkills);
           }
         }
-
-        // Try CLI for global scope
         try {
           const globalResult = await this.runSkillsCli(
             ['list', '--json', '-g'],
@@ -342,8 +335,6 @@ export class SkillsShRpcHandlers {
         if (params.skillId) {
           args.push('--skill', params.skillId);
         }
-        // Only install for Claude Code — installing for all agents ('*')
-        // pollutes the workspace with 28+ tool-specific directories.
         args.push('--agent', 'claude-code');
         args.push('-y');
         if (params.scope === 'global') {
@@ -550,8 +541,6 @@ export class SkillsShRpcHandlers {
     );
   }
 
-  // ─── Helpers ───
-
   private runSkillsCli(
     args: string[],
     cwd: string,
@@ -608,11 +597,7 @@ export class SkillsShRpcHandlers {
       });
 
       const timer = setTimeout(() => {
-        try {
-          child.kill('SIGTERM');
-        } catch {
-          // Process may already be dead
-        }
+        child.kill('SIGTERM');
         settle({
           stdout,
           stderr: `CLI timed out after ${timeout}ms`,
@@ -634,8 +619,6 @@ export class SkillsShRpcHandlers {
   private parseSkillsOutput(output: string): SkillShEntry[] {
     const skills: SkillShEntry[] = [];
 
-    // Strip ANSI escape codes — the CLI ignores NO_COLOR and always emits them
-
     const stripped = output.replace(
       new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*m', 'g'),
       '',
@@ -643,8 +626,6 @@ export class SkillsShRpcHandlers {
     const lines = stripped.split('\n').filter((line) => line.trim().length > 0);
 
     if (lines.length === 0) return skills;
-
-    // Match the actual CLI format: "owner/repo@skill-id  N installs"
     const skillLineRegex =
       /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)@([a-zA-Z0-9_.:/-]+)\s+([0-9,.]+[kKmM]?)\s+installs?$/;
 
@@ -694,35 +675,37 @@ export class SkillsShRpcHandlers {
     scope: 'project' | 'global',
   ): Promise<InstalledSkill[]> {
     const skills: InstalledSkill[] = [];
+
+    let entries: Dirent[];
     try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const skillMdPath = path.join(dirPath, entry.name, 'SKILL.md');
-        try {
-          const content = await fs.readFile(skillMdPath, 'utf8');
-          const metadata = this.parseSkillFrontmatter(content);
-          skills.push({
-            name: metadata.name || entry.name,
-            description: metadata.description || '',
-            source: metadata.source || entry.name,
-            path: path.join(dirPath, entry.name),
-            scope,
-            agents: [],
-          });
-        } catch {
-          skills.push({
-            name: entry.name,
-            description: '',
-            source: entry.name,
-            path: path.join(dirPath, entry.name),
-            scope,
-            agents: [],
-          });
-        }
-      }
+      entries = await fs.readdir(dirPath, { withFileTypes: true });
     } catch {
-      // Directory doesn't exist
+      return skills; // Dir missing — treat as empty.
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillMdPath = path.join(dirPath, entry.name, 'SKILL.md');
+      try {
+        const content = await fs.readFile(skillMdPath, 'utf8');
+        const metadata = this.parseSkillFrontmatter(content);
+        skills.push({
+          name: metadata.name || entry.name,
+          description: metadata.description || '',
+          source: metadata.source || entry.name,
+          path: path.join(dirPath, entry.name),
+          scope,
+          agents: [],
+        });
+      } catch {
+        skills.push({
+          name: entry.name,
+          description: '',
+          source: entry.name,
+          path: path.join(dirPath, entry.name),
+          scope,
+          agents: [],
+        });
+      }
     }
     return skills;
   }
@@ -784,57 +767,45 @@ export class SkillsShRpcHandlers {
         }
       }
     } catch {
-      // No package.json
+      // No package.json or unreadable — skip JS framework detection silently.
     }
 
-    try {
-      await fs.access(path.join(workspaceRoot, 'tsconfig.json'));
+    if (await this.probeFileExists(path.join(workspaceRoot, 'tsconfig.json'))) {
       if (!languages.includes('typescript')) languages.push('typescript');
-    } catch {
-      // No tsconfig.json
     }
-
-    try {
-      await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
+    if (await this.probeFileExists(path.join(workspaceRoot, 'Cargo.toml'))) {
       languages.push('rust');
-    } catch {
-      // No Cargo.toml
     }
-
-    try {
-      await fs.access(path.join(workspaceRoot, 'go.mod'));
+    if (await this.probeFileExists(path.join(workspaceRoot, 'go.mod'))) {
       languages.push('go');
-    } catch {
-      // No go.mod
     }
 
-    try {
-      const dockerFiles = [
-        'Dockerfile',
-        'docker-compose.yml',
-        'docker-compose.yaml',
-      ];
-      for (const f of dockerFiles) {
-        try {
-          await fs.access(path.join(workspaceRoot, f));
-          if (!tools.includes('docker')) tools.push('docker');
-          break;
-        } catch {
-          // File doesn't exist
-        }
+    const dockerFiles = [
+      'Dockerfile',
+      'docker-compose.yml',
+      'docker-compose.yaml',
+    ];
+    for (const f of dockerFiles) {
+      if (await this.probeFileExists(path.join(workspaceRoot, f))) {
+        if (!tools.includes('docker')) tools.push('docker');
+        break;
       }
-    } catch {
-      // No Docker files
     }
 
-    try {
-      await fs.access(path.join(workspaceRoot, 'nx.json'));
+    if (await this.probeFileExists(path.join(workspaceRoot, 'nx.json'))) {
       tools.push('nx');
-    } catch {
-      // No nx.json
     }
 
     return { frameworks, languages, tools };
+  }
+
+  private async probeFileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private matchSkillsToTechnologies(detected: {
@@ -866,15 +837,10 @@ export class SkillsShRpcHandlers {
   private async enrichWithInstallStatus(
     skills: SkillShEntry[],
   ): Promise<SkillShEntry[]> {
-    try {
-      const installed = await this.getInstalledSkillNames();
-      for (const skill of skills) {
-        skill.isInstalled =
-          installed.has(skill.skillId) ||
-          installed.has(skill.name.toLowerCase());
-      }
-    } catch {
-      // Non-critical
+    const installed = await this.getInstalledSkillNames();
+    for (const skill of skills) {
+      skill.isInstalled =
+        installed.has(skill.skillId) || installed.has(skill.name.toLowerCase());
     }
     return skills;
   }
@@ -882,13 +848,14 @@ export class SkillsShRpcHandlers {
   private async getInstalledSkillNames(): Promise<Set<string>> {
     const names = new Set<string>();
     const scanDir = async (dirPath: string) => {
+      let entries: Dirent[];
       try {
-        const entries = await fs.readdir(dirPath, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory()) names.add(entry.name.toLowerCase());
-        }
+        entries = await fs.readdir(dirPath, { withFileTypes: true });
       } catch {
-        // Directory doesn't exist
+        return; // Dir missing on first-run users — treat as empty set.
+      }
+      for (const entry of entries) {
+        if (entry.isDirectory()) names.add(entry.name.toLowerCase());
       }
     };
 

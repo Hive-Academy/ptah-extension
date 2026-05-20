@@ -1,5 +1,5 @@
 /**
- * Skill Synthesis RPC Handlers (TASK_2026_HERMES Track 2).
+ * Skill Synthesis RPC Handlers.
  *
  * Bridges the frontend Skill Synthesis UI to the backend SkillCandidateStore +
  * SkillSynthesisService. Six methods:
@@ -69,7 +69,7 @@ import {
   UpdateSkillSynthesisSettingsParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
-/** Minimal interface for the Curator service (registered later in Batch 3). */
+/** Minimal interface for the Curator service. */
 interface ICuratorService {
   runManual(): Promise<{
     reportPath: string;
@@ -129,10 +129,6 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // listCandidates
-  // ─────────────────────────────────────────────────────────────────────
-
   private registerListCandidates(): void {
     this.rpcHandler.registerMethod<
       SkillSynthesisListCandidatesParams,
@@ -151,10 +147,6 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // getCandidate
-  // ─────────────────────────────────────────────────────────────────────
-
   private registerGetCandidate(): void {
     this.rpcHandler.registerMethod<
       SkillSynthesisGetCandidateParams,
@@ -172,10 +164,6 @@ export class SkillsSynthesisRpcHandlers {
       }
     });
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // promote
-  // ─────────────────────────────────────────────────────────────────────
 
   private registerPromote(): void {
     this.rpcHandler.registerMethod<
@@ -200,10 +188,6 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // reject
-  // ─────────────────────────────────────────────────────────────────────
-
   private registerReject(): void {
     this.rpcHandler.registerMethod<
       SkillSynthesisRejectParams,
@@ -220,10 +204,6 @@ export class SkillsSynthesisRpcHandlers {
       }
     });
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // invocations
-  // ─────────────────────────────────────────────────────────────────────
 
   private registerInvocations(): void {
     this.rpcHandler.registerMethod<
@@ -242,10 +222,6 @@ export class SkillsSynthesisRpcHandlers {
       }
     });
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // stats
-  // ─────────────────────────────────────────────────────────────────────
 
   private registerStats(): void {
     this.rpcHandler.registerMethod<
@@ -268,18 +244,12 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // getSettings
-  // ─────────────────────────────────────────────────────────────────────
-
   private registerGetSettings(): void {
     this.rpcHandler.registerMethod<
       SkillSynthesisGetSettingsParams,
       SkillSynthesisGetSettingsResult
     >('skillSynthesis:getSettings', async () => {
       try {
-        // Iterate the Zod schema shape so all 17 fields come from a single
-        // source of truth — no manual per-field mapping needed.
         const raw: Record<string, unknown> = {};
         for (const key of Object.keys(SkillSynthesisSettingsSchema.shape)) {
           const configKey = `skillSynthesis.${key}`;
@@ -296,7 +266,6 @@ export class SkillsSynthesisRpcHandlers {
             raw[key] = defaultValue;
           }
         }
-        // Validate the assembled object so callers always get a well-typed DTO.
         const settings = SkillSynthesisSettingsSchema.parse(
           raw,
         ) as SkillSynthesisSettingsDto;
@@ -308,10 +277,6 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // updateSettings
-  // ─────────────────────────────────────────────────────────────────────
-
   private registerUpdateSettings(): void {
     this.rpcHandler.registerMethod<
       SkillSynthesisUpdateSettingsParams,
@@ -322,8 +287,6 @@ export class SkillsSynthesisRpcHandlers {
         const entries = Object.entries(parsed.settings) as Array<
           [keyof SkillSynthesisSettingsDto, unknown]
         >;
-
-        // Detect whether the curator schedule needs restarting before writing.
         const curatorAffected =
           'curatorEnabled' in parsed.settings ||
           'curatorIntervalHours' in parsed.settings;
@@ -335,9 +298,6 @@ export class SkillsSynthesisRpcHandlers {
             value,
           );
         }
-
-        // Restart the curator interval so the new settings take effect immediately.
-        // synthesis.readSettings() reads the freshly-written config.
         if (curatorAffected && this.curator) {
           const newSettings = this.synthesis.readSettings();
           this.curator.stop();
@@ -358,10 +318,6 @@ export class SkillsSynthesisRpcHandlers {
       }
     });
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // pin
-  // ─────────────────────────────────────────────────────────────────────
 
   private registerPin(): void {
     this.rpcHandler.registerMethod<
@@ -393,10 +349,6 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // unpin
-  // ─────────────────────────────────────────────────────────────────────
-
   private registerUnpin(): void {
     this.rpcHandler.registerMethod<
       SkillSynthesisUnpinParams,
@@ -412,10 +364,6 @@ export class SkillsSynthesisRpcHandlers {
       }
     });
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // runCurator
-  // ─────────────────────────────────────────────────────────────────────
 
   private registerRunCurator(): void {
     this.rpcHandler.registerMethod<
@@ -440,10 +388,6 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Internals
-  // ─────────────────────────────────────────────────────────────────────
-
   private collectByStatus(
     filter: 'candidate' | 'promoted' | 'rejected' | 'all',
   ): SkillCandidateRow[] {
@@ -460,17 +404,10 @@ export class SkillsSynthesisRpcHandlers {
   private report(error: unknown, errorSource: string): void {
     const err = error instanceof Error ? error : new Error(String(error));
     this.logger.error(`RPC ${errorSource} failed`, err);
-    try {
-      this.sentryService.captureException(err, { errorSource });
-    } catch {
-      /* sentry must never throw */
-    }
+
+    this.sentryService.captureException(err, { errorSource });
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// Pure helpers
-// ─────────────────────────────────────────────────────────────────────────
 
 function clampLimit(raw: number | undefined, fallback: number): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) {

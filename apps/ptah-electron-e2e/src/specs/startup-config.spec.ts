@@ -2,7 +2,7 @@ import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../support/fixtures';
 
 /**
- * Wave B.B2 -- IPC contract specs for `get-startup-config`.
+ * IPC contract specs for `get-startup-config`.
  *
  * The preload script issues `ipcRenderer.sendSync('get-startup-config')` once
  * during page load to obtain license + workspace bootstrap state. The main

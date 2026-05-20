@@ -1,11 +1,11 @@
 /**
  * CompactionCallbackRegistry — fan-out registry for additional PreCompact
- * subscribers (TASK_2026_HERMES Track 1, architecture §2.6).
+ * subscribers (architecture §2.6).
  *
  * The interactive chat path captures a single `onCompactionStart` closure
  * via `CompactionHookHandler.createHooks()` to push the
- * `session:compacting` notification at the webview. Track 1 introduces a
- * second subscriber — the memory curator — that needs the same firing
+ * `session:compacting` notification at the webview. The registry introduces
+ * a second subscriber — the memory curator — that needs the same firing
  * signal but lives in a different DI scope and cannot be captured by the
  * chat-path closure.
  *

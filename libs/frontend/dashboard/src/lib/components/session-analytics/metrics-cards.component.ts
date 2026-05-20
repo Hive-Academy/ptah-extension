@@ -10,8 +10,6 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
  *
  * Accepts a single `AggregateTotals` input (from SessionAnalyticsStateService).
  * Uses the same design system as SessionStatsSummaryComponent.
- *
- * TASK_2025_206 v2: Simplified from 5 individual inputs to single aggregate object.
  */
 @Component({
   selector: 'ptah-session-metrics-cards',

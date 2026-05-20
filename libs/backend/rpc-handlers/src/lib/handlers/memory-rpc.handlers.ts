@@ -1,5 +1,5 @@
 /**
- * Memory RPC Handlers (TASK_2026_HERMES Track 1).
+ * Memory RPC Handlers.
  *
  * Surfaces 8 `memory:*` methods backed by the `@ptah-extension/memory-curator`
  * library: list / search / get / pin / unpin / forget / rebuildIndex / stats.
@@ -10,6 +10,7 @@ import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   MEMORY_TOKENS,
   memoryId,
+  type CodeSymbolStore,
   type Memory,
   type MemoryChunk,
   type MemoryCuratorService,
@@ -33,6 +34,8 @@ import type {
   MemoryPinResult,
   MemoryPurgeBySubjectPatternParams,
   MemoryPurgeBySubjectPatternResult,
+  MemoryPurgeJunkParams,
+  MemoryPurgeJunkResult,
   MemoryRebuildIndexParams,
   MemoryRebuildIndexResult,
   MemorySearchHitWire,
@@ -98,12 +101,15 @@ export class MemoryRpcHandlers {
     'memory:rebuildIndex',
     'memory:stats',
     'memory:purgeBySubjectPattern',
+    'memory:purgeJunk',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
+    @inject(MEMORY_TOKENS.CODE_SYMBOL_STORE)
+    private readonly codeSymbols: CodeSymbolStore,
     @inject(MEMORY_TOKENS.MEMORY_SEARCH)
     private readonly search: MemorySearchService,
     @inject(MEMORY_TOKENS.MEMORY_CURATOR)
@@ -139,10 +145,6 @@ export class MemoryRpcHandlers {
         if (!params || typeof params.query !== 'string') {
           return { hits: [], bm25Only: false };
         }
-        // Extract workspaceRoot independently so that an invalid topK or query
-        // field cannot silently drop the scope (cross-workspace memory leak).
-        // The full MemorySearchParamsSchema (in memory-rpc.schema.ts) remains
-        // the end-to-end validation contract used by the test layer.
         const workspaceRoot = WorkspaceRootSchema.safeParse(
           (params as { workspaceRoot?: unknown }).workspaceRoot,
         ).data;
@@ -243,7 +245,16 @@ export class MemoryRpcHandlers {
       async (
         params: MemoryStatsParams | undefined,
       ): Promise<MemoryStatsResult> => {
-        return this.store.stats(params?.workspaceRoot ?? undefined);
+        const workspaceRoot = params?.workspaceRoot ?? undefined;
+        const curated = this.store.stats(workspaceRoot);
+        const codeIndex = this.codeSymbols.count(workspaceRoot);
+        return {
+          core: curated.core,
+          recall: curated.recall,
+          archival: curated.archival,
+          codeIndex,
+          lastCuratedAt: curated.lastCuratedAt,
+        };
       },
     );
 
@@ -256,7 +267,6 @@ export class MemoryRpcHandlers {
         try {
           validated = MemoryPurgeBySubjectPatternParamsSchema.parse(params);
         } catch (err) {
-          // Issue 3 (LOW): log full Zod error server-side; send generic message to client.
           this.logger.warn('[memory] purgeBySubjectPattern — invalid params', {
             err: String(err),
           });
@@ -265,7 +275,6 @@ export class MemoryRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        // Issue 1 (HIGH): reject null/undefined workspaceRoot — cross-workspace purge not permitted.
         if (
           validated.workspaceRoot === null ||
           validated.workspaceRoot === undefined
@@ -275,7 +284,6 @@ export class MemoryRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        // Issue 2 (MEDIUM): workspace authorization guard — defence-in-depth against arbitrary workspaceRoot.
         if (
           !isAuthorizedWorkspace(
             validated.workspaceRoot,
@@ -311,8 +319,41 @@ export class MemoryRpcHandlers {
       },
     );
 
-    // Touch curator so DI graph fully resolves on registration. Curator is
-    // started by the host app at activation; this is just to ensure construction.
+    this.rpcHandler.registerMethod(
+      'memory:purgeJunk',
+      async (
+        params: MemoryPurgeJunkParams | undefined,
+      ): Promise<MemoryPurgeJunkResult> => {
+        const workspaceRoot = params?.workspaceRoot ?? undefined;
+        if (
+          workspaceRoot !== undefined &&
+          workspaceRoot !== null &&
+          !isAuthorizedWorkspace(workspaceRoot, this.workspaceProvider)
+        ) {
+          throw new RpcUserError(
+            'Workspace not authorized',
+            'UNAUTHORIZED_WORKSPACE',
+          );
+        }
+        try {
+          const deleted = this.codeSymbols.purgeJunk(workspaceRoot);
+          this.logger.info('[memory] purgeJunk complete', {
+            deleted,
+            workspaceRoot: workspaceRoot ?? null,
+          });
+          return { deleted };
+        } catch (err) {
+          this.logger.error('[memory] purgeJunk failed', {
+            error: String(err),
+          });
+          throw new RpcUserError(
+            'memory:purgeJunk failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
+      },
+    );
+
     void this.curator;
     this.logger.info('[memory] RPC handlers registered');
   }

@@ -7,7 +7,6 @@
  *
  * Single Responsibility: Create properly formatted SDK user messages
  *
- * @see TASK_2025_102 - Extracted to reduce SdkAgentAdapter complexity
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -25,8 +24,6 @@ import {
   TextBlock,
   SDKUserMessage,
 } from '../types/sdk-types/claude-sdk.types';
-
-// Re-export SDKUserMessage type for consumers
 export type { SDKUserMessage } from '../types/sdk-types/claude-sdk.types';
 
 /**
@@ -79,8 +76,6 @@ export class SdkMessageFactory {
     params: CreateMessageParams,
   ): Promise<SDKUserMessage> {
     const { content, sessionId, files = [], images = [] } = params;
-
-    // Build message content (text + optional attachments + inline images)
     let messageContent: UserMessageContent = content;
 
     const hasAttachments = files.length > 0 || images.length > 0;
@@ -97,18 +92,7 @@ export class SdkMessageFactory {
             source: { type: 'base64'; media_type: string; data: string };
           }
       )[] = [];
-
-      // Add text content first
       contentBlocks.push({ type: 'text', text: content });
-
-      // Add inline images (pasted/dropped).
-      //
-      // Defense-in-depth guard: the Anthropic API only accepts four image
-      // media types (jpeg/png/gif/webp). Frontend clients and file pickers
-      // have historically let through svg/bmp/ico/jfif/empty strings and
-      // clipboard-mislabeled types, which poison persisted transcripts so
-      // that every resume fails validation. Re-check here at the SDK
-      // boundary and drop any block we cannot resolve.
       for (const img of images) {
         const mediaType = resolveImageMediaType(img.mediaType, img.data);
         if (mediaType === null) {
@@ -126,8 +110,6 @@ export class SdkMessageFactory {
           },
         });
       }
-
-      // Add file attachments
       if (files.length > 0) {
         const attachmentBlocks =
           await this.attachmentProcessor.processAttachments(files);
@@ -136,8 +118,6 @@ export class SdkMessageFactory {
 
       messageContent = contentBlocks;
     }
-
-    // Generate unique message ID
     const messageId = MessageId.create();
     const messageIdStr = messageId.toString();
 

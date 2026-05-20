@@ -1,5 +1,5 @@
 /**
- * Authentication Strategy Types - TASK_AUTH_REFACTOR Phase 1
+ * Authentication Strategy Types
  *
  * The 5 strategies map 1:1 to actual authentication flows:
  * - api-key:       Direct API key (Anthropic, OpenRouter, Moonshot, Z.AI)
@@ -55,8 +55,6 @@ export function resolveStrategy(
 ): AuthStrategyType {
   if (legacyMethod === 'claudeCli') return 'cli';
   if (legacyMethod === 'apiKey') return 'api-key';
-
-  // legacyMethod === 'thirdParty' — determine from provider entry
   if (!provider) return 'api-key'; // fallback when no provider metadata
 
   if (provider.authType === 'oauth' && provider.requiresProxy)
@@ -67,4 +65,32 @@ export function resolveStrategy(
     return 'local-proxy';
 
   return 'api-key'; // default for API-key providers (OpenRouter, Moonshot, Z.AI)
+}
+
+/**
+ * Normalize any persisted `authMethod` value (legacy or new spelling) to the
+ * canonical `LegacyAuthMethod` triad. Defaults to `'apiKey'` on unknown input.
+ *
+ * Mapping (first match wins, default `'apiKey'`):
+ *   'apiKey'                              → 'apiKey'
+ *   'claudeCli' | 'claude-cli'            → 'claudeCli'
+ *   'thirdParty' | 'oauth' | 'openrouter' → 'thirdParty'
+ *   anything else                         → 'apiKey'
+ */
+export function normalizeAuthMethod(rawValue: unknown): LegacyAuthMethod {
+  if (typeof rawValue !== 'string') {
+    return 'apiKey';
+  }
+
+  if (rawValue === 'apiKey') return 'apiKey';
+  if (rawValue === 'claudeCli' || rawValue === 'claude-cli') return 'claudeCli';
+  if (
+    rawValue === 'thirdParty' ||
+    rawValue === 'oauth' ||
+    rawValue === 'openrouter'
+  ) {
+    return 'thirdParty';
+  }
+
+  return 'apiKey';
 }

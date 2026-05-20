@@ -64,7 +64,6 @@ export class WebSearchService {
     query: string,
     options?: WebSearchOptions,
   ): Promise<WebSearchResult> {
-    // Validate query
     const trimmed = query?.trim();
     if (!trimmed) {
       throw new Error('Web search query must not be empty');
@@ -73,17 +72,11 @@ export class WebSearchService {
       trimmed.length > MAX_QUERY_LENGTH
         ? trimmed.substring(0, MAX_QUERY_LENGTH)
         : trimmed;
-
-    // Clamp timeout: default 30s, max 60s
     const timeout = Math.min(
       options?.timeout ?? DEFAULT_TIMEOUT_MS,
       MAX_TIMEOUT_MS,
     );
-
-    // Read provider from configuration
     const providerName = this.getProviderConfig();
-
-    // Read maxResults: options override > config > default
     const configMaxResults =
       this.deps.workspaceProvider.getConfiguration<number>(
         'ptah',
@@ -91,8 +84,6 @@ export class WebSearchService {
         DEFAULT_MAX_RESULTS,
       ) ?? DEFAULT_MAX_RESULTS;
     const maxResults = options?.maxResults ?? configMaxResults;
-
-    // Retrieve API key from encrypted SecretStorage
     const apiKey = await this.deps.secretStorage.get(
       secretKeyForProvider(providerName),
     );
@@ -102,22 +93,17 @@ export class WebSearchService {
           `Configure it in Ptah Settings > Web Search.`,
       );
     }
-
-    // Create the provider adapter (instantiated per-search to always use latest key)
     const provider = this.createProvider(providerName, apiKey);
 
     const start = Date.now();
 
     try {
-      // Execute search with timeout via Promise.race + AbortController pattern
       const providerResult = await Promise.race([
         provider.search(sanitizedQuery, maxResults),
         this.createTimeoutPromise(timeout),
       ]);
 
       const durationMs = Date.now() - start;
-
-      // Build summary from provider or synthesize from top results
       const summary =
         providerResult.summary ||
         this.buildSummaryFromResults(providerResult.results);
@@ -194,7 +180,6 @@ export class WebSearchService {
       case 'exa':
         return new ExaSearchProvider(apiKey);
       default: {
-        // Exhaustive check - this should never happen since getProviderConfig validates
         const _exhaustive: never = providerName;
         throw new Error(`Unknown web search provider: ${_exhaustive}`);
       }

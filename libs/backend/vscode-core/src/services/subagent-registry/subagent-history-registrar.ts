@@ -1,7 +1,8 @@
 /**
- * Subagent History Registrar (Wave C7a — TASK_2025_291)
+ * Subagent History Registrar
  *
- * Extracted from {@link SubagentRegistryService}.
+ * Library-internal helper that handles history-based replay registration
+ * for {@link SubagentRegistryService}.
  *
  * Responsibilities:
  * - Parse `FlatStreamEventUnion[]` loaded from session history (JSONL) and
@@ -42,10 +43,10 @@ export class SubagentHistoryRegistrar {
   /**
    * Register incomplete/interrupted agents from loaded session history.
    *
-   * TASK_2025_109: When loading a session from JSONL history (cold load),
-   * SDK hooks don't fire, so the registry is empty. This method parses
-   * history events to detect agents that started but never completed,
-   * and registers them as 'interrupted' for potential resumption.
+   * When loading a session from JSONL history (cold load), SDK hooks don't
+   * fire, so the registry is empty. This method parses history events to
+   * detect agents that started but never completed, and registers them as
+   * 'interrupted' for potential resumption.
    *
    * Algorithm:
    * 1. Find all agent_start events (indicates agent spawned)
@@ -58,10 +59,7 @@ export class SubagentHistoryRegistrar {
    * @returns Number of interrupted agents registered
    */
   register(events: FlatStreamEventUnion[], parentSessionId: string): number {
-    // Run lazy cleanup periodically
     this.store.lazyCleanup();
-
-    // Step 1: Collect all agent_start events
     const agentStartEvents: AgentStartEvent[] = events.filter(
       (e): e is AgentStartEvent => e.eventType === 'agent_start',
     );
@@ -73,19 +71,11 @@ export class SubagentHistoryRegistrar {
       );
       return 0;
     }
-
-    // Step 2: Collect all tool_result toolCallIds for quick lookup
     const completedToolCallIds = new Set<string>(
       events
         .filter((e): e is ToolResultEvent => e.eventType === 'tool_result')
         .map((e) => e.toolCallId),
     );
-
-    // Step 2b: Build superseded set — when the same agentId was spawned multiple
-    // times (initial + resume(s)), any earlier toolCallId that has a later successful
-    // resume is "superseded" and should NOT appear as interrupted.
-    // Algorithm: group toolCallIds by agentId, if ANY has a tool_result, all OTHERS
-    // without a tool_result are superseded (not truly interrupted — they were retried).
     const agentIdToToolCallIds = new Map<string, string[]>();
     for (const agentStart of agentStartEvents) {
       if (!agentStart.agentId) continue;
@@ -102,7 +92,6 @@ export class SubagentHistoryRegistrar {
         completedToolCallIds.has(tcId),
       );
       if (hasCompleted) {
-        // All non-completed toolCallIds for this agent are superseded
         for (const tcId of toolCallIds) {
           if (!completedToolCallIds.has(tcId)) {
             supersededToolCallIds.add(tcId);
@@ -118,15 +107,11 @@ export class SubagentHistoryRegistrar {
         }
       }
     }
-
-    // Step 3: Find agent_start events without corresponding tool_result
     let registeredCount = 0;
 
     for (const agentStart of agentStartEvents) {
       const { toolCallId, agentType, agentId, sessionId, timestamp } =
         agentStart;
-
-      // Skip if already registered (avoid duplicates on multiple loads)
       if (this.store.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent already registered, skipping',
@@ -134,10 +119,6 @@ export class SubagentHistoryRegistrar {
         );
         continue;
       }
-
-      // TASK_2025_213 (Bug 1): Skip agents whose context was already injected
-      // and removed from the registry. This breaks the re-registration cycle:
-      // inject context -> remove from registry -> reload session -> re-register -> inject again
       if (this.store.wasInjected(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent already injected into context, skipping',
@@ -145,8 +126,6 @@ export class SubagentHistoryRegistrar {
         );
         continue;
       }
-
-      // Check if agent completed (has tool_result)
       if (completedToolCallIds.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent completed, skipping',
@@ -154,8 +133,6 @@ export class SubagentHistoryRegistrar {
         );
         continue;
       }
-
-      // Skip superseded agents (earlier interrupted attempts that were successfully resumed later)
       if (supersededToolCallIds.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent superseded by successful resume, skipping',
@@ -163,11 +140,6 @@ export class SubagentHistoryRegistrar {
         );
         continue;
       }
-
-      // Agent started but never completed - register as interrupted
-      // Skip agents without a real agentId — without it, the SDK can't find
-      // the subagent's transcript file for resumption. The toolCallId fallback
-      // (e.g., "YT1Fw2p") doesn't match any file on disk.
       if (!agentId) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Skipping agent without agentId (no transcript for resume)',

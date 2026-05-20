@@ -1,5 +1,5 @@
 /**
- * Chat RPC Handlers — thin facade (Wave C7e cleanup pass 2).
+ * Chat RPC Handlers — thin facade.
  *
  * Registers the six `chat:*` / `agent:backgroundList` RPC methods and delegates
  * each call to one of the extracted chat sub-services:
@@ -15,20 +15,12 @@
  * Error handling: each `ChatSessionService` method already wraps its body in
  * try/catch and returns a result-shaped failure (`{ success: false, error }`)
  * after capturing the error to Sentry directly. The `runRpc` helper here adds
- * the C7d-style outer try/catch + entry/exit debug logs so any unexpected
+ * an outer try/catch + entry/exit debug logs so any unexpected
  * throw (re-thrown error or new bug) still gets logged and captured.
  *
  * `registerChatServices(container)` from `@ptah-extension/rpc-handlers` MUST
  * be invoked BEFORE `registerAllRpcHandlers(container)` resolves this class —
  * registration order is documented in `../chat/di.ts`.
- *
- * Original history:
- *   TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService.
- *   TASK_2025_203: Moved to @ptah-extension/rpc-handlers.
- *   TASK_2025_291 / Wave C7e: Split monolith into chat/ sub-services.
- *   Wave C7e cleanup pass 2: aligned with C7d harness pattern (DI over
- *   callbacks; runRpc with logging + Sentry; subagent-context + slash-command
- *   carve-outs).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -59,6 +51,12 @@ import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service'
 import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import { hasStopIntent } from '../chat/session/chat-stop-intent';
+import {
+  ChatStartParamsSchema,
+  ChatContinueParamsSchema,
+  ChatResumeParamsSchema,
+  ChatAbortParamsSchema,
+} from './chat-rpc.schema';
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
 type RpcHandlerFn<TParams, TResp> = (params: TParams) => Promise<TResp>;
@@ -186,22 +184,34 @@ export class ChatRpcHandlers {
     this.wire<ChatStartParams, ChatStartResult>(
       'chat:start',
       'registerChatStart',
-      (params) => this.session.startSession(params),
+      (params) => {
+        ChatStartParamsSchema.parse(params);
+        return this.session.startSession(params);
+      },
     );
     this.wire<ChatContinueParams, ChatContinueResult>(
       'chat:continue',
       'registerChatContinue',
-      (params) => this.session.continueSession(params),
+      (params) => {
+        ChatContinueParamsSchema.parse(params);
+        return this.session.continueSession(params);
+      },
     );
     this.wire<ChatResumeParams, ChatResumeResult>(
       'chat:resume',
       'registerChatResume',
-      (params) => this.session.resumeSession(params),
+      (params) => {
+        ChatResumeParamsSchema.parse(params);
+        return this.session.resumeSession(params);
+      },
     );
     this.wire<ChatAbortParams, ChatAbortResult>(
       'chat:abort',
       'registerChatAbort',
-      (params) => this.session.abortSession(params),
+      (params) => {
+        ChatAbortParamsSchema.parse(params);
+        return this.session.abortSession(params);
+      },
     );
     this.wire<ChatRunningAgentsParams, ChatRunningAgentsResult>(
       'chat:running-agents',

@@ -9,8 +9,6 @@ import * as path from 'path';
  * We fail fast with an actionable error if anything is absent.
  */
 export default async function globalSetup(): Promise<void> {
-  // __dirname when this file is compiled is .../apps/ptah-electron-e2e/src/support
-  // The dist root is at workspace_root/dist/apps/ptah-electron, four levels up.
   const distRoot = path.resolve(
     __dirname,
     '..',

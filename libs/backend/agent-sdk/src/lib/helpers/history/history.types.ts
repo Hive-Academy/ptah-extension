@@ -4,15 +4,10 @@
  * Centralized type definitions for session history processing services.
  * Extracted from session-history-reader.service.ts for better maintainability.
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import type { JSONLMessage } from '@ptah-extension/shared';
 import type { ClaudeApiUsage } from '../usage-extraction.utils';
-
-// ============================================================================
-// JSONL FILE TYPES
-// ============================================================================
 
 /**
  * Raw JSONL message line from Claude session files.
@@ -81,10 +76,6 @@ export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
   };
 }
 
-// ============================================================================
-// CONTENT TYPES
-// ============================================================================
-
 /**
  * Content block within a message.
  * Can be text, thinking, tool_use, or tool_result.
@@ -100,10 +91,6 @@ export interface ContentBlock {
   content?: string | unknown[];
   is_error?: boolean;
 }
-
-// ============================================================================
-// AGENT & SESSION TYPES
-// ============================================================================
 
 /**
  * Data structure for an agent session.
@@ -123,10 +110,6 @@ export interface ToolResultData {
   content: string;
   isError: boolean;
 }
-
-// ============================================================================
-// CORRELATION TYPES
-// ============================================================================
 
 /**
  * Agent data map entry for correlation.

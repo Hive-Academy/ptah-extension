@@ -69,8 +69,6 @@ export class SetupWizardService implements ISetupWizardService {
       this.logger.info('Launching setup wizard', {
         workspace: workspacePath,
       });
-
-      // Check if panel already exists
       const existingPanel = this.webviewLifecycle.getPanel(
         this.WIZARD_VIEW_TYPE,
       );
@@ -78,8 +76,6 @@ export class SetupWizardService implements ISetupWizardService {
         existingPanel.reveal();
         return Result.ok(undefined);
       }
-
-      // Create webview panel via webviewLifecycle with close/reload handler
       const panel = await this.webviewLifecycle.createWizardPanel(
         'Ptah Setup Wizard',
         this.WIZARD_VIEW_TYPE,

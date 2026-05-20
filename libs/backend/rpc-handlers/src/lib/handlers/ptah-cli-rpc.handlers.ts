@@ -8,18 +8,16 @@
  * - ptahCli:delete - Delete a Ptah CLI agent
  * - ptahCli:testConnection - Test connection to a Ptah CLI agent's provider
  * - ptahCli:listModels - List available models for a Ptah CLI agent's provider
- *
- * TASK_2025_167 Batch 3: RPC Handlers + DI Wiring
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { getAnthropicProvider } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
+  CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
-  getAnthropicProvider,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   PtahCliListParams,
   PtahCliListResult,
@@ -53,7 +51,7 @@ export class PtahCliRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
@@ -168,8 +166,6 @@ export class PtahCliRpcHandlers {
           this.logger.debug('RPC: ptahCli:update called', {
             id: params.id,
           });
-
-          // Extract config-level updates (excluding id and apiKey)
           const updates: {
             name?: string;
             enabled?: boolean;
@@ -310,8 +306,6 @@ export class PtahCliRpcHandlers {
         this.logger.debug('RPC: ptahCli:listModels called', {
           id: params.id,
         });
-
-        // Get the agent's config to find its provider
         const agents = await this.ptahCliRegistry.listAgents();
         const agent = agents.find((a) => a.id === params.id);
 
@@ -321,8 +315,6 @@ export class PtahCliRpcHandlers {
           });
           return { models: [], isStatic: true, error: 'Agent not found' };
         }
-
-        // Look up provider definition for static models
         const provider = getAnthropicProvider(agent.providerId);
 
         if (!provider) {
@@ -331,8 +323,6 @@ export class PtahCliRpcHandlers {
           });
           return { models: [], isStatic: true, error: 'Provider not found' };
         }
-
-        // Return static models from the provider registry
         const models = (provider.staticModels ?? []).map((m) => ({
           id: m.id,
           name: m.name,

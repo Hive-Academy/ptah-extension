@@ -1,5 +1,5 @@
 /**
- * Gateway RPC Handlers (TASK_2026_HERMES Track 4)
+ * Gateway RPC Handlers
  *
  * Bridges the eight `gateway:*` RPC methods to {@link GatewayService}. Lives
  * in `rpc-handlers` (not in any app) because the messaging gateway is shared
@@ -92,8 +92,6 @@ export class GatewayRpcHandlers {
     });
   }
 
-  // ---------------------------------------------------------------------------
-
   private async broadcastStatus(origin: string | null): Promise<void> {
     const status = this.gateway.status();
     const payload: GatewayStatusChangedPayload = {
@@ -178,9 +176,6 @@ export class GatewayRpcHandlers {
       if (!params?.platform || !params?.token) {
         throw new Error('gateway:setToken requires { platform, token }');
       }
-      // SECURITY: validate platform against the explicit allow-list so the
-      // setToken switch can never default into the slack branch and store a
-      // token under the wrong settings key.
       if (
         params.platform !== 'telegram' &&
         params.platform !== 'discord' &&
@@ -220,9 +215,6 @@ export class GatewayRpcHandlers {
         filter.platform = params.platform as GatewayPlatform;
       if (params?.status) filter.status = params.status as ApprovalStatus;
       const bindings = this.gateway.listBindings(filter);
-      // SECURITY: omit pairingCode from list responses — the code is the sole
-      // pairing secret and must not be serialised to the renderer IPC channel.
-      // It is only included in the explicit approveBinding confirmation.
       return { bindings: bindings.map(toBindingDtoPublic) };
     });
   }
@@ -245,8 +237,6 @@ export class GatewayRpcHandlers {
         params.code,
       );
       if (result.ok === false) {
-        // Do NOT log the supplied code — it's a one-time secret. Only log the
-        // structured reason so dashboards can count mismatches.
         this.logger.warn('[gateway] binding approval rejected', {
           bindingId: params.bindingId,
           reason: result.error,
@@ -325,10 +315,6 @@ export class GatewayRpcHandlers {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// DTO mappers — keep the shared layer dependency-free.
-// ---------------------------------------------------------------------------
 
 function toBindingDto(b: GatewayBinding): GatewayBindingDto {
   return {

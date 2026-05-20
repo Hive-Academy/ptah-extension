@@ -1,0 +1,25 @@
+{
+  "name": "@ptah-extension/auth-providers-tokens",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/backend/auth-providers-tokens/src",
+  "tags": ["scope:extension", "type:core"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/auth-providers-tokens",
+        "main": "libs/backend/auth-providers-tokens/src/index.ts",
+        "tsConfig": "libs/backend/auth-providers-tokens/tsconfig.lib.json",
+        "format": ["cjs"]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/auth-providers-tokens/tsconfig.lib.json"
+      }
+    }
+  }
+}

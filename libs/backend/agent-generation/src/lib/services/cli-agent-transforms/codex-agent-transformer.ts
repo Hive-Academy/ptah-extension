@@ -35,21 +35,14 @@ export class CodexAgentTransformer implements ICliAgentTransformer {
   readonly target = 'codex' as const;
 
   transform(agent: GeneratedAgent): CliAgentTransformResult {
-    // Extract agent ID using cross-platform path.basename()
     const agentId = extractAgentId(agent.filePath);
-
-    // Extract description from agent variables
     const description = agent.variables['description'] || `${agentId} agent`;
-
-    // Apply all transformations
     const content = transformAgentContent(
       agent.content,
       'codex',
       agentId,
       description
     );
-
-    // Target path: ~/.codex/agents/ptah-{agent-id}.md (prefixed for cleanup)
     const filePath = join(homedir(), '.codex', 'agents', `ptah-${agentId}.md`);
 
     return {

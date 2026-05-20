@@ -9,8 +9,6 @@
  * These keys use flat dot-notation matching the existing
  * getConfiguration('ptah', 'provider.github-copilot.clientId') call pattern.
  * The Set provides O(1) lookup for routing checks in workspace providers.
- *
- * TASK_2025_247 Batch 2, Task 2.2
  */
 
 /**
@@ -21,7 +19,7 @@
  * We cannot import that constant here because settings-core depends on
  * platform-core (not the reverse) — a circular dependency would result.
  *
- * WP-3C (R1 fix): these keys must be in FILE_BASED_SETTINGS_KEYS so that
+ * These keys must be in FILE_BASED_SETTINGS_KEYS so that
  * VscodeWorkspaceProvider routes them to ~/.ptah/settings.json instead of
  * vscode.workspace.getConfiguration (which has no schema for them).
  */
@@ -47,87 +45,52 @@ const KNOWN_AUTH_KEYS_FOR_FILE_ROUTING = [
  *   }
  */
 export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
-  // Authentication method (shared across VS Code + Electron)
   'authMethod',
-
-  // Provider selection
   'anthropicProviderId',
-
-  // LLM configuration
   'llm.defaultProvider',
   'llm.vscode.model',
   'reasoningEffort',
   'model.selected',
-
-  // Agent orchestration — Codex
   'agentOrchestration.codexModel',
   'agentOrchestration.codexReasoningEffort',
   'agentOrchestration.codexAutoApprove',
-
-  // Agent orchestration — Copilot
   'agentOrchestration.copilotModel',
   'agentOrchestration.copilotReasoningEffort',
   'agentOrchestration.copilotAutoApprove',
-
-  // Agent orchestration — CLI management
   'agentOrchestration.disabledClis',
   'agentOrchestration.disabledMcpNamespaces',
-
-  // Provider: GitHub Copilot
   'provider.github-copilot.tokenExchangeUrl',
   'provider.github-copilot.apiEndpoint',
   'provider.github-copilot.clientId',
   'provider.github-copilot.modelTier.opus',
   'provider.github-copilot.modelTier.sonnet',
   'provider.github-copilot.modelTier.haiku',
-
-  // Provider: OpenAI Codex
   'provider.openai-codex.oauthApiEndpoint',
   'provider.openai-codex.modelTier.opus',
   'provider.openai-codex.modelTier.sonnet',
   'provider.openai-codex.modelTier.haiku',
-
-  // Provider: OpenRouter
   'provider.openrouter.modelTier.opus',
   'provider.openrouter.modelTier.sonnet',
   'provider.openrouter.modelTier.haiku',
-
-  // Provider: Moonshot
   'provider.moonshot.modelTier.opus',
   'provider.moonshot.modelTier.sonnet',
   'provider.moonshot.modelTier.haiku',
-
-  // Provider: Z-AI
   'provider.z-ai.modelTier.opus',
   'provider.z-ai.modelTier.sonnet',
   'provider.z-ai.modelTier.haiku',
-
-  // Provider: Ollama (local)
   'provider.ollama.modelTier.opus',
   'provider.ollama.modelTier.sonnet',
   'provider.ollama.modelTier.haiku',
-
-  // Provider: Ollama Cloud
   'provider.ollama-cloud.modelTier.opus',
   'provider.ollama-cloud.modelTier.sonnet',
   'provider.ollama-cloud.modelTier.haiku',
-
-  // Provider: LM Studio (local)
   'provider.lm-studio.modelTier.opus',
   'provider.lm-studio.modelTier.sonnet',
   'provider.lm-studio.modelTier.haiku',
-
-  // CLI agent configurations
   'ptahCliAgents',
-
-  // Browser automation (TASK_2025_244)
   'browser.allowLocalhost',
   'browser.recordingDir',
-
-  // Editor preferences (TASK_2025_283)
   'editor.vimMode',
-
-  // Memory curator
   'memory.curatorEnabled',
   'memory.tierLimits.core',
   'memory.tierLimits.recall',
@@ -137,8 +100,6 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'memory.curatorModel',
   'memory.searchTopK',
   'memory.searchAlpha',
-
-  // Autonomous skill synthesis
   'skillSynthesis.enabled',
   'skillSynthesis.successesToPromote',
   'skillSynthesis.dedupCosineThreshold',
@@ -156,13 +117,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.maxPinnedSkills',
   'skillSynthesis.curatorEnabled',
   'skillSynthesis.curatorIntervalHours',
-
-  // Cron scheduler
   'cron.enabled',
   'cron.maxConcurrentJobs',
   'cron.catchupWindowMs',
-
-  // Messaging gateway
   'gateway.enabled',
   'gateway.coalesceMs',
   'gateway.rateLimit.minTimeMs',
@@ -179,12 +136,6 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'gateway.slack.botTokenCipher',
   'gateway.slack.appTokenCipher',
   'gateway.slack.allowedTeamIds',
-
-  // Provider-scoped per-auth model + effort keys (WP-3C, R1 fix).
-  // Generated from KNOWN_AUTH_KEYS_FOR_FILE_ROUTING — one selectedModel and
-  // one reasoningEffort key per provider auth identity.
-  // Keeps VS Code's getConfiguration router from falling through to the
-  // vscode.workspace.getConfiguration path (which has no schema for them).
   ...KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
     `provider.${k}.selectedModel`,
     `provider.${k}.reasoningEffort`,
@@ -205,103 +156,61 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
  * - Array settings default to [] (empty array)
  */
 export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
-  // Authentication method
   authMethod: 'apiKey',
-
-  // Provider selection
   anthropicProviderId: 'openrouter',
-
-  // LLM configuration
   'llm.defaultProvider': 'vscode-lm',
   'llm.vscode.model': 'copilot/gpt-4o',
   reasoningEffort: 'medium',
   'model.selected': '',
-
-  // Agent orchestration — Codex
   'agentOrchestration.codexModel': '',
   'agentOrchestration.codexReasoningEffort': '',
   'agentOrchestration.codexAutoApprove': true,
-
-  // Agent orchestration — Copilot
   'agentOrchestration.copilotModel': '',
   'agentOrchestration.copilotReasoningEffort': '',
   'agentOrchestration.copilotAutoApprove': true,
-
-  // Agent orchestration — CLI management
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],
-
-  // Provider: GitHub Copilot
   'provider.github-copilot.tokenExchangeUrl': '',
   'provider.github-copilot.apiEndpoint': '',
   'provider.github-copilot.clientId': '',
   'provider.github-copilot.modelTier.opus': null,
   'provider.github-copilot.modelTier.sonnet': null,
   'provider.github-copilot.modelTier.haiku': null,
-
-  // Provider: OpenAI Codex
   'provider.openai-codex.oauthApiEndpoint': '',
   'provider.openai-codex.modelTier.opus': null,
   'provider.openai-codex.modelTier.sonnet': null,
   'provider.openai-codex.modelTier.haiku': null,
-
-  // Provider: OpenRouter
   'provider.openrouter.modelTier.opus': null,
   'provider.openrouter.modelTier.sonnet': null,
   'provider.openrouter.modelTier.haiku': null,
-
-  // Provider: Moonshot
   'provider.moonshot.modelTier.opus': null,
   'provider.moonshot.modelTier.sonnet': null,
   'provider.moonshot.modelTier.haiku': null,
-
-  // Provider: Z-AI
   'provider.z-ai.modelTier.opus': null,
   'provider.z-ai.modelTier.sonnet': null,
   'provider.z-ai.modelTier.haiku': null,
-
-  // Provider: Ollama (local) — defaults null so the runtime falls back to
-  // OLLAMA_PROVIDER_ENTRY.defaultTiers (qwen3:8b / devstral / qwen3:32b)
   'provider.ollama.modelTier.opus': null,
   'provider.ollama.modelTier.sonnet': null,
   'provider.ollama.modelTier.haiku': null,
-
-  // Provider: Ollama Cloud — defaults null so the runtime falls back to
-  // OLLAMA_CLOUD_PROVIDER_ENTRY.defaultTiers
   'provider.ollama-cloud.modelTier.opus': null,
   'provider.ollama-cloud.modelTier.sonnet': null,
   'provider.ollama-cloud.modelTier.haiku': null,
-
-  // Provider: LM Studio (local) — no defaultTiers in the registry; user must
-  // pick from dynamically-discovered models
   'provider.lm-studio.modelTier.opus': null,
   'provider.lm-studio.modelTier.sonnet': null,
   'provider.lm-studio.modelTier.haiku': null,
-
-  // CLI agent configurations
   ptahCliAgents: [],
-
-  // Browser automation (TASK_2025_244)
   'browser.allowLocalhost': false,
   'browser.recordingDir': '',
-
-  // Editor preferences (TASK_2025_283)
   'editor.vimMode': false,
-
-  // Memory curator
   'memory.curatorEnabled': true,
   'memory.tierLimits.core': 256,
   'memory.tierLimits.recall': 4096,
   'memory.tierLimits.archival': 100000,
   'memory.decayHalflifeDays': 30,
   'memory.embeddingModel': 'Xenova/bge-small-en-v1.5',
-  // Empty string delegates curator model selection to the SDK default —
-  // the runtime resolves the actual model from agent-sdk's provider chain.
   'memory.curatorModel': '',
   'memory.searchTopK': 20,
   'memory.searchAlpha': 0.5,
-
-  // Autonomous skill synthesis
   'skillSynthesis.enabled': true,
   'skillSynthesis.successesToPromote': 3,
   'skillSynthesis.dedupCosineThreshold': 0.85,
@@ -319,13 +228,9 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.maxPinnedSkills': 10,
   'skillSynthesis.curatorEnabled': true,
   'skillSynthesis.curatorIntervalHours': 24,
-
-  // Cron scheduler
   'cron.enabled': true,
   'cron.maxConcurrentJobs': 3,
   'cron.catchupWindowMs': 86400000,
-
-  // Messaging gateway
   'gateway.enabled': false,
   'gateway.coalesceMs': 250,
   'gateway.rateLimit.minTimeMs': 500,
@@ -342,9 +247,6 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'gateway.slack.botTokenCipher': '',
   'gateway.slack.appTokenCipher': '',
   'gateway.slack.allowedTeamIds': [],
-
-  // Provider-scoped per-auth model + effort keys (WP-3C, R1 fix).
-  // Empty string = "no selection yet / use provider default".
   ...Object.fromEntries(
     KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
       [`provider.${k}.selectedModel`, ''],

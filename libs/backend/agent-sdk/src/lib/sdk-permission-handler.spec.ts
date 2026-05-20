@@ -1,22 +1,3 @@
-﻿/**
- * sdk-permission-handler - unit specs.
- *
- * Tests lock in the use-case identity contracts for permission and question
- * routing:
- *
- *   UC1 - New session (tabId passed explicitly as third arg to createCallback).
- *          Wire prompt.tabId = explicit tabId, prompt.sessionId = routingId.
- *   UC2 - Resumed session (same contract; tabId is the frontend tab UUID,
- *          sessionId is the real SDK UUID).
- *   UC3 - CLI path (no tabId arg). Wire prompt.tabId = undefined so the
- *          frontend router falls through to agent-monitor routing.
- *
- * TASK_2026_120 Phase B additions:
- *   - createCallback type-safety: TabId/SessionId branded params enforce identity
- *   - cleanupPendingPermissions dual-match: keying by tabId OR sessionId
- *   - PermissionRequestSchema UUID validation for tabId and sessionId fields
- */
-
 import 'reflect-metadata';
 import { container } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -29,10 +10,6 @@ import { MESSAGE_TYPES, PermissionRequestSchema } from '@ptah-extension/shared';
 
 import { SdkPermissionHandler } from './sdk-permission-handler';
 
-// ---------------------------------------------------------------------------
-// Test harness
-// ---------------------------------------------------------------------------
-
 interface SentMessage {
   viewType: string;
   type: string;
@@ -43,17 +20,16 @@ function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
 }
 
-interface AskUserQuestionPayload {
-  id: string;
-  toolName: 'AskUserQuestion';
-  sessionId?: string;
-  tabId?: string;
-  questions: ReadonlyArray<{ header: string; options: { label: string }[] }>;
-}
-
 interface PermissionRequestPayload {
   id: string;
   toolName: string;
+  sessionId?: string;
+  tabId?: string;
+}
+
+interface AskUserQuestionPayload {
+  id: string;
+  toolName: 'AskUserQuestion';
   sessionId?: string;
   tabId?: string;
 }
@@ -92,22 +68,12 @@ function makeHandler(): {
     subagentRegistry as unknown as ConstructorParameters<
       typeof SdkPermissionHandler
     >[1],
+    webviewManager as unknown as ConstructorParameters<
+      typeof SdkPermissionHandler
+    >[2],
   );
 
   return { handler, logger, sent };
-}
-
-function makeAskInput() {
-  return {
-    questions: [
-      {
-        header: 'Pick a strategy',
-        question: 'Pick a strategy?',
-        options: [{ label: 'A' }, { label: 'B' }],
-        multiSelect: false,
-      },
-    ],
-  };
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -124,10 +90,6 @@ function asSessionId(s: string): SessionIdParam {
 function asTabId(s: string): TabIdParam {
   return s as TabIdParam;
 }
-
-// ---------------------------------------------------------------------------
-// UC1 / UC2 / UC3 - createCallback use-case contract tests
-// ---------------------------------------------------------------------------
 
 describe('SdkPermissionHandler - createCallback use-case contracts', () => {
   afterEach(() => {
@@ -236,90 +198,112 @@ describe('SdkPermissionHandler - createCallback use-case contracts', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// AskUserQuestion tabId stamping
-// ---------------------------------------------------------------------------
-
-describe('SdkPermissionHandler - AskUserQuestion tabId stamping', () => {
+describe('webviewManager.sendMessage is invoked for facade request paths', () => {
   afterEach(() => {
     container.clearInstances();
     jest.clearAllMocks();
   });
 
-  it('askUserQuestion stamps tabId from session context when available (tabId ?? sessionId fallback in handleAskUserQuestion)', async () => {
+  it('requestUserPermission path: invokes webviewManager.sendMessage with PERMISSION_REQUEST and a populated payload', async () => {
     const { handler, sent } = makeHandler();
 
-    const ROUTING_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
-    const callback = handler.createCallback(asSessionId(ROUTING_ID));
-
-    const ac = new AbortController();
-    const pending = callback('AskUserQuestion', makeAskInput(), {
-      signal: ac.signal,
-      toolUseID: 'tool-use-1',
-    });
-
-    await flushMicrotasks();
-
-    const broadcast = sent.find(
-      (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
-    );
-    expect(broadcast).toBeDefined();
-    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
-    expect(payload.tabId).toBe(ROUTING_ID);
-    expect(payload.sessionId).toBe(ROUTING_ID);
-
-    ac.abort();
-    await pending;
-  });
-
-  it('askUserQuestion logs warning when tabId is unavailable (sub-agent / no-tab path)', async () => {
-    const { handler, logger, sent } = makeHandler();
-
-    const callback = handler.createCallback(undefined, undefined, undefined);
-
-    const ac = new AbortController();
-    const pending = callback('AskUserQuestion', makeAskInput(), {
-      signal: ac.signal,
-      toolUseID: 'tool-use-2',
-    });
-
-    await flushMicrotasks();
-
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('emitted without tabId'),
-      expect.objectContaining({
-        questionId: expect.any(String),
-        sessionId: undefined,
-      }),
-    );
-
-    const broadcast = sent.find(
-      (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
-    );
-    expect(broadcast).toBeDefined();
-    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
-    expect(payload.tabId).toBeUndefined();
-
-    ac.abort();
-    await pending;
-  });
-
-  it('askUserQuestion prefers explicit tabId argument over sessionId fallback', async () => {
-    const { handler, sent } = makeHandler();
-
-    const REAL_SESSION_UUID = '11111111-2222-4333-8444-555555555555';
-    const EXPLICIT_TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const SESSION_ID = '11111111-2222-4333-8444-555555555555';
+    const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
     const callback = handler.createCallback(
-      asSessionId(REAL_SESSION_UUID),
+      asSessionId(SESSION_ID),
       undefined,
-      asTabId(EXPLICIT_TAB_ID),
+      asTabId(TAB_ID),
     );
 
     const ac = new AbortController();
-    const pending = callback('AskUserQuestion', makeAskInput(), {
-      signal: ac.signal,
-      toolUseID: 'tool-use-3',
-    });
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-request-path',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    expect(broadcast!.viewType).toBe('ptah.main');
+    const payload = broadcast!.payload as unknown as PermissionRequestPayload;
+    expect(payload.toolName).toBe('Bash');
+    expect(typeof payload.id).toBe('string');
+    expect(payload.tabId).toBe(TAB_ID);
+    expect(payload.sessionId).toBe(SESSION_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('sendCliAgentPermissionRequest path: invokes webviewManager.sendMessage with AGENT_MONITOR_PERMISSION_REQUEST when a cliAgentResolver returns an id', async () => {
+    const { handler, sent } = makeHandler();
+
+    const SESSION_ID = '11111111-2222-4333-8444-555555555555';
+    const callback = handler.createCallback(
+      asSessionId(SESSION_ID),
+      () => 'agent-id-123',
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-cli-agent-path',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    expect(broadcast!.viewType).toBe('ptah.main');
+    const payload = broadcast!.payload as unknown as {
+      requestId: string;
+      agentId: string;
+      toolName: string;
+    };
+    expect(payload.agentId).toBe('agent-id-123');
+    expect(payload.toolName).toBe('Bash');
+    expect(typeof payload.requestId).toBe('string');
+
+    ac.abort();
+    await pending;
+  });
+
+  it('AskUserQuestion delegation: facade routes AskUserQuestion through child service and broadcasts ASK_USER_QUESTION_REQUEST', async () => {
+    const { handler, sent } = makeHandler();
+
+    const SESSION_ID = '11111111-2222-4333-8444-555555555555';
+    const callback = handler.createCallback(asSessionId(SESSION_ID));
+
+    const ac = new AbortController();
+    const pending = callback(
+      'AskUserQuestion',
+      {
+        questions: [
+          {
+            question: 'Continue?',
+            header: 'Confirm',
+            options: [{ label: 'Yes' }, { label: 'No' }],
+          },
+        ],
+      },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-ask',
+      },
+    );
 
     await flushMicrotasks();
 
@@ -328,17 +312,42 @@ describe('SdkPermissionHandler - AskUserQuestion tabId stamping', () => {
     );
     expect(broadcast).toBeDefined();
     const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
-    expect(payload.tabId).toBe(EXPLICIT_TAB_ID);
-    expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+    expect(payload.toolName).toBe('AskUserQuestion');
+
+    ac.abort();
+    await pending;
+  });
+
+  it('ExitPlanMode delegation: facade routes ExitPlanMode through child service and emits PERMISSION_REQUEST with toolName ExitPlanMode', async () => {
+    const { handler, sent } = makeHandler();
+
+    const SESSION_ID = '11111111-2222-4333-8444-555555555555';
+    const callback = handler.createCallback(asSessionId(SESSION_ID));
+
+    const ac = new AbortController();
+    const pending = callback(
+      'ExitPlanMode',
+      { plan: 'go' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-exit-plan',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) =>
+        m.type === MESSAGE_TYPES.PERMISSION_REQUEST &&
+        (m.payload as unknown as PermissionRequestPayload).toolName ===
+          'ExitPlanMode',
+    );
+    expect(broadcast).toBeDefined();
 
     ac.abort();
     await pending;
   });
 });
-
-// ---------------------------------------------------------------------------
-// PermissionRequest tabId stamping
-// ---------------------------------------------------------------------------
 
 describe('SdkPermissionHandler - PermissionRequest tabId stamping', () => {
   afterEach(() => {
@@ -440,10 +449,6 @@ describe('SdkPermissionHandler - PermissionRequest tabId stamping', () => {
     await pending;
   });
 });
-
-// ---------------------------------------------------------------------------
-// cleanupPendingPermissions - dual-match on tabId OR sessionId
-// ---------------------------------------------------------------------------
 
 describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
   afterEach(() => {
@@ -553,10 +558,6 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// PermissionRequestSchema - UUID validation for tabId and sessionId
-// ---------------------------------------------------------------------------
-
 describe('PermissionRequestSchema - UUID validation', () => {
   const BASE_VALID = {
     id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
@@ -595,77 +596,5 @@ describe('PermissionRequestSchema - UUID validation', () => {
   it('PermissionRequestSchema accepts missing optional tabId and sessionId', () => {
     const result = PermissionRequestSchema.safeParse(BASE_VALID);
     expect(result.success).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Fix 6: auto-timeout answers keyed by q.question, not q.header
-// ---------------------------------------------------------------------------
-
-describe('SdkPermissionHandler - AskUserQuestion idle-timeout answer keying (Fix 6)', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-    container.clearInstances();
-    jest.clearAllMocks();
-  });
-
-  it('keys auto-timeout answers by q.question not q.header', async () => {
-    const { handler } = makeHandler();
-
-    const callback = handler.createCallback(
-      asSessionId('aaaaaaaa-bbbb-4ccc-8ddd-sess55555555'),
-    );
-
-    const questions = [
-      {
-        question: 'Which deployment strategy should I use?',
-        header: 'Strategy',
-        options: [{ label: 'Blue-Green' }, { label: 'Canary' }],
-        multiSelect: false,
-      },
-      {
-        question: 'Which database should I migrate first?',
-        header: 'DB',
-        options: [{ label: 'Postgres' }, { label: 'Redis' }],
-        multiSelect: false,
-      },
-    ];
-
-    const ac = new AbortController();
-
-    const pending = callback(
-      'AskUserQuestion',
-      { questions },
-      { signal: ac.signal, toolUseID: 'tool-fix6' },
-    );
-
-    await flushMicrotasks();
-
-    jest.runAllTimers();
-
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const result = await pending;
-
-    expect(result).not.toBeNull();
-    const permResult = result as unknown as {
-      behavior: string;
-      updatedInput?: { answers?: Record<string, string> };
-    };
-    expect(permResult.behavior).toBe('allow');
-    const answers = permResult.updatedInput?.answers ?? {};
-
-    expect(answers['Which deployment strategy should I use?']).toBe(
-      'Blue-Green',
-    );
-    expect(answers['Which database should I migrate first?']).toBe('Postgres');
-
-    expect(answers['Strategy']).toBeUndefined();
-    expect(answers['DB']).toBeUndefined();
   });
 });

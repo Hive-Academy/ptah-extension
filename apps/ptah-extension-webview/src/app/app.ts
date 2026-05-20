@@ -9,25 +9,18 @@ import {
 import { Subject } from 'rxjs';
 import { LucideAngularModule, AlertCircle } from 'lucide-angular';
 
-// UPDATED: Import from @ptah-extension/core library
 import {
   AppStateManager,
   VSCodeService,
   WebviewNavigationService,
   ViewType,
-  // ProviderService, // DELETED - provider library removed in Phase 0
 } from '@ptah-extension/core';
 
-// UPDATED: Import components from libraries
 import {
   AppShellComponent,
   ElectronShellComponent,
   UpdateBannerComponent,
 } from '@ptah-extension/chat';
-
-// TASK_2026_106 Phase 2 — eager instantiation of the shadow-mode router so
-// it observes stream events from the first one onward (no startup race
-// where early events bypass the router because nothing has injected it yet).
 import { StreamRouter } from '@ptah-extension/chat-routing';
 
 @Component({
@@ -47,28 +40,14 @@ export class App implements OnInit, OnDestroy {
   /** Lucide icon reference for template binding */
   protected readonly AlertCircleIcon = AlertCircle;
 
-  // ANGULAR 20 PATTERN: Use inject() instead of constructor injection
   public readonly appState = inject(AppStateManager);
   public readonly vscodeService = inject(VSCodeService);
   private readonly navigationService = inject(WebviewNavigationService);
-  // private readonly providerService = inject(ProviderService); // DELETED - provider library removed in Phase 0
-  // REMOVED: Router injection - using pure signal-based navigation
-
-  // TASK_2026_106 Phase 2 — eager StreamRouter instantiation. The router is
-  // providedIn: 'root' but consumers (ChatMessageHandler) inject it lazily;
-  // injecting here at the composition root forces it to exist before the
-  // first CHAT_CHUNK arrives, so shadow-mode observation has full coverage.
   private readonly _streamRouter = inject(StreamRouter);
-
-  // Platform detection: Electron desktop vs VS Code webview (set once at bootstrap, never changes)
   public readonly isElectron = signal(this.vscodeService.isElectron);
-
-  // ANGULAR 20 PATTERN: Signal-based state for reactive UI
   private readonly initializationStatus = signal<
     'idle' | 'initializing' | 'ready' | 'error'
   >('idle');
-
-  // ANGULAR 20 PATTERN: Computed signals for derived state
   public readonly isReady = computed(() => {
     return this.initializationStatus() === 'ready';
   });
@@ -105,27 +84,19 @@ export class App implements OnInit, OnDestroy {
   }
 
   public async onViewChanged(view: ViewType): Promise<void> {
-    // Use navigation service for reliable navigation
     const success = await this.navigationService.navigateToView(view);
 
     if (!success) {
       console.error(`Ptah App - Navigation to ${view} failed`);
-      // Show user-friendly error message
       this.appState.handleError(`Failed to navigate to ${view}`);
     }
   }
 
-  // REMOVED: setupRouterLogging - no longer using Angular Router
-
   private async handleInitialView(): Promise<void> {
-    // Check for initialView in ptahConfig (set by extension for specific views like wizard)
     const ptahConfig = (
       window as unknown as { ptahConfig?: { initialView?: string } }
     ).ptahConfig;
     const rawInitialView = ptahConfig?.initialView;
-
-    // CRITICAL: Validate initialView at runtime with graceful degradation
-    // TASK_2025_126: Added 'welcome' for embedded welcome page
     const VALID_VIEWS: ViewType[] = [
       'chat',
       'command-builder',
@@ -134,13 +105,10 @@ export class App implements OnInit, OnDestroy {
       'settings',
       'setup-wizard',
       'welcome',
-      // Kept for backward compat -- AppStateManager maps to layoutMode('grid') + chat view
       'orchestra-canvas',
     ];
     const isValidView =
       rawInitialView && VALID_VIEWS.includes(rawInitialView as ViewType);
-
-    // Use configured initial view if valid, otherwise default to 'chat'
     const targetView: ViewType = isValidView
       ? (rawInitialView as ViewType)
       : 'chat';

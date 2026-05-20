@@ -35,9 +35,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
  * 2. ChatViewComponent is rendered only when childInjector() is non-null (via @if guard),
  *    guaranteeing SESSION_CONTEXT is already provided before the component bootstraps.
  * 3. onTileClick() emits focusRequested so the parent calls canvasStore.focusTile()
- *    before any message is sent — keeps global activeTabId in sync (Risk 1 mitigation).
- *
- * TASK_2025_265 Batch 3
+ *    before any message is sent — keeps global activeTabId in sync.
  */
 @Component({
   selector: 'ptah-canvas-tile',
@@ -107,10 +105,6 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
   `,
 })
 export class CanvasTileComponent implements OnInit, OnDestroy {
-  // ============================================================================
-  // INPUTS / OUTPUTS
-  // ============================================================================
-
   /** The tabId this tile is scoped to. Required — provided by OrchestraCanvasComponent. */
   readonly tabId = input.required<string>();
 
@@ -133,23 +127,11 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    */
   readonly closeRequested = output<string>();
 
-  // ============================================================================
-  // VIEW CHILDREN
-  // ============================================================================
-
   /** Reference to the agent indicator for reading expanded() and agents() signals. */
   readonly tileAgentIndicator = viewChild(TileAgentIndicatorComponent);
 
-  // ============================================================================
-  // DEPENDENCIES
-  // ============================================================================
-
   private readonly tabManager = inject(TabManagerService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
-
-  // ============================================================================
-  // STATE
-  // ============================================================================
 
   /**
    * Child EnvironmentInjector providing SESSION_CONTEXT for this tile's ChatViewComponent.
@@ -165,10 +147,6 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    * class references in the template expression.
    */
   readonly chatViewComponent = ChatViewComponent;
-
-  // ============================================================================
-  // COMPUTED SIGNALS
-  // ============================================================================
 
   readonly MinimizeIcon = Minimize2;
   readonly MaximizeIcon = Maximize2;
@@ -188,14 +166,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     () => this.tabManager.getTabViewMode(this.tabId()) === 'compact',
   );
 
-  // ============================================================================
-  // LIFECYCLE
-  // ============================================================================
-
   ngOnInit(): void {
-    // Create a scoped signal that returns this tile's tabId.
-    // Wrapped in computed() so it satisfies Signal<string | null> contract
-    // and stays reactive if tabId ever changes (signal inputs are reactive).
     const tabIdSignal = computed<string | null>(() => this.tabId());
 
     this._childInjector.set(
@@ -207,14 +178,8 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    // CRITICAL: destroy child injector to free memory.
-    // Skipping this causes EnvironmentInjector memory leak per Angular docs.
     this.childInjector()?.destroy();
   }
-
-  // ============================================================================
-  // EVENT HANDLERS
-  // ============================================================================
 
   /**
    * Emits focusRequested so the parent OrchestraCanvasComponent can call

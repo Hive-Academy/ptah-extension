@@ -7,10 +7,6 @@
 import type { PtahCliSummary } from '../ptah-cli.types';
 import type { AgentPermissionDecision } from '../agent-permission.types';
 
-// ============================================================
-// Skills.sh Marketplace Types (TASK_2025_204)
-// ============================================================
-
 /** A skill entry from skills.sh search/browse results */
 export interface SkillShEntry {
   /** Repository source, e.g. "vercel-labs/skills" */
@@ -61,10 +57,6 @@ export interface SkillDetectionResult {
   /** Recommended skills from skills.sh based on detection */
   recommendedSkills: SkillShEntry[];
 }
-
-// ============================================================
-// Agent Orchestration RPC Types (TASK_2025_157)
-// ============================================================
 
 /** Agent orchestration configuration for settings UI */
 export interface AgentOrchestrationConfig {
@@ -142,10 +134,6 @@ export interface AgentSetConfigParams {
   /** Whether the browser automation tools can navigate to localhost URLs */
   browserAllowLocalhost?: boolean;
 }
-
-// ============================================================
-// Ptah CLI Agent RPC Types (TASK_2025_167 -> TASK_2025_170)
-// ============================================================
 
 /** Parameters for ptahCli:list RPC method */
 export type PtahCliListParams = Record<string, never>;
@@ -228,7 +216,4 @@ export interface PtahCliListModelsResult {
   isStatic: boolean;
   error?: string;
 }
-
-// Re-export AgentPermissionDecision so the barrel can reference it
-// without needing a separate import in the main rpc.types.ts
 export type { AgentPermissionDecision };

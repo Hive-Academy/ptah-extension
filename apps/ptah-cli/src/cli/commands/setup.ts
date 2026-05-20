@@ -1,8 +1,7 @@
 /**
  * `ptah setup` command — top-level 5-phase orchestrator.
  *
- * TASK_2026_104 Sub-batch B9d. Drives the Setup Wizard pipeline end-to-end via
- * the B9c phase-runner:
+ * Drives the Setup Wizard pipeline end-to-end via the phase-runner:
  *
  *   1. analyze         (sync)            wizard:deep-analyze
  *   2. recommend       (sync)            wizard:recommend-agents (input = phase 1)
@@ -124,19 +123,12 @@ export async function execute(
       let agentsInstalled = 0;
       let pluginsEnabled = 0;
       let mcpInstalled = 0;
-
-      // Resolve the storage once so we can surface `setup.lastCompletedPhase`
-      // after every successful phase. `ptah wizard status` reads the same key.
       const storage = ctx.container.resolve<IStateStorage>(
         PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
       );
       const writeLastPhase = async (name: string): Promise<void> => {
         await storage.update(WIZARD_LAST_COMPLETED_PHASE_KEY, name);
       };
-
-      // ---------------------------------------------------------------------
-      // Phase 1 — analyze (sync, no-op rollback)
-      // ---------------------------------------------------------------------
       const r1 = await runPhase<MultiPhaseAnalysisResponse>(
         'analyze',
         {
@@ -155,10 +147,6 @@ export async function execute(
       }
       await writeLastPhase('analyze');
       const analysisResult = r1.result;
-
-      // ---------------------------------------------------------------------
-      // Phase 2 — recommend (sync, no-op rollback)
-      // ---------------------------------------------------------------------
       const r2 = await runPhase<RecommendAgentsResponse>(
         'recommend',
         {
@@ -180,10 +168,6 @@ export async function execute(
       const selectedAgentIds = recommendations
         .filter((r) => r.recommended)
         .map((r) => r.agentId);
-
-      // ---------------------------------------------------------------------
-      // --dry-run: stop here, emit setup.complete with zero counters.
-      // ---------------------------------------------------------------------
       if (opts.dryRun === true) {
         await formatter.writeNotification('setup.complete', {
           duration_ms: now() - setupStart,
@@ -194,10 +178,6 @@ export async function execute(
         });
         return ExitCode.Success;
       }
-
-      // ---------------------------------------------------------------------
-      // Phase 3 — install_pack (sync, rollback: delete added agent files)
-      // ---------------------------------------------------------------------
       const agentsBefore = await snapshotAgentsDir(readdir, agentsDir);
       const r3 = await runPhase<number>(
         'install_pack',
@@ -239,10 +219,6 @@ export async function execute(
       }
       await writeLastPhase('install_pack');
       agentsInstalled = r3.result ?? 0;
-
-      // ---------------------------------------------------------------------
-      // Phase 4 — generate (async-broadcast, no-op rollback + warning)
-      // ---------------------------------------------------------------------
       const r4 = await runPhase<GenerationCompletePayload>(
         'generate',
         {
@@ -272,11 +248,6 @@ export async function execute(
         {
           formatter,
           rollback: async () => {
-            // Rollback for phase 4 is intentionally a no-op — the backend may
-            // have written agent templates to disk before the failure surfaced,
-            // and we cannot reliably distinguish them from prior state.
-            // Surface a warning so the operator can clean up via `ptah wizard
-            // cancel <session-id>`.
             stderr.write(
               "[ptah] setup phase 'generate' failed — generated agents may exist on disk; run `ptah wizard cancel <session-id>` to clean up.\n",
             );
@@ -287,10 +258,6 @@ export async function execute(
         return await emitWizardPhaseFailed(formatter, 'generate', r4.error);
       }
       await writeLastPhase('generate');
-
-      // ---------------------------------------------------------------------
-      // Phase 5 — apply_harness (sync, rollback: restore settings/preset/CLAUDE.md)
-      // ---------------------------------------------------------------------
       const settingsBefore = await snapshotFileContents(readFile, settingsPath);
       const harnessConfig = buildHarnessConfig(recommendations, opts);
       pluginsEnabled = harnessConfig.skills.selectedSkills.length;
@@ -307,8 +274,6 @@ export async function execute(
               'harness:apply',
               { config: harnessConfig, outputFormat: 'json' },
             );
-            // Capture appliedPaths for the rollback closure — needed when a
-            // later RPC inside this phase throws after harness:apply succeeds.
             appliedPathsForRollback = result?.appliedPaths ?? [];
             return result;
           },
@@ -335,10 +300,6 @@ export async function execute(
         );
       }
       await writeLastPhase('apply_harness');
-
-      // ---------------------------------------------------------------------
-      // Final completion notification — exit 0.
-      // ---------------------------------------------------------------------
       await formatter.writeNotification('setup.complete', {
         duration_ms: now() - setupStart,
         agents_installed: agentsInstalled,
@@ -357,10 +318,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Phase failure helper — single emission point for `wizard_phase_failed`.
-// ---------------------------------------------------------------------------
-
 async function emitWizardPhaseFailed(
   formatter: Formatter,
   phase: string,
@@ -373,10 +330,6 @@ async function emitWizardPhaseFailed(
   return ExitCode.GeneralError;
 }
 
-// ---------------------------------------------------------------------------
-// Phase 3 helpers — agents-dir snapshot + rollback
-// ---------------------------------------------------------------------------
-
 async function snapshotAgentsDir(
   readdir: (path: string) => Promise<string[]>,
   dir: string,
@@ -385,8 +338,6 @@ async function snapshotAgentsDir(
     const entries = await readdir(dir);
     return new Set(entries);
   } catch {
-    // Missing dir is fine — phase 3 may create it. Empty snapshot means every
-    // file present after the phase is treated as "added" by the rollback.
     return new Set<string>();
   }
 }
@@ -401,7 +352,6 @@ async function rollbackAgentDir(
   try {
     after = await readdir(dir);
   } catch {
-    // Dir disappeared — nothing to clean up.
     return;
   }
   for (const entry of after) {
@@ -411,10 +361,6 @@ async function rollbackAgentDir(
     });
   }
 }
-
-// ---------------------------------------------------------------------------
-// Phase 5 helpers — settings snapshot + apply rollback
-// ---------------------------------------------------------------------------
 
 async function snapshotFileContents(
   readFile: (path: string) => Promise<string>,
@@ -439,17 +385,11 @@ interface RollbackApplyHarnessArgs {
 async function rollbackApplyHarness(
   args: RollbackApplyHarnessArgs,
 ): Promise<void> {
-  // 1. Restore ~/.ptah/settings.json from the pre-phase snapshot. If we never
-  //    captured the snapshot (file did not exist), do nothing — letting the
-  //    new file remain is safer than deleting unknown user state.
   if (args.settingsBefore !== null) {
     await args.writeFile(args.settingsPath, args.settingsBefore).catch(() => {
       /* best-effort */
     });
   }
-
-  // 2. Delete the new preset file at appliedPaths[0]. Convention used by the
-  //    harness:apply handler — the preset path is always emitted first.
   if (args.appliedPaths.length > 0) {
     const presetPath = args.appliedPaths[0];
     if (presetPath) {
@@ -458,25 +398,14 @@ async function rollbackApplyHarness(
       });
     }
   }
-
-  // 3. Restore CLAUDE.md from any `.bak` path the handler returned. The
-  //    convention: harness:apply emits both `<workspace>/CLAUDE.md` and
-  //    `<workspace>/CLAUDE.md.bak` when it rewrote an existing file.
   for (const applied of args.appliedPaths) {
     if (!applied.endsWith('.bak')) continue;
     const target = applied.slice(0, -'.bak'.length);
-    try {
-      const backup = await args.readFile(applied);
-      await args.writeFile(target, backup);
-    } catch {
-      /* best-effort — the backup may already be gone */
-    }
+
+    const backup = await args.readFile(applied);
+    await args.writeFile(target, backup);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Build a minimal HarnessConfig from phase-2 recommendations.
-// ---------------------------------------------------------------------------
 
 function buildHarnessConfig(
   recommendations: AgentRecommendation[],
@@ -512,10 +441,6 @@ function buildHarnessConfig(
     updatedAt: nowIso,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 /**
  * Map an agent pack entry → agent id used by `recommend-agents`. Agent packs

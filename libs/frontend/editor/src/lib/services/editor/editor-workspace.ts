@@ -61,12 +61,6 @@ export class EditorWorkspaceHelper {
   public switchWorkspace(workspacePath: string): void {
     const currentActive = this.state.getActiveWorkspacePath();
     if (currentActive === workspacePath) return;
-
-    // Cancel any pending refresh timers from the outgoing workspace so they
-    // don't fire after the openTabs signal has been replaced — otherwise
-    // a stale reread broadcast could fan out across the new workspace's
-    // tabs and waste RPCs (or overwrite an unsaved buffer that wasn't yet
-    // marked dirty).
     if (this.treeRefreshDebounceTimer) {
       clearTimeout(this.treeRefreshDebounceTimer);
       this.treeRefreshDebounceTimer = null;
@@ -75,14 +69,8 @@ export class EditorWorkspaceHelper {
       clearTimeout(this.rereadAllTabsDebounceTimer);
       this.rereadAllTabsDebounceTimer = null;
     }
-
-    // Step 1: save current workspace signals into map
     this.saveCurrentWorkspaceState();
-
-    // Step 2: update active workspace pointer
     this.state.setActiveWorkspacePath(workspacePath);
-
-    // Step 3: restore from cache or fetch fresh
     const cachedState = this.state.workspaceEditorState.get(workspacePath);
     if (cachedState) {
       this.state.fileTree.set(cachedState.fileTree);
@@ -280,8 +268,6 @@ export class EditorWorkspaceHelper {
     previousTree: FileTreeNode[],
   ): FileTreeNode[] {
     if (!previousTree || previousTree.length === 0) return newTree;
-
-    // Build a path → node index of the previous tree for O(1) lookup.
     const prevIndex = new Map<string, FileTreeNode>();
     const indexNodes = (nodes: FileTreeNode[]): void => {
       for (const node of nodes) {
@@ -297,8 +283,6 @@ export class EditorWorkspaceHelper {
     const mergeNode = (newNode: FileTreeNode): FileTreeNode => {
       const key = newNode.path.replace(/\\/g, '/');
       const prevNode = prevIndex.get(key);
-
-      // Type changed (file ↔ directory) — drop previous, take new as-is.
       if (prevNode && prevNode.type !== newNode.type) {
         if (newNode.children && newNode.children.length > 0) {
           return {
@@ -308,8 +292,6 @@ export class EditorWorkspaceHelper {
         }
         return newNode;
       }
-
-      // Boundary case: backend says needsLoad but we already loaded it before.
       if (
         newNode.type === 'directory' &&
         newNode.needsLoad === true &&
@@ -326,8 +308,6 @@ export class EditorWorkspaceHelper {
           children: carriedChildren,
         };
       }
-
-      // Default: recurse into any children present on the new node.
       if (newNode.children && newNode.children.length > 0) {
         return {
           ...newNode,
@@ -360,12 +340,6 @@ export class EditorWorkspaceHelper {
       if (data?.type === 'file:content-changed' && data?.payload?.filePath) {
         void this.callbacks.handleFileContentChanged(data.payload.filePath);
       }
-
-      // Backend signals that a git operation just finished — every open
-      // editor tab may now be stale on disk. Coalesce bursts (a single
-      // git command writes HEAD, index, and refs in sequence) and then
-      // re-read each non-dirty open tab. The fileOps helper has its own
-      // per-file in-flight guard, so duplicate paths are cheap.
       if (data?.type === 'editor:reread-open-tabs') {
         if (this.rereadAllTabsDebounceTimer) {
           clearTimeout(this.rereadAllTabsDebounceTimer);
@@ -399,7 +373,5 @@ export class EditorWorkspaceHelper {
     }
   }
 }
-
-// Re-export for coordinator typing convenience
 export type { EditorWorkspaceState };
 export { extractFileName, IMAGE_EXTENSIONS };

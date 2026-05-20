@@ -1,6 +1,7 @@
 /**
  * Stats Bar Utilities
- * TASK_2025_177: Shared stats formatting and extraction for CLI agent output components.
+ *
+ * Shared stats formatting and extraction for CLI agent output components.
  *
  * Provides:
  * - CliAgentStats interface (unified stats type for all CLI agents)
@@ -68,7 +69,7 @@ export function isUsageSegment(segment: StatsSegment): boolean {
  * Accumulates token counts across all matching segments (multi-turn support).
  */
 export function extractCodexStats(
-  infoSegments: readonly StatsSegment[]
+  infoSegments: readonly StatsSegment[],
 ): CliAgentStats | null {
   if (infoSegments.length === 0) return null;
 
@@ -79,8 +80,6 @@ export function extractCodexStats(
   for (const seg of infoSegments) {
     const content = seg.content;
     if (!content) continue;
-
-    // Match "Usage: 1234 input, 567 output tokens" or "1234 input, 567 output"
     const match = content.match(/(\d[\d,]*)\s*input.*?(\d[\d,]*)\s*output/i);
     if (match) {
       totalInput += parseInt(match[1].replace(/,/g, ''), 10);
@@ -103,7 +102,7 @@ export function extractCodexStats(
  * Model and duration use the latest match.
  */
 export function extractCopilotStats(
-  infoSegments: readonly StatsSegment[]
+  infoSegments: readonly StatsSegment[],
 ): CliAgentStats | null {
   if (infoSegments.length === 0) return null;
 
@@ -117,8 +116,6 @@ export function extractCopilotStats(
   for (const seg of infoSegments) {
     const content = seg.content;
     if (!content || !content.startsWith('Usage:')) continue;
-
-    // Extract tokens: "N input" and "M output"
     const inputMatch = content.match(/(\d[\d,]*)\s*input/i);
     const outputMatch = content.match(/(\d[\d,]*)\s*output/i);
     if (inputMatch && outputMatch) {
@@ -126,13 +123,10 @@ export function extractCopilotStats(
       totalOutput += parseInt(outputMatch[1].replace(/,/g, ''), 10);
       found = true;
     }
-
-    // Extract model: "Usage: model: gpt-5.3-codex, ..." or "Usage: claude-sonnet-4, ..."
     const modelPrefixMatch = content.match(/Usage:\s*model:\s*([^,]+)/i);
     if (modelPrefixMatch) {
       model = modelPrefixMatch[1].trim();
     } else {
-      // First field after "Usage:" that isn't a number
       const firstFieldMatch = content.match(/Usage:\s*([^,]+)/i);
       if (firstFieldMatch) {
         const field = firstFieldMatch[1].trim();
@@ -141,14 +135,10 @@ export function extractCopilotStats(
         }
       }
     }
-
-    // Extract cost: "$1.0000"
     const costMatch = content.match(/\$(\d+\.\d+)/);
     if (costMatch) {
       costStr = `$${costMatch[1]}`;
     }
-
-    // Extract duration: "64.6s"
     const durMatch = content.match(/(\d+(?:\.\d+)?)s\s*$/);
     if (durMatch) {
       durationMs = Math.round(parseFloat(durMatch[1]) * 1000);

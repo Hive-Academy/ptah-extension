@@ -44,7 +44,6 @@ export const TrialStatusGuard: CanActivateFn = () => {
 
   return http.get<LicenseData>('/api/v1/licenses/me').pipe(
     map((license) => {
-      // If trial has ended or subscription expired, redirect to dedicated page
       if (license.reason === 'trial_ended' || license.reason === 'expired') {
         router.navigate(['/trial-ended']);
         return false;
@@ -52,12 +51,9 @@ export const TrialStatusGuard: CanActivateFn = () => {
       return true;
     }),
     catchError((error) => {
-      // If user is not authenticated (401), allow access
-      // This enables guest users to view pricing page
       if (error.status === 401) {
         return of(true);
       }
-      // For other errors, deny access for safety
       return of(false);
     })
   );

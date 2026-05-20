@@ -1,8 +1,8 @@
 /**
  * AgentStatsService - Aggregates per-agent stats (model/tokens/cost/duration).
  *
- * Extracted from ExecutionTreeBuilderService (Wave C7f) — owns the
- * `agentStatsCache` Map and the `aggregateAgentStats()` event-scanning logic.
+ * Owns the `agentStatsCache` Map and the `aggregateAgentStats()`
+ * event-scanning logic.
  *
  * The cache lifetime is per-build: ExecutionTreeBuilderService.buildTree() calls
  * `resetPerBuildCache()` at the start of every cache-miss build cycle to avoid
@@ -44,8 +44,6 @@ export class AgentStatsService {
    * Scans all message_complete events linked to this agent via parentToolUseId.
    * Results are cached per toolCallId within a single buildTree() cycle.
    *
-   * TASK_2025_132: Populates agent nodes with aggregated stats from their child messages.
-   *
    * @param toolCallId - The agent's parent tool call ID
    * @param state - Current streaming state
    * @returns Aggregated stats for the agent node
@@ -59,7 +57,6 @@ export class AgentStatsService {
     cost?: number;
     duration?: number;
   } {
-    // Check per-build cache to avoid redundant scans
     const cached = this.agentStatsCache.get(toolCallId);
     if (cached) return cached;
 
@@ -72,37 +69,27 @@ export class AgentStatsService {
     let latestEnd: number | undefined;
 
     for (const event of state.events.values()) {
-      // Only look at events linked to this agent's tool call
       if (event.parentToolUseId !== toolCallId) continue;
 
       if (event.eventType === 'message_complete') {
         const complete = event as MessageCompleteEvent;
-
-        // Capture model from first message_complete that has it
         if (!model && complete.model) {
           model = complete.model;
         }
-
-        // Accumulate token usage
         if (complete.tokenUsage) {
           totalInputTokens += complete.tokenUsage.input;
           totalOutputTokens += complete.tokenUsage.output;
           hasTokenData = true;
         }
-
-        // Accumulate cost
         if (complete.cost) {
           totalCost += complete.cost;
         }
-
-        // Track latest timestamp for duration calculation
         if (!latestEnd || complete.timestamp > latestEnd) {
           latestEnd = complete.timestamp;
         }
       }
 
       if (event.eventType === 'message_start') {
-        // Track earliest timestamp for duration calculation
         if (!earliestStart || event.timestamp < earliestStart) {
           earliestStart = event.timestamp;
         }
@@ -111,9 +98,6 @@ export class AgentStatsService {
 
     const result = {
       agentModel: model,
-      // Note: MessageCompleteEvent.tokenUsage only carries input/output.
-      // Cache token fields (cacheRead, cacheCreation) are not available
-      // at the per-message event level from the SDK.
       tokenUsage: hasTokenData
         ? {
             input: totalInputTokens,
@@ -126,8 +110,6 @@ export class AgentStatsService {
           ? latestEnd - earliestStart
           : undefined,
     };
-
-    // Cache for subsequent calls within this build cycle
     this.agentStatsCache.set(toolCallId, result);
     return result;
   }

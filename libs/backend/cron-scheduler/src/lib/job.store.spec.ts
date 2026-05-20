@@ -1,5 +1,5 @@
 /**
- * Unit tests for JobStore.upsert (TASK_2026_THOTH_PERSISTENCE_HARDENING Batch 5).
+ * Unit tests for JobStore.upsert.
  *
  * Uses an in-memory map-based fake SqliteConnectionService so the tests run
  * without better-sqlite3 native bindings (which are compiled for Electron's

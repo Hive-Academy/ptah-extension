@@ -1,5 +1,5 @@
 /**
- * @ptah-extension/skill-synthesis — public API (Track 2 of TASK_2026_HERMES).
+ * @ptah-extension/skill-synthesis — public API.
  *
  * Records each successful AI session, when a stable trajectory repeats
  * 3 times the corresponding workflow is promoted to a permanent SKILL.md

@@ -1,19 +1,8 @@
-// Platform CLI — platform abstraction layer for CLI/TUI applications
-
-// Registration
 export { registerPlatformCliServices } from './registration';
-
-// Settings registration (WP-2B)
 export { registerCliSettings } from './settings/cli-settings-registration';
 export { FileSettingsStore } from './settings/file-settings-store';
-
-// Types
 export type { CliPlatformOptions } from './types';
-
-// Interfaces
 export type { IOAuthUrlOpener } from './interfaces/oauth-url-opener.interface';
-
-// Implementations
 export { CliFileSystemProvider } from './implementations/cli-file-system-provider';
 export { CliStateStorage } from './implementations/cli-state-storage';
 export { CliTokenCounter } from './implementations/cli-token-counter';

@@ -1,5 +1,5 @@
 /**
- * HarnessDocumentGenerationService — Wave C7d.
+ * HarnessDocumentGenerationService.
  *
  * LLM-powered comprehensive PRD/requirements document generation for the
  * harness wizard. Delegates the streaming LLM call to {@link HarnessLlmRunner}
@@ -49,8 +49,6 @@ export class HarnessDocumentGenerationService {
     workspaceContext?: HarnessGenerateDocumentParams['workspaceContext'],
   ): Promise<HarnessGenerateDocumentResponse> {
     const workspaceRoot = this.workspaceContext.requireWorkspaceRoot();
-
-    // Build a detailed config summary for the LLM
     const enabledAgents = Object.entries(config.agents.enabledAgents)
       .filter(([, v]) => v.enabled)
       .map(

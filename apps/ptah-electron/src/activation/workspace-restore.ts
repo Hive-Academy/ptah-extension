@@ -1,8 +1,3 @@
-// Phase 2.5 Workspace Restoration helper, extracted from bootstrap.ts to
-// keep that file within its line budget. Restores persisted workspace
-// folders from global state, applies the CLI arg priority rule, and
-// wires the onDidChangeWorkspaceFolders subscription (debounced persist
-// + git-watcher switching via the mutable gitWatcherRef).
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -54,7 +49,6 @@ export async function restoreWorkspaces(
     const cliWorkspacePath = initialFolders?.[0];
 
     if (persisted && persisted.folders && persisted.folders.length > 0) {
-      // Filter out stale paths that no longer exist on disk
       const validFolders: string[] = [];
       for (const folder of persisted.folders) {
         try {
@@ -68,14 +62,12 @@ export async function restoreWorkspaces(
       }
 
       if (validFolders.length > 0) {
-        // Clamp activeIndex to valid range
         const activeIndex = Math.min(
           Math.max(persisted.activeIndex ?? 0, 0),
           validFolders.length - 1,
         );
 
         if (cliWorkspacePath) {
-          // CLI arg takes priority: ensure it's in the list, make it active
           const cliResolved = path.resolve(cliWorkspacePath);
           if (!validFolders.includes(cliResolved)) {
             validFolders.push(cliResolved);
@@ -87,7 +79,6 @@ export async function restoreWorkspaces(
           workspaceProviderForRestore.setWorkspaceFolders(validFolders);
           workspaceProviderForRestore.setActiveFolder(cliResolved);
         } else {
-          // No CLI arg: use persisted active index
           const activePath = validFolders[activeIndex];
           await workspaceContextManager.restoreWorkspaces(
             validFolders,
@@ -102,8 +93,6 @@ export async function restoreWorkspaces(
         );
       }
     } else if (cliWorkspacePath) {
-      // No persisted workspaces, but CLI arg provided. Container setup already
-      // created the initial workspace context (container.ts Phase 1.6).
       console.log(
         '[Ptah Electron] No persisted workspaces; using CLI workspace',
       );
@@ -112,12 +101,7 @@ export async function restoreWorkspaces(
         '[Ptah Electron] No persisted workspaces and no CLI arg — starting without workspace',
       );
     }
-
-    // Capture the active workspace for the startup config (exposed via preload)
     startupWorkspaceRoot = workspaceProviderForRestore.getActiveFolder();
-
-    // --- Workspace list persistence on change (Task 2.3) ---
-    // Debounced at 500ms to avoid rapid writes during bulk operations.
     let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const buildWorkspaceSnapshot = () => {
@@ -142,8 +126,6 @@ export async function restoreWorkspaces(
           );
         });
     };
-
-    // Synchronous flush for the will-quit handler.
     flushWorkspacePersistence = () => {
       if (persistDebounceTimer !== null) {
         clearTimeout(persistDebounceTimer);
@@ -163,9 +145,6 @@ export async function restoreWorkspaces(
     };
 
     workspaceProviderForRestore.onDidChangeWorkspaceFolders(() => {
-      // Read-and-clear the pending origin token stamped by registerSwitch()
-      // before any async or debounce logic so it cannot be consumed by a
-      // later unrelated event (TASK_2026_115 §1.5).
       const origin = workspaceProviderForRestore.pendingOrigin ?? null;
       workspaceProviderForRestore.pendingOrigin = null;
 
@@ -176,10 +155,6 @@ export async function restoreWorkspaces(
         persistDebounceTimer = null;
         persistWorkspaceList();
       }, 500);
-
-      // Notify git watcher of workspace changes. The gitWatcher is created later
-      // (wireRuntime Phase 4.8) and assigned to gitWatcherRef.current by the
-      // orchestrator — this closure reads the current value each time it fires.
       const newActive = workspaceProviderForRestore.getActiveFolder();
       if (newActive) {
         gitWatcherRef.current?.switchWorkspace(newActive);

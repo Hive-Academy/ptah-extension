@@ -8,10 +8,6 @@
 import type { SessionId } from '../branded.types';
 import type { ChatSessionSummary } from '../execution';
 
-// ============================================================
-// Session RPC Types
-// ============================================================
-
 /** Parameters for session:list RPC method */
 export interface SessionListParams {
   /** Workspace path to list sessions for */
@@ -40,7 +36,7 @@ export interface SessionLoadParams {
  *
  * NOTE: This is metadata-only validation. Actual conversation messages
  * are loaded via chat:resume, which triggers SDK to replay history.
- * The empty messages array is intentional - see TASK_2025_088.
+ * The empty messages array is intentional.
  */
 export interface SessionLoadResult {
   sessionId: SessionId;
@@ -50,7 +46,7 @@ export interface SessionLoadResult {
   agentSessions: [];
 }
 
-/** Parameters for session:delete RPC method (TASK_2025_086) */
+/** Parameters for session:delete RPC method */
 export interface SessionDeleteParams {
   /** Session ID to delete */
   sessionId: SessionId;
@@ -104,10 +100,6 @@ export interface SessionCliSessionsResult {
   cliSessions: import('../agent-process.types').CliSessionReference[];
 }
 
-// ============================================================
-// Session Stats Batch RPC Types (TASK_2025_206 v2)
-// ============================================================
-
 /** Per-session stats returned from JSONL reading */
 export interface SessionStatsEntry {
   /** Session ID */
@@ -153,18 +145,6 @@ export interface SessionStatsBatchResult {
   /** Stats for each requested session (order matches sessionIds) */
   readonly sessionStats: SessionStatsEntry[];
 }
-
-// ============================================================
-// Session Fork / Rewind RPC Types
-// ============================================================
-//
-// `shared` is Layer 0 — it cannot import from `@ptah-extension/agent-sdk`
-// or from the upstream `@anthropic-ai/claude-agent-sdk` package. Instead,
-// `SessionRewindResult` is a structurally equivalent redeclaration of the
-// SDK's `RewindFilesResult` shape (see
-// libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts —
-// `Query.rewindFiles()` return type). Backend code that adapts from the
-// SDK's type to this one relies on structural assignability.
 
 /** Parameters for session:forkSession RPC method */
 export interface SessionForkParams {

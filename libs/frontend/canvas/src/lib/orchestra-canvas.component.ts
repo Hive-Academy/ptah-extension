@@ -21,6 +21,7 @@ import {
 import { LucideAngularModule, Plus, X, Check } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { AppStateManager } from '@ptah-extension/core';
+import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
@@ -41,11 +42,9 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
  * - Change event: (changeCB) — fires after drag/resize; nodes carry updated positions
  * - Imports: GridstackComponent + GridstackItemComponent from 'gridstack/dist/angular'
  *
- * TASK_2025_271: Simplified — toolbar removed, session management delegated to shared
- * sidebar in AppShellComponent. Signal bridge effects watch for session requests from
- * AppStateManager and route them to CanvasStore.
- *
- * TASK_2025_265 Batch 3 (original)
+ * Toolbar removed; session management delegated to shared sidebar in AppShellComponent.
+ * Signal bridge effects watch for session requests from AppStateManager and route them
+ * to CanvasStore.
  */
 @Component({
   selector: 'ptah-orchestra-canvas',
@@ -254,15 +253,12 @@ export class OrchestraCanvasComponent implements OnDestroy {
   });
 
   constructor() {
-    // Start observing the canvas container for size changes after first render
     afterNextRender(() => {
       const el = this.canvasContainer()?.nativeElement;
       if (el) {
         this.layoutService.observe(el);
       }
     });
-
-    // Apply responsive layout to GridStack when container size or tile count changes
     effect(() => {
       const { cellHeight, tiles: tileLayouts } = this.layout();
       const gridComp = this.gridComp();
@@ -283,8 +279,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
 
       grid.batchUpdate(false);
     });
-
-    // Auto-focus session name input when popover opens
     effect(() => {
       if (this.sessionPopoverOpen()) {
         setTimeout(() => {
@@ -296,23 +290,17 @@ export class OrchestraCanvasComponent implements OnDestroy {
     });
 
     this.restoreCanvasTilesFromTabs();
-
-    // Signal bridge: watch for session load requests from shared sidebar
     effect(() => {
       const req = this.appState.canvasSessionRequest();
       if (req) {
-        const tabId = this.canvasStore.addTileFromSession(
-          req.sessionId,
-          req.name,
-        );
+        const sessionId = SessionId.from(req.sessionId);
+        const tabId = this.canvasStore.addTileFromSession(sessionId, req.name);
         this.appState.clearCanvasSessionRequest();
         if (tabId) {
-          this.chatStore.switchSession(req.sessionId);
+          this.chatStore.switchSession(sessionId);
         }
       }
     });
-
-    // Signal bridge: watch for new session requests from shared header
     effect(() => {
       const name = this.appState.newCanvasSessionRequest();
       if (name !== null) {
@@ -320,11 +308,9 @@ export class OrchestraCanvasComponent implements OnDestroy {
         this.appState.clearNewCanvasSessionRequest();
       }
     });
-
-    // Reactive cleanup: remove orphaned tiles whose backing tab no longer exists
     effect(() => {
       const tabs = this.tabManager.tabs();
-      const tabIds = new Set(tabs.map((t) => t.id));
+      const tabIds = new Set<string>(tabs.map((t) => t.id));
       const tiles = untracked(() => this.canvasStore.tiles());
       for (const tile of tiles) {
         if (!tabIds.has(tile.tabId)) {
@@ -342,22 +328,15 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private restoreCanvasTilesFromTabs(): void {
     const existingTabs = this.tabManager.tabs();
     if (existingTabs.length === 0) return;
-
-    // Capture the user's previously active tab BEFORE the loop, because
-    // addTileFromSession → openSessionTab → switchTab overwrites activeTabId.
     const originalActiveTabId = this.tabManager.activeTabId();
 
     for (const tab of existingTabs) {
       if (tab.claudeSessionId) {
-        // Tab has a session — add as session tile (deduplicates internally)
         this.canvasStore.addTileFromSession(tab.claudeSessionId, tab.name);
       } else {
-        // Tab without a session (blank/new) — adopt existing tab as tile
         this.canvasStore.adoptTab(tab.id);
       }
     }
-
-    // Restore focus to the user's previously active tab
     if (
       originalActiveTabId &&
       this.canvasStore.tiles().some((t) => t.tabId === originalActiveTabId)
@@ -423,9 +402,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
    */
   onGridChange(data: nodesCB): void {
     for (const node of data.nodes) {
-      // GridStackNode.id is typed `string | number | undefined`. Tile IDs are
-      // always strings (tabId), so skip any node Gridstack auto-assigned a
-      // numeric ID for — those don't map to a known tile.
       if (typeof node.id !== 'string') continue;
       this.canvasStore.updateTilePosition(node.id, {
         x: node.x ?? 0,

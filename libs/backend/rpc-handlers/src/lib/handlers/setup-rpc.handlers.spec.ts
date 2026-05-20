@@ -1,5 +1,5 @@
 /**
- * SetupRpcHandlers — unit specs (TASK_2025_294 W2.B4).
+ * SetupRpcHandlers — unit specs.
  *
  * Surface under test: setup RPC methods covering status, wizard launch,
  * analysis (deep-analyze / recommend-agents / cancel-analysis), saved
@@ -842,7 +842,7 @@ describe('SetupRpcHandlers', () => {
   });
 
   // -------------------------------------------------------------------------
-  // THOTH wizard memory seeding (TASK_2026_THOTH_WIZARD_SEED — Batch 4)
+  // THOTH wizard memory seeding
   //
   // The seeding hook lives inside `wizard:deep-analyze` between
   // `phaseContents` assembly and `return response`. Driving it through the

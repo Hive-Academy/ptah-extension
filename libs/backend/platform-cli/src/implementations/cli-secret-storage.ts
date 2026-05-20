@@ -64,8 +64,6 @@ export class CliSecretStorage implements ISecretStorage {
     const [event, fire] = createEvent<SecretChangeEvent>();
     this.onDidChange = event;
     this.fireChange = fire;
-
-    // Generate a fresh salt — will be overridden by loadSync if file exists
     this.salt = crypto.randomBytes(SALT_LENGTH);
     this.loadSync();
   }
@@ -104,7 +102,6 @@ export class CliSecretStorage implements ISecretStorage {
     try {
       return `${os.hostname()}:${os.userInfo().username}`;
     } catch {
-      // os.userInfo() can throw on some platforms (e.g., containers without /etc/passwd)
       return `${os.hostname()}:unknown`;
     }
   }
@@ -172,18 +169,13 @@ export class CliSecretStorage implements ISecretStorage {
     try {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
       const store: EncryptedStore = JSON.parse(raw);
-
-      // Validate the stored format has all required fields
       if (!store.salt || !store.iv || !store.tag || !store.data) {
         throw new Error('Invalid encrypted store format');
       }
-
-      // Restore the salt from disk for consistent key derivation
       this.salt = Buffer.from(store.salt, 'hex');
 
       const plaintext = this.decrypt(store);
       if (plaintext === null) {
-        // Decryption failed — key mismatch or corruption
         console.warn(
           '[CliSecretStorage] Failed to decrypt secrets file — starting fresh',
         );
@@ -194,7 +186,6 @@ export class CliSecretStorage implements ISecretStorage {
 
       this.secrets = JSON.parse(plaintext);
     } catch {
-      // File doesn't exist, is corrupted JSON, or has invalid format — start fresh
       this.secrets = {};
     }
   }
@@ -209,8 +200,6 @@ export class CliSecretStorage implements ISecretStorage {
 
     const plaintext = JSON.stringify(this.secrets);
     const store = this.encrypt(plaintext);
-
-    // Atomic write: write to temp file then rename
     const tmpPath = this.filePath + '.tmp';
     await fsPromises.writeFile(
       tmpPath,
@@ -224,10 +213,6 @@ export class CliSecretStorage implements ISecretStorage {
    * Delete the encrypted file if it exists (used on corruption recovery).
    */
   private deleteFileSync(): void {
-    try {
-      fs.unlinkSync(this.filePath);
-    } catch {
-      // File may not exist — ignore
-    }
+    fs.unlinkSync(this.filePath);
   }
 }

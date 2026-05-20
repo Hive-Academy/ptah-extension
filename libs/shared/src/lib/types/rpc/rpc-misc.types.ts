@@ -10,10 +10,6 @@ import type {
   QualityHistoryEntry,
 } from '../quality-assessment.types';
 
-// ============================================================
-// Context RPC Types
-// ============================================================
-
 /** Parameters for context:getAllFiles RPC method */
 export interface ContextGetAllFilesParams {
   /** Whether to include image files */
@@ -52,10 +48,6 @@ export interface ContextGetAllFilesResult {
 export interface ContextGetFileSuggestionsResult {
   files?: ContextFileInfo[];
 }
-
-// ============================================================
-// Autocomplete RPC Types
-// ============================================================
 
 /** Parameters for autocomplete:agents RPC method */
 export interface AutocompleteAgentsParams {
@@ -98,10 +90,6 @@ export interface AutocompleteCommandsResult {
   commands?: AutocompleteCommandInfo[];
 }
 
-// ============================================================
-// File RPC Types
-// ============================================================
-
 /** Parameters for file:open RPC method */
 export interface FileOpenParams {
   /** File path to open */
@@ -117,17 +105,13 @@ export interface FileOpenResult {
   isDirectory?: boolean;
 }
 
-// ============================================================
-// License RPC Types
-// ============================================================
-
 /** Parameters for license:getStatus RPC method */
 export type LicenseGetStatusParams = Record<string, never>;
 
 /**
- * License tier values for RPC communication
+ * License tier values for RPC communication.
  *
- * TASK_2025_128: Freemium model conversion
+ * Freemium model:
  * - 'community': FREE forever - always valid, no license required
  * - 'pro': Active Pro subscription ($5/month)
  * - 'trial_pro': Pro plan during 100-day trial
@@ -136,11 +120,11 @@ export type LicenseGetStatusParams = Record<string, never>;
 export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
 
 /**
- * Response from license:getStatus RPC method
+ * Response from license:getStatus RPC method.
  *
- * TASK_2025_121: Updated for two-tier paid model with trial support
- * TASK_2025_126: Added 'reason' field for context-aware welcome messaging
- * TASK_2025_128: Freemium model - renamed isBasic to isCommunity
+ * Supports a two-tier paid model with trial support, plus a `reason` field
+ * for context-aware welcome messaging. Freemium model uses `isCommunity`
+ * (previously `isBasic`).
  */
 export interface LicenseGetStatusResponse {
   /** Whether the license is valid (Community = always true) */
@@ -165,7 +149,7 @@ export interface LicenseGetStatusResponse {
   };
   /** Reason for invalid license (for context-aware welcome messaging) */
   reason?: 'expired' | 'trial_ended' | 'no_license';
-  /** User profile data (TASK_2025_129) - only present for licensed users */
+  /** User profile data - only present for licensed users */
   user?: {
     email: string;
     firstName: string | null;
@@ -202,17 +186,13 @@ export interface LicenseClearKeyResponse {
   error?: string;
 }
 
-// ============================================================
-// Command RPC Types (TASK_2025_126)
-// ============================================================
-
 /**
- * Parameters for command:execute RPC method
+ * Parameters for command:execute RPC method.
  *
- * TASK_2025_126: Allows webview to execute VS Code commands
- * TASK_2025_129 Batch 3: Extended to allow specific whitelisted commands
- * SECURITY: Only ptah.* prefix commands and specific whitelisted commands are allowed
- * (enforced by handler)
+ * Allows webview to execute VS Code commands. Extended to allow specific
+ * whitelisted commands.
+ * SECURITY: Only ptah.* prefix commands and specific whitelisted commands
+ * are allowed (enforced by handler).
  */
 export interface CommandExecuteParams {
   /** VS Code command ID to execute (must match whitelist: ptah.* prefix or exact match) */
@@ -230,10 +210,6 @@ export interface CommandExecuteResponse {
   /** Error message if failed */
   error?: string;
 }
-
-// ============================================================
-// Quality Dashboard RPC Types (TASK_2025_144)
-// ============================================================
 
 /** Parameters for quality:getAssessment RPC method */
 export interface QualityGetAssessmentParams {
@@ -280,10 +256,6 @@ export interface QualityExportResult {
   /** File path where the report was saved (if saved) */
   filePath?: string;
 }
-
-// ============================================================
-// Plugin Configuration RPC Types (TASK_2025_153)
-// ============================================================
 
 /** Plugin metadata for UI display */
 export interface PluginInfo {

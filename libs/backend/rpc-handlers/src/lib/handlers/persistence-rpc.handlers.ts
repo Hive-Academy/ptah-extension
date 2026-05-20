@@ -33,8 +33,6 @@ import type {
   DbHealthResult,
   DbResetResult,
 } from '@ptah-extension/shared';
-
-// Re-exported so consumers that import from this handler module still compile.
 export type { DbHealthResult, DbResetResult } from '@ptah-extension/shared';
 
 /** Optional request params for `db:health`. */
@@ -65,8 +63,6 @@ export interface DbResetParams {
   confirm: string;
 }
 
-// ---- Handler class ---------------------------------------------------------
-
 /**
  * Challenge token registry for the db:reset confirmation flow (F-M1).
  *
@@ -87,7 +83,6 @@ const pendingChallenges = new Map<string, number>(); // token → expiry (epoch 
  * @returns A UUID-format challenge token valid for 60 s.
  */
 export function mintResetChallengeToken(): string {
-  // Purge expired tokens to prevent unbounded memory growth.
   const now = Date.now();
   for (const [token, expiry] of pendingChallenges) {
     if (now >= expiry) pendingChallenges.delete(token);
@@ -128,8 +123,6 @@ export class PersistenceRpcHandlers {
     this.logger.info('[persistence] RPC handlers registered');
   }
 
-  // ---- db:health -----------------------------------------------------------
-
   /**
    * Return a structured snapshot of the SQLite connection's health.
    * Never throws — returns `{ isOpen: false }` with nulls when unavailable.
@@ -138,9 +131,6 @@ export class PersistenceRpcHandlers {
     params: DbHealthParams | undefined,
   ): Promise<DbHealthResult> {
     const fullCheck = params?.fullCheck === true;
-
-    // When the connection is offline return a minimal result so the UI can
-    // render the "persistence offline" badge without further network calls.
     if (this.connection.unavailable !== null) {
       return {
         isOpen: false,
@@ -173,8 +163,6 @@ export class PersistenceRpcHandlers {
 
     try {
       const db = this.connection.db;
-
-      // quick_check
       try {
         const qc = db.pragma('quick_check', { simple: true }) as string;
         result.quickCheckPassed = qc === 'ok';
@@ -183,8 +171,6 @@ export class PersistenceRpcHandlers {
           error: err instanceof Error ? err.message : String(err),
         });
       }
-
-      // foreign_key_check
       try {
         const rows = db.pragma('foreign_key_check') as Array<{
           table: string;
@@ -199,8 +185,6 @@ export class PersistenceRpcHandlers {
           error: err instanceof Error ? err.message : String(err),
         });
       }
-
-      // Page / size stats
       try {
         const pageCount = db.pragma('page_count', { simple: true }) as number;
         const pageSize = db.pragma('page_size', { simple: true }) as number;
@@ -218,19 +202,13 @@ export class PersistenceRpcHandlers {
           error: err instanceof Error ? err.message : String(err),
         });
       }
-
-      // WAL file size — read from fs, not from PRAGMA (PRAGMA wal_checkpoint
-      // would mutate state; we only want to observe)
       try {
         const walPath = this.connection.dbPath + '-wal';
         const walStat = fs.statSync(walPath);
         result.walSizeKb = Math.round(walStat.size / 1024);
       } catch {
-        // WAL file absent = fully checkpointed = effectively 0 bytes
         result.walSizeKb = null;
       }
-
-      // Optional slow integrity_check
       if (fullCheck) {
         try {
           const ic = db.pragma('integrity_check', { simple: true }) as string;
@@ -243,8 +221,6 @@ export class PersistenceRpcHandlers {
         }
       }
     } catch (err: unknown) {
-      // db getter can throw RpcUserError when connection closed between the
-      // unavailable check above and now (race). Return the offline shape.
       this.logger.warn('[persistence] db:health lost connection during check', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -266,14 +242,12 @@ export class PersistenceRpcHandlers {
     return result;
   }
 
-  // ---- db:reset ------------------------------------------------------------
-
   /**
    * 5-step reset workflow:
    *  1. backup('reset')
    *  2. connection.close()
    *  3. fs.renameSync (EPERM async retry after 200 ms on Windows)
-   *     Also renames -wal and -shm sidecar files (D11 fix).
+   *     Also renames -wal and -shm sidecar files.
    *  4. connection.openAndMigrate()
    *  5. Return success result
    *
@@ -282,28 +256,22 @@ export class PersistenceRpcHandlers {
    * are caught and returned as `{ success: false }`.
    *
    * Security notes:
-   *  F-M1: The confirmation token must be a UUID minted by `mintResetChallengeToken()`
-   *   in the trusted main-process context. The static `'CONFIRM'` literal is
-   *   retained for the deprecated fallback path only.
-   *  F-M3: The returned `backupPath` contains only the basename of the backup
-   *   file — never the absolute path — to avoid leaking the OS username via RPC.
-   *   Error messages are sanitised (absolute paths stripped) before being returned.
+   *  - The confirmation token must be a UUID minted by `mintResetChallengeToken()`
+   *    in the trusted main-process context. The static `'CONFIRM'` literal is
+   *    retained for the deprecated fallback path only.
+   *  - The returned `backupPath` contains only the basename of the backup
+   *    file — never the absolute path — to avoid leaking the OS username via RPC.
+   *    Error messages are sanitised (absolute paths stripped) before being returned.
    */
   private async handleReset(
     params: DbResetParams | undefined,
   ): Promise<DbResetResult> {
-    // Guard: validate the confirmation token.
-    // F-M1: Accept a valid single-use challenge UUID (preferred) OR the deprecated
-    // static 'CONFIRM' literal. The challenge UUID cannot be minted by renderer-
-    // side agents, closing the agent-bypass path described in the security review.
     if (!params || !this.isValidResetConfirmation(params.confirm)) {
       throw new RpcUserError(
         'Reset requires a valid confirmation token',
         'PERSISTENCE_UNAVAILABLE',
       );
     }
-
-    // Best-effort guard: reject while a write transaction is open
     if (this.connection.isOpen) {
       try {
         const db = this.connection.db;
@@ -315,8 +283,6 @@ export class PersistenceRpcHandlers {
         }
       } catch (err: unknown) {
         if (err instanceof RpcUserError) throw err;
-        // Connection went offline between isOpen check and db getter — proceed
-        // with reset since there cannot be an in-flight transaction.
       }
     }
 
@@ -324,26 +290,16 @@ export class PersistenceRpcHandlers {
     let rawBackupPath: string | null = null;
 
     try {
-      // Step 1: backup
       if (this.connection.isOpen) {
         try {
           rawBackupPath = await this.backup.backup(this.connection.db, 'reset');
         } catch (err: unknown) {
-          // backup() should never throw, but be defensive
           this.logger.warn('[persistence] db:reset backup error (non-fatal)', {
             error: err instanceof Error ? err.message : String(err),
           });
         }
       }
-
-      // Step 2: close (WAL checkpoint + close)
       this.connection.close();
-
-      // Step 3: rename old file to .deleted-<ts>-<random>.
-      // F-L4: Include a random hex suffix to avoid collision under rapid resets
-      //   (Date.now() has ms resolution; two resets in the same ms would collide).
-      // D11: Also rename -wal and -shm sidecar files so SQLite cannot replay
-      //   stale WAL content into the freshly-opened empty DB.
       const randomSuffix = crypto.randomBytes(4).toString('hex');
       const deletedPath = `${dbPath}.deleted-${Date.now()}-${randomSuffix}`;
       const renamed = await this.tryRename(dbPath, deletedPath);
@@ -354,17 +310,9 @@ export class PersistenceRpcHandlers {
           message: 'Could not rename old database file.',
         };
       }
-
-      // D11: Clean up WAL and SHM sidecars — non-fatal if absent or locked.
       this.renameDbSidecar(`${dbPath}-wal`, `${deletedPath}-wal`);
       this.renameDbSidecar(`${dbPath}-shm`, `${deletedPath}-shm`);
-
-      // Step 4: open fresh DB + run migrations
       await this.connection.openAndMigrate();
-
-      // Step 5: return success.
-      // F-M3: Return only the basename of the backup path to avoid leaking
-      //   the OS username (C:\Users\<name>\... or /home/<user>/...) to the renderer.
       const backupBasename = rawBackupPath
         ? path.basename(rawBackupPath)
         : null;
@@ -377,8 +325,6 @@ export class PersistenceRpcHandlers {
         message: `Database reset. ${backupNote}`,
       };
     } catch (err: unknown) {
-      // F-M3: Sanitise error messages — strip absolute paths before returning
-      //   to the renderer so OS usernames are not leaked.
       const raw = err instanceof Error ? err.message : String(err);
       const sanitised = sanitiseErrorMessage(raw);
       this.logger.error('[persistence] db:reset failed', { error: raw });
@@ -392,17 +338,15 @@ export class PersistenceRpcHandlers {
 
   /**
    * Validate the reset confirmation token.
-   * Accepts either a single-use UUID challenge token (preferred, F-M1) or the
+   * Accepts either a single-use UUID challenge token (preferred) or the
    * deprecated static literal 'CONFIRM'.
    */
   private isValidResetConfirmation(token: string): boolean {
-    // Check the challenge token registry first (preferred path).
     const expiry = pendingChallenges.get(token);
     if (expiry !== undefined) {
       pendingChallenges.delete(token); // single-use
       return Date.now() < expiry;
     }
-    // Deprecated fallback: static literal for callers not yet migrated.
     return token === 'CONFIRM';
   }
 
@@ -412,9 +356,8 @@ export class PersistenceRpcHandlers {
    * Returns `{ ok: true }` on success or `{ ok: false, error: string }` after
    * both attempts fail.
    *
-   * F-L2 fix: replaced the synchronous busy-wait spin-loop with an async
-   * `setTimeout` so the Electron main-process event loop is not blocked during
-   * the 200 ms wait.
+   * Uses async `setTimeout` (not a sync busy-wait spin-loop) so the Electron
+   * main-process event loop is not blocked during the 200 ms wait.
    */
   private async tryRename(
     src: string,
@@ -436,19 +379,14 @@ export class PersistenceRpcHandlers {
 
     const first = attempt();
     if (first.ok) return { ok: true };
-
-    // Only retry on EPERM (Windows AV interference)
     if (!first.error.includes('EPERM')) return first;
-
-    // Async 200 ms wait so the event loop is not blocked while Windows AV
-    // releases its handle on the file.
     await new Promise<void>((resolve) => setTimeout(resolve, 200));
 
     return attempt();
   }
 
   /**
-   * D11: Rename a WAL or SHM sidecar file as part of the db:reset flow.
+   * Rename a WAL or SHM sidecar file as part of the db:reset flow.
    * Non-fatal — if the file is absent (fully checkpointed) or cannot be
    * renamed, logs a debug message and continues.
    */
@@ -462,7 +400,6 @@ export class PersistenceRpcHandlers {
         });
       }
     } catch (err: unknown) {
-      // Non-fatal: a failed sidecar rename is logged but must not abort the reset.
       this.logger.warn(
         '[persistence] db:reset sidecar rename failed (non-fatal)',
         {

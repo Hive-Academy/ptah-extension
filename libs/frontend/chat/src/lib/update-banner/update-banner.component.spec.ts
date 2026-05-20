@@ -1,5 +1,5 @@
 /**
- * UpdateBannerComponent specs — TASK_2026_117
+ * UpdateBannerComponent specs
  *
  * Coverage (10 scenarios):
  *  1.  Banner not rendered when state = idle

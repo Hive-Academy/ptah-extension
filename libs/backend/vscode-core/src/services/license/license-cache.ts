@@ -1,12 +1,12 @@
 /**
- * License Cache (Wave C7a — TASK_2025_291)
+ * License Cache
  *
- * Extracted from {@link LicenseService}.
+ * Library-internal helper that owns license caching state for {@link LicenseService}.
  *
  * Responsibilities:
  * - In-memory 1-hour TTL cache
  * - Persisted cache in VS Code globalState (offline grace period)
- * - 7-day grace period logic for network failures (TASK_2025_121)
+ * - 7-day grace period logic for network failures
  * - Persistence of previousUserContext (expired/trial-ended user memory)
  *
  * This helper is **library-internal** — it is not `@injectable()` and is not
@@ -37,7 +37,7 @@ export const CACHE_TTL_MS = 60 * 60 * 1000;
 /**
  * Offline grace period: 7 days.
  *
- * TASK_2025_121 Batch 3: Grace period for network failures
+ * Grace period for network failures:
  * - When network verification fails, use persisted cache if within grace period
  * - Grace period is ONLY for network failures (not expired licenses)
  * - After grace period, license is treated as expired
@@ -69,10 +69,6 @@ export class LicenseCache {
     private readonly context: vscode.ExtensionContext,
     private readonly logger: Logger,
   ) {}
-
-  // ==========================================================================
-  // In-memory cache
-  // ==========================================================================
 
   /**
    * Get the currently cached status without any TTL validation.
@@ -128,10 +124,6 @@ export class LicenseCache {
     this.cache = { status: null, timestamp: null };
   }
 
-  // ==========================================================================
-  // Persisted cache (globalState)
-  // ==========================================================================
-
   /**
    * Persist license cache to VS Code globalState.
    *
@@ -172,8 +164,6 @@ export class LicenseCache {
     if (!persistedCache) {
       return null;
     }
-
-    // Validate cache structure
     if (
       !persistedCache.status ||
       typeof persistedCache.persistedAt !== 'number'
@@ -206,10 +196,6 @@ export class LicenseCache {
     );
   }
 
-  // ==========================================================================
-  // Grace period
-  // ==========================================================================
-
   /**
    * Check if persisted cache is within grace period (7 days).
    *
@@ -223,13 +209,9 @@ export class LicenseCache {
    * @returns true if within grace period and license not expired
    */
   isWithinGracePeriod(cache: PersistedLicenseCache): boolean {
-    // Grace period only applies to valid licenses
     if (!cache.status.valid) {
       return false;
     }
-
-    // TASK_2025_121: Check if license has expired since caching
-    // Even during grace period, if expiresAt has passed, license is invalid
     if (cache.status.expiresAt) {
       const expiresAt = new Date(cache.status.expiresAt).getTime();
       if (Date.now() > expiresAt) {
@@ -274,10 +256,6 @@ export class LicenseCache {
     }
     return `${hours} hour${hours === 1 ? '' : 's'}`;
   }
-
-  // ==========================================================================
-  // Previous user context
-  // ==========================================================================
 
   /**
    * Load the persisted previousUserContext, validating its structure and age.

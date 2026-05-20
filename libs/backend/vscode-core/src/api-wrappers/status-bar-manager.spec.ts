@@ -4,9 +4,6 @@
  * Exercises the real StatusBarManager surface: item creation with initial
  * properties, incremental updates, show/hide visibility tracking, click
  * tracking, accessor helpers, and disposal.
- *
- * TASK_2025_291 Wave B: replaces a ghost spec that mocked a nonexistent
- * EventBus dependency.
  */
 
 import 'reflect-metadata';

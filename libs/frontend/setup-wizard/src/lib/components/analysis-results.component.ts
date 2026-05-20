@@ -199,8 +199,6 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 })
 export class AnalysisResultsComponent {
   private readonly wizardState = inject(SetupWizardStateService);
-
-  // Lucide icon references
   protected readonly TriangleAlertIcon = TriangleAlert;
   protected readonly CheckCircleIcon = CheckCircle;
   protected readonly XCircleIcon = XCircle;
@@ -233,8 +231,6 @@ For now, you can:
   protected readonly phaseEntries = computed(() => {
     const mp = this.multiPhaseResult();
     if (!mp) return [];
-
-    // Display order for phases (exclude synthesis/agent-context from display)
     const displayOrder = [
       'project-profile',
       'architecture-assessment',
@@ -316,6 +312,5 @@ For now, you can:
    * - Modal auto-closes
    */
   protected onAlertOk(): void {
-    // Modal auto-closes, no action needed
   }
 }

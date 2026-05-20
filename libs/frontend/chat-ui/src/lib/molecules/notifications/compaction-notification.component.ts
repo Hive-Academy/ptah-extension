@@ -4,21 +4,10 @@ import { LucideAngularModule, RefreshCw } from 'lucide-angular';
 /**
  * CompactionNotificationComponent - Banner for context compaction in progress
  *
- * TASK_2025_098: SDK Session Compaction
- *
  * Displays a notification banner when the SDK is performing automatic context
  * compaction (summarizing conversation history to stay within context limits).
  * The banner shows a spinning icon and user-friendly message explaining what's
  * happening.
- *
- * Complexity Level: 1 (Simple component with signal-based input)
- * Patterns Applied:
- * - Signal-based input (Angular 20+)
- * - ChangeDetectionStrategy.OnPush for performance
- * - DaisyUI alert styling with animate-pulse
- *
- * SOLID Principles:
- * - Single Responsibility: Display compaction notification only
  */
 @Component({
   selector: 'ptah-compaction-notification',

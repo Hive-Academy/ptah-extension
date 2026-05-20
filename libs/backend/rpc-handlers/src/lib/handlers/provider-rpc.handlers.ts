@@ -1,5 +1,5 @@
 /**
- * Provider RPC Handlers (TASK_2025_132 - generalized from OpenRouterRpcHandlers)
+ * Provider RPC Handlers (generalized from OpenRouterRpcHandlers).
  *
  * Handles provider-related RPC methods for model listing and tier configuration:
  * - provider:listModels - Fetch models from provider API (or return static list)
@@ -8,7 +8,6 @@
  * - provider:clearModelTier - Clear a tier override (reset to default)
  *
  * Supports all Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI).
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.lm with IModelDiscovery)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -28,17 +27,20 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import {
-  ProviderModelsService,
   SdkAgentAdapter,
   SDK_TOKENS,
   DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
+} from '@ptah-extension/agent-sdk';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  ProviderModelsService,
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
   OllamaModelDiscoveryService,
-} from '@ptah-extension/agent-sdk';
-import { CliDetectionService } from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/auth-providers';
+import { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import {
   ProviderListModelsParams,
   ProviderListModelsResult,
@@ -74,7 +76,7 @@ export class ProviderRpcHandlers {
     private readonly configManager: ConfigManager,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecretsService: IAuthSecretsService,
-    @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
@@ -82,8 +84,9 @@ export class ProviderRpcHandlers {
     private readonly modelDiscovery: IModelDiscovery,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_OLLAMA_DISCOVERY)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_OLLAMA_DISCOVERY)
     private readonly ollamaDiscovery: OllamaModelDiscoveryService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
@@ -116,8 +119,8 @@ export class ProviderRpcHandlers {
    * Register a dynamic fetcher for GitHub Copilot models.
    *
    * Uses a unified cascade that matches what the user actually has access to:
-   * 1. VS Code LM API (selectChatModels) — subscription-filtered, most reliable
-   * 2. Copilot CLI SDK (client.listModels) — also subscription-filtered
+   * 1. VS Code LM API (selectChatModels) â€” subscription-filtered, most reliable
+   * 2. Copilot CLI SDK (client.listModels) â€” also subscription-filtered
    * 3. Static fallback list from COPILOT_PROVIDER_ENTRY
    *
    * This ensures the model selector only shows models the user can actually use,
@@ -125,7 +128,6 @@ export class ProviderRpcHandlers {
    */
   private registerCopilotDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('github-copilot', async () => {
-      // 1. Try platform model discovery — returns only models the user's subscription covers
       try {
         const platformModels = await this.modelDiscovery.getCopilotModels();
         if (platformModels.length > 0) {
@@ -147,8 +149,6 @@ export class ProviderRpcHandlers {
           }`,
         );
       }
-
-      // 2. Try Copilot CLI SDK — also subscription-filtered
       try {
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter?.listModels) {
@@ -173,8 +173,6 @@ export class ProviderRpcHandlers {
           }`,
         );
       }
-
-      // 3. Static fallback
       this.logger.info(
         '[ProviderRpc] Using static Copilot model list (VS Code LM and CLI both unavailable)',
       );
@@ -192,16 +190,14 @@ export class ProviderRpcHandlers {
    * Register a dynamic fetcher for OpenAI Codex models.
    *
    * Cascade:
-   * 1. VS Code LM API (selectChatModels) — Codex models may not appear here,
+   * 1. VS Code LM API (selectChatModels) â€” Codex models may not appear here,
    *    but we check for consistency with the Copilot fetcher pattern.
    * 2. Static fallback list from CODEX_PROVIDER_ENTRY (primary source).
    */
   private registerCodexDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('openai-codex', async () => {
-      // 1. Try platform model discovery — Codex models may not be available, but check anyway
       try {
         const platformModels = await this.modelDiscovery.getCodexModels();
-        // Filter to known Codex model IDs
         const codexModelIds = new Set(
           (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id),
         );
@@ -225,8 +221,6 @@ export class ProviderRpcHandlers {
           }`,
         );
       }
-
-      // 2. Static fallback (primary source for Codex)
       this.logger.info('[ProviderRpc] Using static Codex model list');
       return (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
         id: m.id,
@@ -241,11 +235,11 @@ export class ProviderRpcHandlers {
   /**
    * Register a dynamic model fetcher for direct Anthropic auth (oauth/apiKey/claudeCli).
    *
-   * TASK_2025_270: 'anthropic' is a virtual provider ID for direct Claude auth
-   * users — it is NOT in the ANTHROPIC_PROVIDERS registry.
+   * 'anthropic' is a virtual provider ID for direct Claude auth
+   * users â€” it is NOT in the ANTHROPIC_PROVIDERS registry.
    *
    * Cascade:
-   * 1. API key present → /v1/models API (returns specific model versions)
+   * 1. API key present â†’ /v1/models API (returns specific model versions)
    * 2. SDK supportedModels() (works for all auth methods including CLI/OAuth)
    *
    * Both paths populate contextLength dynamically from the pricing map.
@@ -309,7 +303,7 @@ export class ProviderRpcHandlers {
    * Register dynamic model fetchers for Ollama (local) and Ollama Cloud eagerly.
    *
    * Previously, these fetchers were only registered inside
-   * `LocalNativeStrategy.configure()` — which runs AFTER the user selects Ollama
+   * `LocalNativeStrategy.configure()` â€” which runs AFTER the user selects Ollama
    * as the active provider. But the model dropdown is what the user uses to
    * make that selection, creating a chicken-and-egg where the dropdown was
    * always empty until the user had already configured Ollama.
@@ -317,7 +311,7 @@ export class ProviderRpcHandlers {
    * Registering at startup (same pattern as Copilot, Codex, Anthropic direct)
    * makes the dropdown populate as soon as the UI queries it, independent of
    * which provider is currently active. The discovery service tolerates Ollama
-   * being offline — it simply returns an empty array and ProviderModelsService
+   * being offline â€” it simply returns an empty array and ProviderModelsService
    * falls back to `staticModels` on OLLAMA_PROVIDER_ENTRY.
    */
   private registerOllamaDynamicFetchers(): void {
@@ -330,7 +324,7 @@ export class ProviderRpcHandlers {
     this.logger.debug('[ProviderRpc] Registered eager Ollama dynamic fetchers');
   }
 
-  /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */
+  /** Convert model ID slug to display name: "gpt-5.3-codex" â†’ "GPT 5.3 Codex" */
   private formatCopilotModelName(id: string): string {
     return id
       .split('-')
@@ -354,10 +348,10 @@ export class ProviderRpcHandlers {
    *
    * Provider ID routing:
    * - Registry providers (openrouter, moonshot, z-ai, github-copilot, openai-codex, etc.):
-   *   Resolved via ANTHROPIC_PROVIDERS registry → fetchModels() handles static/dynamic paths.
-   * - 'anthropic' (virtual provider for direct OAuth/API key auth, TASK_2025_270):
+   *   Resolved via ANTHROPIC_PROVIDERS registry â†’ fetchModels() handles static/dynamic paths.
+   * - 'anthropic' (virtual provider for direct OAuth/API key auth):
    *   NOT in the registry. Handled via dynamic fetcher registered by
-   *   registerAnthropicDirectFetcher() — ProviderModelsService.fetchModels() checks
+   *   registerAnthropicDirectFetcher() â€” ProviderModelsService.fetchModels() checks
    *   dynamic fetchers before the registry lookup, so this works without a registry entry.
    */
   private registerListModels(): void {
@@ -373,11 +367,7 @@ export class ProviderRpcHandlers {
           providerId,
           toolUseOnly: validated.toolUseOnly,
         });
-
-        // Get API key from per-provider storage (may be null for static-model providers)
         const apiKey = await this.authSecretsService.getProviderKey(providerId);
-
-        // Guard: purely dynamic providers (no static fallback) need an API key
         if (!apiKey) {
           const provider = getAnthropicProvider(providerId);
           const isPurelyDynamic =
@@ -391,8 +381,6 @@ export class ProviderRpcHandlers {
             return { models: [], totalCount: 0, isStatic: false };
           }
         }
-
-        // Fetch models (service handles static vs dynamic internally)
         const result = await this.providerModels.fetchModels(
           providerId,
           apiKey ?? null,
@@ -409,8 +397,6 @@ export class ProviderRpcHandlers {
         return result;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-
-        // Auth failures: return empty models + error message instead of throwing
         if (
           errorMsg.includes('401') ||
           errorMsg.includes('403') ||
@@ -470,9 +456,6 @@ export class ProviderRpcHandlers {
           validated.modelId,
           validated.scope,
         );
-
-        // Clear SDK model cache so the next config:models-list call re-fetches
-        // models with the updated tier env vars applied.
         this.sdkAdapter.clearModelCache();
 
         this.logger.info('RPC: provider:setModelTier completed', {
@@ -566,9 +549,6 @@ export class ProviderRpcHandlers {
           validated.tier,
           validated.scope,
         );
-
-        // Clear SDK model cache so the next config:models-list call re-fetches
-        // models without the removed tier override.
         this.sdkAdapter.clearModelCache();
 
         this.logger.info('RPC: provider:clearModelTier completed', {

@@ -1,7 +1,7 @@
 /**
  * JSON Namespace Builder
- * TASK_2025_240: JSON validation and repair MCP tool
  *
+ * JSON validation and repair MCP tool.
  * Provides a validate() method that reads a JSON file, extracts JSON from
  * raw agent output (markdown fences, prose), repairs common issues (trailing
  * commas, single quotes, unquoted keys, comments, unbalanced brackets),
@@ -44,8 +44,6 @@ export function buildJsonNamespace(
   return {
     async validate(params: JsonValidateParams): Promise<JsonValidateResult> {
       const repairs: string[] = [];
-
-      // 1. Validate input
       if (
         !params.file ||
         typeof params.file !== 'string' ||
@@ -63,8 +61,6 @@ export function buildJsonNamespace(
       }
 
       const filePath = params.file.trim();
-
-      // 2. Resolve workspace-relative path (security: reject absolute paths, traversal)
       let resolvedPath: string;
       try {
         resolvedPath = resolveWorkspacePath(filePath, workspaceProvider);
@@ -78,8 +74,6 @@ export function buildJsonNamespace(
           fileOverwritten: false,
         };
       }
-
-      // 3. Check file existence
       const exists = await fileSystemProvider.exists(resolvedPath);
       if (!exists) {
         return {
@@ -90,8 +84,6 @@ export function buildJsonNamespace(
           fileOverwritten: false,
         };
       }
-
-      // 4. Read file content
       let content: string;
       try {
         content = await fileSystemProvider.readFile(resolvedPath);
@@ -105,8 +97,6 @@ export function buildJsonNamespace(
           fileOverwritten: false,
         };
       }
-
-      // 5. Check for empty content
       if (!content.trim()) {
         return {
           success: false,
@@ -116,8 +106,6 @@ export function buildJsonNamespace(
           fileOverwritten: false,
         };
       }
-
-      // 6. Run extraction & repair pipeline
       content = stripMarkdownFences(content, repairs);
       content = extractJsonBody(content, repairs);
       content = stripJsonComments(content, repairs);
@@ -125,8 +113,6 @@ export function buildJsonNamespace(
       content = fixSingleQuotes(content, repairs);
       content = fixUnquotedKeys(content, repairs);
       content = balanceBrackets(content, repairs);
-
-      // 7. Attempt parse
       let parsed: unknown;
       try {
         parsed = JSON.parse(content);
@@ -143,8 +129,6 @@ export function buildJsonNamespace(
           fileOverwritten: false,
         };
       }
-
-      // 8. Optional schema validation
       if (params.schema) {
         const schemaErrors = validateAgainstSchema(parsed, params.schema);
         if (schemaErrors.length > 0) {
@@ -157,8 +141,6 @@ export function buildJsonNamespace(
           };
         }
       }
-
-      // 9. Overwrite with clean, formatted JSON
       const cleanJson = JSON.stringify(parsed, null, 2);
       try {
         await fileSystemProvider.writeFile(resolvedPath, cleanJson);
@@ -184,10 +166,6 @@ export function buildJsonNamespace(
   };
 }
 
-// ========================================
-// Path Resolution (duplicated from system-namespace.builders.ts)
-// ========================================
-
 /**
  * Resolve a file path relative to workspace root.
  * SECURITY: Rejects absolute paths and path traversal to confine
@@ -200,12 +178,7 @@ function resolveWorkspacePath(
   filePath: string,
   workspaceProvider: IWorkspaceProvider,
 ): string {
-  // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
-
-  // Reject absolute paths (drive letters, UNC paths, Unix absolute).
-  // path.isAbsolute() is platform-dependent and doesn't recognize Windows
-  // drive letters or UNC paths on POSIX hosts, so check explicitly.
   const isWindowsDriveAbsolute = /^[a-zA-Z]:[/\\]/.test(filePath);
   const isUncPath = /^[/\\]{2}/.test(filePath);
   if (path.isAbsolute(normalizedPath) || isWindowsDriveAbsolute || isUncPath) {
@@ -213,16 +186,12 @@ function resolveWorkspacePath(
       'Absolute paths are not allowed. Use workspace-relative paths only.',
     );
   }
-
-  // Reject path traversal attempts
   const resolved = path.normalize(normalizedPath);
   if (resolved.startsWith('..')) {
     throw new Error(
       'Path traversal is not allowed. Stay within workspace boundaries.',
     );
   }
-
-  // Resolve relative to workspace root
   const workspaceRoot = workspaceProvider.getWorkspaceRoot();
   if (!workspaceRoot) {
     throw new Error('No workspace folder is open.');
@@ -230,10 +199,6 @@ function resolveWorkspacePath(
 
   return path.join(workspaceRoot, normalizedPath);
 }
-
-// ========================================
-// Repair Pipeline — Pure Helper Functions
-// ========================================
 
 /**
  * Strip markdown code fences wrapping JSON content.
@@ -244,8 +209,6 @@ export function stripMarkdownFences(
   content: string,
   repairs: string[],
 ): string {
-  // Match opening fence with optional language tag, and closing fence
-  // Handles: ```json, ```JSON, ```jsonc, ``` (plain), with optional whitespace
   const fencePattern =
     /^[ \t]*```(?:json|JSON|jsonc)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```[ \t]*$/;
   const match = content.trim().match(fencePattern);
@@ -254,9 +217,6 @@ export function stripMarkdownFences(
     repairs.push('Stripped markdown code fence');
     return match[1];
   }
-
-  // Also handle case where fences are present but content follows after closing fence
-  // or content precedes opening fence — just strip the fence lines
   const lines = content.split(/\r?\n/);
   let startIdx = -1;
   let endIdx = -1;
@@ -289,14 +249,11 @@ export function stripMarkdownFences(
  */
 export function extractJsonBody(content: string, repairs: string[]): string {
   const trimmed = content.trim();
-
-  // Find the first { or [
   const firstBrace = trimmed.indexOf('{');
   const firstBracket = trimmed.indexOf('[');
 
   let start: number;
   if (firstBrace === -1 && firstBracket === -1) {
-    // No JSON-like structure found
     return trimmed;
   } else if (firstBrace === -1) {
     start = firstBracket;
@@ -305,14 +262,9 @@ export function extractJsonBody(content: string, repairs: string[]): string {
   } else {
     start = Math.min(firstBrace, firstBracket);
   }
-
-  // Use bracket-depth tracking to find the matching closer for the opener at 'start'.
-  // This correctly skips brackets inside string literals and finds the true
-  // end of the JSON body, even when trailing prose contains } or ] characters.
   const end = findMatchingCloser(trimmed, start);
 
   if (end === -1) {
-    // No matching closer found — fall back to lastIndexOf as best effort
     const lastBrace = trimmed.lastIndexOf('}');
     const lastBracket = trimmed.lastIndexOf(']');
     const lastCloser = Math.max(lastBrace, lastBracket);
@@ -357,8 +309,6 @@ function findMatchingCloser(content: string, start: number): number {
 
   while (i < len) {
     const ch = content[i];
-
-    // Skip string literals
     if (ch === '"') {
       i++;
       while (i < len && content[i] !== '"') {
@@ -371,8 +321,6 @@ function findMatchingCloser(content: string, start: number): number {
       if (i < len) i++; // skip closing quote
       continue;
     }
-
-    // Also skip single-quoted strings (common in agent output)
     if (ch === "'") {
       i++;
       while (i < len && content[i] !== "'" && content[i] !== '\n') {
@@ -423,14 +371,11 @@ export function stripJsonComments(content: string, repairs: string[]): string {
 
   while (i < len) {
     const ch = content[i];
-
-    // Handle string literals — pass through unchanged
     if (ch === '"') {
       result += '"';
       i++;
       while (i < len && content[i] !== '"') {
         if (content[i] === '\\') {
-          // Escaped character — copy both backslash and next char
           result += content[i] + (content[i + 1] || '');
           i += 2;
         } else {
@@ -444,8 +389,6 @@ export function stripJsonComments(content: string, repairs: string[]): string {
       }
       continue;
     }
-
-    // Handle single-line comments (// ...)
     if (ch === '/' && i + 1 < len && content[i + 1] === '/') {
       commentCount++;
       i += 2;
@@ -454,8 +397,6 @@ export function stripJsonComments(content: string, repairs: string[]): string {
       }
       continue;
     }
-
-    // Handle multi-line comments (/* ... */)
     if (ch === '/' && i + 1 < len && content[i + 1] === '*') {
       commentCount++;
       i += 2;
@@ -467,8 +408,6 @@ export function stripJsonComments(content: string, repairs: string[]): string {
       }
       continue;
     }
-
-    // Regular character
     result += ch;
     i++;
   }
@@ -496,8 +435,6 @@ export function fixTrailingCommas(content: string, repairs: string[]): string {
 
   while (i < len) {
     const ch = content[i];
-
-    // Skip string literals — pass through unchanged
     if (ch === '"') {
       result += '"';
       i++;
@@ -516,10 +453,7 @@ export function fixTrailingCommas(content: string, repairs: string[]): string {
       }
       continue;
     }
-
-    // Check for trailing comma: comma followed by optional whitespace then } or ]
     if (ch === ',') {
-      // Look ahead past whitespace to see if next non-whitespace is } or ]
       let j = i + 1;
       while (
         j < len &&
@@ -532,9 +466,7 @@ export function fixTrailingCommas(content: string, repairs: string[]): string {
       }
 
       if (j < len && (content[j] === '}' || content[j] === ']')) {
-        // Trailing comma found — skip the comma, keep the whitespace and closer
         fixCount++;
-        // Don't append the comma; continue from i+1 so whitespace and closer are appended normally
         i++;
         continue;
       }
@@ -572,8 +504,6 @@ export function fixSingleQuotes(content: string, repairs: string[]): string {
 
   while (i < len) {
     const ch = content[i];
-
-    // Pass through double-quoted strings unchanged
     if (ch === '"') {
       result += '"';
       i++;
@@ -592,10 +522,7 @@ export function fixSingleQuotes(content: string, repairs: string[]): string {
       }
       continue;
     }
-
-    // Handle single quotes — convert to double quotes for JSON
     if (ch === "'") {
-      // Find the matching closing single quote
       let j = i + 1;
       let escaped = false;
       while (j < len) {
@@ -612,7 +539,6 @@ export function fixSingleQuotes(content: string, repairs: string[]): string {
         if (content[j] === "'") {
           break;
         }
-        // If we hit a newline before finding closing quote, it's not a string
         if (content[j] === '\n') {
           break;
         }
@@ -620,8 +546,6 @@ export function fixSingleQuotes(content: string, repairs: string[]): string {
       }
 
       if (j < len && content[j] === "'") {
-        // Found matching closing single quote — convert both to double quotes
-        // Also escape any unescaped double quotes inside the string
         const inner = content.substring(i + 1, j);
         const escapedInner = inner
           .replace(/\\'/g, "'") // unescape escaped single quotes
@@ -631,8 +555,6 @@ export function fixSingleQuotes(content: string, repairs: string[]): string {
         i = j + 1;
         continue;
       }
-
-      // No matching closing quote — pass through as-is (likely an apostrophe)
       result += ch;
       i++;
       continue;
@@ -665,8 +587,6 @@ export function fixUnquotedKeys(content: string, repairs: string[]): string {
 
   while (i < len) {
     const ch = content[i];
-
-    // Skip over string literals entirely
     if (ch === '"') {
       result += '"';
       i++;
@@ -685,32 +605,23 @@ export function fixUnquotedKeys(content: string, repairs: string[]): string {
       }
       continue;
     }
-
-    // Look for unquoted key pattern: identifier followed by colon
-    // Must be preceded by {, comma, or start of line (with optional whitespace)
     if (/[a-zA-Z_$]/.test(ch)) {
-      // Check if this looks like a key position
-      // Look back to see if we're after a structural character
       const preceding = result.trimEnd();
       const lastChar = preceding[preceding.length - 1];
 
       if (lastChar === '{' || lastChar === ',' || lastChar === undefined) {
-        // Collect the identifier
         let identifier = '';
         let j = i;
         while (j < len && /[a-zA-Z0-9_$]/.test(content[j])) {
           identifier += content[j];
           j++;
         }
-
-        // Check if followed by colon (with optional whitespace)
         let k = j;
         while (k < len && (content[k] === ' ' || content[k] === '\t')) {
           k++;
         }
 
         if (k < len && content[k] === ':') {
-          // This is an unquoted key — quote it
           result += '"' + identifier + '"';
           fixCount++;
           i = j;
@@ -738,15 +649,12 @@ export function fixUnquotedKeys(content: string, repairs: string[]): string {
  * and appends the minimum closers needed.
  */
 export function balanceBrackets(content: string, repairs: string[]): string {
-  // Track open brackets/braces using a stack, skipping string literals
   const stack: string[] = [];
   let i = 0;
   const len = content.length;
 
   while (i < len) {
     const ch = content[i];
-
-    // Skip string literals
     if (ch === '"') {
       i++;
       while (i < len && content[i] !== '"') {
@@ -780,8 +688,6 @@ export function balanceBrackets(content: string, repairs: string[]): string {
   if (stack.length === 0) {
     return content;
   }
-
-  // Append missing closers in reverse order
   const closers = stack
     .reverse()
     .map((opener) => (opener === '{' ? '}' : ']'))
@@ -793,10 +699,6 @@ export function balanceBrackets(content: string, repairs: string[]): string {
 
   return content + closers;
 }
-
-// ========================================
-// Schema Validation
-// ========================================
 
 /**
  * Lightweight JSON Schema validation.
@@ -815,8 +717,6 @@ function validateAgainstSchema(
   schema: Record<string, unknown>,
 ): string[] {
   const errors: string[] = [];
-
-  // Must be an object to validate properties/required
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     if (schema['required'] || schema['properties']) {
       errors.push(
@@ -827,8 +727,6 @@ function validateAgainstSchema(
   }
 
   const obj = parsed as Record<string, unknown>;
-
-  // Check required keys
   const requiredKeys = schema['required'];
   if (Array.isArray(requiredKeys)) {
     for (const key of requiredKeys) {
@@ -837,8 +735,6 @@ function validateAgainstSchema(
       }
     }
   }
-
-  // Check property types
   const schemaProperties = schema['properties'];
   if (
     schemaProperties &&

@@ -1,20 +1,20 @@
 /**
  * TabWorkspacePartitionService — workspace-partitioned tab state coverage.
  *
- * TASK_2026_105 Wave G2 Phase 2. Exercises the API surface that
- * TabManagerService delegates to: workspace switching, cross-workspace
- * lookup via the reverse index, background updates, and removal cleanup.
+ * Exercises the API surface that TabManagerService delegates to: workspace
+ * switching, cross-workspace lookup via the reverse index, background
+ * updates, and removal cleanup.
  */
 
 import { TestBed } from '@angular/core/testing';
 import { TabState } from '@ptah-extension/chat-types';
+import type { SessionId, TabId } from '@ptah-extension/shared';
 
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
 
 const makeTab = (id: string, sessionId: string | null = null): TabState => ({
-  id,
-  claudeSessionId: sessionId,
-  // TASK_2026_106 Phase 6b — `placeholderSessionId` removed from TabState.
+  id: id as TabId,
+  claudeSessionId: sessionId as SessionId | null,
   name: id,
   title: id,
   order: 0,
@@ -34,7 +34,7 @@ describe('TabWorkspacePartitionService', () => {
       providers: [TabWorkspacePartitionService],
     });
     svc = TestBed.inject(TabWorkspacePartitionService);
-    svc.initialize(undefined, 'ptah.tabs');
+    svc.initialize(undefined);
   });
 
   afterEach(() => localStorage.clear());
@@ -59,21 +59,6 @@ describe('TabWorkspacePartitionService', () => {
       const back = svc.switchWorkspace('/ws/a', [makeTab('b-1')], null);
       expect(back?.tabs[0]?.id).toBe('a-1');
       expect(back?.activeTabId).toBe('a-1');
-    });
-
-    it('migrates legacy global storage on first switch', () => {
-      localStorage.setItem(
-        'ptah.tabs',
-        JSON.stringify({
-          version: 1,
-          activeTabId: 'legacy-1',
-          tabs: [makeTab('legacy-1', 'sess-legacy')],
-        }),
-      );
-      const result = svc.switchWorkspace('/ws/a', [], null);
-      expect(result?.tabs.length).toBe(1);
-      expect(result?.activeTabId).toBe('legacy-1');
-      expect(localStorage.getItem('ptah.tabs')).toBeNull();
     });
   });
 
@@ -160,7 +145,7 @@ describe('TabWorkspacePartitionService', () => {
     });
 
     it('respects the panelId namespace when initialized with one', () => {
-      svc.initialize('panel-uuid', 'ptah.tabs.panel-uuid');
+      svc.initialize('panel-uuid');
       expect(svc.getStorageKeyForWorkspace('/ws/a')).toContain('.panel-uuid');
     });
   });

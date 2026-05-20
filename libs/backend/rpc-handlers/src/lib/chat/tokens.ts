@@ -1,5 +1,5 @@
 /**
- * Chat sub-service DI tokens (Wave C7e).
+ * Chat sub-service DI tokens.
  *
  * Symbol-based tokens used by `ChatRpcHandlers` (and the chat sub-services
  * themselves, for service-to-service injection) to resolve the extracted

@@ -12,7 +12,6 @@
  * - Generate unique IDs for events and messages
  * - Extract text content from various content block formats
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import { injectable } from 'tsyringe';
@@ -52,9 +51,6 @@ export interface MessageUsageData {
  */
 @injectable()
 export class HistoryEventFactory {
-  // ==========================================================================
-  // MESSAGE EVENTS
-  // ==========================================================================
 
   /**
    * Create a message_start event
@@ -111,16 +107,11 @@ export class HistoryEventFactory {
       messageId,
       timestamp,
       source: 'history',
-      // Include usage data for per-message stats display (TASK_2025_098 fix)
       ...(usageData?.tokenUsage && { tokenUsage: usageData.tokenUsage }),
       ...(usageData?.cost !== undefined && { cost: usageData.cost }),
       ...(usageData?.model && { model: usageData.model }),
     };
   }
-
-  // ==========================================================================
-  // CONTENT DELTA EVENTS
-  // ==========================================================================
 
   /**
    * Create a text_delta event
@@ -183,10 +174,6 @@ export class HistoryEventFactory {
       source: 'history',
     };
   }
-
-  // ==========================================================================
-  // TOOL EVENTS
-  // ==========================================================================
 
   /**
    * Create a tool_start event
@@ -257,10 +244,6 @@ export class HistoryEventFactory {
     };
   }
 
-  // ==========================================================================
-  // AGENT EVENTS
-  // ==========================================================================
-
   /**
    * Create an agent_start event for Task tool spawning
    *
@@ -309,14 +292,10 @@ export class HistoryEventFactory {
     };
   }
 
-  // ==========================================================================
-  // AGENT-SCOPED EVENTS (for nested agent messages)
-  // ==========================================================================
-
   /**
    * Create a message_start event for agent-scoped messages.
    *
-   * CRITICAL: TASK_2025_096 FIX - Must include parentToolUseId in event ID
+   * CRITICAL: - Must include parentToolUseId in event ID
    * to prevent collision when multiple agents are spawned in the same message block.
    *
    * @param sessionId - Session identifier
@@ -481,16 +460,11 @@ export class HistoryEventFactory {
       parentToolUseId,
       timestamp,
       source: 'history',
-      // Include usage data for per-message stats display (TASK_2025_098 fix)
       ...(usageData?.tokenUsage && { tokenUsage: usageData.tokenUsage }),
       ...(usageData?.cost !== undefined && { cost: usageData.cost }),
       ...(usageData?.model && { model: usageData.model }),
     };
   }
-
-  // ==========================================================================
-  // UTILITIES
-  // ==========================================================================
 
   /**
    * Generate a unique message ID

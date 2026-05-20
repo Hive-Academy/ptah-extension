@@ -1,9 +1,3 @@
-// Bootstrap: Phases 1 through 3.6 of Electron activation.
-// Parses CLI args, builds the DI container, verifies critical tokens,
-// restores persisted workspaces, performs license verification, and
-// initializes SDK auth.
-//
-// Split from main.ts per TASK_2025_291 Wave C1 / design section B.3.1.
 
 import {
   app,
@@ -24,9 +18,13 @@ import {
   SETTINGS_TOKENS,
   type MigrationRunner,
 } from '@ptah-extension/settings-core';
-import { fixPath } from '@ptah-extension/agent-sdk';
+import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
+import { IpcBridge } from '../ipc/ipc-bridge';
+import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
+import { ELECTRON_TOKENS } from '../di/electron-tokens';
+import type { PtyManagerService } from '../services/pty-manager.service';
 
 export interface BootstrapResult {
   container: DependencyContainer;
@@ -45,15 +43,7 @@ export interface BootstrapResult {
 export async function bootstrapElectron(
   getMainWindow: () => BrowserWindow | null,
 ): Promise<BootstrapResult> {
-  // PHASE 0: Repair process.env.PATH on Linux/macOS when launched from a
-  // GUI launcher (Activities, dock, Finder). Without this, npm-installed
-  // CLIs (Gemini, Codex, Copilot, Cursor) are not discoverable because
-  // ~/.bashrc / ~/.zshrc are not sourced for GUI-launched processes.
-  // Must run BEFORE DI container creation so CliDetectionService sees the
-  // repaired PATH on its first detect() call. No-op on Windows.
   fixPath();
-
-  // PHASE 1: Parse command-line args
   const workspacePath = process.argv.find(
     (arg) =>
       !arg.startsWith('-') &&
@@ -67,9 +57,6 @@ export async function bootstrapElectron(
   if (initialFolders) {
     console.log(`[Ptah Electron] Workspace path: ${initialFolders[0]}`);
   }
-  // PHASE 2: Initialize DI Container
-  // Must be done BEFORE creating IPC bridge (Batch 4) so all services are available.
-  // Must be done AFTER app.whenReady() because safeStorage requires it.
   const platformOptions: ElectronPlatformOptions = {
     appPath: app.getAppPath(),
     userDataPath: app.getPath('userData'),
@@ -82,10 +69,6 @@ export async function bootstrapElectron(
         safeStorage.decryptString(encrypted),
     },
     dialog: {
-      // TASK_2025_261: Electron's dialog.showMessageBox checks `instanceof BrowserWindow`.
-      // Duck-typed objects from getWindow() fail this check and are re-interpreted
-      // as options, silently dropping the actual message/buttons.
-      // Use the passed window if it's a real BrowserWindow, otherwise fall back to mainWindow.
       showMessageBox: (win: unknown, options: unknown) => {
         const opts = options as Electron.MessageBoxOptions;
         const targetWin = win instanceof BrowserWindow ? win : getMainWindow();
@@ -120,20 +103,6 @@ export async function bootstrapElectron(
   };
 
   const container = ElectronDIContainer.setup(platformOptions);
-
-  // PHASE 2.05: Unified settings registration + migration (WP-3C, Batch 3).
-  //
-  // registerElectronSettings wires SETTINGS_TOKENS (SETTINGS_STORE, all 9
-  // repository tokens, MIGRATION_RUNNER) into the container.
-  //
-  // runMigrations() MUST run before any service resolves MODEL_SETTINGS or
-  // REASONING_SETTINGS. Services are registered (Phase 2) but their singleton
-  // instances are not constructed until first resolve — so running the
-  // migration here (before agentAdapter.initialize() in Phase 3.6) satisfies
-  // the ordering constraint from R2.
-  //
-  // ElectronDIContainer.setup() is synchronous; bootstrapElectron() is async,
-  // so we can safely await here without making the phase chain async.
   try {
     registerElectronSettings(container);
     const migrationRunner = container.resolve<MigrationRunner>(
@@ -142,8 +111,6 @@ export async function bootstrapElectron(
     await migrationRunner.runMigrations();
     console.log('[Ptah Electron] Settings registered and migrations applied');
   } catch (settingsError) {
-    // Non-fatal: log and continue. Worst case, provider-scoped settings fall
-    // back to defaults rather than user-persisted values.
     console.warn(
       '[Ptah Electron] Settings registration / migration failed (non-fatal):',
       settingsError instanceof Error
@@ -151,9 +118,6 @@ export async function bootstrapElectron(
         : String(settingsError),
     );
   }
-
-  // Initialize Sentry — DSN injected at build time via esbuild define.
-  // Production builds contain the real DSN; development gets empty string (no-op).
   const sentryDsn = typeof __SENTRY_DSN__ !== 'undefined' ? __SENTRY_DSN__ : '';
   if (sentryDsn) {
     const sentryService = container.resolve<SentryService>(
@@ -167,10 +131,6 @@ export async function bootstrapElectron(
       extensionVersion: app.getVersion(),
     });
   }
-  // PHASE 2.1: Verify Critical DI Tokens
-  // Diagnostic verification: ensure critical tokens resolve after container setup.
-  // Each token is resolved independently so one failure does not mask others.
-  // This block must NOT throw -- it is purely informational.
   {
     const tokensToVerify: Array<{ name: string; token: unknown }> = [
       { name: 'TOKENS.RPC_HANDLER', token: TOKENS.RPC_HANDLER },
@@ -207,15 +167,7 @@ export async function bootstrapElectron(
       `[Ptah Electron] DI verification: ${resolved}/${tokensToVerify.length} tokens resolved`,
     );
   }
-
-  // Mutable ref box — consumed by the onDidChangeWorkspaceFolders subscription
-  // registered below. Assigned by the orchestrator after wireRuntime Phase 4.8.
   const gitWatcherRef: BootstrapResult['gitWatcherRef'] = { current: null };
-  // PHASE 2.5: Workspace Restoration (TASK_2025_208 Batch 2, Tasks 2.2 & 2.3)
-  // Restore persisted workspace list from global state storage, apply CLI arg
-  // priority, and wire the onDidChangeWorkspaceFolders subscription (debounced
-  // persistence + git-watcher switching via the mutable gitWatcherRef).
-  // Implementation extracted to ./workspace-restore.
   const { startupWorkspaceRoot: restoredRoot, flushWorkspacePersistence } =
     await restoreWorkspaces(
       container,
@@ -224,21 +176,9 @@ export async function bootstrapElectron(
       getMainWindow,
     );
   let startupWorkspaceRoot = restoredRoot;
-  // PHASE 2.6: (Deferred) RPC handlers registered after WebviewManager in Phase 4.5
-  // Fallback: if workspace restoration failed but CLI arg was provided
   if (!startupWorkspaceRoot && initialFolders?.[0]) {
     startupWorkspaceRoot = initialFolders[0];
   }
-  // PHASE 3.5: License Verification
-  // Check license status before creating the window. If the license is invalid
-  // (revoked or payment failed), the renderer will start on the welcome view
-  // with isLicensed=false, blocking access to premium features.
-  // Mirrors the VS Code extension's handleLicenseBlocking() pattern (main.ts:85-306).
-  //
-  // LicenseService is registered in container.ts Phase 1.1 and depends on
-  // EXTENSION_CONTEXT (shimmed), LOGGER, and CONFIG_MANAGER — all available.
-  // Network timeout is 5s; offline grace period (7 days) prevents blocking
-  // if the license server is unreachable.
   let startupIsLicensed = true;
   let startupInitialView: string | null = null;
 
@@ -266,17 +206,59 @@ export async function bootstrapElectron(
       );
     }
   } catch (error) {
-    // Non-fatal: default to licensed so users aren't blocked by verification errors
     console.warn(
       '[Ptah Electron] License verification failed (non-fatal, defaulting to licensed):',
       error instanceof Error ? error.message : String(error),
     );
   }
-  // PHASE 3.6: SDK Authentication Initialization (TASK_2025_240)
-  // Initialize the SDK agent adapter so chat:start works.
-  // Mirrors VS Code extension Step 7 (main.ts:568-589).
-  // Must happen AFTER Phase 3.5 (license check) and BEFORE Phase 4.5 (RPC registration).
-  // AuthManager.configureAuthentication() reads API keys from AuthSecretsService.
+  let ptyManager: PtyManagerService | undefined;
+  try {
+    ptyManager = container.resolve<PtyManagerService>(
+      ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
+    );
+  } catch (error: unknown) {
+    console.warn(
+      '[Ptah Electron] PtyManagerService resolve failed (continuing without pty):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  const ipcBridge = new IpcBridge(
+    container,
+    () => {
+      const win = getMainWindow();
+      if (!win) return null;
+      return {
+        webContents: {
+          send: (channel: string, ...args: unknown[]) =>
+            win.webContents.send(channel, ...args),
+        },
+      };
+    },
+    ptyManager,
+  );
+
+  try {
+    ipcBridge.initialize();
+  } catch (error: unknown) {
+    console.warn(
+      '[Ptah Electron] IpcBridge initialize failed (continuing):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  const webviewManagerAdapter = new ElectronWebviewManagerAdapter(ipcBridge);
+  try {
+    container.register(TOKENS.WEBVIEW_MANAGER, {
+      useValue: webviewManagerAdapter,
+    });
+  } catch (error: unknown) {
+    console.error(
+      '[Ptah Electron] Failed to register WEBVIEW_MANAGER:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
   try {
     const agentAdapter = container.resolve(TOKENS.AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
@@ -287,19 +269,12 @@ export async function bootstrapElectron(
 
     if (authInitialized) {
       console.log('[Ptah Electron] Agent adapters initialized successfully');
-
-      // Pre-load SDKs in background (non-blocking) to speed up first chat.
-      // Shifts ~100-200ms import cost from first user interaction to activation.
       agentAdapter.preloadSdk().catch((err) => {
         console.warn(
           '[Ptah Electron] SDK preload failed (will retry on first use):',
           err instanceof Error ? err.message : String(err),
         );
       });
-
-      // Pre-warm the SDK CLI subprocess via SDK startup() (Claude Agent SDK
-      // ≥ 0.2.111). Fire-and-forget — failure is benign. Do NOT await:
-      // window must appear within 2s of ready (see CLAUDE.md guidelines).
       agentAdapter.prewarm().catch((err) => {
         console.warn(
           '[Ptah Electron] SDK prewarm failed (will resolve on first query):',

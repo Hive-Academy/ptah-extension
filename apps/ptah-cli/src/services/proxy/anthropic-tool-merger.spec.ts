@@ -1,5 +1,5 @@
 /**
- * Unit tests for `anthropic-tool-merger` — TASK_2026_104 P2.
+ * Unit tests for `anthropic-tool-merger`.
  *
  * Covers:
  *   1. caller-only — no workspace tools → caller list returned unchanged.

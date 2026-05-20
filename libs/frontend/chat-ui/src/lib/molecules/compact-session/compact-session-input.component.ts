@@ -77,7 +77,6 @@ export class CompactSessionInputComponent {
   handleInput(event: Event): void {
     const textarea = event.target as HTMLTextAreaElement;
     this.currentMessage.set(textarea.value);
-    // Auto-resize
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight, 64)}px`;
   }
@@ -95,8 +94,6 @@ export class CompactSessionInputComponent {
 
     this.messageSent.emit(msg);
     this.currentMessage.set('');
-
-    // Reset textarea height
     const el = this.inputRef()?.nativeElement;
     if (el) {
       el.value = '';

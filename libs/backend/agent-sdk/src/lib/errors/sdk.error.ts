@@ -16,7 +16,6 @@ export class SdkError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = 'SdkError';
-    // Preserve stack trace if V8 supports it.
     const captureStackTrace = (
       Error as unknown as {
         captureStackTrace?: (

@@ -8,9 +8,8 @@
  * orchestrating `ExecutionTreeBuilderService` (lives in @ptah-extension/chat).
  *
  * Why callbacks instead of direct file imports? Direct imports between
- * the three .fn files would re-create the module-level cycles the
- * Wave C7f split was supposed to eliminate. Callbacks keep .fn files
- * leaf-level: they import only this types file.
+ * the three .fn files would re-create module-level cycles. Callbacks keep
+ * .fn files leaf-level: they import only this types file.
  */
 
 import type {
@@ -25,12 +24,10 @@ import type { AgentStatsService } from '../agent-stats.service';
 /**
  * Minimal port for the background-agent flag lookup. Inverted-dependency
  * shape: the concrete `BackgroundAgentStore` lives in `@ptah-extension/chat`
- * and bundles with `ExecutionTreeBuilderService` in the G2.3 chat-streaming
- * wave. Typing this lib's `BuilderDeps` against the structural port keeps
- * the runtime graph one-directional (chat → chat-execution-tree only) and
- * lets specs supply lightweight stubs without dragging the chat library in.
- *
- * TASK_2026_105 Wave G1.
+ * and bundles with `ExecutionTreeBuilderService`. Typing this lib's
+ * `BuilderDeps` against the structural port keeps the runtime graph
+ * one-directional (chat → chat-execution-tree only) and lets specs supply
+ * lightweight stubs without dragging the chat library in.
  */
 export interface BackgroundAgentLookup {
   isBackgroundAgent(toolCallId: string): boolean;

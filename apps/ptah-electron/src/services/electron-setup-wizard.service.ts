@@ -1,5 +1,5 @@
 /**
- * Electron Setup Wizard Service (TASK_2025_214)
+ * Electron Setup Wizard Service
  *
  * Electron-specific implementation of ISetupWizardService that replaces the
  * VS Code SetupWizardService. Instead of creating a separate webview panel

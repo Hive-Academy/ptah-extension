@@ -91,19 +91,11 @@ export class SettingsComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly vscodeService = inject(VSCodeService);
-
-  // TASK_2025_133 Batch 2: Centralized auth state from AuthStateService
   readonly authState = inject(AuthStateService);
-
-  // TASK_2025_142: Use ChatStore's licenseStatus to avoid duplicate RPC calls
   private readonly chatStore = inject(ChatStore);
-
-  // viewChild for cross-component communication (LLM providers → agent re-detect)
   readonly agentOrchestrationConfig = viewChild(
     AgentOrchestrationConfigComponent,
   );
-
-  // Lucide icons
   readonly ArrowLeftIcon = ArrowLeft;
   readonly SparklesIcon = Sparkles;
   readonly LockIcon = Lock;
@@ -114,18 +106,11 @@ export class SettingsComponent implements OnInit {
   readonly DownloadIcon = Download;
   readonly UploadIcon = Upload;
   readonly ArrowLeftRightIcon = ArrowLeftRight;
-
-  // Loading states for export/import actions
   readonly isExporting = signal(false);
   readonly isImporting = signal(false);
-
-  // Tab state for settings page (4-tab layout; Pro content merged into Ptah AI sub-tabs.
-  // 'workspace-indexing' moved into the Memory tab by TASK_2026_119.)
   readonly activeSettingsTab = signal<
     'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
   >('claude-auth');
-
-  // Sub-tab state for Ptah AI tab
   readonly activePtahAiSubTab = signal<'orchestration' | 'pro-features'>(
     'orchestration',
   );
@@ -135,8 +120,6 @@ export class SettingsComponent implements OnInit {
 
   /** Counter incremented on plugin config save to trigger skill-sh-browser refresh */
   readonly skillRefreshTrigger = signal(0);
-
-  // License status computed signals (kept in parent for header badge + tab gating)
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false,
   );
@@ -147,7 +130,7 @@ export class SettingsComponent implements OnInit {
 
   /**
    * Computed: Whether provider model mapping section should be shown
-   * Delegates to AuthStateService which checks authMethod + hasProviderKey (TASK_2025_133)
+   * Delegates to AuthStateService which checks authMethod + hasProviderKey
    */
   readonly showProviderModels = this.authState.showProviderModels;
 
@@ -167,9 +150,9 @@ export class SettingsComponent implements OnInit {
   );
 
   /**
-   * Initialize: Load auth status on component mount
-   * TASK_2025_133: Auth status now loaded via AuthStateService
-   * TASK_2025_142: License status now comes from ChatStore (already fetched at app init)
+   * Initialize: Load auth status on component mount.
+   * Auth status is loaded via AuthStateService; license status comes from
+   * ChatStore (already fetched at app init).
    */
   async ngOnInit(): Promise<void> {
     await this.authState.loadAuthStatus();
@@ -205,7 +188,6 @@ export class SettingsComponent implements OnInit {
   onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
     this.commandDiscovery.clearCache();
-    // Trigger skill-sh-browser to reload installed skills list
     this.skillRefreshTrigger.update((n) => n + 1);
   }
 

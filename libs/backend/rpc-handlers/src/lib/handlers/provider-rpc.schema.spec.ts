@@ -1,8 +1,8 @@
 /**
- * Provider RPC schemas — unit specs (TASK_2025_294 W2.B2).
+ * Provider RPC schemas — unit specs.
  *
  * Surface under test: the four Zod schemas extracted from
- * `provider-rpc.handlers.ts` in W2.B2. These specs lock in the shape /
+ * `provider-rpc.handlers.ts`. These specs lock in the shape /
  * behaviour the handler depends on so future edits cannot silently change
  * what the `provider:*` RPC methods accept or reject.
  *

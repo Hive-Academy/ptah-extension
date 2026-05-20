@@ -1,7 +1,7 @@
 /**
  * pickPrimaryModel — deterministic primary-model selection.
  *
- * TASK_2026_109 C3: Centralizes the "which model is the user's primary?"
+ * Centralizes the "which model is the user's primary?"
  * decision used by both the live SESSION_STATS aggregator
  * (frontend/chat/.../session-stats-aggregator.service.ts) and the
  * post-compaction history reader
@@ -57,8 +57,6 @@ export function pickPrimaryModel(
       continue;
     }
     if (candidate.totalCost < best.totalCost) continue;
-
-    // Cost tie — break by total tokens (descending).
     const candidateTokens = totalTokens(candidate);
     const bestTokens = totalTokens(best);
     if (candidateTokens > bestTokens) {
@@ -66,9 +64,6 @@ export function pickPrimaryModel(
       continue;
     }
     if (candidateTokens < bestTokens) continue;
-
-    // Token tie — break by model name (lexicographic ascending) for
-    // cross-path determinism.
     if (candidate.model < best.model) {
       best = candidate;
     }

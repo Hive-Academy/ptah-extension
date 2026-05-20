@@ -3,12 +3,12 @@
  *
  * Mirrors `registerPersistenceSqliteServices`. Pre-conditions:
  *  - `TOKENS.LOGGER` is registered.
- *  - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` is registered (Track 0).
+ *  - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` is registered.
  *  - `PLATFORM_TOKENS.WORKSPACE_PROVIDER` is registered.
  *  - `SDK_TOKENS.SDK_JSONL_READER` is registered (agent-sdk).
  *
  * Post-conditions: all four SKILL_SYNTHESIS_TOKENS resolve to singletons.
- * Track 1's `PERSISTENCE_TOKENS.EMBEDDER` is treated as optional — the
+ * `PERSISTENCE_TOKENS.EMBEDDER` is treated as optional — the
  * promotion service short-circuits dedup when it's missing.
  */
 import type { DependencyContainer } from 'tsyringe';
@@ -29,8 +29,6 @@ export function registerSkillSynthesisServices(
   logger: Logger,
 ): void {
   logger.info('[skill-synthesis] registering services');
-
-  // Concrete classes (constructor-injected in their own dependents).
   container.registerSingleton(SkillCandidateStore);
   container.registerSingleton(SkillMdGenerator);
   container.registerSingleton(TrajectoryExtractor);
@@ -40,8 +38,6 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillPromotionService);
   container.registerSingleton(SkillInvocationTracker);
   container.registerSingleton(SkillSynthesisService);
-
-  // Symbol tokens — exposed for cross-library resolution by RPC handlers.
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });

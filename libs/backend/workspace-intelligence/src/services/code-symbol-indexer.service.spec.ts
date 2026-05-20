@@ -1,5 +1,5 @@
 // libs/backend/workspace-intelligence/src/services/code-symbol-indexer.service.spec.ts
-// TASK_2026_114: Tests for CodeSymbolIndexer AbortSignal cooperative cancellation
+// Tests for CodeSymbolIndexer AbortSignal cooperative cancellation
 
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';

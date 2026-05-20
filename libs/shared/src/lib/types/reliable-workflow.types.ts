@@ -4,14 +4,10 @@
  * Type definitions for the generalized reliable generation pattern
  * extracted from Agent Generation's template + LLM + validation workflow.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
+ * Unified Project Intelligence with Code Quality Assessment.
  *
  * @packageDocumentation
  */
-
-// ============================================
-// Validation Types
-// ============================================
 
 /**
  * Validation tier weights (must sum to 100)
@@ -96,10 +92,6 @@ export const DEFAULT_VALIDATION_CONFIG: ValidationConfig = {
   minContentLength: 100,
 };
 
-// ============================================
-// Retry Types
-// ============================================
-
 /**
  * Configuration for retry logic
  */
@@ -123,10 +115,6 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
   backoffBaseMs: 3000,
   backoffFactor: 2,
 };
-
-// ============================================
-// Fallback Types
-// ============================================
 
 /**
  * Fallback levels in order of preference
@@ -154,10 +142,6 @@ export interface FallbackResult<T> {
   /** Reason for fallback */
   reason: string;
 }
-
-// ============================================
-// Reliable Generation Pipeline Types
-// ============================================
 
 /**
  * Configuration for the reliable generation pipeline

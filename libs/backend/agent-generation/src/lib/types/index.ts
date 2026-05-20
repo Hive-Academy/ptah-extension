@@ -7,8 +7,6 @@
  *
  * @module @ptah-extension/agent-generation/types
  */
-
-// Core type system
 export type {
   AgentTemplate,
   ApplicabilityRules,
@@ -24,8 +22,6 @@ export type {
   ValidationResult,
   ValidationIssue,
 } from './core.types';
-
-// Deep analysis types for MCP-powered setup wizard
 export type {
   DeepProjectAnalysis,
   ArchitecturePattern,
@@ -40,8 +36,6 @@ export type {
   AgentRecommendation,
   AgentCategory,
 } from './analysis.types';
-
-// Multi-phase analysis types (TASK_2025_154)
 export type {
   MultiPhaseId,
   PhaseResult,
@@ -49,9 +43,6 @@ export type {
   MultiPhaseAnalysisOptions,
 } from './multi-phase.types';
 export { PHASE_CONFIGS } from './multi-phase.types';
-
-// Re-export commonly used types from workspace-intelligence for convenience
-// This prevents consumers from having to import from multiple libraries
 export type {
   ProjectType,
   Framework,
@@ -59,9 +50,6 @@ export type {
   IndexedFile,
   FileType,
 } from '@ptah-extension/workspace-intelligence';
-
-// Re-export quality assessment types for DeepProjectAnalysis consumers (TASK_2025_141)
-// These types are used by the optional quality fields in DeepProjectAnalysis
 export type {
   QualityAssessment,
   QualityGap,

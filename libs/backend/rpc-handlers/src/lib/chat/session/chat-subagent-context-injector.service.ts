@@ -1,5 +1,5 @@
 /**
- * Subagent context injector (Wave C7e cleanup pass 2).
+ * Subagent context injector.
  *
  * Owns the `[SYSTEM CONTEXT - INTERRUPTED AGENTS]` prompt prefix injection
  * + watcher pre-warming + registry mark/remove. Extracted from
@@ -63,8 +63,6 @@ export class ChatSubagentContextInjectorService {
     workspacePath: string | undefined,
   ): Promise<SubagentContextInjectionResult> {
     const allResumable = this.subagentRegistry.getResumableBySession(sessionId);
-
-    // DIAGNOSTIC: Log registry state for debugging context injection
     this.logger.info('RPC: chat:continue - subagent context injection check', {
       sessionId,
       registrySize: this.subagentRegistry.size,
@@ -78,9 +76,6 @@ export class ChatSubagentContextInjectorService {
       })),
       workspacePath,
     });
-
-    // Filter to only agents whose transcript files exist on disk.
-    // Without a transcript, the SDK can't resume — it reports "transcript was lost".
     const resumableSubagents: typeof allResumable = [];
     for (const s of allResumable) {
       const hasTranscript = workspacePath
@@ -97,7 +92,6 @@ export class ChatSubagentContextInjectorService {
           'RPC: chat:continue - skipping agent without transcript on disk',
           { agentId: s.agentId, agentType: s.agentType, sessionId },
         );
-        // Remove from registry — can't resume without transcript
         this.subagentRegistry.remove(s.toolCallId);
       }
     }
@@ -105,8 +99,6 @@ export class ChatSubagentContextInjectorService {
     if (resumableSubagents.length === 0) {
       return { prompt, injected: false };
     }
-
-    // Build detailed agent context with actionable instructions
     const agentDetails = resumableSubagents
       .map((s) => {
         const interruptedAgo = s.interruptedAt
@@ -117,9 +109,6 @@ export class ChatSubagentContextInjectorService {
         }`;
       })
       .join('\n');
-
-    // Instructive context that tells Claude WHAT to do, not just what exists
-    // Uses agentId (short hex) which the SDK uses to identify the subagent for resumption
     const contextPrefix = `[SYSTEM CONTEXT - INTERRUPTED AGENTS]
 The following subagent(s) were interrupted and did not complete their work:
 ${agentDetails}
@@ -144,12 +133,6 @@ IMPORTANT INSTRUCTIONS:
         parentSessionId: s.parentSessionId,
       })),
     });
-
-    // TASK_2025_109 FIX: Remove injected subagents from registry to prevent
-    // re-injection on subsequent messages. The context is a one-shot injection;
-    // once Claude receives the resumption instructions, we don't need to send them again.
-    // TASK_2025_213 FIX: Mark as injected BEFORE removing so that
-    // registerFromHistoryEvents() skips these on session reload.
     for (const s of resumableSubagents) {
       this.subagentRegistry.markAsInjected(s.toolCallId);
       this.subagentRegistry.remove(s.toolCallId);

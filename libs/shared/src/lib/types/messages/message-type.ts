@@ -1,7 +1,5 @@
 /**
  * Strict message type literal union across all domains.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 /**
@@ -9,7 +7,6 @@
  * Defines all valid message types across the extension
  */
 export type StrictMessageType =
-  // Chat messages
   | 'chat:sendMessage'
   | 'chat:messageChunk'
   | 'chat:sessionStart'
@@ -45,10 +42,8 @@ export type StrictMessageType =
   | 'chat:sessionInit'
   | 'chat:healthUpdate'
   | 'chat:cliError'
-  // Permission messages
   | 'permission:request'
   | 'permission:response'
-  // Provider messages
   | 'providers:getAvailable'
   | 'providers:getCurrent'
   | 'providers:switch'
@@ -63,7 +58,6 @@ export type StrictMessageType =
   | 'providers:error'
   | 'providers:availableUpdated'
   | 'providers:modelChanged'
-  // Context messages
   | 'context:updateFiles'
   | 'context:getFiles'
   | 'context:includeFile'
@@ -72,30 +66,24 @@ export type StrictMessageType =
   | 'context:getAllFiles'
   | 'context:getFileSuggestions'
   | 'context:searchImages'
-  // Command messages
   | 'commands:getTemplates'
   | 'commands:executeCommand'
   | 'commands:selectFile'
   | 'commands:saveTemplate'
-  // Analytics messages
   | 'analytics:trackEvent'
   | 'analytics:getData'
-  // Config messages
   | 'config:get'
   | 'config:set'
   | 'config:update'
   | 'config:refresh'
-  // State messages
   | 'state:save'
   | 'state:load'
   | 'state:clear'
   | 'state:saved'
   | 'state:loaded'
-  // View messages
   | 'view:changed'
   | 'view:routeChanged'
   | 'view:generic'
-  // System messages
   | 'error'
   | 'initialData'
   | 'webview-ready'
@@ -106,13 +94,10 @@ export type StrictMessageType =
   | 'refresh'
   | 'switchView'
   | 'workspaceChanged'
-  // Setup Wizard Messages
   | 'setup-wizard:scan-progress'
-  // Agent Permission Messages (TASK_2025_162: Copilot SDK)
   | 'agent-monitor:permission-request'
   | 'agent-monitor:permission-response'
   | 'agent-monitor:user-input-request'
   | 'agent-monitor:user-input-response'
-  // Update Messages (TASK_2026_117: Electron auto-update UX)
   | 'update:statusChanged'
   | string; // Allow extensibility for custom message types

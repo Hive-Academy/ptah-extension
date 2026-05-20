@@ -54,8 +54,6 @@ export class AdminList {
 
   private readonly table = viewChild<DataTable>('table');
 
-  // --- Route-driven model signal -------------------------------------------
-
   /** The `:model` route param as a signal. May be null on transient states. */
   protected readonly model = toSignal(this.route.paramMap, {
     initialValue: null,
@@ -74,8 +72,6 @@ export class AdminList {
     const s = this.spec();
     return s ? (s.key as AdminModelKey) : undefined;
   });
-
-  // --- Mutable query state -------------------------------------------------
 
   protected readonly page = signal<number>(1);
   protected readonly pageSize = signal<number>(25);
@@ -138,10 +134,7 @@ export class AdminList {
   );
 
   public constructor() {
-    // Reset query + selection when the route model changes so we never show
-    // stale page-3 data or carry selections across models.
     effect(() => {
-      // Reading `modelKey()` subscribes us to its changes.
       this.modelKey();
       this.page.set(1);
       this.sortBy.set(undefined);
@@ -153,8 +146,6 @@ export class AdminList {
       this.table()?.clearSelection();
     });
   }
-
-  // --- DataTable event handlers --------------------------------------------
 
   protected onSortChange(e: DataTableSortEvent): void {
     this.sortBy.set(e.sortBy);
@@ -222,7 +213,6 @@ export class AdminList {
       this.bulkEmailOpen.set(false);
     }, 1200);
     setTimeout(() => {
-      // Dismiss the toast after it has been visible for a few seconds.
       if (this.bulkEmailToast() === result) {
         this.bulkEmailToast.set(null);
       }

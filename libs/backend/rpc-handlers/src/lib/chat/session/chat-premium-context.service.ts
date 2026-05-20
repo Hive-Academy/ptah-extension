@@ -1,21 +1,18 @@
 /**
- * Chat premium-context resolution helpers (Wave C7e).
+ * Chat premium-context resolution helpers.
  *
  * Owns the three premium-config helpers that ChatSessionService and
  * ChatPtahCliService share: MCP-server availability check, enhanced
- * prompt resolution (TASK_2025_151), and plugin-path resolution
- * (TASK_2025_153).
- *
- * Extracted byte-identically from `chat-rpc.handlers.ts`.
+ * prompt resolution, and plugin-path resolution.
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
-  PluginLoaderService,
+  AGENT_GENERATION_TOKENS,
   type EnhancedPromptsService,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/agent-generation';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 
 @injectable()
@@ -24,15 +21,15 @@ export class ChatPremiumContextService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
-    @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
+    @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
   ) {}
 
   /**
-   * Checks if the MCP server is currently running (TASK_2025_108)
-   * Uses CodeExecutionMCP.getPort() - non-null means server is running
+   * Checks if the MCP server is currently running.
+   * Uses CodeExecutionMCP.getPort() - non-null means server is running.
    *
    * @returns true if MCP server is available
    */
@@ -41,7 +38,7 @@ export class ChatPremiumContextService {
   }
 
   /**
-   * Resolve enhanced prompt content for premium users (TASK_2025_151)
+   * Resolve enhanced prompt content for premium users.
    *
    * Returns the AI-generated enhanced prompt content if available and enabled,
    * or undefined to fall back to default behavior.
@@ -76,7 +73,7 @@ export class ChatPremiumContextService {
   }
 
   /**
-   * Resolve plugin paths for premium users (TASK_2025_153)
+   * Resolve plugin paths for premium users.
    *
    * Reads workspace plugin configuration and resolves to absolute paths.
    * Only returns paths for premium users. Non-premium users get no plugins.

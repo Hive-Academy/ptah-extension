@@ -17,8 +17,6 @@ import { VSCodeService } from '@ptah-extension/core';
  *
  * Complexity Level: 1 (Simple - no state, single responsibility)
  * Patterns: Standalone, OnPush, Lucide icons, signal output
- *
- * TASK_2025_272 Batch 2
  */
 @Component({
   selector: 'ptah-canvas-empty-state',

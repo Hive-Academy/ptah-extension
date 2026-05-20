@@ -1,8 +1,6 @@
 /**
  * Unit tests for the JSON-RPC 2.0 stdio server.
  *
- * TASK_2026_104 Batch 3.
- *
  * Uses `PassThrough` streams as stand-ins for `process.stdin` /
  * `process.stdout` so each test is fully isolated.
  */

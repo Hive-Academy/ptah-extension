@@ -1,7 +1,5 @@
 /**
  * Type guards for ExecutionNode / JSONLMessage.
- *
- * Extracted from execution-node.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import { isAgentDispatchTool } from '../../type-guards/guards/exec';

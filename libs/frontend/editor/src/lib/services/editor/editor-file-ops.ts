@@ -263,17 +263,11 @@ export class EditorFileOpsHelper {
     const tabs = this.state.openTabs();
     const tab = tabs.find((t) => t.filePath === filePath);
     if (!tab || tab.isDirty) return;
-
-    // Image tabs render via file:// URL, no content RPC needed.
     const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) return;
 
     if (this.inFlightRereads.has(filePath)) return;
     this.inFlightRereads.add(filePath);
-
-    // Snapshot the originating workspace so a slow RPC that resolves after
-    // a workspace switch can't write fresh-disk bytes into a same-pathed
-    // tab in the new workspace.
     const originWorkspace = this.state.getActiveWorkspacePath();
 
     try {
@@ -287,8 +281,6 @@ export class EditorFileOpsHelper {
       if (this.state.getActiveWorkspacePath() !== originWorkspace) return;
 
       const newContent = result.data.content ?? '';
-
-      // Re-snapshot — tab may have closed or become dirty during the RPC.
       const liveTab = this.state
         .openTabs()
         .find((t) => t.filePath === filePath);

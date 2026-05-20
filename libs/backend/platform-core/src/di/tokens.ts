@@ -50,10 +50,10 @@ export const PLATFORM_TOKENS = {
   /** IDiagnosticsProvider — workspace diagnostics (errors, warnings) */
   DIAGNOSTICS_PROVIDER: Symbol.for('PlatformDiagnosticsProvider'),
 
-  /** ContentDownloadService — downloads plugins/templates from GitHub (TASK_2025_248) */
+  /** ContentDownloadService — downloads plugins/templates from GitHub */
   CONTENT_DOWNLOAD: Symbol.for('PlatformContentDownload'),
 
-  /** IHttpServerProvider — platform-agnostic HTTP server (TASK_2026_104 P2 proxy) */
+  /** IHttpServerProvider — platform-agnostic HTTP server */
   HTTP_SERVER_PROVIDER: Symbol.for('PlatformHttpServerProvider'),
 
   /** IMemoryWriter — upsert memory entries by stable (fingerprint, subject) identity. */
@@ -61,4 +61,10 @@ export const PLATFORM_TOKENS = {
 
   /** IMasterKeyProvider — platform-specific 32-byte AES-256 master key retrieval. */
   MASTER_KEY_PROVIDER: Symbol.for('PlatformMasterKeyProvider'),
+
+  /** DependencyContainer — tsyringe container instance, exposed under an explicit token so handlers can request it via @inject(PLATFORM_TOKENS.DI_CONTAINER) instead of the magic string 'DependencyContainer'. */
+  DI_CONTAINER: Symbol.for('PlatformDIContainer'),
+
+  /** IMcpServerStatus — read-only port for querying the in-process MCP server status. Breaks the vscode-lm-tools ↔ cli-agent-runtime construction cycle. */
+  MCP_SERVER_STATUS: Symbol.for('PlatformMcpServerStatus'),
 } as const;

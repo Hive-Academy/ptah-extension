@@ -70,7 +70,6 @@ export class PtahCliOutputComponent {
       this.agentId(),
       this.streamEvents()
     );
-    // When agent is done, mark orphaned streaming tools as interrupted
     if (!this.isStreaming()) {
       return this.treeBuilder.finalizeOrphanedTools(tree);
     }
@@ -82,10 +81,7 @@ export class PtahCliOutputComponent {
     viewChild<ElementRef<HTMLDivElement>>('outputContainer');
 
   constructor() {
-    // Auto-scroll effect: scrolls to bottom when new content arrives.
-    // Same pattern as AgentCardOutputComponent.
     effect(() => {
-      // Read signals to track changes and trigger re-evaluation
       this.executionNodes();
       this.scrollTrigger();
       const el = this.outputContainer()?.nativeElement;

@@ -1,5 +1,5 @@
 /**
- * Messaging Gateway e2e (TASK_2026_HERMES Track 4).
+ * Messaging Gateway e2e.
  *
  * Surface under test: `gateway:status`, `gateway:listBindings`,
  * `gateway:approveBinding`, `gateway:blockBinding`, `gateway:listMessages`

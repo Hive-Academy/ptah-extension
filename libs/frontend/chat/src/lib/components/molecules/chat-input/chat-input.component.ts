@@ -1,4 +1,4 @@
-﻿import {
+import {
   Component,
   inject,
   signal,
@@ -83,7 +83,7 @@ interface PastedImage {
  * - Disable during streaming
  * - Auto-resize textarea
  *
- * MIGRATION NOTE (TASK_2025_092 Batch 4):
+ * MIGRATION NOTE:
  * - Removed CdkOverlayOrigin - now using native ElementRef for overlay positioning
  * - UnifiedSuggestionsDropdownComponent uses Floating UI instead of CDK Overlay
  * - Overlay origin now passed as { elementRef } object instead of CdkOverlayOrigin
@@ -256,7 +256,7 @@ interface PastedImage {
         <!-- Button Stack: Stop (streaming only) + Send -->
         <div class="flex flex-col gap-1 pb-1">
           <!-- Stop Button (above send during streaming) -->
-          <!-- TASK_2025_096 FIX: Use isActiveTabStreaming() which uses same signal as tab spinner -->
+          <!-- Use isActiveTabStreaming() which uses same signal as tab spinner -->
           @if (isActiveTabStreaming()) {
             <button
               class="btn btn-error btn-sm btn-square"
@@ -295,7 +295,7 @@ interface PastedImage {
         <div
           class="flex items-center gap-0.5 text-base-content/60 flex-shrink-0"
         >
-          <!-- Auth Method Badge (TASK_2025_129 Batch 3) -->
+          <!-- Auth Method Badge -->
           @if (authMethodLabel()) {
             <div
               class="badge badge-ghost badge-xs gap-1 opacity-70"
@@ -314,7 +314,7 @@ interface PastedImage {
           <!-- Agent Selector - dedicated button for built-in sub-agents -->
           <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
 
-          <!-- Effort Selector Component (TASK_2025_184) -->
+          <!-- Effort Selector Component -->
           <ptah-effort-selector (effortChanged)="onEffortChange($event)" />
 
           <!-- Autopilot Popover Component -->
@@ -333,16 +333,12 @@ export class ChatInputComponent implements OnInit {
   });
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
-
-  // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
-
-  // Auth method badge (TASK_2025_129 Batch 3)
   readonly authMethodLabel = signal<string | null>(null);
 
   /**
-   * TASK_2025_096 FIX: Use the same streaming indicator as tab spinner.
+   * Use the same streaming indicator as tab spinner.
    * Previously, stop button used `chatStore.isStreaming()` which checks `tab.status`,
    * while tab spinner used `tabManager.isTabStreaming()` which uses `_streamingTabIds`.
    * These two signals could diverge, causing stop button to not appear even when
@@ -369,8 +365,6 @@ export class ChatInputComponent implements OnInit {
     }
     return this.chatStore.isCompacting();
   });
-
-  // Signal-based viewChild references (Angular 20+ pattern)
   private readonly textareaRef =
     viewChild<ElementRef<HTMLTextAreaElement>>('inputElement');
 
@@ -387,8 +381,6 @@ export class ChatInputComponent implements OnInit {
   private readonly dropdownRef = viewChild<UnifiedSuggestionsDropdownComponent>(
     'suggestionsDropdown',
   );
-
-  // Lucide icons
   readonly SendIcon = Send;
   readonly ZapIcon = Zap;
   readonly SquareIcon = Square;
@@ -397,14 +389,8 @@ export class ChatInputComponent implements OnInit {
   readonly ImageIconRef = ImageIcon;
   readonly PaperclipIcon = Paperclip;
   readonly ImagePlusIcon = ImagePlus;
-
-  // Session tracking for proper change detection (avoid clearing cache on every stream event)
   private _lastSessionId: string | null = null;
-
-  // Local state
   private readonly _currentMessage = signal('');
-
-  // Suggestion dropdown state (for @file and /command triggers)
   private readonly _showSuggestions = signal(false);
   readonly showSuggestions = this._showSuggestions.asReadonly();
 
@@ -419,23 +405,16 @@ export class ChatInputComponent implements OnInit {
   private readonly _isLoadingSuggestions = signal(false);
   private readonly _isPickingFiles = signal(false);
   private readonly _isPickingImages = signal(false);
-
-  // Inline user-facing error for image attachment validation (auto-clears after 4s).
-  // Follows the same pattern as editor.service.ts showError/_error (signal + timeout).
   private readonly _imageAttachmentError = signal<string | null>(null);
   readonly imageAttachmentError = this._imageAttachmentError.asReadonly();
   private _imageAttachmentErrorTimeout: ReturnType<typeof setTimeout> | null =
     null;
-
-  // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
   readonly suggestionMode = this._suggestionMode.asReadonly();
   readonly selectedFiles = this._selectedFiles.asReadonly();
   readonly pastedImages = this._pastedImages.asReadonly();
   readonly isDraggingOver = this._isDraggingOver.asReadonly();
   readonly isLoadingSuggestions = this._isLoadingSuggestions.asReadonly();
-
-  // Computed
   readonly canSend = computed(
     () =>
       this.currentMessage().trim().length > 0 ||
@@ -451,23 +430,19 @@ export class ChatInputComponent implements OnInit {
   );
 
   /**
-   * Initialize auth method label fetch on component init (TASK_2025_129 Batch 3)
+   * Initialize auth method label fetch on component init.
    */
   ngOnInit(): void {
     this.fetchAuthMethodLabel();
   }
-
-  // Check if there's queued content waiting to be sent (session-context-aware)
   readonly hasQueuedContent = computed(() => {
     const ctx = this._sessionContext;
     if (ctx) {
-      // Canvas tile: read from this tile's specific tab
       const tabId = ctx();
       if (!tabId) return false;
       const tab = this.tabManager.tabs().find((t) => t.id === tabId);
       return !!tab?.queuedContent?.trim();
     }
-    // Single mode: read from active tab
     const queued = this.tabManager.activeTabQueuedContent();
     return !!queued?.trim();
   });
@@ -482,13 +457,8 @@ export class ChatInputComponent implements OnInit {
     const query = this._currentQuery().toLowerCase().trim();
 
     if (mode === 'at-trigger') {
-      // Local fuzzy search (immediate, from cached workspace files)
       const localResults = this.filePicker.searchFiles(query);
-
-      // Remote server-side search results (arrives async via signal)
       const remoteResults = this.filePicker.remoteResults();
-
-      // Merge: local first, then remote results not already in local set
       const seenPaths = new Set(localResults.map((f) => f.path));
       const merged = [...localResults];
       for (const remote of remoteResults) {
@@ -543,8 +513,6 @@ export class ChatInputComponent implements OnInit {
     const value = target.value;
 
     this._currentMessage.set(value);
-
-    // Auto-resize textarea
     target.style.height = 'auto';
     target.style.height = `${Math.min(target.scrollHeight, 160)}px`;
   }
@@ -581,8 +549,6 @@ export class ChatInputComponent implements OnInit {
         event.preventDefault();
         const file = item.getAsFile();
         if (!file) continue;
-
-        // Pre-check blob size against the API cap before decoding.
         if (file.size > MAX_IMAGE_SIZE_BYTES) {
           this.showImageAttachmentError('Image too large â€” 5MB max');
           continue;
@@ -591,17 +557,12 @@ export class ChatInputComponent implements OnInit {
         const reader = new FileReader();
         reader.onload = () => {
           const dataUrl = reader.result as string;
-          // Extract base64 data (remove "data:image/png;base64," prefix)
           const base64 = dataUrl.split(',')[1];
-
-          // Size check on decoded bytes (belt-and-suspenders, base64 overhead ~33%)
           const decodedSize = Math.floor(base64.length * 0.75);
           if (decodedSize > MAX_IMAGE_SIZE_BYTES) {
             this.showImageAttachmentError('Image too large â€” 5MB max');
             return;
           }
-
-          // Authoritative magic-byte sniff; do NOT trust item.type verbatim.
           const mediaType = resolveImageMediaType(item.type, base64);
           if (!mediaType) {
             this.showImageAttachmentError(
@@ -649,7 +610,6 @@ export class ChatInputComponent implements OnInit {
       if (!result.success || !result.data?.files?.length) return;
 
       for (const file of result.data.files) {
-        // Skip if already attached
         if (this._selectedFiles().some((f) => f.path === file.path)) continue;
 
         const name =
@@ -689,8 +649,6 @@ export class ChatInputComponent implements OnInit {
       if (!result.success || !result.data?.images?.length) return;
 
       for (const img of result.data.images) {
-        // Layer 2 belt-and-suspenders: backend already sniffed these, so a
-        // null here is a bug â€” warn in console but don't toast the user.
         const mediaType = resolveImageMediaType(img.mediaType, img.data);
         if (!mediaType) {
           console.warn(
@@ -736,7 +694,6 @@ export class ChatInputComponent implements OnInit {
    * Handle dragleave - hide drop zone
    */
   handleDragLeave(event: DragEvent): void {
-    // Only hide when leaving the container (not when entering a child element)
     const relatedTarget = event.relatedTarget as Node | null;
     const container = event.currentTarget as HTMLElement;
     if (!relatedTarget || !container.contains(relatedTarget)) {
@@ -757,8 +714,6 @@ export class ChatInputComponent implements OnInit {
 
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue;
-
-      // Pre-check blob size against the API cap before decoding.
       if (file.size > MAX_IMAGE_SIZE_BYTES) {
         this.showImageAttachmentError('Image too large â€” 5MB max');
         continue;
@@ -768,8 +723,6 @@ export class ChatInputComponent implements OnInit {
       reader.onload = () => {
         const dataUrl = reader.result as string;
         const base64 = dataUrl.split(',')[1];
-
-        // Authoritative magic-byte sniff; do NOT trust file.type verbatim.
         const mediaType = resolveImageMediaType(file.type, base64);
         if (!mediaType) {
           this.showImageAttachmentError(
@@ -794,8 +747,6 @@ export class ChatInputComponent implements OnInit {
       reader.readAsDataURL(file);
     }
   }
-
-  // ============ DIRECTIVE EVENT HANDLERS ============
 
   /**
    * Handle @ trigger activation (IMMEDIATE - no debounce)
@@ -846,7 +797,7 @@ export class ChatInputComponent implements OnInit {
    * Does NOT overwrite _currentQuery â€” handleQueryChanged already has the latest value.
    */
   handleSlashTriggered(): void {
-    // Debounced trigger - no query update needed
+    console.log('ChatInputComponent.handleSlashTriggered called');
   }
 
   /**
@@ -865,14 +816,10 @@ export class ChatInputComponent implements OnInit {
    */
   handleQueryChanged(query: string): void {
     this._currentQuery.set(query);
-
-    // Trigger server-side search for @ file queries (debounced inside service)
     if (this._suggestionMode() === 'at-trigger') {
       this.filePicker.searchFilesRemote(query);
     }
   }
-
-  // ============ END DIRECTIVE EVENT HANDLERS ============
 
   /**
    * Fetch suggestions for @ trigger (files + folders only)
@@ -913,11 +860,9 @@ export class ChatInputComponent implements OnInit {
    */
   handleSuggestionSelected(suggestion: SuggestionItem): void {
     if (suggestion.type === 'file') {
-      // Add file tag (don't insert text) and remove @ trigger from input
       this.addFileTag(suggestion);
       this.removeTriggerText();
     } else if (suggestion.type === 'command') {
-      // Replace /query with /command-name
       this.replaceTrigger(`/${suggestion.name} `);
     }
 
@@ -925,13 +870,12 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * TASK_2025_184: Handle effort level change from EffortSelectorComponent.
+   * Handle effort level change from EffortSelectorComponent.
    * The EffortSelectorComponent now persists directly via EffortStateService,
    * so this handler is kept for any additional side-effects if needed.
    */
   onEffortChange(_effort: EffortLevel | undefined): void {
-    // No-op: EffortSelectorComponent saves per-tab or globally.
-    // MessageSenderService resolves effective effort at send time.
+    console.log('ChatInputComponent.onEffortChange called');
   }
 
   /**
@@ -940,14 +884,11 @@ export class ChatInputComponent implements OnInit {
    */
   handleAgentSelected(agentName: string): void {
     const currentValue = this._currentMessage();
-    // Format: agent-{name} (not @{name}) per agent convention
     const newValue =
       currentValue +
       (currentValue.endsWith(' ') || currentValue === '' ? '' : ' ') +
       `agent-${agentName} `;
     this._currentMessage.set(newValue);
-
-    // Focus textarea and update value
     const textarea = this.textareaRef()?.nativeElement;
     if (textarea) {
       textarea.value = newValue;
@@ -960,7 +901,6 @@ export class ChatInputComponent implements OnInit {
    * Add file tag above textarea (prevents duplicates)
    */
   private addFileTag(file: FileSuggestion): void {
-    // Check for duplicate file path
     const existingPaths = this._selectedFiles().map((f) => f.path);
     if (existingPaths.includes(file.path)) {
       console.log('[ChatInputComponent] File already selected:', file.path);
@@ -999,8 +939,6 @@ export class ChatInputComponent implements OnInit {
     const currentValue = this._currentMessage();
     const triggerStart = this._triggerPosition();
     const cursorPos = textarea.selectionStart;
-
-    // Replace text from trigger start to current cursor position
     const newValue =
       currentValue.substring(0, triggerStart) +
       replacement +
@@ -1008,8 +946,6 @@ export class ChatInputComponent implements OnInit {
 
     this._currentMessage.set(newValue);
     textarea.value = newValue;
-
-    // Move cursor after replacement text
     const newCursorPos = triggerStart + replacement.length;
     textarea.setSelectionRange(newCursorPos, newCursorPos);
   }
@@ -1024,16 +960,12 @@ export class ChatInputComponent implements OnInit {
     const currentValue = this._currentMessage();
     const triggerStart = this._triggerPosition();
     const cursorPos = textarea.selectionStart;
-
-    // Remove text from trigger start to current cursor position
     const newValue =
       currentValue.substring(0, triggerStart) +
       currentValue.substring(cursorPos);
 
     this._currentMessage.set(newValue);
     textarea.value = newValue;
-
-    // Move cursor to trigger position
     textarea.setSelectionRange(triggerStart, triggerStart);
   }
 
@@ -1091,15 +1023,12 @@ export class ChatInputComponent implements OnInit {
    */
   handleKeyDown(event: KeyboardEvent): void {
     const dropdown = this.dropdownRef();
-
-    // If dropdown is open, handle navigation and selection
     if (this.showSuggestions() && dropdown) {
       if (
         ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', 'Escape'].includes(
           event.key,
         )
       ) {
-        // Forward event to dropdown component
         const handled = dropdown.onKeyDown(event);
         if (handled) {
           event.preventDefault();
@@ -1107,8 +1036,6 @@ export class ChatInputComponent implements OnInit {
         }
       }
     }
-
-    // Default: Handle Enter to send message
     if (!this.showSuggestions() && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       this.handleSend();
@@ -1123,12 +1050,9 @@ export class ChatInputComponent implements OnInit {
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
-
-    // Slash commands passed through as-is â€” SDK handles namespace resolution natively
     const normalizedContent = content;
 
     try {
-      // FIX #8: Use ChatStore's sendOrQueueMessage method (routing logic moved to store)
       const filePaths = this._selectedFiles().map((f) => f.path);
       const inlineImages: InlineImageAttachment[] = images.map((img) => ({
         data: img.data,
@@ -1142,13 +1066,9 @@ export class ChatInputComponent implements OnInit {
           tabId: this._sessionContext?.() ?? undefined,
         },
       );
-
-      // Clear input, files, and images
       this._currentMessage.set('');
       this._selectedFiles.set([]);
       this._pastedImages.set([]);
-
-      // Reset textarea height using signal-based viewChild
       const textarea = this.textareaRef()?.nativeElement;
       if (textarea) {
         textarea.style.height = 'auto';
@@ -1159,8 +1079,8 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * Stop streaming (abort current response)
-   * TASK_2025_185: Uses abortWithConfirmation() to warn user about running sub-agents
+   * Stop streaming (abort current response).
+   * Uses abortWithConfirmation() to warn user about running sub-agents.
    */
   async handleStop(): Promise<void> {
     try {
@@ -1172,7 +1092,7 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * Fetch auth method label from backend for badge display (TASK_2025_129 Batch 3)
+   * Fetch auth method label from backend for badge display.
    */
   private async fetchAuthMethodLabel(): Promise<void> {
     try {
@@ -1211,14 +1131,11 @@ export class ChatInputComponent implements OnInit {
    * @param content - Content to restore to input
    */
   restoreContentToInput(content: string): void {
-    // FIX #2: Only restore if current message is empty (prevent overwriting user typing)
     if (this._currentMessage().trim()) {
       return;
     }
 
     this._currentMessage.set(content);
-
-    // Focus and resize textarea using signal-based viewChild
     const textarea = this.textareaRef()?.nativeElement;
     if (textarea) {
       textarea.focus();
@@ -1228,35 +1145,24 @@ export class ChatInputComponent implements OnInit {
   }
 
   constructor() {
-    // Listen for queue-to-input restoration signal
-    // Validate tab ID to ensure content goes to correct tab
     effect(
       () => {
         const restoreData = this.chatStore.queueRestoreContent();
         if (restoreData) {
-          // Verify tab ID matches active tab before restoring
           const activeTabId = this.tabManager.activeTabId();
           if (activeTabId && activeTabId === restoreData.tabId) {
             this.restoreContentToInput(restoreData.content);
           }
-          // Clear signal after processing to prevent re-firing on activeTab() changes
           this.chatStore.clearQueueRestoreSignal();
         }
       },
       { allowSignalWrites: true },
     );
-
-    // Session change monitoring - clear command cache on session change
-    // Uses activeTabId() fine-grained selector so this effect only re-runs
-    // when the active tab actually changes, not on every streaming tick.
     effect(
       () => {
         const currentTabId = this.tabManager.activeTabId();
-
-        // Only clear cache when tab ID actually changes
         if (currentTabId !== this._lastSessionId) {
           if (this._lastSessionId !== null && currentTabId !== null) {
-            // Clear command autocomplete cache on session switch
             this.commandDiscovery.clearCache();
           }
           this._lastSessionId = currentTabId;

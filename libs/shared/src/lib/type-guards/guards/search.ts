@@ -1,8 +1,3 @@
-// Search domain tool types and guards.
-// Tools: Grep, Glob.
-// Extracted from tool-input-guards.ts (TASK_2025_291 Wave C2) — zero behavior change.
-
-// --- TOOL INPUT TYPES ---
 /** Grep tool input — Tool: Grep (search file contents). */
 export interface GrepToolInput {
   /** The regular expression pattern to search for */
@@ -39,8 +34,6 @@ export interface GlobToolInput {
   /** The directory to search in (defaults to cwd) */
   path?: string;
 }
-
-// --- TOOL OUTPUT TYPES ---
 /** Glob tool output interface */
 export interface GlobToolOutput {
   /** Array of matching file paths */
@@ -85,8 +78,6 @@ export type GrepToolOutput =
   | GrepContentOutput
   | GrepFilesOutput
   | GrepCountOutput;
-
-// --- TOOL INPUT TYPE GUARDS ---
 /** Type guard for Grep tool input */
 export function isGrepToolInput(input: unknown): input is GrepToolInput {
   return (
@@ -105,8 +96,6 @@ export function isGlobToolInput(input: unknown): input is GlobToolInput {
     typeof (input as GlobToolInput).pattern === 'string'
   );
 }
-
-// --- TOOL OUTPUT TYPE GUARDS ---
 /** Type guard for Glob tool output */
 export function isGlobToolOutput(output: unknown): output is GlobToolOutput {
   return (

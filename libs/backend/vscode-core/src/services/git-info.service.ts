@@ -3,8 +3,6 @@
  *
  * Encapsulates all git CLI interactions for the Electron main process.
  * Uses cross-spawn for Windows compatibility. Zero new dependencies.
- *
- * TASK_2025_227: Git info bar + worktree management
  */
 
 import crossSpawn from 'cross-spawn';
@@ -173,10 +171,6 @@ export class GitInfoService {
     }
   }
 
-  // ==========================================================================
-  // Source Control Operations (TASK_2025_273)
-  // ==========================================================================
-
   /**
    * Stage files in the git index.
    * Runs: git add -- <paths...>
@@ -260,8 +254,6 @@ export class GitInfoService {
   ): Promise<GitDiscardResult> {
     try {
       this.validatePaths(paths);
-
-      // Separate tracked from untracked files by checking git status
       const { stdout: statusOutput } = await this.execGit(
         ['status', '--porcelain', '--', ...paths],
         workspacePath,
@@ -272,16 +264,12 @@ export class GitInfoService {
 
       for (const line of statusOutput.split('\n')) {
         if (!line.trim()) continue;
-        // Untracked files start with '?? '
         if (line.startsWith('?? ')) {
           untrackedPaths.push(line.substring(3).trim());
         } else {
-          // Extract the file path from the status line (skip 3-char status prefix)
           trackedPaths.push(line.substring(3).trim());
         }
       }
-
-      // Discard tracked file changes
       if (trackedPaths.length > 0) {
         const { exitCode, stderr } = await this.execGit(
           ['checkout', '--', ...trackedPaths],
@@ -295,8 +283,6 @@ export class GitInfoService {
           };
         }
       }
-
-      // Remove untracked files
       if (untrackedPaths.length > 0) {
         this.logger.warn(
           '[GitInfoService] Removing untracked files via git clean (irreversible)',
@@ -357,8 +343,6 @@ export class GitInfoService {
           error: stderr.trim() || 'Failed to create commit',
         };
       }
-
-      // Parse commit hash from output like "[branch abc1234] commit message"
       const hashMatch = stdout.match(/\[[\w/.-]+ ([0-9a-f]+)\]/);
       const commitHash = hashMatch?.[1];
 
@@ -395,7 +379,6 @@ export class GitInfoService {
       );
 
       if (exitCode !== 0) {
-        // File doesn't exist in HEAD (new/untracked file) — return empty content
         return { content: '' };
       }
 
@@ -407,14 +390,9 @@ export class GitInfoService {
         relativePath,
         error: message,
       } as unknown as Error);
-      // Gracefully return empty content on any failure
       return { content: '' };
     }
   }
-
-  // ==========================================================================
-  // PATH VALIDATION
-  // ==========================================================================
 
   /**
    * Validate an array of paths: must be non-empty, no path traversal.
@@ -438,8 +416,6 @@ export class GitInfoService {
     if (!filePath || !filePath.trim()) {
       throw new Error('path must be a non-empty string');
     }
-
-    // Prevent path traversal: reject paths containing '..' segments
     const normalized = filePath.replace(/\\/g, '/');
     const segments = normalized.split('/');
     if (segments.some((s) => s === '..')) {
@@ -448,10 +424,6 @@ export class GitInfoService {
       );
     }
   }
-
-  // ==========================================================================
-  // Branch, Checkout, Stash, Tag, Remote, Last-Commit (TASK_2026_111)
-  // ==========================================================================
 
   /**
    * List local (and optionally remote) branches with ahead/behind counts.
@@ -471,21 +443,15 @@ export class GitInfoService {
       remote: [],
     };
     try {
-      // Detect the current branch (allow failure for detached HEAD)
       let current = '';
-      try {
-        const { stdout: symRefOut, exitCode: symRefCode } = await this.execGit(
-          ['symbolic-ref', '--short', 'HEAD'],
-          workspacePath,
-        );
-        if (symRefCode === 0) {
-          current = symRefOut.trim();
-        }
-      } catch {
-        // Detached HEAD — leave current as ''
-      }
 
-      // git for-each-ref format: refname TAB objectname:short TAB upstream:short TAB ahead-behind:upstream TAB objectname:short (commit time) TAB creatordate:unix
+      const { stdout: symRefOut, exitCode: symRefCode } = await this.execGit(
+        ['symbolic-ref', '--short', 'HEAD'],
+        workspacePath,
+      );
+      if (symRefCode === 0) {
+        current = symRefOut.trim();
+      }
       const fmt =
         '%(refname:short)%09%(objectname:short)%09%(upstream:short)%09%(ahead-behind:upstream)%09%(creatordate:unix)';
 
@@ -519,7 +485,6 @@ export class GitInfoService {
 
         if (remoteExit === 0) {
           for (const line of remoteOut.split('\n')) {
-            // Skip remote HEAD aliases (e.g. origin/HEAD)
             const shortName = line.split('\t')[0];
             if (shortName.endsWith('/HEAD')) continue;
             const parsed = await this.parseBranchRefLine(
@@ -531,10 +496,6 @@ export class GitInfoService {
           }
         }
       }
-
-      // Mark the currently checked-out branch in the local list.
-      // `current` is the short branch name from symbolic-ref; detached HEAD
-      // leaves it as '' so no branch matches and all stay false (correct).
       for (const b of local) {
         b.isCurrent = b.name === current;
       }
@@ -575,28 +536,22 @@ export class GitInfoService {
 
     if (upstream) {
       if (aheadBehindRaw) {
-        // Format: "N N" (ahead behind) — requires git >= 2.31
         const [aheadStr, behindStr] = aheadBehindRaw.split(' ');
         const parsedAhead = parseInt(aheadStr ?? '0', 10);
         const parsedBehind = parseInt(behindStr ?? '0', 10);
         if (!isNaN(parsedAhead)) ahead = parsedAhead;
         if (!isNaN(parsedBehind)) behind = parsedBehind;
       } else {
-        // Fallback for git < 2.31: rev-list --left-right --count <upstream>...HEAD
-        try {
-          const { stdout: rlOut, exitCode: rlCode } = await this.execGit(
-            ['rev-list', '--left-right', '--count', `${upstream}...${name}`],
-            workspacePath,
-          );
-          if (rlCode === 0) {
-            const [behindStr, aheadStr] = rlOut.trim().split('\t');
-            const parsedBehind = parseInt(behindStr ?? '0', 10);
-            const parsedAhead = parseInt(aheadStr ?? '0', 10);
-            if (!isNaN(parsedBehind)) behind = parsedBehind;
-            if (!isNaN(parsedAhead)) ahead = parsedAhead;
-          }
-        } catch {
-          // Fallback failed — keep 0/0
+        const { stdout: rlOut, exitCode: rlCode } = await this.execGit(
+          ['rev-list', '--left-right', '--count', `${upstream}...${name}`],
+          workspacePath,
+        );
+        if (rlCode === 0) {
+          const [behindStr, aheadStr] = rlOut.trim().split('\t');
+          const parsedBehind = parseInt(behindStr ?? '0', 10);
+          const parsedAhead = parseInt(aheadStr ?? '0', 10);
+          if (!isNaN(parsedBehind)) behind = parsedBehind;
+          if (!isNaN(parsedAhead)) ahead = parsedAhead;
         }
       }
     }
@@ -617,7 +572,6 @@ export class GitInfoService {
     };
 
     if (isRemote) {
-      // Extract remote name: "origin/main" → remote = "origin"
       const slashIdx = name.indexOf('/');
       if (slashIdx !== -1) {
         ref.remote = name.substring(0, slashIdx);
@@ -705,8 +659,6 @@ export class GitInfoService {
         const ref = parts[0] ?? '';
         const message = parts[1] ?? '';
         const timeRaw = parts[2] ?? '';
-
-        // Extract index from stash@{N}
         const indexMatch = ref.match(/stash@\{(\d+)\}/);
         const index = indexMatch ? parseInt(indexMatch[1], 10) : 0;
         const time = timeRaw ? parseInt(timeRaw, 10) * 1000 : undefined;
@@ -753,10 +705,7 @@ export class GitInfoService {
         const creatorDateRaw = parts[3] ?? '';
 
         if (!name) continue;
-
-        // Annotated tags: the dereferenced hash (*objectname) is non-empty and different
         const annotated = derefHash !== '' && derefHash !== objectHash;
-        // For annotated tags, use the dereferenced (commit) hash; else use objectname
         const commit = annotated ? derefHash : objectHash;
         const time = creatorDateRaw
           ? parseInt(creatorDateRaw, 10) * 1000
@@ -802,8 +751,6 @@ export class GitInfoService {
       for (const line of stdout.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-
-        // Format: "name<TAB>url (fetch|push)"
         const tabIdx = trimmed.indexOf('\t');
         if (tabIdx === -1) continue;
 
@@ -860,8 +807,6 @@ export class GitInfoService {
       authorEmail: '',
       time: 0,
     };
-
-    // Reject refs that look like git flags or contain path-traversal segments.
     try {
       this.validatePathSegment(ref);
     } catch {
@@ -877,8 +822,6 @@ export class GitInfoService {
       if (exitCode !== 0 || !stdout.trim()) {
         return emptyResult;
       }
-
-      // Split on newlines — fields are in fixed positions; body is everything after line 6
       const lines = stdout.split('\n');
       const hash = lines[0]?.trim() ?? '';
       const shortHash = lines[1]?.trim() ?? '';
@@ -908,10 +851,6 @@ export class GitInfoService {
       return emptyResult;
     }
   }
-
-  // ==========================================================================
-  // REPOSITORY CHECKS
-  // ==========================================================================
 
   async isGitRepo(workspacePath: string): Promise<boolean> {
     try {
@@ -1033,17 +972,12 @@ export class GitInfoService {
 
     for (const line of lines) {
       if (line.startsWith('1 ')) {
-        // Ordinary changed entry: 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
-        // 8 space-separated fields before the path. The path may contain spaces,
-        // so we must use fixed-index slicing instead of taking the last field.
         const xy = line.substring(2, 4);
         const indexStatus = xy[0];
         const worktreeStatus = xy[1];
 
         const parts = line.split(' ');
         const filePath = parts.slice(8).join(' ');
-
-        // Emit staged entry if index has a change
         if (indexStatus !== '.') {
           files.push({
             path: filePath,
@@ -1051,8 +985,6 @@ export class GitInfoService {
             staged: true,
           });
         }
-
-        // Emit unstaged entry if worktree has a change
         if (worktreeStatus !== '.') {
           files.push({
             path: filePath,
@@ -1061,9 +993,6 @@ export class GitInfoService {
           });
         }
       } else if (line.startsWith('2 ')) {
-        // Rename/copy entry: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\t<origPath>
-        // The path and origPath are tab-separated. Before the tab, there are 9
-        // space-separated fields before the path (fields 0-8, path starts at index 9).
         const xy = line.substring(2, 4);
         const indexStatus = xy[0];
         const worktreeStatus = xy[1];
@@ -1072,8 +1001,6 @@ export class GitInfoService {
         const beforeTab = tabIndex >= 0 ? line.substring(0, tabIndex) : line;
         const beforeTabParts = beforeTab.split(' ');
         const filePath = beforeTabParts.slice(9).join(' ');
-
-        // Emit staged entry if index has a change
         if (indexStatus !== '.') {
           files.push({
             path: filePath,
@@ -1081,8 +1008,6 @@ export class GitInfoService {
             staged: true,
           });
         }
-
-        // Emit unstaged entry if worktree has a change
         if (worktreeStatus !== '.') {
           files.push({
             path: filePath,
@@ -1091,13 +1016,10 @@ export class GitInfoService {
           });
         }
       } else if (line.startsWith('u ')) {
-        // Unmerged entry: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
-        // 10 space-separated fields before the path. The path may contain spaces.
         const parts = line.split(' ');
         const filePath = parts.slice(10).join(' ');
         files.push({ path: filePath, status: 'M', staged: false });
       } else if (line.startsWith('? ')) {
-        // Untracked entry — directories have a trailing '/'
         const rawPath = line.substring(2);
         const isDir = rawPath.endsWith('/');
         const filePath = isDir ? rawPath.slice(0, -1) : rawPath;

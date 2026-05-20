@@ -3,8 +3,6 @@
  *
  * Provides state management tools for orchestration workflows.
  * Enables workflow state persistence and continuation across sessions.
- *
- * TASK_2025_111: MCP-Powered Setup Wizard & Orchestration Skill Enhancements
  */
 
 import * as path from 'path';
@@ -73,7 +71,7 @@ const PHASE_CHECKPOINTS: Record<OrchestrationPhase, string | null> = {
 
 /**
  * Build orchestration namespace for state management
- * Persists workflow state to .ptah/specs/TASK_XXX/.orchestration-state.json
+ * Persists workflow state to .ptah/specs/{taskId}/.orchestration-state.json
  *
  * @param deps - Dependencies including workspace root
  * @returns OrchestrationNamespace with getState, setState, and getNextAction methods
@@ -107,7 +105,6 @@ export function buildOrchestrationNamespace(
       const content = await fs.promises.readFile(statePath, 'utf8');
       return JSON.parse(content) as OrchestrationState;
     } catch {
-      // File doesn't exist or is invalid JSON
       return null;
     }
   };
@@ -117,8 +114,6 @@ export function buildOrchestrationNamespace(
    */
   const writeStateFile = async (state: OrchestrationState): Promise<void> => {
     const statePath = getStatePath(state.taskId);
-
-    // Ensure the task folder exists
     const taskFolder = path.join(workspaceRoot, 'task-tracking', state.taskId);
 
     await fs.promises.mkdir(taskFolder, { recursive: true });
@@ -206,11 +201,8 @@ export function buildOrchestrationNamespace(
       taskId: string,
       partialState: Partial<OrchestrationState>,
     ): Promise<void> => {
-      // Read existing state or create default
       const existing =
         (await readStateFile(taskId)) || createDefaultState(taskId);
-
-      // Merge state with proper handling of nested objects
       const newState: OrchestrationState = {
         taskId,
         phase: partialState.phase ?? existing.phase,
@@ -232,8 +224,6 @@ export function buildOrchestrationNamespace(
      */
     getNextAction: async (taskId: string): Promise<OrchestrationNextAction> => {
       const state = await readStateFile(taskId);
-
-      // No state exists - recommend starting with planning
       if (!state) {
         return {
           action: 'invoke-agent',
@@ -242,16 +232,12 @@ export function buildOrchestrationNamespace(
           requiredInputs: ['user-request'],
         };
       }
-
-      // Workflow is complete
       if (state.phase === 'complete') {
         return {
           action: 'complete',
           context: { taskId, completedAt: new Date().toISOString() },
         };
       }
-
-      // Check if current phase requires a checkpoint that hasn't been approved
       const requiredCheckpoint = PHASE_CHECKPOINTS[state.phase];
       if (
         requiredCheckpoint &&
@@ -263,10 +249,7 @@ export function buildOrchestrationNamespace(
           context: { taskId, phase: state.phase },
         };
       }
-
-      // Check if checkpoint was rejected
       if (state.lastCheckpoint.status === 'rejected') {
-        // Re-invoke the current phase agent to address feedback
         const agents = PHASE_AGENTS[state.phase];
         return {
           action: 'invoke-agent',
@@ -278,15 +261,12 @@ export function buildOrchestrationNamespace(
           },
         };
       }
-
-      // Check if phase requirements are met to proceed
       const requirementsMet = await checkPhaseRequirementsMet(
         taskId,
         state.phase,
       );
 
       if (!requirementsMet) {
-        // Phase requirements not met - invoke appropriate agent
         const agents = PHASE_AGENTS[state.phase];
         return {
           action: 'invoke-agent',
@@ -295,19 +275,14 @@ export function buildOrchestrationNamespace(
           requiredInputs: ['task-context'],
         };
       }
-
-      // Phase complete and checkpoint approved - determine next phase
       const nextPhase = getNextPhase(state.phase, state.strategy);
 
       if (!nextPhase) {
-        // No more phases - workflow complete
         return {
           action: 'complete',
           context: { taskId, completedAt: new Date().toISOString() },
         };
       }
-
-      // Proceed to next phase
       const nextAgents = PHASE_AGENTS[nextPhase];
       return {
         action: 'invoke-agent',

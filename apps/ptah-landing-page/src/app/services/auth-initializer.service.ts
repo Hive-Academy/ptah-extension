@@ -47,17 +47,11 @@ export class AuthInitializerService {
    * Synchronous operation - no need for async/Promise.
    */
   public initialize(): void {
-    // Parse current URL to check for auth_hint parameter
     const url = new URL(window.location.href);
     const authHint = url.searchParams.get('auth_hint');
 
     if (authHint === '1') {
-      // Backend signaled successful authentication - set localStorage hint
-      // This allows AuthGuard to call the API and verify the HTTP-only cookie
       this.authService.setAuthHint();
-
-      // Remove auth_hint from URL for clean browser history
-      // Uses replaceState to avoid adding to history stack
       url.searchParams.delete('auth_hint');
       window.history.replaceState({}, '', url.toString());
     }

@@ -1,7 +1,5 @@
 /**
  * Message type guards and helper factories.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { CorrelationId } from '../branded.types';

@@ -13,9 +13,9 @@ import type { SubagentRecord } from '@ptah-extension/shared';
 /**
  * ResumeNotificationBannerComponent - Banner for resumable interrupted agents
  *
- * TASK_2025_213: Displays each interrupted subagent individually with its own
- * resume button. Shows agent type badge, truncated agentId, time since
- * interruption, and a per-agent "Resume" action.
+ * Displays each interrupted subagent individually with its own resume button.
+ * Shows agent type badge, truncated agentId, time since interruption, and a
+ * per-agent "Resume" action.
  *
  * Complexity Level: 1 (Simple component with signal-based state)
  * Patterns Applied:
@@ -129,7 +129,7 @@ export class ResumeNotificationBannerComponent {
 
   constructor() {
     /**
-     * TASK_2025_103 FIX: Auto-reset dismissed state when new subagents arrive.
+     * Auto-reset dismissed state when new subagents arrive.
      * Uses effect to watch resumableSubagents input and reset dismissed state
      * when the count increases (indicating new interrupted agents).
      * This removes the coupling where parent must manually call resetDismissed().
@@ -137,13 +137,9 @@ export class ResumeNotificationBannerComponent {
     effect(() => {
       const subagents = this.resumableSubagents();
       const currentCount = subagents.length;
-
-      // Reset dismissed if we have NEW subagents (count increased)
       if (currentCount > this.previousCount && currentCount > 0) {
         untracked(() => this.dismissed.set(false));
       }
-
-      // Update previous count for next comparison
       this.previousCount = currentCount;
     });
   }

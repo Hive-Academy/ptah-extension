@@ -1,7 +1,7 @@
 /**
  * Chrome Launcher Browser Capabilities
- * TASK_2025_244: CDP browser integration using chrome-launcher + chrome-remote-interface
  *
+ * CDP browser integration using chrome-launcher + chrome-remote-interface.
  * Launches a Chrome instance with --remote-debugging-port and connects via CDP.
  * Used in VS Code (or any non-Electron platform) where Electron BrowserWindow is unavailable.
  *
@@ -14,11 +14,7 @@ import type {
   BrowserSessionOptions,
 } from '../namespace-builders/browser-namespace.builder';
 import { ScreenRecorderService } from './screen-recorder.service';
-
-// Dynamic imports to avoid bundling issues when this module isn't used (e.g., Electron)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let launchChrome: ((...args: any[]) => Promise<any>) | undefined;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let CDPClient: ((...args: any[]) => Promise<any>) | undefined;
 
 async function loadDependencies(): Promise<void> {
@@ -41,7 +37,7 @@ interface NetworkEntry {
 }
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (headless)
-const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TASK_2025_254)
+const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible)
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
 
@@ -49,9 +45,7 @@ const MAX_NETWORK_ENTRIES = 500;
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 
 export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private chrome: any = null; // chrome-launcher instance
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private client: any = null; // chrome-remote-interface client
   private _connected = false;
   private startedAt: number | null = null;
@@ -65,7 +59,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   /** Concurrency guard — prevents duplicate session creation from parallel calls */
   private sessionPromise: Promise<void> | null = null;
 
-  /** Recording service (TASK_2025_254) */
+  /** Recording service */
   private recorder: ScreenRecorderService | null = null;
   /** Whether the screencast frame listener has been registered on the current CDP client */
   private screencastListenerRegistered = false;
@@ -92,7 +86,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       const { Page, Runtime } = this.client;
 
       if (waitForLoad) {
-        // Navigate and wait for load event with 30-second timeout
         const loadTimeout = new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error('Page load timed out after 30 seconds')),
@@ -106,8 +99,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       } else {
         await Page.navigate({ url });
       }
-
-      // Get final URL and title
       const evalResult = await Runtime.evaluate({
         expression:
           'JSON.stringify({ url: location.href, title: document.title })',
@@ -233,8 +224,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
-
-      // Focus the element
       const focusResult = await this.evaluate(
         `(() => {
           const el = document.querySelector(${JSON.stringify(selector)});
@@ -252,8 +241,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       if (!val?.found) {
         return { success: false, error: `Element not found: ${selector}` };
       }
-
-      // Type using Input.insertText
       const { Input } = this.client;
       await Input.insertText({ text });
 
@@ -382,16 +369,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     await this.cleanup();
   }
 
-  // ========================================
-  // Private helpers
-  // ========================================
-
   private async ensureSession(): Promise<void> {
     if (this._connected && this.client && this.chrome) {
       return;
     }
-
-    // Concurrency guard: if a session is already being created, await it
     if (this.sessionPromise) {
       await this.sessionPromise;
       return;
@@ -406,12 +387,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async createSession(): Promise<void> {
-    // Snapshot pending options BEFORE cleanup() — cleanup resets
-    // _pendingOptions, which would otherwise drop options that
-    // configureSession() set immediately before the first createSession().
     const pendingOptions: BrowserSessionOptions = { ...this._pendingOptions };
-
-    // Clean up any stale state from a crashed session (auto-reconnect)
     await this.cleanup();
 
     await loadDependencies();
@@ -421,15 +397,11 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         'Chrome dependencies not available. Ensure chrome-launcher and chrome-remote-interface are installed.',
       );
     }
-
-    // Consume the snapshotted options (agent-controlled headless + viewport)
     this._headless = pendingOptions.headless ?? false;
     this._viewport = pendingOptions.viewport
       ? { ...pendingOptions.viewport }
       : { ...DEFAULT_VIEWPORT };
     this._pendingOptions = {};
-
-    // Launch Chrome with remote debugging
     try {
       const chromeFlags = [
         '--disable-gpu',
@@ -440,15 +412,12 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         '--disable-background-networking',
         `--window-size=${this._viewport.width},${this._viewport.height}`,
       ];
-
-      // Conditionally include --headless
       if (this._headless) {
         chromeFlags.unshift('--headless');
       }
 
       this.chrome = await launchChrome({
         chromeFlags,
-        // Let chrome-launcher pick an available port
         port: 0,
       });
     } catch (error) {
@@ -457,8 +426,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
           `(${error instanceof Error ? error.message : String(error)})`,
       );
     }
-
-    // Connect CDP client
     try {
       this.client = await CDPClient({ port: this.chrome.port });
     } catch (error) {
@@ -468,22 +435,16 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         `Failed to connect to Chrome: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-
-    // Enable CDP domains
     const { Page, Network, Runtime, Emulation } = this.client;
     await Page.enable();
     await Network.enable();
     await Runtime.enable();
-
-    // Set viewport via CDP Emulation (works in both headless and visible modes)
     await Emulation.setDeviceMetricsOverride({
       width: this._viewport.width,
       height: this._viewport.height,
       deviceScaleFactor: 1,
       mobile: false,
     });
-
-    // Set up network monitoring
     this.networkEntries = [];
     this.pendingResponses.clear();
 
@@ -532,8 +493,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
 
     this._connected = true;
     this.startedAt = Date.now();
-
-    // Set up session lifecycle timers
     this.resetInactivityTimer();
     this.lifetimeTimer = setTimeout(() => {
       this.cleanup();
@@ -544,8 +503,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
-
-    // TASK_2025_254: Use longer timeout for visible mode
     const timeout = this._headless
       ? INACTIVITY_TIMEOUT_MS
       : VISIBLE_INACTIVITY_TIMEOUT_MS;
@@ -556,14 +513,9 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async cleanup(): Promise<void> {
-    // TASK_2025_254: Stop recording if active (best-effort GIF save)
     if (this.recorder?.isRecording()) {
-      try {
-        const recordingDir = this.getRecordingDir();
-        await this.recorder.stopRecording(recordingDir || undefined);
-      } catch {
-        // Best-effort: don't let recording cleanup failure block session cleanup
-      }
+      const recordingDir = this.getRecordingDir();
+      await this.recorder.stopRecording(recordingDir || undefined);
     }
     this.recorder = null;
 
@@ -577,20 +529,12 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     }
 
     if (this.client) {
-      try {
-        await this.client.close();
-      } catch {
-        // Client may already be closed
-      }
+      await this.client.close();
       this.client = null;
     }
 
     if (this.chrome) {
-      try {
-        await this.chrome.kill();
-      } catch {
-        // Chrome may already be killed
-      }
+      await this.chrome.kill();
       this.chrome = null;
     }
 
@@ -601,8 +545,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     this.networkEntries = [];
     this.pendingResponses.clear();
   }
-
-  // Recording methods (TASK_2025_254)
 
   async startRecording(options?: {
     maxFrames?: number;
@@ -619,15 +561,11 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
-
-      // Initialize recorder
       this.recorder = new ScreenRecorderService();
       const startResult = this.recorder.startRecording(options);
       if (!startResult.success) {
         return startResult;
       }
-
-      // Start CDP screencast
       const { Page } = this.client;
       await Page.startScreencast({
         format: 'jpeg',
@@ -636,10 +574,6 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         maxHeight: 720,
         everyNthFrame: 3,
       });
-
-      // Register the frame listener only once per CDP session to prevent accumulation
-      // across start/stop recording cycles. The listener checks isRecording() to
-      // avoid processing frames when recording is inactive.
       if (!this.screencastListenerRegistered) {
         Page.screencastFrame(
           (params: {
@@ -647,14 +581,9 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
             metadata: { timestamp: number };
             sessionId: number;
           }) => {
-            // Acknowledge frame immediately to avoid backpressure
             Page.screencastFrameAck({ sessionId: params.sessionId }).catch(
-              (_ackError: unknown) => {
-                // Intentionally swallowed: ack failures are non-critical
-              },
+              (_ackError: unknown) => {},
             );
-
-            // Only buffer frames when actively recording
             if (this.recorder?.isRecording()) {
               this.recorder.addFrame(params.data);
             }
@@ -692,15 +621,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     }
 
     try {
-      // Stop CDP screencast
       if (this._connected && this.client) {
         const { Page } = this.client;
-        await Page.stopScreencast().catch((_stopError: unknown) => {
-          // Intentionally swallowed: screencast may already be stopped
-        });
+        await Page.stopScreencast().catch((_stopError: unknown) => {});
       }
-
-      // Assemble GIF
       const recordingDir = this.getRecordingDir();
       return await this.recorder.stopRecording(recordingDir || undefined);
     } catch (error) {

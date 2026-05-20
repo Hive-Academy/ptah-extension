@@ -3,10 +3,8 @@
  *
  * Tests the shared Zod schema (ProjectAnalysisZodSchema) and normalization
  * function (normalizeAgentOutput) that transform LLM-produced analysis JSON
- * into properly typed DeepProjectAnalysis objects.
- *
- * TASK_2025_145 SERIOUS-2: Ensures correct case-insensitive enum resolution,
- * fallback behavior, and codeConventions defaults.
+ * into properly typed DeepProjectAnalysis objects. Ensures correct
+ * case-insensitive enum resolution, fallback behavior, and codeConventions defaults.
  */
 
 import 'reflect-metadata';
@@ -69,6 +67,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 import {
   ProjectAnalysisZodSchema,
   normalizeAgentOutput,
+  buildAnalysisJsonSchema,
 } from './analysis-schema';
 
 /**
@@ -91,7 +90,7 @@ function parseAndNormalize(raw: Record<string, unknown>) {
     throw new Error(
       `Zod validation failed: ${zodResult.error.issues
         .map((i) => `${String(i.path.join('.'))}: ${i.message}`)
-        .join('; ')}`
+        .join('; ')}`,
     );
   }
   return normalizeAgentOutput(zodResult.data);
@@ -202,56 +201,56 @@ describe('normalizeAgentOutput', () => {
   describe('projectType resolution', () => {
     it('should resolve "Angular" (capitalized) to ProjectType.Angular', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ projectType: 'Angular' })
+        buildMinimalInput({ projectType: 'Angular' }),
       );
       expect(result.projectType).toBe('angular');
     });
 
     it('should resolve "angular" (lowercase) to ProjectType.Angular', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ projectType: 'angular' })
+        buildMinimalInput({ projectType: 'angular' }),
       );
       expect(result.projectType).toBe('angular');
     });
 
     it('should resolve "Node.js" (dotted name) to ProjectType.Node', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ projectType: 'Node.js' })
+        buildMinimalInput({ projectType: 'Node.js' }),
       );
       expect(result.projectType).toBe('node');
     });
 
     it('should resolve "React" to ProjectType.React', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ projectType: 'React' })
+        buildMinimalInput({ projectType: 'React' }),
       );
       expect(result.projectType).toBe('react');
     });
 
     it('should resolve "Python" to ProjectType.Python', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ projectType: 'Python' })
+        buildMinimalInput({ projectType: 'Python' }),
       );
       expect(result.projectType).toBe('python');
     });
 
     it('should resolve "TypeScript" to ProjectType.Node via alias', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ projectType: 'TypeScript' })
+        buildMinimalInput({ projectType: 'TypeScript' }),
       );
       expect(result.projectType).toBe('node');
     });
 
     it('should resolve "C#" to ProjectType.DotNet via alias', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ projectType: 'C#' })
+        buildMinimalInput({ projectType: 'C#' }),
       );
       expect(result.projectType).toBe('dotnet');
     });
 
     it('should fall back to ProjectType.General for "UnknownThing"', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ projectType: 'UnknownThing' })
+        buildMinimalInput({ projectType: 'UnknownThing' }),
       );
       expect(result.projectType).toBe('general');
     });
@@ -259,10 +258,10 @@ describe('normalizeAgentOutput', () => {
     it('should log a warning when falling back to General', () => {
       parseAndNormalize(buildMinimalInput({ projectType: 'UnknownThing' }));
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('UnknownThing')
+        expect.stringContaining('UnknownThing'),
       );
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('falling back to General')
+        expect.stringContaining('falling back to General'),
       );
     });
 
@@ -286,35 +285,35 @@ describe('normalizeAgentOutput', () => {
   describe('framework resolution', () => {
     it('should resolve "NestJS" (capitalized) to Framework.NestJS', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ frameworks: ['NestJS'] })
+        buildMinimalInput({ frameworks: ['NestJS'] }),
       );
       expect(result.frameworks).toEqual(['nestjs']);
     });
 
     it('should resolve "nestjs" (lowercase) to Framework.NestJS', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ frameworks: ['nestjs'] })
+        buildMinimalInput({ frameworks: ['nestjs'] }),
       );
       expect(result.frameworks).toEqual(['nestjs']);
     });
 
     it('should resolve "Angular" to Framework.Angular', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ frameworks: ['Angular'] })
+        buildMinimalInput({ frameworks: ['Angular'] }),
       );
       expect(result.frameworks).toEqual(['angular']);
     });
 
     it('should resolve "Nest.js" (alias) to Framework.NestJS', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ frameworks: ['Nest.js'] })
+        buildMinimalInput({ frameworks: ['Nest.js'] }),
       );
       expect(result.frameworks).toEqual(['nestjs']);
     });
 
     it('should preserve unrecognized frameworks as strings', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ frameworks: ['Unknown'] })
+        buildMinimalInput({ frameworks: ['Unknown'] }),
       );
       expect(result.frameworks).toEqual(['Unknown']);
     });
@@ -326,10 +325,10 @@ describe('normalizeAgentOutput', () => {
         .mockImplementation(() => {});
       try {
         parseAndNormalize(
-          buildMinimalInput({ frameworks: ['Angular', 'UnknownFramework'] })
+          buildMinimalInput({ frameworks: ['Angular', 'UnknownFramework'] }),
         );
         expect(consoleLogSpy).toHaveBeenCalledWith(
-          expect.stringContaining('UnknownFramework')
+          expect.stringContaining('UnknownFramework'),
         );
       } finally {
         consoleLogSpy.mockRestore();
@@ -338,10 +337,10 @@ describe('normalizeAgentOutput', () => {
 
     it('should resolve multiple mixed-case frameworks', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ frameworks: ['React', 'NestJS', 'Express'] })
+        buildMinimalInput({ frameworks: ['React', 'NestJS', 'Express'] }),
       );
       expect(result.frameworks).toEqual(
-        expect.arrayContaining(['react', 'nestjs', 'express'])
+        expect.arrayContaining(['react', 'nestjs', 'express']),
       );
       expect(result.frameworks).toHaveLength(3);
     });
@@ -364,21 +363,21 @@ describe('normalizeAgentOutput', () => {
   describe('monorepoType resolution', () => {
     it('should resolve "Nx" to MonorepoType.Nx', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ monorepoType: 'Nx' })
+        buildMinimalInput({ monorepoType: 'Nx' }),
       );
       expect(result.monorepoType).toBe('nx');
     });
 
     it('should resolve "Turborepo" to MonorepoType.Turborepo', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ monorepoType: 'Turborepo' })
+        buildMinimalInput({ monorepoType: 'Turborepo' }),
       );
       expect(result.monorepoType).toBe('turborepo');
     });
 
     it('should resolve "pnpm workspaces" (alias) to MonorepoType.PnpmWorkspaces', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ monorepoType: 'pnpm workspaces' })
+        buildMinimalInput({ monorepoType: 'pnpm workspaces' }),
       );
       expect(result.monorepoType).toBe('pnpm-workspaces');
     });
@@ -390,14 +389,14 @@ describe('normalizeAgentOutput', () => {
 
     it('should omit monorepoType when unrecognized', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ monorepoType: 'SomeUnknownMonorepo' })
+        buildMinimalInput({ monorepoType: 'SomeUnknownMonorepo' }),
       );
       expect(result.monorepoType).toBeUndefined();
     });
 
     it('should handle monorepoType: false (LLM returns boolean instead of null)', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ monorepoType: false })
+        buildMinimalInput({ monorepoType: false }),
       );
       expect(result.monorepoType).toBeUndefined();
     });
@@ -405,14 +404,14 @@ describe('normalizeAgentOutput', () => {
     it('should handle monorepoType: true (LLM returns boolean instead of string)', () => {
       // true is converted to "unknown" which doesn't match any MonorepoType enum
       const zodResult = ProjectAnalysisZodSchema.safeParse(
-        buildMinimalInput({ monorepoType: true })
+        buildMinimalInput({ monorepoType: true }),
       );
       expect(zodResult.success).toBe(true);
     });
 
     it('should handle monorepoType: "none" as null', () => {
       const result = parseAndNormalize(
-        buildMinimalInput({ monorepoType: 'none' })
+        buildMinimalInput({ monorepoType: 'none' }),
       );
       expect(result.monorepoType).toBeUndefined();
     });
@@ -435,7 +434,7 @@ describe('normalizeAgentOutput', () => {
             { language: 'TypeScript', percentage: 250, fileCount: 250 },
             { language: 'CSS', percentage: 50, fileCount: 50 },
           ],
-        })
+        }),
       );
       expect(result.languageDistribution[0].percentage).toBe(100);
       expect(result.languageDistribution[1].percentage).toBe(50);
@@ -447,7 +446,7 @@ describe('normalizeAgentOutput', () => {
           languageDistribution: [
             { language: 'TypeScript', percentage: -10, fileCount: 0 },
           ],
-        })
+        }),
       );
       expect(result.languageDistribution[0].percentage).toBe(0);
     });
@@ -456,12 +455,12 @@ describe('normalizeAgentOutput', () => {
       const result = parseAndNormalize(
         buildMinimalInput({
           languageDistribution: { TypeScript: 80, CSS: 20 },
-        })
+        }),
       );
       expect(result.languageDistribution).toHaveLength(2);
       expect(
         result.languageDistribution.find((l) => l.language === 'TypeScript')
-          ?.percentage
+          ?.percentage,
       ).toBe(80);
     });
   });
@@ -492,7 +491,7 @@ describe('normalizeAgentOutput', () => {
             semicolons: false,
             trailingComma: 'all',
           },
-        })
+        }),
       );
 
       expect(result.codeConventions.indentation).toBe('tabs');
@@ -511,7 +510,7 @@ describe('normalizeAgentOutput', () => {
             quoteStyle: 'single',
             semicolons: true,
           },
-        })
+        }),
       );
 
       expect(result.codeConventions.trailingComma).toBe('es5');
@@ -599,5 +598,211 @@ describe('normalizeAgentOutput', () => {
       expect(result.codeConventions.indentation).toBe('spaces');
       expect(result.testCoverage.hasTests).toBe(false);
     });
+  });
+
+  describe('alias loop matching (alphaOnly fallback)', () => {
+    it('resolves "Node JS" via PROJECT_TYPE_ALIASES alphaOnly loop', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ projectType: 'Node JS' }),
+      );
+      expect(result.projectType).toBe('node');
+    });
+
+    it('resolves keyword-pattern descriptive projectType strings', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ projectType: 'My Brand New React Application' }),
+      );
+      expect(result.projectType).toBe('react');
+    });
+
+    it('resolves "Nuxt js" framework via alias alphaOnly loop', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ frameworks: ['Nuxt js'] }),
+      );
+      expect(result.frameworks).toEqual(['nuxt']);
+    });
+
+    it('resolves "YARN!" monorepo via alias alphaOnly loop', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ monorepoType: 'YARN!' }),
+      );
+      expect(result.monorepoType).toBe('yarn-workspaces');
+    });
+
+    it('exposes projectTypeDescription when raw differs from resolved value', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ projectType: 'Node.js Backend Service' }),
+      );
+      expect(result.projectType).toBe('node');
+      expect(result.projectTypeDescription).toBe('Node.js Backend Service');
+    });
+  });
+
+  describe('preprocess fallbacks', () => {
+    it('normalizes string entries in architecturePatterns into objects', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({
+          architecturePatterns: ['Layered', 'Hexagonal'],
+        }),
+      );
+      expect(result.architecturePatterns).toHaveLength(2);
+      expect(result.architecturePatterns[0]).toEqual(
+        expect.objectContaining({
+          name: 'Layered',
+          confidence: 50,
+          evidence: [],
+          description: 'Layered',
+        }),
+      );
+    });
+
+    it('wraps string keyFileLocations values into arrays', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({
+          keyFileLocations: {
+            entryPoints: 'src/main.ts',
+            configs: 'tsconfig.json',
+            testDirectories: [],
+            apiRoutes: [],
+            components: [],
+            services: [],
+          },
+        }),
+      );
+      expect(result.keyFileLocations.entryPoints).toEqual(['src/main.ts']);
+      expect(result.keyFileLocations.configs).toEqual(['tsconfig.json']);
+    });
+
+    it('returns empty array when languageDistribution is a primitive', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ languageDistribution: 'not an array' }),
+      );
+      expect(result.languageDistribution).toEqual([]);
+    });
+  });
+
+  describe('qualityAssessment normalization', () => {
+    it('maps qualityScore, qualityGaps, prescriptiveGuidance, qualityAssessment', () => {
+      const result = parseAndNormalize({
+        projectType: 'node',
+        qualityAssessment: {
+          qualityScore: 78,
+          qualityIssues: [
+            {
+              area: 'TypeScript',
+              severity: 'high',
+              description: 'Wide any usage',
+              recommendation: 'Tighten types',
+            },
+            {
+              area: 'Testing',
+              severity: 'medium',
+              description: 'Low coverage',
+              recommendation: 'Add unit tests',
+            },
+          ],
+          strengths: ['Clear DI boundaries'],
+          recommendations: [
+            {
+              priority: 1,
+              category: 'TypeScript',
+              issue: 'Replace any with unknown',
+              solution: 'Add strict checks',
+            },
+            {
+              priority: 2,
+              category: 'Testing',
+              issue: 'Increase coverage',
+              solution: 'Write unit specs',
+            },
+            {
+              priority: 3,
+              category: 'Architecture',
+              issue: 'Split god module',
+              solution: 'Extract services',
+            },
+            {
+              priority: 4,
+              category: 'Security',
+              issue: 'Audit deps',
+              solution: 'Run npm audit',
+            },
+          ],
+        },
+      });
+
+      expect(result.qualityScore).toBe(78);
+      expect(result.qualityGaps).toBeDefined();
+      expect(result.qualityGaps).toHaveLength(2);
+      expect(result.qualityGaps![0].priority).toBe('high');
+
+      expect(result.prescriptiveGuidance).toBeDefined();
+      expect(result.prescriptiveGuidance!.recommendations).toHaveLength(4);
+      expect(result.prescriptiveGuidance!.summary).toContain(
+        'Replace any with unknown',
+      );
+      expect(result.prescriptiveGuidance!.totalTokens).toBe(0);
+      expect(result.prescriptiveGuidance!.wasTruncated).toBe(false);
+
+      expect(result.qualityAssessment).toBeDefined();
+      expect(result.qualityAssessment!.score).toBe(78);
+      expect(result.qualityAssessment!.strengths).toEqual([
+        'Clear DI boundaries',
+      ]);
+      expect(result.qualityAssessment!.antiPatterns).toEqual([]);
+      expect(result.qualityAssessment!.gaps).toBe(result.qualityGaps);
+      expect(result.qualityAssessment!.sampledFiles).toEqual([]);
+      expect(typeof result.qualityAssessment!.analysisTimestamp).toBe('number');
+    });
+
+    it('handles empty qualityIssues and recommendations without setting optional fields', () => {
+      const result = parseAndNormalize({
+        projectType: 'node',
+        qualityAssessment: {
+          qualityScore: 50,
+          qualityIssues: [],
+          strengths: [],
+          recommendations: [],
+        },
+      });
+
+      expect(result.qualityScore).toBe(50);
+      expect(result.qualityGaps).toBeUndefined();
+      expect(result.prescriptiveGuidance).toBeUndefined();
+      expect(result.qualityAssessment).toBeDefined();
+      expect(result.qualityAssessment!.gaps).toEqual([]);
+    });
+  });
+});
+
+describe('buildAnalysisJsonSchema', () => {
+  it('returns a JSON Schema with the expected top-level shape', () => {
+    const schema = buildAnalysisJsonSchema();
+    expect(schema).toMatchObject({
+      type: 'object',
+      properties: expect.any(Object),
+      required: expect.arrayContaining([
+        'projectType',
+        'frameworks',
+        'architecturePatterns',
+        'keyFileLocations',
+        'languageDistribution',
+        'existingIssues',
+        'codeConventions',
+        'testCoverage',
+        'qualityAssessment',
+      ]),
+    });
+  });
+
+  it('exposes qualityAssessment with required nested fields', () => {
+    const schema = buildAnalysisJsonSchema() as any;
+    const qa = schema.properties.qualityAssessment;
+    expect(qa.required).toEqual([
+      'qualityScore',
+      'qualityIssues',
+      'strengths',
+      'recommendations',
+    ]);
   });
 });

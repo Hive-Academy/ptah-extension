@@ -1,6 +1,5 @@
-﻿/**
- * StreamingHandlerService specs â€” flat-event ingest hot-path coverage for
- * TASK_2026_103 Wave T.
+/**
+ * StreamingHandlerService specs â€” flat-event ingest hot-path coverage.
  *
  * What is in scope:
  *   - `agent_start` â†’ SessionManager.registerAgent and event stored in state
@@ -37,6 +36,7 @@ import type {
   ToolResultEvent,
   ToolStartEvent,
 } from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from './session-manager.service';
@@ -50,7 +50,10 @@ import { AgentMonitorStore } from './agent-monitor.store';
 // ---------- Helpers --------------------------------------------------------
 
 const TAB_ID = 'tab-1';
-const SESSION_ID = 'sess-1';
+// Production code validates sessionId via `SessionId.from()` which requires a
+// real UUID v4. Mint a stable id per spec run.
+const SESSION_ID = SessionId.create();
+const ORPHAN_SESSION_ID = SessionId.create();
 const MESSAGE_ID = 'msg-1';
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
@@ -232,16 +235,16 @@ describe('StreamingHandlerService', () => {
         (sid: string) =>
           tabsSignal().find((t) => t.claudeSessionId === sid) ?? null,
       ),
-      // TASK_2026_106 Phase 4b — fan-out lookup. Test default returns all
-      // tabs whose claudeSessionId matches; specific tests can override
-      // via mockImplementation to simulate canvas-grid scenarios.
+      // Fan-out lookup. Test default returns all tabs whose
+      // claudeSessionId matches; specific tests can override via
+      // mockImplementation to simulate canvas-grid scenarios.
       findTabsBySessionId: jest.fn((sid: string) =>
         tabsSignal().filter((t) => t.claudeSessionId === sid),
       ),
-      // TASK_2026_106 Phase 6b — `adoptStreamingSession` retired. The
-      // streaming handler now calls `attachSession` + `markStreaming`
-      // explicitly. The mocks below preserve the same observable effect
-      // (claudeSessionId set, status flipped to 'streaming').
+      // `adoptStreamingSession` retired. The streaming handler now calls
+      // `attachSession` + `markStreaming` explicitly. The mocks below
+      // preserve the same observable effect (claudeSessionId set, status
+      // flipped to 'streaming').
       attachSession: jest.fn((tabId: string, sessionId: string) => {
         tabsSignal.update((tabs) =>
           tabs.map((t) =>
@@ -537,19 +540,19 @@ describe('StreamingHandlerService', () => {
       tabsSignal.set([]);
       const orphan: FlatStreamEventUnion = textDelta({
         id: 'evt-orphan-1',
-        sessionId: 'unknown-session',
+        sessionId: ORPHAN_SESSION_ID,
       });
       service.processStreamEvent(orphan);
       expect(consoleWarn).toHaveBeenCalledWith(
         expect.stringContaining('No target tab'),
-        'unknown-session',
+        ORPHAN_SESSION_ID,
         expect.any(String),
       );
 
       // Second event with the same sessionId is silenced.
       consoleWarn.mockClear();
       service.processStreamEvent(
-        textDelta({ id: 'evt-orphan-2', sessionId: 'unknown-session' }),
+        textDelta({ id: 'evt-orphan-2', sessionId: ORPHAN_SESSION_ID }),
       );
       expect(consoleWarn).not.toHaveBeenCalledWith(
         expect.stringContaining('No target tab'),
@@ -558,13 +561,13 @@ describe('StreamingHandlerService', () => {
       );
 
       // After cleanup, the next event re-warns.
-      service.cleanupSessionDeduplication('unknown-session');
+      service.cleanupSessionDeduplication(ORPHAN_SESSION_ID);
       service.processStreamEvent(
-        textDelta({ id: 'evt-orphan-3', sessionId: 'unknown-session' }),
+        textDelta({ id: 'evt-orphan-3', sessionId: ORPHAN_SESSION_ID }),
       );
       expect(consoleWarn).toHaveBeenCalledWith(
         expect.stringContaining('No target tab'),
-        'unknown-session',
+        ORPHAN_SESSION_ID,
         expect.any(String),
       );
     });
@@ -577,9 +580,9 @@ describe('StreamingHandlerService', () => {
     });
   });
 
-  // TASK_2026_106 Phase 4b — multi-tab fan-out. When two tabs share a
-  // claudeSessionId (canvas-grid scenario), processStreamEvent must write
-  // streamingState to BOTH tabs' state, not just the primary.
+  // Multi-tab fan-out. When two tabs share a claudeSessionId (canvas-grid
+  // scenario), processStreamEvent must write streamingState to BOTH tabs'
+  // state, not just the primary.
   describe('multi-tab fan-out (TASK_2026_106 Phase 4b)', () => {
     it('processStreamEvent writes streaming state to every bound tab', () => {
       // Set up two tabs both bound to the same SDK session.

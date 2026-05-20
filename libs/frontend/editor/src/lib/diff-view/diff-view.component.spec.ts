@@ -1,5 +1,5 @@
 /**
- * DiffViewComponent — unit specs for detectMonacoTheme() and isNewFile (TASK_2026_111 Batch 6).
+ * DiffViewComponent — unit specs for detectMonacoTheme() and isNewFile.
  *
  * Coverage:
  *   detectMonacoTheme() — returns 'vs'       for data-vscode-theme-kind="vscode-light"

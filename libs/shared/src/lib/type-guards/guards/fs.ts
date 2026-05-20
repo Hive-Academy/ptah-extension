@@ -1,8 +1,3 @@
-// File-system domain tool types and guards.
-// Tools: Read, Write, Edit, NotebookEdit, LSP, ListMcpResources, ReadMcpResource.
-// Extracted from tool-input-guards.ts (TASK_2025_291 Wave C2) — zero behavior change.
-
-// --- TOOL INPUT TYPES ---
 /** Read tool input — Tool: Read (read file contents). */
 export interface ReadToolInput {
   /** The absolute path to the file to read */
@@ -75,8 +70,6 @@ export interface LSPToolInput {
   /** The character offset (1-based) */
   character: number;
 }
-
-// --- TOOL OUTPUT TYPES ---
 /** Edit tool output interface */
 export interface EditToolOutput {
   /** Confirmation message */
@@ -181,8 +174,6 @@ export interface ReadMcpResourceToolOutput {
   /** Server that provided the resource */
   server: string;
 }
-
-// --- TOOL INPUT TYPE GUARDS ---
 /** Type guard for Read tool input */
 export function isReadToolInput(input: unknown): input is ReadToolInput {
   return (
@@ -259,8 +250,6 @@ export function isLSPToolInput(input: unknown): input is LSPToolInput {
     'character' in input
   );
 }
-
-// --- TOOL OUTPUT TYPE GUARDS ---
 /** Type guard for Edit tool output */
 export function isEditToolOutput(output: unknown): output is EditToolOutput {
   return (

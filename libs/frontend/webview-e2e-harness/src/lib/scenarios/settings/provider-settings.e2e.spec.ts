@@ -1,5 +1,5 @@
 /**
- * E2E: settings — provider selection & validation (P3.B3).
+ * E2E: settings — provider selection & validation.
  *
  * Validates that switching the active CLI provider (gemini/codex/copilot)
  * emits a settings RPC, that the save action persists the choice via the

@@ -6,10 +6,6 @@
 
 import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
 
-// ============================================================
-// Setup Status RPC Types
-// ============================================================
-
 /** Parameters for setup-status:get-status RPC method */
 export type SetupStatusGetParams = Record<string, never>;
 
@@ -39,8 +35,8 @@ export interface WizardDeepAnalyzeParams {
 /**
  * Multi-phase analysis response from wizard:deep-analyze RPC method.
  *
- * TASK_2025_154: When multi-phase pipeline is used, the handler returns
- * the manifest + phase file contents (markdown) instead of a JSON blob.
+ * When the multi-phase pipeline is used, the handler returns the manifest
+ * + phase file contents (markdown) instead of a JSON blob.
  */
 export interface MultiPhaseAnalysisResponse {
   /** Discriminator: always true for multi-phase responses */
@@ -89,8 +85,8 @@ export type WizardRecommendAgentsParams = unknown; // DeepProjectAnalysis input
 /**
  * Response from wizard:recommend-agents RPC method
  *
- * TASK_2025_111: Agent recommendations based on project analysis
- * Returns array of AgentRecommendation (from setup-wizard.types.ts)
+ * Agent recommendations based on project analysis.
+ * Returns array of AgentRecommendation (from setup-wizard.types.ts).
  */
 export type WizardRecommendAgentsResponse = AgentRecommendation[];
 
@@ -100,16 +96,12 @@ export type WizardCancelAnalysisParams = Record<string, never>;
 /**
  * Response from wizard:cancel-analysis RPC method
  *
- * TASK_2025_145 SERIOUS-6: Cancellation RPC for agentic analysis
+ * Cancellation RPC for agentic analysis.
  */
 export interface WizardCancelAnalysisResponse {
   /** Whether cancellation was triggered (false if no analysis was running) */
   cancelled: boolean;
 }
-
-// ============================================================
-// Wizard Generation RPC Types (TASK_2025_148)
-// ============================================================
 
 /** Parameters for wizard:submit-selection RPC method */
 export interface WizardSubmitSelectionParams {
@@ -164,14 +156,6 @@ export interface WizardRetryItemResponse {
   /** Error message if retry failed */
   error?: string;
 }
-
-// Multi-Phase Analysis RPC Types removed (TASK_2025_154 wiring):
-// wizard:start-multi-phase-analysis and wizard:cancel-multi-phase-analysis
-// are now integrated into wizard:deep-analyze and wizard:cancel-analysis.
-
-// ============================================================
-// Enhanced Prompts RPC Types (TASK_2025_137)
-// ============================================================
 
 /**
  * Detected technology stack from workspace analysis.
@@ -311,10 +295,6 @@ export interface EnhancedPromptsRegenerateResponse {
   status?: EnhancedPromptsGetStatusResponse;
 }
 
-// ============================================================
-// Agent Pack Browser RPC Types (TASK_2025_258)
-// ============================================================
-
 /** A single agent entry within a pack (frontend-facing DTO) */
 export interface AgentPackEntryDto {
   file: string;
@@ -355,10 +335,6 @@ export interface WizardInstallPackAgentsResult {
   fromCache: boolean;
   error?: string;
 }
-
-// ============================================================
-// New Project Chat Handoff RPC Types
-// ============================================================
 
 /** Parameters for wizard:start-new-project-chat RPC method */
 export type WizardStartNewProjectChatParams = Record<string, never>;

@@ -16,7 +16,6 @@
  * - Trailing spaces (ignored as per Git spec)
  *
  * @see https://git-scm.com/docs/gitignore - Git ignore pattern spec
- * @see .ptah/specs/TASK_PRV_005/implementation-plan.md - Phase 2 Step 2.5
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -123,18 +122,12 @@ export class IgnorePatternResolverService {
     for (let i = 0; i < lines.length; i++) {
       const raw = lines[i];
       const lineNumber = i + 1;
-
-      // Skip empty lines
       if (raw.trim() === '') {
         continue;
       }
-
-      // Skip comments (lines starting with #)
       if (raw.trimStart().startsWith('#')) {
         continue;
       }
-
-      // Parse pattern
       const pattern = this.parsePattern(raw, lineNumber);
       if (pattern) {
         patterns.push(pattern);
@@ -185,8 +178,6 @@ export class IgnorePatternResolverService {
 
     for (const fileName of ignoreFileNames) {
       const ignoreFilePath = path.join(workspacePath, fileName);
-
-      // Check if file exists
       const exists = await this.fileSystem.exists(ignoreFilePath);
       if (!exists) {
         continue;
@@ -196,7 +187,6 @@ export class IgnorePatternResolverService {
         const parsed = await this.parseIgnoreFile(ignoreFilePath);
         ignoreFiles.push(parsed);
       } catch (error) {
-        // Ignore parse errors (malformed ignore files)
         console.warn(
           `Failed to parse ignore file ${fileName}:`,
           error instanceof Error ? error.message : String(error),
@@ -227,18 +217,13 @@ export class IgnorePatternResolverService {
     ignoreFiles: ParsedIgnoreFile[],
     workspaceRoot?: string,
   ): Promise<IgnoreTestResult> {
-    // Normalize file path to use forward slashes
     const normalizedPath = filePath.replace(/\\/g, '/');
 
     let ignored = false;
     let matchedPattern: IgnorePattern | undefined;
     let matchedFile: string | undefined;
-
-    // Process ignore files in order (later files override earlier ones)
-    // Patterns within a file are processed in order (later patterns override earlier ones)
     for (const ignoreFile of ignoreFiles) {
       for (const pattern of ignoreFile.patterns) {
-        // Make path relative to ignore file's base directory if workspace root provided
         let testPath = normalizedPath;
         if (workspaceRoot) {
           const relativePath = this.makeRelativePath(
@@ -248,15 +233,12 @@ export class IgnorePatternResolverService {
           );
           testPath = relativePath;
         }
-
-        // Test pattern match
         const matches = this.patternMatcher.isMatch(testPath, pattern.pattern, {
           dot: true, // Git ignores dot files by default unless explicitly included
           caseSensitive: process.platform !== 'win32', // Case-sensitive on Unix, insensitive on Windows
         });
 
         if (matches) {
-          // Negation pattern (!pattern) means "don't ignore this file"
           ignored = !pattern.isNegation;
           matchedPattern = pattern;
           matchedFile = ignoreFile.filePath;
@@ -338,36 +320,25 @@ export class IgnorePatternResolverService {
    * @returns Parsed ignore pattern or null if invalid
    */
   private parsePattern(raw: string, lineNumber: number): IgnorePattern | null {
-    // Remove trailing whitespace (as per Git spec)
-    let pattern = raw.trimEnd();
-
-    // Remove leading whitespace (preserve leading ! for negation)
-    pattern = pattern.trimStart();
-
-    // Empty pattern after trimming
+    let pattern = raw.trim();
     if (pattern === '') {
       return null;
     }
 
-    // Check for negation pattern
     const isNegation = pattern.startsWith('!');
     if (isNegation) {
       pattern = pattern.slice(1).trimStart();
     }
 
-    // Check for directory-only pattern (ends with /)
     const isDirectoryOnly = pattern.endsWith('/');
+    const isAnchored = pattern.startsWith('/');
 
-    // Normalize pattern:
-    // - Remove leading slash (treat as relative to base dir)
-    // - Keep trailing slash for directory patterns
-    if (pattern.startsWith('/')) {
+    if (isAnchored) {
       pattern = pattern.slice(1);
     }
 
-    // Convert directory pattern to glob (add ** to match all files inside)
-    if (isDirectoryOnly && !pattern.includes('*')) {
-      pattern = `${pattern}**`;
+    if (isDirectoryOnly && !pattern.includes('**')) {
+      pattern = `${pattern.slice(0, -1)}/**`;
     }
 
     return {
@@ -392,22 +363,15 @@ export class IgnorePatternResolverService {
     baseDir: string,
     workspaceRoot: string,
   ): string {
-    // Normalize paths
     const normalizedFile = filePath.replace(/\\/g, '/');
     const normalizedBase = baseDir.replace(/\\/g, '/');
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
-
-    // If file is under base dir, make relative to base
     if (normalizedFile.startsWith(normalizedBase)) {
       return normalizedFile.slice(normalizedBase.length + 1);
     }
-
-    // Otherwise, make relative to workspace root
     if (normalizedFile.startsWith(normalizedRoot)) {
       return normalizedFile.slice(normalizedRoot.length + 1);
     }
-
-    // Return as-is if not under workspace
     return normalizedFile;
   }
 }

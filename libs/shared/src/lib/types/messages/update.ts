@@ -1,7 +1,5 @@
 /**
- * Update lifecycle state types for in-app Electron auto-update UX.
- *
- * TASK_2026_117: In-App Electron Auto-Update UX (VS Code-Style)
+ * Update lifecycle state types for in-app Electron auto-update UX (VS Code-Style).
  *
  * The `releaseNotesMarkdown` field is populated by the Electron main process
  * via a GitHub Releases API call (5s timeout). The renderer must NOT make

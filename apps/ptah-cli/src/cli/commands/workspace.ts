@@ -1,8 +1,6 @@
 /**
  * `ptah workspace` command — workspace folder management.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1):
  *
  *   info                       RPC `workspace:getInfo`
@@ -182,10 +180,6 @@ async function runSwitch(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function wrapResult(result: unknown): Record<string, unknown> {
   if (result === null || result === undefined) return {};

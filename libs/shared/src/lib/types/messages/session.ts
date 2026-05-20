@@ -1,7 +1,5 @@
 /**
  * Strict chat message / session state types.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { SessionId, MessageId } from '../branded.types';
@@ -20,15 +18,10 @@ export interface StrictChatMessage {
   readonly files?: readonly string[];
   readonly isError?: boolean;
   readonly metadata?: Readonly<Record<string, unknown>>;
-  // For assistant messages
   readonly isComplete?: boolean;
-  // For system messages
   readonly level?: 'info' | 'warning' | 'error';
-
-  // NEW: Missing fields for full message lifecycle (TASK_2025_008 - Batch 2)
   readonly cost?: number; // Message cost in USD
   readonly tokens?: {
-    // Token breakdown
     readonly input: number;
     readonly output: number;
     readonly cacheHit?: number;
@@ -79,8 +72,6 @@ export interface StrictChatSession {
     percentage: number;
     maxTokens?: number;
   }>;
-
-  // NEW: Missing fields for IMPLEMENTATION_PLAN compatibility (TASK_2025_008 - Batch 2)
   readonly capabilities?: SessionCapabilities; // AI agent capabilities
   readonly model?: string; // Active model (e.g., "claude-sonnet-4")
   readonly totalCost?: number; // Cumulative cost in USD

@@ -1,10 +1,8 @@
 /**
  * Context RPC Handlers
  *
- * Handles context-related RPC methods: context:getAllFiles, context:getFileSuggestions
+ * Handles context-related RPC methods: context:getAllFiles, context:getFileSuggestions.
  * Uses ContextOrchestrationService for workspace file operations.
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
  */
 
 import { injectable, inject } from 'tsyringe';

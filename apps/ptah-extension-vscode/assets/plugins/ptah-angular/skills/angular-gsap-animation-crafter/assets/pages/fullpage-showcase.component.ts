@@ -549,7 +549,6 @@ export class FullpageShowcaseComponent {
   }
 
   scrollToSection(index: number): void {
-    // The HijackedScrollContainer handles this via API
     console.log('Navigate to section:', index);
   }
 }

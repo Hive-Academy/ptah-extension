@@ -1,5 +1,5 @@
 /**
- * Chat sub-services barrel (Wave C7e).
+ * Chat sub-services barrel.
  *
  * Re-exports the extracted chat services, DI tokens, and registration
  * helper so `ChatRpcHandlers` and the app bootstrap code can resolve

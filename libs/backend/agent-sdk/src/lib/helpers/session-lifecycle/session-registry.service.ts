@@ -2,7 +2,7 @@
  * SessionRegistry — sole owner of `byTabId`, `bySessionId`, and
  * `_lastActiveTabId` state for the session-lifecycle subsystem.
  *
- * Wave C7i extracts state ownership out of `SessionLifecycleManager` so that
+ * Extracted state ownership out of `SessionLifecycleManager` so that
  * the streaming pump, query executor, and lifecycle-control sub-services all
  * mutate state through this single registry. There is exactly ONE recompute
  * site for `_lastActiveTabId` (`recomputeLastActiveOnRemoval`) shared by both
@@ -10,7 +10,6 @@
  * init-failure rollback path), eliminating the duplicate fallback logic that
  * previously lived in two places.
  *
- * TASK_2026_118 Batch 1.5: Collapsed to single-storage.
  * `activeSessions` and `tabIdToRealId` removed. All methods now read/write
  * through `byTabId` and `bySessionId` only. Both indexes point at the SAME
  * `SessionRecord` object — mutations via either lookup are immediately visible.
@@ -29,7 +28,6 @@ import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
  * Both `byTabId` and `bySessionId` point at the SAME object so mutations
  * via either lookup are immediately visible from the other.
  *
- * TASK_2026_118: canonical session type replacing the old ActiveSession.
  * Co-located here to avoid circular imports (sub-services import from the
  * registry, not from session-lifecycle-manager).
  */
@@ -77,8 +75,6 @@ export class SessionRegistry {
 
   constructor(private readonly logger: Logger) {}
 
-  // ─── Core dual-index API ───────────────────────────────────────────────────
-
   /**
    * Register a new session into the registry.
    * Creates a SessionRecord with realSessionId = null and inserts it into
@@ -92,10 +88,11 @@ export class SessionRegistry {
     tabId: string,
     config: AISessionConfig,
     abortController: AbortController,
+    realSessionId?: string,
   ): SessionRecord {
     const rec: SessionRecord = {
       tabId,
-      realSessionId: null,
+      realSessionId: realSessionId ?? null,
       query: null,
       config,
       abortController,
@@ -104,6 +101,9 @@ export class SessionRegistry {
       currentModel: config.model || '',
     };
     this.byTabId.set(tabId, rec);
+    if (realSessionId && realSessionId !== tabId) {
+      this.bySessionId.set(realSessionId, rec);
+    }
     this._lastActiveTabId = tabId;
     return rec;
   }
@@ -118,7 +118,7 @@ export class SessionRegistry {
    * Empty/whitespace realSessionId is rejected: a malformed SDK init
    * message yielding a blank UUID would otherwise let `find('')` resolve
    * a live query, attaching arbitrary callers to whichever session is
-   * registered. See TASK_2026_118 Batch 10 Gap 1.
+   * registered.
    */
   bindRealSessionId(tabId: string, realSessionId: string): void {
     if (!realSessionId || realSessionId.trim().length === 0) {
@@ -131,6 +131,12 @@ export class SessionRegistry {
     if (!rec) {
       this.logger.warn(
         `[SessionRegistry] bindRealSessionId: no record for tabId ${tabId}`,
+      );
+      return;
+    }
+    if (rec.realSessionId === realSessionId) {
+      this.logger.debug(
+        `[SessionLifecycle] bindRealSessionId: realSessionId already bound for tabId ${tabId} (idempotent)`,
       );
       return;
     }
@@ -169,15 +175,13 @@ export class SessionRegistry {
     this.recomputeLastActiveOnRemoval(rec.tabId);
   }
 
-  // ─── Public-API methods (delegated by the facade) ─────────────────────────
-
   /**
    * Set the SDK query for a pre-registered session.
    * Mutates the single SessionRecord stored in byTabId (and referenced by
    * bySessionId once bound), so the mutation is visible from either lookup.
    */
   setSessionQuery(sessionId: SessionId, query: Query): void {
-    const rec = this.byTabId.get(sessionId as string);
+    const rec = this.find(sessionId as string);
     if (!rec) {
       this.logger.error(
         `[SessionLifecycle] Cannot set query - session not found: ${sessionId}`,
@@ -198,8 +202,6 @@ export class SessionRegistry {
    */
   getActiveSessionIds(): SessionId[] {
     const keys = Array.from(this.byTabId.keys());
-
-    // Sort so that the most recently active tab ID comes first
     if (this._lastActiveTabId && keys.length > 1) {
       const idx = keys.indexOf(this._lastActiveTabId);
       if (idx > 0) {
@@ -224,7 +226,6 @@ export class SessionRegistry {
         return rec.config.projectPath;
       }
     }
-    // Fallback: check any active session
     for (const rec of this.byTabId.values()) {
       if (rec.config?.projectPath) {
         return rec.config.projectPath;

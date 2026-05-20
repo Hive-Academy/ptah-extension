@@ -33,9 +33,6 @@ import type {
  * events through the canonical streaming pipeline without holding a
  * reference to the entire {@link HarnessBuilderStateService}.
  *
- * TASK_2026_107 Phase 4: replaces the deleted hand-rolled flat-event
- * accumulator switch.
- *
  * - `registerOperationSurface` — idempotent lazy mint of a SurfaceId for
  *   an operationId
  * - `routeOperationEvent` — forwards a flat event to
@@ -65,14 +62,8 @@ export interface HarnessSurfaceFacade {
 
 @Injectable({ providedIn: 'root' })
 export class HarnessBuilderStateService implements HarnessSurfaceFacade {
-  // TASK_2026_107 Phase 4: surface routing dependencies. Harness registers
-  // a SurfaceId per operationId so its stream events flow through the
-  // canonical pipeline (dedup, batching, BackgroundAgentStore, AgentMonitor,
-  // session binding).
   private readonly streamRouter = inject(StreamRouter);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
-
-  // ─── Core state ─────────────────────────────────────────
 
   private readonly _config = signal<Partial<HarnessConfig>>({});
   private readonly _availableAgents = signal<AvailableAgent[]>([]);
@@ -87,14 +78,10 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   private readonly _intentSummary = signal<string>('');
   private readonly _intentInput = signal<string>('');
 
-  // ─── Conversation state ─────────────────────────────────
-
   private readonly _conversationMessages = signal<HarnessConversationMessage[]>(
     [],
   );
   private readonly _isConfigComplete = signal<boolean>(false);
-
-  // ─── Workspace context (from initialize) ────────────────
 
   private readonly _workspaceContext = signal<{
     projectName: string;
@@ -103,30 +90,12 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     languages: string[];
   } | null>(null);
 
-  // ─── Streaming state for execution visualization ───────
-
   private readonly _streamingState = signal<StreamingState>(
     createEmptyStreamingState(),
   );
   private readonly _isStreaming = signal(false);
   private readonly _currentOperationId = signal<string | null>(null);
-
-  // TASK_2026_107 Phase 4: surface registration state.
-  //
-  // Surfaces are minted lazily on the first stream event for a given
-  // operationId (the harness backend embeds operationId in the stream
-  // payload). The Map below holds the SurfaceId for each active
-  // operationId.
-  //
-  // Single-operation assumption (spec §6 R3): today `_streamingState` is
-  // a single signal, not a per-operation Map. The surface adapter for
-  // every active operation reads/writes the same `_streamingState`. If a
-  // second `operationId` arrives mid-build, `routeOperationEvent` emits
-  // a `harness.surface.concurrent-operation` structured warning and
-  // overwrites — concurrent-build support is explicitly out of scope.
   private readonly _operationSurfaces = new Map<string, SurfaceId>();
-
-  // ─── Public readonly accessors ──────────────────────────
 
   public readonly config = this._config.asReadonly();
   public readonly availableAgents = this._availableAgents.asReadonly();
@@ -147,8 +116,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   public readonly streamingState = this._streamingState.asReadonly();
   public readonly isConversing = this._isStreaming.asReadonly();
   public readonly currentOperationId = this._currentOperationId.asReadonly();
-
-  // ─── Computed signals ───────────────────────────────────
 
   public readonly configSummary = computed(() => {
     const cfg = this._config();
@@ -177,8 +144,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     return parts.join(' | ') || 'No configuration yet';
   });
 
-  // ─── Conversation methods ───────────────────────────────
-
   public addConversationMessage(msg: HarnessConversationMessage): void {
     this._conversationMessages.update((msgs) => [...msgs, msg]);
   }
@@ -186,8 +151,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   public setConfigComplete(complete: boolean): void {
     this._isConfigComplete.set(complete);
   }
-
-  // ─── Config update methods ──────────────────────────────
 
   public applyConfigUpdates(updates: Partial<HarnessConfig>): void {
     this._config.update((cfg) => {
@@ -307,8 +270,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     }));
   }
 
-  // ─── Intent Analysis ────────────────────────────────────
-
   public setIntentInput(text: string): void {
     this._intentInput.set(text);
   }
@@ -344,8 +305,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._intentSummary.set(response.summary);
   }
 
-  // ─── Loading state ──────────────────────────────────────
-
   public setLoading(loading: boolean): void {
     this._isLoading.set(loading);
   }
@@ -353,8 +312,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   public setError(error: string | null): void {
     this._error.set(error);
   }
-
-  // ─── Initialization ─────────────────────────────────────
 
   public initialize(response: HarnessInitializeResponse): void {
     this._availableAgents.set(response.availableAgents);
@@ -364,28 +321,13 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._error.set(null);
   }
 
-  // ─── Streaming methods ──────────────────────────────────
-
-  // ===========================================================================
-  // TASK_2026_107 Phase 4 — Surface routing (replaces hand-rolled
-  // flat-event accumulator switch).
-  //
-  // Harness operations participate in the canonical chat streaming pipeline by
-  // registering a `SurfaceId` per `operationId`. The SurfaceId is bound to a
-  // fresh ConversationId via StreamRouter, and the accumulator-core mutates
-  // the `_streamingState` signal exposed via the surface adapter's
-  // `getState`/`setState`. Single-operation assumption (spec §6 R3) — see the
-  // `_operationSurfaces` JSDoc above.
-  // ===========================================================================
-
   /**
    * Mint (or return existing) SurfaceId for an operation. Idempotent —
    * repeat calls for the same `operationId` return the same SurfaceId.
    * Synchronously binds via `StreamRouter.onSurfaceCreated` and registers
    * the surface adapter with `StreamingSurfaceRegistry` BEFORE this method
    * returns, so the very next `routeStreamEventForSurface` call has a live
-   * adapter to resolve (Phase 2 discovery #3 — registration must precede
-   * the first event).
+   * adapter to resolve (registration must precede the first event).
    *
    * The adapter's `getState()` returns the current `_streamingState()`
    * signal value; `setState(next)` writes via `_streamingState.set(next)`
@@ -404,8 +346,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
       surfaceId,
       () => this._streamingState(),
       (next) => {
-        // setState fires when the accumulator-core hands back a
-        // `replacementState` (currently only on compaction_complete).
         this._streamingState.set(next);
       },
     );
@@ -416,8 +356,8 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   /**
    * Tear down a single operation surface. Calls `StreamRouter.onSurfaceClosed`
    * (which handles unregistering the adapter from `StreamingSurfaceRegistry`
-   * — see Phase 2 discovery #1: do NOT call surfaceRegistry.unregister here)
-   * and removes the operation Map entry.
+   * — do NOT call surfaceRegistry.unregister here, it would race residual
+   * events) and removes the operation Map entry.
    *
    * The accumulated `_streamingState` is intentionally retained so the
    * execution tree keeps rendering after the build completes — only the
@@ -426,10 +366,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   public unregisterOperationSurface(operationId: string): void {
     const surfaceId = this._operationSurfaces.get(operationId);
     if (!surfaceId) return;
-
-    // Phase 2 discovery #1: onSurfaceClosed handles surfaceRegistry.unregister
-    // internally; calling it ourselves first would race residual events into
-    // the void.
     this.streamRouter.onSurfaceClosed(surfaceId);
     this._operationSurfaces.delete(operationId);
   }
@@ -455,8 +391,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     operationId: string,
     event: FlatStreamEventUnion,
   ): void {
-    // Single-operation guard: detect a second operationId arriving while a
-    // different one is already registered. Warn, do not block.
     const existingKeys = Array.from(this._operationSurfaces.keys());
     const otherInFlight = existingKeys.find((key) => key !== operationId);
     if (otherInFlight && !this._operationSurfaces.has(operationId)) {
@@ -510,9 +444,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   }
 
   public resetStreamingState(): void {
-    // TASK_2026_107 Phase 4: tear down every surface registration AND wipe
-    // accumulated state. resetOperationSurfaces() handles both
-    // (router cleanup + _streamingState clear).
     this.resetOperationSurfaces();
     this._isStreaming.set(false);
     this._currentOperationId.set(null);
@@ -534,8 +465,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._intentInput.set('');
     this._conversationMessages.set([]);
     this._isConfigComplete.set(false);
-    // TASK_2026_107 Phase 4: tear down every surface registration AND wipe
-    // accumulated streaming state. resetOperationSurfaces() handles both.
     this.resetOperationSurfaces();
     this._isStreaming.set(false);
     this._currentOperationId.set(null);

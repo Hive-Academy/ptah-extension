@@ -1,5 +1,5 @@
 /**
- * HarnessStreamBroadcaster — Wave C7d.
+ * HarnessStreamBroadcaster.
  *
  * Owns the webview streaming infrastructure for harness operations:
  *   - Creates per-operation stream emitters that broadcast `harness:stream`
@@ -27,8 +27,8 @@ import type {
   HarnessStreamCompletePayload,
   HarnessStreamOperation,
   HarnessStreamPayload,
-  SessionId,
 } from '@ptah-extension/shared';
+import { HarnessStreamId } from '@ptah-extension/shared';
 
 /**
  * Local interface for webview broadcasting.
@@ -88,7 +88,7 @@ export class HarnessStreamBroadcaster {
     operationId: string,
   ): AsyncIterable<SDKMessage> {
     const transformer = this.messageTransformer.createIsolated();
-    const harnessSessionId = `harness-${operationId}` as SessionId;
+    const harnessSessionId = HarnessStreamId.from(operationId);
 
     for await (const sdkMessage of stream) {
       const flatEvents = transformer.transform(sdkMessage, harnessSessionId);

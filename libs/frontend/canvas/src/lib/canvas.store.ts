@@ -1,5 +1,6 @@
 import { Injectable, computed, signal, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
+import { SessionId } from '@ptah-extension/shared';
 import { CanvasLayoutService } from './canvas-layout.service';
 
 export interface CanvasTile {
@@ -14,8 +15,6 @@ export interface CanvasTile {
  * corresponds to a tab in TabManagerService. Tile positions are tracked here
  * for CSS Grid / Gridstack layout; focus state updates the global active tab
  * so message sending routes to the correct session.
- *
- * TASK_2025_265 Batch 2
  */
 @Injectable()
 export class CanvasStore {
@@ -47,7 +46,7 @@ export class CanvasStore {
    * exists, focuses it instead of creating a duplicate.
    * @returns The tabId, or null if the tile cap is reached.
    */
-  addTileFromSession(sessionId: string, name?: string): string | null {
+  addTileFromSession(sessionId: SessionId, name?: string): string | null {
     if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const existingTile = this._tiles().find((t) => {
@@ -75,8 +74,6 @@ export class CanvasStore {
     if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const tabId = this.tabManager.createTab(name);
-
-    // Guard against duplicate tabIds (defensive — createTab should always be unique)
     if (this._tiles().some((t) => t.tabId === tabId)) return tabId;
 
     this.appendTile(tabId);
@@ -146,10 +143,6 @@ export class CanvasStore {
     this._focusedTabId.set(tabId);
     this.tabManager.switchTab(tabId);
   }
-
-  // ============================================================================
-  // PRIVATE HELPERS
-  // ============================================================================
 
   /**
    * Append a tile for the given tabId at the next available grid position.

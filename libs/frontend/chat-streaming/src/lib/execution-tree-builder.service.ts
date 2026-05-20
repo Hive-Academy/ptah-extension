@@ -1,16 +1,16 @@
 /**
- * ExecutionTreeBuilderService - Builds ExecutionNode tree from flat streaming events
+ * ExecutionTreeBuilderService - Builds ExecutionNode tree from flat streaming events.
  *
- * ARCHITECTURE (TASK_2025_082):
+ * ARCHITECTURE:
  * - Backend emits flat events with relationship IDs (messageId, toolCallId, parentToolUseId)
  * - Frontend stores flat events in Map (no tree building during streaming)
  * - This service builds ExecutionNode tree AT RENDER TIME from flat events
  *
- * Cycle remediation (post-Wave-C7f): the four sibling builder services were
- * collapsed into pure functions under `./execution-tree/builders/` because
- * cross-service `inject()` between MessageNode/ToolNode/AgentNode produced
- * an Angular DI cycle (NG0200) and a madge module cycle. Recursion now goes
- * through a callback-only {@link BuilderDeps} bag wired here.
+ * Cycle remediation: the four sibling builder services were collapsed into
+ * pure functions under `./execution-tree/builders/` because cross-service
+ * `inject()` between MessageNode/ToolNode/AgentNode produced an Angular DI
+ * cycle (NG0200) and a madge module cycle. Recursion now goes through a
+ * callback-only {@link BuilderDeps} bag wired here.
  *
  * Owns:
  * - The memoization cache (treeCache + LRU eviction)
@@ -28,9 +28,6 @@ import type {
 } from '@ptah-extension/shared';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import { BackgroundAgentStore } from './background-agent.store';
-// TASK_2026_105 Wave G1: pure execution-tree helpers extracted to
-// `@ptah-extension/chat-execution-tree`. The orchestrating service +
-// BackgroundAgentStore stay here pending G2.3 (chat-streaming bundle).
 import {
   AgentStatsService,
   type BuilderDeps,
@@ -53,27 +50,26 @@ interface TreeCacheEntry {
   textAccumulatorsSize: number;
   toolInputAccumulatorsSize: number;
   /**
-   * TASK_2025_099: Total length (not just map size) so cache invalidates
-   * when content is appended to existing agents.
+   * Total length (not just map size) so cache invalidates when content is
+   * appended to existing agents.
    */
   agentSummaryTotalLength: number;
   /**
-   * TASK_2025_102: Total content blocks count so cache invalidates when
-   * new content blocks are added for interleaving.
+   * Total content blocks count so cache invalidates when new content blocks
+   * are added for interleaving.
    */
   agentContentBlocksCount: number;
   backgroundAgentCount: number;
   tree: ExecutionNode[];
   /**
-   * TASK_2026_TREE_STABILITY Fix 3/8: Map of every node id → reference in the
-   * previously-built tree, indexed for the structural-reuse pass that runs on
-   * each non-trivial rebuild.
+   * Map of every node id → reference in the previously-built tree, indexed
+   * for the structural-reuse pass that runs on each non-trivial rebuild.
    */
   nodesById: Map<string, ExecutionNode>;
   /**
-   * TASK_2026_TREE_STABILITY Fix 3/8: Structural fingerprint per node id from
-   * the previous build, computed bottom-up. A new build's node is replaced by
-   * the previous reference whenever its fingerprint matches.
+   * Structural fingerprint per node id from the previous build, computed
+   * bottom-up. A new build's node is replaced by the previous reference
+   * whenever its fingerprint matches.
    */
   fingerprintsById: Map<string, string>;
 }
@@ -162,7 +158,7 @@ export class ExecutionTreeBuilderService {
    * 2. Reset per-build aggregation cache
    * 3. Iterate messageEventIds, skipping nested messages
    * 4. Merge consecutive assistant messages into a single root node
-   *    (TASK_2025_096 — SDK sends multiple assistant messages per turn)
+   *    (SDK sends multiple assistant messages per turn)
    *
    * @param streamingState - Flat event storage
    * @param cacheKey - Optional cache key (defaults to 'default')
@@ -202,13 +198,9 @@ export class ExecutionTreeBuilderService {
     ) {
       return cached.tree;
     }
-
-    // TASK_2025_132: Clear per-build aggregation cache to avoid stale stats
     this.agentStats.resetPerBuildCache();
 
     const rootNodes: ExecutionNode[] = [];
-
-    // TASK_2025_096 FIX: Merge consecutive assistant messages into one root.
     let lastAssistantNode: ExecutionNode | null = null;
 
     for (const messageId of streamingState.messageEventIds) {
@@ -217,7 +209,6 @@ export class ExecutionTreeBuilderService {
         messageId,
       );
       if (msgStartEvent?.parentToolUseId) {
-        // Nested messages render inside agent bubbles, not at root.
         continue;
       }
 
@@ -228,7 +219,6 @@ export class ExecutionTreeBuilderService {
         (msgStartEvent as MessageStartEvent | undefined)?.role === 'assistant';
 
       if (isAssistant && lastAssistantNode) {
-        // MERGE: append children to previous assistant node (immutable).
         if (messageNode.children && messageNode.children.length > 0) {
           const mergedChildren = [
             ...(lastAssistantNode.children || []),
@@ -247,13 +237,6 @@ export class ExecutionTreeBuilderService {
         lastAssistantNode = isAssistant ? messageNode : null;
       }
     }
-
-    // TASK_2026_TREE_STABILITY Fix 3/8 + Diagnostic: structural reuse pass.
-    // Walk the freshly-built tree bottom-up; for each node compute a content
-    // fingerprint (id + key fields + children fingerprints). If the previous
-    // build had a node at the same id with an identical fingerprint, reuse
-    // the previous reference. This eliminates the OnPush re-render cascade in
-    // unchanged subtrees (the highest-impact identity-churn fix).
     const reuseStats = { reused: 0, fresh: 0 };
     const newNodesById = new Map<string, ExecutionNode>();
     const newFingerprintsById = new Map<string, string>();
@@ -287,9 +270,6 @@ export class ExecutionTreeBuilderService {
       nodesById: newNodesById,
       fingerprintsById: newFingerprintsById,
     });
-
-    // TASK_2026_TREE_STABILITY Diagnostic: dev-only identity-churn log.
-    // Useful to verify Fix 3 works and catch regressions. Off in production.
     if (isDevMode()) {
       console.debug(
         `[TreeBuilder] reused: ${reuseStats.reused} / new: ${reuseStats.fresh} nodes (key: ${cacheKey})`,
@@ -300,8 +280,8 @@ export class ExecutionTreeBuilderService {
   }
 
   /**
-   * TASK_2026_TREE_STABILITY Fix 3/8: Recursively walk a freshly-built node,
-   * compute its structural fingerprint, and either return the previous build's
+   * Recursively walk a freshly-built node, compute its structural
+   * fingerprint, and either return the previous build's
    * node-at-same-id (when fingerprint matches) or the fresh node (with its
    * new children potentially reused).
    *
@@ -332,8 +312,6 @@ export class ExecutionTreeBuilderService {
       if (reusedChild !== incomingChildren[i]) childrenChanged = true;
       reusedChildren[i] = reusedChild;
     }
-
-    // Use freshly-built node, but with reused children if any swapped.
     const candidate: ExecutionNode = childrenChanged
       ? { ...node, children: reusedChildren }
       : node;
@@ -343,8 +321,6 @@ export class ExecutionTreeBuilderService {
     const prev = prevNodesById?.get(candidate.id);
 
     if (prev && prevFingerprint === fingerprint) {
-      // Structurally equal — reuse the previous reference. Cache it under
-      // its id and propagate the (identical) fingerprint forward.
       outNodesById.set(prev.id, prev);
       outFingerprintsById.set(prev.id, fingerprint);
       stats.reused++;
@@ -371,13 +347,8 @@ export class ExecutionTreeBuilderService {
     for (let i = 0; i < node.children.length; i++) {
       const child = node.children[i];
       const fp = fingerprintsById.get(child.id);
-      // Children are visited first, so their fingerprint is always populated.
       childFps[i] = fp ?? `${child.id}:?`;
     }
-
-    // Hash key surface area: fields that affect rendering. Stringify only
-    // primitives/small payloads; nested children are represented by their ids
-    // + fingerprints (already content-addressable).
     return [
       node.id,
       node.type,

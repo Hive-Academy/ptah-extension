@@ -1,10 +1,10 @@
 /**
- * TabManagerService — intent-named mutator coverage (TASK_2026_105 Wave G2).
+ * TabManagerService — intent-named mutator coverage.
  *
- * Covers the most-frequently invoked mutators introduced in Phase 1 so that
- * the chat-state lib hits its coverage threshold post-extraction. These are
- * exercised end-to-end against `_tabs` / readonly signals to catch any
- * regression in the partial-write path through `updateTabInternal`.
+ * Covers the most-frequently invoked mutators so that the chat-state lib
+ * hits its coverage threshold. These are exercised end-to-end against
+ * `_tabs` / readonly signals to catch any regression in the partial-write
+ * path through `updateTabInternal`.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -12,7 +12,16 @@ import {
   StreamingState,
   createEmptyStreamingState,
 } from '@ptah-extension/chat-types';
-import { ExecutionChatMessage } from '@ptah-extension/shared';
+import { ExecutionChatMessage, SessionId } from '@ptah-extension/shared';
+
+// Production `TabManagerService.attachSession` and `applyResumingSession`
+// validate the incoming sessionId via `SessionId.from()` (UUID v4). Mint
+// stable ids per spec run.
+const SESS_123 = SessionId.create();
+const SESS_XYZ = SessionId.create();
+const SESS_X = SessionId.create();
+const SESS_R = SessionId.create();
+const SESS_PRE = SessionId.create();
 
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import {
@@ -36,8 +45,7 @@ describe('TabManagerService — intent-named mutators', () => {
 
   beforeEach(() => {
     const confirmMock = { confirm: jest.fn().mockResolvedValue(true) };
-    // TASK_2026_106 Phase 3: STREAMING_CONTROL provider removed; cleanup
-    // ownership moved to `StreamRouter` (see chat-routing specs).
+    // Cleanup ownership lives in `StreamRouter` (see chat-routing specs).
     partitionMock = {
       initialize: jest.fn(),
       activeWorkspacePath: null,
@@ -88,21 +96,20 @@ describe('TabManagerService — intent-named mutators', () => {
   describe('session id attach', () => {
     it('attachSession sets claudeSessionId', () => {
       const id = service.createTab('attach');
-      service.attachSession(id, 'sess-123');
+      service.attachSession(id, SESS_123);
       expect(service.tabs().find((t) => t.id === id)?.claudeSessionId).toBe(
-        'sess-123',
+        SESS_123,
       );
     });
 
-    // TASK_2026_106 Phase 6b — `adoptStreamingSession` removed in favour
-    // of explicit `attachSession` + `markStreaming`. Verifies the new
-    // pairing has the same observable effect as the retired helper.
+    // Verify that the explicit `attachSession` + `markStreaming` pairing
+    // has the expected observable effect (no separate "adopt" helper).
     it('attachSession + markStreaming is the post-Phase-6b replacement for adoptStreamingSession', () => {
       const id = service.createTab('adopt-replacement');
-      service.attachSession(id, 'sess-XYZ');
+      service.attachSession(id, SESS_XYZ);
       service.markStreaming(id);
       const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.claudeSessionId).toBe('sess-XYZ');
+      expect(tab?.claudeSessionId).toBe(SESS_XYZ);
       expect(tab?.status).toBe('streaming');
     });
   });
@@ -236,7 +243,7 @@ describe('TabManagerService — intent-named mutators', () => {
 
     it('detachSessionAndMarkLoaded clears claudeSessionId', () => {
       const id = service.createTab('detach');
-      service.attachSession(id, 'sess-x');
+      service.attachSession(id, SESS_X);
       service.detachSessionAndMarkLoaded(id);
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.claudeSessionId).toBeNull();
@@ -337,10 +344,10 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.sessionModel).toBe('claude-3-5-sonnet');
     });
 
-    // TASK_2026_109_FOLLOWUP N6 — applyLoadedSessionStats also synthesizes
-    // a best-effort liveModelStats so the header renders the model name
-    // and context window immediately on resume, instead of staying empty
-    // until the first live SESSION_STATS arrives.
+    // `applyLoadedSessionStats` synthesizes a best-effort liveModelStats so
+    // the header renders the model name and context window immediately on
+    // resume, instead of staying empty until the first live SESSION_STATS
+    // arrives.
     it('N6 — synthesizes liveModelStats from sessionModel on session resume', () => {
       const id = service.createTab('resume');
       const stats = {
@@ -421,13 +428,13 @@ describe('TabManagerService — intent-named mutators', () => {
       const id = service.createTab('resume');
       const state = createEmptyStreamingState();
       service.applyResumingSession(id, {
-        sessionId: 'sess-r',
+        sessionId: SESS_R,
         name: 'name',
         title: 'title',
         streamingState: state,
       });
       const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.claudeSessionId).toBe('sess-r');
+      expect(tab?.claudeSessionId).toBe(SESS_R);
       expect(tab?.status).toBe('resuming');
       expect(tab?.streamingState).toBe(state);
     });
@@ -463,7 +470,7 @@ describe('TabManagerService — intent-named mutators', () => {
 
     it('applyNewConversationDraft sets draft + clears claudeSessionId', () => {
       const id = service.createTab('draft');
-      service.attachSession(id, 'pre-existing');
+      service.attachSession(id, SESS_PRE);
       service.applyNewConversationDraft(id, 'Drafted');
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.status).toBe('draft');

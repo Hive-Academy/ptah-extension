@@ -12,8 +12,6 @@
  * Import is lazy (import('electron')) because the electron module is only
  * available at runtime inside the Electron main process. Importing it at
  * module load time breaks jest tests and VS Code shim environments.
- *
- * WP-4A: Electron master key provider.
  */
 
 import { z } from 'zod';
@@ -32,10 +30,6 @@ const CORRUPT_KEY_MESSAGE =
   "Ptah's encrypted settings store could not be opened (master key is corrupted or unreadable). " +
   'A new key will be generated and any previously stored secrets will be lost. ' +
   'You may need to re-enter your API keys and provider credentials.';
-
-// ---------------------------------------------------------------------------
-// Zod schema for master-key-ref.json (Q2 decision)
-// ---------------------------------------------------------------------------
 
 /** Regex matching a non-empty base64 string (standard alphabet + padding). */
 const base64Regex = /^[A-Za-z0-9+/]+=*$/;
@@ -114,8 +108,6 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
           'Encrypted secrets cannot be safely created without OS-level key wrapping.',
       );
     }
-
-    // Try to read the existing key reference.
     let rawRef: string;
     try {
       rawRef = await fsPromises.readFile(this.keyRefPath, 'utf8');
@@ -125,8 +117,6 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
       }
       throw err;
     }
-
-    // Parse JSON — corrupt JSON is treated as key-ref corruption.
     let parsedRef: unknown;
     try {
       parsedRef = JSON.parse(rawRef);
@@ -134,8 +124,6 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
       await this.notifyCorruption('corrupt JSON in master-key-ref.json');
       return this.createAndStoreKey(safeStorage);
     }
-
-    // Validate schema with Zod (Q2: also validates base64 format of wrapped).
     const parseResult = MasterKeyRefSchema.safeParse(parsedRef);
     if (!parseResult.success) {
       await this.notifyCorruption(
@@ -150,7 +138,6 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
     try {
       base64Key = safeStorage.decryptString(wrappedBuf);
     } catch {
-      // Decrypt failed (e.g. OS keyring changed) — notify and regenerate.
       await this.notifyCorruption(
         'decryptString failed (OS keyring may have changed)',
       );
@@ -159,7 +146,6 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
 
     const keyBuf = Buffer.from(base64Key, 'base64');
     if (keyBuf.length !== 32) {
-      // Stored key has wrong length — notify and regenerate.
       await this.notifyCorruption(
         `master key has wrong length ${keyBuf.length} (expected 32)`,
       );
@@ -203,7 +189,6 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
   }
 
   private async loadSafeStorage(): Promise<ElectronSafeStorageApi> {
-    // Lazy import to avoid crashing in non-Electron environments.
     try {
       const electron = await import('electron');
       const { safeStorage } = electron;
@@ -226,22 +211,17 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
       try {
         await this.userInteraction.showErrorMessage(CORRUPT_KEY_MESSAGE);
       } catch {
-        // Notification failure must not block key regeneration.
         console.error(
           `[ptah-electron] ERROR: master key corruption (${detail}). ${CORRUPT_KEY_MESSAGE}`,
         );
       }
     } else {
-      // IUserInteraction not provided — log to console as fallback.
-      // Production code always passes userInteraction via registerElectronSettings.
       console.error(
         `[ptah-electron] ERROR: master key corruption (${detail}). ${CORRUPT_KEY_MESSAGE}`,
       );
     }
   }
 }
-
-// ---- helpers ----------------------------------------------------------------
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return (

@@ -1,7 +1,7 @@
 /**
  * Git Namespace Builder
- * TASK_2025_236: Git worktree MCP tools for AI agent access
  *
+ * Git worktree MCP tools for AI agent access.
  * Provides worktreeList, worktreeAdd, worktreeRemove methods for managing
  * git worktrees via the CLI. Uses cross-spawn for cross-platform compatibility
  * (handles Windows .cmd wrappers automatically without shell: true).
@@ -171,18 +171,12 @@ export function buildGitNamespace(
             error: stderr.trim() || 'Failed to add worktree',
           };
         }
-
-        // Notify frontend about the new worktree so it can refresh UI
         if (onWorktreeChanged) {
-          try {
-            onWorktreeChanged({
-              action: 'created',
-              worktreePath,
-              branch: params.branch,
-            });
-          } catch {
-            // Notification failure should never break worktree creation
-          }
+          onWorktreeChanged({
+            action: 'created',
+            worktreePath,
+            branch: params.branch,
+          });
         }
 
         return { success: true, worktreePath };
@@ -211,8 +205,6 @@ export function buildGitNamespace(
             error: stderr.trim() || 'Failed to remove worktree',
           };
         }
-
-        // Notify frontend about the removal so it can refresh UI
         if (onWorktreeChanged) {
           try {
             onWorktreeChanged({
@@ -220,7 +212,7 @@ export function buildGitNamespace(
               worktreePath: params.path,
             });
           } catch {
-            // Notification failure should never break worktree removal
+            void 0;
           }
         }
 

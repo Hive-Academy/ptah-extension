@@ -1,8 +1,8 @@
 /**
  * TUI DI Container Orchestrator
  *
- * TASK_2025_263 Batch 3: Mirrors the Electron ElectronDIContainer.setup() pattern
- * but registers CLI-specific adaptations instead of Electron-specific ones.
+ * Mirrors the Electron ElectronDIContainer.setup() pattern but registers
+ * CLI-specific adaptations instead of Electron-specific ones.
  *
  * CRITICAL DESIGN DECISIONS:
  * - DOES NOT call registerVsCodeCoreServices() (it imports the vscode module)
@@ -45,84 +45,68 @@ import type {
   IStateStorage,
   ISecretStorage,
 } from '@ptah-extension/platform-core';
-
-// vscode-core: TOKENS + service classes (LicenseService & AuthSecretsService
-// use `import type` for vscode -- no runtime vscode dependency)
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type IMemoryReader,
+  type ISymbolSink,
+} from '@ptah-extension/memory-contracts';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-
-// Platform-agnostic vscode-core services (verified: no runtime vscode imports)
-import { RpcHandler } from '@ptah-extension/vscode-core';
-import { MessageValidatorService } from '@ptah-extension/vscode-core';
-import { SubagentRegistryService } from '@ptah-extension/vscode-core';
-import { FeatureGateService } from '@ptah-extension/vscode-core';
+import { registerVsCodeCorePlatformAgnostic } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
-import { AuthSecretsService } from '@ptah-extension/vscode-core';
-import { SentryService } from '@ptah-extension/vscode-core';
 import { GitInfoService } from '@ptah-extension/vscode-core';
 import {
   WorkspaceAwareStateStorage,
   WorkspaceContextManager,
 } from '@ptah-extension/vscode-core';
-
-// Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type {
-  EnhancedPromptsService,
-  IMultiPhaseAnalysisReader,
-  PluginLoaderService,
-  SdkAgentAdapter,
+import {
+  registerSdkServices,
+  SDK_TOKENS,
+  wireAgentAdapterAliases,
 } from '@ptah-extension/agent-sdk';
+import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
+import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
+import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
+} from '@ptah-extension/agent-generation';
+import type {
+  EnhancedPromptsService,
+  IMultiPhaseAnalysisReader,
 } from '@ptah-extension/agent-generation';
 import {
   registerVsCodeLmToolsServices,
   BROWSER_CAPABILITIES_TOKEN,
 } from '@ptah-extension/vscode-lm-tools';
-
-// Shared RPC handler classes (all 17 shared handlers)
 import {
   SessionRpcHandlers,
   ChatRpcHandlers,
   ConfigRpcHandlers,
   AuthRpcHandlers,
   ContextRpcHandlers,
-  SetupRpcHandlers,
   LicenseRpcHandlers,
-  WizardGenerationRpcHandlers,
   AutocompleteRpcHandlers,
   SubagentRpcHandlers,
   PluginRpcHandlers,
   PtahCliRpcHandlers,
-  EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,
   ProviderRpcHandlers,
-  LlmRpcHandlers,
   WebSearchRpcHandlers,
   WorkspaceRpcHandlers,
+  registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
-
-// CLI adapters
 import { CliOutputManagerAdapter, CliLoggerAdapter } from './cli-adapters';
-
-// CLI platform abstraction implementations
 import {
   CliPlatformCommands,
   CliPlatformAuth,
   CliSaveDialog,
   CliModelDiscovery,
 } from '../services/platform';
-
-// Transport
 import { CliMessageTransport } from '../transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter';
 import { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler';
-
-// RPC method registration — wires the handler classes' `METHODS` tuples into
-// the RpcHandler so the in-process dispatch can find them.
 import { CliRpcMethodRegistrationService } from '../services/cli-rpc-method-registration.service';
 
 /**
@@ -142,16 +126,12 @@ export interface CliBootstrapOptions {
    * (used by read-only commands that only need platform + storage adapters).
    * `'full'` mirrors Electron's phase-4-handlers.ts and registers every
    * shared RPC handler. Defaults to `'full'`.
-   *
-   * TASK_2026_104 Batch 4 — Discovery D12.
    */
   bootstrapMode?: 'minimal' | 'full';
   /**
    * When true, emit `debug.di.phase` notifications via `pushAdapter` at the
    * start AND end of every numbered DI phase. Consumed by the JSON-RPC
    * event-pipe under the global `--verbose` flag.
-   *
-   * TASK_2026_104 Batch 4 — task-description.md § 4.1.9.
    */
   verbose?: boolean;
 }
@@ -199,9 +179,9 @@ export class CliDIContainer {
    * @returns Configured container, transport, push adapter, and fire-and-forget handler
    */
   static setup(options: CliBootstrapOptions = {}): CliBootstrapResult {
-    const container = globalContainer;
+    const container = globalContainer.createChildContainer();
 
-    // Resolve default paths
+    container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
     const userDataPath =
       options.userDataPath ?? path.join(os.homedir(), '.ptah');
     const appPath = options.appPath ?? __dirname;
@@ -214,20 +194,10 @@ export class CliDIContainer {
       workspacePath,
       logsPath,
     };
-
-    // Resolve mode flags. Defaults preserve backward-compatible behavior
-    // (full bootstrap, no verbose diagnostics).
     const bootstrapMode: 'minimal' | 'full' = options.bootstrapMode ?? 'full';
     const verbose: boolean = options.verbose === true;
-
-    // ========================================
-    // PHASE 0a: pushAdapter (early — needed for `debug.di.phase` events)
-    // ========================================
-    // The adapter is registered into the container as TOKENS.WEBVIEW_MANAGER
-    // later in Phase 4.0; we instantiate it now so verbose phase boundaries
-    // can stream out from the very first phase. Subscribers attach via the
-    // `CliBootstrapResult.pushAdapter` reference returned at the end.
     const pushAdapter = new CliWebviewManagerAdapter();
+    container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
 
     /**
      * Phase boundary helpers — emit `debug.di.phase` notifications when
@@ -249,87 +219,26 @@ export class CliDIContainer {
         });
       }
     };
-
-    // ========================================
-    // PHASE 0: Platform Abstraction Layer
-    // ========================================
-    // Register all 13 platform tokens (IPlatformInfo + providers + WORKSPACE_STATE_STORAGE)
-    // MUST be before any library services (they inject PLATFORM_TOKENS)
     const phase0Start = phaseStart('0');
     registerPlatformCliServices(container, platformOptions);
     phaseEnd('0', phase0Start);
-
-    // ========================================
-    // PHASE 1: Logger + Sentry + License + shims
-    // ========================================
     const phase1Start = phaseStart('1');
-
-    // ========================================
-    // PHASE 1.0: OutputManager adapter + Logger adapter
-    // ========================================
     const outputChannel = container.resolve<IOutputChannel>(
       PLATFORM_TOKENS.OUTPUT_CHANNEL,
     );
     const outputManager = new CliOutputManagerAdapter(outputChannel);
     container.register(TOKENS.OUTPUT_MANAGER, { useValue: outputManager });
-
-    // Logger adapter: uses CliOutputManagerAdapter instead of VS Code OutputManager.
-    // Cast to Logger type so library registration functions accept it.
     const loggerAdapter = new CliLoggerAdapter(outputManager);
     const logger = loggerAdapter as unknown as Logger;
     container.register(TOKENS.LOGGER, { useValue: logger });
 
     logger.info('[CLI DI] Starting service registration...');
-
-    // ========================================
-    // PHASE 1.0b: SentryService (opt-in; uninitialized until SENTRY_DSN is set)
-    // ========================================
-    // Wave C4b: shared RPC handler factories require TOKENS.SENTRY_SERVICE.
-    // The service is a no-op until `initialize()` is called with a DSN, so
-    // registering it unconditionally is safe for the CLI.
-    container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
-
-    // ========================================
-    // PHASE 1.1: LicenseService + AuthSecretsService (real implementations)
-    // ========================================
-    container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
-    container.registerSingleton(
-      TOKENS.AUTH_SECRETS_SERVICE,
-      AuthSecretsService,
-    );
-
-    // ========================================
-    // PHASE 1.2: Platform-agnostic vscode-core services
-    // ========================================
-    container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
-    container.registerSingleton(
-      TOKENS.MESSAGE_VALIDATOR,
-      MessageValidatorService,
-    );
-    container.registerSingleton(
-      TOKENS.SUBAGENT_REGISTRY_SERVICE,
-      SubagentRegistryService,
-    );
-    container.registerSingleton(
-      TOKENS.FEATURE_GATE_SERVICE,
-      FeatureGateService,
-    );
-
-    // TASK_2026_104 Sub-batch B5b: GitInfoService is shared (cross-spawn around
-    // git CLI — no platform coupling). Required by the lifted GitRpcHandlers.
+    registerVsCodeCorePlatformAgnostic(container, logger, {
+      includeLicensingAndAuth: true,
+    });
     container.register(TOKENS.GIT_INFO_SERVICE, {
       useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
     });
-
-    // TASK_2026_104 Sub-batch B5a: WorkspaceContextManager + WorkspaceAwareStateStorage.
-    // Required by the lifted shared WorkspaceRpcHandlers so the CLI can serve
-    // workspace:* (getInfo / addFolder / registerFolder / removeFolder / switch).
-    //
-    // We override Phase 0's WORKSPACE_STATE_STORAGE with the workspace-aware
-    // proxy so any handler that injects WORKSPACE_STATE_STORAGE later gets
-    // routing-by-active-workspace at call time. The factory passed in produces
-    // CliStateStorage instances (file-backed JSON, identical layout to the
-    // per-workspace storage on Electron).
     const defaultWorkspaceStoragePath = path.join(
       userDataPath,
       'workspace-storage',
@@ -351,19 +260,9 @@ export class CliDIContainer {
     container.register(TOKENS.WORKSPACE_CONTEXT_MANAGER, {
       useValue: workspaceContextManager,
     });
-
-    // Eagerly create + activate the startup workspace (mirrors Electron Phase 1).
-    // Synchronous container setup can't await; fire-and-forget with logging is
-    // safe because the JSON-RPC stdio loop / commander handler doesn't dispatch
-    // workspace:* calls until well after this resolves.
     workspaceContextManager.createWorkspace(workspacePath).then(
       (result) => {
         if ('error' in result) {
-          // CreateWorkspaceFailure variant. Use `in`-based narrowing rather
-          // than `if (result.success)` because ts-jest's spec tsconfig runs
-          // without `strictNullChecks`, where boolean-discriminant narrowing
-          // can collapse and require a structural cast. `in` narrowing
-          // works under both strict and non-strict modes.
           logger.warn(
             '[CLI DI] Failed to create initial workspace context (non-fatal)',
             { error: result.error } as unknown as Error,
@@ -383,10 +282,6 @@ export class CliDIContainer {
     );
 
     logger.info('[CLI DI] Platform-agnostic vscode-core services registered');
-
-    // ========================================
-    // PHASE 1.3: FILE_SYSTEM_MANAGER shim (required by workspace-intelligence)
-    // ========================================
     try {
       const fileSystemProvider = container.resolve(
         PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
@@ -403,16 +298,6 @@ export class CliDIContainer {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-
-    // ========================================
-    // PHASE 1.4: CONFIG_MANAGER shim (required by llm-abstraction, workspace-intelligence)
-    // ========================================
-    // ConfigManager (vscode-core) imports 'vscode' directly and cannot be used
-    // in the CLI. We keep the shim but source fileSettings from the
-    // CliWorkspaceProvider registered in Phase 0 so both the workspace provider
-    // and the config shim share the same PtahFileSettingsManager instance.
-    // The shared instance is stored on CliDIContainer._fileSettings so that
-    // process.on('exit', ...) in main.ts can call flushSync() synchronously.
     try {
       const configStorage = container.resolve<IStateStorage>(
         PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
@@ -421,7 +306,6 @@ export class CliDIContainer {
         PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       );
       const fileSettings = workspaceProvider.fileSettings;
-      // Expose to the static flushSync() entry-point used by main.ts exit handler.
       CliDIContainer._fileSettings = fileSettings;
       const configManagerShim = {
         get: <T>(key: string): T | undefined => {
@@ -501,10 +385,6 @@ export class CliDIContainer {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-
-    // ========================================
-    // PHASE 1.5: EXTENSION_CONTEXT shim (required by agent-sdk + llm-abstraction)
-    // ========================================
     try {
       const globalState = container.resolve<IStateStorage>(
         PLATFORM_TOKENS.STATE_STORAGE,
@@ -540,7 +420,6 @@ export class CliDIContainer {
         extensionUri: { fsPath: appPath, scheme: 'file' },
         globalStorageUri: { fsPath: userDataPath, scheme: 'file' },
         extensionPath: appPath,
-        // vscode.ExtensionMode: 0 = Test, 1 = Production, 2 = Development
         extensionMode: process.env['NODE_ENV'] === 'development' ? 2 : 1,
       };
       container.register(TOKENS.EXTENSION_CONTEXT, {
@@ -555,11 +434,6 @@ export class CliDIContainer {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-
-    // ========================================
-    // PHASE 1.6: Seed community license (CLI has no registration gate)
-    // ========================================
-    // Must be after Phase 1.5 (EXTENSION_CONTEXT + CONFIG_MANAGER are required by LicenseService)
     try {
       const licenseService = container.resolve<LicenseService>(
         TOKENS.LICENSE_SERVICE,
@@ -573,30 +447,27 @@ export class CliDIContainer {
     }
 
     phaseEnd('1', phase1Start);
-
-    // ========================================
-    // PHASE 2: Library Services
-    // ========================================
     const phase2Start = phaseStart('2');
-
-    // Phase 2.1: Workspace Intelligence
     registerWorkspaceIntelligenceServices(container, logger);
-
-    // Phase 2.2: Agent SDK (Claude Agent SDK integration)
+    registerAuthProvidersServices(container, logger);
     registerSdkServices(container, logger);
+    registerCliAgentRuntimeServices(container, logger);
 
-    // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (Wave C4b: shared wiring helpers
-    // resolve via TOKENS.AGENT_ADAPTER; mirror VS Code / Electron pattern so
-    // the helper sees the adapter when called from tui-rpc-method-registration).
-    container.register(TOKENS.AGENT_ADAPTER, {
-      useFactory: (c) =>
-        c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+    wireAgentAdapterAliases(container);
+
+    const noopMemoryReader: IMemoryReader = {
+      search: async () => ({ hits: [], bm25Only: true }),
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
+      useValue: noopMemoryReader,
     });
-
-    // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs
-    // These tokens are required by WizardWebviewLifecycleService which is registered
-    // unconditionally inside registerAgentGenerationServices(). In CLI, the wizard
-    // is not used, so these are no-op stubs to prevent DI resolution failures.
+    const noopSymbolSink: ISymbolSink = {
+      deleteSymbolsForFile: () => 0,
+      insertSymbols: async () => undefined,
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
+      useValue: noopSymbolSink,
+    });
     try {
       container.register(TOKENS.WEBVIEW_MESSAGE_HANDLER, { useValue: {} });
       container.register(TOKENS.WEBVIEW_HTML_GENERATOR, { useValue: {} });
@@ -609,12 +480,7 @@ export class CliDIContainer {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-
-    // Phase 2.3: Agent Generation (template storage, setup wizard)
     registerAgentGenerationServices(container, logger);
-
-    // Phase 2.3.5: Override SETUP_WIZARD_SERVICE with CLI-compatible stub
-    // No setup wizard in CLI v1. Register a no-op stub.
     container.register(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, {
       useValue: {
         startWizard: async () => {
@@ -626,15 +492,7 @@ export class CliDIContainer {
       '[CLI DI] SETUP_WIZARD_SERVICE stub registered (no setup wizard in CLI)',
     );
 
-    // TASK_2025_291 Wave C5: CLI agent services now registered by
-    // registerSdkServices (earlier in Phase 2). The llm-abstraction
-    // library has been deleted.
-
     phaseEnd('2', phase2Start);
-
-    // ========================================
-    // PHASE 3: Storage Adapters
-    // ========================================
     const phase3Start = phaseStart('3');
     const workspaceStateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
@@ -649,19 +507,12 @@ export class CliDIContainer {
       },
     };
     container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
-
-    // Global state adapter (for pricing cache - uses global state storage)
     const globalStateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
     );
     container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
 
     phaseEnd('3', phase3Start);
-
-    // ========================================
-    // PHASE 3.5: Platform Abstraction Implementations
-    // ========================================
-    // Must be registered BEFORE shared handler classes that depend on these tokens.
     const phase3_5Start = phaseStart('3.5');
     container.register(TOKENS.PLATFORM_COMMANDS, {
       useValue: new CliPlatformCommands(),
@@ -679,27 +530,12 @@ export class CliDIContainer {
     logger.info('[CLI DI] Platform abstraction implementations registered');
 
     phaseEnd('3.5', phase3_5Start);
-
-    // ========================================
-    // PHASE 3.6: Settings repositories (SETTINGS_TOKENS)
-    // ========================================
-    // registerCliSettings wires all SETTINGS_TOKENS into the container
-    // (SETTINGS_STORE, MODEL_SETTINGS, REASONING_SETTINGS, AUTH_SETTINGS, etc.)
-    // BEFORE Phase 4 eagerly resolves RPC handler classes (ConfigRpcHandlers,
-    // ChatSessionService, HarnessServices, etc.) that @inject SETTINGS_TOKENS.
-    // Must run in both 'minimal' and 'full' modes so config commands that
-    // resolve settings repositories also find the tokens.
-    //
-    // NOTE: runMigrations() is NOT called here — it requires async I/O and runs
-    // in withEngine() after setup() returns, still before sdkAdapter.initialize().
     try {
       registerCliSettings(container);
       logger.info(
         '[CLI DI] Settings repositories registered (SETTINGS_TOKENS)',
       );
     } catch (settingsRegError) {
-      // Surface the error clearly — missing settings tokens would cause
-      // cryptic DI resolution failures in Phase 4.
       logger.error(
         '[CLI DI] Failed to register settings repositories',
         settingsRegError instanceof Error
@@ -708,35 +544,9 @@ export class CliDIContainer {
       );
       throw settingsRegError;
     }
-
-    // ========================================
-    // PHASE 4: WebviewManager + LM tools + Shared RPC handlers + wiring
-    // ========================================
-    // Skipped entirely under `bootstrapMode === 'minimal'`. Read-only commands
-    // (config, status, etc.) need only Phases 0-3.5 and can avoid the cost of
-    // resolving every RPC handler class. Discovery D12.
     if (bootstrapMode === 'full') {
       const phase4Start = phaseStart('4');
-
-      // ========================================
-      // PHASE 4.0: WebviewManager registration
-      // ========================================
-      // Adapter is instantiated in Phase 0a (so verbose phase events can flow);
-      // Phase 4.0 only registers the token binding so RPC handlers find it.
-      container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
-
-      logger.info(
-        '[CLI DI] CliWebviewManagerAdapter registered as WEBVIEW_MANAGER',
-      );
-
-      // ========================================
-      // PHASE 4.0.5: vscode-lm-tools services
-      // ========================================
       registerVsCodeLmToolsServices(container, logger);
-
-      // ========================================
-      // PHASE 4.0.6: Browser capabilities stub (no CDP browser in CLI v1)
-      // ========================================
       container.register(BROWSER_CAPABILITIES_TOKEN, {
         useValue: {
           launch: async () => {
@@ -748,109 +558,32 @@ export class CliDIContainer {
           getStatus: () => ({ launched: false }),
         },
       });
-
-      // ========================================
-      // PHASE 4.1: Shared RPC Handler Classes (all 17)
-      // ========================================
       container.registerSingleton(SessionRpcHandlers);
       container.registerSingleton(ChatRpcHandlers);
       container.registerSingleton(ConfigRpcHandlers);
       container.registerSingleton(AuthRpcHandlers);
       container.registerSingleton(ContextRpcHandlers);
-
-      // SetupRpcHandlers requires container instance for lazy resolution.
-      container.register(SetupRpcHandlers, {
-        useFactory: (c) =>
-          new SetupRpcHandlers(
-            c.resolve(TOKENS.LOGGER),
-            c.resolve(TOKENS.RPC_HANDLER),
-            c.resolve(TOKENS.CONFIG_MANAGER),
-            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-            c,
-            c.resolve(TOKENS.SENTRY_SERVICE),
-            c.resolve(TOKENS.PLATFORM_COMMANDS),
-          ),
-      });
-
       container.registerSingleton(LicenseRpcHandlers);
-
-      // WizardGenerationRpcHandlers requires container instance for lazy resolution.
-      container.register(WizardGenerationRpcHandlers, {
-        useFactory: (c) =>
-          new WizardGenerationRpcHandlers(
-            c.resolve(TOKENS.LOGGER),
-            c.resolve(TOKENS.RPC_HANDLER),
-            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-            c,
-            c.resolve(TOKENS.SENTRY_SERVICE),
-          ),
-      });
-
       container.registerSingleton(AutocompleteRpcHandlers);
       container.registerSingleton(SubagentRpcHandlers);
       container.registerSingleton(PluginRpcHandlers);
       container.registerSingleton(PtahCliRpcHandlers);
-
-      // EnhancedPromptsRpcHandlers requires container instance for lazy resolution.
-      container.register(EnhancedPromptsRpcHandlers, {
-        useFactory: (c) =>
-          new EnhancedPromptsRpcHandlers(
-            c.resolve(TOKENS.LOGGER),
-            c.resolve(TOKENS.RPC_HANDLER),
-            c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
-            c.resolve(TOKENS.LICENSE_SERVICE),
-            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-            c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
-            c,
-            c.resolve(TOKENS.SENTRY_SERVICE),
-          ),
-      });
-
       container.registerSingleton(QualityRpcHandlers);
       container.registerSingleton(ProviderRpcHandlers);
-
-      // LlmRpcHandlers uses DependencyContainer for lazy resolution
-      container.register(LlmRpcHandlers, {
-        useFactory: (c) =>
-          new LlmRpcHandlers(
-            c.resolve(TOKENS.LOGGER),
-            c.resolve(TOKENS.RPC_HANDLER),
-            c,
-            c.resolve(TOKENS.SENTRY_SERVICE),
-          ),
-      });
-
       container.registerSingleton(WebSearchRpcHandlers);
-
-      // TASK_2026_104 Sub-batch B5a: WorkspaceRpcHandlers (lifted from Electron).
       container.registerSingleton(WorkspaceRpcHandlers);
+      registerSharedRpcHandlers(container);
 
       logger.info('[CLI DI] Shared RPC handler classes registered (18)');
 
-      // ========================================
-      // PHASE 4.5: Wire EnhancedPrompts + analysis reader
-      // ========================================
-      try {
-        const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-          SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
-        );
-        const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
-          AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-        );
-        enhancedPrompts.setAnalysisReader(analysisStorage);
-        logger.info('[CLI DI] EnhancedPrompts analysis reader wired');
-      } catch {
-        // Non-fatal: enhanced prompts may not be needed in all configurations
-      }
-
-      // ========================================
-      // PHASE 4.6: Content download + plugin initialization
-      // ========================================
-      // Plugins and templates are downloaded from GitHub to ~/.ptah/ on first launch.
-      // Fire-and-forget: activation continues immediately.
+      const enhancedPrompts = container.resolve<EnhancedPromptsService>(
+        AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
+      );
+      const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+      );
+      enhancedPrompts.setAnalysisReader(analysisStorage);
+      logger.info('[CLI DI] EnhancedPrompts analysis reader wired');
       try {
         const contentDownload = container.resolve<ContentDownloadService>(
           PLATFORM_TOKENS.CONTENT_DOWNLOAD,
@@ -864,8 +597,6 @@ export class CliDIContainer {
             } else {
               logger.info('[CLI DI] Content download complete');
             }
-
-            // Initialize PluginLoaderService after content download
             try {
               const pluginLoader = container.resolve<PluginLoaderService>(
                 SDK_TOKENS.SDK_PLUGIN_LOADER,
@@ -901,17 +632,8 @@ export class CliDIContainer {
           error: error instanceof Error ? error.message : String(error),
         } as unknown as Error);
       }
-
-      // ========================================
-      // PHASE 4.7: Register RPC method handlers with the RpcHandler
-      // ========================================
-      // Registering handler classes in DI is not enough — each handler exposes
-      // a `static readonly METHODS` tuple that must be wired into the
-      // RpcHandler so dispatch can find them. Without this, every CLI command
-      // that calls into the in-process RPC layer would `task.error` with
-      // `Method not found`.
       try {
-        const registration = new CliRpcMethodRegistrationService();
+        const registration = new CliRpcMethodRegistrationService(container);
         registration.registerAll();
       } catch (error) {
         logger.error(
@@ -929,10 +651,6 @@ export class CliDIContainer {
     }
 
     logger.info('[CLI DI] All services registered successfully');
-
-    // ========================================
-    // Build transport objects
-    // ========================================
     const transport = new CliMessageTransport(container);
     const fireAndForget = new CliFireAndForgetHandler(container);
 

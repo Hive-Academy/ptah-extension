@@ -1,7 +1,5 @@
 /**
  * Chat / Context / Analytics wire payloads.
- *
- * Extracted from message.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type { SessionId, MessageId, CorrelationId } from '../branded.types';
@@ -9,10 +7,6 @@ import type { ContentBlock } from '../content-block.types';
 import type { SessionUIData } from '../claude-domain.types';
 
 import type { StrictChatMessage, StrictChatSession } from './session';
-
-// ============================================================================
-// Chat Payloads
-// ============================================================================
 
 export interface ChatSendMessagePayload {
   readonly content: string;
@@ -97,10 +91,6 @@ export interface ChatHistoryLoadedPayload {
   readonly messages: readonly StrictChatMessage[];
 }
 
-// ============================================================================
-// Context Payloads
-// ============================================================================
-
 export interface ContextUpdatePayload {
   readonly includedFiles: readonly string[];
   readonly excludedFiles: readonly string[];
@@ -114,7 +104,6 @@ export interface AnalyticsEventPayload {
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 export interface ContextGetFilesPayload {
-  // No payload needed for get files request
 }
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
@@ -148,10 +137,6 @@ export interface ContextSearchImagesPayload {
   readonly query: string;
 }
 
-// ============================================================================
-// Session Management Payloads
-// ============================================================================
-
 export interface ChatRenameSessionPayload {
   readonly sessionId: SessionId;
   readonly newName: string;
@@ -176,7 +161,6 @@ export interface ChatSessionDeletedPayload {
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 export interface ChatGetSessionStatsPayload {
-  // No payload needed for get session stats request
 }
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
@@ -195,7 +179,6 @@ export interface ChatStreamStoppedPayload {
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 export interface ChatRequestSessionsPayload {
-  // No payload needed for request sessions
 }
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 

@@ -5,8 +5,6 @@
  * and its own 16-byte GCM auth tag. The entry's logical key is bound to the
  * ciphertext as AAD so ciphertexts cannot be swapped between entries without
  * detection.
- *
- * WP-4A: Encryption primitives.
  */
 
 import * as crypto from 'crypto';

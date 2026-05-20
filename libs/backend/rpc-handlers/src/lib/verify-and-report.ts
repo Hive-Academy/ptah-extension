@@ -1,7 +1,7 @@
 /**
- * Shared RPC verification + Sentry drift reporting helper (TASK_2025_291 Wave C4b).
+ * Shared RPC verification + Sentry drift reporting helper.
  *
- * Collapses the ~35-line verification / Sentry / dev-assertion block that was
+ * Collapses the verification / Sentry / dev-assertion block that was
  * duplicated across the three app-level RPC registration services (VS Code,
  * Electron, TUI) into a single helper. Platform is surfaced in the Sentry
  * payload so dashboard filters still work.
@@ -111,14 +111,10 @@ function reportDriftToSentry(
   missingMethods: readonly string[],
   platform: RpcRegistrationPlatform,
 ): void {
-  try {
-    if (!container.isRegistered(sentryToken)) return;
-    const sentry = container.resolve<SentryServiceLike>(sentryToken);
-    sentry.captureException(error, {
-      errorSource: 'rpc-registration-drift',
-      extra: { missingMethods: Array.from(missingMethods), platform },
-    });
-  } catch {
-    // Never let Sentry reporting break activation.
-  }
+  if (!container.isRegistered(sentryToken)) return;
+  const sentry = container.resolve<SentryServiceLike>(sentryToken);
+  sentry.captureException(error, {
+    errorSource: 'rpc-registration-drift',
+    extra: { missingMethods: Array.from(missingMethods), platform },
+  });
 }

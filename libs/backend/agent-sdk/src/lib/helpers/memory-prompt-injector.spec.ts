@@ -1,5 +1,5 @@
 /**
- * Specs for MemoryPromptInjector (TASK_2026_THOTH_MEMORY_READ).
+ * Specs for MemoryPromptInjector.
  *
  * Covers:
  *   - query too short → returns ''

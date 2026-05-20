@@ -1,5 +1,5 @@
 /**
- * DI Token Registry — Cron Scheduler Tokens (TASK_2026_HERMES Track 3).
+ * DI Token Registry — Cron Scheduler Tokens.
  *
  * Convention mirrors `libs/backend/agent-sdk/src/lib/di/tokens.ts` and
  * `libs/backend/persistence-sqlite/src/lib/di/tokens.ts`:
@@ -7,8 +7,6 @@
  *    or string literals.
  *  - Each description is globally unique across all token files.
  *  - Frozen `as const` so consumer types narrow on the symbol values.
- *
- * Authoritative spec: TASK_2026_HERMES architecture.md §2.4.
  */
 export const CRON_TOKENS = {
   /** CronScheduler — orchestrator: register/list/update/delete/runNow + croner timers. */

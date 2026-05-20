@@ -1,8 +1,6 @@
 /**
  * Unit tests for `withEngine` — DI bootstrap + deterministic dispose.
  *
- * TASK_2026_104 Batch 4.
- *
  * The DI bootstrap is mocked via the `bootstrap` override on
  * `WithEngineOptions` so tests do not pay the real container cost. Coverage
  * targets ≥ 80% on `with-engine.ts`.
@@ -341,7 +339,7 @@ describe('withEngine', () => {
   });
 
   // -------------------------------------------------------------------------
-  // P0 Fix 1 — SDK adapter initialization lifecycle.
+  // SDK adapter initialization lifecycle.
   //
   // `mode === 'full'` must call AGENT_ADAPTER.initialize() before invoking
   // `fn`. Failure surfaces a `SdkInitFailedError` so command-level catch

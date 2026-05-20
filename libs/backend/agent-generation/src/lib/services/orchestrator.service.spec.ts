@@ -1,5 +1,5 @@
 /**
- * AgentGenerationOrchestratorService Unit Tests (TASK_2026_100 P2.B1)
+ * AgentGenerationOrchestratorService Unit Tests
  *
  * The orchestrator is the stable surface the `/orchestrate` skill (and the
  * setup wizard) ultimately delegate to for project-adaptive agent

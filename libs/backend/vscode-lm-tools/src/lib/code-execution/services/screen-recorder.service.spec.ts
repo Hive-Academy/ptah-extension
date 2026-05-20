@@ -1,5 +1,5 @@
 /**
- * Specs for ScreenRecorderService (TASK_2026_100 P1.B7).
+ * Specs for ScreenRecorderService.
  *
  * Covers:
  *   - start/stop lifecycle and isRecording() state

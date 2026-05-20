@@ -1,5 +1,5 @@
 /**
- * P3.B2 — Chat flow E2E specs: error & recovery banners.
+ * Chat flow E2E specs: error & recovery banners.
  *
  * Validates UX surfaces for two failure paths:
  *   1. Provider error mid-stream    -> error banner + Retry button posts `chat:retry`.

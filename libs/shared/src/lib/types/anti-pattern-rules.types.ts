@@ -4,8 +4,6 @@
  * Type definitions for the anti-pattern detection rule engine.
  * Enables extensible, configurable pattern detection.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -22,8 +20,6 @@ import type {
  * detection (e.g. AST-backed analyses) while leaving existing sync rules
  * unchanged. Consumers must `await Promise.resolve(...)` the result to handle
  * both cases uniformly.
- *
- * TASK_2025_291 Wave B (B2)
  */
 export type MaybeAsync<T> = T | Promise<T>;
 
@@ -48,7 +44,6 @@ export type DetectionMethod = 'regex' | 'ast' | 'heuristic';
 
 /**
  * Rule category for grouping related rules.
- * Includes framework-specific categories added in TASK_2025_144 Phase E2.
  */
 export type RuleCategory =
   | 'typescript'
@@ -83,10 +78,6 @@ export interface AntiPatternRule {
    * Rules may execute synchronously (e.g. regex scans) or asynchronously
    * (e.g. AST/tree-sitter-backed analyses). Callers must normalize the
    * return value with `await Promise.resolve(rule.detect(...))`.
-   *
-   * TASK_2025_291 Wave B (B2): widened from `AntiPatternMatch[]` to
-   * `MaybeAsync<AntiPatternMatch[]>` so structural rules can do real AST
-   * parsing without forcing every rule async.
    *
    * @param content - File content to analyze
    * @param filePath - Relative file path

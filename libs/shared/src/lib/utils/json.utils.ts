@@ -12,18 +12,13 @@ export async function parseRobustJson<T = unknown>(
   jsonString: string
 ): Promise<T> {
   try {
-    // Attempt standard parsing
     const result = JSON.parse(jsonString);
     return result;
   } catch (e1) {
     try {
-      // Dynamic import for ESM module compatibility
       const { jsonrepair } = await import('jsonrepair');
       const repairedJson: string = jsonrepair(jsonString);
-      // Attempt parsing the repaired string
       const parsedResult = JSON.parse(repairedJson);
-
-      // Check if the repaired result is actually structured data (object or array)
       if (typeof parsedResult !== 'object' || parsedResult === null) {
         const preview =
           jsonString.length > 100

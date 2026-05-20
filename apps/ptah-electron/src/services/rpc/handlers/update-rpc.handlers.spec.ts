@@ -14,8 +14,6 @@
  *     via handleMessage().
  *   - Mock 'electron-updater' to intercept quitAndInstall() calls without
  *     a real Electron process.
- *
- * TASK_2026_117: Batch 5, Task 5.3
  */
 
 import 'reflect-metadata';

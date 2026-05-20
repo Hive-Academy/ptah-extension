@@ -1,15 +1,13 @@
 /**
  * `ptah execute-spec` command — execute a stored spec via the Team Leader.
  *
- * TASK_2026_104 Sub-batch B10d. Replaces the Batch 2 27-line stub.
- *
  * Resolves `<cwd>/.ptah/specs/<id>/{task-description,implementation-plan}.md`,
  * builds a Team Leader execution prompt that interpolates both files'
  * contents, and delegates to `executeSessionStart` from `session.ts:B10c`.
  *
  * Failure modes (all exit 1, `ptah_code: 'unknown'`):
  *   - missing `--id`
- *   - spec folder missing (TASK_DOES_NOT_EXIST)
+ *   - spec folder missing
  *   - either of the two required files missing
  */
 
@@ -78,8 +76,6 @@ export async function execute(
   const formatter = hooks.formatter ?? buildFormatter(globals);
   const readFile = hooks.readFile ?? ((p: string) => fs.readFile(p, 'utf8'));
   const delegate = hooks.executeSessionStart ?? executeSessionStart;
-
-  // ---- 1. Validate --id was supplied ---------------------------------------
   const specId = opts.id?.trim();
   if (!specId) {
     await formatter.writeNotification('task.error', {
@@ -89,8 +85,6 @@ export async function execute(
     });
     return ExitCode.GeneralError;
   }
-
-  // ---- 2. Resolve + read required files ------------------------------------
   const cwd = globals.cwd;
   const specDir = path.join(cwd, '.ptah', 'specs', specId);
   const taskDescPath = path.join(specDir, 'task-description.md');
@@ -121,18 +115,11 @@ export async function execute(
     });
     return ExitCode.GeneralError;
   }
-
-  // ---- 3. Build the Team Leader prompt -------------------------------------
   const prompt = buildTeamLeaderPrompt(
     specId,
     taskDescription,
     implementationPlan,
   );
-
-  // ---- 4. Delegate to `session start` (single-turn) ------------------------
-  // The B10c `executeSessionStart` signature treats `task` as the free-form
-  // prompt forwarded to `chat:start`, so we pass the built Team Leader prompt
-  // as `task`. `once: true` — execute-spec is a one-shot.
   return delegate(
     {
       task: prompt,

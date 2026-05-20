@@ -1,8 +1,6 @@
 /**
  * Line-buffered NDJSON parser over an arbitrary `Readable` stream.
  *
- * TASK_2026_104 Batch 3.
- *
  * Wraps `node:readline` with a `.start()` / `.stop()` lifecycle that decodes
  * each line into a JSON-RPC message via the encoder. Tolerates split chunks
  * (`readline` already line-buffers under the hood). Bad JSON does NOT crash
@@ -56,7 +54,6 @@ export class StdinReader {
     onEnd?: OnEnd;
   }): void {
     if (this.rl !== null) {
-      // Already started — caller bug, but tolerate it.
       return;
     }
 
@@ -66,8 +63,6 @@ export class StdinReader {
 
     this.rl = readline.createInterface({
       input: this.input,
-      // Disable terminal mode so we don't emit echo / cursor escape sequences
-      // when stdin happens to be a TTY in dev shells.
       terminal: false,
       crlfDelay: Infinity,
     });
@@ -90,7 +85,6 @@ export class StdinReader {
   }
 
   private handleLine(line: string): void {
-    // Skip blank lines silently — common when piping with extra `\n`.
     if (line.length === 0 || line.trim().length === 0) {
       return;
     }
@@ -100,16 +94,12 @@ export class StdinReader {
       this.onMessage?.(decoded.message, line);
       return;
     }
-    // Narrow explicitly (some downstream tsconfigs do not have strict mode
-    // enabled and won't narrow the discriminated union via `else`).
     const failure: Extract<typeof decoded, { ok: false }> = decoded;
     this.onParseError?.(failure);
   }
 
   private handleClose(): void {
     const cb = this.onEnd;
-    // Detach state BEFORE invoking the callback so handlers can call `start()`
-    // again on a fresh stream from inside `onEnd` if they want to.
     this.rl = null;
     this.onMessage = null;
     this.onParseError = null;

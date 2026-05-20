@@ -45,17 +45,13 @@ import { ChatFile } from '../../services';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FileTagComponent {
-  // ANGULAR 20+ PATTERN: input() for reactive inputs
   readonly file = input.required<ChatFile>();
-
-  // ANGULAR 20+ PATTERN: output() for event emitters
   readonly removeFile = output<void>();
 
   getFileIcon(): string {
     const fileType = this.file().type;
     if (fileType === 'image') return '🖼️';
     if (fileType === 'text') return '📄';
-    // 'binary' type
     return '📦';
   }
 

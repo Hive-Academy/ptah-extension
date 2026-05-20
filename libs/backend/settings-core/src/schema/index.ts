@@ -20,24 +20,13 @@ import {
  * - Default value resolution
  *
  * Add new definitions to their domain schema file, then include them here.
- * Placeholder namespaces (memory, skillSynthesis, cron) will be populated in Phase 3+.
  */
-// Using unknown here is intentional — the array holds heterogeneous definitions.
-// Callers that need the typed version access the individual exports.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const SETTINGS_SCHEMA: readonly any[] = Object.freeze([
-  // Auth
   AUTH_METHOD_DEF,
   ANTHROPIC_PROVIDER_ID_DEF,
-
-  // Per-provider model + reasoning (auto-expanded from the known provider list)
   ...KNOWN_PROVIDER_AUTH_KEYS.map(providerSelectedModelDef),
   ...KNOWN_PROVIDER_AUTH_KEYS.map(providerReasoningEffortDef),
-
-  // CLI sub-agents
   PTAH_CLI_AGENTS_DEF,
-
-  // Gateway secrets
   GATEWAY_TELEGRAM_TOKEN_DEF,
   GATEWAY_DISCORD_TOKEN_DEF,
   GATEWAY_SLACK_TOKEN_DEF,

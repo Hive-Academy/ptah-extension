@@ -5,8 +5,8 @@
  * Manages workspace sidebar width, editor panel width/visibility,
  * workspace folders, and layout persistence via state storage.
  *
- * TASK_2025_208 Batch 4: Workspace switch coordination, active streams
- * confirmation on close, and initial workspace:switch RPC on renderer load.
+ * Coordinates workspace switching, confirms active streams on close,
+ * and issues the initial workspace:switch RPC on renderer load.
  */
 
 import {
@@ -53,30 +53,17 @@ export class ElectronLayoutService implements MessageHandler {
   private readonly coordinator = inject(WORKSPACE_COORDINATOR, {
     optional: true,
   });
-
-  // Layout dimensions
   private readonly _workspaceSidebarWidth = signal(DEFAULT_SIDEBAR_WIDTH);
   private readonly _workspaceSidebarVisible = signal(true);
   private readonly _editorPanelWidth = signal(DEFAULT_EDITOR_WIDTH);
   private readonly _editorPanelVisible = signal(false);
   private readonly _sidebarDragging = signal(false);
   private readonly _editorDragging = signal(false);
-
-  // Workspace state
   private readonly _workspaceFolders = signal<WorkspaceFolder[]>([]);
   private readonly _activeWorkspaceIndex = signal(0);
-
-  // TASK_2025_208: Workspace switch coordination state
   private _switchId = 0;
   private _switchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // TASK_2026_115: Origin-tag self-echo guard. Stamped immediately before the
-  // user-initiated workspace:switch RPC; cleared either when the matching
-  // WORKSPACE_CHANGED echo arrives (drop) or when the RPC fails (rollback).
-  // Plain object ref — not a signal — because nothing renders it.
   private _pendingOriginRef: { current: string | null } = { current: null };
-
-  // Public readonly signals
   readonly workspaceSidebarWidth = this._workspaceSidebarWidth.asReadonly();
   readonly workspaceSidebarVisible = this._workspaceSidebarVisible.asReadonly();
   readonly editorPanelWidth = this._editorPanelWidth.asReadonly();
@@ -95,17 +82,11 @@ export class ElectronLayoutService implements MessageHandler {
   readonly hasWorkspaceFolders = computed(
     () => this._workspaceFolders().length > 0,
   );
-
-  // ── MessageHandler implementation ─────────────────────────────────
-  // Listens for WORKSPACE_CHANGED so that "Open Folder" from the native
-  // menu (or any other main-process trigger that fires onDidChangeWorkspaceFolders)
-  // re-syncs the renderer folder list without requiring a full page reload.
   readonly handledMessageTypes = [MESSAGE_TYPES.WORKSPACE_CHANGED];
 
   handleMessage(message: { type: string; payload?: unknown }): void {
     if (!this.vscodeService.isElectron) return;
     const payload = message.payload as WorkspaceChangedPayload | undefined;
-    // Primary guard: origin tag
     if (
       payload?.origin !== null &&
       payload?.origin !== undefined &&
@@ -114,7 +95,6 @@ export class ElectronLayoutService implements MessageHandler {
       this._pendingOriginRef.current = null;
       return;
     }
-    // Belt-and-suspenders: drop if path is already current
     const incomingPath = payload?.workspaceInfo?.path;
     const currentPath = this.activeWorkspace()?.path;
     if (incomingPath && currentPath && incomingPath === currentPath) {
@@ -124,7 +104,6 @@ export class ElectronLayoutService implements MessageHandler {
   }
 
   constructor() {
-    // Only restore layout in Electron context (avoids wasteful side effects in VS Code)
     if (this.vscodeService.isElectron) {
       if (!this.coordinator) {
         console.warn(
@@ -154,8 +133,6 @@ export class ElectronLayoutService implements MessageHandler {
     });
   }
 
-  // ── Sidebar width ──────────────────────────────────────────────────
-
   setWorkspaceSidebarWidth(width: number): void {
     const clamped = Math.min(
       Math.max(width, MIN_SIDEBAR_WIDTH),
@@ -175,8 +152,6 @@ export class ElectronLayoutService implements MessageHandler {
     this._workspaceSidebarVisible.update((v) => !v);
     this.persistLayout();
   }
-
-  // ── Editor panel ───────────────────────────────────────────────────
 
   setEditorPanelWidth(width: number): void {
     const maxWidth = window.innerWidth * MAX_EDITOR_WIDTH_RATIO;
@@ -201,8 +176,6 @@ export class ElectronLayoutService implements MessageHandler {
     this.persistLayout();
   }
 
-  // ── Workspace folders ──────────────────────────────────────────────
-
   /**
    * Programmatically add a workspace folder by its absolute path.
    * Used by WorktreeService to auto-register newly created worktrees.
@@ -212,7 +185,6 @@ export class ElectronLayoutService implements MessageHandler {
    * registers the given path as a workspace folder.
    */
   async addFolderByPath(folderPath: string): Promise<void> {
-    // Deduplicate: don't add if the path already exists
     const existing = this._workspaceFolders();
     if (existing.some((f) => f.path === folderPath)) {
       const existingIndex = existing.findIndex((f) => f.path === folderPath);
@@ -221,8 +193,6 @@ export class ElectronLayoutService implements MessageHandler {
       }
       return;
     }
-
-    // Register with backend first so the folder persists across restarts
     try {
       const result = await this.rpcService.call('workspace:registerFolder', {
         path: folderPath,
@@ -256,8 +226,6 @@ export class ElectronLayoutService implements MessageHandler {
 
   async addFolder(): Promise<void> {
     try {
-      // 5-minute timeout: the native file-picker dialog waits for user input
-      // and can easily exceed the default 30-second RPC timeout.
       const result = await this.rpcService.call(
         'workspace:addFolder',
         {},
@@ -269,17 +237,13 @@ export class ElectronLayoutService implements MessageHandler {
 
       const data = result.data;
       if (!data.path) {
-        // User cancelled the dialog or backend returned an error
         if (data.error) {
           console.error('[ElectronLayout] addFolder error:', data.error);
         }
         return;
       }
-
-      // Deduplicate: don't add if the path already exists
       const existing = this._workspaceFolders();
       if (existing.some((f) => f.path === data.path)) {
-        // Already open — just switch to it
         const existingIndex = existing.findIndex((f) => f.path === data.path);
         if (existingIndex >= 0) {
           this.switchWorkspace(existingIndex);
@@ -294,7 +258,6 @@ export class ElectronLayoutService implements MessageHandler {
           name: data.name || this.folderName(data.path!),
         },
       ]);
-      // Auto-switch to the new folder
       const newIndex = this._workspaceFolders().length - 1;
       this.switchWorkspace(newIndex);
     } catch (error) {
@@ -305,7 +268,7 @@ export class ElectronLayoutService implements MessageHandler {
   /**
    * Remove a workspace folder by index.
    *
-   * TASK_2025_208: Before removal, checks for streaming tabs in the workspace.
+   * Before removal, checks for streaming tabs in the workspace.
    * If streaming tabs exist, shows a confirmation dialog. On confirm, sends
    * chat:abort RPC for each streaming session before proceeding with removal.
    * After removal, cleans up TabManagerService and EditorService state.
@@ -317,8 +280,6 @@ export class ElectronLayoutService implements MessageHandler {
     if (index < 0 || index >= folders.length) return;
 
     const removedFolder = folders[index];
-
-    // TASK_2025_208: Check for streaming tabs before removal
     if (this.coordinator) {
       const streamingSessionIds = this.coordinator.getStreamingSessionIds(
         removedFolder.path,
@@ -342,8 +303,6 @@ export class ElectronLayoutService implements MessageHandler {
         if (!confirmed) {
           return;
         }
-
-        // Abort all streaming sessions before removal
         await Promise.allSettled(
           streamingSessionIds.map((sessionId) =>
             this.rpcService.call('chat:abort', { sessionId }).catch((error) => {
@@ -356,9 +315,6 @@ export class ElectronLayoutService implements MessageHandler {
         );
       }
     }
-
-    // Remove from backend first — if this fails, don't mutate frontend state.
-    // Prevents zombie folders that reappear on restart.
     try {
       const result = await this.rpcService.call('workspace:removeFolder', {
         path: removedFolder.path,
@@ -377,8 +333,6 @@ export class ElectronLayoutService implements MessageHandler {
       );
       return;
     }
-
-    // Backend confirmed — now safe to mutate frontend state
     this._workspaceFolders.update((f) => f.filter((_, i) => i !== index));
 
     const newLength = this._workspaceFolders().length;
@@ -387,11 +341,7 @@ export class ElectronLayoutService implements MessageHandler {
     } else if (this._activeWorkspaceIndex() >= newLength) {
       this._activeWorkspaceIndex.set(newLength - 1);
     }
-
-    // TASK_2025_208: Clean up frontend state for the removed workspace
     this.cleanupWorkspaceState(removedFolder.path);
-
-    // If we still have folders, coordinate switch to the new active workspace
     const newActive = this.activeWorkspace();
     if (newActive) {
       this.coordinateWorkspaceSwitch(
@@ -399,7 +349,6 @@ export class ElectronLayoutService implements MessageHandler {
         this._activeWorkspaceIndex(),
       );
     } else {
-      // No workspaces left -- update VSCodeService to empty state
       this.vscodeService.updateWorkspaceRoot('');
     }
 
@@ -409,7 +358,7 @@ export class ElectronLayoutService implements MessageHandler {
   /**
    * Switch to a workspace by index.
    *
-   * TASK_2025_208: Implements debounced workspace switching with stale-response
+   * Implements debounced workspace switching with stale-response
    * protection. The UI updates immediately (signal set before RPC) for instant
    * perceived switch. The backend RPC is debounced by 100ms to handle rapid
    * clicking. A switchId counter ensures stale RPC responses are discarded.
@@ -420,25 +369,15 @@ export class ElectronLayoutService implements MessageHandler {
   switchWorkspace(index: number): void {
     const folders = this._workspaceFolders();
     if (index < 0 || index >= folders.length) return;
-
-    // No-op only if already on this workspace AND VSCodeService already reflects it.
-    // When adding the first workspace folder, _activeWorkspaceIndex is already 0
-    // (the default), but workspaceRoot is empty — we must coordinate, not no-op.
     if (
       this._activeWorkspaceIndex() === index &&
       this.vscodeService.config().workspaceRoot === folders[index].path
     ) {
       return;
     }
-
-    // Capture previous index BEFORE updating signal so rollback can revert correctly
     const previousIndex = this._activeWorkspaceIndex();
-
-    // Update UI immediately for instant perceived switch
     this._activeWorkspaceIndex.set(index);
     this.persistLayout();
-
-    // Debounced backend coordination
     const folder = folders[index];
     this.debouncedWorkspaceSwitch(folder.path, previousIndex);
   }
@@ -446,8 +385,6 @@ export class ElectronLayoutService implements MessageHandler {
   setWorkspaceFolders(folders: WorkspaceFolder[]): void {
     this._workspaceFolders.set(folders);
   }
-
-  // ── Workspace switch coordination (TASK_2025_208) ─────────────────
 
   /**
    * Debounce workspace switch RPC calls. If called again within SWITCH_DEBOUNCE_MS,
@@ -458,32 +395,22 @@ export class ElectronLayoutService implements MessageHandler {
     newPath: string,
     previousIndex: number,
   ): void {
-    // Cancel any pending debounced switch
     if (this._switchDebounceTimer !== null) {
       clearTimeout(this._switchDebounceTimer);
       this._switchDebounceTimer = null;
     }
-
-    // Increment switch ID -- stale responses will have a lower ID and be discarded
     const currentSwitchId = ++this._switchId;
 
     this._switchDebounceTimer = setTimeout(async () => {
       this._switchDebounceTimer = null;
-
-      // TASK_2026_115: Stamp origin token immediately before the RPC so the
-      // resulting WORKSPACE_CHANGED echo can be identified and dropped by
-      // handleMessage. Cleared on echo (handleMessage) or on RPC failure.
       const origin = crypto.randomUUID();
       this._pendingOriginRef.current = origin;
 
       try {
-        // Send workspace:switch RPC
         const result = await this.rpcService.call('workspace:switch', {
           path: newPath,
           origin,
         });
-
-        // Discard stale response: a newer switch has been initiated since this RPC started
         if (this._switchId !== currentSwitchId) {
           return;
         }
@@ -493,21 +420,14 @@ export class ElectronLayoutService implements MessageHandler {
             '[ElectronLayout] workspace:switch RPC failed:',
             result,
           );
-          // Clear origin token: no echo will arrive for a failed RPC.
           this._pendingOriginRef.current = null;
-          // Rollback optimistic UI update so the sidebar doesn't show a
-          // workspace as active when the backend is still on the old one.
           this._activeWorkspaceIndex.set(previousIndex);
           this.persistLayout();
           return;
         }
-
-        // Coordinate frontend services for the new workspace
         this.coordinateWorkspaceSwitch(newPath, previousIndex);
       } catch (error) {
-        // Clear origin token on thrown failure as well.
         this._pendingOriginRef.current = null;
-        // Only rollback/log if this switch is still the latest
         if (this._switchId === currentSwitchId) {
           console.error('[ElectronLayout] Failed to switch workspace:', error);
           this._activeWorkspaceIndex.set(previousIndex);
@@ -525,7 +445,7 @@ export class ElectronLayoutService implements MessageHandler {
    * Uses WORKSPACE_COORDINATOR DI token (provided by chat library) to avoid
    * circular dependencies between core and chat/editor.
    *
-   * TASK_2025_208 Fix 5: Improved error handling. If coordination fails,
+   * If coordination fails,
    * reverts _activeWorkspaceIndex to the previous value to prevent leaving
    * the UI in an inconsistent state (sidebar showing workspace A, but chat
    * showing workspace B's tabs).
@@ -537,7 +457,6 @@ export class ElectronLayoutService implements MessageHandler {
     try {
       if (this.coordinator) {
         const result = this.coordinator.switchWorkspace(newPath);
-        // Handle async coordinator (returns Promise<void> after TASK_2025_259)
         if (result instanceof Promise) {
           result.catch((error) => {
             console.error(
@@ -547,12 +466,7 @@ export class ElectronLayoutService implements MessageHandler {
           });
         }
       }
-
-      // Update VSCodeService config so all consumers see the new workspaceRoot
       this.vscodeService.updateWorkspaceRoot(newPath);
-
-      // Update AppStateManager so dashboard and other consumers using
-      // appState.workspaceInfo() see the new workspace path
       const workspaceName = this.folderName(newPath);
       this.appState.setWorkspaceInfo({
         name: workspaceName,
@@ -564,8 +478,6 @@ export class ElectronLayoutService implements MessageHandler {
         '[ElectronLayout] Failed to coordinate workspace switch:',
         error,
       );
-
-      // Revert the active workspace index to prevent inconsistent UI state
       const targetIndex = this._workspaceFolders().findIndex(
         (f) => f.path === newPath,
       );
@@ -586,7 +498,6 @@ export class ElectronLayoutService implements MessageHandler {
     if (this.coordinator) {
       try {
         const result = this.coordinator.removeWorkspaceState(workspacePath);
-        // Handle async coordinator (returns Promise<void> after TASK_2025_259)
         if (result instanceof Promise) {
           result.catch((error) => {
             console.error(
@@ -604,8 +515,6 @@ export class ElectronLayoutService implements MessageHandler {
     }
   }
 
-  // ── Persistence ────────────────────────────────────────────────────
-
   private persistLayout(): void {
     const state = {
       sidebarWidth: this._workspaceSidebarWidth(),
@@ -619,7 +528,7 @@ export class ElectronLayoutService implements MessageHandler {
   /**
    * Restore layout from persisted webview state.
    *
-   * TASK_2025_208 (Task 4.4): After restoring workspace folders and active index,
+   * After restoring workspace folders and active index,
    * sends an initial workspace:switch RPC for the active workspace to ensure the
    * backend activates the correct child container on renderer load. Also
    * coordinates TabManagerService and EditorService for the restored workspace.
@@ -633,13 +542,7 @@ export class ElectronLayoutService implements MessageHandler {
       workspaceFolders?: unknown[];
       activeWorkspaceIndex?: number;
     }>(LAYOUT_STATE_KEY);
-
-    // Restore layout dimensions only when persisted state exists, but ALWAYS
-    // run the backend workspace-fetch path regardless.  On first launch state
-    // is null; skipping workspace:getInfo + coordinateWorkspaceSwitch would
-    // leave the renderer with no folders and no active workspace.
     if (state) {
-      // Route through clamping methods to enforce min/max constraints
       if (typeof state.sidebarWidth === 'number') {
         this.setWorkspaceSidebarWidth(state.sidebarWidth);
       }
@@ -653,9 +556,6 @@ export class ElectronLayoutService implements MessageHandler {
         this._editorPanelVisible.set(state.editorVisible);
       }
     }
-
-    // Fetch workspace list from backend (source of truth: global-state.json).
-    // Runs unconditionally — including on first launch when state is null/undefined.
     void this.syncFromBackend(state ?? null);
   }
 
@@ -704,9 +604,6 @@ export class ElectronLayoutService implements MessageHandler {
 
           const activePath = backendFolders[activeIndex]?.path;
           if (activePath) {
-            // workspace:switch must be called before coordinateWorkspaceSwitch
-            // so the backend session context is set for the correct workspace
-            // before TabManager loads sessions.
             const switchResult = await this.rpcService.call(
               'workspace:switch',
               {
@@ -725,20 +622,12 @@ export class ElectronLayoutService implements MessageHandler {
               );
             }
           }
-
-          // Only persist when we actually loaded something meaningful so that
-          // a truly empty first-launch (no cached state, no backend folders)
-          // does not dirty the storage with default dim values.
           this.persistLayout();
         } else {
-          // Backend has no workspaces
           if (cachedState) {
-            // Fall back to cached webview state (only when available)
             this.restoreWorkspaceFoldersFromCache(cachedState);
             this.persistLayout();
           } else {
-            // Genuinely empty first launch — clear to known-good state
-            // without persisting so first-launch detection stays clean.
             this._workspaceFolders.set([]);
             this._activeWorkspaceIndex.set(0);
             this.appState.setWorkspaceInfo(null);
@@ -746,13 +635,11 @@ export class ElectronLayoutService implements MessageHandler {
           }
         }
       } else if (cachedState) {
-        // getInfo itself failed (non-success result) — fall back to cache
         this.restoreWorkspaceFoldersFromCache(cachedState);
         this.persistLayout();
       }
     } catch {
       if (this._switchId !== syncId) return;
-      // RPC threw — fall back to cached webview state if available
       if (cachedState) {
         this.restoreWorkspaceFoldersFromCache(cachedState);
         this.persistLayout();

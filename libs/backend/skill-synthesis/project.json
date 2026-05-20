@@ -1,5 +1,5 @@
 {
-  "name": "skill-synthesis",
+  "name": "@ptah-extension/skill-synthesis",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/skill-synthesis/src",

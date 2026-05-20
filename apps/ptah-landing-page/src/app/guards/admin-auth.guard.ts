@@ -39,7 +39,6 @@ export const AdminAuthGuard: CanActivateFn = (): Observable<boolean> => {
         if (err?.status === 403) {
           router.navigate(['/profile']);
         } else {
-          // 401 or any other error → conservative redirect to login
           router.navigate(['/login'], {
             queryParams: { returnUrl: '/admin' },
           });

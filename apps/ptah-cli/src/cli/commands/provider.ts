@@ -2,8 +2,6 @@
  * `ptah provider` command — sub-dispatcher for status / set-key / remove-key /
  * default get / default set / models list / tier set / tier get / tier clear.
  *
- * TASK_2026_104 Batch 8d.
- *
  * Sub-commands (per task-description.md §3.1 lines 459-469):
  *
  *   status                        — Read-only. Calls `llm:getProviderStatus`,
@@ -156,22 +154,12 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// `provider status`
-// ---------------------------------------------------------------------------
-
 async function runStatus(
   formatter: Formatter,
   globals: GlobalOptions,
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-    // Cast through unknown — the RPC handler now returns the rich shape
-    // (LlmGetProviderStatusResponse) including authType / requiresProxy /
-    // isLocal / baseUrl / baseUrlOverridden for every registered provider
-    // plus the virtual `anthropic` direct entry. The notification payload
-    // forwards all fields verbatim so JSON-RPC consumers can render auth-mode
-    // columns without extra round-trips.
     const status = await callRpc<LlmGetProviderStatusResponse>(
       ctx.transport,
       'llm:getProviderStatus',
@@ -203,10 +191,6 @@ async function fetchAvailableProviderIds(
   const providers = (status.providers ?? []) as LlmGetProviderStatusEntry[];
   return providers.map((p) => p.name);
 }
-
-// ---------------------------------------------------------------------------
-// `provider set-key --provider --key`
-// ---------------------------------------------------------------------------
 
 async function runSetKey(
   opts: ProviderOptions,
@@ -246,9 +230,6 @@ async function runSetKey(
       });
       return ExitCode.InternalFailure;
     }
-    // Optionally persist the base URL override AFTER the api key write
-    // succeeds. Failure here surfaces as a separate task.error so the user
-    // can re-run `provider base-url set` without re-supplying the key.
     if (baseUrlOverride !== undefined) {
       const baseResult = await callRpc<{ success: boolean; error?: string }>(
         ctx.transport,
@@ -270,7 +251,6 @@ async function runSetKey(
         success: true,
       });
     }
-    // SECURITY: never echo the api key back — only the provider name.
     await formatter.writeNotification('provider.key.set', {
       provider,
       success: true,
@@ -278,10 +258,6 @@ async function runSetKey(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `provider base-url {set|get|clear}`
-// ---------------------------------------------------------------------------
 
 async function runBaseUrl(
   opts: ProviderOptions,
@@ -380,15 +356,6 @@ async function runBaseUrl(
   return ExitCode.UsageError;
 }
 
-// ---------------------------------------------------------------------------
-// `provider ollama {set-endpoint <url>|get-endpoint|clear-endpoint}`
-//
-// Convenience facade over `provider base-url ...` with `provider: 'ollama'`
-// hardcoded. Routes through the same `llm:*ProviderBaseUrl` RPCs so users
-// pointing at a remote Ollama instance get the same override resolution as
-// every other provider.
-// ---------------------------------------------------------------------------
-
 const OLLAMA_PROVIDER_ID = 'ollama';
 
 async function runOllama(
@@ -477,10 +444,6 @@ async function runOllama(
   return ExitCode.UsageError;
 }
 
-// ---------------------------------------------------------------------------
-// `provider remove-key --provider`
-// ---------------------------------------------------------------------------
-
 async function runRemoveKey(
   opts: ProviderOptions,
   formatter: Formatter,
@@ -516,10 +479,6 @@ async function runRemoveKey(
   });
 }
 
-// ---------------------------------------------------------------------------
-// `provider default {get|set <id>}`
-// ---------------------------------------------------------------------------
-
 async function runDefault(
   opts: ProviderOptions,
   formatter: Formatter,
@@ -548,10 +507,6 @@ async function runDefault(
       return ExitCode.UsageError;
     }
     return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-      // Validate against the live registry before issuing the write. Catches
-      // typos like `openroute` and surfaces a "did you mean…?" hint. We use
-      // the same RPC the user can call themselves so the suggestion list
-      // matches what `provider status` shows.
       const available = await fetchAvailableProviderIds(ctx.transport);
       if (!available.includes(provider)) {
         const hint = suggestClosest(provider, available, 2);
@@ -590,10 +545,6 @@ async function runDefault(
   );
   return ExitCode.UsageError;
 }
-
-// ---------------------------------------------------------------------------
-// `provider models list [--provider]`
-// ---------------------------------------------------------------------------
 
 async function runModels(
   opts: ProviderOptions,
@@ -634,10 +585,6 @@ async function runModels(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `provider tier {set|get|clear}`
-// ---------------------------------------------------------------------------
 
 async function runTier(
   opts: ProviderOptions,
@@ -725,10 +672,6 @@ async function runTier(
   );
   return ExitCode.UsageError;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Thin wrapper around `transport.call` that throws on RPC error (so the outer

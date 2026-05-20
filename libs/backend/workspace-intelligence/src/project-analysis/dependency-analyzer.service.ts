@@ -87,7 +87,6 @@ export class DependencyAnalyzerService {
           return this.emptyResult();
       }
     } catch {
-      // Graceful error handling - return empty result instead of crashing
       return this.emptyResult();
     }
   }
@@ -135,36 +134,25 @@ export class DependencyAnalyzerService {
   private async analyzePythonDependencies(
     workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
-    // Try requirements.txt first
     const requirementsPath = path.join(workspacePath, 'requirements.txt');
     const requirementsExist = await this.fileSystem.exists(requirementsPath);
 
     if (requirementsExist) {
-      try {
-        const content = await this.fileSystem.readFile(requirementsPath);
-        const dependencies = this.parseRequirementsTxt(content);
+      const content = await this.fileSystem.readFile(requirementsPath);
+      const dependencies = this.parseRequirementsTxt(content);
 
-        return {
-          dependencies,
-          devDependencies: [],
-          totalCount: dependencies.length,
-        };
-      } catch {
-        // Fall through to try Pipfile
-      }
+      return {
+        dependencies,
+        devDependencies: [],
+        totalCount: dependencies.length,
+      };
     }
-
-    // Try Pipfile as fallback
     const pipfilePath = path.join(workspacePath, 'Pipfile');
     const pipfileExists = await this.fileSystem.exists(pipfilePath);
 
     if (pipfileExists) {
-      try {
-        const content = await this.fileSystem.readFile(pipfilePath);
-        return this.parsePipfile(content);
-      } catch {
-        // Ignore parse errors
-      }
+      const content = await this.fileSystem.readFile(pipfilePath);
+      return this.parsePipfile(content);
     }
 
     return this.emptyResult();
@@ -289,7 +277,6 @@ export class DependencyAnalyzerService {
     workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     try {
-      // Find all .csproj files
       const entries = await this.fileSystem.readDirectory(workspacePath);
       const csprojFile = entries.find((entry) =>
         entry.name.endsWith('.csproj'),
@@ -319,42 +306,31 @@ export class DependencyAnalyzerService {
   private async analyzeJavaDependencies(
     workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
-    // Try pom.xml first (Maven)
     const pomXmlPath = path.join(workspacePath, 'pom.xml');
     const pomExists = await this.fileSystem.exists(pomXmlPath);
 
     if (pomExists) {
-      try {
-        const content = await this.fileSystem.readFile(pomXmlPath);
-        const dependencies = this.parsePomXml(content);
+      const content = await this.fileSystem.readFile(pomXmlPath);
+      const dependencies = this.parsePomXml(content);
 
-        return {
-          dependencies,
-          devDependencies: [],
-          totalCount: dependencies.length,
-        };
-      } catch {
-        // Fall through to try build.gradle
-      }
+      return {
+        dependencies,
+        devDependencies: [],
+        totalCount: dependencies.length,
+      };
     }
-
-    // Try build.gradle as fallback (Gradle)
     const buildGradlePath = path.join(workspacePath, 'build.gradle');
     const gradleExists = await this.fileSystem.exists(buildGradlePath);
 
     if (gradleExists) {
-      try {
-        const content = await this.fileSystem.readFile(buildGradlePath);
-        const dependencies = this.parseBuildGradle(content);
+      const content = await this.fileSystem.readFile(buildGradlePath);
+      const dependencies = this.parseBuildGradle(content);
 
-        return {
-          dependencies,
-          devDependencies: [],
-          totalCount: dependencies.length,
-        };
-      } catch {
-        // Ignore parse errors
-      }
+      return {
+        dependencies,
+        devDependencies: [],
+        totalCount: dependencies.length,
+      };
     }
 
     return this.emptyResult();
@@ -380,13 +356,9 @@ export class DependencyAnalyzerService {
 
     for (const line of lines) {
       const trimmed = line.trim();
-
-      // Skip empty lines and comments
       if (!trimmed || trimmed.startsWith('#')) {
         continue;
       }
-
-      // Parse package name and version
       const match = trimmed.match(/^([a-zA-Z0-9_-]+)([>=<~!]+)?(.+)?$/);
       if (match) {
         const name = match[1];
@@ -497,7 +469,6 @@ export class DependencyAnalyzerService {
       }
 
       if (currentSection && trimmed && !trimmed.startsWith('#')) {
-        // Handle both simple and complex version specifications
         const match = trimmed.match(
           /^([a-zA-Z0-9_-]+)\s*=\s*"([^"]+)"|^([a-zA-Z0-9_-]+)\s*=\s*{/,
         );
@@ -537,13 +508,10 @@ export class DependencyAnalyzerService {
         version: match[2],
       });
     }
-
-    // Also handle gems without version (use "latest")
     const gemNoVersionRegex = /gem\s+['"]([^'"]+)['"]\s*$/gm;
     let matchNoVersion: RegExpExecArray | null;
     while ((matchNoVersion = gemNoVersionRegex.exec(content)) !== null) {
       const gemName = matchNoVersion[1];
-      // Check if we haven't already added this gem
       if (gemName && !dependencies.some((d) => d.name === gemName)) {
         dependencies.push({
           name: gemName,
@@ -581,8 +549,6 @@ export class DependencyAnalyzerService {
    */
   private parsePomXml(content: string): Dependency[] {
     const dependencies: Dependency[] = [];
-
-    // Simple regex-based parsing (good enough for most cases)
     const dependencyRegex =
       /<dependency>[\s\S]*?<groupId>([^<]+)<\/groupId>[\s\S]*?<artifactId>([^<]+)<\/artifactId>[\s\S]*?<version>([^<]+)<\/version>/g;
 
@@ -603,8 +569,6 @@ export class DependencyAnalyzerService {
    */
   private parseBuildGradle(content: string): Dependency[] {
     const dependencies: Dependency[] = [];
-
-    // Match implementation, compile, api, etc. dependencies
     const dependencyRegex =
       /(?:implementation|compile|api)\s+['"]([^:'"]+):([^:'"]+):([^'"]+)['"]/g;
 

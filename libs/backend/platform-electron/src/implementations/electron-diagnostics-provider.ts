@@ -19,8 +19,6 @@ export class ElectronDiagnosticsProvider implements IDiagnosticsProvider {
       severity: 'error' | 'warning' | 'info' | 'hint';
     }>;
   }> {
-    // Electron has no live language server. Return empty diagnostics.
-    // Future: integrate tree-sitter parse errors or `tsc --noEmit` output.
     return [];
   }
 }

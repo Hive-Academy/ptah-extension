@@ -5,10 +5,6 @@
  * auth:copilotLogin/Logout/Status, auth:codexLogin, auth:getAuthStatus
  */
 
-// ============================================================
-// Authentication RPC Types (TASK_2025_057)
-// ============================================================
-
 /** Supported authentication methods */
 export type AuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
 
@@ -33,7 +29,7 @@ export interface AuthSaveSettingsParams {
   anthropicApiKey?: string;
   /** Provider API key - used for OpenRouter, Moonshot, Z.AI, etc. */
   providerApiKey?: string;
-  /** Selected Anthropic-compatible provider ID (TASK_2025_129 Batch 3) */
+  /** Selected Anthropic-compatible provider ID */
   anthropicProviderId?: string;
 }
 
@@ -58,10 +54,6 @@ export interface AuthTestConnectionResponse {
   };
   errorMessage?: string;
 }
-
-// ============================================================
-// Auth Status RPC Types (TASK_2025_076)
-// ============================================================
 
 /** Parameters for auth:copilotLogin RPC method */
 export type AuthCopilotLoginParams = Record<string, never>;
@@ -90,10 +82,10 @@ export interface AuthCopilotStatusResponse {
   username?: string;
 }
 
-/** Parameters for auth:codexLogin RPC method (TASK_2025_199) */
+/** Parameters for auth:codexLogin RPC method */
 export type AuthCodexLoginParams = Record<string, never>;
 
-/** Response from auth:codexLogin RPC method (TASK_2025_199) */
+/** Response from auth:codexLogin RPC method */
 export interface AuthCodexLoginResponse {
   success: boolean;
   error?: string;
@@ -106,7 +98,7 @@ export interface AuthGetAuthStatusParams {
 }
 
 /**
- * Anthropic-compatible provider info for UI display (TASK_2025_129 Batch 3)
+ * Anthropic-compatible provider info for UI display
  *
  * NOTE: This interface mirrors `AnthropicProvider` from `@ptah-extension/agent-sdk`
  * (libs/backend/agent-sdk/src/lib/helpers/anthropic-provider-registry.ts).
@@ -129,7 +121,7 @@ export interface AnthropicProviderInfo {
   keyPlaceholder: string;
   /** Masked key display text */
   maskedKeyDisplay: string;
-  /** Whether this provider supports dynamic model listing via API (TASK_2025_132) */
+  /** Whether this provider supports dynamic model listing via API */
   hasDynamicModels?: boolean;
   /** Authentication type: 'apiKey' (default), 'oauth' (e.g., GitHub Copilot), or 'none' (local providers) */
   authType?: 'apiKey' | 'oauth' | 'none';
@@ -165,17 +157,17 @@ export interface AuthGetAuthStatusResponse {
   hasAnyProviderKey?: boolean;
   /** Current auth method preference */
   authMethod: AuthMethod;
-  /** Currently selected Anthropic-compatible provider ID (TASK_2025_129 Batch 3) */
+  /** Currently selected Anthropic-compatible provider ID */
   anthropicProviderId: string;
-  /** Available Anthropic-compatible providers (TASK_2025_129 Batch 3) */
+  /** Available Anthropic-compatible providers */
   availableProviders: AnthropicProviderInfo[];
-  /** Whether Copilot OAuth is authenticated (TASK_2025_191) */
+  /** Whether Copilot OAuth is authenticated */
   copilotAuthenticated?: boolean;
-  /** Connected GitHub username for Copilot (TASK_2025_191) */
+  /** Connected GitHub username for Copilot */
   copilotUsername?: string;
-  /** Whether Codex auth file exists and has valid tokens (TASK_2025_199) */
+  /** Whether Codex auth file exists and has valid tokens */
   codexAuthenticated?: boolean;
-  /** Whether the Codex OAuth token is expired/stale (TASK_2025_199) */
+  /** Whether the Codex OAuth token is expired/stale */
   codexTokenStale?: boolean;
   /** Whether Claude CLI is installed and detected on the system */
   claudeCliInstalled?: boolean;

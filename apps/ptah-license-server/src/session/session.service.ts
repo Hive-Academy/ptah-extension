@@ -49,12 +49,8 @@ export class SessionService {
       additionalNotes,
       paddleTransactionId,
     } = params;
-
-    // Check free eligibility
     const { hasFreeSession } = await this.checkEligibility(userId);
     const isFreeSession = hasFreeSession && !paddleTransactionId;
-
-    // Create the session request record
     await this.prisma.sessionRequest.create({
       data: {
         userId,
@@ -74,8 +70,6 @@ export class SessionService {
     this.logger.log(
       `Session request created for ${userEmail} (topic: ${sessionTopicId}, free: ${isFreeSession})`,
     );
-
-    // Send notification email to team
     try {
       await this.emailService.sendSessionRequestNotification({
         userEmail,
@@ -89,8 +83,6 @@ export class SessionService {
         error instanceof Error ? error.message : 'Unknown error',
       );
     }
-
-    // Send confirmation email to user
     try {
       await this.emailService.sendSessionConfirmation({
         userEmail,

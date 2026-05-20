@@ -1,7 +1,7 @@
 /**
  * Harness Namespace Builder
- * TASK_2025_285: Harness-specific MCP tools for the harness builder agent
  *
+ * Harness-specific MCP tools for the harness builder agent.
  * Provides 4 tools that the harness builder agent can use during its multi-turn
  * execution to search skills, create skills, search the MCP registry, and
  * list installed MCP servers.
@@ -147,18 +147,12 @@ export function buildHarnessNamespace(
       );
       const skillDir = path.join(pluginDir, 'skills', sanitizedName);
       const skillMdPath = path.join(skillDir, 'SKILL.md');
-
-      // Check for existing skill to prevent silent overwrite
       if (existsSync(skillMdPath)) {
         throw new Error(
           `Skill "${name}" already exists at ${skillMdPath}. Use a different name or delete the existing skill first.`,
         );
       }
-
-      // Create directory structure
       await mkdir(skillDir, { recursive: true });
-
-      // Escape values for YAML frontmatter
       const escapedName = name.replace(/"/g, '\\"');
       const escapedDesc = description
         .replace(/"/g, '\\"')
@@ -201,8 +195,6 @@ export function buildHarnessNamespace(
         config: Record<string, unknown>;
         source: string;
       }> = [];
-
-      // Read .vscode/mcp.json from workspace
       const wsRoot = getWorkspaceRoot();
       const vscodeMcpPath = path.join(wsRoot, '.vscode', 'mcp.json');
       try {
@@ -230,8 +222,6 @@ export function buildHarnessNamespace(
           `[Harness] Failed to read .vscode/mcp.json: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-
-      // Read .mcp.json from workspace root
       const rootMcpPath = path.join(wsRoot, '.mcp.json');
       try {
         if (existsSync(rootMcpPath)) {

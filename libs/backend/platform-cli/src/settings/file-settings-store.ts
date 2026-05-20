@@ -14,9 +14,6 @@
  * Secret operations are backed by SecretsFileStore (AES-256-GCM in
  * ~/.ptah/secrets.enc.json) with the master key from IMasterKeyProvider
  * (CliMasterKeyProvider uses keytar with HKDF fallback).
- *
- * WP-2B: Platform adapter creation.
- * WP-4A: Secret storage implementation.
  */
 
 import type { IDisposable } from '@ptah-extension/platform-core';
@@ -42,10 +39,6 @@ export class FileSettingsStore implements ISettingsStore {
     this.secretsStore = secretsStore;
   }
 
-  // ---------------------------------------------------------------------------
-  // Global settings — backed by PtahFileSettingsManager (~/.ptah/settings.json)
-  // ---------------------------------------------------------------------------
-
   readGlobal<T>(key: string): T | undefined {
     return this.fileSettings.get<T>(key);
   }
@@ -53,10 +46,6 @@ export class FileSettingsStore implements ISettingsStore {
   async writeGlobal<T>(key: string, value: T): Promise<void> {
     await this.fileSettings.set(key, value);
   }
-
-  // ---------------------------------------------------------------------------
-  // Secret storage — AES-256-GCM via SecretsFileStore
-  // ---------------------------------------------------------------------------
 
   /**
    * Read a secret from the encrypted secrets file.
@@ -83,29 +72,20 @@ export class FileSettingsStore implements ISettingsStore {
     await this.secretsStore.delete(key);
   }
 
-  // ---------------------------------------------------------------------------
-  // Watchers
-  // ---------------------------------------------------------------------------
-
   /**
    * Subscribe to in-process changes for a global setting key.
    *
    * Delegates to PtahFileSettingsManager.watch() which fires after every
-   * successful in-process write. Cross-process reactivity is Phase 5.
+   * successful in-process write.
    */
   watchGlobal(key: string, cb: (value: unknown) => void): IDisposable {
     return this.fileSettings.watch(key, cb);
   }
 
-  /** Phase 5: cross-process secret change notifications. */
+  /** Cross-process secret change notifications. */
   watchSecret(_key: string, _cb: () => void): IDisposable {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
     return { dispose: () => {} };
   }
-
-  // ---------------------------------------------------------------------------
-  // Flush
-  // ---------------------------------------------------------------------------
 
   /**
    * Flush both the global settings file and the secrets file synchronously.
@@ -118,10 +98,6 @@ export class FileSettingsStore implements ISettingsStore {
     this.fileSettings.flushSync();
     this.secretsStore.flushSync(this.cachedMasterKey);
   }
-
-  // ---------------------------------------------------------------------------
-  // Internal
-  // ---------------------------------------------------------------------------
 
   private async getAndCacheMasterKey(): Promise<Buffer> {
     if (!this.cachedMasterKey) {

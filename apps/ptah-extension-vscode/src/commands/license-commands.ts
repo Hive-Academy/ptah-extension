@@ -1,11 +1,8 @@
 /**
- * License Commands
+ * License Commands — command handlers for license key management (enter,
+ * remove, check status) available via the VS Code Command Palette.
  *
- * Command handlers for license key management (enter, remove, check status)
- * Available via VS Code Command Palette
- *
- * TASK_2025_075 Batch 6: Command palette integration for license management
- * TASK_2025_128: Freemium model conversion - updated messaging for Community tier
+ * Messaging is tailored to the freemium model (Community / Trial Pro / Pro).
  *
  * @packageDocumentation
  */
@@ -39,7 +36,7 @@ export class LicenseCommands {
 
   constructor(
     @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService
+    private readonly licenseService: LicenseService,
   ) {}
 
   /**
@@ -70,7 +67,6 @@ export class LicenseCommands {
           return 'License key must start with "ptah_lic_"';
         }
         if (value.length !== 73) {
-          // ptah_lic_ (9) + 64 hex chars
           return 'Invalid license key format (expected 73 characters)';
         }
         if (!/^ptah_lic_[a-f0-9]{64}$/.test(value)) {
@@ -81,18 +77,15 @@ export class LicenseCommands {
     });
 
     if (!licenseKey) {
-      // User cancelled input
       return;
     }
-
-    // Store license key and verify
     await this.licenseService.setLicenseKey(licenseKey);
     const status = await this.licenseService.verifyLicense();
 
     if (status.valid) {
       const action = await vscode.window.showInformationMessage(
         `License activated! Plan: ${status.plan?.name}. Reload window to enable premium features.`,
-        'Reload Window'
+        'Reload Window',
       );
       if (action === 'Reload Window') {
         await vscode.commands.executeCommand('workbench.action.reloadWindow');
@@ -101,15 +94,13 @@ export class LicenseCommands {
       vscode.window.showErrorMessage(
         `License verification failed: ${
           status.reason || 'Invalid license key'
-        }. Please check your license key and try again.`
+        }. Please check your license key and try again.`,
       );
     }
   }
 
   /**
-   * Remove License Key Command
-   *
-   * TASK_2025_128: Updated for freemium model
+   * Remove License Key Command.
    *
    * Flow:
    * 1. Show confirmation warning
@@ -127,11 +118,10 @@ export class LicenseCommands {
     const confirm = await vscode.window.showWarningMessage(
       'Log out and remove your license key? You can enter a new license key after reloading.',
       'Log Out',
-      'Cancel'
+      'Cancel',
     );
 
     if (confirm !== 'Log Out') {
-      // User cancelled
       return;
     }
 
@@ -139,7 +129,7 @@ export class LicenseCommands {
 
     const action = await vscode.window.showInformationMessage(
       'License key removed. Reload window to continue.',
-      'Reload Window'
+      'Reload Window',
     );
     if (action === 'Reload Window') {
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
@@ -147,9 +137,7 @@ export class LicenseCommands {
   }
 
   /**
-   * Check License Status Command
-   *
-   * TASK_2025_128: Updated for freemium model
+   * Check License Status Command.
    *
    * Flow:
    * 1. Verify license with server (or use cache)
@@ -168,40 +156,36 @@ export class LicenseCommands {
     const status = await this.licenseService.verifyLicense();
 
     if (status.valid) {
-      // TASK_2025_128: Format tier names for display
       const tierName =
         status.tier === 'community'
           ? 'Community (Free)'
           : status.tier === 'trial_pro'
-          ? 'Pro (Trial)'
-          : 'Pro';
-
-      // Community tier: show "Never" expires and "Unlimited" days
+            ? 'Pro (Trial)'
+            : 'Pro';
       const expiresText = status.expiresAt
         ? new Date(status.expiresAt).toLocaleDateString()
         : status.tier === 'community'
-        ? 'Never'
-        : 'N/A';
+          ? 'Never'
+          : 'N/A';
       const daysText = status.daysRemaining
         ? `${status.daysRemaining} days`
         : status.tier === 'community'
-        ? 'Unlimited'
-        : 'N/A';
+          ? 'Unlimited'
+          : 'N/A';
 
       vscode.window.showInformationMessage(
         `Plan: ${status.plan?.name || tierName}\n` +
           `Tier: ${tierName}\n` +
           `Expires: ${expiresText}\n` +
-          `Days Remaining: ${daysText}`
+          `Days Remaining: ${daysText}`,
       );
     } else {
-      // Only expired/revoked users reach here
       vscode.window.showWarningMessage(
         `License Status: Expired\n` +
           `Reason: ${
             status.reason || 'License revoked or payment failed'
           }\n\n` +
-          `Renew at ${this.pricingUrl}`
+          `Renew at ${this.pricingUrl}`,
       );
     }
   }
@@ -223,22 +207,22 @@ export class LicenseCommands {
 
     context.subscriptions.push(
       vscode.commands.registerCommand('ptah.enterLicenseKey', () =>
-        this.enterLicenseKey()
+        this.enterLicenseKey(),
       ),
       vscode.commands.registerCommand('ptah.removeLicenseKey', () =>
-        this.removeLicenseKey()
+        this.removeLicenseKey(),
       ),
       vscode.commands.registerCommand('ptah.checkLicenseStatus', () =>
-        this.checkLicenseStatus()
+        this.checkLicenseStatus(),
       ),
       vscode.commands.registerCommand('ptah.openPricing', () => {
         vscode.env.openExternal(vscode.Uri.parse(urls.PRICING_URL));
       }),
       vscode.commands.registerCommand('ptah.openSignup', () => {
         vscode.env.openExternal(
-          vscode.Uri.parse(urls.SIGNUP_URL + '?source=vscode')
+          vscode.Uri.parse(urls.SIGNUP_URL + '?source=vscode'),
         );
-      })
+      }),
     );
   }
 }

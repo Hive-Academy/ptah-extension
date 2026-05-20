@@ -1,8 +1,6 @@
 /**
  * CLI Fire-and-Forget Handler
  *
- * TASK_2025_263 Batch 3
- *
  * Handles fire-and-forget messages from the TUI (permission responses, question answers).
  * Replaces IpcBridge.handleFireAndForgetMessage() (ipc-bridge.ts:215-301).
  *

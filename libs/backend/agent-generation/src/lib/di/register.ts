@@ -1,6 +1,5 @@
 /**
  * Agent Generation DI Registration
- * TASK_2025_069: Register all agent-generation services in DI container
  *
  * Pattern: Follow agent-sdk registration pattern for consistency.
  * Services use @injectable() decorators for auto-wiring.
@@ -21,8 +20,6 @@ import {
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-
-// Import services
 import { SetupStatusService } from '../services/setup-status.service';
 import { SetupWizardService } from '../services/setup-wizard.service';
 import { AgentGenerationOrchestratorService } from '../services/orchestrator.service';
@@ -39,6 +36,11 @@ import {
   MultiPhaseAnalysisService,
 } from '../services/wizard';
 import { AnalysisStorageService } from '../services/analysis-storage.service';
+import {
+  PromptDesignerAgent,
+  PromptCacheService,
+} from '../services/prompt-designer';
+import { EnhancedPromptsService } from '../services/enhanced-prompts/enhanced-prompts.service';
 
 /**
  * Register all agent-generation services in DI container
@@ -54,21 +56,11 @@ export function registerAgentGenerationServices(
   logger: Logger,
 ): void {
   logger.info('[AgentGeneration] Registering agent-generation services...');
-
-  // ============================================================
-  // Foundation Services (no internal dependencies)
-  // ============================================================
-
-  // Output validation service - validates LLM outputs
   container.register(
     AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE,
     { useClass: OutputValidationService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Template storage service - loads and caches templates
-  // Uses factory registration to resolve templatesPath from ContentDownloadService
-  // (tsyringe cannot inject primitive types without explicit tokens)
   container.register(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE, {
     useFactory: (c) => {
       const loggerInstance = c.resolve<Logger>(TOKENS.LOGGER);
@@ -84,98 +76,79 @@ export function registerAgentGenerationServices(
       );
     },
   });
-
-  // Analysis storage service - persistent analysis file I/O
   container.register(
     AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
     { useClass: AnalysisStorageService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // ============================================================
-  // Mid-level Services (depend on foundation services)
-  // ============================================================
-
-  // Agentic analysis service - Claude Agent SDK-powered workspace analysis
-  // Note: Depends on SDK_AGENT_ADAPTER, SDK_MODULE_LOADER (registered in Phase 2.7), WEBVIEW_MANAGER
   container.register(
     AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE,
     { useClass: AgenticAnalysisService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Multi-phase analysis service - 4 LLM phases + deterministic synthesis
   container.register(
     AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
     { useClass: MultiPhaseAnalysisService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Wizard webview lifecycle service - panel creation, message handling, progress emission
-  // Note: Depends on WEBVIEW_MANAGER, WEBVIEW_MESSAGE_HANDLER, WEBVIEW_HTML_GENERATOR from vscode-core
   container.register(
     AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE,
     { useClass: WizardWebviewLifecycleService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Agent selection service - scores and selects agents
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_SELECTION_SERVICE,
     { useClass: AgentSelectionService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Agent recommendation service - deep analysis-based agent recommendations
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
     { useClass: AgentRecommendationService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Content generation service - renders templates with variables
   container.register(
     AGENT_GENERATION_TOKENS.CONTENT_GENERATION_SERVICE,
     { useClass: ContentGenerationService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Agent file writer service - atomic file writing with rollback
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_FILE_WRITER_SERVICE,
     { useClass: AgentFileWriterService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Multi-CLI agent writer service - transforms and writes for Copilot/Gemini (TASK_2025_160)
   container.register(
     AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
     { useClass: MultiCliAgentWriterService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // ============================================================
-  // High-level Services (orchestration layer)
-  // ============================================================
-
-  // Agent generation orchestrator - coordinates 5-phase workflow
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
     { useClass: AgentGenerationOrchestratorService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Setup status service - detects agent configuration status
   container.register(
     AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE,
     { useClass: SetupStatusService },
     { lifecycle: Lifecycle.Singleton },
   );
-
-  // Setup wizard service - orchestrates wizard UI flow
   container.register(
     AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
     { useClass: SetupWizardService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AGENT_GENERATION_TOKENS.PROMPT_DESIGNER_AGENT,
+    { useClass: PromptDesignerAgent },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AGENT_GENERATION_TOKENS.PROMPT_CACHE_SERVICE,
+    { useClass: PromptCacheService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
+    { useClass: EnhancedPromptsService },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -195,6 +168,9 @@ export function registerAgentGenerationServices(
       'AGENT_GENERATION_ORCHESTRATOR',
       'SETUP_STATUS_SERVICE',
       'SETUP_WIZARD_SERVICE',
+      'PROMPT_DESIGNER_AGENT',
+      'PROMPT_CACHE_SERVICE',
+      'ENHANCED_PROMPTS_SERVICE',
     ],
   });
 }

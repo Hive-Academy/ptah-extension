@@ -1,8 +1,6 @@
 /**
  * Permission handling types for MCP approval_prompt tool
  *
- * TASK_2025_026: MCP Permission Prompt Integration
- *
  * These types support the MCP server's approval_prompt tool, allowing Claude CLI
  * to request user permission for tool execution via VS Code webview UI.
  */
@@ -56,7 +54,7 @@ export interface PermissionRequest {
    *   but the registry lookup fails.
    * - Undefined when the tool is not running inside a subagent.
    *
-   * TASK_2025_213: Fixes the semantic mismatch where toolUseId is the
+   * Fixes the semantic mismatch where toolUseId is the
    * denied tool's ID but the frontend needs the agent's toolCallId.
    */
   readonly agentToolCallId?: string;

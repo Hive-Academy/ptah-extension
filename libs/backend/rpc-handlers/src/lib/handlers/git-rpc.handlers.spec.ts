@@ -1,5 +1,5 @@
 /**
- * GitRpcHandlers — unit specs (TASK_2026_111 Batch 6).
+ * GitRpcHandlers — unit specs.
  *
  * Coverage matrix:
  *   METHODS invariant  — all 15 entries present (9 original + 6 new)

@@ -5,19 +5,11 @@
  * from ptah-license-server
  */
 
-// ============================================
-// Auth Modes & Providers
-// ============================================
-
 /** Authentication mode - signin or signup */
 export type AuthMode = 'signin' | 'signup';
 
 /** Supported OAuth providers (matches backend OAuthProvider type) */
 export type OAuthProvider = 'github' | 'google';
-
-// ============================================
-// User Types (aligned with Prisma User model)
-// ============================================
 
 /**
  * User tier levels (matches backend tier system)
@@ -48,10 +40,6 @@ export interface AuthUser {
   /** Last name (optional) */
   lastName?: string;
 }
-
-// ============================================
-// Request DTOs (match backend DTOs)
-// ============================================
 
 /**
  * Email/Password login request
@@ -84,10 +72,6 @@ export interface MagicLinkRequest {
   /** Optional plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly') */
   plan?: string;
 }
-
-// ============================================
-// Response Types (match backend responses)
-// ============================================
 
 /**
  * Successful authentication response
@@ -162,10 +146,6 @@ export interface MagicLinkResponse {
  */
 export type AuthResponse = AuthSuccessResponse | AuthErrorResponse;
 
-// ============================================
-// URL Error Codes (from backend redirects)
-// ============================================
-
 /**
  * Error codes passed via URL query params
  * from magic link verification failures
@@ -185,10 +165,6 @@ export const AUTH_ERROR_MESSAGES: Record<AuthUrlErrorCode | string, string> = {
   token_invalid: 'Invalid magic link. Please request a new one.',
   user_not_found: 'User not found. Please sign up first.',
 };
-
-// ============================================
-// Form Validation Types
-// ============================================
 
 /**
  * Form validation result

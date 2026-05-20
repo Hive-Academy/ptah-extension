@@ -28,7 +28,7 @@ export interface RpcCallOptions {
    * Optional AbortSignal — when fired, the pending call is dropped and the
    * promise resolves with `success=false, error='RPC aborted: <method>'`.
    *
-   * TASK_2026_103 Wave E2: drives the chat tab-close → stream-cancel flow.
+   * Drives the chat tab-close → stream-cancel flow.
    * The webview-side timeout/lookup remains the source of truth for response
    * correlation; aborting here only releases the caller's awaited promise.
    * The matching backend cancellation (e.g. `chat:abort`) MUST be issued
@@ -65,7 +65,7 @@ export class RpcResult<T> {
   }
 
   /**
-   * Check if error is license-related (TASK_2025_124)
+   * Check if error is license-related
    */
   isLicenseError(): boolean {
     return (
@@ -75,7 +75,7 @@ export class RpcResult<T> {
   }
 
   /**
-   * Check if Pro tier is required (TASK_2025_124)
+   * Check if Pro tier is required
    */
   isProRequired(): boolean {
     return this.errorCode === 'PRO_TIER_REQUIRED';
@@ -88,7 +88,6 @@ export class RpcResult<T> {
 interface RpcResponse<T = unknown> {
   success: boolean;
   data?: T;
-  // Backend may send error as string or { message: string } depending on code path
   error?: string | { message: string };
   /** Error code for programmatic handling — see RpcUserErrorCode for all values. */
   errorCode?: RpcUserErrorCode;
@@ -121,13 +120,8 @@ const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   'license:setKey',
   'command:execute',
   'settings:import',
-  // Read-only config endpoints needed to render the welcome/license shell.
-  // Both return user preferences only — no AI feature surface — so safe to
-  // expose pre-license. Without these, AutopilotStateService and
-  // ModelStateService log RPC-blocked errors during webview bootstrap.
   'config:autopilot-get',
   'config:models-list',
-  // Workspace indexing tab is a free top-level setting (TASK_2026_114 AC #4).
   'indexing:getStatus',
   'indexing:start',
   'indexing:pause',
@@ -146,8 +140,6 @@ export class ClaudeRpcService implements MessageHandler {
     string,
     (response: RpcResponse<unknown>) => void
   >();
-
-  // MessageHandler implementation
   readonly handledMessageTypes = [MESSAGE_TYPES.RPC_RESPONSE] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -194,7 +186,6 @@ export class ClaudeRpcService implements MessageHandler {
     params: RpcMethodParams<T>,
     options?: RpcCallOptions,
   ): Promise<RpcResult<RpcMethodResult<T>>> {
-    // Check license before making RPC call
     if (!this.isMethodAllowed(method)) {
       console.warn(
         `[ClaudeRpcService] RPC blocked - method "${method}" requires license`,
@@ -210,8 +201,6 @@ export class ClaudeRpcService implements MessageHandler {
     const correlationId = CorrelationId.create();
     const timeout = options?.timeout ?? 30000;
     const signal = options?.signal;
-
-    // TASK_2026_103 Wave E2: short-circuit if caller pre-aborted.
     if (signal?.aborted) {
       return new RpcResult<RpcMethodResult<T>>(
         false,
@@ -221,10 +210,6 @@ export class ClaudeRpcService implements MessageHandler {
     }
 
     return new Promise<RpcResult<RpcMethodResult<T>>>((resolve) => {
-      // Mutable abort-listener handle so the resolver/timeout closures can
-      // detach it on completion. Wrapped in a single-property object so it
-      // can be rebinding-free (`const`) per ESLint prefer-const, while still
-      // allowing the inner property to be cleared after detach.
       const abortRef: { listener: (() => void) | null } = { listener: null };
 
       const detachAbortListener = (): void => {
@@ -233,9 +218,6 @@ export class ClaudeRpcService implements MessageHandler {
           abortRef.listener = null;
         }
       };
-
-      // Set timeout to prevent hanging calls. Declared first so the resolver
-      // and abort listener can both clear it.
       const timer = setTimeout(() => {
         if (this.pendingCalls.has(correlationId)) {
           this.pendingCalls.delete(correlationId);
@@ -250,19 +232,13 @@ export class ClaudeRpcService implements MessageHandler {
           );
         }
       }, timeout);
-
-      // Store resolver for this correlation ID.
-      // The map stores callbacks as RpcResponse<unknown> for type erasure;
-      // at call-site we know the concrete type so the cast is safe.
       this.pendingCalls.set(correlationId, ((
         response: RpcResponse<RpcMethodResult<T>>,
       ) => {
         this.pendingCalls.delete(correlationId);
         clearTimeout(timer);
         detachAbortListener();
-        // Normalize error: backend may send string or { message: string }
         const errorStr = this.normalizeError(response.error);
-        // TASK_2025_124: Pass errorCode for license-related errors
         resolve(
           new RpcResult(
             response.success,
@@ -272,10 +248,6 @@ export class ClaudeRpcService implements MessageHandler {
           ),
         );
       }) as (response: RpcResponse<unknown>) => void);
-
-      // TASK_2026_103 Wave E2: bridge AbortSignal → promise resolution.
-      // We only release the caller's promise; backend cancellation must be
-      // issued separately (e.g. via chat:abort RPC).
       if (signal) {
         abortRef.listener = () => {
           if (this.pendingCalls.has(correlationId)) {
@@ -292,8 +264,6 @@ export class ClaudeRpcService implements MessageHandler {
         };
         signal.addEventListener('abort', abortRef.listener, { once: true });
       }
-
-      // Send RPC call to backend
       this.postRpcMessage({
         type: MESSAGE_TYPES.RPC_CALL,
         payload: { method, params, correlationId },
@@ -321,8 +291,6 @@ export class ClaudeRpcService implements MessageHandler {
    * @private
    */
   private postRpcMessage(message: { type: string; payload: unknown }): void {
-    // Access the private vscode API via type assertion
-    // This is safe because VSCodeService.postStrictMessage does the same internally
     const vscodeService = this.vscode as unknown as {
       vscode?: { postMessage: (msg: unknown) => void };
     };
@@ -342,10 +310,6 @@ export class ClaudeRpcService implements MessageHandler {
       resolver(response);
     }
   }
-
-  // ===== Type-Safe RPC Method Wrappers =====
-  // These are convenience methods that wrap call() with proper types.
-  // They use the RpcMethodRegistry types automatically.
 
   /**
    * List all chat sessions for a workspace
@@ -391,7 +355,7 @@ export class ClaudeRpcService implements MessageHandler {
   }
 
   /**
-   * Delete a chat session from storage (TASK_2025_086)
+   * Delete a chat session from storage
    * @param sessionId - Session ID to delete
    * @returns Promise with success status
    */
@@ -465,14 +429,6 @@ export class ClaudeRpcService implements MessageHandler {
     );
   }
 
-  // ============================================================================
-  // SUBAGENT RPC METHODS (TASK_2025_103)
-  // ============================================================================
-
-  // TASK_2025_109: resumeSubagent method removed - now uses context injection
-  // Subagent resumption is handled via context injection in chat:continue RPC.
-  // Users can type "resume agent {agentId}" to trigger natural resumption.
-
   /**
    * Query subagents from the registry
    * Returns all resumable subagents if no params provided
@@ -481,15 +437,6 @@ export class ClaudeRpcService implements MessageHandler {
   async querySubagents(): Promise<RpcResult<SubagentQueryResult>> {
     return this.call('chat:subagent-query', {});
   }
-
-  // ============================================================================
-  // SUBAGENT BIDIRECTIONAL MESSAGING (Phase 2/3 — TASK_2026 subagent visibility)
-  // ============================================================================
-  //
-  // Send-message, stop, and interrupt RPCs let the user steer running SDK
-  // subagents from the inline-agent-bubble UI. State updates flow back via
-  // the SDK's task_* events (`agent_progress` / `agent_status` /
-  // `agent_completed`) — these RPC calls never mutate UI state directly.
 
   /**
    * Send a follow-up message to a running subagent.

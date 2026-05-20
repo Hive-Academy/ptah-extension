@@ -9,8 +9,6 @@
  * Maximum entries: 100
  * Entry ordering: Newest first
  *
- * TASK_2025_144: Phase G - Reporting and Visualization
- *
  * @packageDocumentation
  */
 
@@ -23,10 +21,6 @@ import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { IQualityHistoryService } from '../interfaces';
-
-// ============================================
-// Constants
-// ============================================
 
 /**
  * GlobalState key for quality history storage.
@@ -44,10 +38,6 @@ const MAX_ENTRIES = 100;
  * Default number of history entries to return when no limit is specified.
  */
 const DEFAULT_LIMIT = 30;
-
-// ============================================
-// Service Implementation
-// ============================================
 
 /**
  * QualityHistoryService
@@ -76,7 +66,7 @@ export class QualityHistoryService implements IQualityHistoryService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
-    private readonly globalState: IStateStorage
+    private readonly globalState: IStateStorage,
   ) {
     this.logger.debug('QualityHistoryService initialized');
   }
@@ -94,11 +84,7 @@ export class QualityHistoryService implements IQualityHistoryService {
     try {
       const entry = this.createHistoryEntry(assessment);
       const entries = this.readEntries();
-
-      // Prepend new entry (newest first)
       entries.unshift(entry);
-
-      // Evict oldest entries if over limit
       if (entries.length > MAX_ENTRIES) {
         const evicted = entries.length - MAX_ENTRIES;
         entries.length = MAX_ENTRIES;
@@ -158,10 +144,6 @@ export class QualityHistoryService implements IQualityHistoryService {
     }
   }
 
-  // ============================================
-  // Private Helper Methods
-  // ============================================
-
   /**
    * Creates a compact history entry from a full assessment.
    *
@@ -173,13 +155,11 @@ export class QualityHistoryService implements IQualityHistoryService {
    * @returns Compact history entry
    */
   private createHistoryEntry(
-    assessment: QualityAssessment
+    assessment: QualityAssessment,
   ): QualityHistoryEntry {
-    // Build category counts from anti-patterns
     const categoryCounts: Record<string, number> = {};
 
     for (const pattern of assessment.antiPatterns) {
-      // Extract category prefix (e.g., 'typescript' from 'typescript-explicit-any')
       const category = pattern.type.split('-')[0];
       categoryCounts[category] = (categoryCounts[category] ?? 0) + 1;
     }
@@ -203,8 +183,6 @@ export class QualityHistoryService implements IQualityHistoryService {
    */
   private readEntries(): QualityHistoryEntry[] {
     const stored = this.globalState.get<QualityHistoryEntry[]>(STORAGE_KEY, []);
-
-    // Validate stored data is an array
     if (!Array.isArray(stored)) {
       this.logger.warn('Quality history storage corrupted, resetting', {
         storedType: typeof stored,

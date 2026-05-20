@@ -1,9 +1,5 @@
 /**
- * GatewayRpcService — RPC roundtrip tests (Batch C1).
- *
- * Special focus on the new `gateway:test` method (powers the "Send test"
- * button shipped in commit eb6d236c) and the security-sensitive
- * `gateway:setToken` method, both of which were added in TASK_2026_HERMES.
+ * GatewayRpcService — RPC roundtrip tests.
  *
  * Stubs `ClaudeRpcService.call` so we exercise only the wire-level concerns:
  * method name, payload shape, success-data unwrap, error throw.

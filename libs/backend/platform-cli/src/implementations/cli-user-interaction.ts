@@ -6,7 +6,7 @@
  * QuickPick returns the first item; InputBox returns empty string.
  * withProgress runs the task directly without progress display.
  *
- * These stubs will be upgraded to TUI-based interaction in Batch 6
+ * These stubs will be upgraded to TUI-based interaction
  * via callback registration (setQuickPickHandler, setInputBoxHandler).
  */
 
@@ -27,7 +27,6 @@ export class CliUserInteraction implements IUserInteraction {
   constructor(private readonly oauthOpener: IOAuthUrlOpener | null = null) {}
 
   async openExternal(url: string): Promise<boolean> {
-    // Validate URL scheme to prevent arbitrary command execution
     try {
       const parsed = new URL(url);
       if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
@@ -36,8 +35,6 @@ export class CliUserInteraction implements IUserInteraction {
     } catch {
       return false;
     }
-
-    // Use spawn with argument arrays (no shell interpolation) to prevent injection
     return new Promise<boolean>((resolve) => {
       const platform = process.platform;
       let child;
@@ -60,10 +57,6 @@ export class CliUserInteraction implements IUserInteraction {
     verificationUri: string;
     userCode?: string;
   }): Promise<{ opened: boolean; code?: string }> {
-    // Headless CLI must NEVER spawn a local browser unsolicited.
-    // Delegate to the injected opener (JSON-RPC peer or stderr fallback).
-    // If no opener is configured, return { opened: false } so the caller can
-    // fall back to its own messaging strategy.
     if (this.oauthOpener) {
       return this.oauthOpener.openOAuthUrl(params);
     }
@@ -71,7 +64,6 @@ export class CliUserInteraction implements IUserInteraction {
   }
 
   async writeToClipboard(text: string): Promise<void> {
-    // Attempt platform-specific clipboard write
     return new Promise<void>((resolve) => {
       const platform = process.platform;
       let command: string;
@@ -103,7 +95,6 @@ export class CliUserInteraction implements IUserInteraction {
     if (actions.length > 0) {
       console.error(`  Actions: ${actions.join(', ')}`);
     }
-    // In CLI v1, no interactive selection — return undefined (dismissed)
     return undefined;
   }
 
@@ -133,14 +124,10 @@ export class CliUserInteraction implements IUserInteraction {
     items: QuickPickItem[],
     _options?: QuickPickOptions,
   ): Promise<QuickPickItem | undefined> {
-    // v1 stub: return first item (will be upgraded to TUI in Batch 6)
     return items.length > 0 ? items[0] : undefined;
   }
 
   async showInputBox(_options?: InputBoxOptions): Promise<string | undefined> {
-    // v1 stub: return undefined (equivalent to "cancelled") until the TUI in
-    // Batch 6 wires a real prompt. Returning '' would masquerade as a valid
-    // user input and break callers that branch on undefined = cancellation.
     return undefined;
   }
 
@@ -148,8 +135,6 @@ export class CliUserInteraction implements IUserInteraction {
     _options: ProgressOptions,
     task: (progress: IProgress, token: ICancellationToken) => Promise<T>,
   ): Promise<T> {
-    // Run the task directly without progress display.
-    // Create a no-op cancellation token.
     const [onCancellationRequested] = createEvent<void>();
 
     const token: ICancellationToken = {
@@ -159,7 +144,6 @@ export class CliUserInteraction implements IUserInteraction {
 
     const progress: IProgress = {
       report: () => {
-        // No-op in CLI v1 — progress display will be added with TUI in Batch 6
       },
     };
 

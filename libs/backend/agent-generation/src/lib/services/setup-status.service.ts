@@ -89,15 +89,12 @@ export class SetupStatusService {
    */
   async getStatus(workspacePath: string): Promise<Result<SetupStatus, Error>> {
     try {
-      // Check cache validity
       if (this.isCacheValid(workspacePath)) {
         this.logger.debug('Returning cached setup status');
         return Result.ok(this.cachedStatus!.status);
       }
 
       this.logger.debug(`Fetching fresh setup status for ${workspacePath}`);
-
-      // Discover all agents using AgentDiscoveryService
       const discoveryResult = await this.agentDiscovery.searchAgents({
         query: '',
         maxResults: 1000,
@@ -109,8 +106,6 @@ export class SetupStatusService {
         this.logger.error(`Agent discovery failed: ${errorMessage}`);
         return Result.err(new Error(errorMessage));
       }
-
-      // Filter to only user-created agents using whitelist approach (excludes builtin/system/undefined)
       const agents = discoveryResult.agents.filter(
         (agent) =>
           (agent.scope === 'project' || agent.scope === 'user') &&
@@ -127,8 +122,6 @@ export class SetupStatusService {
 
       const agentCount = projectAgents.length + userAgents.length;
       const isConfigured = agentCount > 0;
-
-      // Get last modified timestamp of .claude/agents/ directory
       const lastModified = await this.getLastModifiedDate(workspacePath);
 
       const status: SetupStatus = {
@@ -138,8 +131,6 @@ export class SetupStatusService {
         projectAgents,
         userAgents,
       };
-
-      // Update cache
       this.cachedStatus = {
         status,
         timestamp: Date.now(),
@@ -207,7 +198,6 @@ export class SetupStatusService {
       const stats = await fs.stat(agentsDir);
       return stats.mtime;
     } catch (error) {
-      // Directory doesn't exist or not accessible
       this.logger.debug(
         `.claude/agents/ directory not found or not accessible`
       );

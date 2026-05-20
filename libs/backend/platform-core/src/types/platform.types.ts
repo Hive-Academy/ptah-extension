@@ -5,10 +5,6 @@
  * These types have ZERO dependency on 'vscode' module.
  */
 
-// ============================================================
-// Disposable Pattern
-// ============================================================
-
 /**
  * Resource that can be disposed.
  * Replaces: vscode.Disposable
@@ -16,10 +12,6 @@
 export interface IDisposable {
   dispose(): void;
 }
-
-// ============================================================
-// Event System
-// ============================================================
 
 /**
  * Event subscription handler.
@@ -30,10 +22,6 @@ export interface IDisposable {
  *   disposable.dispose(); // unsubscribe
  */
 export type IEvent<T> = (listener: (e: T) => void) => IDisposable;
-
-// ============================================================
-// File System Types
-// ============================================================
 
 /**
  * File type enumeration.
@@ -76,10 +64,6 @@ export interface IFileWatcher extends IDisposable {
   readonly onDidDelete: IEvent<string>;
 }
 
-// ============================================================
-// Progress
-// ============================================================
-
 /**
  * Progress reporter.
  * Replaces: vscode.Progress<{ message?: string; increment?: number }>
@@ -110,10 +94,6 @@ export interface ProgressOptions {
    */
   readonly location?: 'notification' | 'window' | 'statusbar';
 }
-
-// ============================================================
-// Quick Pick / Input Box
-// ============================================================
 
 /**
  * Quick pick item.
@@ -154,10 +134,6 @@ export interface InputBoxOptions {
   ) => string | undefined | Promise<string | undefined>;
 }
 
-// ============================================================
-// Platform Info
-// ============================================================
-
 /**
  * Runtime platform type.
  */
@@ -182,10 +158,6 @@ export interface IPlatformInfo {
   readonly workspaceStoragePath: string;
 }
 
-// ============================================================
-// Configuration Change Event
-// ============================================================
-
 /**
  * Configuration change event data.
  * Replaces: vscode.ConfigurationChangeEvent
@@ -193,10 +165,6 @@ export interface IPlatformInfo {
 export interface ConfigurationChangeEvent {
   readonly affectsConfiguration: (section: string) => boolean;
 }
-
-// ============================================================
-// Secret Change Event
-// ============================================================
 
 /**
  * Secret change event data.

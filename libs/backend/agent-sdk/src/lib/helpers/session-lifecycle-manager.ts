@@ -6,16 +6,12 @@
  * - Message queue management for streaming input
  * - Abort controller lifecycle
  * - Session cleanup
- * - SDK query execution orchestration (TASK_2025_102)
- * - Subagent interruption tracking on session abort (TASK_2025_103)
+ * - SDK query execution orchestration
+ * - Subagent interruption tracking on session abort
  *
  * NOTE: This manager does NOT handle session persistence.
  * The SDK handles message persistence natively to ~/.claude/projects/
  * UI metadata (names, timestamps, costs) is managed by SessionMetadataStore.
- *
- * @see TASK_2025_088 - Simplified to remove redundant storage layers
- * @see TASK_2025_102 - Added executeQuery for query orchestration
- * @see TASK_2025_103 - Added subagent interruption on abort
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -30,6 +26,7 @@ import {
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import {
   SDKUserMessage,
   SDKMessage,
@@ -43,7 +40,7 @@ import type {
   WorktreeCreatedCallback,
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
-import type { ModelResolver } from '../auth/model-resolver';
+import type { IModelResolver } from '../auth-env.port';
 import {
   SessionRegistry,
   type SessionRecord,
@@ -52,11 +49,8 @@ import { SessionStreamPump } from './session-lifecycle/session-stream-pump.servi
 import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
 import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
-
-// Re-export for backward compatibility with other files
+import type { SdkQueryRunner } from './sdk-query-runner.service';
 export type { SDKUserMessage, ContentBlock };
-
-// Re-export SessionRecord and its type alias for all consumers.
 export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
 /**
@@ -113,43 +107,43 @@ export interface ExecuteQueryConfig {
     images?: InlineImageAttachment[];
   };
   /**
-   * Callback for compaction start events (TASK_2025_098)
-   * Called when SDK begins compacting conversation history
+   * Callback for compaction start events.
+   * Called when SDK begins compacting conversation history.
    */
   onCompactionStart?: CompactionStartCallback;
-  /** Callback when SDK creates a worktree (TASK_2025_236) */
+  /** Callback when SDK creates a worktree */
   onWorktreeCreated?: WorktreeCreatedCallback;
-  /** Callback when SDK removes a worktree (TASK_2025_236) */
+  /** Callback when SDK removes a worktree */
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
-   * Premium user flag - enables MCP server and Ptah system prompt (TASK_2025_108)
-   * Passed through to SdkQueryOptionsBuilder for conditional feature enabling
+   * Premium user flag - enables MCP server and Ptah system prompt.
+   * Passed through to SdkQueryOptionsBuilder for conditional feature enabling.
    */
   isPremium?: boolean;
   /**
-   * Whether the MCP server is currently running (TASK_2025_108)
+   * Whether the MCP server is currently running.
    * When false, MCP config will not be included even for premium users.
    * This prevents configuring Claude with a dead MCP endpoint.
    * Defaults to true for backward compatibility.
    */
   mcpServerRunning?: boolean;
   /**
-   * Enhanced prompt content to use as system prompt (TASK_2025_151)
+   * Enhanced prompt content to use as system prompt.
    * When provided, this AI-generated guidance is appended to the system prompt
    * instead of the default PTAH_CORE_SYSTEM_PROMPT.
    * Resolved by the caller (ChatRpcHandlers) from EnhancedPromptsService.
    */
   enhancedPromptsContent?: string;
   /**
-   * Plugin paths to load for this session (TASK_2025_153)
+   * Plugin paths to load for this session.
    * Absolute paths to plugin directories resolved by PluginLoaderService.
    * Passed through to SdkQueryOptionsBuilder.
    */
   pluginPaths?: string[];
   /**
    * Explicit path to Claude Code CLI executable (cli.js).
-   * TASK_2025_194: Passed through to SdkQueryOptionsBuilder to override
-   * the default import.meta.url-based resolution baked at bundle time.
+   * Passed through to SdkQueryOptionsBuilder to override the default
+   * import.meta.url-based resolution baked at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
   /**
@@ -166,7 +160,7 @@ export interface ExecuteQueryConfig {
   resumeSessionAt?: string;
   /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
-   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
+   * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
    * explicitly to opt out (e.g., performance-sensitive contexts).
    */
@@ -179,30 +173,35 @@ export interface ExecuteQueryConfig {
    */
   includePartialMessages?: boolean;
   /**
-   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
    * built map by the options builder (caller wins on key collision).
-   * Reserved for the Anthropic-compatible HTTP proxy in P3 (TASK_2026_108
-   * T2). When `undefined` or empty, the SDK's `mcpServers` is identity-
-   * preserved relative to pre-T2 behavior.
+   * Reserved for the Anthropic-compatible HTTP proxy. When `undefined` or
+   * empty, the SDK's `mcpServers` is identity-preserved.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
   /**
-   * The user's initial message text for this turn (TASK_2026_THOTH_MEMORY_READ).
+   * The user's initial message text for this turn.
    * Used by SdkQueryOptionsBuilder to drive a memory recall search so the
    * top-K hits are prepended to the system prompt. Only used for premium users
    * with a non-empty query.
    */
   initialUserQuery?: string;
   /**
+   * Per-call AuthEnv override (from a ProviderProfile). Forwarded verbatim to
+   * the options builder so third-party-provider sessions use the profile's
+   * auth env instead of the DI-singleton AuthEnv.
+   */
+  authEnvOverride?: AuthEnv;
+  /**
    * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
    * provided, the executor uses `warm.query(prompt)` for the very first
-   * query of this session instead of the standard `queryFn(...)` call —
+   * query of this session instead of the standard `queryFn(...)` call â€”
    * skipping the spawn + initialize handshake.
    *
    * **Caller contract**: the caller MUST have already validated (via
    * `consumeWarmQuery(requirements)`) that this warm handle's option
    * fingerprint matches the options about to be built for this session.
-   * The executor does NOT re-validate — `WarmQuery.query` accepts only a
+   * The executor does NOT re-validate â€” `WarmQuery.query` accepts only a
    * prompt and silently inherits every other Option from the original
    * `startup()` call, so any mismatch produces a session running with the
    * wrong options. Callers that aren't sure must pass `undefined` here.
@@ -211,8 +210,6 @@ export interface ExecuteQueryConfig {
    * or iterable prompt. The executor falls back to the normal `queryFn`
    * path if this is `undefined`, if the session is a resume/fork, or if
    * `warm.query` is missing on the handle.
-   *
-   * TASK_2026_109 Fix 3 wiring (this commit).
    */
   warmQuery?: { close: () => void; query?: unknown };
 }
@@ -220,7 +217,6 @@ export interface ExecuteQueryConfig {
 /**
  * Configuration for slash command execution.
  * Shared between SessionLifecycleManager and SdkAgentAdapter.
- * @see TASK_2025_184
  */
 export interface SlashCommandConfig {
   sessionConfig?: AISessionConfig;
@@ -231,7 +227,7 @@ export interface SlashCommandConfig {
   onCompactionStart?: CompactionStartCallback;
   onWorktreeCreated?: WorktreeCreatedCallback;
   onWorktreeRemoved?: WorktreeRemovedCallback;
-  /** TASK_2025_194: Explicit path to cli.js */
+  /** Explicit path to cli.js */
   pathToClaudeCodeExecutable?: string;
   /**
    * Mirrors `ExecuteQueryConfig.forkSession`. Only meaningful in combination
@@ -279,8 +275,6 @@ export interface ExecuteQueryResult {
  */
 @injectable()
 export class SessionLifecycleManager {
-  // Wave C7i: state ownership consolidated in `SessionRegistry`. The facade
-  // owns NO mutable session state; all reads/writes go through `_registry`.
   private readonly _registry: SessionRegistry;
   private readonly _streamPump: SessionStreamPump;
   private readonly _queryExecutor: SessionQueryExecutor;
@@ -290,28 +284,23 @@ export class SessionLifecycleManager {
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private permissionHandler: ISdkPermissionHandler,
-    // TASK_2025_102: Dependencies for executeQuery orchestration
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     private moduleLoader: SdkModuleLoader,
     @inject(SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER)
     private queryOptionsBuilder: SdkQueryOptionsBuilder,
     @inject(SDK_TOKENS.SDK_MESSAGE_FACTORY)
     private messageFactory: SdkMessageFactory,
-    // TASK_2025_103: SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private subagentRegistry: SubagentRegistryService,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
-    private readonly modelResolver: ModelResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: IModelResolver,
     @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
+    private readonly queryRunner: SdkQueryRunner,
   ) {
-    // Sub-services are constructed eagerly inside the facade because the spec
-    // bypasses tsyringe and uses `new SessionLifecycleManager(...)` directly
-    // with 9 positional args. Eager construction keeps the facade self-
-    // contained: no container lookup, no late-binding hazard, identical
-    // behavior whether instantiated by tsyringe or by hand in the spec.
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
       this.logger,
@@ -327,6 +316,7 @@ export class SessionLifecycleManager {
       this.queryOptionsBuilder,
       this.messageFactory,
       this.authEnv,
+      this.queryRunner,
     );
     this._control = new SessionControl(
       this.logger,
@@ -374,8 +364,8 @@ export class SessionLifecycleManager {
    * the user most recently interacted with, which is critical for MCP tools
    * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
    *
-   * TASK_2026_118 Batch 1.5: Delegates directly to the registry — single storage
-   * means the registry owns all ordering and resolution logic.
+   * Delegates directly to the registry â€” single storage means the registry
+   * owns all ordering and resolution logic.
    */
   getActiveSessionIds(): SessionId[] {
     return this._registry.getActiveSessionIds();
@@ -396,7 +386,7 @@ export class SessionLifecycleManager {
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
-   * The session remains active for continued use — the user's follow-up message
+   * The session remains active for continued use â€” the user's follow-up message
    * will start a new turn.
    *
    * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
@@ -412,9 +402,9 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * End session and cleanup
-   * TASK_2025_102: Now calls cleanupPendingPermissions to prevent unhandled promise rejections
-   * TASK_2025_103: Now marks all running subagents as interrupted before session removal
+   * End session and cleanup.
+   * Calls cleanupPendingPermissions to prevent unhandled promise rejections,
+   * and marks all running subagents as interrupted before session removal.
    *
    * CRITICAL RISK MITIGATION: SubagentStop hook doesn't fire when a session is aborted.
    * This method is the ONLY reliable way to detect interrupted subagents. All running
@@ -425,9 +415,9 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Cleanup all active sessions
-   * TASK_2025_102: Now calls cleanupPendingPermissions to prevent unhandled promise rejections
-   * TASK_2025_103: Now marks all running subagents as interrupted for each session
+   * Cleanup all active sessions.
+   * Calls cleanupPendingPermissions to prevent unhandled promise rejections,
+   * and marks all running subagents as interrupted for each session.
    */
   async disposeAllSessions(): Promise<void> {
     return this._control.disposeAllSessions();
@@ -439,11 +429,6 @@ export class SessionLifecycleManager {
   getActiveSessionCount(): number {
     return this._registry.getActiveSessionCount();
   }
-
-  // ============================================================================
-  // TASK_2025_102: Query Execution Orchestration
-  // Extracted from SdkAgentAdapter to reduce its complexity
-  // ============================================================================
 
   /**
    * Execute an SDK query with all the orchestration steps
@@ -489,8 +474,6 @@ export class SessionLifecycleManager {
    * Used when follow-up messages contain slash commands (e.g., /compact, /ptah-core:orchestrate).
    * The SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects,
    * so we must start a new query with resume to maintain conversation context.
-   *
-   * @see TASK_2025_184 - Follow-up slash command support
    */
   async executeSlashCommandQuery(
     sessionId: SessionId,
@@ -501,17 +484,9 @@ export class SessionLifecycleManager {
       `[SessionLifecycle] Executing slash command query for session: ${sessionId}`,
       { command: command.substring(0, 50) },
     );
-
-    // Resolve real SDK UUID before endSession removes the registry entry.
-    // find() checks both byTabId and bySessionId (dual-index).
     const rec = this._registry.find(sessionId as string);
     const realSessionId = rec?.realSessionId ?? (sessionId as string);
-
-    // Step 1: End the current session (abort existing query)
     await this._control.endSession(sessionId);
-
-    // Step 2: Start a new query with resume using the REAL session ID
-    // executeQuery will detect isSlashCommand and pass it as a raw string to query()
     return this._queryExecutor.executeQuery({
       sessionId,
       sessionConfig: config.sessionConfig,
@@ -525,10 +500,6 @@ export class SessionLifecycleManager {
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
-      // Mirror ExecuteQueryConfig pass-through so slash commands honor the
-      // same fork/rewind/checkpoint/partial-message toggles as regular
-      // resume flows. Without this, callers that set these on
-      // SlashCommandConfig would have them silently dropped.
       forkSession: config.forkSession,
       resumeSessionAt: config.resumeSessionAt,
       enableFileCheckpointing: config.enableFileCheckpointing,
@@ -563,7 +534,7 @@ export class SessionLifecycleManager {
    *
    * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
    * before passing to the SDK. The SDK's setModel() requires full model IDs
-   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
+   * like 'claude-opus-4-6' â€” bare tier names cause "can't access model" errors.
    *
    * @param sessionId - Session to update
    * @param model - Model ID or bare tier name to set

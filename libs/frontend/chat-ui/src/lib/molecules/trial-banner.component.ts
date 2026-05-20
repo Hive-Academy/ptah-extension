@@ -12,8 +12,6 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 /**
  * TrialBannerComponent - Trial countdown banner for chat view
  *
- * TASK_2025_142: Requirement 1
- *
  * Displays trial days remaining with urgency-based styling:
  * - Info (> 3 days): Informational countdown
  * - Warning (3 days or less): Urgency indicator
@@ -73,25 +71,15 @@ import { ClaudeRpcService } from '@ptah-extension/core';
   `,
 })
 export class TrialBannerComponent {
-  // Inputs from parent (chat-view)
   readonly trialActive = input<boolean>(false);
   readonly trialDaysRemaining = input<number | null>(null);
-
-  // Internal state
   private readonly dismissed = signal(false);
-
-  // Icons
   protected readonly ClockIcon = Clock;
   protected readonly XIcon = X;
-
-  // Session storage key
   private readonly DISMISS_KEY = 'ptah_trial_banner_dismissed';
-
-  // RPC service for opening pricing
   private readonly rpcService = inject(ClaudeRpcService);
 
   constructor() {
-    // Check if dismissed this session
     if (typeof sessionStorage !== 'undefined') {
       this.dismissed.set(sessionStorage.getItem(this.DISMISS_KEY) === 'true');
     }

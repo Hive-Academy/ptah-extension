@@ -1,5 +1,5 @@
 /**
- * WizardGenerationRpcHandlers — unit specs (TASK_2025_294 W2.B6).
+ * WizardGenerationRpcHandlers — unit specs.
  *
  * Surface under test: three RPC methods wiring the setup-wizard generation
  * pipeline to the webview (`wizard:submit-selection`, `wizard:cancel`,
@@ -182,10 +182,10 @@ const AGENT_GENERATION_TOKENS = {
     'AgentGenerationOrchestratorService',
   ),
   SETUP_WIZARD_SERVICE: Symbol.for('SetupWizardService'),
+  ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
 } as const;
 
 const SDK_TOKENS = {
-  SDK_ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
   SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader'),
 } as const;
 

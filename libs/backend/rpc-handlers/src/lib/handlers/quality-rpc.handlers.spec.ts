@@ -1,5 +1,5 @@
 /**
- * QualityRpcHandlers — unit specs (TASK_2025_294 W2.B6).
+ * QualityRpcHandlers — unit specs.
  *
  * Surface under test: three RPC methods
  * (`quality:getAssessment`, `quality:getHistory`, `quality:export`) that bridge

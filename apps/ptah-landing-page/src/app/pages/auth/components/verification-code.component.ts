@@ -173,7 +173,6 @@ export class VerificationCodeComponent {
 
   /** Handle code input change - only allow digits */
   public onCodeChange(value: string): void {
-    // Remove non-digits
     const digitsOnly = value.replace(/\D/g, '').slice(0, 6);
     this.codeValue.set(digitsOnly);
   }

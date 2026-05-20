@@ -45,11 +45,11 @@ describe('SetupWizardStateService', () => {
       }),
     };
 
-    // TASK_2026_107 Phase 3: SetupWizardStateService now injects StreamRouter
-    // and StreamingSurfaceRegistry to route per-phase stream events through
-    // the canonical pipeline. Stub both to keep these tests focused on
-    // wizard-state behaviour without standing up the full chat-routing graph
-    // (TabManager + ConversationRegistry + permission/agent stores).
+    // SetupWizardStateService injects StreamRouter and StreamingSurfaceRegistry
+    // to route per-phase stream events through the canonical pipeline. Stub
+    // both to keep these tests focused on wizard-state behaviour without
+    // standing up the full chat-routing graph (TabManager +
+    // ConversationRegistry + permission/agent stores).
     mockStreamRouter = {
       onSurfaceCreated: jest.fn(),
       onSurfaceClosed: jest.fn(),
@@ -427,11 +427,10 @@ describe('SetupWizardStateService', () => {
     });
 
     it('should auto-transition from generation to enhance step on complete', () => {
-      // After TASK_2025_149, the post-generation auto-transition hands off to
-      // the `enhance` step (Enhanced Prompts) rather than jumping straight to
-      // `completion`. The service's `setCurrentStepIfGeneration` helper fires
-      // on the generation-complete message only when the current step is
-      // 'generation'.
+      // The post-generation auto-transition hands off to the `enhance` step
+      // (Enhanced Prompts) rather than jumping straight to `completion`. The
+      // service's `setCurrentStepIfGeneration` helper fires on the
+      // generation-complete message only when the current step is 'generation'.
       service.setCurrentStep('generation');
 
       const payload: CompletionData = {
@@ -719,14 +718,10 @@ describe('SetupWizardStateService', () => {
     });
   });
 
-  // ===========================================================================
-  // TASK_2026_107 Phase 3 — Surface routing.
-  //
   // Verifies the per-phase SurfaceId lifecycle: lazy registration, idempotent
   // re-mint, sibling lookup, teardown semantics for both
   // `unregisterAllPhaseSurfaces` (analysis-complete — keeps states visible)
   // and `resetPhaseSurfaces` (full nuke — wipes states).
-  // ===========================================================================
   describe('Phase Surface Routing (TASK_2026_107 Phase 3)', () => {
     it('registerPhaseSurface mints a SurfaceId, binds via StreamRouter, and registers the adapter', () => {
       const surfaceId = service.registerPhaseSurface('wizard-phase-discovery');
@@ -776,9 +771,9 @@ describe('SetupWizardStateService', () => {
       expect(mockStreamRouter.onSurfaceClosed).toHaveBeenCalledTimes(1);
       expect(mockStreamRouter.onSurfaceClosed).toHaveBeenCalledWith(surfaceId);
       expect(service.surfaceForPhase('wizard-phase-discovery')).toBeNull();
-      // Phase 2 discovery #1: the router's onSurfaceClosed handles
-      // surfaceRegistry.unregister internally — the wizard MUST NOT
-      // call surfaceRegistry.unregister itself (would race residual events).
+      // The router's onSurfaceClosed handles surfaceRegistry.unregister
+      // internally — the wizard MUST NOT call surfaceRegistry.unregister
+      // itself (would race residual events).
       expect(mockSurfaceRegistry.unregister).not.toHaveBeenCalled();
     });
 

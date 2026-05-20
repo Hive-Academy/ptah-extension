@@ -6,10 +6,6 @@ import { IsString } from 'class-validator';
  * Request/response types for subscription management endpoints
  */
 
-// ============================================================================
-// Request DTOs (with validation)
-// ============================================================================
-
 /**
  * DTO for validating a checkout request
  *
@@ -20,10 +16,6 @@ export class ValidateCheckoutDto {
   @IsString()
   priceId!: string;
 }
-
-// ============================================================================
-// Response DTOs (plain classes, no validation needed)
-// ============================================================================
 
 /**
  * Subscription details in status response

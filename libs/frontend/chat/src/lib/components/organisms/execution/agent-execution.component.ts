@@ -306,20 +306,14 @@ export class AgentExecutionComponent {
    * lose the permission flow when forwarding IS wired up.
    */
   readonly permissionResponded = output<PermissionResponse>();
-
-  // Icons
   readonly FileTextIcon = FileText;
   readonly WrenchIcon = Wrench;
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
   readonly LoaderIcon = Loader2;
   readonly AlertCircleIcon = AlertCircle;
-
-  // Section collapse state
   readonly summaryCollapsed = signal(false);
   readonly executionCollapsed = signal(false);
-
-  // Computed signals for streaming state
   readonly isStreaming = computed(() => this.agentInfo().isStreaming === true);
 
   readonly toolCount = computed(() => {

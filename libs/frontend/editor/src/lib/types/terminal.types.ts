@@ -1,6 +1,5 @@
 /**
- * Terminal Type Definitions for Frontend
- * TASK_2025_227 Batch 5: Terminal binary IPC API and tab state types
+ * Terminal Type Definitions for Frontend: binary IPC API and tab state types.
  *
  * PtahTerminalApi: Interface for the window.ptahTerminal binary IPC bridge
  * exposed by the Electron preload script. This is separate from JSON RPC

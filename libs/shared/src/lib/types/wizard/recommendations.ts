@@ -1,7 +1,7 @@
 /**
  * Setup Wizard agent recommendations + project analysis result.
  *
- * Extracted from setup-wizard.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
+ * Extracted from setup-wizard.types.ts — zero behavior change.
  */
 
 import type {
@@ -12,10 +12,6 @@ import type {
   TestCoverageEstimate,
 } from './analysis';
 import type { CodeConventions } from './conventions';
-
-// ============================================================================
-// Agent Recommendation Types
-// ============================================================================
 
 /**
  * Agent category for grouping and display.
@@ -69,10 +65,6 @@ export interface AgentRecommendation {
   /** Optional: Icon identifier for UI display. */
   icon?: string;
 }
-
-// ============================================================================
-// Project Analysis Result Types
-// ============================================================================
 
 /**
  * Project analysis result for RPC communication.
@@ -130,11 +122,6 @@ export interface ProjectAnalysisResult {
   testCoverage: TestCoverageEstimate;
   /** Code conventions detected. */
   codeConventions?: CodeConventions;
-
-  // ========================================
-  // Quality Assessment Fields (TASK_2025_151)
-  // All fields optional for backward compatibility
-  // ========================================
 
   /**
    * Overall code quality score (0-100).

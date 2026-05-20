@@ -1,5 +1,5 @@
 /**
- * VS Code Save Dialog Provider Implementation (TASK_2025_203)
+ * VS Code Save Dialog Provider Implementation.
  *
  * Implements ISaveDialogProvider using VS Code APIs:
  * - showSaveAndWrite: vscode.window.showSaveDialog() + vscode.workspace.fs.writeFile()

@@ -148,33 +148,20 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
   `,
 })
 export class TrialEndedModalComponent {
-  // Input: License status reason
   public readonly reason = input<string | undefined>(undefined);
-
-  // Input: Days remaining in trial (0 if fully expired)
   public readonly daysRemaining = input<number>(0);
-
-  // Output: Event when user clicks "Continue with Community" and trial has ended (daysRemaining === 0)
   public readonly downgradeToCommunity = output<void>();
-
-  // Internal state
   public readonly isOpen = signal(false);
-
-  // Icons
   protected readonly ClockIcon = Clock;
   protected readonly SparklesIcon = Sparkles;
   protected readonly ZapIcon = Zap;
   protected readonly ShieldIcon = Shield;
   protected readonly BotIcon = Bot;
-
-  // TASK_2025_143: Use constant instead of hardcoded value
   protected readonly trialDurationDays = TRIAL_DURATION_DAYS;
 
   private readonly router = inject(Router);
 
   public constructor() {
-    // TASK_2025_143: Watch for reason changes to show/hide modal
-    // No localStorage dismissal logic - modal shows every time when reason='trial_ended'
     effect(() => {
       const currentReason = this.reason();
       const days = this.daysRemaining();
@@ -182,7 +169,6 @@ export class TrialEndedModalComponent {
         currentReason,
         days,
       });
-      // Only show if reason is 'trial_ended'
       const shouldOpen = currentReason === 'trial_ended';
       console.log('[TrialEndedModal] Setting isOpen to:', shouldOpen);
       this.isOpen.set(shouldOpen);
@@ -205,12 +191,9 @@ export class TrialEndedModalComponent {
    * emit event to trigger downgrade API call before dismissing.
    */
   public continueWithCommunity(): void {
-    // If trial fully expired, trigger downgrade before dismissing
     if (this.daysRemaining() === 0) {
       this.downgradeToCommunity.emit();
     }
-
-    // Just close modal - no localStorage needed
     this.isOpen.set(false);
   }
 

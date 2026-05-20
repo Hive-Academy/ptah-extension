@@ -1,9 +1,6 @@
 /**
  * `ptah proxy` command — Anthropic-compatible HTTP proxy MVP + lifecycle parity.
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy MVP).
- * TASK_2026_108 T3 (persistent registry + `proxy stop` / `proxy status`).
- *
  * Three subcommands per `task-description.md`:
  *   - `ptah proxy start [...flags]` — bind the HTTP listener, mint a token,
  *     register the proxy in `~/.ptah/proxies/<port>.json`, and run until
@@ -32,8 +29,8 @@
  * caller wires a `JsonRpcServer` into `executeWith` so notifications flow
  * over stdout instead.
  *
- * Q3=A locked (TASK_2026_108 § 8): registry at `~/.ptah/proxies/` (plural).
- * Token directory `~/.ptah/proxy/` (singular) is sibling and unchanged.
+ * Registry at `~/.ptah/proxies/` (plural). Token directory
+ * `~/.ptah/proxy/` (singular) is sibling and unchanged.
  *
  * No commit, no backwards compat — direct in-place command.
  */
@@ -85,10 +82,6 @@ export interface ProxyStopOptions {
  */
 export type ProxyStatusOptions = Record<string, never>;
 
-// ---------------------------------------------------------------------------
-// Internal seams (process-level operations grouped here for testability)
-// ---------------------------------------------------------------------------
-
 /**
  * Test seam: process control + clock. Production wires real
  * `process.kill` and `setTimeout`; spec mocks supply scripted versions.
@@ -120,13 +113,12 @@ export interface ProxyLifecycleHooks {
  *
  * Resolves to an exit code so the router can set `process.exitCode` instead
  * of calling `process.exit` directly (matches the pattern used by every
- * other Batch 5+ command).
+ * other command).
  */
 export async function executeStart(
   opts: ProxyStartOptions,
   globals: GlobalOptions,
 ): Promise<number> {
-  // ---- Validate flags -----------------------------------------------------
   if (typeof opts.port !== 'number' || !Number.isFinite(opts.port)) {
     emitFatalError('proxy_invalid_request', '`--port <n>` is required', {
       command: 'proxy start',
@@ -141,20 +133,10 @@ export async function executeStart(
     );
     return ExitCode.UsageError;
   }
-
-  // Use 'localhost' (rather than '127.0.0.1') so Node's dual-stack DNS resolution
-  // applies — clients that prefer IPv6 (::1) can still reach the proxy on hosts
-  // where the loopback iface only exposes one of the two address families.
   const host = opts.host ?? 'localhost';
-  // `--auto-approve` is a global flag (see `program.option` in router.ts) so
-  // we read it from `globals` rather than the subcommand-level `opts` to
-  // avoid commander's parent/subcommand option-name conflict (the value lands
-  // on the parent only when both are declared).
   const autoApprove = globals.autoApprove === true;
   const exposeWorkspaceTools = opts.exposeWorkspaceTools !== false;
   const embedded = process.env['PTAH_INTERACT_ACTIVE'] === '1';
-
-  // Permission gate fail-fast.
   if (!autoApprove && !embedded) {
     emitFatalError(
       'permission_gate_unavailable',
@@ -189,13 +171,7 @@ export async function executeStart(
         httpProvider,
         ctx.transport,
         ctx.pushAdapter,
-        // No JSON-RPC peer when standalone — notifications drop. When
-        // embedded inside `interact`, the parent process bridges the proxy
-        // by importing this command's internals (see Phase 2 TODO below).
       );
-
-      // Track the bound port so the `finally` block can unregister even when
-      // `proxy.start()` partially succeeds and the SIGTERM teardown unwinds.
       let boundPort: number | null = null;
 
       try {
@@ -206,11 +182,6 @@ export async function executeStart(
           tokenFingerprint,
         } = await proxy.start();
         boundPort = port;
-
-        // Persist the proxy in the on-disk registry so `ptah proxy status`
-        // and `ptah proxy stop --port <n>` can find this process. The
-        // fingerprint is the SHA-256 prefix of the bearer token — the raw
-        // token never leaves the proxy service.
         await register({
           pid: process.pid,
           port,
@@ -218,9 +189,6 @@ export async function executeStart(
           startedAt: Date.now(),
           tokenFingerprint,
         });
-
-        // Surface the bound address to stderr so supervisors can scrape it
-        // when the JSON-RPC stdout channel is unavailable.
         process.stderr.write(
           `[ptah] proxy listening on http://${boundHost}:${port} (token: ${tokenPath})\n`,
         );
@@ -234,9 +202,6 @@ export async function executeStart(
         exitCode = ExitCode.GeneralError;
         return;
       }
-
-      // Block until SIGINT / SIGTERM. EOF on stdin is NOT used because
-      // the standalone proxy doesn't read stdin.
       let resolveBlock: (() => void) | null = null;
       const blockPromise = new Promise<void>((resolve) => {
         resolveBlock = resolve;
@@ -258,12 +223,6 @@ export async function executeStart(
         process.off('SIGINT', onSigint);
         process.off('SIGTERM', onSigterm);
         await proxy.stop('shutdown');
-        // Unregister covers BOTH SIGTERM/SIGINT teardown AND the
-        // `proxy.shutdown` RPC drain path (T1 wired the RPC handler to
-        // unwind through this same finally). `unregister` is idempotent on
-        // missing files so a duplicate call from an embedded interact host
-        // is safe. Wrapped in `.catch(() => {})` so a stale unregister
-        // doesn't mask the proxy's terminal exit code.
         if (boundPort !== null) {
           await unregister(boundPort).catch(() => {
             /* swallow — registry leak is non-fatal at process exit */
@@ -281,10 +240,6 @@ export async function executeStart(
 
   return exitCode;
 }
-
-// ---------------------------------------------------------------------------
-// `ptah proxy stop` — TASK_2026_108 T3 Task 3.4
-// ---------------------------------------------------------------------------
 
 /**
  * `ptah proxy stop --port <n>` — graceful SIGTERM with 5s timeout, then
@@ -326,15 +281,10 @@ export async function executeStop(
     return ExitCode.GeneralError;
   }
   const targetPort = opts.port;
-
-  // Read alive entries (this also auto-GCs dead-pid entries inline). We do
-  // NOT short-circuit on alive miss — we still check `findStale()` so a
-  // pid-already-dead entry exits 0 with the desired end-state achieved.
   const alive = await listImpl();
   const aliveEntry = alive.find((e) => e.port === targetPort);
 
   if (aliveEntry === undefined) {
-    // Maybe the entry exists but the pid is dead. Check findStale().
     const stale = await findStaleImpl();
     const staleEntry = stale.find((e) => e.port === targetPort);
     if (staleEntry !== undefined) {
@@ -346,21 +296,15 @@ export async function executeStop(
       );
       return ExitCode.Success;
     }
-    // Truly missing — neither alive nor stale.
     writeStderrJson(stderrWrite, {
       error: 'proxy_not_found',
       message: `no proxy registered on port ${targetPort}`,
     });
     return ExitCode.GeneralError;
   }
-
-  // SIGTERM, then poll. We cannot use `await sleep(100)` here easily because
-  // tests need to advance fake timers — instead we manually orchestrate
-  // setTimeout-based polls with explicit promise resolution.
   try {
     killImpl(aliveEntry.pid, 'SIGTERM');
   } catch (err) {
-    // pid disappeared between list() and SIGTERM — treat as success and GC.
     if (isNodeErrnoException(err) && err.code === 'ESRCH') {
       await unregisterImpl(targetPort).catch(() => undefined);
       return ExitCode.Success;
@@ -392,8 +336,6 @@ export async function executeStop(
     try {
       killImpl(aliveEntry.pid, 'SIGKILL');
     } catch (err) {
-      // Pid may have died in the gap between the last poll and SIGKILL —
-      // ESRCH is benign.
       if (!(isNodeErrnoException(err) && err.code === 'ESRCH')) {
         const message = err instanceof Error ? err.message : String(err);
         emitFatalError('internal_failure', message, {
@@ -405,9 +347,6 @@ export async function executeStop(
       }
     }
   }
-
-  // Best-effort registry cleanup. The proxy itself usually does this in its
-  // `finally` block, but if the pid was SIGKILL'd that block never ran.
   await unregisterImpl(targetPort).catch(() => undefined);
 
   return ExitCode.Success;
@@ -451,8 +390,6 @@ function waitForPidExit(
       }
       timer = setTimeoutImpl(tick, intervalMs);
     };
-    // First check immediately so a process that died before SIGTERM polled
-    // doesn't burn 100ms of wall clock.
     tick();
   });
 }
@@ -475,10 +412,6 @@ function isPidAlive(
     return false;
   }
 }
-
-// ---------------------------------------------------------------------------
-// `ptah proxy status` — TASK_2026_108 T3 Task 3.5
-// ---------------------------------------------------------------------------
 
 /**
  * `ptah proxy status` — list every alive proxy in the registry.
@@ -520,14 +453,9 @@ export async function executeStatus(
   if (globals.human === true) {
     const table = renderHumanTable(entries);
     stdoutWrite(table);
-    // Touch the formatter import to satisfy linters that flag unused
-    // re-exports, and to keep the human formatter accessible if a future
-    // change wants to delegate row formatting through it.
     void buildFormatter;
     return ExitCode.Success;
   }
-
-  // Default: NDJSON one line per entry.
   for (const entry of entries) {
     stdoutWrite(
       `${JSON.stringify({
@@ -581,10 +509,6 @@ function humanizeUptime(ms: number): string {
   return `${days}d ${hours % 24}h`;
 }
 
-// ---------------------------------------------------------------------------
-// Free helpers
-// ---------------------------------------------------------------------------
-
 /** Type guard for `NodeJS.ErrnoException` (`.code` field access). */
 function isNodeErrnoException(value: unknown): value is NodeJS.ErrnoException {
   return (
@@ -605,9 +529,5 @@ function writeStderrJson(
   stderrWrite: (chunk: string) => boolean,
   payload: Record<string, unknown>,
 ): void {
-  try {
-    stderrWrite(`${JSON.stringify(payload)}\n`);
-  } catch {
-    /* swallow — stderr write failure cannot be reported anywhere */
-  }
+  stderrWrite(`${JSON.stringify(payload)}\n`);
 }

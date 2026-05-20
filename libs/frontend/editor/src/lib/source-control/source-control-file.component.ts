@@ -30,8 +30,6 @@ import type { GitFileStatus } from '@ptah-extension/shared';
  * - File name (bold) + parent directory (subdued)
  * - Inline hover actions: stage/unstage, discard
  * - Row click opens diff view
- *
- * TASK_2025_273
  */
 @Component({
   selector: 'ptah-source-control-file',
@@ -118,8 +116,6 @@ export class SourceControlFileComponent {
   readonly discard = output<string>();
   readonly openDiff = output<string>();
   readonly openFile = output<string>();
-
-  // Icons
   readonly PlusIcon = Plus;
   readonly MinusIcon = Minus;
   readonly Undo2Icon = Undo2;

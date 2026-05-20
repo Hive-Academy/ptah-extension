@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah mcp` command — TASK_2026_104 Sub-batch B6b.
+ * Unit tests for `ptah mcp` command.
  *
  * Coverage:
  *   - search: dispatches mcpDirectory:search; usage error without query

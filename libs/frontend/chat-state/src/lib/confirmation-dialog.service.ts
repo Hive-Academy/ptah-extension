@@ -15,7 +15,7 @@ export interface ConfirmationDialogOptions {
  * ConfirmationDialogService - Manages confirmation dialogs in VS Code webview
  *
  * Purpose:
- * - Replaces window.confirm() which doesn't work in VS Code webviews (sandboxed)
+ * - Works around the VS Code webview sandbox blocking native `window.confirm()`
  * - Provides a signal-based, async confirmation dialog
  * - Uses DaisyUI modal styling
  *
@@ -32,23 +32,11 @@ export interface ConfirmationDialogOptions {
  */
 @Injectable({ providedIn: 'root' })
 export class ConfirmationDialogService {
-  // ============================================================================
-  // STATE SIGNALS
-  // ============================================================================
-
   private readonly _isOpen = signal(false);
   private readonly _options = signal<ConfirmationDialogOptions | null>(null);
-
-  // Public readonly signals
   readonly isOpen = this._isOpen.asReadonly();
   readonly options = this._options.asReadonly();
-
-  // Promise resolver for async confirmation
   private resolvePromise: ((value: boolean) => void) | null = null;
-
-  // ============================================================================
-  // PUBLIC API
-  // ============================================================================
 
   /**
    * Show a confirmation dialog and wait for user response

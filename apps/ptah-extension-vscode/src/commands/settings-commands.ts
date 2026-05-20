@@ -6,7 +6,7 @@
  * - Ptah: Export Settings
  * - Ptah: Import Settings
  *
- * TASK_2025_210 Batch 2: VS Code export/import commands for cross-platform settings portability.
+ * Provides cross-platform settings portability for VS Code.
  *
  * Security:
  * - Export warns users that secrets will be stored in PLAINTEXT
@@ -40,7 +40,7 @@ export class SettingsCommands {
   constructor(
     private readonly exportService: SettingsExportService,
     private readonly importService: SettingsImportService,
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {}
 
   /**
@@ -55,11 +55,11 @@ export class SettingsCommands {
   registerCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
       vscode.commands.registerCommand('ptah.exportSettings', () =>
-        this.exportSettings()
+        this.exportSettings(),
       ),
       vscode.commands.registerCommand('ptah.importSettings', () =>
-        this.importSettings()
-      )
+        this.importSettings(),
+      ),
     );
   }
 
@@ -75,19 +75,16 @@ export class SettingsCommands {
    * 6. Show success message with exported item count
    */
   private async exportSettings(): Promise<void> {
-    // Step 1: Security warning -- user must explicitly proceed
     const proceed = await vscode.window.showWarningMessage(
       'This will export your API keys and tokens in PLAINTEXT to a JSON file. ' +
         'Only use this file on trusted devices and delete it after importing. Continue?',
       { modal: true },
-      'Export Settings'
+      'Export Settings',
     );
 
     if (proceed !== 'Export Settings') {
       return;
     }
-
-    // Step 2: Collect settings from platform-agnostic service
     let exportData: PtahSettingsExport;
     try {
       exportData = await this.exportService.collectSettings('vscode');
@@ -96,12 +93,10 @@ export class SettingsCommands {
         error: error instanceof Error ? error.message : String(error),
       });
       vscode.window.showErrorMessage(
-        'Failed to collect settings. Check the output log for details.'
+        'Failed to collect settings. Check the output log for details.',
       );
       return;
     }
-
-    // Step 3: Show save file dialog
     const saveUri = await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.file('ptah-settings-export.json'),
       filters: { 'JSON Files': ['json'] },
@@ -111,8 +106,6 @@ export class SettingsCommands {
     if (!saveUri) {
       return;
     }
-
-    // Step 4: Write JSON file (pretty-printed for human readability)
     try {
       const jsonContent = JSON.stringify(exportData, null, 2);
       const encoder = new TextEncoder();
@@ -124,19 +117,17 @@ export class SettingsCommands {
       vscode.window.showErrorMessage(
         `Failed to write export file: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return;
     }
-
-    // Step 5: Success message with count of exported items
     const secretCount = countPopulatedSecrets(exportData);
     const configCount = Object.keys(exportData.config).length;
     const totalCount = secretCount + configCount;
 
     vscode.window.showInformationMessage(
       `Settings exported successfully! ${totalCount} item(s) saved ` +
-        `(${secretCount} credential(s), ${configCount} config value(s)).`
+        `(${secretCount} credential(s), ${configCount} config value(s)).`,
     );
 
     this.logger.info('[SettingsCommands] Export complete', {
@@ -158,7 +149,6 @@ export class SettingsCommands {
    * 6. Offer to reload window
    */
   private async importSettings(): Promise<void> {
-    // Step 1: Show open file dialog
     const fileUris = await vscode.window.showOpenDialog({
       canSelectMany: false,
       filters: { 'JSON Files': ['json'] },
@@ -171,8 +161,6 @@ export class SettingsCommands {
     }
 
     const fileUri = fileUris[0];
-
-    // Step 2: Read and parse JSON file
     let importData: PtahSettingsExport;
     try {
       const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -186,12 +174,10 @@ export class SettingsCommands {
       vscode.window.showErrorMessage(
         `Failed to read or parse import file: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return;
     }
-
-    // Step 3: Call import service
     let result;
     try {
       result = await this.importService.importSettings(importData);
@@ -202,12 +188,10 @@ export class SettingsCommands {
       vscode.window.showErrorMessage(
         `Failed to import settings: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return;
     }
-
-    // Step 4: Show import summary
     const summaryParts: string[] = [];
     if (result.imported.length > 0) {
       summaryParts.push(`${result.imported.length} imported`);
@@ -227,26 +211,22 @@ export class SettingsCommands {
       skipped: result.skipped.length,
       errors: result.errors.length,
     });
-
-    // Step 5: Show result and warn about deleting the export file
     if (result.errors.length > 0) {
       vscode.window.showWarningMessage(
         `Settings import completed with issues: ${summary}. ` +
-          `Errors: ${result.errors.join('; ')}`
+          `Errors: ${result.errors.join('; ')}`,
       );
     } else {
       vscode.window.showInformationMessage(
-        `Settings import complete: ${summary}.`
+        `Settings import complete: ${summary}.`,
       );
     }
-
-    // Step 6: Prominently warn user to delete the export file
     const deleteWarning = await vscode.window.showWarningMessage(
       'IMPORTANT: Please delete the export file now. ' +
         'It contains plaintext API keys and tokens that should not be left on disk.',
       { modal: true },
       'Reload Window',
-      'OK'
+      'OK',
     );
 
     if (deleteWarning === 'Reload Window') {

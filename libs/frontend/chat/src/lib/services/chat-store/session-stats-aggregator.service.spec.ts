@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SessionStatsAggregatorService specs â€” SESSION_STATS aggregation.
  *
  * Coverage:
@@ -27,6 +27,12 @@ import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
 import type { TabState } from '@ptah-extension/chat-types';
+import { SessionId } from '@ptah-extension/shared';
+
+// Production `SessionStatsAggregatorService.handleSessionStats` validates the
+// inbound sessionId via `SessionId.from()` (UUID v4). Mint stable ids per run.
+const SESS_1 = SessionId.create();
+const SESS_UNKNOWN = SessionId.create();
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {
@@ -36,7 +42,7 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     messages: [],
     streamingState: null,
     currentMessageId: null,
-    claudeSessionId: 'sess-1',
+    claudeSessionId: SESS_1,
     isCompacting: false,
     queuedContent: null,
     queuedOptions: null,
@@ -48,7 +54,7 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
 }
 
 const baseStats = {
-  sessionId: 'sess-1',
+  sessionId: SESS_1,
   cost: 0.5,
   tokens: { input: 100, output: 50, cacheRead: 10, cacheCreation: 5 },
   duration: 1000,
@@ -71,7 +77,7 @@ describe('SessionStatsAggregatorService', () => {
     tabs = [makeTab()];
     setLiveModelStatsAndUsageListMock = jest.fn();
     setPreloadedStatsMock = jest.fn();
-    // TASK_2026_106 Phase 4b — service now uses plural fan-out lookup.
+    // Service uses plural fan-out lookup.
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
     );
@@ -100,7 +106,7 @@ describe('SessionStatsAggregatorService', () => {
     const dispatchMock = {
       sendQueuedMessage: sendQueuedMock,
     } as unknown as MessageDispatchService;
-    // TASK_2026_109 C1 — `isLateAfterCompaction` now reads from
+    // `isLateAfterCompaction` reads from
     // ConversationRegistry / TabSessionBinding. Tests in this file create
     // tabs with no conversation binding so the fallback (per-tab
     // `lastCompactionAt`) drives the grace-window check; the registry is
@@ -134,20 +140,19 @@ describe('SessionStatsAggregatorService', () => {
 
   it('finds tab by sessionId and clears compaction state', () => {
     service.handleSessionStats(baseStats);
-    expect(findTabsBySessionIdMock).toHaveBeenCalledWith('sess-1');
+    expect(findTabsBySessionIdMock).toHaveBeenCalledWith(SESS_1);
     expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
   });
 
-  // TASK_2026_109_FOLLOWUP N7 — drop active-tab fallback. Was: fall back
-  // to activeTab when findTabsBySessionId returned empty. Now: warn and
-  // drop the event so foreign-session stats cannot pollute the active tab
-  // during a tab switch.
+  // Drop active-tab fallback. Was: fall back to activeTab when
+  // findTabsBySessionId returned empty. Now: warn and drop the event so
+  // foreign-session stats cannot pollute the active tab during a tab switch.
   it('N7 — drops the event without active-tab fallback when no tab is bound', () => {
     findTabsBySessionIdMock.mockReturnValue([]);
-    service.handleSessionStats({ ...baseStats, sessionId: 'unknown' });
+    service.handleSessionStats({ ...baseStats, sessionId: SESS_UNKNOWN });
     expect(warn).toHaveBeenCalledWith(
       '[ChatStore] handleSessionStats: no tab bound to sessionId, dropping event',
-      { sessionId: 'unknown' },
+      { sessionId: SESS_UNKNOWN },
     );
     // None of the downstream side-effects fire — the event is fully dropped.
     expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
@@ -312,7 +317,7 @@ describe('SessionStatsAggregatorService', () => {
   });
 
   // ------------------------------------------------------------------
-  // TASK_2026_109 — late-event grace window + primary-model determinism.
+  // Late-event grace window + primary-model determinism.
   // ------------------------------------------------------------------
 
   describe('B3 — late SESSION_STATS dropped within grace window', () => {
@@ -347,17 +352,17 @@ describe('SessionStatsAggregatorService', () => {
       // The aggregator logs a warning to make the drop observable.
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleSessionStats: dropped late event after compaction',
-        expect.objectContaining({ sessionId: 'sess-1' }),
+        expect.objectContaining({ sessionId: SESS_1 }),
       );
     });
   });
 
   // ------------------------------------------------------------------
-  // TASK_2026_109_FOLLOWUP N2 — extend cumulative-fallback skip rule to
-  // non-compacted sessions when the cumulative sum exceeds contextWindow.
-  // Long sessions on third-party providers (OpenRouter, Moonshot, Ollama)
-  // never emit `lastTurnContextTokens`, so the cumulative input + output +
-  // cacheRead can climb past contextWindow and produce 1000%+ CTX badges.
+  // Extend cumulative-fallback skip rule to non-compacted sessions when
+  // the cumulative sum exceeds contextWindow. Long sessions on third-party
+  // providers (OpenRouter, Moonshot, Ollama) never emit
+  // `lastTurnContextTokens`, so the cumulative input + output + cacheRead
+  // can climb past contextWindow and produce 1000%+ CTX badges.
   // ------------------------------------------------------------------
   describe('N2 — skip cumulative-fallback when cumulative > contextWindow', () => {
     it('drops the live-stats update without compaction when cumulative exceeds the window', () => {
@@ -406,16 +411,16 @@ describe('SessionStatsAggregatorService', () => {
   });
 
   // ------------------------------------------------------------------
-  // TASK_2026_109_FOLLOWUP N5 — sticky primary model. Prefer the tab's
-  // sessionModel over the cost-based pickPrimaryModel when sessionModel is
-  // present in the modelUsage array. Stops Haiku-via-subagent bursts from
-  // visibly flipping the displayed primary model away from the user's pick.
+  // Sticky primary model. Prefer the tab's sessionModel over the cost-based
+  // pickPrimaryModel when sessionModel is present in the modelUsage array.
+  // Stops Haiku-via-subagent bursts from visibly flipping the displayed
+  // primary model away from the user's pick.
   // ------------------------------------------------------------------
   describe('N5 — sticky primary model by sessionModel', () => {
     it('prefers tab sessionModel over the higher-cost cost-based pick', () => {
       tabs = [
         makeTab({
-          claudeSessionId: 'sess-1',
+          claudeSessionId: SESS_1,
           // The user picked Opus for this session.
           sessionModel: 'claude-opus-4',
         } as Partial<TabState>),
@@ -453,7 +458,7 @@ describe('SessionStatsAggregatorService', () => {
     it('falls back to cost-based primary when sessionModel is absent from modelUsage', () => {
       tabs = [
         makeTab({
-          claudeSessionId: 'sess-1',
+          claudeSessionId: SESS_1,
           sessionModel: 'claude-opus-4',
         } as Partial<TabState>),
       ];

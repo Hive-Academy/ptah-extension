@@ -1,6 +1,5 @@
 /**
- * Unit tests for `ptah proxy stop` / `ptah proxy status` —
- * TASK_2026_108 T3 (Batch 3, Tasks 3.4 + 3.5).
+ * Unit tests for `ptah proxy stop` / `ptah proxy status`.
  *
  * Coverage:
  *   - `executeStop`:

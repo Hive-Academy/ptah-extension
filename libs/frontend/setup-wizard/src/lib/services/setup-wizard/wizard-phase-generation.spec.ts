@@ -1,8 +1,8 @@
 /**
- * WizardPhaseGeneration spec — TASK_2026_107 Phase 3.
+ * WizardPhaseGeneration spec.
  *
- * Verifies the generation-stream lifecycle now routes through the
- * WizardSurfaceFacade instead of the deleted `WizardStreamAccumulator`:
+ * Verifies the generation-stream lifecycle routes through the
+ * WizardSurfaceFacade:
  *   - First generation event of a pass calls `surfaces.resetPhaseSurfaces()`
  *     (replaces the legacy `accumulator.reset()`) so stale analysis-phase
  *     entries are wiped before the generation transcript begins.

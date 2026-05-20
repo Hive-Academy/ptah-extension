@@ -51,7 +51,7 @@ export interface AnalysisNamespaceDependencies {
  * Manages token budgets and intelligent file selection
  */
 export function buildContextNamespace(
-  deps: AnalysisNamespaceDependencies
+  deps: AnalysisNamespaceDependencies,
 ): ContextNamespace {
   const {
     contextOptimizer,
@@ -63,15 +63,13 @@ export function buildContextNamespace(
   return {
     enrichFile: async (filePath: string, language?: string) => {
       try {
-        // Cast language string to the internal SupportedLanguage type
-        // Valid values: 'typescript' | 'javascript' | undefined
         const lang =
           language === 'typescript' || language === 'javascript'
             ? (language as 'typescript' | 'javascript')
             : undefined;
         return await contextEnrichment.generateStructuralSummary(
           filePath,
-          lang
+          lang,
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -87,7 +85,7 @@ export function buildContextNamespace(
 
     optimize: async (
       query: string,
-      maxTokens = 150000
+      maxTokens = 150000,
     ): Promise<OptimizedContextResult> => {
       const index = await workspaceIndexer.indexWorkspace({
         estimateTokens: true,
@@ -124,7 +122,7 @@ export function buildContextNamespace(
     },
 
     getRecommendedBudget: (
-      projectType: 'monorepo' | 'library' | 'application' | 'unknown'
+      projectType: 'monorepo' | 'library' | 'application' | 'unknown',
     ): number => {
       return contextOptimizer.getRecommendedBudget(projectType);
     },
@@ -136,7 +134,7 @@ export function buildContextNamespace(
  * Deep project analysis: monorepo detection, dependencies
  */
 export function buildProjectNamespace(
-  deps: AnalysisNamespaceDependencies
+  deps: AnalysisNamespaceDependencies,
 ): ProjectNamespace {
   const {
     monorepoDetector,
@@ -177,13 +175,12 @@ export function buildProjectNamespace(
         return [];
       }
 
-      const projectType = await projectDetector.detectProjectType(
-        workspaceRoot
-      );
+      const projectType =
+        await projectDetector.detectProjectType(workspaceRoot);
 
       const analysis = await dependencyAnalyzer.analyzeDependencies(
         workspaceRoot,
-        projectType
+        projectType,
       );
       return [
         ...analysis.dependencies.map((d) => ({
@@ -206,14 +203,14 @@ export function buildProjectNamespace(
  * File ranking with transparent explanations
  */
 export function buildRelevanceNamespace(
-  deps: AnalysisNamespaceDependencies
+  deps: AnalysisNamespaceDependencies,
 ): RelevanceNamespace {
   const { relevanceScorer, workspaceIndexer } = deps;
 
   return {
     scoreFile: async (
       filePath: string,
-      query: string
+      query: string,
     ): Promise<FileRelevanceResult> => {
       const index = await workspaceIndexer.indexWorkspace({
         estimateTokens: false,
@@ -221,7 +218,7 @@ export function buildRelevanceNamespace(
       });
 
       const file = index.files.find(
-        (f) => f.relativePath === filePath || f.path === filePath
+        (f) => f.relativePath === filePath || f.path === filePath,
       );
 
       if (!file) {
@@ -242,7 +239,7 @@ export function buildRelevanceNamespace(
 
     rankFiles: async (
       query: string,
-      limit = 20
+      limit = 20,
     ): Promise<FileRelevanceResult[]> => {
       const index = await workspaceIndexer.indexWorkspace({
         estimateTokens: false,
@@ -263,10 +260,9 @@ export function buildRelevanceNamespace(
 /**
  * Build dependency graph namespace
  * Import-based file dependency tracking and symbol indexing
- * TASK_2025_182
  */
 export function buildDependencyNamespace(
-  deps: AnalysisNamespaceDependencies
+  deps: AnalysisNamespaceDependencies,
 ): DependenciesNamespace {
   const { dependencyGraph } = deps;
 
@@ -275,7 +271,7 @@ export function buildDependencyNamespace(
       try {
         const graph = await dependencyGraph.buildGraph(
           filePaths,
-          workspaceRoot
+          workspaceRoot,
         );
         let edgeCount = 0;
         for (const edgeSet of graph.edges.values()) {
@@ -301,7 +297,7 @@ export function buildDependencyNamespace(
 
     getDependencies: async (
       filePath: string,
-      depth?: number
+      depth?: number,
     ): Promise<string[]> => {
       try {
         return dependencyGraph.getDependencies(filePath, depth);

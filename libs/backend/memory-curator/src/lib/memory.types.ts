@@ -1,5 +1,5 @@
 /**
- * Memory Curator domain types (TASK_2026_HERMES Track 1).
+ * Memory Curator domain types.
  *
  * All time fields are integer epoch milliseconds, matching the existing Ptah
  * convention (`compaction-hook-handler.ts`, `session-metadata-store.ts`).

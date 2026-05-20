@@ -1,7 +1,5 @@
 /**
  * ConfirmationDialogService — async confirmation flow coverage.
- *
- * TASK_2026_105 Wave G2 Phase 2.
  */
 
 import { TestBed } from '@angular/core/testing';

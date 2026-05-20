@@ -1,5 +1,5 @@
 {
-  "name": "platform-cli",
+  "name": "@ptah-extension/platform-cli",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/platform-cli/src",

@@ -1,11 +1,8 @@
 /**
  * License RPC Handlers
  *
- * Handles license-related RPC methods: license:getStatus
- *
- * TASK_2025_079: License status exposure for frontend premium feature gating
- * TASK_2025_128: Freemium model (Community + Pro)
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.commands with IPlatformCommands)
+ * Handles license-related RPC methods: license:getStatus.
+ * Freemium model (Community + Pro).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -30,9 +27,7 @@ import type {
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
- * RPC handlers for license operations
- *
- * TASK_2025_128: Freemium model (Community + Pro)
+ * RPC handlers for license operations (Freemium model: Community + Pro).
  *
  * Exposes license status to the frontend for:
  * - Conditional settings visibility (premium sections)
@@ -77,9 +72,7 @@ export class LicenseRpcHandlers {
   }
 
   /**
-   * license:getStatus - Get current license status
-   *
-   * TASK_2025_128: Updated for freemium model
+   * license:getStatus - Get current license status (freemium model).
    *
    * Returns tier, validity, and feature flags for frontend gating.
    * Uses cached status (1-hour TTL) to minimize API calls.
@@ -122,11 +115,6 @@ export class LicenseRpcHandlers {
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'LicenseRpcHandlers.registerGetStatus' },
         );
-
-        // TASK_2025_128: On error, check cached status to determine fallback.
-        // If user was on Community tier (or no cached status exists, meaning
-        // no license key), return Community instead of expired to avoid
-        // blocking free-tier users due to transient errors.
         const cachedStatus = this.licenseService.getCachedStatus();
         if (!cachedStatus || cachedStatus.tier === 'community') {
           return {
@@ -139,8 +127,6 @@ export class LicenseRpcHandlers {
             trialDaysRemaining: null,
           };
         }
-
-        // User had a Pro/trial license - return expired for real license holders
         return {
           valid: false,
           tier: 'expired' as LicenseTier,
@@ -176,8 +162,6 @@ export class LicenseRpcHandlers {
           if (Array.isArray(normalizedKey)) {
             normalizedKey = normalizedKey[0];
           }
-
-          // Validate key is provided
           if (!normalizedKey || typeof normalizedKey !== 'string') {
             return {
               success: false,
@@ -187,8 +171,6 @@ export class LicenseRpcHandlers {
             };
           }
           const key = normalizedKey;
-
-          // Validate format: ptah_lic_ + 64 hex characters
           if (!/^ptah_lic_[a-f0-9]{64}$/.test(key)) {
             return {
               success: false,
@@ -198,8 +180,6 @@ export class LicenseRpcHandlers {
           }
 
           this.logger.debug('RPC: license:setKey - storing and verifying key');
-
-          // Store and verify
           await this.licenseService.setLicenseKey(key);
           const newStatus = await this.licenseService.verifyLicense();
 
@@ -207,9 +187,6 @@ export class LicenseRpcHandlers {
             this.logger.info('RPC: license:setKey - license activated', {
               tier: newStatus.tier,
             });
-
-            // Schedule window reload to apply license changes
-            // Delay allows the RPC response to reach the webview first
             setTimeout(() => this.platformCommands.reloadWindow(), 1500);
 
             return {
@@ -222,8 +199,6 @@ export class LicenseRpcHandlers {
               reason: newStatus.reason,
               tier: newStatus.tier,
             });
-            // Include the actual reason so users and logs can diagnose the issue.
-            // Common reasons: 'not_found' (key unknown), 'expired', 'revoked', 'trial_ended'
             const reasonDetail = newStatus.reason
               ? ` (reason: ${newStatus.reason})`
               : '';
@@ -270,9 +245,6 @@ export class LicenseRpcHandlers {
         await this.licenseService.clearLicenseKey();
 
         this.logger.info('RPC: license:clearKey - license key removed');
-
-        // Schedule window reload to apply changes
-        // Delay allows the RPC response to reach the webview first
         setTimeout(() => this.platformCommands.reloadWindow(), 1500);
 
         return { success: true };
@@ -297,9 +269,9 @@ export class LicenseRpcHandlers {
   }
 
   /**
-   * Map internal LicenseStatus to RPC response format
+   * Map internal LicenseStatus to RPC response format.
    *
-   * TASK_2025_128: Maps the internal LicenseStatus from LicenseService
+   * Maps the internal LicenseStatus from LicenseService
    * to the LicenseGetStatusResponse format expected by the frontend.
    *
    * Tier mapping for convenience flags:
@@ -312,19 +284,9 @@ export class LicenseRpcHandlers {
   private mapLicenseStatusToResponse(
     status: LicenseStatus,
   ): LicenseGetStatusResponse {
-    // Determine if user has premium (Pro) features
-    // Pro tier and Pro trial both have premium features
     const isPremium = status.tier === 'pro' || status.tier === 'trial_pro';
-
-    // Determine if user has Community tier (free tier)
     const isCommunity = status.tier === 'community';
-
-    // Determine trial status from tier (only Pro has trial)
     const trialActive = status.trialActive ?? status.tier === 'trial_pro';
-
-    // TASK_2025_126: Map reason field for context-aware welcome messaging
-    // Backend uses: 'expired' | 'revoked' | 'not_found' | 'trial_ended'
-    // Frontend expects: 'expired' | 'trial_ended' | 'no_license'
     let reason: 'expired' | 'trial_ended' | 'no_license' | undefined;
     if (status.reason) {
       switch (status.reason) {
@@ -340,25 +302,8 @@ export class LicenseRpcHandlers {
           break;
       }
     }
-
-    // Defensive expiry warning for paid Pro licenses.
-    //
-    // Server-side root cause documented at
-    // apps/ptah-license-server/src/license/services/license.service.ts:324-328
-    // — `daysRemaining` is computed unconditionally from `license.expiresAt`
-    // even after a trial is upgraded to a paid Pro subscription. Pro plan
-    // config has `expiresAfterDays: null`, but the License row may still
-    // carry the original trial expiry date. As a result, a freshly-upgraded
-    // Pro user can see e.g. `daysRemaining: 8` despite an active subscription.
-    //
-    // We surface a structured `expiryWarning` here so CLI/UI surfaces can
-    // render a defensive warning, and we log a backend warning so support
-    // can correlate user reports with stale `expiresAt` rows server-side.
     const daysRemaining = status.daysRemaining ?? null;
     let expiryWarning: 'near_expiry' | 'critical' | null = null;
-    // Defensive against stale `expiresAt` rows on PAID Pro plans only. Trials
-    // expiring is the expected case and should not surface this warning.
-    // Thresholds match the user-facing spec: <7d critical, <30d near_expiry.
     if (
       status.tier === 'pro' &&
       typeof daysRemaining === 'number' &&
@@ -386,7 +331,6 @@ export class LicenseRpcHandlers {
           }
         : undefined,
       reason,
-      // TASK_2025_129: Forward user profile data
       user: status.user
         ? {
             email: status.user.email,

@@ -1,7 +1,5 @@
 /**
  * Background agent streaming event types + FlatStreamEventUnion.
- *
- * Extracted from execution-node.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
 
 import type {
@@ -111,10 +109,6 @@ export interface BackgroundAgentStoppedEvent extends FlatStreamEvent {
   readonly tabId?: string;
 }
 
-// ============================================================================
-// Phase 1: SDK task_* surface — subagent visibility events
-// ============================================================================
-
 /**
  * Agent progress event — emitted from SDK task_progress system messages.
  *
@@ -210,7 +204,6 @@ export type FlatStreamEventUnion =
   | BackgroundAgentProgressEvent
   | BackgroundAgentCompletedEvent
   | BackgroundAgentStoppedEvent
-  // Phase 1: SDK task_* surface
   | AgentProgressEvent
   | AgentStatusEvent
   | AgentCompletedEvent;

@@ -1,9 +1,9 @@
 /**
  * TUI-compatible adapters for VS Code-specific services
  *
- * TASK_2025_263 Batch 3: These adapters replace vscode-core services that
- * import the 'vscode' module. They provide the same interface contract
- * expected by downstream consumers (Logger, RpcHandler, etc.).
+ * These adapters replace vscode-core services that import the 'vscode'
+ * module. They provide the same interface contract expected by downstream
+ * consumers (Logger, RpcHandler, etc.).
  *
  * Mirrors apps/ptah-electron/src/di/electron-adapters.ts with CLI-specific
  * adaptations (no Electron/VS Code imports).
@@ -25,7 +25,6 @@ export class CliOutputManagerAdapter {
   private readonly channels = new Map<string, IOutputChannel>();
 
   constructor(private readonly defaultChannel: IOutputChannel) {
-    // Pre-register the default channel
     this.channels.set(defaultChannel.name, defaultChannel);
   }
 
@@ -38,8 +37,6 @@ export class CliOutputManagerAdapter {
     if (existing) {
       return existing;
     }
-    // Reuse the default channel for all "channels" in CLI
-    // (we only have one log output destination)
     this.channels.set(config.name, this.defaultChannel);
     return this.defaultChannel;
   }
@@ -112,12 +109,9 @@ export class CliLoggerAdapter {
   private readonly logToConsole: boolean;
 
   constructor(private readonly outputManager: CliOutputManagerAdapter) {
-    // Ensure output channel is created
     this.outputManager.createOutputChannel({
       name: CliLoggerAdapter.CHANNEL_NAME,
     });
-
-    // Determine log level from environment
     const explicitLevel = process.env['PTAH_LOG_LEVEL'] as LogLevel | undefined;
     if (
       explicitLevel &&
@@ -253,7 +247,6 @@ export class CliLoggerAdapter {
   }
 
   dispose(): void {
-    // No-op: OutputManager handles disposal
   }
 
   private log(level: LogLevel, message: string, args: unknown[]): void {

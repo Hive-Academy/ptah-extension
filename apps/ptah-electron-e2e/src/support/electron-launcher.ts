@@ -16,8 +16,6 @@ export interface LaunchOptions {
  * target writes `main.mjs` directly to `dist/apps/ptah-electron`.
  */
 export function resolveElectronEntry(): string {
-  // __dirname (compiled) = .../apps/ptah-electron-e2e/src/support
-  // workspace root is four levels up.
   return path.resolve(
     __dirname,
     '..',
@@ -55,14 +53,7 @@ export async function launchPtah(
     PTAH_E2E: '1',
     ...(opts.env ?? {}),
   };
-  // Strip ELECTRON_RUN_AS_NODE: when set, electron.exe impersonates Node and
-  // `import { app } from 'electron'` returns nothing usable, breaking the launcher.
   delete env['ELECTRON_RUN_AS_NODE'];
-
-  // CI runners (GitHub ubuntu-latest) restrict the unprivileged user-namespace
-  // sandbox via AppArmor / kernel.unprivileged_userns_clone, which makes
-  // Chromium's zygote hang during launch. --no-sandbox bypasses that, and
-  // --disable-dev-shm-usage avoids /dev/shm exhaustion in containerized envs.
   const ciArgs = process.env['CI']
     ? ['--no-sandbox', '--disable-dev-shm-usage']
     : [];
@@ -72,11 +63,6 @@ export async function launchPtah(
     env: env as Record<string, string>,
     timeout: opts.timeout ?? 30_000,
   });
-
-  // Surface main-process stdout/stderr so a failed launch leaves a trace
-  // in CI logs instead of a bare Playwright timeout. Bootstrap uses
-  // console.log (stdout) for phase progress, so without stdout capture we
-  // cannot tell which activation phase hung.
   app.process().stdout?.on('data', (chunk: Buffer) => {
     process.stderr.write(`[ptah-electron stdout] ${chunk.toString('utf8')}`);
   });

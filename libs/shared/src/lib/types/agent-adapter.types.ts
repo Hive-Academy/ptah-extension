@@ -52,7 +52,6 @@ export type CompactionStartCallback = (data: {
    * cache_creation) sampled at PreCompact firing time. Forwarded onto the
    * `compaction_start` stream event so the frontend can freeze the
    * pre-compaction header stats during the compaction window.
-   * (TASK_2026_109 A2)
    */
   preTokens: number;
 }) => void;
@@ -106,7 +105,7 @@ export interface AgentSessionStartConfig extends AISessionConfig {
    */
   includePartialMessages?: boolean;
   /**
-   * Caller-supplied MCP HTTP server overrides (TASK_2026_108 T2).
+   * Caller-supplied MCP HTTP server overrides.
    * Keyed by MCP server name; merged OVER the registry-built map at the
    * options-builder layer (caller wins on key collision). Reserved for the
    * Anthropic-compatible HTTP proxy in P3 — non-proxy callers leave this
@@ -128,6 +127,7 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   prompt?: string;
   /** See {@link AgentSessionStartConfig.includePartialMessages}. */
   includePartialMessages?: boolean;
+  resumeSessionAt?: string;
 }
 
 /**
@@ -211,8 +211,6 @@ export interface IAgentAdapter extends IAIProvider {
 
   /** Switch models mid-session. */
   setSessionModel(sessionId: SessionId, model: string): Promise<void>;
-
-  // ---------- Event-sink callbacks ----------
   setSessionIdResolvedCallback(cb: SessionIdResolvedCallback): void;
   setResultStatsCallback(cb: ResultStatsCallback): void;
   setCompactionStartCallback(cb: CompactionStartCallback): void;

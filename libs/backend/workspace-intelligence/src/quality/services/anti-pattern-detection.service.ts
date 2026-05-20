@@ -4,8 +4,6 @@
  * Service for detecting anti-patterns in source code using a rule engine.
  * Provides pattern detection, aggregation, and quality scoring capabilities.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -18,10 +16,6 @@ import type {
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { IAntiPatternDetectionService, SampledFile } from '../interfaces';
 import { RuleRegistry, getFileExtension } from '../rules';
-
-// ============================================
-// Severity Weights for Score Calculation
-// ============================================
 
 /**
  * Score deductions by severity level.
@@ -39,10 +33,6 @@ const SEVERITY_DEDUCTIONS: Record<AntiPatternSeverity, number> = {
  */
 const MAX_FREQUENCY_MULTIPLIER = 3;
 
-// ============================================
-// Internal Types
-// ============================================
-
 /**
  * Internal tracking structure for pattern aggregation
  */
@@ -54,10 +44,6 @@ interface PatternAggregation {
   /** Files where this pattern was found */
   files: Set<string>;
 }
-
-// ============================================
-// Service Implementation
-// ============================================
 
 /**
  * AntiPatternDetectionService
@@ -139,8 +125,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
       );
       return [];
     }
-
-    // Get rules applicable to this file extension
     const applicableRules = this.ruleRegistry.getRulesForExtension(extension);
 
     if (applicableRules.length === 0) {
@@ -152,25 +136,16 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
     }
 
     const detectedPatterns: AntiPattern[] = [];
-
-    // Run each applicable rule
     for (const rule of applicableRules) {
       try {
-        // TASK_2025_291 B2: rule.detect may return sync or Promise.
-        // `await Promise.resolve(x)` handles both with no overhead for arrays.
         const matches = await Promise.resolve(rule.detect(content, filePath));
 
         for (const match of matches) {
-          // Get the effective severity (may be overridden in configuration)
           const effectiveSeverity =
             (this.ruleRegistry.getEffectiveSeverity(
               rule.id,
             ) as AntiPatternSeverity) || rule.severity;
-
-          // Get suggestion from rule
           const suggestion = rule.getSuggestion(match);
-
-          // Build AntiPattern from match
           const antiPattern: AntiPattern = {
             type: match.type,
             severity: effectiveSeverity,
@@ -183,7 +158,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
           detectedPatterns.push(antiPattern);
         }
       } catch (error) {
-        // Log rule execution errors but continue with other rules
         this.logger.warn('Rule execution failed', {
           ruleId: rule.id,
           filePath,
@@ -223,11 +197,7 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
       this.logger.debug('No files provided for pattern detection');
       return [];
     }
-
-    // Aggregation map: pattern type -> aggregation data
     const aggregations = new Map<AntiPatternType, PatternAggregation>();
-
-    // Process each file
     for (const file of files) {
       try {
         const patterns = await this.detectPatterns(file.content, file.path);
@@ -236,11 +206,9 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
           const existing = aggregations.get(pattern.type);
 
           if (existing) {
-            // Increment count and track file
             existing.count++;
             existing.files.add(pattern.location.file);
           } else {
-            // First occurrence of this pattern type
             aggregations.set(pattern.type, {
               pattern,
               count: 1,
@@ -249,25 +217,19 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
           }
         }
       } catch (error) {
-        // Log file processing errors but continue with other files
         this.logger.warn('File processing failed during pattern detection', {
           filePath: file.path,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }
-
-    // Convert aggregations to AntiPattern array with frequency
     const aggregatedPatterns: AntiPattern[] = [];
 
     for (const [, aggregation] of aggregations) {
       const { pattern, count, files: affectedFiles } = aggregation;
-
-      // Update frequency to actual count
       const aggregatedPattern: AntiPattern = {
         ...pattern,
         frequency: count,
-        // Update message to reflect aggregation
         message: this.buildAggregatedMessage(
           pattern.message,
           count,
@@ -277,14 +239,10 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
 
       aggregatedPatterns.push(aggregatedPattern);
     }
-
-    // Sort by frequency (descending) then by severity
     aggregatedPatterns.sort((a, b) => {
-      // First by frequency
       if (b.frequency !== a.frequency) {
         return b.frequency - a.frequency;
       }
-      // Then by severity weight
       return SEVERITY_DEDUCTIONS[b.severity] - SEVERITY_DEDUCTIONS[a.severity];
     });
 
@@ -325,22 +283,15 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
    * ```
    */
   calculateScore(antiPatterns: AntiPattern[], fileCount: number): number {
-    // Start with perfect score
     let score = 100;
-
-    // No patterns = perfect score
     if (antiPatterns.length === 0) {
       this.logger.debug('No anti-patterns detected, returning perfect score', {
         fileCount,
       });
       return score;
     }
-
-    // Calculate deductions for each pattern type
     for (const pattern of antiPatterns) {
       const baseDeduction = SEVERITY_DEDUCTIONS[pattern.severity];
-
-      // Cap frequency impact to prevent single pattern dominance
       const effectiveFrequency = Math.min(
         pattern.frequency,
         MAX_FREQUENCY_MULTIPLIER,
@@ -358,8 +309,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
         deduction: totalDeduction,
       });
     }
-
-    // Ensure score stays within 0-100 bounds
     const finalScore = Math.max(0, Math.min(100, score));
 
     this.logger.info('Quality score calculated', {
@@ -371,10 +320,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
 
     return finalScore;
   }
-
-  // ============================================
-  // Async Detection Methods (Phase F - TASK_2025_144)
-  // ============================================
 
   /**
    * Detect anti-patterns in a single file's content using parallel rule execution.
@@ -416,10 +361,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
       });
       return [];
     }
-
-    // Run all rules in parallel with fault isolation.
-    // TASK_2025_291 B2: rule.detect may now be async (returns Promise<AntiPatternMatch[]>)
-    // or sync. `Promise.resolve(rule.detect(...))` normalizes both cases.
     const results = await Promise.allSettled(
       applicableRules.map(async (rule) => ({
         rule,
@@ -496,16 +437,12 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
 
     const BATCH_SIZE = 5;
     const aggregations = new Map<AntiPatternType, PatternAggregation>();
-
-    // Process files in batches
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
       const batch = files.slice(i, i + BATCH_SIZE);
 
       const batchResults = await Promise.allSettled(
         batch.map((file) => this.detectPatternsAsync(file.content, file.path)),
       );
-
-      // Merge batch results into aggregations
       batchResults.forEach((result, batchIndex) => {
         if (result.status === 'fulfilled') {
           for (const pattern of result.value) {
@@ -537,8 +474,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
         }
       });
     }
-
-    // Convert aggregations to AntiPattern array with frequency
     const aggregatedPatterns: AntiPattern[] = [];
 
     for (const [, aggregation] of aggregations) {
@@ -554,8 +489,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
         ),
       });
     }
-
-    // Sort by frequency (descending) then by severity
     aggregatedPatterns.sort((a, b) => {
       if (b.frequency !== a.frequency) {
         return b.frequency - a.frequency;
@@ -575,10 +508,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
     return aggregatedPatterns;
   }
 
-  // ============================================
-  // Private Helper Methods
-  // ============================================
-
   /**
    * Builds a human-readable message for a single pattern occurrence.
    *
@@ -588,7 +517,6 @@ export class AntiPatternDetectionService implements IAntiPatternDetectionService
    */
   private buildMessage(ruleName: string, matchedText?: string): string {
     if (matchedText && matchedText.length > 0) {
-      // Truncate long matched text
       const truncated =
         matchedText.length > 50
           ? `${matchedText.substring(0, 47)}...`

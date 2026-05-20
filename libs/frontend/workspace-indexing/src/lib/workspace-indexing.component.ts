@@ -1,11 +1,10 @@
 /**
  * WorkspaceIndexingComponent — Settings panel for the workspace-indexing
- * feature (TASK_2026_114).
+ * feature.
  *
- * Renders all 6 backend states defined in task-description.md UX Spec
- * (`never-indexed`, `indexing`, `paused`, `indexed`, `stale`, `error`) plus
- * two pseudo-states (`loading`, `no-workspace`) and the always-visible
- * per-pipeline toggle row.
+ * Renders all 6 backend states (`never-indexed`, `indexing`, `paused`,
+ * `indexed`, `stale`, `error`) plus two pseudo-states (`loading`,
+ * `no-workspace`) and the always-visible per-pipeline toggle row.
  *
  * Architecture:
  *  - `OnPush` change detection (signals do the work).
@@ -48,8 +47,6 @@ export class WorkspaceIndexingComponent {
   private readonly service = inject(WorkspaceIndexingService);
   private readonly appState = inject(AppStateManager);
 
-  // --- Signals exposed to template ----------------------------------------
-
   readonly uiState = this.service.uiState;
   readonly status = this.service.status;
   readonly progress = this.service.progress;
@@ -75,8 +72,6 @@ export class WorkspaceIndexingComponent {
     () => this.status()?.disclosureAcknowledgedAt === null,
   );
 
-  // --- Lucide icon handles (per UX Spec) -----------------------------------
-
   readonly PlayIcon = Play;
   readonly PauseIcon = Pause;
   readonly XIcon = X;
@@ -87,22 +82,16 @@ export class WorkspaceIndexingComponent {
   readonly BrainIcon = Brain;
 
   constructor() {
-    // React to workspace changes — refresh status whenever the workspace path
-    // changes after the component is alive. ngOnInit handles the very first
-    // load; this effect handles workspace switches while the panel is open.
     effect(() => {
       const root = this.workspaceRoot();
       if (root) {
         this.service.setWorkspaceAvailability(true);
-        // Fire-and-forget; failure surfaces via the service's null status.
         void this.service.loadStatus(root);
       } else {
         this.service.setWorkspaceAvailability(false);
       }
     });
   }
-
-  // --- Action handlers -----------------------------------------------------
 
   async onStart(force = false): Promise<void> {
     const root = this.workspaceRoot();
@@ -148,21 +137,12 @@ export class WorkspaceIndexingComponent {
     await this.service.acknowledgeDisclosure(root);
   }
 
-  // --- Error-detail copy helper -------------------------------------------
-
   async onCopyErrorDetails(message: string): Promise<void> {
     if (!message) return;
     if (navigator?.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(message);
-      } catch {
-        // Clipboard write can fail in restricted webview contexts — silently
-        // ignore; the error string remains on screen for manual copy.
-      }
+      await navigator.clipboard.writeText(message);
     }
   }
-
-  // --- Display helpers used by the template ------------------------------
 
   /** Compact relative time formatter — e.g. "2 minutes ago". */
   formatRelativeTime(epochMs: number | null): string {

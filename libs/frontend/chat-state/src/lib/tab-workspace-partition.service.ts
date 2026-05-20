@@ -22,8 +22,7 @@ export interface TabLookupResult {
 /**
  * TabWorkspacePartitionService - Manages workspace-partitioned tab state
  *
- * Extracted from TabManagerService (TASK_2025_208 Batch 6) to isolate
- * workspace partitioning concerns from core tab CRUD operations.
+ * Isolates workspace partitioning concerns from core tab CRUD operations.
  *
  * Responsibilities:
  * - Partition tab state by workspace path
@@ -49,17 +48,13 @@ export interface TabLookupResult {
  */
 @Injectable({ providedIn: 'root' })
 export class TabWorkspacePartitionService {
-  // ============================================================================
-  // WORKSPACE STATE
-  // ============================================================================
-
   /**
    * Map of workspace path to tab set. Contains ALL workspace tab sets,
    * including background workspaces. The active workspace's tab set is
    * also mirrored in TabManagerService's _tabs signal for UI reactivity.
    *
-   * TASK_2025_208: Cross-workspace streaming depends on this map containing
-   * all workspaces, not just the active one.
+   * Cross-workspace streaming depends on this map containing all
+   * workspaces, not just the active one.
    */
   private readonly _workspaceTabSets = new Map<string, WorkspaceTabSet>();
 
@@ -70,28 +65,23 @@ export class TabWorkspacePartitionService {
   private _activeWorkspacePath: string | null = null;
 
   /**
-   * Whether the one-time migration from global 'ptah.tabs' has been performed.
-   * Prevents re-migration on subsequent switchWorkspace() calls.
-   */
-  private _migrationDone = false;
-
-  /**
-   * TASK_2025_208 Fix 4: Reverse index from sessionId to workspacePath for O(1) lookup.
+   * Reverse index from sessionId to workspacePath for O(1) lookup.
    * Populated when tabs are created/loaded with a claudeSessionId.
    * Used by findTabBySessionIdAcrossWorkspaces() instead of O(W*T) linear scan.
    */
   private readonly _sessionToWorkspace = new Map<string, string>();
 
   /**
-   * TASK_2025_208 Fix 1: Cache of backend-provided encoded workspace paths.
+   * Cache of backend-provided encoded workspace paths.
    * When the backend sends an encodedPath in workspace:switch response,
    * we cache it here so localStorage keys match the backend's encoding.
    */
   private readonly _backendEncodedPaths = new Map<string, string>();
 
   /**
-   * TASK_2025_208 Fix 3: Per-workspace debounce timers for background saves.
-   * Prevents hammering localStorage when streaming events update background workspace tabs.
+   * Per-workspace debounce timers for background saves.
+   * Prevents hammering localStorage when streaming events update background
+   * workspace tabs.
    */
   private readonly _backgroundSaveTimers = new Map<
     string,
@@ -99,32 +89,11 @@ export class TabWorkspacePartitionService {
   >();
   private readonly BG_SAVE_DEBOUNCE_MS = 500;
 
-  /**
-   * Panel-aware localStorage key components for tab state persistence.
-   * Set once during initialize() from TabManagerService.
-   */
   private _panelId: string | undefined;
-  private _legacyStorageKey = 'ptah.tabs';
 
-  // ============================================================================
-  // INITIALIZATION
-  // ============================================================================
-
-  /**
-   * Initialize workspace partition service with panel configuration.
-   * Must be called by TabManagerService during its constructor.
-   *
-   * @param panelId - Panel ID for localStorage namespacing (undefined for sidebar)
-   * @param legacyStorageKey - Legacy storage key for migration
-   */
-  initialize(panelId: string | undefined, legacyStorageKey: string): void {
+  initialize(panelId: string | undefined): void {
     this._panelId = panelId;
-    this._legacyStorageKey = legacyStorageKey;
   }
-
-  // ============================================================================
-  // PUBLIC API
-  // ============================================================================
 
   /**
    * Get the currently active workspace path.
@@ -142,7 +111,7 @@ export class TabWorkspacePartitionService {
    * 3. Load target workspace's tab state from map (or from localStorage, or create empty)
    * 4. Return the target workspace's tabs and activeTabId for TabManagerService to apply
    *
-   * TASK_2025_208: This is the core workspace partitioning mechanism.
+   * This is the core workspace partitioning mechanism.
    * Called by TabManagerService.switchWorkspace() which delegates here.
    *
    * @param workspacePath - The workspace folder path to switch to
@@ -155,48 +124,29 @@ export class TabWorkspacePartitionService {
     currentTabs: TabState[],
     currentActiveTabId: string | null,
   ): { tabs: TabState[]; activeTabId: string | null } | null {
-    // No-op if switching to already-active workspace
     if (this._activeWorkspacePath === workspacePath) return null;
-
-    // Step 1: Save current workspace's tab state to the map
     if (this._activeWorkspacePath) {
       this._workspaceTabSets.set(this._activeWorkspacePath, {
         tabs: currentTabs,
         activeTabId: currentActiveTabId,
       });
     }
-
-    // Step 2: One-time migration from global localStorage key
-    if (!this._migrationDone) {
-      this._migrateGlobalTabState(workspacePath);
-      this._migrationDone = true;
-    }
-
-    // Step 3: Load target workspace's tab state
     this._activeWorkspacePath = workspacePath;
     const targetTabSet = this._workspaceTabSets.get(workspacePath);
 
     if (targetTabSet) {
-      // Workspace has in-memory state -- return it
-      // TASK_2025_208 Fix 4: Populate reverse index for loaded tabs
       this._populateSessionIndex(workspacePath, targetTabSet.tabs);
       return { tabs: targetTabSet.tabs, activeTabId: targetTabSet.activeTabId };
     }
-
-    // No in-memory state -- try loading from localStorage
     const loaded = this._loadWorkspaceTabsFromStorage(workspacePath);
     if (loaded) {
-      // Store in map for future fast access
       this._workspaceTabSets.set(workspacePath, {
         tabs: loaded.tabs,
         activeTabId: loaded.activeTabId,
       });
-      // TASK_2025_208 Fix 4: Populate reverse index for loaded tabs
       this._populateSessionIndex(workspacePath, loaded.tabs);
       return { tabs: loaded.tabs, activeTabId: loaded.activeTabId };
     }
-
-    // Brand new workspace -- empty tab set
     this._workspaceTabSets.set(workspacePath, {
       tabs: [],
       activeTabId: null,
@@ -224,10 +174,10 @@ export class TabWorkspacePartitionService {
   /**
    * Find a tab by session ID with workspace context.
    * Returns both the tab and the workspace it belongs to.
-   * Essential for cross-workspace streaming routing (TASK_2025_208 Component 9).
+   * Essential for cross-workspace streaming routing.
    *
-   * TASK_2025_208 Fix 4: Uses _sessionToWorkspace reverse index for O(1) lookup
-   * instead of O(W*T) linear scan across all workspace tab sets.
+   * Uses _sessionToWorkspace reverse index for O(1) lookup instead of O(W*T)
+   * linear scan across all workspace tab sets.
    *
    * When streaming events arrive for a background workspace's session,
    * this method identifies which workspace the tab belongs to so the
@@ -240,10 +190,8 @@ export class TabWorkspacePartitionService {
     sessionId: string,
     activeTabs?: TabState[],
   ): TabLookupResult | null {
-    // O(1) fast path: check reverse index first
     const indexedWsPath = this._sessionToWorkspace.get(sessionId);
     if (indexedWsPath) {
-      // Verify the tab still exists in the indexed workspace
       if (indexedWsPath === this._activeWorkspacePath && activeTabs) {
         const tab = activeTabs.find((t) => t.claudeSessionId === sessionId);
         if (tab) {
@@ -258,11 +206,8 @@ export class TabWorkspacePartitionService {
           }
         }
       }
-      // Index was stale, remove it
       this._sessionToWorkspace.delete(sessionId);
     }
-
-    // Fallback: linear scan (handles cases where index wasn't populated)
     if (this._activeWorkspacePath) {
       const tabs =
         activeTabs ??
@@ -270,7 +215,6 @@ export class TabWorkspacePartitionService {
         [];
       const activeTab = tabs.find((t) => t.claudeSessionId === sessionId);
       if (activeTab) {
-        // Populate index for future lookups
         this._sessionToWorkspace.set(sessionId, this._activeWorkspacePath);
         return { tab: activeTab, workspacePath: this._activeWorkspacePath };
       }
@@ -280,7 +224,6 @@ export class TabWorkspacePartitionService {
       if (wsPath === this._activeWorkspacePath) continue;
       const found = tabSet.tabs.find((t) => t.claudeSessionId === sessionId);
       if (found) {
-        // Populate index for future lookups
         this._sessionToWorkspace.set(sessionId, wsPath);
         return { tab: found, workspacePath: wsPath };
       }
@@ -304,8 +247,6 @@ export class TabWorkspacePartitionService {
       const bgTabIndex = tabSet.tabs.findIndex((t) => t.id === tabId);
       if (bgTabIndex !== -1) {
         const existingTab = tabSet.tabs[bgTabIndex];
-
-        // PERFORMANCE: Skip update if streamingState reference is identical
         if (
           updates.streamingState !== undefined &&
           updates.streamingState === existingTab.streamingState &&
@@ -313,15 +254,11 @@ export class TabWorkspacePartitionService {
         ) {
           return true; // No-op but tab was found
         }
-
-        // Update the tab in the background workspace's tab set (no signal update)
         const updatedTab = {
           ...existingTab,
           ...updates,
           lastActivityAt: Date.now(),
         };
-
-        // TASK_2025_208 Fix 4: Populate reverse index when claudeSessionId is assigned
         if (updates.claudeSessionId) {
           this._sessionToWorkspace.set(updates.claudeSessionId, wsPath);
         }
@@ -329,8 +266,6 @@ export class TabWorkspacePartitionService {
         const newTabs = [...tabSet.tabs];
         newTabs[bgTabIndex] = updatedTab;
         tabSet.tabs = newTabs;
-
-        // TASK_2025_208 Fix 3: Debounce background workspace saves
         this._debouncedBackgroundSave(wsPath, tabSet);
         return true;
       }
@@ -348,7 +283,6 @@ export class TabWorkspacePartitionService {
    * @returns true if the removed workspace was the active one
    */
   removeWorkspaceState(workspacePath: string): boolean {
-    // TASK_2025_208 Fix 4: Clean up session reverse index entries for this workspace
     const tabSet = this._workspaceTabSets.get(workspacePath);
     if (tabSet) {
       for (const tab of tabSet.tabs) {
@@ -359,26 +293,15 @@ export class TabWorkspacePartitionService {
     }
 
     this._workspaceTabSets.delete(workspacePath);
-
-    // TASK_2025_208 Fix 3: Clean up any pending background save timer
     const pendingTimer = this._backgroundSaveTimers.get(workspacePath);
     if (pendingTimer) {
       clearTimeout(pendingTimer);
       this._backgroundSaveTimers.delete(workspacePath);
     }
-
-    // Clean up backend encoded path cache
     this._backendEncodedPaths.delete(workspacePath);
-
-    // Clean up localStorage
     const storageKey = this._getWorkspaceStorageKey(workspacePath);
-    try {
-      localStorage.removeItem(storageKey);
-    } catch {
-      // Ignore localStorage errors during cleanup
-    }
 
-    // Check if the removed workspace was active
+    localStorage.removeItem(storageKey);
     const wasActive = this._activeWorkspacePath === workspacePath;
     if (wasActive) {
       this._activeWorkspacePath = null;
@@ -439,29 +362,21 @@ export class TabWorkspacePartitionService {
     }
   }
 
-  // ============================================================================
-  // WORKSPACE PERSISTENCE HELPERS (TASK_2025_208)
-  // ============================================================================
-
   /**
    * Encode a workspace path for use in localStorage keys.
    *
-   * TASK_2025_208 Fix 1: Replaced btoa() which fails on non-Latin1 characters
-   * (e.g., international usernames like "用户" or "José") with encodeURIComponent
-   * which handles all Unicode correctly in browsers.
+   * Uses `encodeURIComponent` (which handles all Unicode correctly in
+   * browsers) rather than `btoa`, so non-Latin1 characters (e.g.,
+   * international usernames like "用户" or "José") are encoded safely.
    *
    * If the backend has provided an encoded path via workspace:switch response,
    * that is used instead to ensure frontend/backend key consistency.
    */
   private _encodeWorkspacePath(workspacePath: string): string {
-    // Prefer backend-provided encoding for consistency
     const backendEncoded = this._backendEncodedPaths.get(workspacePath);
     if (backendEncoded) {
       return backendEncoded;
     }
-
-    // Browser-safe encoding: encodeURIComponent handles all Unicode,
-    // then replace % with _ for filesystem/localStorage-safe keys
     return encodeURIComponent(workspacePath).replace(/%/g, '_');
   }
 
@@ -489,11 +404,10 @@ export class TabWorkspacePartitionService {
       if (!stored) return null;
 
       const state = JSON.parse(stored);
-      if (state.version !== 1 || !state.tabs || !Array.isArray(state.tabs)) {
+      if (state.version !== 2 || !state.tabs || !Array.isArray(state.tabs)) {
         return null;
       }
 
-      // Sanitize loaded tabs (clear transient streaming state)
       const sanitizedTabs = state.tabs.map((tab: TabState) => ({
         ...tab,
         streamingState: null,
@@ -502,7 +416,7 @@ export class TabWorkspacePartitionService {
 
       return {
         tabs: sanitizedTabs,
-        activeTabId: state.activeTabId,
+        activeTabId: state.activeTabId ?? null,
       };
     } catch {
       return null;
@@ -522,7 +436,7 @@ export class TabWorkspacePartitionService {
       const state = {
         tabs: tabSet.tabs,
         activeTabId: tabSet.activeTabId,
-        version: 1,
+        version: 2,
       };
       localStorage.setItem(key, JSON.stringify(state));
     } catch (error) {
@@ -534,7 +448,7 @@ export class TabWorkspacePartitionService {
   }
 
   /**
-   * TASK_2025_208 Fix 3: Debounced background workspace save.
+   * Debounced background workspace save.
    * When streaming events rapidly update tabs in background workspaces,
    * this prevents hammering localStorage by coalescing saves per workspace.
    */
@@ -542,13 +456,10 @@ export class TabWorkspacePartitionService {
     workspacePath: string,
     tabSet: WorkspaceTabSet,
   ): void {
-    // Cancel any pending save for this workspace
     const existingTimer = this._backgroundSaveTimers.get(workspacePath);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
-
-    // Schedule debounced save
     const timer = setTimeout(() => {
       this._backgroundSaveTimers.delete(workspacePath);
       this._saveWorkspaceTabsToStorage(workspacePath, tabSet);
@@ -558,63 +469,8 @@ export class TabWorkspacePartitionService {
   }
 
   /**
-   * One-time migration from global 'ptah.tabs' localStorage key to workspace-scoped key.
-   *
-   * TASK_2025_208: When the first switchWorkspace() call happens:
-   * 1. Check if global 'ptah.tabs' (or 'ptah.tabs.{panelId}') exists in localStorage
-   * 2. Check if workspace-scoped key already exists (migration already done)
-   * 3. If global exists but workspace-scoped doesn't, assign global tabs to this workspace
-   * 4. Delete the global key to prevent re-migration
-   *
-   * This ensures existing users don't lose their tabs when upgrading to workspace-aware version.
-   */
-  private _migrateGlobalTabState(firstWorkspacePath: string): void {
-    try {
-      const wsKey = this._getWorkspaceStorageKey(firstWorkspacePath);
-
-      // If workspace-scoped key already exists, migration was already done
-      if (localStorage.getItem(wsKey)) return;
-
-      // Check if legacy global key has data
-      const globalData = localStorage.getItem(this._legacyStorageKey);
-      if (!globalData) return;
-
-      // Migrate: copy global data to workspace-scoped key
-      localStorage.setItem(wsKey, globalData);
-
-      // Also load into the in-memory map if not already there
-      if (!this._workspaceTabSets.has(firstWorkspacePath)) {
-        const state = JSON.parse(globalData);
-        if (state.version === 1 && state.tabs && Array.isArray(state.tabs)) {
-          const sanitizedTabs = state.tabs.map((tab: TabState) => ({
-            ...tab,
-            streamingState: null,
-            status: tab.status === 'streaming' ? 'loaded' : tab.status,
-          }));
-          this._workspaceTabSets.set(firstWorkspacePath, {
-            tabs: sanitizedTabs,
-            activeTabId: state.activeTabId,
-          });
-        }
-      }
-
-      // Delete global key to prevent re-migration and avoid stale data
-      localStorage.removeItem(this._legacyStorageKey);
-
-      console.log(
-        `[TabWorkspacePartition] Migrated global tab state to workspace: ${firstWorkspacePath}`,
-      );
-    } catch (error) {
-      console.warn(
-        '[TabWorkspacePartition] Failed to migrate global tab state:',
-        error,
-      );
-    }
-  }
-
-  /**
-   * TASK_2025_208 Fix 4: Populate the session-to-workspace reverse index
-   * for all tabs in a workspace that have a claudeSessionId.
+   * Populate the session-to-workspace reverse index for all tabs in a
+   * workspace that have a claudeSessionId.
    * Called during switchWorkspace() when loading tab state.
    */
   private _populateSessionIndex(workspacePath: string, tabs: TabState[]): void {

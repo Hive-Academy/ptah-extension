@@ -1,9 +1,9 @@
 /**
- * TC-6 — Batch 1 regression guard: CLI signal handler must NOT call
+ * Regression guard: CLI signal handler must NOT call
  * process.exit() directly in the first-signal path.
  *
- * The Batch 1 fix changes the SIGINT/SIGTERM handler to set `process.exitCode`
- * and return, relying on the synchronous `process.on('exit', ...)` hook for the
+ * The SIGINT/SIGTERM handler sets `process.exitCode`
+ * and returns, relying on the synchronous `process.on('exit', ...)` hook for the
  * flushSync() call. If someone reverts this to `process.exit(exitCode)`, the
  * flush is skipped because the 'exit' event still fires but the synchronous
  * tmp-rename inside flushSync() may not complete before the process tears down.

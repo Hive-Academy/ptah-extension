@@ -1,8 +1,6 @@
 /**
  * JSON-RPC 2.0 stdio server.
  *
- * TASK_2026_104 Batch 3.
- *
  * Bidirectional dispatcher for `interact` mode and the inbound channel of
  * `run` / `execute-spec` (which only receives permission responses).
  *
@@ -19,7 +17,7 @@
  *   -32602 Invalid params (when handler throws an `InvalidParamsError`)
  *   -32603 Internal error (handler threw unexpectedly)
  *
- * No DI imports. Pure protocol layer — wired by `interact.ts` in Batch 6.
+ * No DI imports. Pure protocol layer — wired by `interact.ts`.
  */
 
 import {
@@ -96,12 +94,9 @@ export class JsonRpcServer {
 
     reader.start({
       onMessage: (message) => {
-        // Fire-and-forget — errors inside dispatch are caught and reported.
         void this.dispatch(message);
       },
       onParseError: (result) => {
-        // -32700 Parse error per JSON-RPC 2.0 spec. `id` is null since we
-        // can't extract it from an unparseable line.
         void this.send(
           encodeError(null, JsonRpcErrorCode.ParseError, 'Parse error', {
             raw: result.raw,
@@ -110,7 +105,6 @@ export class JsonRpcServer {
         );
       },
       onEnd: () => {
-        // Stream closed — let `stop()` handle cleanup so callers can detect EOF.
         this.running = false;
       },
     });
@@ -161,10 +155,6 @@ export class JsonRpcServer {
     return promise;
   }
 
-  // ------------------------------------------------------------------
-  // Internal dispatch
-  // ------------------------------------------------------------------
-
   private async dispatch(message: JsonRpcMessage): Promise<void> {
     if (isJsonRpcRequest(message)) {
       await this.dispatchRequest(message);
@@ -178,7 +168,6 @@ export class JsonRpcServer {
       await this.dispatchNotification(message);
       return;
     }
-    // Should not reach here — decoder already validated.
   }
 
   private async dispatchRequest(request: JsonRpcRequest): Promise<void> {
@@ -221,26 +210,18 @@ export class JsonRpcServer {
   ): Promise<void> {
     const handler = this.handlers.get(notification.method);
     if (!handler) {
-      // JSON-RPC 2.0: notifications without a registered handler are silently
-      // ignored — there's no `id` to respond to.
       return;
     }
-    try {
-      await handler(notification.params);
-    } catch {
-      // Swallow — by spec we cannot respond. The handler is responsible for
-      // its own error reporting (e.g. by calling `notify('task.error', ...)`).
-    }
+
+    await handler(notification.params);
   }
 
   private dispatchResponse(response: JsonRpcResponse): void {
     if (response.id === null || response.id === undefined) {
-      // Cannot correlate a null-id response to any outbound request.
       return;
     }
     const pending = this.pending.get(response.id);
     if (!pending) {
-      // No matching outbound request — ignore (could be a delayed response).
       return;
     }
     this.pending.delete(response.id);

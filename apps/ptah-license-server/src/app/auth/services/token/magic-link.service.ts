@@ -47,11 +47,8 @@ export class MagicLinkService {
   private readonly ttlMs: number;
 
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {
-    // Default: 2 minutes (120000ms) - enough time to open email and click link
     this.ttlMs = this.config.get<number>('MAGIC_LINK_TTL_MS') || 120000;
     this.logger.log(`MagicLinkService initialized with TTL: ${this.ttlMs}ms`);
-
-    // Run cleanup every 5 minutes to prevent memory leaks
     setInterval(() => this.cleanupExpiredTokens(), 5 * 60 * 1000);
   }
 
@@ -69,13 +66,8 @@ export class MagicLinkService {
     email: string,
     options?: MagicLinkOptions,
   ): Promise<string> {
-    // Step 1: Generate 64-char hex token (256-bit entropy via crypto.randomBytes)
     const token = randomBytes(32).toString('hex');
-
-    // Step 2: Calculate expiration timestamp (2 minutes from now)
     const expiresAt = new Date(Date.now() + this.ttlMs);
-
-    // Step 3: Store token in memory with metadata (including optional returnUrl/plan)
     this.tokens.set(token, {
       email,
       token,
@@ -94,9 +86,6 @@ export class MagicLinkService {
         options?.returnUrl ? `, returnUrl=${options.returnUrl}` : ''
       }${options?.plan ? `, plan=${options.plan}` : ''}`,
     );
-
-    // Step 4: Build full magic link URL
-    // Note: Uses /api/auth/verify because backend has global '/api' prefix
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
     return `${frontendUrl}/api/auth/verify?token=${token}`;
@@ -123,7 +112,6 @@ export class MagicLinkService {
     plan?: string | null;
     error?: 'token_not_found' | 'token_already_used' | 'token_expired';
   }> {
-    // Debug: Log lookup attempt
     this.logger.debug(
       `Magic link LOOKUP: searching for token=${
         token
@@ -133,12 +121,9 @@ export class MagicLinkService {
           : 'EMPTY'
       }, tokens in storage: ${this.tokens.size}`,
     );
-
-    // Step 1: Retrieve token from storage
     const magicLink = this.tokens.get(token);
 
     if (!magicLink) {
-      // Debug: List stored token prefixes for comparison
       const storedTokenPrefixes = Array.from(this.tokens.keys())
         .map((t) => `${t.substring(0, 8)}...`)
         .join(', ');
@@ -153,8 +138,6 @@ export class MagicLinkService {
         error: 'token_not_found',
       };
     }
-
-    // Step 2: Check if token was already used (double-click protection)
     if (magicLink.used) {
       this.logger.warn('Token validation failed: token already used');
       return {
@@ -162,8 +145,6 @@ export class MagicLinkService {
         error: 'token_already_used',
       };
     }
-
-    // Step 3: Check expiration (default: 2-minute TTL)
     if (new Date() > magicLink.expiresAt) {
       this.tokens.delete(token); // Clean up expired token
       this.logger.warn('Token validation failed: token expired');
@@ -172,12 +153,8 @@ export class MagicLinkService {
         error: 'token_expired',
       };
     }
-
-    // Step 4: Single-use enforcement - delete token immediately
     this.tokens.delete(token);
     this.logger.log(`Magic link token validated and consumed for email`);
-
-    // Step 5: Return success with user email and optional returnUrl/plan
     return {
       valid: true,
       email: magicLink.email,

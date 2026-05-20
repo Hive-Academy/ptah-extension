@@ -1,5 +1,5 @@
 /**
- * Chat session sub-barrel (Wave C7e).
+ * Chat session sub-barrel.
  *
  * Re-exports the SDK-orchestration services that own the six chat RPC
  * method bodies plus premium-config helpers.

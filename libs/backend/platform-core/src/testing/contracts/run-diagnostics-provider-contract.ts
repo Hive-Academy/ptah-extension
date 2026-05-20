@@ -85,7 +85,6 @@ export function runDiagnosticsProviderContract(
       const entries = setup.provider.getDiagnostics();
       if (setup.seed) {
         const hit = entries.find((e) => e.file === '/tmp/c.ts');
-        // Electron impls may return [] despite seed; only assert when present.
         if (hit) expect(hit.diagnostics).toEqual([]);
       }
     });

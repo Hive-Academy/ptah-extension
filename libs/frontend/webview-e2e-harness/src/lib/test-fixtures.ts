@@ -64,18 +64,12 @@ export const test = baseTest.extend<WebviewFixtures, WebviewWorkerFixtures>({
 
   webviewPage: async ({ page, fixtureServer }, use) => {
     await installCspStub(page);
-    // Install the bridge BEFORE navigation so `addInitScript` runs in the
-    // first document. We re-use the same install here and expose the
-    // resulting handle via the `bridge` fixture below.
     await installPostMessageBridge(page);
     await page.goto(fixtureServer.url);
     await use(page);
   },
 
   bridge: async ({ webviewPage }, use) => {
-    // `installPostMessageBridge` is idempotent at the init-script level
-    // (the global is keyed by name and re-install is a no-op), so calling
-    // it again to retrieve the handle is safe.
     const handle = await installPostMessageBridge(webviewPage);
     await use(handle);
   },

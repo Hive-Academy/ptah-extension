@@ -1,6 +1,6 @@
 /**
  * `@ptah-extension/platform-core/testing` — platform provider mocks + contract
- * harness. See `.ptah/specs/TASK_2025_294/implementation-plan.md` §3.2.
+ * harness.
  *
  * Two public surfaces live here:
  *   1. `mocks/*` — `createMock*` factories returning `jest.Mocked<I...>` with

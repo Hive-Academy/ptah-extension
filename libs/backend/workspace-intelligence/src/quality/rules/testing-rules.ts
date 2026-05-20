@@ -12,17 +12,11 @@
  * These rules only apply to test files identified by extension:
  * .spec.ts, .test.ts, .spec.js, .test.js
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
 import type { AntiPatternRule, AntiPatternMatch } from '@ptah-extension/shared';
 import { createHeuristicRule } from './rule-base';
-
-// ============================================
-// Testing Rules
-// ============================================
 
 /**
  * Detects test files that have test blocks but no assertions.
@@ -68,18 +62,9 @@ export const noAssertionsRule: AntiPatternRule = createHeuristicRule({
   category: 'testing',
   fileExtensions: ['.spec.ts', '.test.ts', '.spec.js', '.test.js'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Check if file has test blocks (it() or test() function calls)
-    // Pattern matches: it('...', ...) or test('...', ...)
-    // Also handles it.each, test.each variations
     const hasTestBlocks = /\b(it|test)\s*(\.\w+)?\s*\(/.test(content);
-
-    // Check if file has assertion calls
-    // Matches: expect(...) or assert.something(...) or assert(...)
     const hasAssertions = /\b(expect|assert)\s*[.(]/.test(content);
-
-    // If there are test blocks but no assertions, that's a problem
     if (hasTestBlocks && !hasAssertions) {
-      // Count how many test blocks exist
       const testBlockMatches = content.match(/\b(it|test)\s*(\.\w+)?\s*\(/g);
       const testCount = testBlockMatches ? testBlockMatches.length : 0;
 
@@ -150,19 +135,11 @@ export const allSkippedRule: AntiPatternRule = createHeuristicRule({
   category: 'testing',
   fileExtensions: ['.spec.ts', '.test.ts', '.spec.js', '.test.js'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Count skipped tests: it.skip(...) or test.skip(...)
     const skippedMatches = content.match(/\b(it|test)\.skip\s*\(/g);
     const skippedCount = skippedMatches ? skippedMatches.length : 0;
-
-    // Count all test blocks including skipped ones
-    // Pattern: it( or test( or it.skip( or test.skip( or it.each( etc.
     const allTestMatches = content.match(/\b(it|test)\s*(\.\w+)?\s*\(/g);
     const totalCount = allTestMatches ? allTestMatches.length : 0;
-
-    // Check for describe.skip which skips all nested tests
     const hasDescribeSkip = /\bdescribe\.skip\s*\(/.test(content);
-
-    // If describe.skip is used, the whole suite is skipped
     if (hasDescribeSkip) {
       return [
         {
@@ -175,8 +152,6 @@ export const allSkippedRule: AntiPatternRule = createHeuristicRule({
         },
       ];
     }
-
-    // If all individual tests are skipped and there's at least one test
     if (skippedCount > 0 && skippedCount === totalCount) {
       return [
         {
@@ -198,10 +173,6 @@ export const allSkippedRule: AntiPatternRule = createHeuristicRule({
     'Skipped tests accumulate technical debt and can mask regressions. ' +
     'If tests are environment-specific, use conditional skip logic.',
 });
-
-// ============================================
-// Exports
-// ============================================
 
 /**
  * All testing anti-pattern detection rules.

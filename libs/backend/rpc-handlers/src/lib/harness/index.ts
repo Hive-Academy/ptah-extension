@@ -1,5 +1,5 @@
 /**
- * Harness sub-services barrel (Wave C7d).
+ * Harness sub-services barrel.
  *
  * Re-exports the extracted harness services, DI tokens, and registration
  * helper so `HarnessRpcHandlers` and the app bootstrap code can resolve

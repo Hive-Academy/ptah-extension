@@ -3,7 +3,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-// Services
 import {
   AuthService,
   WorkosUserService,
@@ -13,7 +12,6 @@ import {
   MagicLinkService,
   UserSyncService,
 } from './services';
-// Infrastructure
 import { PrismaModule } from '../../prisma/prisma.module';
 import { EmailModule } from '../../email/email.module';
 import {
@@ -76,17 +74,13 @@ import { LicenseModule } from '../../license/license.module';
   ],
   controllers: [AuthController],
   providers: [
-    // WorkOS Client
     WorkOSClientProvider,
-    // Auth Services (ordered by dependency)
     PkceService,
     WorkosUserService,
     JwtTokenService,
     UserSyncService,
     AuthService,
-    // Guards
     JwtAuthGuard,
-    // Other Services
     TicketService,
     MagicLinkService,
   ],

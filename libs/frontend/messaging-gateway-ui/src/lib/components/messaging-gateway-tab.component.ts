@@ -440,8 +440,6 @@ export class MessagingGatewayTabComponent implements OnInit {
   protected readonly platformCards = PLATFORM_CARDS;
   protected readonly allowListPlaceholder =
     'Configured in settings file (gateway.allowList.<platform>).';
-
-  // Re-export state signals for the template.
   protected readonly enabled = this.state.enabled;
   protected readonly platforms = this.state.platforms;
   protected readonly pendingBindings = this.state.pendingBindings;
@@ -477,8 +475,6 @@ export class MessagingGatewayTabComponent implements OnInit {
     if (!this.isElectron) return;
     void this.state.initialize();
   }
-
-  // ── Token input plumbing ───────────────────────────────────────────────
 
   protected tokenInputValue(platform: GatewayPlatformId): string {
     return this.tokenInputs()[`${platform}:bot`] ?? '';
@@ -538,13 +534,7 @@ export class MessagingGatewayTabComponent implements OnInit {
       } else {
         await this.state.setToken(platform, bot);
       }
-    } catch {
-      // recordPlatformError already wrote the error to state — swallow here
-      // because the UI surfaces it via `errorFor()`. We deliberately do NOT
-      // log the error object: stack traces from token-handling RPCs may
-      // contain redacted-but-still-sensitive context.
     } finally {
-      // SECURITY: clear the token fields synchronously regardless of outcome.
       this.tokenInputs.update((current) => {
         const next = { ...current };
         next[`${platform}:bot`] = '';
@@ -557,8 +547,6 @@ export class MessagingGatewayTabComponent implements OnInit {
       }));
     }
   }
-
-  // ── Status helpers ─────────────────────────────────────────────────────
 
   protected statusFor(
     platform: GatewayPlatformId,
@@ -590,14 +578,8 @@ export class MessagingGatewayTabComponent implements OnInit {
   }
 
   protected async onSendTest(platform: GatewayPlatformId): Promise<void> {
-    try {
-      await this.state.sendTest(platform);
-    } catch {
-      // testResult already recorded — surface via template.
-    }
+    await this.state.sendTest(platform);
   }
-
-  // ── Bindings queue ─────────────────────────────────────────────────────
 
   protected bindingCodeFor(bindingId: string): string {
     return this.bindingCodes()[bindingId] ?? '';
@@ -611,16 +593,10 @@ export class MessagingGatewayTabComponent implements OnInit {
   }
 
   protected async onApprove(binding: GatewayBindingDto): Promise<void> {
-    // Architecture §9: codes are NEVER returned by listBindings. The user
-    // must enter the code their bot received; the backend compares it with
-    // a constant-time check (gateway.service.ts approveBinding). We still
-    // gate the button locally on a non-empty code so we don't dispatch
-    // obviously-empty approvals.
     const code = this.bindingCodes()[binding.id]?.trim();
     if (!code) return;
     const result = await this.state.approveBinding(binding.id, code);
     if (!result.ok) {
-      // Code mismatch — clear the entered code so the user can try again.
       this.bindingCodes.update((current) => {
         const next = { ...current };
         next[binding.id] = '';
@@ -657,8 +633,6 @@ export class MessagingGatewayTabComponent implements OnInit {
   protected async onRevoke(binding: GatewayBindingDto): Promise<void> {
     await this.state.revokeBinding(binding.id);
   }
-
-  // ── Voice toast ────────────────────────────────────────────────────────
 
   protected onDismissVoiceToast(): void {
     this.state.dismissVoiceToast();

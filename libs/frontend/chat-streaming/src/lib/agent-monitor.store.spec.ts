@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AgentMonitorStore Tests â€” resolveParentSessionId & Session-Scoped Signals
  *
  * Tests the tab ID â†’ real UUID resolution and session-scoped filtering
@@ -238,7 +238,7 @@ describe('AgentMonitorStore', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // Phase 3: SDK task_* per-subagent records
+  // SDK task_* per-subagent records
   // ─────────────────────────────────────────────────────────────────────
   describe('Phase 3 — SDK subagent records', () => {
     const PARENT = 'toolu_parent_abc';

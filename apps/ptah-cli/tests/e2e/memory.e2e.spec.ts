@@ -1,5 +1,5 @@
 /**
- * Memory Curator e2e (TASK_2026_HERMES Track 1).
+ * Memory Curator e2e.
  *
  * Surface under test: `memory:list`, `memory:search`, `memory:stats` RPC
  * methods backed by `@ptah-extension/memory-curator`. The full lifecycle

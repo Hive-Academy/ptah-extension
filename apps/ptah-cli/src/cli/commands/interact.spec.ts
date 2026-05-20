@@ -1,6 +1,5 @@
 /**
- * Integration tests for `ptah interact` — TASK_2026_104 Sub-batch B10e
- * (B10_EXPANSION.md § B10e lines 320-327).
+ * Integration tests for `ptah interact`.
  *
  * Coverage matrix (per spec § 9 Protocol Conformance criteria 4):
  *
@@ -708,7 +707,7 @@ describe('ptah interact', () => {
   });
 
   // -------------------------------------------------------------------------
-  // TASK_2026_108 T1 — env-var contract + embedded proxy lifecycle
+  // Env-var contract + embedded proxy lifecycle
   // -------------------------------------------------------------------------
 
   describe('interact env var contract', () => {

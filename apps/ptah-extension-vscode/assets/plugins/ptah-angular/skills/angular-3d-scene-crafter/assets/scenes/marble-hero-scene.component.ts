@@ -122,17 +122,11 @@ export class MarbleHeroContentComponent implements AfterViewInit {
   private readonly sceneService = inject(SceneService);
   private readonly destroyRef = inject(DestroyRef);
   private envTexture: THREE.Texture | null = null;
-
-  // Light color for simple white lighting
   protected readonly whiteLight = 0xffffff;
-  // Math for template expressions
   protected readonly Math = Math;
 
   public ngAfterViewInit(): void {
-    // Load environment map after scene is initialized
     this.loadEnvironmentMap();
-
-    // Cleanup on destroy
     this.destroyRef.onDestroy(() => {
       if (this.envTexture) {
         this.envTexture.dispose();
@@ -147,25 +141,17 @@ export class MarbleHeroContentComponent implements AfterViewInit {
   private loadEnvironmentMap(): void {
     const scene = this.sceneService.scene();
     if (!scene) {
-      // Scene not ready yet, retry after a short delay
       setTimeout(() => this.loadEnvironmentMap(), 50);
       return;
     }
-
-    // Load the same background image used in CSS
     const textureLoader = new THREE.TextureLoader();
     textureLoader.load(
       'background-marble.png',
       (texture) => {
-        // Configure texture for environment mapping
         texture.mapping = THREE.EquirectangularReflectionMapping;
         texture.colorSpace = THREE.SRGBColorSpace;
-
-        // Apply to scene environment for reflections
         scene.environment = texture;
         scene.environmentIntensity = 0.8;
-
-        // Store reference for cleanup
         this.envTexture = texture;
       },
       undefined,
@@ -322,7 +308,6 @@ export class MarbleHeroSceneComponent implements AfterViewInit {
   private readonly elementRef = inject(ElementRef);
 
   public ngAfterViewInit(): void {
-    // Setup entrance animations after view is initialized
     this.setupScrollAnimations();
   }
 
@@ -347,11 +332,7 @@ export class MarbleHeroSceneComponent implements AfterViewInit {
       console.warn('[MarbleHeroScene] Required elements not found');
       return;
     }
-
-    // Set initial state (hidden, slightly below)
     gsap.set([title, subtitle, cta], { opacity: 0, y: 30 });
-
-    // Create entrance timeline that plays immediately
     const timeline = gsap.timeline({ delay: 0.3 }); // Small delay after page load
 
     timeline

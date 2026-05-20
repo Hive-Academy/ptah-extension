@@ -1,6 +1,5 @@
 /**
  * Message Validator Service - Runtime Type Safety with Zod
- * Extracted from apps/ptah-extension-vscode/src/services/validation/message-validator.service.ts
  *
  * Provides comprehensive runtime validation for all message types with zero `any` types.
  * Integrated with TSyringe DI for extensibility.
@@ -39,7 +38,7 @@ export abstract class PtahError extends Error {
   constructor(
     message: string,
     public readonly context: Readonly<Record<string, unknown>> = {},
-    public readonly timestamp = Date.now()
+    public readonly timestamp = Date.now(),
   ) {
     super(message);
     this.name = this.constructor.name;
@@ -56,7 +55,7 @@ export class ValidationError extends PtahError {
       errors?: readonly z.ZodIssue[];
       received?: unknown;
       expected?: string;
-    }> = {}
+    }> = {},
   ) {
     super(message, context);
   }
@@ -68,7 +67,7 @@ export class MessageValidationError extends ValidationError {
   constructor(
     message: string,
     public readonly messageType: string,
-    context: Readonly<Record<string, unknown>> = {}
+    context: Readonly<Record<string, unknown>> = {},
   ) {
     super(message, context);
   }
@@ -85,10 +84,9 @@ export class MessageValidatorService {
    */
   validateMessage<T extends keyof MessagePayloadMap>(
     data: unknown,
-    expectedType: T
+    expectedType: T,
   ): StrictMessage<T> {
     try {
-      // First validate the basic message structure
       const messageSchema = StrictMessageSchema(expectedType);
       const baseResult = messageSchema.safeParse(data);
 
@@ -99,11 +97,9 @@ export class MessageValidatorService {
           {
             errors: baseResult.error.issues,
             received: data,
-          }
+          },
         );
       }
-
-      // Then validate the specific payload
       const message = baseResult.data as StrictMessage<T>;
       this.validatePayloadForType(message.payload, expectedType);
 
@@ -118,7 +114,7 @@ export class MessageValidatorService {
         expectedType,
         {
           originalError: error instanceof Error ? error.message : String(error),
-        }
+        },
       );
     }
   }
@@ -128,7 +124,7 @@ export class MessageValidatorService {
    */
   private validatePayloadForType<T extends keyof MessagePayloadMap>(
     payload: unknown,
-    messageType: T
+    messageType: T,
   ): MessagePayloadMap[T] {
     const schema = this.getPayloadSchemaForType(messageType);
     const result = schema.safeParse(payload);
@@ -140,7 +136,7 @@ export class MessageValidatorService {
         {
           errors: result.error.issues,
           received: payload,
-        }
+        },
       );
     }
 
@@ -156,8 +152,6 @@ export class MessageValidatorService {
         return ChatSendMessagePayloadSchema;
       case 'chat:messageChunk':
         return ChatMessageChunkPayloadSchema;
-
-      // Analytics schemas
       case 'analytics:getData':
         return z.object({}); // Empty payload for getData request
       case 'analytics:trackEvent':
@@ -165,8 +159,6 @@ export class MessageValidatorService {
           event: z.string(),
           properties: z.record(z.string(), z.unknown()).optional(),
         });
-
-      // State management schemas
       case 'state:save':
         return z.object({
           state: z.unknown(), // Accept any state data
@@ -175,8 +167,6 @@ export class MessageValidatorService {
         return z.object({}); // Empty payload for load request
       case 'state:clear':
         return z.object({}); // Empty payload for clear request
-
-      // Configuration schemas
       case 'config:get':
         return z.object({
           key: z.string().optional(), // Optional key parameter
@@ -195,8 +185,6 @@ export class MessageValidatorService {
         return z.object({
           timestamp: z.number().optional(), // Optional timestamp for caching
         });
-
-      // Provider management schemas
       case 'providers:getAvailable':
         return z.object({}); // Empty payload
       case 'providers:getCurrent':
@@ -275,11 +263,9 @@ export class MessageValidatorService {
                 'initializing',
                 'disabled',
               ]),
-            })
+            }),
           ),
         });
-
-      // Context management schemas
       case 'context:updateFiles':
         return z.object({
           files: z.array(z.string()),
@@ -316,8 +302,6 @@ export class MessageValidatorService {
         return z.object({
           query: z.string(),
         });
-
-      // Chat session schemas
       case 'chat:sessionStart':
         return z.object({
           sessionId: z.string(),
@@ -394,8 +378,6 @@ export class MessageValidatorService {
         });
       case 'chat:sessionsUpdated':
         return z.object({}).passthrough(); // Allow flexible session data structure
-
-      // Permission request/response schemas
       case 'chat:permissionRequest':
         return z.object({
           requestId: z.string().min(1),
@@ -410,8 +392,6 @@ export class MessageValidatorService {
           response: z.enum(['allow', 'always_allow', 'deny']),
           timestamp: z.number(),
         });
-
-      // Command management schemas
       case 'commands:getTemplates':
         return z.object({}); // Empty payload
       case 'commands:executeCommand':
@@ -438,13 +418,11 @@ export class MessageValidatorService {
                   description: z.string().optional(),
                   required: z.boolean().optional(),
                   default: z.unknown().optional(),
-                })
+                }),
               )
               .optional(),
           }),
         });
-
-      // View and navigation schemas
       case 'view:changed':
         return z.object({
           view: z.string(),
@@ -457,8 +435,6 @@ export class MessageValidatorService {
         return z.object({
           data: z.unknown(),
         });
-
-      // System message schemas
       case 'ready':
         return z.object({
           currentView: z.string().optional(),
@@ -495,8 +471,6 @@ export class MessageValidatorService {
           code: z.string().optional(),
           stack: z.string().optional(),
         });
-
-      // Legacy message types for compatibility
       case 'switchView':
         return z.object({
           view: z.string(),
@@ -508,7 +482,7 @@ export class MessageValidatorService {
 
       default: {
         throw new ValidationError(
-          `No payload schema defined for message type: ${messageType}`
+          `No payload schema defined for message type: ${messageType}`,
         );
       }
     }
@@ -526,14 +500,12 @@ export class MessageValidatorService {
         received: data,
       });
     }
-
-    // Ensure 'id' is present and not undefined
     if (!result.data.id) {
       throw new ValidationError(
         'Chat message is missing required "id" property',
         {
           received: data,
-        }
+        },
       );
     }
 
@@ -592,7 +564,7 @@ export class MessageValidatorService {
    */
   safeValidateMessage<T extends keyof MessagePayloadMap>(
     data: unknown,
-    expectedType: T
+    expectedType: T,
   ): StrictMessage<T> | null {
     try {
       return this.validateMessage(data, expectedType);
@@ -621,7 +593,7 @@ export class MessageValidatorService {
 
     const validatedMessage = this.safeValidateMessage(
       data,
-      messageType as keyof MessagePayloadMap
+      messageType as keyof MessagePayloadMap,
     );
     if (!validatedMessage) {
       return null;
@@ -647,7 +619,7 @@ export class MessageValidatorService {
    */
   createErrorContext(
     error: unknown,
-    context: Readonly<Record<string, unknown>> = {}
+    context: Readonly<Record<string, unknown>> = {},
   ): Record<string, unknown> {
     const baseContext = {
       timestamp: Date.now(),

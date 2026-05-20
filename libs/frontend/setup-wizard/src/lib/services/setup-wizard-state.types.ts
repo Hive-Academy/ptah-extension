@@ -2,7 +2,7 @@ import type { StreamingState } from '@ptah-extension/chat-types';
 import type { AnalysisPhase } from '@ptah-extension/shared';
 
 /**
- * Wizard state types extracted from `setup-wizard-state.service.ts` (Wave C7h).
+ * Wizard state types extracted from `setup-wizard-state.service.ts`.
  *
  * These 12 type declarations describe the public state surface of the setup
  * wizard. They live in this sibling file so the coordinator stays under the
@@ -150,7 +150,6 @@ export type EnhancedPromptsWizardStatus =
 /**
  * Per-phase entry for the immutable wizard streaming-state list.
  *
- * TASK_2026_103 Wave F2 — replaces `Map<string, StreamingState>` storage.
  * The list shape gives deterministic iteration order, makes "always replace"
  * the only valid update path (no silent in-place mutation bug), and keeps
  * O(1) lookup through a derived `byId` computed.

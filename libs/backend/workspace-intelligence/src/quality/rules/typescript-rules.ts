@@ -9,17 +9,11 @@
  * - @ts-ignore and @ts-nocheck comments
  * - Non-null assertion operator overuse
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
 import type { AntiPatternRule } from '@ptah-extension/shared';
 import { createRegexRule } from './rule-base';
-
-// ============================================
-// TypeScript Rules
-// ============================================
 
 /**
  * Detects explicit usage of the `any` type.
@@ -47,7 +41,6 @@ export const explicitAnyRule: AntiPatternRule = createRegexRule({
   severity: 'warning',
   category: 'typescript',
   fileExtensions: ['.ts', '.tsx'],
-  // Match `: any` but not when followed by `| <word>` (union type)
   pattern: /:\s*any\b(?!\s*\|\s*\w)/g,
   suggestionTemplate:
     'Replace `any` with a specific type or use `unknown` for type-safe handling. ' +
@@ -82,8 +75,6 @@ export const tsIgnoreRule: AntiPatternRule = createRegexRule({
   category: 'typescript',
   fileExtensions: ['.ts', '.tsx'],
   pattern: /@ts-ignore|@ts-nocheck/g,
-  // This rule's subject IS a comment — run against raw source so the B3
-  // comment-stripper doesn't blank the directive before we can see it.
   matchInCommentsAndStrings: true,
   suggestionTemplate:
     'Fix the underlying type error instead of suppressing it. ' +
@@ -117,18 +108,11 @@ export const nonNullAssertionRule: AntiPatternRule = createRegexRule({
   severity: 'info',
   category: 'typescript',
   fileExtensions: ['.ts', '.tsx'],
-  // Match !. but not part of another word (handles negative lookbehind via exclusion)
-  // Uses \b!\.  to match word boundary followed by !.
-  // Note: (?<!\w) not supported in all environments, using simpler pattern
   pattern: /\b!\./g,
   suggestionTemplate:
     'Use optional chaining (?.) or add proper null checks. ' +
     'Consider refactoring to make nullability explicit in the type system.',
 });
-
-// ============================================
-// Exports
-// ============================================
 
 /**
  * All TypeScript anti-pattern detection rules.

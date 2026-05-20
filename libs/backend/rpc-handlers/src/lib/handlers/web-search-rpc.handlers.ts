@@ -3,8 +3,6 @@
  *
  * Handles web search settings management: API key storage, provider config,
  * and search testing via platform-agnostic abstractions.
- *
- * TASK_2025_235 Batch 3: Frontend Settings UI + Backend RPC Handlers
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -200,8 +198,6 @@ export class WebSearchRpcHandlers {
           provider as WebSearchProviderType,
           apiKey,
         );
-
-        // Use Promise.race for a 10-second timeout, clearing the timer afterward
         const searchPromise = adapter.search('test', 1);
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
@@ -301,10 +297,6 @@ export class WebSearchRpcHandlers {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
-
   /**
    * Validate that a provider name is one of the supported values
    */
@@ -365,8 +357,6 @@ export class WebSearchRpcHandlers {
     if (typeof provider.setConfiguration === 'function') {
       await provider.setConfiguration('ptah', key, value);
     } else {
-      // Safety fallback: current platforms (VS Code, Electron) both implement
-      // setConfiguration, but a future platform might not.
       this.logger.debug(
         'writeConfiguration: setConfiguration not available on this platform, skipping backend write',
         { key },

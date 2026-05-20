@@ -1,13 +1,3 @@
-/**
- * WorkspaceIndexingService + WorkspaceIndexingComponent specs (TASK_2026_114).
- *
- * Coverage:
- *  - Service `uiState` mapping for all 6 backend states + null + no-workspace.
- *  - Service progress signal updates from `handleMessage` push.
- *  - Service RPC delegation for all 8 methods.
- *  - Component renders correct copy/icons per state.
- */
-
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import type {

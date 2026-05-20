@@ -1,5 +1,5 @@
 /**
- * PluginRpcHandlers — unit specs (TASK_2025_294 W2.B3).
+ * PluginRpcHandlers — unit specs.
  *
  * Surface under test: four RPC methods (`plugins:list-available`,
  * `plugins:get-config`, `plugins:save-config`, `plugins:list-skills`). These

@@ -59,30 +59,19 @@ export class CommandManager {
         const startTime = Date.now();
 
         try {
-          // Execute the command handler
           await definition.handler(...args);
 
           const duration = Date.now() - startTime;
-
-          // Update metrics
           this.updateCommandMetrics(definition.id, duration, false);
         } catch (error) {
           const duration = Date.now() - startTime;
-
-          // Update error metrics
           this.updateCommandMetrics(definition.id, duration, true);
-
-          // Re-throw to maintain VS Code error handling
           throw error;
         }
       }
     );
-
-    // Add to extension subscriptions for proper cleanup
     this.context.subscriptions.push(disposable);
     this.registeredCommands.set(definition.id, disposable);
-
-    // Initialize metrics tracking
     this.commandMetrics.set(definition.id, {
       executionCount: 0,
       totalDuration: 0,

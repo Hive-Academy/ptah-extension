@@ -1,7 +1,7 @@
 /**
  * Public barrel for the webview E2E harness.
  *
- * Spec authors (P3.B2 / P3.B3) should import from
+ * Spec authors should import from
  * `@ptah-extension/webview-e2e-harness` only — never reach into
  * subpaths.
  */

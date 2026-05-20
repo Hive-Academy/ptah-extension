@@ -1,13 +1,11 @@
 /**
  * Auth State Service - Signal-Based Authentication State Management
- * TASK_2025_133: Settings/Auth Provider Architecture Refactoring
  *
- * Centralizes all authentication state that was previously scattered across
- * SettingsComponent and AuthConfigComponent. Provides a single source of truth
- * for auth credentials (API key, provider keys), provider selection, and connection status.
+ * Centralizes all authentication state for credentials (API key, provider keys),
+ * provider selection, and connection status. Provides a single source of truth
+ * shared across SettingsComponent and AuthConfigComponent.
  *
  * Follows ModelStateService signal-based pattern (private _signal, public asReadonly).
- * RPC integration: claude-rpc.service.ts (RpcResult pattern)
  */
 
 import { Injectable, signal, computed, inject } from '@angular/core';
@@ -52,8 +50,6 @@ export class AuthStateService {
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
 
-  // --- Private mutable signals ---
-
   /** Whether an Anthropic API key is configured in SecretStorage */
   private readonly _hasApiKey = signal(false);
 
@@ -86,19 +82,19 @@ export class AuthStateService {
   /** Success message from last operation */
   private readonly _successMessage = signal('');
 
-  /** Whether Copilot OAuth is authenticated (TASK_2025_191) */
+  /** Whether Copilot OAuth is authenticated */
   private readonly _copilotAuthenticated = signal(false);
 
-  /** Connected GitHub username for Copilot OAuth (TASK_2025_191) */
+  /** Connected GitHub username for Copilot OAuth */
   private readonly _copilotUsername = signal<string | null>(null);
 
-  /** Whether a Copilot login is in progress (TASK_2025_191) */
+  /** Whether a Copilot login is in progress */
   private readonly _copilotLoggingIn = signal(false);
 
-  /** Whether Codex CLI auth is authenticated (TASK_2025_199) */
+  /** Whether Codex CLI auth is authenticated */
   private readonly _codexAuthenticated = signal(false);
 
-  /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
+  /** Whether Codex CLI auth token is stale/expired */
   private readonly _codexTokenStale = signal(false);
 
   /** Whether Claude CLI is installed and detected on the system */
@@ -121,8 +117,6 @@ export class AuthStateService {
 
   /** Cached in-flight promise for loadAuthStatus deduplication */
   private _loadPromise: Promise<void> | null = null;
-
-  // --- Public readonly signals ---
 
   /** Whether API key is configured */
   readonly hasApiKey = this._hasApiKey.asReadonly();
@@ -151,19 +145,19 @@ export class AuthStateService {
   /** Success message from last operation */
   readonly successMessage = this._successMessage.asReadonly();
 
-  /** Whether Copilot OAuth is authenticated (TASK_2025_191) */
+  /** Whether Copilot OAuth is authenticated */
   readonly copilotAuthenticated = this._copilotAuthenticated.asReadonly();
 
-  /** Connected GitHub username (TASK_2025_191) */
+  /** Connected GitHub username */
   readonly copilotUsername = this._copilotUsername.asReadonly();
 
-  /** Whether Copilot login is in progress (TASK_2025_191) */
+  /** Whether Copilot login is in progress */
   readonly copilotLoggingIn = this._copilotLoggingIn.asReadonly();
 
-  /** Whether Codex CLI auth is authenticated (TASK_2025_199) */
+  /** Whether Codex CLI auth is authenticated */
   readonly codexAuthenticated = this._codexAuthenticated.asReadonly();
 
-  /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
+  /** Whether Codex CLI auth token is stale/expired */
   readonly codexTokenStale = this._codexTokenStale.asReadonly();
 
   /** Whether Claude CLI is installed on the system */
@@ -181,7 +175,6 @@ export class AuthStateService {
    * Used to show an "Active" indicator on the correct tile, separate from the viewed tile.
    */
   readonly persistedTileId = computed(() => {
-    // Return null while loading to avoid flashing the wrong tile as active
     if (this._isLoading()) return null;
     const method = this._persistedAuthMethod();
     if (method === 'apiKey' || method === 'claudeCli') {
@@ -189,8 +182,6 @@ export class AuthStateService {
     }
     return this._persistedProviderId();
   });
-
-  // --- Computed signals ---
 
   /**
    * Whether the currently selected provider has a key configured.
@@ -205,7 +196,6 @@ export class AuthStateService {
   /**
    * Whether any credential is configured (API key, provider key, or Copilot OAuth).
    * Used by SettingsComponent to determine if authentication section shows status.
-   * TASK_2025_191: Added Copilot authenticated check.
    */
   readonly hasAnyCredential = computed(
     () =>
@@ -220,27 +210,17 @@ export class AuthStateService {
    * ONLY when authMethod is 'thirdParty' AND the selected provider has credentials.
    * For OAuth providers (e.g., GitHub Copilot): shown when OAuth is authenticated.
    * For API key providers: shown when a provider key is configured.
-   * Fixes Critical Issue #3: previously ignored authMethod check.
-   * TASK_2025_191: Extended to support OAuth providers.
    */
   readonly showProviderModels = computed(() => {
     const method = this._authMethod();
-
-    // Direct Anthropic auth: model mapping not needed — SDK handles tiers natively
     if (method === 'apiKey' || method === 'claudeCli') return false;
-
-    // Third-party provider: check provider-level credentials
     if (method !== 'thirdParty') return false;
-
-    // OAuth providers use their own auth, not API keys
     const provider = this.selectedProvider();
     if (provider?.authType === 'oauth') {
       if (provider.id === 'github-copilot') return this._copilotAuthenticated();
       if (provider.id === 'openai-codex') return this._codexAuthenticated();
       return false;
     }
-
-    // Local providers (authType === 'none') don't need API keys — always show models
     if (provider?.authType === 'none') return true;
 
     return this.hasProviderKey();
@@ -265,16 +245,12 @@ export class AuthStateService {
     const method = this._authMethod();
     if (method === 'claudeCli') return this._claudeCliInstalled();
     if (method === 'apiKey') return this._hasApiKey();
-
-    // OpenRouter/auto: check provider-level credentials
     const provider = this.selectedProvider();
     if (provider?.authType === 'oauth') {
       if (provider.id === 'github-copilot') return this._copilotAuthenticated();
       if (provider.id === 'openai-codex') return this._codexAuthenticated();
       return false;
     }
-
-    // Local providers (authType === 'none') don't need API keys — always credentialed
     if (provider?.authType === 'none') return true;
 
     return this.hasProviderKey();
@@ -288,8 +264,6 @@ export class AuthStateService {
     const id = this._selectedProviderId();
     return this._availableProviders().find((p) => p.id === id) ?? null;
   });
-
-  // --- Public methods ---
 
   /**
    * Synchronous lookup: check if a specific provider has a key configured.
@@ -311,11 +285,9 @@ export class AuthStateService {
     if (this._isLoaded) {
       return;
     }
-    // Deduplicate concurrent calls: return the same in-flight promise
     if (!this._loadPromise) {
       this._loadPromise = this.fetchAndPopulateAuthStatus()
         .then((success) => {
-          // Only mark as loaded on success (failure leaves _isLoaded false for retry)
           if (success) {
             this._isLoaded = true;
           }
@@ -409,17 +381,12 @@ export class AuthStateService {
    * @param params - Auth settings to save
    */
   async saveAndTest(params: AuthSaveSettingsParams): Promise<void> {
-    // Concurrent guard: prevent double-click or rapid re-invocation
     if (this._isSaving()) {
       console.warn(
         '[AuthStateService] Save already in progress, ignoring duplicate call',
       );
       return;
     }
-
-    // Capture values at invocation time — if the user clicks a different tile
-    // while the save is in-flight, these snapshots ensure we update persisted
-    // state to what was actually saved, not the new UI-local selection.
     const savedAuthMethod = this._authMethod();
     const savedProviderId = this._selectedProviderId();
 
@@ -429,7 +396,6 @@ export class AuthStateService {
     this._successMessage.set('');
 
     try {
-      // Step 1: Save settings
       const saveResult = await this.rpc.call('auth:saveSettings', params);
 
       if (!saveResult.isSuccess() || !saveResult.data?.success) {
@@ -441,8 +407,6 @@ export class AuthStateService {
         this._errorMessage.set(errorMsg);
         return;
       }
-
-      // Step 2: Test connection
       this._connectionStatus.set('testing');
 
       const testResult = await this.rpc.call(
@@ -453,13 +417,8 @@ export class AuthStateService {
       if (testResult.isSuccess() && testResult.data?.success) {
         this._connectionStatus.set('success');
         this._successMessage.set('Connection successful! Settings saved.');
-
-        // Update persisted state using the captured snapshots from invocation time
         this._persistedAuthMethod.set(savedAuthMethod);
         this._persistedProviderId.set(savedProviderId);
-
-        // Refresh auth status and model list in isolated try-catch so
-        // failures don't overwrite the successful save+test status
         try {
           await this.refreshAuthStatus();
           await Promise.all([
@@ -539,7 +498,6 @@ export class AuthStateService {
       });
 
       if (result.isSuccess()) {
-        // Update local map immediately for responsive UI
         this._providerKeyMap.update((prev) => {
           const next = new Map(prev);
           next.set(providerId, false);
@@ -567,7 +525,6 @@ export class AuthStateService {
   /**
    * Trigger GitHub OAuth login for Copilot provider.
    * Calls auth:copilotLogin RPC which opens VS Code's GitHub sign-in.
-   * TASK_2025_191
    */
   async copilotLogin(): Promise<void> {
     if (this._copilotLoggingIn()) return;
@@ -578,7 +535,6 @@ export class AuthStateService {
     this._successMessage.set('');
 
     try {
-      // Extended timeout (120s) — user must complete GitHub OAuth in browser
       const result = await this.rpc.call(
         'auth:copilotLogin',
         {} as Record<string, never>,
@@ -594,15 +550,12 @@ export class AuthStateService {
             result.data.username ? ` as ${result.data.username}` : ''
           }`,
         );
-
-        // Save the provider selection so the backend knows to use Copilot
         const saveResult = await this.rpc.call('auth:saveSettings', {
           authMethod: this._authMethod(),
           anthropicProviderId: 'github-copilot',
         });
 
         if (saveResult.isSuccess()) {
-          // Update persisted state — Copilot is now the active provider
           this._persistedAuthMethod.set(this._authMethod());
           this._persistedProviderId.set('github-copilot');
         } else {
@@ -611,8 +564,6 @@ export class AuthStateService {
             saveResult.error,
           );
         }
-
-        // Refresh models and effort for the new provider
         try {
           await Promise.all([
             this.modelState.refreshModels(),
@@ -644,7 +595,6 @@ export class AuthStateService {
   /**
    * Disconnect from GitHub Copilot.
    * Calls backend to clear Copilot auth state, then updates local signals.
-   * TASK_2025_191
    */
   async copilotLogout(): Promise<void> {
     try {
@@ -652,8 +602,6 @@ export class AuthStateService {
     } catch (error) {
       console.warn('[AuthStateService] copilotLogout RPC failed:', error);
     }
-
-    // Always clear local state even if RPC fails
     this._copilotAuthenticated.set(false);
     this._copilotUsername.set(null);
     this._connectionStatus.set('idle');
@@ -663,7 +611,6 @@ export class AuthStateService {
   /**
    * Trigger Codex CLI login via terminal.
    * Calls auth:codexLogin RPC which opens a terminal running `codex login`.
-   * TASK_2025_199
    */
   async codexLogin(): Promise<void> {
     await this.rpc.call('auth:codexLogin', {});
@@ -678,8 +625,6 @@ export class AuthStateService {
     this._errorMessage.set('');
     this._successMessage.set('');
   }
-
-  // --- Private methods ---
 
   /**
    * Fetch auth status from backend and populate all signals.
@@ -733,31 +678,19 @@ export class AuthStateService {
     this._authMethod.set(response.authMethod);
     this._selectedProviderId.set(response.anthropicProviderId);
     this._availableProviders.set(response.availableProviders);
-
-    // Update persisted state to match backend truth
     this._persistedAuthMethod.set(response.authMethod);
     this._persistedProviderId.set(response.anthropicProviderId);
-
-    // Reset provider key map to only contain the current provider's status.
-    // Clears stale entries from previously checked providers that may
-    // have changed via backend or another client since last check.
     this._providerKeyMap.set(
       new Map([[response.anthropicProviderId, response.hasOpenRouterKey]]),
     );
-
-    // Populate Copilot auth status (TASK_2025_191)
     if (response.copilotAuthenticated !== undefined) {
       this._copilotAuthenticated.set(response.copilotAuthenticated);
     }
     if (response.copilotUsername !== undefined) {
       this._copilotUsername.set(response.copilotUsername ?? null);
     }
-
-    // Populate Codex auth status (TASK_2025_199)
     this._codexAuthenticated.set(response.codexAuthenticated ?? false);
     this._codexTokenStale.set(response.codexTokenStale ?? false);
-
-    // Populate Claude CLI availability
     this._claudeCliInstalled.set(response.claudeCliInstalled ?? false);
   }
 }

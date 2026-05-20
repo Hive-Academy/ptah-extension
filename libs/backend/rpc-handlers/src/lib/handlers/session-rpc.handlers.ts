@@ -4,10 +4,7 @@
  * Handles session-related RPC methods: session:list, session:load, session:delete, session:rename,
  * session:validate, session:cli-sessions, session:stats-batch
  * Uses SessionMetadataStore for lightweight UI metadata.
- * SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl
- *
- * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_088: Simplified to use SDK-native session persistence
+ * SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -54,6 +51,8 @@ import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
+import { CHAT_TOKENS } from '../chat/tokens';
+import type { ChatSessionService } from '../chat/session/chat-session.service';
 
 /**
  * Minimal schema for JSONL first-line entries in agent session files.
@@ -67,7 +66,7 @@ export const AgentJsonlFirstLineSchema = z.object({
 /**
  * RPC handlers for session operations (SDK-based)
  *
- * Session Architecture (TASK_2025_088):
+ * Session Architecture:
  * - SDK handles message persistence to ~/.claude/projects/{sessionId}.jsonl
  * - This handler manages metadata only (names, timestamps, cost)
  * - session:load returns minimal data - actual messages come from SDK resume
@@ -99,6 +98,8 @@ export class SessionRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(CHAT_TOKENS.SESSION)
+    private readonly chatSession: ChatSessionService,
   ) {}
 
   /**
@@ -170,8 +171,6 @@ export class SessionRpcHandlers {
   private sanitizeForkTitle(title: unknown): string | undefined {
     if (title === undefined || title === null) return undefined;
     if (typeof title !== 'string') return undefined;
-    // Strip characters that Windows disallows in filenames — the SDK persists
-    // the title as part of session metadata which can flow into file paths.
     const stripped = title.replace(/[\\/:*?"<>|]/g, '').trim();
     if (stripped.length === 0) return undefined;
     return stripped.length > 200 ? stripped.substring(0, 200) : stripped;
@@ -191,8 +190,6 @@ export class SessionRpcHandlers {
         `session-not-found: session ${sessionId} not in metadata store`,
       );
     }
-    // Some legacy sessions may have a missing workspaceId. In that case we
-    // can't verify ownership, so reject conservatively rather than allow.
     const workspacePath = metadata.workspaceId;
     if (!workspacePath || !this.isAuthorizedWorkspace(workspacePath)) {
       throw new Error(
@@ -253,35 +250,44 @@ export class SessionRpcHandlers {
             );
             throw new Error('workspace-not-authorized');
           }
-
-          // Get session metadata for workspace
           const allSessions =
             await this.metadataStore.getForWorkspace(workspacePath);
-
-          // Already sorted by lastActiveAt in metadataStore
           const total = allSessions.length;
           const paginated = allSessions.slice(offset, offset + limit);
           const hasMore = offset + limit < total;
-
-          // Transform to RPC response format (ChatSessionSummary)
-          const sessions = paginated.map((s) => ({
-            id: s.sessionId as SessionId,
-            name: s.name,
-            lastActivityAt: s.lastActiveAt,
-            createdAt: s.createdAt,
-            messageCount: 0, // SDK handles messages - count not stored in metadata
-            isActive: false, // Listed sessions are not currently active
-            // Pass through token usage from metadata if available
-            ...(s.totalTokens &&
-            (s.totalTokens.input > 0 || s.totalTokens.output > 0)
-              ? {
-                  tokenUsage: {
-                    input: s.totalTokens.input,
-                    output: s.totalTokens.output,
-                  },
-                }
-              : {}),
-          }));
+          const sessions = paginated.flatMap((s) => {
+            let id: SessionId;
+            try {
+              id = SessionId.from(s.sessionId);
+            } catch (parseError) {
+              this.logger.error(
+                'RPC: session:list skipping row with corrupt sessionId',
+                parseError instanceof Error
+                  ? parseError
+                  : new Error(String(parseError)),
+              );
+              return [];
+            }
+            return [
+              {
+                id,
+                name: s.name,
+                lastActivityAt: s.lastActiveAt,
+                createdAt: s.createdAt,
+                messageCount: 0, // SDK handles messages - count not stored in metadata
+                isActive: false, // Listed sessions are not currently active
+                ...(s.totalTokens &&
+                (s.totalTokens.input > 0 || s.totalTokens.output > 0)
+                  ? {
+                      tokenUsage: {
+                        input: s.totalTokens.input,
+                        output: s.totalTokens.output,
+                      },
+                    }
+                  : {}),
+              },
+            ];
+          });
 
           return { sessions, total, hasMore };
         } catch (error) {
@@ -309,9 +315,8 @@ export class SessionRpcHandlers {
    * This is a lightweight check that returns immediately with empty arrays.
    * To load conversation history, frontend must call chat:resume after this.
    *
-   * Flow: session:load (validate) → chat:resume (trigger SDK replay)
-   *
-   * TASK_2025_089: Clarified that this is validation only, not data loading
+   * Flow: session:load (validate) → chat:resume (trigger SDK replay).
+   * This is validation only, not data loading.
    */
   private registerSessionLoad(): void {
     this.rpcHandler.registerMethod<SessionLoadParams, SessionLoadResult>(
@@ -323,8 +328,6 @@ export class SessionRpcHandlers {
           this.logger.debug('RPC: session:load called (metadata validation)', {
             sessionId,
           });
-
-          // Validate session exists in metadata store
           const metadata = await this.metadataStore.get(sessionId);
 
           if (!metadata) {
@@ -337,10 +340,22 @@ export class SessionRpcHandlers {
               sessionId,
             },
           );
-
-          // Return empty arrays - actual messages loaded via chat:resume
+          let validatedSessionId: SessionId;
+          try {
+            validatedSessionId = SessionId.from(metadata.sessionId);
+          } catch (parseError) {
+            this.logger.error(
+              'RPC: session:load aborted - metadata row has corrupt sessionId',
+              parseError instanceof Error
+                ? parseError
+                : new Error(String(parseError)),
+            );
+            throw new Error(
+              `Session metadata corrupted (non-UUID sessionId): ${sessionId}`,
+            );
+          }
           return {
-            sessionId: metadata.sessionId as SessionId,
+            sessionId: validatedSessionId,
             messages: [], // Empty by design - see SessionLoadResult docs
             agentSessions: [], // Empty by design - SDK handles everything
           };
@@ -376,15 +391,9 @@ export class SessionRpcHandlers {
         const { sessionId } = params;
 
         this.logger.info('RPC: session:delete called', { sessionId });
-
-        // Get workspace path from metadata BEFORE deleting it
         const metadata = await this.metadataStore.get(sessionId);
         const workspacePath = metadata?.workspaceId;
-
-        // Delete metadata first
         await this.metadataStore.delete(sessionId);
-
-        // Delete JSONL session file from disk
         if (workspacePath) {
           await this.deleteSessionFiles(sessionId, workspacePath);
         } else {
@@ -436,8 +445,6 @@ export class SessionRpcHandlers {
             sessionId,
             name: trimmedName,
           });
-
-          // Verify session exists before renaming
           const metadata = await this.metadataStore.get(sessionId);
           if (!metadata) {
             return { success: false, error: 'Session not found' };
@@ -493,8 +500,6 @@ export class SessionRpcHandlers {
     }
 
     const sessionsDir = path.dirname(sessionFilePath);
-
-    // Delete the main session file
     try {
       await fs.unlink(sessionFilePath);
       this.logger.info('RPC: session:delete - deleted JSONL file', {
@@ -508,86 +513,54 @@ export class SessionRpcHandlers {
         error: err instanceof Error ? err.message : String(err),
       });
     }
-
-    // Delete agent sub-session files
     let deletedSubagents = 0;
-
-    // 1. Current nested layout: {sessionsDir}/{sessionId}/subagents/
     const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
-    try {
-      const subagentFiles = await fs.readdir(subagentsDir);
-      for (const file of subagentFiles) {
-        if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
-          try {
-            await fs.unlink(path.join(subagentsDir, file));
-            deletedSubagents++;
-          } catch {
-            // Skip individual file failures
-          }
-        }
+
+    const subagentFiles = await fs.readdir(subagentsDir);
+    for (const file of subagentFiles) {
+      if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
+        await fs.unlink(path.join(subagentsDir, file));
+        deletedSubagents++;
       }
-      // Remove the subagents directory itself (if empty)
-      try {
-        await fs.rmdir(subagentsDir);
-      } catch {
-        // Not empty or doesn't exist — fine
-      }
-      // Remove the parent session directory (if empty)
-      try {
-        await fs.rmdir(path.join(sessionsDir, sessionId));
-      } catch {
-        // Not empty or doesn't exist — fine
-      }
-    } catch {
-      // Nested subagents directory doesn't exist — try legacy layout
     }
 
-    // 2. Legacy flat layout: {sessionsDir}/agent-*.jsonl
-    // Only scan if no nested subagents were found
+    await fs.rmdir(subagentsDir);
+
+    await fs.rmdir(path.join(sessionsDir, sessionId));
     if (deletedSubagents === 0) {
-      try {
-        const allFiles = await fs.readdir(sessionsDir);
-        const agentFiles = allFiles.filter(
-          (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
-        );
-        for (const file of agentFiles) {
-          const filePath = path.join(sessionsDir, file);
+      const allFiles = await fs.readdir(sessionsDir);
+      const agentFiles = allFiles.filter(
+        (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
+      );
+      for (const file of agentFiles) {
+        const filePath = path.join(sessionsDir, file);
+
+        const content = await fs.readFile(filePath, 'utf-8');
+        const firstLine = content.split('\n')[0];
+        if (firstLine) {
+          let parsed: unknown;
           try {
-            // Read first line to check if this agent belongs to our session
-            const content = await fs.readFile(filePath, 'utf-8');
-            const firstLine = content.split('\n')[0];
-            if (firstLine) {
-              let parsed: unknown;
-              try {
-                parsed = JSON.parse(firstLine);
-              } catch {
-                // Malformed JSON — skip file, do not crash.
-                this.logger.debug(
-                  'session:delete — skipping unreadable JSONL (malformed JSON)',
-                  { filePath },
-                );
-                continue;
-              }
-              const result = AgentJsonlFirstLineSchema.safeParse(parsed);
-              if (!result.success) {
-                // Valid JSON but unexpected shape — skip for diagnosis.
-                this.logger.debug(
-                  'session:delete — skipping JSONL with unexpected first-line shape',
-                  { filePath, issues: result.error.issues },
-                );
-                continue;
-              }
-              if (result.data.sessionId === sessionId) {
-                await fs.unlink(filePath);
-                deletedSubagents++;
-              }
-            }
+            parsed = JSON.parse(firstLine);
           } catch {
-            // Skip unreadable files (e.g. permission errors)
+            this.logger.debug(
+              'session:delete — skipping unreadable JSONL (malformed JSON)',
+              { filePath },
+            );
+            continue;
+          }
+          const result = AgentJsonlFirstLineSchema.safeParse(parsed);
+          if (!result.success) {
+            this.logger.debug(
+              'session:delete — skipping JSONL with unexpected first-line shape',
+              { filePath, issues: result.error.issues },
+            );
+            continue;
+          }
+          if (result.data.sessionId === sessionId) {
+            await fs.unlink(filePath);
+            deletedSubagents++;
           }
         }
-      } catch {
-        // Directory not readable
       }
     }
 
@@ -678,12 +651,6 @@ export class SessionRpcHandlers {
         const { sessionId } = params;
         const metadata = await this.metadataStore.get(sessionId);
         const raw = metadata?.cliSessions ?? [];
-
-        // Filter out ghost entries synthesized by the old (now-removed)
-        // recoverMissingCliSessions() method. That code incorrectly labeled
-        // SDK internal subagents (agent_start history events) as ptah-cli
-        // CLI sessions. Real ptah-cli CLI sessions persisted by
-        // persistCliSessionReference() always have a ptahCliId set.
         const cliSessions = raw.filter(
           (ref) => ref.cli !== 'ptah-cli' || ref.ptahCliId,
         );
@@ -710,7 +677,6 @@ export class SessionRpcHandlers {
    * stats (cost, tokens, model, message count). This bypasses the broken metadata
    * pipeline (addStats never called) and reads directly from source of truth.
    *
-   * TASK_2025_206 v2: Dashboard redesign with per-session stats cards
    */
   private registerSessionStatsBatch(): void {
     this.rpcHandler.registerMethod<
@@ -722,9 +688,6 @@ export class SessionRpcHandlers {
         sessionCount: sessionIds.length,
         workspacePath,
       });
-
-      // Process with limited concurrency (5 at a time) to avoid
-      // overwhelming file system while staying well within RPC timeout
       const CONCURRENCY_LIMIT = 5;
       const sessionStats: SessionStatsEntry[] = [];
 
@@ -737,8 +700,6 @@ export class SessionRpcHandlers {
                 sessionId,
                 workspacePath,
               );
-
-              // Get CLI agent types from metadata (gemini, codex, copilot, ptah-cli)
               const metadata = await this.metadataStore.get(sessionId);
               const cliAgents = metadata?.cliSessions
                 ? [...new Set(metadata.cliSessions.map((ref) => ref.cli))]
@@ -852,19 +813,12 @@ export class SessionRpcHandlers {
       'session:forkSession',
       async (params: SessionForkParams) => {
         try {
-          // Validate inputs at the boundary BEFORE any side effects. These
-          // throw with stable error code prefixes the frontend branches on.
           const sessionId = this.validateSessionId(params.sessionId);
-          // upToMessageId is optional — only validate when present.
           const upToMessageId =
             params.upToMessageId !== undefined
               ? this.validateUserMessageId(params.upToMessageId)
               : undefined;
           const title = this.sanitizeForkTitle(params.title);
-
-          // Authorize: confirm the session exists in our metadata store and
-          // belongs to a currently-open workspace. Rejects cross-workspace
-          // probes that bypass the frontend tab UI.
           await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:forkSession called', {
@@ -878,20 +832,10 @@ export class SessionRpcHandlers {
             upToMessageId,
             title,
           );
-
-          // SDK's ForkSessionResult exposes the new id as `sessionId`. Surface
-          // it to the webview as `newSessionId` so callers don't confuse it
-          // with the source session id they just passed in.
           return { newSessionId: result.sessionId as SessionId };
         } catch (error) {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
-
-          // Distinguish user-recoverable ID-resolution failures (expected,
-          // no Sentry) from true infrastructure bugs (reported to Sentry).
-          // SdkError messages from resolveNativeMessageId contain the phrase
-          // "not found in session history" when the upToMessageId could not
-          // be matched in the JSONL transcript.
           if (
             error instanceof SdkError &&
             errorObj.message.includes(MESSAGE_ID_NOT_FOUND_PHRASE)
@@ -921,28 +865,24 @@ export class SessionRpcHandlers {
    * session to be currently active in SessionLifecycleManager** — there
    * must be an in-flight or paused query with file checkpointing enabled.
    *
-   * When the session is not active, the adapter throws an SdkError that
-   * mentions "is not active or has no live Query handle". We translate
-   * that into a stable RPC error code (`session-not-active`) so the
-   * frontend can prompt the user to resume the session first instead of
-   * showing a raw stack trace.
+   * If the session is inactive when the handler runs, we now call
+   * `ChatSessionService.ensureSessionActiveForRewind` to transparently
+   * resume it first (one attempt, no recursion) before delegating to the
+   * SDK. Auto-resume failures are surfaced as the legacy
+   * `session-not-active` error code so the existing frontend error path
+   * still works — but the routine success path no longer requires the
+   * frontend retry dance.
    */
   private registerRewindFiles(): void {
     this.rpcHandler.registerMethod<SessionRewindParams, SessionRewindResult>(
       'session:rewindFiles',
       async (params: SessionRewindParams) => {
         try {
-          // Validate inputs at the boundary. Stable error code prefixes
-          // (`invalid-session-id`, `invalid-user-message-id`) flow up to the
-          // frontend so it can show actionable messages.
           const sessionId = this.validateSessionId(params.sessionId);
           const userMessageId = this.validateUserMessageId(
             params.userMessageId,
           );
           const dryRun = params.dryRun;
-
-          // Authorize cross-workspace access (rejects when session belongs to
-          // a workspace not currently open in the editor).
           await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:rewindFiles called', {
@@ -951,19 +891,33 @@ export class SessionRpcHandlers {
             dryRun: dryRun ?? false,
           });
 
+          if (!this.sdkAdapter.isSessionActive(sessionId as SessionId)) {
+            const metadata = await this.metadataStore.get(sessionId);
+            const workspacePath = metadata?.workspaceId;
+            if (!workspacePath) {
+              throw new Error(
+                'session-not-active: cannot auto-resume — session metadata missing workspacePath',
+              );
+            }
+            this.logger.info(
+              'RPC: session:rewindFiles — session inactive, attempting auto-resume',
+              { sessionId, workspacePath },
+            );
+            const outcome = await this.chatSession.ensureSessionActiveForRewind(
+              sessionId as SessionId,
+              sessionId,
+              workspacePath,
+            );
+            if ('resumed' in outcome && outcome.resumed === false) {
+              throw new Error(`session-not-active: ${outcome.error}`);
+            }
+          }
+
           const result = await this.sdkAdapter.rewindFiles(
             sessionId as SessionId,
             userMessageId,
             dryRun,
           );
-
-          // Path containment guard: when the SDK reports filesChanged in a
-          // non-dry-run, verify each path resolves under one of the active
-          // workspace roots. The SDK has already written by the time we see
-          // the result — moving the validation to a server-side dryRun first
-          // would be a much larger refactor (the frontend already does the
-          // dry-run preview pattern). Best we can do at this boundary:
-          // log + Sentry + reject the response so the user is alerted.
           if (
             dryRun === false &&
             Array.isArray(result.filesChanged) &&
@@ -998,13 +952,9 @@ export class SessionRpcHandlers {
                 errorSource:
                   'SessionRpcHandlers.registerRewindFiles.pathContainment',
               });
-              // Surface to the frontend so the user knows something is off.
               throw err;
             }
           }
-
-          // SDK's RewindFilesResult is structurally identical to the shared
-          // SessionRewindResult (see rpc-session.types.ts) — return as-is.
           return {
             canRewind: result.canRewind,
             error: result.error,
@@ -1019,9 +969,6 @@ export class SessionRpcHandlers {
           this.sentryService.captureException(errorObj, {
             errorSource: 'SessionRpcHandlers.registerRewindFiles',
           });
-          // Prefer the stable error type over regex-matching the message
-          // (Fix 8). The regex fallback is preserved below for safety in
-          // case a non-typed error bubbles up through legacy paths.
           if (error instanceof SessionNotActiveError) {
             throw new Error(`session-not-active: ${errorObj.message}`);
           }
@@ -1029,6 +976,12 @@ export class SessionRpcHandlers {
             /is not active or has no live Query handle/i.test(errorObj.message)
           ) {
             throw new Error(`session-not-active: ${errorObj.message}`);
+          }
+          if (errorObj.message.startsWith('session-not-active:')) {
+            // Already-tagged error from the auto-resume preflight — surface
+            // unchanged so the frontend's `session-not-active` branch (and
+            // any callers grepping by prefix) still match.
+            throw errorObj;
           }
           throw new Error(`Failed to rewind files: ${errorObj.message}`);
         }

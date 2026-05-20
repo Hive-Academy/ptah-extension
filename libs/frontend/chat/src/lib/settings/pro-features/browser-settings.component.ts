@@ -70,15 +70,11 @@ export class BrowserSettingsComponent implements OnInit {
   readonly browserSettingSaveSuccess = signal(false);
 
   async ngOnInit(): Promise<void> {
-    try {
-      const result = await this.rpcService.call('agent:getConfig', undefined);
-      if (result.isSuccess()) {
-        const allowLocalhost = result.data.browserAllowLocalhost ?? false;
-        this.browserAllowLocalhost.set(allowLocalhost);
-        this.savedBrowserAllowLocalhost.set(allowLocalhost);
-      }
-    } catch {
-      // Use default if load fails
+    const result = await this.rpcService.call('agent:getConfig', undefined);
+    if (result.isSuccess()) {
+      const allowLocalhost = result.data.browserAllowLocalhost ?? false;
+      this.browserAllowLocalhost.set(allowLocalhost);
+      this.savedBrowserAllowLocalhost.set(allowLocalhost);
     }
   }
 

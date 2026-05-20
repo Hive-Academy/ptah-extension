@@ -1,9 +1,5 @@
 import { SupportedLanguage } from './ast.types';
-
-// Define language identifiers
 export type { SupportedLanguage };
-
-// --- Language Configuration ---
 
 export const EXTENSION_LANGUAGE_MAP: Readonly<
   Record<string, SupportedLanguage>
@@ -13,10 +9,6 @@ export const EXTENSION_LANGUAGE_MAP: Readonly<
   '.ts': 'typescript',
   '.tsx': 'typescript',
 };
-
-// --- Tree-sitter Queries ---
-// S-expression queries for extracting code structures
-// These queries use tree-sitter's pattern matching syntax
 
 export interface LanguageQueries {
   /** Query for function declarations, expressions, and arrow functions */

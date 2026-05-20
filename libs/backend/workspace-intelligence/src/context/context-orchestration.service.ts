@@ -224,9 +224,6 @@ export class ContextOrchestrationService {
     @inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)
     private readonly contextSizeOptimizer: ContextSizeOptimizerService,
   ) {
-    // Wire DependencyGraphService into the optimizer so it can use dependency
-    // data for relevance scoring. The optimizer holds an optional reference
-    // (not constructor-injected) because it was created before the graph service.
     this.contextSizeOptimizer.setDependencyGraph(this.dependencyGraph);
   }
 
@@ -283,8 +280,6 @@ export class ContextOrchestrationService {
     uri: VsCodeUri,
   ): Promise<IncludeFileResult> {
     try {
-      // Cast to unknown first, then to expected type to satisfy ContextService vscode.Uri requirement
-      // The main app will pass the actual vscode.Uri object
       await this.contextService.includeFile(
         uri as unknown as Parameters<ContextService['includeFile']>[0],
       );
@@ -318,7 +313,6 @@ export class ContextOrchestrationService {
     uri: VsCodeUri,
   ): Promise<ExcludeFileResult> {
     try {
-      // Cast to unknown first, then to expected type to satisfy ContextService vscode.Uri requirement
       await this.contextService.excludeFile(
         uri as unknown as Parameters<ContextService['excludeFile']>[0],
       );

@@ -1,5 +1,5 @@
 /**
- * VS Code Platform Auth Provider Implementation (TASK_2025_203)
+ * VS Code Platform Auth Provider Implementation.
  *
  * Implements IPlatformAuthProvider using VS Code authentication API:
  * - getGitHubUsername: vscode.authentication.getSession('github', ...)
@@ -16,16 +16,15 @@ export class VsCodePlatformAuth implements IPlatformAuthProvider {
       const session = await vscode.authentication.getSession(
         'github',
         ['copilot'],
-        { createIfNone: false }
+        { createIfNone: false },
       );
       return session?.account.label;
     } catch {
-      // Fallback: try read:user scope
       try {
         const session = await vscode.authentication.getSession(
           'github',
           ['read:user'],
-          { createIfNone: false }
+          { createIfNone: false },
         );
         return session?.account.label;
       } catch {

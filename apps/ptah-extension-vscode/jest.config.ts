@@ -10,5 +10,6 @@ export default {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   moduleNameMapper: {
     '^vscode$': '<rootDir>/../../__mocks__/vscode.ts',
+    '(^|/)wasm-bundle-dir(\\.js)?$': '<rootDir>/__mocks__/wasm-bundle-dir.ts',
   },
 };

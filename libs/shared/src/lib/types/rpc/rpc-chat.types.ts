@@ -10,7 +10,7 @@ import type { FlatStreamEventUnion } from '../execution';
 
 /**
  * Minimal HTTP-flavored MCP server descriptor used by the
- * `ChatStartParams.mcpServersOverride` escape hatch (TASK_2026_104 P2 — proxy).
+ * `ChatStartParams.mcpServersOverride` escape hatch (proxy).
  *
  * Mirrors the load-bearing subset of `McpHttpServerConfig` from
  * `@anthropic-ai/claude-agent-sdk` so the shared layer doesn't need to import
@@ -22,10 +22,6 @@ export interface McpHttpServerOverride {
   readonly url: string;
   readonly headers?: Record<string, string>;
 }
-
-// ============================================================
-// Chat RPC Types
-// ============================================================
 
 /** Inline image attachment (pasted or dropped into chat) */
 export interface InlineImageAttachment {
@@ -48,7 +44,7 @@ export interface ChatStartParams {
   name?: string;
   /** Workspace path for context */
   workspacePath?: string;
-  /** Ptah CLI agent instance ID (TASK_2025_170: routes to Ptah CLI agent adapter) */
+  /** Ptah CLI agent instance ID (routes to Ptah CLI agent adapter) */
   ptahCliId?: string;
   /** Additional options */
   options?: {
@@ -66,9 +62,9 @@ export interface ChatStartParams {
      * otherwise falls back to 'claude_code'.
      */
     preset?: 'claude_code' | 'enhanced';
-    /** TASK_2025_184: Thinking/reasoning configuration */
+    /** Thinking/reasoning configuration */
     thinking?: ThinkingConfig;
-    /** TASK_2025_184: Effort level for reasoning depth */
+    /** Effort level for reasoning depth */
     effort?: EffortLevel;
     /**
      * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
@@ -92,8 +88,6 @@ export interface ChatStartParams {
    * Symmetric with the `includePartialMessages` opt-in above — both are
    * surfaced via the same `ChatStartParams` envelope so the proxy and other
    * advanced callers get a uniform extension surface without per-feature RPCs.
-   *
-   * TASK_2026_104 P2 — proxy.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
@@ -125,9 +119,9 @@ export interface ChatContinueParams {
   files?: string[];
   /** Inline images (pasted/dropped) to include with the message */
   images?: InlineImageAttachment[];
-  /** TASK_2025_184: Thinking/reasoning configuration */
+  /** Thinking/reasoning configuration */
   thinking?: ThinkingConfig;
-  /** TASK_2025_184: Effort level for reasoning depth */
+  /** Effort level for reasoning depth */
   effort?: EffortLevel;
 }
 
@@ -150,13 +144,13 @@ export interface ChatAbortResult {
   error?: string;
 }
 
-/** Parameters for chat:running-agents RPC method (TASK_2025_185) */
+/** Parameters for chat:running-agents RPC method */
 export interface ChatRunningAgentsParams {
   /** Session ID to query running agents for */
   sessionId: SessionId;
 }
 
-/** Response from chat:running-agents RPC method (TASK_2025_185) */
+/** Response from chat:running-agents RPC method */
 export interface ChatRunningAgentsResult {
   /** List of currently running (non-background) agents */
   agents: { agentId: string; agentType: string }[];
@@ -169,14 +163,13 @@ export interface ChatResumeParams {
   /**
    * Tab ID for frontend correlation (REQUIRED)
    * Backend uses this to route streaming events back to the correct tab.
-   * TASK_2025_092: Added for consistent event routing.
    */
   tabId: string;
   /** Workspace path (needed for session context) */
   workspacePath?: string;
   /** Model to use (if different from session's original model) */
   model?: string;
-  /** Ptah CLI agent instance ID (TASK_2025_170: routes to Ptah CLI agent adapter) */
+  /** Ptah CLI agent instance ID (routes to Ptah CLI agent adapter) */
   ptahCliId?: string;
   /**
    * When `true`, backend also activates a live SDK Query alongside loading history.
@@ -184,6 +177,21 @@ export interface ChatResumeParams {
    * Required for the resume-and-retry rewind path.
    */
   activate?: boolean;
+  /**
+   * **User-message UUID** at which to truncate the replayed transcript.
+   *
+   * Despite the legacy name (`...At`), this is NOT an ISO-8601 timestamp — it
+   * is the UUID of the user message to rewind to. The SDK replays the
+   * transcript only up to (and including) this user-message UUID and
+   * truncates the on-disk JSONL accordingly. Used by the rewind flow to
+   * revert the conversation to an earlier point. Requires `activate: true`;
+   * if the session is already active the backend ends the current Query and
+   * restarts it with the truncation applied.
+   *
+   * The Zod boundary schema (`ChatResumeParamsSchema`) validates this as
+   * `z.string().optional()` — do not narrow to `.datetime()` again.
+   */
+  resumeSessionAt?: string;
 }
 
 /** Response from chat:resume RPC method */
@@ -191,8 +199,8 @@ export interface ChatResumeResult {
   success: boolean;
   sessionId?: SessionId;
   /**
-   * Complete history messages (for session resume/replay)
-   * TASK_2025_092: Returns complete messages directly instead of streaming events
+   * Complete history messages (for session resume/replay).
+   * Returns complete messages directly instead of streaming events.
    * @deprecated Use `events` instead - messages only contain text, not tool calls
    */
   messages?: {
@@ -202,9 +210,9 @@ export interface ChatResumeResult {
     timestamp: number;
   }[];
   /**
-   * Full streaming events for session history replay
-   * TASK_2025_092 FIX: Includes tool_start, tool_result, thinking, agent_start events
-   * Frontend processes these through StreamingHandler to build ExecutionNode tree
+   * Full streaming events for session history replay.
+   * Includes tool_start, tool_result, thinking, agent_start events.
+   * Frontend processes these through StreamingHandler to build ExecutionNode tree.
    */
   events?: FlatStreamEventUnion[];
   /**
@@ -232,13 +240,13 @@ export interface ChatResumeResult {
     }>;
   } | null;
   /**
-   * Resumable subagents for this session (TASK_2025_103 FIX)
+   * Resumable subagents for this session.
    * Frontend uses this to mark agent nodes as resumable when loading from history.
    * Populated from SubagentRegistryService.getResumableBySession().
    */
   resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
   /**
-   * CLI agent sessions linked to this parent session (TASK_2025_161/168)
+   * CLI agent sessions linked to this parent session.
    * Enables displaying and resuming CLI sessions (e.g., Gemini) when loading saved sessions.
    * Populated from SessionMetadataStore.cliSessions[].
    */

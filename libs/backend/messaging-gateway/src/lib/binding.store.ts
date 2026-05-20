@@ -107,7 +107,6 @@ export class BindingStore {
   }): GatewayBinding {
     const existing = this.findByExternal(args.platform, args.externalChatId);
     if (existing) {
-      // Refresh last_active_at; preserve pairing code + status.
       this.sqlite.db
         .prepare('UPDATE gateway_bindings SET last_active_at = ? WHERE id = ?')
         .run(Date.now(), existing.id);
@@ -115,9 +114,6 @@ export class BindingStore {
     }
     const id = randomUUID();
     const now = Date.now();
-    // SECURITY: pairing code authorizes a binding, so it MUST be sourced from
-    // a CSPRNG. `Math.random()` is V8 xorshift128+ — not cryptographically
-    // strong. `crypto.randomInt` draws uniformly from the requested range.
     const pairingCode = String(randomInt(100000, 1000000));
     this.sqlite.db
       .prepare(

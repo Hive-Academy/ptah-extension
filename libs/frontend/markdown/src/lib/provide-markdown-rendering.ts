@@ -29,7 +29,6 @@ export interface MarkdownRenderingConfig {
 function createPermissiveSanitizer(): (html: string) => string {
   return (html: string) =>
     DOMPurify.sanitize(html, {
-      // Block dangerous tags only — allow everything else
       FORBID_TAGS: [
         'script',
         'iframe',
@@ -41,7 +40,6 @@ function createPermissiveSanitizer(): (html: string) => string {
         'select',
         'button',
       ],
-      // Block event handlers and dangerous attributes only
       FORBID_ATTR: [
         'onerror',
         'onload',
@@ -56,11 +54,8 @@ function createPermissiveSanitizer(): (html: string) => string {
         'onkeyup',
         'onkeypress',
       ],
-      // Allow data-* attributes (used by marked extensions)
       ALLOW_DATA_ATTR: true,
-      // Allow ARIA attributes for accessibility
       ALLOW_ARIA_ATTR: true,
-      // Allow safe URI protocols
       ALLOWED_URI_REGEXP:
         /^(?:(?:https?|mailto|tel|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
     });

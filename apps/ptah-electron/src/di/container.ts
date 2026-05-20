@@ -1,7 +1,7 @@
 /**
  * Electron DI Container Orchestrator
  *
- * TASK_2025_291 Wave C1 Step 2b: Thin orchestrator delegating to phase files.
+ * Thin orchestrator delegating to phase files.
  *
  * Phase execution order (enforced by this orchestrator):
  *   Phase 0 — Platform abstraction + Logger (phase-0-platform.ts)
@@ -17,6 +17,7 @@ import 'reflect-metadata';
 import { container, DependencyContainer } from 'tsyringe';
 
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
 import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
@@ -25,40 +26,36 @@ import { registerPhase3Storage } from './phase-3-storage';
 import { registerPhase4Handlers } from './phase-4-handlers';
 
 export class ElectronDIContainer {
-  /**
-   * Setup and orchestrate all service registrations for Electron.
-   *
-   * @param options - Electron platform options (paths, APIs)
-   * @returns Configured DependencyContainer
-   */
+  private static _root: DependencyContainer | undefined;
+
+  private static ensureRoot(): DependencyContainer {
+    if (!ElectronDIContainer._root) {
+      ElectronDIContainer._root = container.createChildContainer();
+    }
+    return ElectronDIContainer._root;
+  }
+
   static setup(options: ElectronPlatformOptions): DependencyContainer {
-    const { logger } = registerPhase0Platform(container, options);
-    registerPhase1Infra(container, options, logger);
-    registerPhase2Libraries(container, logger);
-    registerPhase3Storage(container, logger);
-    registerPhase4Handlers(container, logger);
+    const root = ElectronDIContainer.ensureRoot();
+    root.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: root });
+    const { logger } = registerPhase0Platform(root, options);
+    registerPhase1Infra(root, options, logger);
+    registerPhase2Libraries(root, logger);
+    registerPhase3Storage(root, logger);
+    registerPhase4Handlers(root, logger);
     logger.info('[Electron DI] All services registered successfully');
-    return container;
+    return root;
   }
 
-  /**
-   * Get the global container instance.
-   */
   static getContainer(): DependencyContainer {
-    return container;
+    return ElectronDIContainer.ensureRoot();
   }
 
-  /**
-   * Resolve a service by its token.
-   */
   static resolve<T>(token: symbol): T {
-    return container.resolve<T>(token);
+    return ElectronDIContainer.ensureRoot().resolve<T>(token);
   }
 
-  /**
-   * Check if a service is registered.
-   */
   static isRegistered(token: symbol): boolean {
-    return container.isRegistered(token);
+    return ElectronDIContainer.ensureRoot().isRegistered(token);
   }
 }

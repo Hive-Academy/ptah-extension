@@ -140,7 +140,6 @@ export class ToolCallItemComponent {
   readonly permission = input<PermissionRequest | undefined>();
 
   constructor() {
-    // Auto-expand when a permission request is present so the user can see Allow/Deny buttons
     effect(() => {
       if (this.permission()) {
         this.isCollapsed.set(false);

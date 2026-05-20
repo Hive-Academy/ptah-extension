@@ -1,0 +1,312 @@
+ > nx run @ptah-extension/cli-agent-runtime:test --coverage
+
+  (node:4340) Warning: Failed to load the ES module: /home/runner/work/ptah-extension/ptah-extension/libs/backend/cli-agent-runtime/jest.config.ts. Make sure to set "type": "module" in the nearest package.json file or use the .mjs extension.
+  (Use `node --trace-warnings ...` to show where the warning was created)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex-cli.adapter.spec.ts (9.018 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/copilot-sdk.adapter.spec.ts (9.821 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/gemini-cli.adapter.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cursor-cli.adapter.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/copilot-mcp.installer.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/gemini-mcp.installer.spec.ts
+   FAIL   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.spec.ts (21.575 s)
+    ● AgentProcessManager - SDK Execution Path › spawn() with SDK adapter › should call runSdk() instead of child_process.spawn for SDK adapters
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:336:22)
+
+    ● AgentProcessManager - SDK Execution Path › spawn() with SDK adapter › should pass unsanitized task to runSdk (SDK runs in-process, not via shell)
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:352:7)
+
+    ● AgentProcessManager - SDK Execution Path › spawn() with SDK adapter › should set agent status to running initially
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:370:22)
+
+    ● AgentProcessManager - SDK Execution Path › SDK output in readOutput() › should capture SDK output in the stdout buffer
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:383:22)
+
+    ● AgentProcessManager - SDK Execution Path › stop() on SDK agent › should call AbortController.abort() when stopping an SDK agent
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:403:22)
+
+    ● AgentProcessManager - SDK Execution Path › stop() on SDK agent › should return current info if agent already completed
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:427:22)
+
+    ● AgentProcessManager - SDK Execution Path › timeout for SDK agents › should trigger handleTimeout when timeout expires for SDK agent
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:448:22)
+
+    ● AgentProcessManager - SDK Execution Path › handleExit for SDK agents › should set status to completed on exit code 0
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:469:22)
+
+    ● AgentProcessManager - SDK Execution Path › handleExit for SDK agents › should set status to failed on exit code 1
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:486:22)
+
+    ● AgentProcessManager - SDK Execution Path › handleExit for SDK agents › should set status to failed on SDK done promise rejection
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:501:22)
+
+    ● AgentProcessManager - SDK Execution Path › handleExit for SDK agents › should not double-exit when timeout fires after SDK already resolved
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:517:22)
+
+    ● AgentProcessManager - SDK Execution Path › steer() on SDK agent › should throw an error for SDK-based agents that do not support steering
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:544:22)
+
+    ● AgentProcessManager - SDK Execution Path › shutdownAll() with SDK agents › should stop all running SDK agents
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:558:7)
+
+    ● AgentProcessManager - SDK Execution Path › concurrent limit includes SDK agents › should count SDK agents towards the concurrent limit
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:590:7)
+
+    ● AgentProcessManager - SDK Execution Path › concurrent limit includes SDK agents › should allow new spawn after SDK agent completes
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:610:7)
+
+    ● AgentProcessManager - SDK Execution Path › getPreferredCli() auto-detect › should auto-detect codex when no preference is set
+
+      ENOENT: no such file or directory, realpath '/workspace/root'
+
+        1326 |       let realRoot = workspaceRoot;
+        1327 |
+      > 1328 |       realDir = await fsPromises.realpath(dir);
+             |                 ^
+        1329 |
+        1330 |       realRoot = await fsPromises.realpath(workspaceRoot);
+        1331 |       normalizedDir = realDir;
+
+        at AgentProcessManager.validateWorkingDirectory (src/lib/cli-agents/agent-process-manager.service.ts:1328:17)
+        at AgentProcessManager.doSpawn (src/lib/cli-agents/agent-process-manager.service.ts:242:5)
+        at src/lib/cli-agents/agent-process-manager.service.ts:170:16
+        at src/lib/cli-agents/agent-process-manager.service.ts:857:16
+        at Object.<anonymous> (src/lib/cli-agents/agent-process-manager.service.spec.ts:641:22)
+
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/cursor-mcp.installer.spec.ts (28.182 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/claude-mcp.installer.spec.ts (21.775 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/installers/vscode-mcp.installer.spec.ts (30.105 s)
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-registry.provider.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/fix-path.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-stream-loop.service.spec.ts
+   PASS   cli-agent-runtime  libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry-tiers.spec.ts (5.107 s)
+
+  Test Suites: 1 failed, 14 passed, 15 total
+  Tests:       16 failed, 220 passed, 236 total
+  Snapshots:   0 total
+  Time:        50.65 s

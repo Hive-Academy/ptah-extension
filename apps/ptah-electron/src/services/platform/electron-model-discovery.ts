@@ -1,5 +1,5 @@
 /**
- * Electron Model Discovery Implementation (TASK_2025_203)
+ * Electron Model Discovery Implementation
  *
  * Stub implementation for Electron:
  * - getCopilotModels: Returns empty array (VS Code LM API not available)
@@ -14,14 +14,12 @@ export class ElectronModelDiscovery implements IModelDiscovery {
   async getCopilotModels(): Promise<
     Array<{ id: string; name: string; contextLength: number }>
   > {
-    // VS Code Language Model API is not available in Electron
     return [];
   }
 
   async getCodexModels(): Promise<
     Array<{ id: string; name: string; contextLength: number }>
   > {
-    // VS Code Language Model API is not available in Electron
     return [];
   }
 }

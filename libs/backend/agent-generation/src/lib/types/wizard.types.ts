@@ -275,10 +275,6 @@ export interface AgentSelectionUpdate {
   };
 }
 
-// =============================================================================
-// Wizard RPC Message Types (TASK_2025_078 - Type Safety Improvement)
-// =============================================================================
-
 /**
  * Base interface for all wizard RPC messages.
  */

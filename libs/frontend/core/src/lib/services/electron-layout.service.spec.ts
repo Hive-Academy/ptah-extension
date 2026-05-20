@@ -105,7 +105,7 @@ function buildRpc(
 // ─── Loop-Prevention Test Harness ────────────────────────────────────────────
 //
 // buildTestHarness sets up a minimal TestBed environment for the loop-prevention
-// tests (TASK_2026_115 §4.3). It differs from the ad-hoc `setup()` helper in
+// tests. It differs from the ad-hoc `setup()` helper in
 // the main describe block in that:
 //   1. It accepts { isElectron, activeWorkspace } configuration.
 //   2. It directly seeds `_workspaceFolders` and `_activeWorkspaceIndex` on the
@@ -558,7 +558,7 @@ describe('ElectronLayoutService', () => {
   });
 });
 
-// ─── Loop Prevention Tests (TASK_2026_115) ────────────────────────────────────
+// ─── Loop Prevention Tests ────────────────────────────────────────────────────
 //
 // These tests use buildTestHarness (defined above) instead of the ad-hoc
 // setup() helper so that activeWorkspace can be pre-seeded and syncFromBackend
@@ -573,7 +573,7 @@ describe('ElectronLayoutService — loop prevention', () => {
   });
 
   /**
-   * HEADLINE REGRESSION TEST — TASK_2026_115
+   * HEADLINE REGRESSION TEST
    * Reproduces the original WORKSPACE_CHANGED infinite loop.
    * This test MUST fail when handleMessage has no guards (syncFromBackend always called).
    * This test MUST pass with the origin-tag guard in place.

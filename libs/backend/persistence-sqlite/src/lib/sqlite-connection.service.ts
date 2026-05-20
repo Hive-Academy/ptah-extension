@@ -67,11 +67,11 @@ export type SqliteVecPathResolver = () => string;
 
 /**
  * Lifecycle pragmas applied on every connection open. The full set is
- * mandated by architecture §3 (TASK_2026_HERMES) — `temp_store = MEMORY`
+ * mandated by architecture §3 — `temp_store = MEMORY`
  * and `mmap_size = 256 MiB` are required so vec0 + FTS5 scratch tables stay
  * off-disk and large workspaces benefit from zero-copy reads.
  *
- * D4: `busy_timeout = 5000` goes last — it is a connection-level pragma with
+ * `busy_timeout = 5000` goes last — it is a connection-level pragma with
  * no ordering dependency on WAL/FK/sync.
  */
 const PRAGMAS_ON_OPEN = [
@@ -80,7 +80,7 @@ const PRAGMAS_ON_OPEN = [
   'synchronous = NORMAL',
   'temp_store = MEMORY',
   'mmap_size = 268435456', // 256 MiB — matches architecture §3
-  'busy_timeout = 5000', // D4 — prevents SQLITE_BUSY on concurrent access
+  'busy_timeout = 5000', // prevents SQLITE_BUSY on concurrent access
 ] as const;
 
 /**
@@ -361,8 +361,6 @@ export class SqliteConnectionService {
   close(): void {
     if (!this.database) return;
     if (this.database.open) {
-      // D1: Truncate the WAL before closing so the DB file is self-contained.
-      // Non-fatal — a checkpoint failure must not prevent the close.
       try {
         this.database.pragma('wal_checkpoint(TRUNCATE)');
         this.logger.debug(
@@ -422,7 +420,7 @@ export class SqliteConnectionService {
   }
 
   /**
-   * D6 — Emit one structured info log with key DB file statistics.
+   * Emit one structured info log with key DB file statistics.
    * Called after vec extension load so `vecExtensionLoaded` is accurate.
    * Failure is non-fatal: logs a warn and returns.
    */
@@ -449,13 +447,12 @@ export class SqliteConnectionService {
   }
 
   /**
-   * D3/D10 — Run integrity checks after pragmas and before migrations.
+   * Run integrity checks after pragmas and before migrations.
    * Runs `quick_check` then `foreign_key_check` sequentially; each is
    * independent and non-fatal. Any failure logs and returns without throwing
    * or marking the connection unavailable.
    */
   private runBootChecks(db: SqliteDatabase): void {
-    // quick_check — D3
     try {
       const result = db.pragma('quick_check', { simple: true }) as string;
       if (result === 'ok') {
@@ -464,15 +461,12 @@ export class SqliteConnectionService {
         this.logger.error('[persistence-sqlite] quick_check FAILED', {
           result,
         });
-        // Non-fatal: log only; do NOT throw; do NOT set unavailableReason.
       }
     } catch (err: unknown) {
       this.logger.warn('[persistence-sqlite] quick_check error', {
         error: err instanceof Error ? err.message : String(err),
       });
     }
-
-    // foreign_key_check — D10
     try {
       const rows = db.pragma('foreign_key_check') as Array<{
         table: string;
@@ -486,7 +480,6 @@ export class SqliteConnectionService {
           sample: rows.slice(0, 3),
         });
       }
-      // else: silent on a clean DB
     } catch (err: unknown) {
       this.logger.warn('[persistence-sqlite] foreign_key_check error', {
         error: err instanceof Error ? err.message : String(err),

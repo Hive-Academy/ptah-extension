@@ -27,9 +27,6 @@ interface DisplaySkillEntry extends SkillShEntry {
 /**
  * SkillShBrowserComponent - Browse, search, install, and manage skills from skills.sh
  *
- * TASK_2025_204: Skills.sh browser for the setup-plugins section
- *
- * Complexity Level: 2 (Medium - RPC communication + search debounce + dual views)
  * Patterns: Signal-based state, DaisyUI compact styling, debounced search
  */
 @Component({
@@ -447,8 +444,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   protected readonly SearchIcon = Search;
   protected readonly CheckIcon = Check;
 
-  // ===== State Signals =====
-
   readonly searchQuery = signal('');
   readonly searchResults = signal<DisplaySkillEntry[]>([]);
   readonly installedSkills = signal<InstalledSkill[]>([]);
@@ -462,8 +457,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   readonly uninstallingSkillIds = signal<Set<string>>(new Set());
   readonly error = signal<string | null>(null);
   readonly activeView = signal<'browse' | 'installed'>('browse');
-
-  // ===== Computed Signals =====
 
   readonly installedCount = computed(() => this.installedSkills().length);
 
@@ -489,11 +482,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     this.installedSkills().filter((s) => s.scope === 'global'),
   );
 
-  // ===== Private =====
-
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  // ===== Lifecycle =====
 
   /** Re-load installed skills when refreshTrigger changes (skips initial value of 0) */
   private readonly refreshEffect = effect(() => {
@@ -518,8 +507,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ===== Event Handlers =====
-
   onSearchInput(event: Event): void {
     const query = (event.target as HTMLInputElement).value;
     this.searchQuery.set(query);
@@ -539,7 +526,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   }
 
   async installSkill(skill: SkillShEntry): Promise<void> {
-    // Guard: prevent duplicate concurrent installs for same skill
     if (this.installingSkillIds().has(skill.skillId)) return;
 
     this.addToSet(this.installingSkillIds, skill.skillId);
@@ -629,16 +615,12 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ===== Helpers =====
-
   isSkillInstalled(skill: SkillShEntry): boolean {
     return this.installedSkills().some(
       (installed) =>
         installed.name === skill.skillId || installed.name === skill.name,
     );
   }
-
-  // ===== Private Methods =====
 
   private formatInstallCount(count: number): string {
     if (count >= 1_000_000) return (count / 1_000_000).toFixed(1) + 'M';

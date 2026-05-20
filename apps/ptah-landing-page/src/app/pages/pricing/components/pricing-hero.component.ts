@@ -167,7 +167,6 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
   ],
 })
 export class PricingHeroComponent {
-  // Lucide icon reference
   protected readonly DollarSignIcon = DollarSign;
 
   public readonly headlineConfig: ViewportAnimationConfig = {

@@ -1,5 +1,5 @@
 /**
- * Chat Ptah-CLI sub-barrel (Wave C7e).
+ * Chat Ptah-CLI sub-barrel.
  *
  * Re-exports the dispatch + tracking service that owns the
  * `ptahCliSessions` and `ptahCliSdkSessionIds` maps and the on-disk

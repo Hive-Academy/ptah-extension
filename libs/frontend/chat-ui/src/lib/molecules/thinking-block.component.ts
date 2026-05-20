@@ -86,8 +86,6 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 export class ThinkingBlockComponent {
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = signal(true); // Collapsed by default
-
-  // Icons
   readonly ChevronIcon = ChevronDown;
   readonly BrainIcon = Brain;
 

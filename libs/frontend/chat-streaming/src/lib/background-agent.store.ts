@@ -6,7 +6,7 @@
  *
  * Events flow: SDK → StreamingHandlerService → BackgroundAgentStore → UI
  *
- * TASK_2026_106 Phase 5 — Re-keyed by `BackgroundAgentId`.
+ * Keyed by `BackgroundAgentId`.
  *
  * Why: the legacy implementation keyed `_agents` by `toolCallId` (`toolu_…`),
  * which is overloaded — the same value flows through `tool_start` /
@@ -68,8 +68,6 @@ export class BackgroundAgentStore implements OnDestroy {
   /** Shared tick signal incremented every 1s while agents are running. */
   readonly tick = signal(0);
   private _tickInterval: ReturnType<typeof setInterval> | null = null;
-
-  // Public computed signals
   readonly agents = computed(() => {
     const map = this._agents();
     return Array.from(map.values()).sort((a, b) => b.startedAt - a.startedAt);
@@ -177,9 +175,9 @@ export class BackgroundAgentStore implements OnDestroy {
    * Check if a toolCallId belongs to a background agent.
    *
    * Public signature kept stable: callers (tree builder) pass `toolu_*` strings
-   * pulled from event payloads. Phase 5 changed the storage key from
-   * toolCallId to agentId, so this lookup is now an O(n) scan over
-   * `_agents().values()` instead of O(1) `Map.has`. Acceptable: the store is
+   * pulled from event payloads. The storage key is `agentId`, so this lookup
+   * is an O(n) scan over `_agents().values()` instead of O(1) `Map.has`.
+   * Acceptable: the store is
    * bounded at MAX_COMPLETED_AGENTS=50 plus the running set, and the call
    * happens during tree rebuilds (already O(events)) — not on hot ingestion paths.
    */
@@ -201,8 +199,8 @@ export class BackgroundAgentStore implements OnDestroy {
   /**
    * Resolve the parent `ClaudeSessionId` that spawned a background agent.
    *
-   * TASK_2026_106 Phase 5 — explicit parent-session lookup. Replaces the
-   * pattern of reading `entry.sessionId` after a `findByAgentId` call when
+   * Explicit parent-session lookup. Replaces the pattern of
+   * reading `entry.sessionId` after a `findByAgentId` call when
    * the intent is "find the parent session for this agent" (vs. "read the
    * field"). Returns null when the agent is unknown.
    */

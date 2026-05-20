@@ -1,12 +1,8 @@
 /**
  * Setup Wizard message types, analysis phases, and payload types.
  *
- * Extracted from setup-wizard.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
+ * Extracted from setup-wizard.types.ts — zero behavior change.
  */
-
-// ============================================================================
-// Wizard Message Types
-// ============================================================================
 
 /**
  * Wizard message types for type-safe message handling.
@@ -22,10 +18,6 @@ export type WizardMessageType =
   | 'setup-wizard:generation-stream'
   | 'setup-wizard:enhance-stream'
   | 'setup-wizard:error';
-
-// ============================================================================
-// Wizard Message Payload Types
-// ============================================================================
 
 /**
  * Analysis phase identifiers for agentic workspace analysis.
@@ -104,7 +96,6 @@ export interface AnalysisStreamPayload {
    * When present, the setup-wizard frontend accumulates these into a StreamingState
    * and renders via ExecutionTreeBuilderService + ExecutionNodeComponent.
    * Backward compatible: old payloads without this field still work.
-   * @see TASK_2025_229
    */
   flatEvent?: import('../execution').FlatStreamEventUnion;
 }
@@ -222,10 +213,6 @@ export interface WizardErrorPayload {
   /** Error type: 'error' for real errors, 'fallback-warning' for degraded-mode warnings */
   type?: 'error' | 'fallback-warning';
 }
-
-// ============================================================================
-// Wizard Message Discriminated Union
-// ============================================================================
 
 /**
  * Discriminated union for wizard messages.

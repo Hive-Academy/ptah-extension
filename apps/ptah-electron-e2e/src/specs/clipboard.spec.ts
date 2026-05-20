@@ -2,7 +2,7 @@ import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../support/fixtures';
 
 /**
- * Wave B.B2 -- IPC contract specs for `clipboard:read-text` and
+ * IPC contract specs for `clipboard:read-text` and
  * `clipboard:write-text`.
  *
  * Channels are registered in apps/ptah-electron/src/activation/post-window.ts:

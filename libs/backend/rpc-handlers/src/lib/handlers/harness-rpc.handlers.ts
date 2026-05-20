@@ -1,5 +1,5 @@
 /**
- * Harness RPC Handlers — thin facade (Wave C7d).
+ * Harness RPC Handlers — thin facade.
  *
  * Registers the sixteen `harness:*` RPC methods and delegates each call to one
  * of the extracted harness services:
@@ -213,8 +213,6 @@ export class HarnessRpcHandlers {
     });
   }
 
-  // ─── Initialization ────────────────────────────────────
-
   private registerInitialize(): void {
     this.wire<HarnessInitializeParams, HarnessInitializeResponse>(
       'harness:initialize',
@@ -236,8 +234,6 @@ export class HarnessRpcHandlers {
     );
   }
 
-  // ─── AI Suggestions ────────────────────────────────────
-
   private registerSuggestConfig(): void {
     this.wire<HarnessSuggestConfigParams, HarnessSuggestConfigResponse>(
       'harness:suggest-config',
@@ -254,8 +250,6 @@ export class HarnessRpcHandlers {
       },
     );
   }
-
-  // ─── Skill Management ──────────────────────────────────
 
   private registerSearchSkills(): void {
     this.wire<HarnessSearchSkillsParams, HarnessSearchSkillsResponse>(
@@ -285,8 +279,6 @@ export class HarnessRpcHandlers {
     );
   }
 
-  // ─── MCP Discovery ────────────────────────────────────
-
   private registerDiscoverMcp(): void {
     this.wire<HarnessDiscoverMcpParams, HarnessDiscoverMcpResponse>(
       'harness:discover-mcp',
@@ -294,8 +286,6 @@ export class HarnessRpcHandlers {
       () => this.fsService.discoverMcpServers(),
     );
   }
-
-  // ─── Prompt Generation ─────────────────────────────────
 
   private registerGeneratePrompt(): void {
     this.wire<HarnessGeneratePromptParams, HarnessGeneratePromptResponse>(
@@ -313,8 +303,6 @@ export class HarnessRpcHandlers {
     );
   }
 
-  // ─── CLAUDE.md Generation ──────────────────────────────
-
   private registerGenerateClaudeMd(): void {
     this.wire<HarnessGenerateClaudeMdParams, HarnessGenerateClaudeMdResponse>(
       'harness:generate-claude-md',
@@ -325,8 +313,6 @@ export class HarnessRpcHandlers {
     );
   }
 
-  // ─── Apply Configuration ───────────────────────────────
-
   private registerApply(): void {
     this.wire<HarnessApplyParams, HarnessApplyResponse>(
       'harness:apply',
@@ -335,15 +321,11 @@ export class HarnessRpcHandlers {
         const config = this.configStore.normalizeHarnessConfig(params.config);
         const appliedPaths: string[] = [];
         const warnings: string[] = [];
-
-        // 1. Save harness config as preset
         const presetPath = await this.configStore.writePresetToDisk(
           config.name,
           config,
         );
         appliedPaths.push(presetPath);
-
-        // 2. Generate and write CLAUDE.md if requested
         if (config.claudeMd.generateProjectClaudeMd) {
           const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
           if (workspaceRoot) {
@@ -359,8 +341,6 @@ export class HarnessRpcHandlers {
             );
           }
         }
-
-        // 3. Update ~/.ptah/settings.json with agent configuration
         try {
           await this.configStore.updatePtahSettings(config);
           appliedPaths.push(this.configStore.settingsPath);
@@ -375,8 +355,6 @@ export class HarnessRpcHandlers {
             settingsError instanceof Error ? settingsError : new Error(msg),
           );
         }
-
-        // 4. Create skill junctions for selected skills
         if (config.skills.selectedSkills.length > 0) {
           try {
             const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();
@@ -399,8 +377,6 @@ export class HarnessRpcHandlers {
       },
     );
   }
-
-  // ─── Preset Management ─────────────────────────────────
 
   private registerSavePreset(): void {
     this.wire<HarnessSavePresetParams, HarnessSavePresetResponse>(
@@ -425,8 +401,6 @@ export class HarnessRpcHandlers {
       async () => ({ presets: await this.configStore.loadPresetsFromDisk() }),
     );
   }
-
-  // ─── AI Chat ───────────────────────────────────────────
 
   /**
    * `harness:chat` — graceful fallback path: when the chat service rejects we
@@ -458,7 +432,6 @@ export class HarnessRpcHandlers {
           this.sentryService.captureException(err, {
             errorSource: 'HarnessRpcHandlers.registerChat',
           });
-          // Graceful fallback — frontend expects a non-error payload.
           return {
             reply: this.chat.buildChatReplyFallback(
               params.step,
@@ -469,8 +442,6 @@ export class HarnessRpcHandlers {
       },
     );
   }
-
-  // ─── Subagent Fleet Design ─────────────────────────────
 
   private registerDesignAgents(): void {
     this.wire<HarnessDesignAgentsParams, HarnessDesignAgentsResponse>(
@@ -485,8 +456,6 @@ export class HarnessRpcHandlers {
     );
   }
 
-  // ─── Skill Generation ─────────────────────────────────
-
   private registerGenerateSkills(): void {
     this.wire<HarnessGenerateSkillsParams, HarnessGenerateSkillsResponse>(
       'harness:generate-skills',
@@ -500,8 +469,6 @@ export class HarnessRpcHandlers {
     );
   }
 
-  // ─── Document Generation ──────────────────────────────
-
   private registerGenerateDocument(): void {
     this.wire<HarnessGenerateDocumentParams, HarnessGenerateDocumentResponse>(
       'harness:generate-document',
@@ -513,8 +480,6 @@ export class HarnessRpcHandlers {
         ),
     );
   }
-
-  // ─── Intent Analysis ───────────────────────────────────
 
   private registerAnalyzeIntent(): void {
     this.wire<HarnessAnalyzeIntentParams, HarnessAnalyzeIntentResponse>(
@@ -541,8 +506,6 @@ export class HarnessRpcHandlers {
       },
     );
   }
-
-  // ─── Converse (Freeform Chat) ─────────────────────────
 
   private registerConverse(): void {
     this.wire<HarnessConverseParams, HarnessConverseResponse>(

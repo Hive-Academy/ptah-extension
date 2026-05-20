@@ -7,15 +7,14 @@
  * Workspace folders are set programmatically when the user opens a folder
  * via the Electron dialog or command line arguments.
  *
- * TASK_2025_208 Batch 1, Task 1.2: Added workspace lifecycle methods
- * (addFolder, removeFolder, setActiveFolder, getActiveFolder) so the
- * RPC handler can use typed calls instead of duck-typing.
+ * Workspace lifecycle methods (addFolder, removeFolder, setActiveFolder,
+ * getActiveFolder) allow the RPC handler to use typed calls instead of
+ * duck-typing.
  *
- * TASK_2025_247 Batch 3, Task 3.2: File-based settings routing.
- * Keys in FILE_BASED_SETTINGS_KEYS are transparently routed to
- * PtahFileSettingsManager (~/.ptah/settings.json) instead of the
- * per-app config.json file. This keeps trademarked terms out of
- * package.json contributes.configuration.
+ * File-based settings routing: keys in FILE_BASED_SETTINGS_KEYS are
+ * transparently routed to PtahFileSettingsManager (~/.ptah/settings.json)
+ * instead of the per-app config.json file. This keeps trademarked terms
+ * out of package.json contributes.configuration.
  */
 
 import * as fs from 'fs';
@@ -93,7 +92,6 @@ export class ElectronWorkspaceProvider
     key: string,
     defaultValue?: T,
   ): T | undefined {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       return this.fileSettings.get<T>(key, defaultValue);
     }
@@ -109,7 +107,6 @@ export class ElectronWorkspaceProvider
    */
   setWorkspaceFolders(folders: string[]): void {
     this.folders = [...folders];
-    // Update activeFolder if the current active is no longer in the list
     if (
       this.activeFolder &&
       !this.folders.some(
@@ -124,13 +121,9 @@ export class ElectronWorkspaceProvider
   /**
    * Add a folder to the workspace. Deduplicates by resolved path.
    * Fires onDidChangeWorkspaceFolders event if the folder was actually added.
-   *
-   * TASK_2025_208 Batch 1, Task 1.2
    */
   addFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
-
-    // Deduplicate: check if already present (by resolved path)
     const alreadyExists = this.folders.some(
       (existing) => path.resolve(existing) === resolved,
     );
@@ -139,8 +132,6 @@ export class ElectronWorkspaceProvider
     }
 
     this.folders.push(resolved);
-
-    // If this is the first folder, make it active by default
     if (this.folders.length === 1) {
       this.activeFolder = resolved;
     }
@@ -153,8 +144,6 @@ export class ElectronWorkspaceProvider
    * If the removed folder was the active folder, updates activeFolder
    * to the first remaining folder (or undefined if none remain).
    * Fires onDidChangeWorkspaceFolders event if the folder was actually removed.
-   *
-   * TASK_2025_208 Batch 1, Task 1.2
    */
   removeFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
@@ -167,8 +156,6 @@ export class ElectronWorkspaceProvider
     }
 
     this.folders.splice(index, 1);
-
-    // Update activeFolder if the removed folder was active
     if (this.activeFolder && path.resolve(this.activeFolder) === resolved) {
       this.activeFolder = this.folders[0] ?? undefined;
     }
@@ -180,8 +167,6 @@ export class ElectronWorkspaceProvider
    * Set the active (primary) workspace folder.
    * The path must already exist in the folders array.
    * Fires onDidChangeWorkspaceFolders event on success.
-   *
-   * TASK_2025_208 Batch 1, Task 1.2
    */
   setActiveFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
@@ -204,8 +189,6 @@ export class ElectronWorkspaceProvider
 
   /**
    * Get the currently active workspace folder.
-   *
-   * TASK_2025_208 Batch 1, Task 1.2
    */
   getActiveFolder(): string | undefined {
     return this.activeFolder;
@@ -215,8 +198,6 @@ export class ElectronWorkspaceProvider
    * Store a transient origin token immediately before calling setActiveFolder().
    * The token is read-and-cleared by the workspace broadcast listener so the
    * push event can echo the token back to the frontend for self-echo suppression.
-   *
-   * TASK_2026_115 Batch 2
    */
   setPendingOrigin(origin: string | null): void {
     this.pendingOrigin = origin;
@@ -226,14 +207,13 @@ export class ElectronWorkspaceProvider
    * Update a configuration value.
    * Fires onDidChangeConfiguration event.
    *
-   * TASK_2025_247: File-based keys route to PtahFileSettingsManager.
+   * File-based keys route to PtahFileSettingsManager.
    */
   async setConfiguration(
     section: string,
     key: string,
     value: unknown,
   ): Promise<void> {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       await this.fileSettings.set(key, value);
       const fullKey = `${section}.${key}`;
@@ -264,7 +244,6 @@ export class ElectronWorkspaceProvider
       const raw = fs.readFileSync(this.configFilePath, 'utf-8');
       this.config = JSON.parse(raw);
     } catch {
-      // Config file doesn't exist on first launch — start with empty config
       this.config = {};
     }
   }

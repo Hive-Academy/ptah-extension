@@ -2,9 +2,8 @@
  * WorkspaceContextManager — Manages per-workspace storage isolation
  * via WorkspaceAwareStateStorage proxy.
  *
- * TASK_2025_208: Simplified from child-container approach. Instead of creating
- * tsyringe child containers (which don't work because RPC handler singletons
- * inject workspace-scoped services at construction time), this manager
+ * Tsyringe child containers don't work here because RPC handler singletons
+ * inject workspace-scoped services at construction time. Instead this manager
  * delegates to WorkspaceAwareStateStorage which routes get/update calls
  * to the correct workspace's storage at call-time.
  *
@@ -78,8 +77,6 @@ export class WorkspaceContextManager {
    */
   async createWorkspace(workspacePath: string): Promise<CreateWorkspaceResult> {
     const normalizedPath = path.resolve(workspacePath);
-
-    // Check if already registered
     if (
       this.workspaceAwareStorage.getAllWorkspacePaths().includes(normalizedPath)
     ) {
@@ -88,8 +85,6 @@ export class WorkspaceContextManager {
         encodedPath: encodeWorkspacePath(normalizedPath),
       };
     }
-
-    // Validate folder exists on disk (async to avoid blocking event loop)
     if (!(await pathExists(normalizedPath))) {
       return {
         success: false,
@@ -127,8 +122,6 @@ export class WorkspaceContextManager {
    */
   async switchWorkspace(workspacePath: string): Promise<string | undefined> {
     const normalizedPath = path.resolve(workspacePath);
-
-    // Lazy creation if not yet registered
     if (
       !this.workspaceAwareStorage
         .getAllWorkspacePaths()
@@ -182,8 +175,6 @@ export class WorkspaceContextManager {
 
       await this.createWorkspace(normalizedPath);
     }
-
-    // Set active workspace
     if (activePath) {
       const normalizedActive = path.resolve(activePath);
       if (
@@ -194,7 +185,6 @@ export class WorkspaceContextManager {
         this.workspaceAwareStorage.setActiveWorkspace(normalizedActive);
       }
     } else if (paths.length > 0) {
-      // Activate the first valid workspace
       const allPaths = this.workspaceAwareStorage.getAllWorkspacePaths();
       if (allPaths.length > 0) {
         this.workspaceAwareStorage.setActiveWorkspace(allPaths[0]);

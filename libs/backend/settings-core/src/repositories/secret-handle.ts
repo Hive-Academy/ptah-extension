@@ -7,8 +7,6 @@
  *
  * The type parameter T is constrained to string because secrets are always
  * stored and returned as strings (cipher text or opaque blobs).
- *
- * WP-4A: Secret handle type.
  */
 export interface SecretHandle {
   /**

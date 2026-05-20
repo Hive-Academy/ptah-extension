@@ -1,13 +1,13 @@
 /**
  * ElectronPowerMonitor — `IPowerMonitor` implementation for the Electron host
- * (TASK_2026_HERMES Track 3 — cron scheduler).
+ * (cron scheduler).
  *
  * Wraps `electron.powerMonitor.on('resume', ...)` / `'suspend'`. The cron
  * scheduler subscribes via this adapter so the `CatchupCoordinator` can
  * replay missed slots when the laptop wakes from sleep.
  *
- * The architecture (§7.3) requires `onResume` / `onSuspend` to return a
- * dispose closure rather than emitter-style `removeListener(cb)` so consumers
+ * `onResume` / `onSuspend` return a dispose closure rather than emitter-style
+ * `removeListener(cb)` so consumers
  * don't have to retain the original callback reference. We adopt the same
  * shape as the gateway's ElectronSafeStorageVault — a stateless implementation
  * that defers entirely to the Electron API and never throws.
@@ -18,43 +18,29 @@ import type { IPowerMonitor } from '@ptah-extension/cron-scheduler';
 export class ElectronPowerMonitor implements IPowerMonitor {
   onResume(cb: () => void): () => void {
     const listener = () => {
-      try {
-        cb();
-      } catch {
-        // Listener errors must never crash powerMonitor — the caller logs.
-      }
+      cb();
     };
     powerMonitor.on('resume', listener);
     let disposed = false;
     return () => {
       if (disposed) return;
       disposed = true;
-      try {
-        powerMonitor.off('resume', listener);
-      } catch {
-        // electron in tests may not expose `off`; safe to ignore.
-      }
+
+      powerMonitor.off('resume', listener);
     };
   }
 
   onSuspend(cb: () => void): () => void {
     const listener = () => {
-      try {
-        cb();
-      } catch {
-        // Listener errors must never crash powerMonitor — the caller logs.
-      }
+      cb();
     };
     powerMonitor.on('suspend', listener);
     let disposed = false;
     return () => {
       if (disposed) return;
       disposed = true;
-      try {
-        powerMonitor.off('suspend', listener);
-      } catch {
-        // ignore.
-      }
+
+      powerMonitor.off('suspend', listener);
     };
   }
 }

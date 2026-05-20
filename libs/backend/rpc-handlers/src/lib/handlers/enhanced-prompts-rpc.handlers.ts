@@ -8,10 +8,6 @@
  * - enhancedPrompts:regenerate - Force regenerate the prompt
  * - enhancedPrompts:getPromptContent - Get generated prompt content for preview
  * - enhancedPrompts:download - Download generated prompt as .md file
- *
- * TASK_2025_137: Intelligent Prompt Generation System
- * TASK_2025_149 Batch 5: Added getPromptContent and download handlers
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode APIs with platform abstractions)
  */
 
 /**
@@ -19,7 +15,7 @@
  */
 const LICENSE_VERIFICATION_TIMEOUT_MS = 10 * 1000;
 
-import { injectable, inject, DependencyContainer } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
@@ -27,15 +23,15 @@ import {
   LicenseService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   EnhancedPromptsService,
-  SDK_TOKENS,
-  PluginLoaderService,
-} from '@ptah-extension/agent-sdk';
+  AGENT_GENERATION_TOKENS,
+} from '@ptah-extension/agent-generation';
 import type {
   PromptDesignerInput,
   EnhancedPromptsSdkConfig,
-} from '@ptah-extension/agent-sdk';
+} from '@ptah-extension/agent-generation';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
   EnhancedPromptsGetStatusParams,
@@ -82,7 +78,7 @@ export class EnhancedPromptsRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
+    @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
@@ -92,10 +88,12 @@ export class EnhancedPromptsRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SAVE_DIALOG_PROVIDER)
     private readonly saveDialogProvider: ISaveDialogProvider,
-    @inject('DependencyContainer')
-    private readonly container: DependencyContainer,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
+    private readonly webviewManager: WebviewBroadcaster | undefined,
+    @inject(TOKENS.CODE_EXECUTION_MCP, { isOptional: true })
+    private readonly codeExecutionMcp: CodeExecutionMCP | undefined,
   ) {}
 
   /**
@@ -147,8 +145,6 @@ export class EnhancedPromptsRpcHandlers {
             error: 'Workspace path is required',
           };
         }
-
-        // Resolve relative paths to actual workspace folder path
         const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.debug('RPC: enhancedPrompts:getStatus called', {
@@ -215,16 +211,12 @@ export class EnhancedPromptsRpcHandlers {
             error: 'Workspace path is required',
           };
         }
-
-        // Resolve relative paths (e.g. '.') to actual workspace folder path
         const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.info('RPC: enhancedPrompts:runWizard started', {
           workspacePath,
           rawPath: rawPath !== workspacePath ? rawPath : undefined,
         });
-
-        // Verify premium license with timeout to prevent hanging
         const licenseStatus = await this.verifyLicenseWithTimeout();
         if (!licenseStatus) {
           return {
@@ -244,8 +236,6 @@ export class EnhancedPromptsRpcHandlers {
               'Enhanced Prompts is a premium feature. Please upgrade to Pro.',
           };
         }
-
-        // Pass full wizard analysis data directly to enhanced prompts
         let preComputedInput: PromptDesignerInput | undefined;
         if (params.analysisData) {
           preComputedInput = {
@@ -277,9 +267,6 @@ export class EnhancedPromptsRpcHandlers {
                   .sort((a, b) => b.percentage - a.percentage)
                   .map((l) => l.language)
               : params.analysisData.languages,
-            // Quality data flows from agentic analysis (Step 1) via analysisData.
-            // When quality data is present, pass it through to avoid re-running
-            // the separate ProjectIntelligenceService quality assessment pipeline.
             includeQualityGuidance:
               params.analysisData.qualityScore !== undefined,
             ...(params.analysisData.qualityScore !== undefined && {
@@ -341,18 +328,12 @@ export class EnhancedPromptsRpcHandlers {
             },
           );
         }
-
-        // Create stream event broadcaster for enhanced prompts pipeline
         const onStreamEvent = this.createEnhanceStreamBroadcaster();
-
-        // Resolve MCP status for SDK config (pass frontend model override)
         const sdkConfig = this.resolveSdkConfig(
           isPremium,
           onStreamEvent,
           params.model,
         );
-
-        // Run the wizard (pass analysisDir for multi-phase enrichment)
         const result = await this.enhancedPromptsService.runWizard(
           workspacePath,
           params.config,
@@ -482,16 +463,12 @@ export class EnhancedPromptsRpcHandlers {
             error: 'Workspace path is required',
           };
         }
-
-        // Resolve relative paths to actual workspace folder path
         const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.info('RPC: enhancedPrompts:regenerate started', {
           workspacePath,
           force: params.force,
         });
-
-        // Verify premium license with timeout to prevent hanging
         const licenseStatus = await this.verifyLicenseWithTimeout();
         if (!licenseStatus) {
           return {
@@ -511,14 +488,8 @@ export class EnhancedPromptsRpcHandlers {
               'Enhanced Prompts is a premium feature. Please upgrade to Pro.',
           };
         }
-
-        // Create stream event broadcaster for enhanced prompts regeneration
         const onStreamEvent = this.createEnhanceStreamBroadcaster();
-
-        // Resolve MCP status for SDK config
         const sdkConfig = this.resolveSdkConfig(isPremium, onStreamEvent);
-
-        // Regenerate
         const result = await this.enhancedPromptsService.regenerate(
           workspacePath,
           {
@@ -568,7 +539,7 @@ export class EnhancedPromptsRpcHandlers {
    * Returns the full generated prompt content for a workspace, or null
    * if no prompt has been generated or enhanced prompts is disabled.
    *
-   * TASK_2025_149 Batch 5: Added for prompt content preview in settings UI
+   * Added for prompt content preview in settings UI.
    */
   private registerGetPromptContent(): void {
     this.rpcHandler.registerMethod<
@@ -624,7 +595,7 @@ export class EnhancedPromptsRpcHandlers {
    * save dialog with .md filter, and writes the content to the selected
    * file path.
    *
-   * TASK_2025_149 Batch 5: Added for prompt download in settings UI
+   * Added for prompt download in settings UI.
    */
   private registerDownload(): void {
     this.rpcHandler.registerMethod<
@@ -715,35 +686,20 @@ export class EnhancedPromptsRpcHandlers {
   private createEnhanceStreamBroadcaster(): (
     event: AnalysisStreamPayload,
   ) => void {
-    let webviewManager: WebviewBroadcaster | null = null;
-    try {
-      if (this.container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
-        webviewManager = this.container.resolve<WebviewBroadcaster>(
-          TOKENS.WEBVIEW_MANAGER,
-        );
-      }
-    } catch {
-      this.logger.debug(
-        'Could not resolve WebviewManager for enhance stream broadcasting',
-      );
-    }
+    const webviewManager = this.webviewManager;
 
     return (event: AnalysisStreamPayload): void => {
-      try {
-        if (!webviewManager) return;
-        webviewManager
-          .broadcastMessage('setup-wizard:enhance-stream', event)
-          .catch((broadcastError) => {
-            this.logger.warn('Failed to broadcast enhance stream event', {
-              error:
-                broadcastError instanceof Error
-                  ? broadcastError.message
-                  : String(broadcastError),
-            });
+      if (!webviewManager) return;
+      webviewManager
+        .broadcastMessage('setup-wizard:enhance-stream', event)
+        .catch((broadcastError) => {
+          this.logger.warn('Failed to broadcast enhance stream event', {
+            error:
+              broadcastError instanceof Error
+                ? broadcastError.message
+                : String(broadcastError),
           });
-      } catch {
-        // Swallow synchronous errors to avoid crashing enhance pipeline
-      }
+        });
     };
   }
 
@@ -763,19 +719,14 @@ export class EnhancedPromptsRpcHandlers {
     let mcpPort: number | undefined;
 
     try {
-      if (this.container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
-        const codeExecutionMcp = this.container.resolve<CodeExecutionMCP>(
-          TOKENS.CODE_EXECUTION_MCP,
-        );
-        const actualPort = codeExecutionMcp.getPort();
+      if (this.codeExecutionMcp) {
+        const actualPort = this.codeExecutionMcp.getPort();
         mcpServerRunning = actualPort !== null;
         mcpPort = actualPort ?? undefined;
       }
     } catch {
       this.logger.debug('Could not resolve CodeExecutionMCP for SDK config');
     }
-
-    // Resolve plugin paths for premium users
     let pluginPaths: string[] | undefined;
     if (isPremium) {
       try {
@@ -809,7 +760,7 @@ export class EnhancedPromptsRpcHandlers {
    * Resolve workspace path from frontend value.
    * The frontend may send '.' or './' since it doesn't have access to the
    * real filesystem path. We resolve these to the actual workspace folder.
-   * TASK_2025_203: Uses IWorkspaceProvider instead of vscode.workspace.workspaceFolders
+   * Uses IWorkspaceProvider instead of vscode.workspace.workspaceFolders.
    */
   private resolveWorkspacePath(rawPath: string): string {
     if (rawPath === '.' || rawPath === './') {

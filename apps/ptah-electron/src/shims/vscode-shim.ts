@@ -1,7 +1,7 @@
 /**
  * VS Code API Shim for Electron
  *
- * TASK_2025_200 Batch 3: Provides empty stubs for the vscode module.
+ * Provides empty stubs for the vscode module.
  *
  * Some @ptah-extension/vscode-core modules (OutputManager, ErrorHandler,
  * ConfigManager, etc.) import 'vscode' at the module level. When the bundler
@@ -20,8 +20,6 @@
  * Uses named exports so esbuild (tsconfig paths / external alias) can resolve
  * `import * as vscode from 'vscode'` correctly.
  */
-
-// Named exports matching the vscode API surface used by our codebase
 
 export const ConfigurationTarget = {
   Global: 1,
@@ -181,7 +179,4 @@ export const extensions = {
 };
 
 export const version = '0.0.0';
-
-// Re-export internal names as the vscode API surface names
-// `import * as vscode from 'vscode'` will see vscode.window, vscode.workspace, etc.
 export { vscodeWindow as window, vscodeWorkspace as workspace };

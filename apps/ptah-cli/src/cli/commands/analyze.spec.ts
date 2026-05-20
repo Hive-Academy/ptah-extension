@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah analyze` command — TASK_2026_104 Sub-batch B5d.
+ * Unit tests for `ptah analyze` command.
  *
  * Coverage:
  *   - happy path: streams analyze.start / framework_detected / dependency_detected

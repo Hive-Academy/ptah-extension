@@ -11,10 +11,7 @@
  * - AgentCorrelationService: Agent-to-task correlation
  * - SessionReplayService: Event replay orchestration
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
-
-// Types
 export type {
   JsonlMessageLine,
   SessionHistoryMessage,
@@ -24,8 +21,6 @@ export type {
   AgentDataMapEntry,
   TaskToolUse,
 } from './history.types';
-
-// Services
 export { HistoryEventFactory } from './history-event-factory';
 export type { MessageUsageData } from './history-event-factory';
 export { JsonlReaderService } from './jsonl-reader.service';

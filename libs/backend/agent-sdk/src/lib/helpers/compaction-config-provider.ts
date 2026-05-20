@@ -8,7 +8,6 @@
  *
  * The SDK handles automatic compaction - we only configure thresholds and enable/disable.
  *
- * @see TASK_2025_098 - SDK Session Compaction
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -51,7 +50,7 @@ const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
 export class CompactionConfigProvider {
   constructor(
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
   ) {}
 
   /**
@@ -64,20 +63,14 @@ export class CompactionConfigProvider {
    * @returns CompactionConfig with current settings or defaults
    */
   getConfig(): CompactionConfig {
-    // Read settings with defaults
     const enabled =
       this.config.get<boolean>('compaction.enabled') ??
       DEFAULT_COMPACTION_CONFIG.enabled;
-
-    // TASK_2025_098: Validate threshold with type check and minimum value
-    // Minimum threshold of 1000 tokens matches package.json schema constraint
     const rawThreshold = this.config.get<number>('compaction.threshold');
     const contextTokenThreshold =
       typeof rawThreshold === 'number' && rawThreshold >= 1000
         ? rawThreshold
         : DEFAULT_COMPACTION_CONFIG.contextTokenThreshold;
-
-    // Log warning if invalid threshold was provided
     if (
       rawThreshold !== undefined &&
       (typeof rawThreshold !== 'number' || rawThreshold < 1000)
@@ -88,7 +81,7 @@ export class CompactionConfigProvider {
           providedValue: rawThreshold,
           providedType: typeof rawThreshold,
           defaultValue: DEFAULT_COMPACTION_CONFIG.contextTokenThreshold,
-        }
+        },
       );
     }
 
@@ -106,7 +99,7 @@ export class CompactionConfigProvider {
           enabled === DEFAULT_COMPACTION_CONFIG.enabled &&
           contextTokenThreshold ===
             DEFAULT_COMPACTION_CONFIG.contextTokenThreshold,
-      }
+      },
     );
 
     return compactionConfig;

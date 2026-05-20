@@ -7,10 +7,8 @@
  * - ConfigWatcher: Config change detection and re-initialization
  * - StreamTransformer: SDK message to ExecutionNode transformation
  *
- * TASK_2025_102: SessionLifecycleManager now includes executeQuery() for query orchestration
  */
 
-export { AuthManager, type AuthResult, type AuthConfig } from './auth-manager';
 export {
   SessionLifecycleManager,
   type SDKUserMessage,
@@ -43,17 +41,13 @@ export {
   type CompactionStartCallback,
   isPreCompactHook,
 } from './compaction-hook-handler';
-// Compaction callback registry (TASK_2026_HERMES Track 1)
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
-// Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
 export {
   SessionEndCallbackRegistry,
   type SessionEndCallback,
   type SessionEndPayload,
 } from './session-end-callback-registry';
-// Live usage tracker (TASK_2026_109 cycle-break)
 export { LiveUsageTracker } from './live-usage-tracker';
-// Worktree hook handler (TASK_2025_236)
 export {
   WorktreeHookHandler,
   type WorktreeCreatedCallback,
@@ -75,9 +69,14 @@ export {
   type QueryConfig,
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
-// Memory prompt injector (TASK_2026_THOTH_MEMORY_READ)
+export {
+  SdkQueryRunner,
+  type OneShotRunInput,
+  type OneShotRunResult,
+  type InteractiveRunInput,
+  type InteractiveRunResult,
+} from './sdk-query-runner.service';
 export { MemoryPromptInjector } from './memory-prompt-injector';
-// Curator LLM adapter (moved from memory-curator to break circular dependency)
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
 export {
   SdkModelService,
@@ -88,30 +87,39 @@ export {
   type ModelTier,
   type EnvMappedTier,
 } from './sdk-model-service';
-// Slash command interceptor (TASK_2025_184)
 export {
   SlashCommandInterceptor,
   type SlashCommandResult,
 } from './slash-command-interceptor';
-// History module (TASK_2025_106)
 export * from './history';
-
-// Plugin loader (TASK_2025_153)
 export { PluginLoaderService } from './plugin-loader.service';
-
-// Plugin skill discovery
 export {
   discoverPluginSkills,
   formatSkillsForPrompt,
   type PluginSkillInfo,
 } from './plugin-skill-discovery';
-
-// Skill junction management (TASK_2025_201)
 export {
   SkillJunctionService,
   type SkillJunctionActivateOptions,
   type SkillJunctionResult,
 } from './skill-junction.service';
+export {
+  SdkWarmQueryManager,
+  type WarmQueryHandle,
+  type WarmPrewarmFingerprint,
+} from './sdk-warm-query-manager';
+export {
+  SessionForkService,
+  type ForkSessionParams,
+  type RewindFilesParams,
+} from './session-fork.service';
+export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
 
-// MCP Server Directory (discovery + installation)
-export * from './mcp-directory';
+export { SdkRuntimeStateService } from './sdk-runtime-state.service';
+export {
+  SdkAdapterEvents,
+  type SdkAdapterEventName,
+  type SdkAdapterInitializedEvent,
+  type SdkAdapterDisposedEvent,
+  type SdkAdapterConfigChangedEvent,
+} from './sdk-adapter-events.service';

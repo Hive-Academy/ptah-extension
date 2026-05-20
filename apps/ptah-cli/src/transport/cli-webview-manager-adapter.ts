@@ -1,8 +1,6 @@
 /**
  * CLI WebviewManager adapter -- emits push events on an EventEmitter.
  *
- * TASK_2025_263 Batch 3
- *
  * Backend services call sendMessage(viewType, type, payload) to push events.
  * The TUI subscribes to this EventEmitter for real-time updates.
  *

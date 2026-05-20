@@ -111,7 +111,6 @@ export class CliFileSystemProvider implements IFileSystemProvider {
     maxResults?: number,
     cwd?: string,
   ): Promise<string[]> {
-    // Dynamic import to avoid issues if fast-glob not installed in test environments
     const fg = await import('fast-glob');
     const results = await fg.default(pattern, {
       ignore: exclude && exclude.length > 0 ? exclude : undefined,
@@ -129,12 +128,6 @@ export class CliFileSystemProvider implements IFileSystemProvider {
 
     let underlying: { close(): Promise<void> | void } | undefined;
     let disposed = false;
-
-    // chokidar@>=4 is ESM-only, so a sync `require('chokidar')` blows up under
-    // a CJS runtime (ts-jest default + VSIX bundles). Dynamic-import the module
-    // and wire emitters once it resolves. Events fired before setup completes
-    // are lost by design; callers that need a primed watcher should await a
-    // filesystem event after construction.
     void (async () => {
       const mod = (await import('chokidar')) as {
         watch: (

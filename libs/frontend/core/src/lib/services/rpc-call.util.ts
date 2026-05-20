@@ -29,11 +29,9 @@ interface PendingRequest {
  * RpcClient — singleton that multiplexes all RPC calls over a single
  * window `message` listener.
  *
- * Wave E1 (TASK_2026_103): promoted from the editor library into core so
- * it is the single canonical RPC client for every webview consumer
- * (chat, editor, setup-wizard, harness-builder, canvas, app shell). The
- * editor-bespoke client has been deleted; consumers now import this
- * util from `@ptah-extension/core`.
+ * This is the single canonical RPC client for every webview consumer
+ * (chat, editor, setup-wizard, harness-builder, canvas, app shell).
+ * Consumers import this util from `@ptah-extension/core`.
  *
  * Responsibilities:
  * - Attach the `message` listener exactly once (at construction) so no
@@ -67,8 +65,6 @@ class RpcClient {
         resolve();
       };
     });
-
-    // Attach the listener synchronously so no response can be missed.
     if (typeof window !== 'undefined') {
       window.addEventListener('message', this.onMessage);
     }
@@ -87,8 +83,6 @@ class RpcClient {
     const data = event.data;
     if (!data || typeof data !== 'object') return;
     if (data.type !== MESSAGE_TYPES.RPC_RESPONSE) return;
-
-    // Defensive: receiving any response proves the host pump is live.
     this.markReadyFn();
 
     const correlationId = data.correlationId;
@@ -96,15 +90,11 @@ class RpcClient {
 
     const entry = this.pending.get(correlationId);
     if (!entry) {
-      // Late response for a request that already timed out — silently drop.
       return;
     }
 
     clearTimeout(entry.timeoutHandle);
     this.pending.delete(correlationId);
-
-    // Error shape is now normalized to `string` at the dispatcher boundary,
-    // but tolerate legacy `{ message }` shape during rollout.
     const rawError = data.error;
     const errorStr =
       rawError === undefined || rawError === null
@@ -132,15 +122,10 @@ class RpcClient {
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-    // Gate outbound send on readiness so calls made before the bridge is
-    // wired up queue naturally via `await` instead of being dropped.
     await this.readyPromise;
 
     return new Promise<RpcCallResult<T>>((resolve) => {
       const timeoutHandle = setTimeout(() => {
-        // Timeout wins: reject and delete. A late response will miss the
-        // lookup and be silently dropped by onMessage().
         const entry = this.pending.get(correlationId);
         if (!entry) return;
         this.pending.delete(correlationId);
@@ -160,9 +145,6 @@ class RpcClient {
     });
   }
 }
-
-// Module-level singleton. Lazily created on first use so that server-side
-// rendering / test environments without `window` don't crash at import time.
 let _client: RpcClient | null = null;
 
 function getClient(): RpcClient {

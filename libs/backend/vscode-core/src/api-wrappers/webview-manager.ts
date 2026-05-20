@@ -80,7 +80,7 @@ export class WebviewManager {
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
-    @inject(LOGGER) private readonly logger: Logger
+    @inject(LOGGER) private readonly logger: Logger,
   ) {}
 
   /**
@@ -93,20 +93,16 @@ export class WebviewManager {
    */
   createWebviewPanel<T extends Record<string, unknown>>(
     config: WebviewPanelConfig,
-    initialData?: T
+    initialData?: T,
   ): vscode.WebviewPanel {
-    // Check if webview already exists
     if (this.activeWebviews.has(config.viewType)) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const existing = this.activeWebviews.get(config.viewType)!;
       existing.reveal(
         config.showOptions?.viewColumn,
-        config.showOptions?.preserveFocus
+        config.showOptions?.preserveFocus,
       );
       return existing;
     }
-
-    // Create webview panel with enhanced options
     const panel = vscode.window.createWebviewPanel(
       config.viewType,
       config.title,
@@ -122,25 +118,17 @@ export class WebviewManager {
           vscode.Uri.joinPath(this.context.extensionUri, 'dist'),
           vscode.Uri.joinPath(this.context.extensionUri, 'webview'),
         ],
-      }
+      },
     );
-
-    // Set up message handling with type safety
     panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
       this.handleWebviewMessage(config.viewType, message);
     });
-
-    // Set up visibility change tracking
     panel.onDidChangeViewState(({ webviewPanel }) => {
       this.updateWebviewVisibility(config.viewType, webviewPanel.visible);
     });
-
-    // Set up disposal handling
     panel.onDidDispose(() => {
       this.handleWebviewDisposal(config.viewType);
     });
-
-    // Track the webview
     this.activeWebviews.set(config.viewType, panel);
     this.webviewMetrics.set(config.viewType, {
       createdAt: Date.now(),
@@ -148,8 +136,6 @@ export class WebviewManager {
       lastActivity: Date.now(),
       isVisible: true,
     });
-
-    // Send initial data if provided
     if (initialData) {
       panel.webview.postMessage({
         type: MESSAGE_TYPES.INITIAL_DATA,
@@ -168,8 +154,6 @@ export class WebviewManager {
    */
   registerWebviewView(viewType: string, view: vscode.WebviewView): void {
     this.logger.debug(`[WebviewManager] Registering WebviewView: ${viewType}`);
-
-    // Track the webview view
     this.activeWebviewViews.set(viewType, view);
     this.webviewMetrics.set(viewType, {
       createdAt: Date.now(),
@@ -177,16 +161,11 @@ export class WebviewManager {
       lastActivity: Date.now(),
       isVisible: view.visible,
     });
-
-    // Set up visibility change tracking
-    // Guard: WebviewPanel (cast as WebviewView) does NOT have onDidChangeVisibility
     if (typeof view.onDidChangeVisibility === 'function') {
       view.onDidChangeVisibility(() => {
         this.updateWebviewVisibility(viewType, view.visible);
       });
     }
-
-    // Set up disposal handling
     view.onDidDispose(() => {
       this.logger.debug(`[WebviewManager] WebviewView disposed: ${viewType}`);
       this.activeWebviewViews.delete(viewType);
@@ -194,10 +173,10 @@ export class WebviewManager {
     });
 
     this.logger.debug(
-      `[WebviewManager] WebviewView registered successfully: ${viewType}`
+      `[WebviewManager] WebviewView registered successfully: ${viewType}`,
     );
     this.logger.debug(
-      `[WebviewManager] Active webviews: ${this.getActiveWebviews().join(', ')}`
+      `[WebviewManager] Active webviews: ${this.getActiveWebviews().join(', ')}`,
     );
   }
 
@@ -212,26 +191,19 @@ export class WebviewManager {
   async sendMessage<T extends StrictMessageType>(
     viewType: string,
     type: T,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    payload: any
+    payload: any,
   ): Promise<boolean> {
-    // Check both panels and views
     const panel = this.activeWebviews.get(viewType);
     const view = this.activeWebviewViews.get(viewType);
     const webview = panel?.webview || view?.webview;
 
     if (!webview) {
-      // TASK_2025_194: Downgrade from CRITICAL error to debug.
-      // During extension activation the ConfigWatcher may trigger reinit
-      // (which posts status to webview) before the webview provider is registered.
-      // This is a harmless timing issue — the message is simply dropped and
-      // the webview requests its initial state upon connection anyway.
       this.logger.debug(
         `[WebviewManager] Webview ${viewType} not found (may not be registered yet)`,
         {
           activePanels: Array.from(this.activeWebviews.keys()),
           activeViews: Array.from(this.activeWebviewViews.keys()),
-        }
+        },
       );
       return false;
     }
@@ -248,7 +220,7 @@ export class WebviewManager {
     } catch (error) {
       this.logger.error(
         `[WebviewManager] postMessage() threw error`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
       return false;
     }
@@ -321,31 +293,24 @@ export class WebviewManager {
    */
   async broadcastMessage<T extends StrictMessageType>(
     type: T,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    payload: any
+    payload: any,
   ): Promise<void> {
     const allPromises: Promise<unknown>[] = [];
-
-    // Collect panel send promises (parallel via sendMessage)
     for (const viewType of this.activeWebviews.keys()) {
       allPromises.push(this.sendMessage(viewType, type, payload));
     }
-
-    // Collect sidebar view send promises (parallel, not sequential)
     for (const [viewType, view] of this.activeWebviewViews) {
       allPromises.push(
         Promise.resolve(view.webview.postMessage({ type, payload })).catch(
           (error) => {
             this.logger.warn(
               `[WebviewManager] Broadcast failed for view ${viewType}`,
-              error instanceof Error ? error : new Error(String(error))
+              error instanceof Error ? error : new Error(String(error)),
             );
-          }
-        )
+          },
+        ),
       );
     }
-
-    // Settle ALL promises in parallel (panels + sidebar views together)
     await Promise.allSettled(allPromises);
   }
 
@@ -382,29 +347,24 @@ export class WebviewManager {
    */
   private handleWebviewMessage(
     webviewId: string,
-    message: WebviewMessage
+    message: WebviewMessage,
   ): void {
-    // Update metrics
     const metrics = this.webviewMetrics.get(webviewId);
     if (metrics) {
       metrics.messageCount++;
       metrics.lastActivity = Date.now();
     }
-
-    // Route message based on type
     if (isSystemMessage(message)) {
-      // Handle system messages internally
       this.handleSystemMessage(webviewId, message);
     } else if (isRoutableMessage(message)) {
-      // Routable messages are handled by WebviewMessageHandlerService's parallel listener
       this.logger.debug(
-        `[WebviewManager] Routable message handled by WebviewMessageHandlerService: ${message.type}`
+        `[WebviewManager] Routable message handled by WebviewMessageHandlerService: ${message.type}`,
       );
     } else {
       this.logger.error(
         `[WebviewManager] Invalid message type: ${
           (message as { type?: string }).type || 'unknown'
-        }`
+        }`,
       );
     }
   }
@@ -413,20 +373,15 @@ export class WebviewManager {
    * Handle system messages (ready, initialization, etc.)
    * These are handled internally and not routed to the event bus
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handleSystemMessage(webviewId: string, message: any): void {
     switch (message.type) {
       case MESSAGE_TYPES.WEBVIEW_READY:
-        // Webview ready event
         break;
 
       case MESSAGE_TYPES.REQUEST_INITIAL_DATA:
-        // This would typically be handled by sending initial data
-        // Implementation depends on specific webview needs
         break;
 
       default:
-        // Unknown system message
         break;
     }
   }

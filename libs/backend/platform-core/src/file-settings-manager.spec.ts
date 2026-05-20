@@ -321,7 +321,7 @@ describe('PtahFileSettingsManager', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Batch 1 targeted invariants — WP-1T validation
+  // flushSync() invariants
   // -------------------------------------------------------------------------
 
   describe('flushSync() — Batch 1 invariants', () => {
@@ -397,7 +397,7 @@ describe('PtahFileSettingsManager', () => {
   });
 
   // -------------------------------------------------------------------------
-  // WP-5A — TC-CP-1 / TC-CP-2: cross-process reactivity
+  // Cross-process reactivity
   // -------------------------------------------------------------------------
 
   describe('enableCrossProcessWatch() — WP-5A cross-process reactivity', () => {
@@ -523,7 +523,7 @@ describe('PtahFileSettingsManager', () => {
   });
 
   // -------------------------------------------------------------------------
-  // WP-2T Batch 2 — TC-15 / TC-16: watch() API
+  // watch() API
   // -------------------------------------------------------------------------
 
   describe('watch() — Batch 2 WP-2T invariants', () => {
@@ -581,17 +581,16 @@ describe('PtahFileSettingsManager', () => {
   });
 
   // -------------------------------------------------------------------------
-  // WP-5A — TC-CP-6 / TC-CP-7: file-watch path and directory-watch fallback
+  // file-watch path vs directory-watch fallback
   //
   // fs.watch is non-configurable on Node's built-in fs module so jest.spyOn
-  // cannot intercept it (the spec comments on TC-CP-5 document this fact).
-  // We verify behavior through observable outcomes instead:
-  //   TC-CP-6: When the file exists, sibling writes (to a file other than
-  //            settings.json) must NOT trigger the listener — proof that we are
-  //            on a file-watch surface rather than a directory-watch surface.
-  //   TC-CP-7: When the file is absent, the watcher must still detect the first
-  //            write and fire the listener (directory-watch → file-watch
-  //            transition completes end-to-end).
+  // cannot intercept it. We verify behavior through observable outcomes:
+  //   - When the file exists, sibling writes (to a file other than
+  //     settings.json) must NOT trigger the listener — proof that we are
+  //     on a file-watch surface rather than a directory-watch surface.
+  //   - When the file is absent, the watcher must still detect the first
+  //     write and fire the listener (directory-watch → file-watch transition
+  //     completes end-to-end).
   // -------------------------------------------------------------------------
 
   describe('enableCrossProcessWatch() — file-watch vs directory-watch selection', () => {
@@ -706,7 +705,7 @@ describe('PtahFileSettingsManager', () => {
   });
 
   // -------------------------------------------------------------------------
-  // WP-5A — TC-CP-5: fs.watch failure resilience
+  // fs.watch failure resilience
   //
   // We cannot jest.spyOn(fs, 'watch') because fs.watch is non-writable on
   // Node's fs module. Instead, we exercise the same code path by having the

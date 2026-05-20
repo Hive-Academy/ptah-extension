@@ -2,8 +2,6 @@
  * `ptah config` command — file-backed reads/writes + RPC sub-subcommands for
  * model / autopilot / effort.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1):
  *
  *   get <key>                  Read a value via IWorkspaceProvider.getConfiguration
@@ -139,10 +137,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// File-backed sub-commands (get / set / list / reset)
-// ---------------------------------------------------------------------------
-
 /**
  * Resolve the workspace provider from the engine context.
  */
@@ -231,10 +225,6 @@ async function runList(
     const prefix = opts.prefix?.trim();
     const keysOnly = opts.keysOnly === true;
     const changedOnly = opts.changedOnly === true;
-
-    // Step 1: gather raw key/value pairs honouring `--prefix` and
-    // `--changed-only`. Both filters apply BEFORE redaction so `--keys-only`
-    // gives a strict guarantee that no values leave the process.
     const filtered: Record<string, unknown> = {};
     const keys: string[] = [];
     for (const key of FILE_BASED_SETTINGS_KEYS) {
@@ -246,8 +236,6 @@ async function runList(
     }
 
     if (keysOnly) {
-      // Keys-only output: deterministic, redactor-free. We still emit the
-      // applied filters so consumers can reason about absences.
       await formatter.writeNotification('config.list', {
         keys: keys.slice().sort(),
         keysOnly: true,
@@ -331,10 +319,6 @@ async function runReset(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// RPC sub-subcommands (model / autopilot / effort)
-// ---------------------------------------------------------------------------
 
 async function runModelSwitch(
   opts: ConfigOptions,
@@ -446,12 +430,6 @@ async function runAutopilotSet(
       });
       return ExitCode.Success;
     } catch (error) {
-      // `config:autopilot-toggle` rejects YOLO unless the active license is
-      // Pro. In headless / unlicensed runs the operator can still set the
-      // *intent* — the Pro gate is enforced at session-start time when the
-      // permission handler actually consults the level. Surface the
-      // requested level as a notification with `proRequired: true` so JSON-RPC
-      // clients see the intent (the gate becomes informational, not fatal).
       const message = error instanceof Error ? error.message : String(error);
       const isProGate =
         enabled &&
@@ -519,10 +497,6 @@ async function runEffortSet(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Parse a CLI string value into a JSON-compatible scalar. Honours
  * `true`/`false`, integer/float numbers, JSON literals (`null`, arrays,
@@ -535,17 +509,12 @@ function parseValue(raw: string): unknown {
   if (trimmed === 'null') return null;
   if (/^-?\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
   if (/^-?\d+\.\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
-  // Try JSON for arrays / objects / quoted strings.
   if (
     (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
     (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
     (trimmed.startsWith('"') && trimmed.endsWith('"'))
   ) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      /* fall through to raw string */
-    }
+    return JSON.parse(trimmed);
   }
   return raw;
 }

@@ -1,8 +1,6 @@
 /**
- * VS Code Platform Implementations (TASK_2025_203)
- *
- * Platform-specific implementations of the abstraction interfaces
- * defined in @ptah-extension/rpc-handlers.
+ * VS Code Platform Implementations — concrete adapters for the abstraction
+ * interfaces defined in @ptah-extension/rpc-handlers.
  */
 
 export { VsCodePlatformCommands } from './vscode-platform-commands';

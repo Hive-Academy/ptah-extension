@@ -1,4 +1,4 @@
-﻿import { Injectable, inject, DestroyRef } from '@angular/core';
+import { Injectable, inject, DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { fromEvent } from 'rxjs';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -35,7 +35,6 @@ export class KeyboardShortcutsService {
     fromEvent<KeyboardEvent>(window, 'keydown')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((event) => {
-        // Check for Ctrl (Windows/Linux) or Meta (Mac)
         const isModifierKey = event.ctrlKey || event.metaKey;
 
         if (!isModifierKey) return;
@@ -91,8 +90,6 @@ export class KeyboardShortcutsService {
     const currentIndex = tabs.findIndex((t) => t.id === activeId);
 
     if (currentIndex === -1) return;
-
-    // Wrap around using modulo
     const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
     this.tabManager.switchTab(tabs[nextIndex].id);
   }

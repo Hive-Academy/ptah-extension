@@ -52,7 +52,6 @@ export class SkillClusterDedupService {
 
     for (const centroid of this.clusters) {
       const sim = cosineSimilarity(embedding, centroid);
-      // Duplicate when similarity strictly exceeds the threshold.
       if (sim > settings.dedupClusterThreshold) {
         this.logger.debug(
           '[skill-synthesis] cluster dedup: duplicate detected',
@@ -81,8 +80,6 @@ export class SkillClusterDedupService {
       this.clusters = [];
       return;
     }
-
-    // Collect embeddings for promoted skills.
     const embeddings: Float32Array[] = [];
     for (const row of promoted) {
       if (row.embeddingRowid === null) continue;
@@ -93,14 +90,7 @@ export class SkillClusterDedupService {
       this.clusters = [];
       return;
     }
-
-    // Single-linkage agglomerative clustering.
-    // Each embedding starts in its own cluster (represented by index).
     const clusterOf: number[] = embeddings.map((_, i) => i);
-
-    // Merge clusters where single-linkage cosine SIMILARITY exceeds dedupClusterThreshold.
-    // Semantics: two clusters merge when any pair is MORE SIMILAR than the threshold.
-    // (Higher threshold = fewer merges = more granular clusters.)
     let merged = true;
     while (merged) {
       merged = false;
@@ -113,8 +103,6 @@ export class SkillClusterDedupService {
           const membersJ = clusterOf
             .map((c, idx) => (c === clusterIds[cj] ? idx : -1))
             .filter((idx) => idx >= 0);
-
-          // Single-linkage: find max similarity between any pair across clusters.
           let maxSim = -Infinity;
           for (const i of membersI) {
             for (const j of membersJ) {
@@ -122,10 +110,7 @@ export class SkillClusterDedupService {
               if (sim > maxSim) maxSim = sim;
             }
           }
-
-          // Merge when similarity exceeds the threshold (passed from settings).
           if (maxSim > settings.dedupClusterThreshold) {
-            // Merge cj into ci.
             const targetId = clusterIds[ci];
             const sourceId = clusterIds[cj];
             for (let k = 0; k < clusterOf.length; k++) {
@@ -137,8 +122,6 @@ export class SkillClusterDedupService {
         }
       }
     }
-
-    // Compute centroid for each final cluster.
     const finalClusterIds = [...new Set(clusterOf)];
     this.clusters = [];
     for (const cid of finalClusterIds) {

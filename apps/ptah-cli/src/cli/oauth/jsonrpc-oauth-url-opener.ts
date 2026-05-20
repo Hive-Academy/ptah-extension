@@ -8,8 +8,6 @@
  * Hard 5-second timeout — if the client does not respond, returns
  * `{ opened: false }` so the caller can fall back to its own messaging
  * strategy (typically a stderr URL print).
- *
- * TASK_2026_104 Batch 8c.
  */
 
 import type { IOAuthUrlOpener } from '@ptah-extension/platform-cli';
@@ -52,7 +50,6 @@ export class JsonRpcOAuthUrlOpener implements IOAuthUrlOpener {
         code: response.code,
       };
     } catch {
-      // Timeout, transport error, or client rejected — caller will fall back.
       return { opened: false };
     } finally {
       if (timeoutHandle !== undefined) {

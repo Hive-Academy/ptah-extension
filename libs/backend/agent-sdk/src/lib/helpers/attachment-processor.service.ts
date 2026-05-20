@@ -33,7 +33,6 @@ export class AttachmentProcessorService {
   private readonly MAX_IMAGE_SIZE = MAX_IMAGE_SIZE_BYTES;
 
   /**
-   * TASK_2025_096: Hybrid file attachment approach
    * - Small files (< 5KB): Embed content directly (config files, small scripts)
    * - Large files (>= 5KB): Path reference - Claude uses Read tool on demand
    *
@@ -85,8 +84,6 @@ export class AttachmentProcessorService {
     for (const file of files) {
       try {
         const stats = await fs.stat(file);
-
-        // Handle folders - pass path as reference for agent to explore
         if (stats.isDirectory()) {
           const folderBlock = this.processFolderReference(file);
           blocks.push(folderBlock);
@@ -100,8 +97,6 @@ export class AttachmentProcessorService {
           const imageBlock = await this.processImage(file, stats.size);
           if (imageBlock) blocks.push(imageBlock);
         } else {
-          // Treat everything else as text (with size check)
-          // We could add a binary check here if needed, but for now assuming non-image = text
           const isLargeFile =
             stats.size >= this.SMALL_FILE_THRESHOLD ||
             stats.size > this.MAX_TEXT_FILE_SIZE;
@@ -120,8 +115,6 @@ export class AttachmentProcessorService {
         );
       }
     }
-
-    // Append a single consolidated <system-reminder> for all referenced attachments
     const systemReminder = this.buildAttachmentReminder(
       folderPaths,
       referencedFilePaths,
@@ -164,9 +157,6 @@ export class AttachmentProcessorService {
     try {
       const buffer = await fs.readFile(filePath);
       const base64 = buffer.toString('base64');
-      // Sniff magic bytes rather than trusting the extension — the Anthropic
-      // API rejects anything outside jpeg/png/gif/webp, and files on disk can
-      // be mislabeled (e.g. .jpg extension on a WebP payload).
       const mediaType = resolveImageMediaType(undefined, base64);
       if (mediaType === null) {
         this.logger.warn(
@@ -201,7 +191,6 @@ export class AttachmentProcessorService {
     filePath: string,
     size: number,
   ): Promise<UserMessageContentBlock | null> {
-    // For files exceeding absolute max, use path reference (Claude can still read with offset/limit)
     if (size > this.MAX_TEXT_FILE_SIZE) {
       this.logger.info(
         `[AttachmentProcessor] Large file (>${
@@ -211,7 +200,6 @@ export class AttachmentProcessorService {
       return this.processFileReference(filePath, size);
     }
 
-    // TASK_2025_096: Hybrid approach - large files get path reference
     if (size >= this.SMALL_FILE_THRESHOLD) {
       this.logger.debug(
         `[AttachmentProcessor] File >= ${
@@ -220,10 +208,7 @@ export class AttachmentProcessorService {
       );
       return this.processFileReference(filePath, size);
     }
-
-    // Small files (< 5KB) - embed content directly
     try {
-      // Check for binary content (simple null byte check)
       const buffer = await fs.readFile(filePath);
       if (buffer.includes(0)) {
         this.logger.warn(
@@ -239,8 +224,6 @@ export class AttachmentProcessorService {
           1,
         )}KB), embedding content: ${filePath}`,
       );
-
-      // XML wrapping for clear context
       const xmlContent = `<file path="${filePath}" size="${size}" embedded="true">\n${content}\n</file>`;
 
       return {

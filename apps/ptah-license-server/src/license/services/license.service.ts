@@ -237,7 +237,6 @@ export class LicenseService {
   async verifyLicense(
     licenseKey: string,
   ): Promise<LicenseVerificationResponse> {
-    // Step 1: Find license in database with user and subscription data for trial detection
     const license = await this.prisma.license.findUnique({
       where: { licenseKey },
       include: {
@@ -251,8 +250,6 @@ export class LicenseService {
         },
       },
     });
-
-    // Step 2: Check if license exists
     if (!license) {
       this.logger.debug(`License not found: ${licenseKey.substring(0, 10)}...`);
       return this.buildSignedResponse({
@@ -261,8 +258,6 @@ export class LicenseService {
         reason: 'not_found',
       });
     }
-
-    // Step 3: Check if license is revoked
     if (license.status === 'revoked') {
       this.logger.debug(`License revoked: ${license.id}`);
       return this.buildSignedResponse({
@@ -271,8 +266,6 @@ export class LicenseService {
         reason: 'revoked',
       });
     }
-
-    // Step 4: Check if license is expired
     if (license.expiresAt && new Date() > license.expiresAt) {
       this.logger.debug(
         `License expired: ${
@@ -285,13 +278,9 @@ export class LicenseService {
         reason: 'expired',
       });
     }
-
-    // Step 5: Detect trial status from subscription
     const subscription = license.user.subscriptions[0];
     const isInTrial = subscription?.status === 'trialing';
     const trialEnd = subscription?.trialEnd;
-
-    // Check if trial has ended (subscription.trialEnd < now)
     if (isInTrial && trialEnd && new Date() > trialEnd) {
       this.logger.debug(
         `Trial ended for license: ${
@@ -304,11 +293,7 @@ export class LicenseService {
         reason: 'trial_ended',
       });
     }
-
-    // Step 6: Determine tier based on plan and trial status
     const tier = mapPlanToTier(license.plan, isInTrial);
-
-    // If tier is 'expired' (unknown plan), return invalid
     if (tier === 'expired') {
       this.logger.debug(
         `License has expired tier: ${license.id}, plan: ${license.plan}`,
@@ -319,15 +304,11 @@ export class LicenseService {
         reason: 'expired',
       });
     }
-
-    // Step 7: Calculate days remaining (if expiration exists)
     const daysRemaining = license.expiresAt
       ? Math.ceil(
           (license.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
         )
       : undefined;
-
-    // Step 8: Calculate trial days remaining
     const trialDaysRemaining =
       isInTrial && trialEnd
         ? Math.max(
@@ -337,10 +318,6 @@ export class LicenseService {
             ),
           )
         : undefined;
-
-    // Step 9: Get plan configuration - extract base plan from tier
-    // TASK_2025_128: tier could be 'community', 'pro', 'trial_pro', or 'expired'
-    // For trial_pro, extract base plan 'pro'. For community, use 'community'.
     const basePlan = tier.replace('trial_', '');
     const isValidPlan = basePlan === 'community' || basePlan === 'pro';
     const planConfig = isValidPlan
@@ -350,8 +327,6 @@ export class LicenseService {
     this.logger.debug(
       `License verified: ${license.id}, tier: ${tier}, trial: ${isInTrial}`,
     );
-
-    // Step 10: Build valid license response and sign it (TASK_2025_188)
     return this.buildSignedResponse({
       valid: true,
       tier,
@@ -360,7 +335,6 @@ export class LicenseService {
       daysRemaining,
       trialActive: isInTrial,
       trialDaysRemaining,
-      // TASK_2025_129: Include user profile data
       user: license.user
         ? {
             email: license.user.email,
@@ -389,8 +363,6 @@ export class LicenseService {
     plan: PlanName;
   }): Promise<{ licenseKey: string; expiresAt: Date | null }> {
     const { email, plan } = params;
-
-    // Step 1: Find or create user
     let user = await this.prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
@@ -400,9 +372,6 @@ export class LicenseService {
         data: { email: email.toLowerCase() },
       });
     }
-
-    // Step 2: Revoke existing active licenses for this user
-    // (Ensures only one active license per user at a time)
     await this.prisma.license.updateMany({
       where: {
         userId: user.id,
@@ -412,11 +381,7 @@ export class LicenseService {
         status: 'revoked',
       },
     });
-
-    // Step 3: Generate cryptographically secure license key
     const licenseKey = this.generateLicenseKey();
-
-    // Step 4: Calculate expiration date from plan configuration
     const planConfig = getPlanConfig(plan);
     const expiresAt =
       planConfig.expiresAfterDays !== null
@@ -424,8 +389,6 @@ export class LicenseService {
             Date.now() + planConfig.expiresAfterDays * 24 * 60 * 60 * 1000,
           )
         : null;
-
-    // Step 5: Create license record
     await this.prisma.license.create({
       data: {
         userId: user.id,
@@ -464,8 +427,6 @@ export class LicenseService {
     const { email } = params;
     const normalizedEmail = email.toLowerCase();
     const normalizedForLookup = this.normalizeEmailForLookup(email);
-
-    // Step 1: Find or create user
     let user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -475,9 +436,6 @@ export class LicenseService {
         data: { email: normalizedEmail },
       });
     }
-
-    // Step 2: Check for existing trial license (idempotent)
-    // Only match trial-created licenses, not paid ones
     const existingLicense = await this.prisma.license.findFirst({
       where: {
         userId: user.id,
@@ -495,10 +453,6 @@ export class LicenseService {
         expiresAt: existingLicense.expiresAt ?? calculateTrialExpirationDate(),
       };
     }
-
-    // Step 2b: Check for trial abuse via email aliasing (+tag, dots for Gmail)
-    // Find ALL users in the system and check if any normalize to the same address.
-    // This prevents user+1@gmail.com and u.s.e.r@gmail.com from getting separate trials.
     const allUsers = await this.prisma.user.findMany({
       select: { id: true, email: true },
     });
@@ -527,8 +481,6 @@ export class LicenseService {
         );
       }
     }
-
-    // Step 3: If no trial license, check if user already has a paid license
     const activePaidLicense = await this.prisma.license.findFirst({
       where: {
         userId: user.id,
@@ -548,17 +500,8 @@ export class LicenseService {
           new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       };
     }
-
-    // Step 4: Generate license key
     const licenseKey = this.generateLicenseKey();
-
-    // Step 5: Set trial expiration (configurable via TRIAL_DURATION_DAYS env var)
     const expiresAt = calculateTrialExpirationDate();
-
-    // Step 6: Create License + Subscription atomically in a transaction
-    // Note: paddleSubscriptionId, paddleCustomerId, and priceId use synthetic
-    // values since this trial is created outside Paddle's checkout flow.
-    // These are prefixed with 'trial_' to distinguish from real Paddle data.
     const syntheticPaddleId = `trial_${user.id}_${Date.now()}`;
     await this.prisma.$transaction(async (tx) => {
       await tx.license.create({
@@ -615,8 +558,6 @@ export class LicenseService {
     status: string;
   }> {
     this.logger.log(`Manual downgrade initiated for userId: ${userId}`);
-
-    // Step 1: Find user with license and subscription
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -644,10 +585,7 @@ export class LicenseService {
     }
 
     const subscription = user.subscriptions[0];
-
-    // Step 2: Perform downgrade in transaction (reuse pattern from trial-reminder)
     await this.prisma.$transaction(async (tx) => {
-      // Update license to Community plan
       await tx.license.update({
         where: { id: activeLicense.id },
         data: {
@@ -655,8 +593,6 @@ export class LicenseService {
           expiresAt: null, // Community plan never expires
         },
       });
-
-      // Update subscription status to 'expired' (if exists)
       if (subscription && subscription.status === 'trialing') {
         await tx.subscription.update({
           where: { id: subscription.id },
@@ -668,8 +604,6 @@ export class LicenseService {
     this.logger.log(
       `Successfully downgraded ${user.email} to Community plan (manual)`,
     );
-
-    // Step 3: Emit SSE event for real-time frontend update
     this.eventsService.emitLicenseUpdated({
       email: user.email,
       plan: 'community',
@@ -706,11 +640,7 @@ export class LicenseService {
 
     const localPart = lower.substring(0, atIndex);
     const domain = lower.substring(atIndex + 1);
-
-    // Strip + aliases (user+tag@gmail.com -> user@gmail.com)
     const withoutAlias = localPart.split('+')[0];
-
-    // Strip dots for Gmail/Googlemail (u.s.e.r@gmail.com -> user@gmail.com)
     const gmailDomains = ['gmail.com', 'googlemail.com'];
     const normalizedLocal = gmailDomains.includes(domain)
       ? withoutAlias.replace(/\./g, '')
@@ -774,7 +704,6 @@ export class LicenseService {
         return parsed;
       }
       default: {
-        // Exhaustiveness guard — DTO validator should prevent this branch.
         const exhaustive: never = preset;
         throw new BadRequestException(
           `Unsupported durationPreset: ${String(exhaustive)}`,
@@ -805,8 +734,6 @@ export class LicenseService {
     actor: AdminActor,
   ): Promise<ComplimentaryLicenseResult> {
     const now = new Date();
-
-    // Step 1: Resolve user — 404 if missing (AC §4.2).
     const user = await this.prisma.user.findUnique({
       where: { id: dto.userId },
     });
@@ -816,17 +743,11 @@ export class LicenseService {
         message: `User ${dto.userId} not found`,
       });
     }
-
-    // Step 2: Compute expiration (may throw 400 INVALID_CUSTOM_DATE).
     const expiresAt = this.computeComplimentaryExpiresAt(
       dto.durationPreset,
       dto.customExpiresAt,
       now,
     );
-
-    // Step 3: Conflict check — block unless caller explicitly stacks.
-    // We ONLY care about non-complimentary actives (paddle/manual). Stacking
-    // two complimentary licenses is fine and has no business implication.
     if (dto.stackOnTopOfPaid !== true) {
       const conflict = await this.prisma.license.findFirst({
         where: {
@@ -851,10 +772,6 @@ export class LicenseService {
         });
       }
     }
-
-    // Step 4: Create in a transaction w/ up to 3 retries on P2002 (unique
-    // violation on license_key). Audit log + license create share the tx so
-    // either both commit or both roll back.
     const maxAttempts = 3;
     let lastError: unknown = null;
     let createdLicense: License | null = null;
@@ -911,7 +828,6 @@ export class LicenseService {
     }
 
     if (!createdLicense) {
-      // Defensive — only reachable if all 3 attempts hit P2002.
       throw lastError instanceof Error
         ? lastError
         : new Error('Failed to create complimentary license after retries');
@@ -920,9 +836,6 @@ export class LicenseService {
     this.logger.log(
       `Complimentary license ${createdLicense.id} issued to ${user.email} by ${actor.email} (preset=${dto.durationPreset}, stacked=${dto.stackOnTopOfPaid === true})`,
     );
-
-    // Step 5: Best-effort email. Failure DOES NOT roll back the license —
-    // we've already committed audit + license in the transaction above.
     if (dto.sendEmail !== false) {
       try {
         await this.emailService.sendLicenseKey({

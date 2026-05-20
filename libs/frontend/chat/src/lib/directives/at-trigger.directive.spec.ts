@@ -1,7 +1,7 @@
 /**
  * Unit tests for AtTriggerDirective
  *
- * Tests the @ trigger autocomplete bug fix (TASK_2025_163):
+ * Tests the @ trigger autocomplete bug fix:
  * - atActivated fires IMMEDIATELY on inactive->active transition (no debounce)
  * - atClosed fires IMMEDIATELY on active->inactive transition
  * - atQueryChanged fires IMMEDIATELY on query change (no debounce)
@@ -58,7 +58,7 @@ class TestHostComponent {
 function simulateInput(
   textarea: HTMLTextAreaElement,
   value: string,
-  cursorPosition?: number
+  cursorPosition?: number,
 ): void {
   textarea.value = value;
   textarea.selectionStart = cursorPosition ?? value.length;

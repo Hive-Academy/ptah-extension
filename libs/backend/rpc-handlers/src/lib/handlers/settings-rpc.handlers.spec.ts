@@ -1,5 +1,5 @@
 /**
- * SettingsRpcHandlers — integration specs (Phase 4 of test-strategy-plan.md).
+ * SettingsRpcHandlers — integration specs.
  *
  * Surface under test: `settings:export` and `settings:import` RPC methods
  * wired through `SettingsRpcHandlers.register()`.

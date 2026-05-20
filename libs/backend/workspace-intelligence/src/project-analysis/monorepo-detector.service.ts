@@ -46,43 +46,30 @@ export class MonorepoDetectorService {
   async detectMonorepo(
     workspacePath: string,
   ): Promise<MonorepoDetectionResult> {
-    // Check for Nx workspace (highest priority - most opinionated)
     const nxResult = await this.detectNxWorkspace(workspacePath);
     if (nxResult.isMonorepo) {
       return nxResult;
     }
-
-    // Check for Rush workspace
     const rushResult = await this.detectRushWorkspace(workspacePath);
     if (rushResult.isMonorepo) {
       return rushResult;
     }
-
-    // Check for Lerna workspace
     const lernaResult = await this.detectLernaWorkspace(workspacePath);
     if (lernaResult.isMonorepo) {
       return lernaResult;
     }
-
-    // Check for Turborepo
     const turborepoResult = await this.detectTurborepo(workspacePath);
     if (turborepoResult.isMonorepo) {
       return turborepoResult;
     }
-
-    // Check for pnpm workspaces
     const pnpmResult = await this.detectPnpmWorkspace(workspacePath);
     if (pnpmResult.isMonorepo) {
       return pnpmResult;
     }
-
-    // Check for Yarn workspaces (lowest priority - least specific)
     const yarnResult = await this.detectYarnWorkspace(workspacePath);
     if (yarnResult.isMonorepo) {
       return yarnResult;
     }
-
-    // Not a monorepo
     return this.noMonorepoResult();
   }
 
@@ -130,12 +117,10 @@ export class MonorepoDetectorService {
       if (workspaceExists) {
         workspaceFiles.push('workspace.json');
       }
-
-      // Try to count projects from nx.json
       let packageCount: number | undefined;
       if (nxExists) {
+        const content = await this.fileSystem.readFile(nxJsonPath);
         try {
-          const content = await this.fileSystem.readFile(nxJsonPath);
           const nxJson = JSON.parse(content) as {
             projects?: Record<string, unknown>;
           };
@@ -143,7 +128,7 @@ export class MonorepoDetectorService {
             packageCount = Object.keys(nxJson.projects).length;
           }
         } catch {
-          // Ignore parse errors
+          packageCount = undefined;
         }
       }
 
@@ -168,16 +153,14 @@ export class MonorepoDetectorService {
     const exists = await this.fileSystem.exists(lernaJsonPath);
 
     if (exists) {
-      // Try to extract package count from lerna.json
       let packageCount: number | undefined;
+
+      const content = await this.fileSystem.readFile(lernaJsonPath);
       try {
-        const content = await this.fileSystem.readFile(lernaJsonPath);
         const lernaJson = JSON.parse(content) as {
           packages?: string[];
           useWorkspaces?: boolean;
         };
-
-        // If using workspaces, need to check package.json
         if (lernaJson.useWorkspaces) {
           const packageJsonPath = path.join(workspacePath, 'package.json');
           const packageJsonExists =
@@ -185,18 +168,22 @@ export class MonorepoDetectorService {
           if (packageJsonExists) {
             const packageContent =
               await this.fileSystem.readFile(packageJsonPath);
-            const packageJson = JSON.parse(packageContent) as {
-              workspaces?: string[];
-            };
-            if (packageJson.workspaces) {
-              packageCount = packageJson.workspaces.length;
+            try {
+              const packageJson = JSON.parse(packageContent) as {
+                workspaces?: string[];
+              };
+              if (packageJson.workspaces) {
+                packageCount = packageJson.workspaces.length;
+              }
+            } catch {
+              packageCount = undefined;
             }
           }
         } else if (lernaJson.packages) {
           packageCount = lernaJson.packages.length;
         }
       } catch {
-        // Ignore parse errors
+        packageCount = undefined;
       }
 
       return {
@@ -220,10 +207,10 @@ export class MonorepoDetectorService {
     const exists = await this.fileSystem.exists(rushJsonPath);
 
     if (exists) {
-      // Try to count projects from rush.json
       let packageCount: number | undefined;
+
+      const content = await this.fileSystem.readFile(rushJsonPath);
       try {
-        const content = await this.fileSystem.readFile(rushJsonPath);
         const rushJson = JSON.parse(content) as {
           projects?: Array<{ packageName: string }>;
         };
@@ -231,7 +218,7 @@ export class MonorepoDetectorService {
           packageCount = rushJson.projects.length;
         }
       } catch {
-        // Ignore parse errors
+        packageCount = undefined;
       }
 
       return {
@@ -275,22 +262,15 @@ export class MonorepoDetectorService {
     const exists = await this.fileSystem.exists(pnpmWorkspacePath);
 
     if (exists) {
-      // Try to count packages from pnpm-workspace.yaml
       let packageCount: number | undefined;
-      try {
-        const content = await this.fileSystem.readFile(pnpmWorkspacePath);
-        // Simple YAML parsing for packages array
-        const packagesMatch = content.match(
-          /packages:\s*\n((?:\s+-\s+.+\n?)+)/,
-        );
-        if (packagesMatch) {
-          const packageLines = packagesMatch[1].trim().split('\n');
-          packageCount = packageLines.filter((line) =>
-            line.trim().startsWith('-'),
-          ).length;
-        }
-      } catch {
-        // Ignore parse errors
+
+      const content = await this.fileSystem.readFile(pnpmWorkspacePath);
+      const packagesMatch = content.match(/packages:\s*\n((?:\s+-\s+.+\n?)+)/);
+      if (packagesMatch) {
+        const packageLines = packagesMatch[1].trim().split('\n');
+        packageCount = packageLines.filter((line) =>
+          line.trim().startsWith('-'),
+        ).length;
       }
 
       return {
@@ -314,8 +294,8 @@ export class MonorepoDetectorService {
     const exists = await this.fileSystem.exists(packageJsonPath);
 
     if (exists) {
+      const content = await this.fileSystem.readFile(packageJsonPath);
       try {
-        const content = await this.fileSystem.readFile(packageJsonPath);
         const packageJson = JSON.parse(content) as {
           workspaces?: string[] | { packages?: string[] };
         };
@@ -336,7 +316,7 @@ export class MonorepoDetectorService {
           };
         }
       } catch {
-        // Ignore parse errors
+        return this.noMonorepoResult();
       }
     }
 

@@ -1,5 +1,5 @@
 /**
- * Ptah CLI Agent Type Definitions (TASK_2025_167 → TASK_2025_170)
+ * Ptah CLI Agent Type Definitions
  *
  * Types for user-configured Ptah CLI agent instances that connect to
  * Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.)

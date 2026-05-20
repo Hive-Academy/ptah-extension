@@ -7,10 +7,6 @@
  * and `PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER` so consumers that need
  * lifecycle methods can request them via a typed second injection rather than
  * casting `IWorkspaceProvider` to a concrete class.
- *
- * TASK_2026_104 Sub-batch B5a: Introduced when lifting `WorkspaceRpcHandlers`
- * from the Electron app into the shared `rpc-handlers` library so all three
- * apps (VS Code, Electron, CLI) can serve the `workspace:*` RPC surface.
  */
 
 export interface IWorkspaceLifecycleProvider {

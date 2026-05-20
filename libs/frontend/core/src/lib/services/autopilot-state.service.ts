@@ -1,12 +1,8 @@
 /**
  * Autopilot State Service - Signal-Based Autopilot Configuration State Management
- * TASK_2025_035: Model selector and autopilot integration
  *
  * Manages autopilot enabled state and permission level with RPC synchronization.
  * Follows AppStateManager signal-based pattern (private _signal, public asReadonly).
- *
- * Pattern source: app-state.service.ts:30-120
- * RPC integration: claude-rpc.service.ts:93-125
  */
 
 import { Injectable, signal, computed, inject } from '@angular/core';
@@ -64,8 +60,6 @@ import {
 @Injectable({ providedIn: 'root' })
 export class AutopilotStateService implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
-
-  // MessageHandler implementation
   readonly handledMessageTypes = [MESSAGE_TYPES.PLAN_MODE_CHANGED] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -74,14 +68,10 @@ export class AutopilotStateService implements MessageHandler {
       this.setAgentPlanMode(payload.active);
     }
   }
-
-  // Private mutable signals
   private readonly _enabled = signal(false);
   private readonly _permissionLevel = signal<PermissionLevel>('ask');
   private readonly _isPending = signal(false);
   private readonly _agentPlanMode = signal(false);
-
-  // Public readonly signals
   /**
    * Autopilot enabled state
    * Read-only signal, updates reactively when toggled
@@ -118,25 +108,19 @@ export class AutopilotStateService implements MessageHandler {
    * enabled: true, level: 'yolo' → 'Full Auto (YOLO)'
    */
   readonly statusText = computed(() => {
-    // Agent-initiated plan mode takes priority
     if (this._agentPlanMode()) {
       return 'Plan Mode';
     }
 
     const enabled = this._enabled();
     const level = this._permissionLevel();
-
-    // If disabled, always show 'Manual'
     if (!enabled) {
       return 'Manual';
     }
-
-    // If enabled, show permission level display name
     return PERMISSION_LEVEL_NAMES[level];
   });
 
   constructor() {
-    // Load persisted state from backend on initialization
     this.loadPersistedState();
   }
 
@@ -160,25 +144,18 @@ export class AutopilotStateService implements MessageHandler {
    * // UI updates immediately, persists to backend asynchronously
    */
   async toggleAutopilot(sessionId?: SessionId | null): Promise<void> {
-    // QA FIX: Prevent concurrent autopilot toggles (race condition protection)
     if (this._isPending()) {
       console.warn(
-        '[AutopilotStateService] Toggle already in progress, ignoring'
+        '[AutopilotStateService] Toggle already in progress, ignoring',
       );
       return;
     }
-
-    // Mark operation as in progress
     this._isPending.set(true);
 
     try {
       const newState = !this._enabled();
       const previousState = this._enabled();
-
-      // Optimistic update (UI updates immediately)
       this._enabled.set(newState);
-
-      // Persist to backend via RPC (with sessionId for live SDK sync)
       const result = await this.rpc.call('config:autopilot-toggle', {
         enabled: newState,
         permissionLevel: this._permissionLevel(),
@@ -188,13 +165,11 @@ export class AutopilotStateService implements MessageHandler {
       if (!result.isSuccess()) {
         console.error(
           '[AutopilotStateService] Failed to toggle autopilot:',
-          result.error
+          result.error,
         );
-        // Rollback on failure: restore previous state
         this._enabled.set(previousState);
       }
     } finally {
-      // Always clear pending state
       this._isPending.set(false);
     }
   }
@@ -218,28 +193,19 @@ export class AutopilotStateService implements MessageHandler {
    */
   async setPermissionLevel(
     level: PermissionLevel,
-    sessionId?: SessionId | null
+    sessionId?: SessionId | null,
   ): Promise<void> {
-    // QA FIX: Prevent concurrent permission level updates (race condition protection)
     if (this._isPending()) {
       console.warn(
-        '[AutopilotStateService] Update already in progress, ignoring'
+        '[AutopilotStateService] Update already in progress, ignoring',
       );
       return;
     }
-
-    // Mark operation as in progress
     this._isPending.set(true);
 
     try {
       const previousLevel = this._permissionLevel();
-
-      // Optimistic update (UI updates immediately)
       this._permissionLevel.set(level);
-
-      // Persist to backend via RPC (with sessionId for live SDK sync)
-      // Note: We always call config:autopilot-toggle RPC with current enabled state
-      // Backend will persist the new permission level
       const result = await this.rpc.call('config:autopilot-toggle', {
         enabled: this._enabled(),
         permissionLevel: level,
@@ -249,13 +215,11 @@ export class AutopilotStateService implements MessageHandler {
       if (!result.isSuccess()) {
         console.error(
           '[AutopilotStateService] Failed to set permission level:',
-          result.error
+          result.error,
         );
-        // Rollback on failure: restore previous level
         this._permissionLevel.set(previousLevel);
       }
     } finally {
-      // Always clear pending state
       this._isPending.set(false);
     }
   }
@@ -271,7 +235,7 @@ export class AutopilotStateService implements MessageHandler {
     console.log(
       `[AutopilotStateService] Agent plan mode: ${
         active ? 'entered' : 'exited'
-      }`
+      }`,
     );
   }
 
@@ -288,25 +252,20 @@ export class AutopilotStateService implements MessageHandler {
 
     if (result.isSuccess() && result.data) {
       const { enabled, permissionLevel } = result.data;
-
-      // Update signals with backend values
       this._enabled.set(enabled);
-
-      // Validate permission level before setting
       if (isPermissionLevel(permissionLevel)) {
         this._permissionLevel.set(permissionLevel);
       } else {
         console.warn(
-          `[AutopilotStateService] Backend returned invalid permission level: ${permissionLevel}, using default 'ask'`
+          `[AutopilotStateService] Backend returned invalid permission level: ${permissionLevel}, using default 'ask'`,
         );
         this._permissionLevel.set('ask');
       }
     } else {
       console.error(
         '[AutopilotStateService] Failed to load persisted state:',
-        result.error
+        result.error,
       );
-      // Keep current state (defaults: enabled=false, permissionLevel='ask')
     }
   }
 }

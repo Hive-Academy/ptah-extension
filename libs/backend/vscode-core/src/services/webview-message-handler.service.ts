@@ -8,16 +8,23 @@
  * @module @ptah-extension/vscode-core/services
  */
 
-import { injectable, inject, container } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import * as vscode from 'vscode';
 import {
   MESSAGE_TYPES,
   type ISdkPermissionHandler,
   type PermissionResponse,
 } from '@ptah-extension/shared';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging';
 import type { RpcHandler } from '../messaging';
+
+interface PermissionPromptServiceLike {
+  resolveRequest(payload: unknown): void;
+}
+
+const SDK_PERMISSION_HANDLER_TOKEN = Symbol.for('SdkPermissionHandler');
 
 /**
  * Shape of a webview message received from the frontend
@@ -149,6 +156,12 @@ export class WebviewMessageHandlerService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.PERMISSION_PROMPT_SERVICE, { isOptional: true })
+    private readonly permissionPromptService:
+      | PermissionPromptServiceLike
+      | undefined,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly runtimeContainer: DependencyContainer,
   ) {}
 
   /**
@@ -189,7 +202,6 @@ export class WebviewMessageHandlerService {
     });
 
     try {
-      // Try custom handlers first
       if (customHandlers) {
         for (const handler of customHandlers) {
           const handled = await handler(message, webview);
@@ -198,8 +210,6 @@ export class WebviewMessageHandlerService {
           }
         }
       }
-
-      // Handle common message types
       switch (message.type) {
         case MESSAGE_TYPES.WEBVIEW_READY:
           this.logger.info(`[${webviewId}] Webview ready signal received`);
@@ -239,8 +249,6 @@ export class WebviewMessageHandlerService {
         `[${webviewId}] Error handling message`,
         error instanceof Error ? error : new Error(String(error)),
       );
-
-      // Send error response to webview if message has correlationId
       if (message.correlationId || message.requestId) {
         const reqId = message.correlationId || message.requestId;
         await webview.postMessage({
@@ -261,7 +269,6 @@ export class WebviewMessageHandlerService {
     webview: vscode.Webview,
     message: WebviewMessage,
   ): Promise<void> {
-    // Frontend wraps RPC data in 'payload' object, so unwrap it
     const rpcData = (message.payload || message) as {
       requestId?: string;
       method: string;
@@ -282,10 +289,6 @@ export class WebviewMessageHandlerService {
         params,
         correlationId: reqId,
       });
-
-      // Send response back (correlationId and data are the canonical fields)
-      // TASK_2025_124: Include errorCode for license-related errors
-      // RPC hardening: error is always a string at the dispatcher boundary.
       await webview.postMessage({
         type: MESSAGE_TYPES.RPC_RESPONSE,
         correlationId: reqId,
@@ -318,11 +321,8 @@ export class WebviewMessageHandlerService {
     message: WebviewMessage,
   ): Promise<void> {
     try {
-      if (container.isRegistered(TOKENS.PERMISSION_PROMPT_SERVICE)) {
-        const permissionService = container.resolve<{
-          resolveRequest: (payload: unknown) => void;
-        }>(TOKENS.PERMISSION_PROMPT_SERVICE);
-        permissionService.resolveRequest(message.payload);
+      if (this.permissionPromptService) {
+        this.permissionPromptService.resolveRequest(message.payload);
         this.logger.info(`[${webviewId}] MCP Permission response processed`, {
           requestId: (message.payload as { id?: string } | undefined)?.id,
         });
@@ -340,9 +340,9 @@ export class WebviewMessageHandlerService {
   }
 
   /**
-   * Handle AskUserQuestion responses (SDK clarifying questions)
+   * Handle AskUserQuestion responses (SDK clarifying questions).
    *
-   * TASK_2025_136: Routes user answers back to SdkPermissionHandler
+   * Routes user answers back to SdkPermissionHandler:
    * - Triggered by: User answering questions in webview UI
    * - Message type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE ('ask-user-question:response')
    * - Handler: SdkPermissionHandler.handleQuestionResponse()
@@ -356,11 +356,11 @@ export class WebviewMessageHandlerService {
         | { id: string; answers: Record<string, string> }
         | undefined;
 
-      const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
-      if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
-        const permissionHandler = container.resolve<ISdkPermissionHandler>(
-          SDK_PERMISSION_HANDLER,
-        );
+      if (this.runtimeContainer.isRegistered(SDK_PERMISSION_HANDLER_TOKEN)) {
+        const permissionHandler =
+          this.runtimeContainer.resolve<ISdkPermissionHandler>(
+            SDK_PERMISSION_HANDLER_TOKEN,
+          );
         permissionHandler.handleQuestionResponse({
           id: payload?.id ?? '',
           answers: payload?.answers ?? {},
@@ -406,9 +406,6 @@ export class WebviewMessageHandlerService {
         );
         return;
       }
-
-      // Delegate to the existing RPC handler 'agent:permissionResponse'
-      // which resolves the CopilotPermissionBridge pending Promise
       const response = await this.rpcHandler.handleMessage({
         method: 'agent:permissionResponse',
         params: payload,
@@ -460,14 +457,11 @@ export class WebviewMessageHandlerService {
         | undefined;
       const requestId = String(payload?.id ?? '');
 
-      const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
-      if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
-        const permissionHandler = container.resolve<ISdkPermissionHandler>(
-          SDK_PERMISSION_HANDLER,
-        );
-        // TASK_2025_101_FIX: Pass correct PermissionResponse structure
-        // Previously passed 'approved' (boolean) which is NOT in PermissionResponse interface
-        // Must pass 'id' and 'decision' fields matching SdkPermissionHandler.PermissionResponse
+      if (this.runtimeContainer.isRegistered(SDK_PERMISSION_HANDLER_TOKEN)) {
+        const permissionHandler =
+          this.runtimeContainer.resolve<ISdkPermissionHandler>(
+            SDK_PERMISSION_HANDLER_TOKEN,
+          );
         const decision = payload?.decision ?? 'deny';
         permissionHandler.handleResponse(requestId, {
           id: requestId,

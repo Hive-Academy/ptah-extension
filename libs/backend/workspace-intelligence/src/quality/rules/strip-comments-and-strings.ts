@@ -8,8 +8,6 @@
  * or strings, while reported line/column offsets still map correctly back to
  * the original source.
  *
- * TASK_2025_291 Wave B (B3): Pre-processing step for the quality-rules pipeline.
- *
  * @packageDocumentation
  */
 
@@ -47,8 +45,6 @@
  */
 export function stripCommentsAndStrings(source: string): string {
   const len = source.length;
-  // Pre-fill with the source so offsets we don't touch remain correct; we
-  // will overwrite regions that represent string/comment content.
   const out: string[] = new Array<string>(len);
   for (let i = 0; i < len; i++) {
     out[i] = source[i];
@@ -100,12 +96,9 @@ export function stripCommentsAndStrings(source: string): string {
     if (k < 0) return true; // start of input
 
     const prev = source[k];
-    // Unambiguous operator/punctuation precedents → regex
     if ('(,=:;!&|?+{}[~^<>%*-/'.includes(prev)) {
       return true;
     }
-
-    // If prev is identifier-tail, read back the whole word and check keywords
     if (/[A-Za-z_$0-9]/.test(prev)) {
       const wEnd = k + 1;
       let wStart = k;
@@ -116,12 +109,7 @@ export function stripCommentsAndStrings(source: string): string {
       if (KEYWORDS_BEFORE_REGEX.has(word)) return true;
       return false; // identifier / number → division
     }
-
-    // `)` and `]` are typical division contexts (e.g. `foo() / 2`, `arr[0] / 2`)
     if (prev === ')' || prev === ']') return false;
-
-    // Conservative default: treat as regex (prefer over-stripping a rare
-    // division to under-stripping a regex that would leak matches).
     return true;
   };
 
@@ -129,13 +117,7 @@ export function stripCommentsAndStrings(source: string): string {
   while (i < len) {
     const ch = source[i];
     const next = i + 1 < len ? source[i + 1] : '';
-
-    // Line comment: //...
     if (ch === '/' && next === '/') {
-      // Do NOT blank the `//` delimiters themselves — they're not string
-      // content and leaving them helps rules that inspect structure. But to
-      // satisfy "replace comment content", we blank everything AFTER `//` up
-      // to (but not including) the newline.
       i += 2;
       while (i < len && source[i] !== '\n') {
         blank(i);
@@ -143,12 +125,6 @@ export function stripCommentsAndStrings(source: string): string {
       }
       continue;
     }
-
-    // Block comment: /* ... */  (supports "nested" per spec by consuming the
-    // entire run until the first `*/`. Real TS doesn't nest block comments;
-    // `/* a /* b */` closes at the first `*/`. Anything after the close is
-    // re-scanned, so `/* outer /* inner */ still */` leaves ` still */`
-    // which is then parsed as normal code — matching JS/TS grammar.)
     if (ch === '/' && next === '*') {
       i += 2;
       while (i < len) {
@@ -161,8 +137,6 @@ export function stripCommentsAndStrings(source: string): string {
       }
       continue;
     }
-
-    // Single-quoted string
     if (ch === "'") {
       i++; // keep opening quote
       while (i < len) {
@@ -180,8 +154,6 @@ export function stripCommentsAndStrings(source: string): string {
       if (i < len && source[i] === "'") i++; // consume closing quote
       continue;
     }
-
-    // Double-quoted string
     if (ch === '"') {
       i++;
       while (i < len) {
@@ -199,8 +171,6 @@ export function stripCommentsAndStrings(source: string): string {
       if (i < len && source[i] === '"') i++;
       continue;
     }
-
-    // Template literal: preserve ${...} expressions, strip the rest.
     if (ch === '`') {
       i++;
       let depth = 0; // brace depth inside a ${...} expression
@@ -216,7 +186,6 @@ export function stripCommentsAndStrings(source: string): string {
           }
           if (c === '`') break;
           if (c === '$' && i + 1 < len && source[i + 1] === '{') {
-            // Leave `${` intact so regex rules can still see expression scope.
             inExpr = true;
             depth = 1;
             i += 2;
@@ -225,10 +194,6 @@ export function stripCommentsAndStrings(source: string): string {
           blank(i);
           i++;
         } else {
-          // Inside ${expr} — leave everything as-is but track brace depth so
-          // we know when the expression closes. This is a best-effort counter;
-          // nested strings/templates inside the expression are left intact
-          // (they would be scanned by rules too, which is acceptable).
           if (c === '{') depth++;
           else if (c === '}') {
             depth--;
@@ -244,10 +209,7 @@ export function stripCommentsAndStrings(source: string): string {
       if (i < len && source[i] === '`') i++;
       continue;
     }
-
-    // Regex literal vs division
     if (ch === '/' && isRegexContext(i)) {
-      // Consume /pattern/flags, handling escapes and character classes.
       i++; // keep opening /
       let inClass = false;
       while (i < len) {
@@ -266,8 +228,6 @@ export function stripCommentsAndStrings(source: string): string {
         i++;
       }
       if (i < len && source[i] === '/') i++; // consume closing /
-      // Skip flag characters (a-z) — leave them intact; they're identifier-
-      // like and harmless for rules.
       while (i < len && /[a-z]/i.test(source[i])) i++;
       continue;
     }

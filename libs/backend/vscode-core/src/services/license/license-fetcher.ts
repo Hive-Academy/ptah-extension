@@ -1,12 +1,13 @@
 /**
- * License Fetcher (Wave C7a — TASK_2025_291)
+ * License Fetcher
  *
- * Extracted from {@link LicenseService}.
+ * Library-internal helper that fetches and verifies license status for
+ * {@link LicenseService}.
  *
  * Responsibilities:
  * - Resolve the license server URL (config override or environment default)
  * - POST the license key to the server's `/api/v1/licenses/verify` endpoint
- * - Verify the Ed25519 signature on the response (TASK_2025_188 MITM protection)
+ * - Verify the Ed25519 signature on the response (MITM protection)
  *
  * This helper is **library-internal** — it is not `@injectable()` and is not
  * exported from the public barrel. {@link LicenseService} owns a single
@@ -77,8 +78,6 @@ export class LicenseFetcher {
     if (settingOverride) {
       return settingOverride;
     }
-
-    // extensionMode: 2 = Development (matches vscode.ExtensionMode.Development)
     const isDev = this.context.extensionMode === 2;
     return resolveEnvironment(isDev).urls.API_URL;
   }
@@ -110,12 +109,8 @@ export class LicenseFetcher {
         { licenseKey },
         { timeout: NETWORK_TIMEOUT_MS },
       );
-
-      // TASK_2025_188: Verify response signature to prevent MITM attacks
-      // Extract signature before creating the LicenseStatus object
       const { signature: responseSignature, ...licenseData } = responseJson;
       if (this.publicKey) {
-        // When a real public key is configured, signature is mandatory
         if (!responseSignature) {
           throw new Error(
             'License response missing required signature — possible tampering',
@@ -150,9 +145,8 @@ export class LicenseFetcher {
   }
 
   /**
-   * Load the Ed25519 public key from the embedded constant.
-   *
-   * TASK_2025_188: Loads the Ed25519 public key for signature verification.
+   * Load the Ed25519 public key from the embedded constant for signature
+   * verification.
    *
    * @returns KeyObject for Ed25519 verification, or null if key is invalid
    */
@@ -175,8 +169,8 @@ export class LicenseFetcher {
   /**
    * Verify the Ed25519 signature of a license server response.
    *
-   * TASK_2025_188: Prevents MITM attacks by verifying that the response
-   * was signed by the license server's private key.
+   * Prevents MITM attacks by verifying that the response was signed by the
+   * license server's private key.
    *
    * Verification is graceful:
    * - If no public key is configured (placeholder), returns true (skip verification)
@@ -189,7 +183,6 @@ export class LicenseFetcher {
    */
   private verifySignature(payload: object, signature: string): boolean {
     if (!this.publicKey) {
-      // Public key not configured (placeholder) - skip verification
       return true;
     }
     try {

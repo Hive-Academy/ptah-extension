@@ -1,5 +1,5 @@
 /**
- * Specs for buildAstNamespace (TASK_2026_100 P1.B5).
+ * Specs for buildAstNamespace.
  *
  * Covers ptah.ast.* methods:
  *   - shape round-trip

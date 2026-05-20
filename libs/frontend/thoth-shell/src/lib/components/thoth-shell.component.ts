@@ -29,8 +29,7 @@ interface ThothTabSpec {
  * persists across navigations via {@link AppStateManager.thothActiveTab}.
  *
  * Cron and Gateway tabs are Electron-only. When running inside the VS Code
- * webview, they render an "Open in Ptah desktop app" placeholder. The actual
- * tab content components are wired in batches B1–B4.
+ * webview, they render an "Open in Ptah desktop app" placeholder.
  */
 @Component({
   selector: 'ptah-thoth-shell',

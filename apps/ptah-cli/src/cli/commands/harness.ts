@@ -1,7 +1,6 @@
 /**
  * `ptah harness` command — Harness Setup Builder operations.
  *
- * TASK_2026_104 Sub-batch B6c. Replaces the Batch 2 3-line stub with the full
  * 10-sub-subcommand surface specified by `task-description.md` §3.1
  * (`harness *` table) and §4.1 notification schema.
  *
@@ -40,7 +39,7 @@
  *
  * `init` and `chat` deliberately bypass `withEngine` — `init` because pure
  * `mkdir` doesn't need DI (and must work on an unbootstrapped workspace),
- * `chat` because it's a synchronous deferred-error path until Batch 10 lands.
+ * `chat` because it's a synchronous deferred-error path.
  */
 
 import { promises as fs } from 'node:fs';
@@ -131,8 +130,8 @@ export interface HarnessExecuteHooks {
   /** Override hook for tests — defaults to `node:fs/promises.readFile`. */
   readFile?: (path: string) => Promise<string>;
   /**
-   * Override hook for tests — defaults to delegating into B10c's
-   * `executeSessionStart`. Used by `harness chat` (TASK_2026_104 B10d).
+   * Override hook for tests — defaults to delegating into
+   * `executeSessionStart`. Used by `harness chat`.
    */
   executeSessionStart?: typeof executeSessionStart;
 }
@@ -199,10 +198,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// init — pure mkdir, NO DI. Idempotent: second run reports `skipped[]`.
-// ---------------------------------------------------------------------------
-
 /** Default scaffold layout — created relative to the workspace root. */
 const SCAFFOLD_DIRS: readonly string[] = [
   '.ptah',
@@ -257,10 +252,6 @@ async function runInit(
   return ExitCode.Success;
 }
 
-// ---------------------------------------------------------------------------
-// status — read-only fs.readdir, NO DI.
-// ---------------------------------------------------------------------------
-
 async function runStatus(
   opts: HarnessOptions,
   globals: GlobalOptions,
@@ -269,9 +260,6 @@ async function runStatus(
 ): Promise<number> {
   const root = opts.dir ?? globals.cwd;
   const readdir = hooks.readdir ?? ((p: string) => fs.readdir(p));
-
-  // Walk `.ptah/` looking for skills, agents, specs, presets directories.
-  // Missing directories are reported as `false`/empty rather than as errors.
   const ptahDir = path.join(root, '.ptah');
   let hasPtahDir = false;
   try {
@@ -310,10 +298,6 @@ async function runStatus(
   return ExitCode.Success;
 }
 
-// ---------------------------------------------------------------------------
-// scan — RPC harness:initialize, fans out into 4 notifications.
-// ---------------------------------------------------------------------------
-
 async function runScan(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -340,10 +324,6 @@ async function runScan(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// apply --preset <id> — load presets, find match, send to harness:apply.
-// ---------------------------------------------------------------------------
 
 async function runApply(
   opts: HarnessOptions,
@@ -383,10 +363,6 @@ async function runApply(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// preset save <name> --from <path> [--description <text>]
-// ---------------------------------------------------------------------------
 
 async function runPresetSave(
   opts: HarnessOptions,
@@ -450,10 +426,6 @@ async function runPresetSave(
   });
 }
 
-// ---------------------------------------------------------------------------
-// preset load — RPC harness:load-presets.
-// ---------------------------------------------------------------------------
-
 async function runPresetLoad(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -471,20 +443,6 @@ async function runPresetLoad(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// chat — alias for `ptah session start --scope harness-skill`.
-//
-// TASK_2026_104 Sub-batch B10d (was previously a deferred `task.error` stub
-// per the locked architect contract; B10c shipped `executeSessionStart` so
-// this delegation is now real).
-//
-// The flag set on the router (`--task`, `--profile`, `--session`,
-// `--auto-approve`) mirrors `session start --scope harness-skill` for stream-
-// handling parity. Notifications emitted will be `session.*` + `agent.*`
-// from the underlying `session start|resume`. Consumers SHOULD treat
-// `harness chat` and `session start --scope harness-skill` as identical.
-// ---------------------------------------------------------------------------
 
 function buildChatOptions(opts: HarnessOptions): HarnessChatOptions {
   return {
@@ -512,10 +470,6 @@ async function runChatAlias(
     globals,
   );
 }
-
-// ---------------------------------------------------------------------------
-// analyze-intent --intent <text>
-// ---------------------------------------------------------------------------
 
 async function runAnalyzeIntent(
   opts: HarnessOptions,
@@ -554,10 +508,6 @@ async function runAnalyzeIntent(
   });
 }
 
-// ---------------------------------------------------------------------------
-// design-agents --workspace
-// ---------------------------------------------------------------------------
-
 async function runDesignAgents(
   opts: HarnessOptions,
   globals: GlobalOptions,
@@ -565,9 +515,6 @@ async function runDesignAgents(
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // When --workspace is set, derive persona + existing agents from the
-    // workspace via `harness:initialize`. Otherwise default to a generic
-    // empty persona.
     let persona: PersonaDefinition;
     let existingAgents: string[] = [];
 
@@ -608,10 +555,6 @@ async function runDesignAgents(
   });
 }
 
-// ---------------------------------------------------------------------------
-// generate-document --kind <prd|spec>
-// ---------------------------------------------------------------------------
-
 async function runGenerateDocument(
   opts: HarnessOptions,
   globals: GlobalOptions,
@@ -633,11 +576,6 @@ async function runGenerateDocument(
       'harness:initialize',
       {},
     );
-
-    // Build a minimal HarnessConfig skeleton from the workspace. The backend
-    // service treats unspecified sections as defaults — we forward whatever
-    // metadata the workspace exposes so the document is project-aware without
-    // requiring a fully-populated harness config.
     const workspaceContext = init?.workspaceContext;
     const stubConfig: HarnessConfig = {
       name: workspaceContext?.projectName ?? 'workspace',
@@ -680,10 +618,6 @@ async function runGenerateDocument(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 /**
  * Find a preset by id, name, or sanitized name. The backend stores presets

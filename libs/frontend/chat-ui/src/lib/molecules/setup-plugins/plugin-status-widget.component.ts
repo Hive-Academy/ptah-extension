@@ -12,9 +12,6 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 /**
  * PluginStatusWidgetComponent - Plugin configuration status widget
  *
- * TASK_2025_153: Phase 6 - Frontend Components
- *
- * Complexity Level: 2 (Medium - RPC communication + signal state)
  * Patterns: Signal-based state, ClaudeRpcService, DaisyUI styling
  *
  * Features:

@@ -2,8 +2,7 @@
  * `runMasterKeyProviderContract` — cross-platform invariants for `IMasterKeyProvider`.
  *
  * Asserts observable key shape, persistence semantics, and idempotency policy.
- * Does NOT assert secure-storage internals or corruption/data-loss paths —
- * those belong in Phase 3 (data-loss audit).
+ * Does NOT assert secure-storage internals or corruption/data-loss paths.
  *
  * Factory signature supports adapters with and without a persistent state root:
  *
@@ -52,10 +51,6 @@ export function runMasterKeyProviderContract(
       await teardown?.(stateRoot);
     });
 
-    // -------------------------------------------------------------------------
-    // Key shape
-    // -------------------------------------------------------------------------
-
     it('getMasterKey() resolves to a Buffer of exactly 32 bytes', async () => {
       const key = await provider.getMasterKey();
       expect(Buffer.isBuffer(key)).toBe(true);
@@ -74,11 +69,6 @@ export function runMasterKeyProviderContract(
       expect(allZero).toBe(false);
     });
 
-    // -------------------------------------------------------------------------
-    // Idempotent get-or-create: two concurrent calls on a fresh instance must
-    // resolve to the same key value (no race-created divergence).
-    // -------------------------------------------------------------------------
-
     it('two concurrent getMasterKey() calls on a fresh instance return identical bytes', async () => {
       const [k1, k2] = await Promise.all([
         provider.getMasterKey(),
@@ -87,16 +77,8 @@ export function runMasterKeyProviderContract(
       expect(k1.toString('hex')).toBe(k2.toString('hex'));
     });
 
-    // -------------------------------------------------------------------------
-    // Cross-restart persistence — only for file-backed adapters.
-    // Skipped when makeStateRoot is not provided (in-memory / injected store).
-    // -------------------------------------------------------------------------
-
     it('getMasterKey() returns the same key value across two provider instances sharing a state root', async () => {
       if (!makeStateRoot) {
-        // Adapter has no file-based state root — persistence across restarts is
-        // handled by the injected store (VS Code SecretStorage / keytar) rather
-        // than a temporary directory.  Skip rather than fail.
         return;
       }
 
@@ -105,12 +87,6 @@ export function runMasterKeyProviderContract(
       const k2 = await provider2.getMasterKey();
       expect(k1.toString('hex')).toBe(k2.toString('hex'));
     });
-
-    // -------------------------------------------------------------------------
-    // Regeneration policy — decisions pending (see Open Question 1 in
-    // docs/test-strategy-plan.md §8). Bodies are left as todos until the
-    // specified behavior is ratified.
-    // -------------------------------------------------------------------------
 
     it.todo(
       '[DECISION REQUIRED] corrupt key-ref: regenerate silently (data loss) vs. throw loudly (no data loss)',

@@ -33,7 +33,6 @@ export function runAuthProviderContract(
 
     it('getGitHubUsername resolves without throwing when unauthenticated', async () => {
       await expect(setup.provider.getGitHubUsername()).resolves.not.toThrow;
-      // Actual value can be string or undefined — covered by the next test.
       await setup.provider.getGitHubUsername();
     });
 

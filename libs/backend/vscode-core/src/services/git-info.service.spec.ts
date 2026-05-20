@@ -1,5 +1,5 @@
 /**
- * GitInfoService — unit specs for the 6 new methods added in TASK_2026_111 Batch 2.
+ * GitInfoService — unit specs for the 6 added git-query methods.
  *
  * Coverage matrix:
  *   getBranches   — parses for-each-ref output into BranchRef[]

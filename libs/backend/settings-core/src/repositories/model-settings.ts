@@ -34,7 +34,6 @@ export class ModelSettings extends BaseSettingsRepository {
       const providerId =
         store.readGlobal<string>(ANTHROPIC_PROVIDER_ID_DEF.key) ?? '';
       const authKey = resolveAuthProviderKey(authMethod, providerId);
-      // Key pattern: `provider.<authKey>.selectedModel`
       return `provider.${authKey}.selectedModel`;
     };
 

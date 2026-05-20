@@ -1,5 +1,5 @@
 /**
- * SetupRpcSchema — unit specs (TASK_2025_294 W2.B4).
+ * SetupRpcSchema — unit specs.
  *
  * Surface under test: `./setup-rpc.schema.ts`, which is intentionally an
  * empty-export module (see the file header there for rationale — the
@@ -8,8 +8,8 @@
  * schemas of its own).
  *
  * This spec exists so:
- *   1. The "every handler has a paired schema spec" invariant from
- *      TASK_2025_294 holds across the rpc-handlers library.
+ *   1. The "every handler has a paired schema spec" invariant holds across
+ *      the rpc-handlers library.
  *   2. A future PR that accidentally adds a Zod schema to
  *      `setup-rpc.schema.ts` without wiring tests has a pre-existing
  *      file to extend.

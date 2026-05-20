@@ -12,8 +12,8 @@
  *
  * Note: `db.backup()` can block briefly on Windows with NTFS when a shared
  * WAL hasn't been checkpointed (the API restarts page copy on concurrent
- * reads). D2 backups fire at boot before RPC handlers register; D7 daily
- * backups fire at 03:00 UTC when user is inactive — both windows have
+ * reads). Pre-migration backups fire at boot before RPC handlers register;
+ * daily backups fire at 03:00 UTC when user is inactive — both windows have
  * negligible concurrent load.
  */
 import { inject, injectable } from 'tsyringe';
@@ -116,20 +116,12 @@ export class SqliteBackupService implements IBackupService {
       const dir = path.dirname(dest);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
-        // Restrict the directory to owner-only on POSIX (no-op on Windows).
-        try {
-          fs.chmodSync(dir, 0o700);
-        } catch {
-          // Non-fatal on platforms that do not support chmod.
-        }
+
+        fs.chmodSync(dir, 0o700);
       }
       await db.backup(dest);
-      // Restrict the backup file to owner-only on POSIX (no-op on Windows).
-      try {
-        fs.chmodSync(dest, 0o600);
-      } catch {
-        // Non-fatal on platforms that do not support chmod.
-      }
+
+      fs.chmodSync(dest, 0o600);
       this.logger.info('[persistence-sqlite] backup completed', { kind, dest });
       return dest;
     } catch (err: unknown) {

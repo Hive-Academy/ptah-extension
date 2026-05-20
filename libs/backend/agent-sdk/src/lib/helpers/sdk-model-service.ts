@@ -3,29 +3,28 @@
  *
  * Extracted from SdkAgentAdapter to separate model management concerns.
  * Models are fetched using a multi-strategy approach (in priority order):
- * 1. SDK's supportedModels() API — authoritative, account-filtered
- * 2. Anthropic /v1/models API — fast HTTP fallback for all available models
- * 3. Hardcoded fallback — never cached, next call retries dynamic sources
+ * 1. SDK's supportedModels() API â€” authoritative, account-filtered
+ * 2. Anthropic /v1/models API â€” fast HTTP fallback for all available models
+ * 3. Hardcoded fallback â€” never cached, next call retries dynamic sources
  *
  * Single Responsibility: Fetch, cache, and provide model information
  *
- * @see TASK_2025_102 - Extracted to reduce SdkAgentAdapter complexity
- * @see TASK_2025_237 - Added API model fetching for dynamic model discovery
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
 import { AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
 import { SdkModuleLoader } from './sdk-module-loader';
-import type { ModelResolver } from '../auth/model-resolver';
-import { normalizeAuthMethod } from './auth-method.utils';
+import type { IModelResolver } from '../auth-env.port';
+import { normalizeAuthMethod } from '@ptah-extension/shared';
 
 /**
  * Model entry from the Anthropic /v1/models API
  */
-/** Internal type for /v1/models API response entries. Not exported — consumers use ModelInfo[]. */
+/** Internal type for /v1/models API response entries. Not exported â€” consumers use ModelInfo[]. */
 interface ApiModelEntry {
   id: string;
   displayName: string;
@@ -40,13 +39,13 @@ export type EnvMappedTier = Exclude<ModelTier, 'default'>;
 
 /**
  * Canonical mapping from bare tier names to full model IDs.
- * Exported as the single source of truth — all consumers must import this
+ * Exported as the single source of truth â€” all consumers must import this
  * rather than maintaining their own copies.
  *
  * The SDK's query() requires full model IDs (e.g., 'claude-opus-4-6').
  * Bare tier names like 'opus' cause "can't access model named opus" errors.
  *
- * 'default' maps to Opus — the CLI SDK's recommended default tier is Opus 4.7.
+ * 'default' maps to Opus â€” the CLI SDK's recommended default tier is Opus 4.7.
  * Storing 'default' (the tier name the CLI SDK returns from supportedModels())
  * must resolve to the actual model the CLI uses, not an arbitrary cost-based fallback.
  *
@@ -59,7 +58,7 @@ export const TIER_TO_MODEL_ID: Record<ModelTier, string> = {
   default: 'claude-opus-4-7',
 };
 
-/** Default fallback model ID — Opus as the CLI's recommended default */
+/** Default fallback model ID â€” Opus as the CLI's recommended default */
 export const DEFAULT_FALLBACK_MODEL_ID = TIER_TO_MODEL_ID['default'];
 
 /**
@@ -67,7 +66,7 @@ export const DEFAULT_FALLBACK_MODEL_ID = TIER_TO_MODEL_ID['default'];
  * /v1/models API are unavailable (e.g., CLI auth with no network, or
  * first-boot before the SDK bridge initializes).
  *
- * These are never cached — every call to getSupportedModels() retries
+ * These are never cached â€” every call to getSupportedModels() retries
  * the dynamic sources. The fallback just keeps the dropdown populated.
  */
 const STATIC_FALLBACK_MODELS: ModelInfo[] = [
@@ -95,13 +94,13 @@ const STATIC_FALLBACK_MODELS: ModelInfo[] = [
 
 /**
  * Canonical mapping from tier names to their ANTHROPIC_DEFAULT_*_MODEL env var keys.
- * Single source of truth — all consumers must import this rather than defining their own.
+ * Single source of truth â€” all consumers must import this rather than defining their own.
  *
  * Used by:
- * - SdkModelService.resolveModelId() — to check env var overrides
- * - ProviderModelsService.setModelTier() — to set env vars for proxy providers
- * - buildTierEnvDefaults() — to guarantee env vars for SDK subagent spawning
- * - clearAllTierEnvVars() / applyPersistedTiers() — to manage tier env lifecycle
+ * - SdkModelService.resolveModelId() â€” to check env var overrides
+ * - ProviderModelsService.setModelTier() â€” to set env vars for proxy providers
+ * - buildTierEnvDefaults() â€” to guarantee env vars for SDK subagent spawning
+ * - clearAllTierEnvVars() / applyPersistedTiers() â€” to manage tier env lifecycle
  */
 export const TIER_ENV_VAR_MAP: Record<EnvMappedTier, keyof AuthEnv> = {
   opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
@@ -116,7 +115,7 @@ export const TIER_ENV_VAR_MAP: Record<EnvMappedTier, keyof AuthEnv> = {
  * Moonshot, Z.AI) where bare tier names in subagent subprocesses need to be
  * remapped to provider-specific model IDs via ANTHROPIC_DEFAULT_*_MODEL.
  *
- * For direct Anthropic (CLI or API key → api.anthropic.com), this returns an
+ * For direct Anthropic (CLI or API key â†’ api.anthropic.com), this returns an
  * empty record. The CLI/SDK handles its own tier resolution natively, and
  * setting these env vars pins resolution to our hardcoded defaults, blocking
  * any updates the CLI account has to newer models.
@@ -186,9 +185,10 @@ export class SdkModelService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     private readonly moduleLoader: SdkModuleLoader,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
-    private readonly modelResolver: ModelResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: IModelResolver,
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
   ) {}
 
@@ -199,9 +199,9 @@ export class SdkModelService {
    * third-party providers. For Claude-native auth (API key, CLI), models
    * are returned as-is from the source:
    *
-   * - claudeCli  → query.supportedModels() directly (tier slots: opus/sonnet/haiku)
-   * - apiKey     → /v1/models API directly (full versioned model IDs)
-   * - thirdParty → query.supportedModels() + tier mapping to provider model IDs
+   * - claudeCli  â†’ query.supportedModels() directly (tier slots: opus/sonnet/haiku)
+   * - apiKey     â†’ /v1/models API directly (full versioned model IDs)
+   * - thirdParty â†’ query.supportedModels() + tier mapping to provider model IDs
    */
   async getSupportedModels(): Promise<ModelInfo[]> {
     if (this.cachedModels.length > 0) {
@@ -225,8 +225,6 @@ export class SdkModelService {
 
   private async fetchSupportedModelsInternal(): Promise<ModelInfo[]> {
     const rawAuthMethod = this.config.get<string>('authMethod') || 'apiKey';
-    // Route through the shared normalizer so new spellings ('claude-cli',
-    // 'oauth') and legacy ones ('openrouter', 'claudeCli') resolve identically.
     const authMethod = normalizeAuthMethod(rawAuthMethod);
 
     this.logger.info('[SdkModelService] Fetching models', {
@@ -265,7 +263,7 @@ export class SdkModelService {
     }
 
     this.logger.warn(
-      '[SdkModelService] All model sources failed — using static fallback list',
+      '[SdkModelService] All model sources failed â€” using static fallback list',
       { authMethod },
     );
     return STATIC_FALLBACK_MODELS;
@@ -273,7 +271,7 @@ export class SdkModelService {
 
   /**
    * API key auth: try /v1/models first (full versioned list), fall back to
-   * SDK tier slots. No tier mapping — Anthropic native auth, IDs are valid as-is.
+   * SDK tier slots. No tier mapping â€” Anthropic native auth, IDs are valid as-is.
    */
   private async fetchModelsForApiKey(): Promise<ModelInfo[]> {
     const apiModels = await this.fetchModelsViaApi();
@@ -283,8 +281,6 @@ export class SdkModelService {
       });
       return apiModels;
     }
-
-    // API call failed (network, rate limit, etc.) — fall back to SDK tier slots.
     this.logger.warn(
       '[SdkModelService] /v1/models failed for API key auth, trying SDK',
     );
@@ -308,11 +304,6 @@ export class SdkModelService {
         displayName: m.displayName,
       })),
     });
-
-    // Third-party providers: resolve tiers to provider-specific model IDs
-    // and deduplicate (different tiers may map to the same provider model).
-    // 'default' resolves as opus but keeps its own display name and is NOT
-    // deduplicated against opus — users can select either.
     const seen = new Set<string>();
     const normalized: ModelInfo[] = [];
     let isDefault = false;
@@ -322,8 +313,6 @@ export class SdkModelService {
       const resolvedValue = isDefault
         ? this.resolveModelId('opus')
         : this.resolveModelId(m.value);
-
-      // Don't deduplicate 'default' against opus — both should appear
       if (!isDefault) {
         if (seen.has(resolvedValue)) continue;
         seen.add(resolvedValue);
@@ -338,7 +327,7 @@ export class SdkModelService {
     const collisions = models.length - normalized.length;
     if (collisions > 0) {
       this.logger.debug(
-        `[SdkModelService] applyTierMapping: ${collisions} duplicate(s) collapsed (${models.length} → ${normalized.length})`,
+        `[SdkModelService] applyTierMapping: ${collisions} duplicate(s) collapsed (${models.length} â†’ ${normalized.length})`,
       );
     }
 
@@ -347,7 +336,7 @@ export class SdkModelService {
 
   /**
    * Get all available models from the Anthropic /v1/models API as ModelInfo[].
-   * Public counterpart of fetchModelsViaApi() — same shape as getSupportedModels()
+   * Public counterpart of fetchModelsViaApi() â€” same shape as getSupportedModels()
    * so callers can merge both lists uniformly using `.value` / `.displayName`.
    *
    * API models already have full IDs (e.g., 'claude-sonnet-4-5-20250514').
@@ -367,19 +356,13 @@ export class SdkModelService {
    * @returns ModelInfo[] on success, empty array on failure
    */
   private async fetchModelsViaSdk(): Promise<ModelInfo[]> {
-    // Resolve pathToClaudeCodeExecutable — required for the SDK to start
-    // the bridge process in production (TASK_2025_194)
     const cliJsPath = await this.moduleLoader.getCliJsPath();
     if (!cliJsPath) {
       this.logger.warn(
-        '[SdkModelService] No CLI js path available — SDK bridge cannot start',
+        '[SdkModelService] No CLI js path available â€” SDK bridge cannot start',
       );
       return [];
     }
-
-    // No pre-flight auth check — the SDK bridge can authenticate via CLI's
-    // credential store (~/.claude/) even when authEnv has no explicit credentials.
-    // Blocking here caused CLI auth users to always fall through to hardcoded fallback.
     const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
     const hasAuthToken = !!this.authEnv.ANTHROPIC_AUTH_TOKEN;
 
@@ -392,34 +375,19 @@ export class SdkModelService {
         cliJsPath,
         note:
           !hasApiKey && !hasAuthToken
-            ? 'No env credentials — SDK will use CLI credential store'
+            ? 'No env credentials â€” SDK will use CLI credential store'
             : undefined,
       },
     );
-
-    // AbortController to clean up the subprocess after we get models
     const abortController = new AbortController();
-
-    // Track the temp query reference outside try so finally can clean it up
     let tempQuery: ReturnType<
       Awaited<ReturnType<typeof this.moduleLoader.getQueryFunction>>
     > | null = null;
-
-    // Track the timeout so we can clear it and avoid unhandled rejections
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {
       const query = await this.moduleLoader.getQueryFunction();
-
-      // Empty prompt — we only need the initialization response.
-      // The generator yields nothing; the SDK reads it as "no user messages".
-      const emptyPrompt = (async function* () {
-        // Intentionally empty — we only call supportedModels(), not chat
-      })();
-
-      // Build env matching the real chat query config — the SDK bridge reads
-      // auth from these env vars during initialization. Any mismatch from the
-      // chat query config causes models to fail while chat works.
+      const emptyPrompt = (async function* () {})();
       const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
       const isThirdParty =
         baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
@@ -432,16 +400,10 @@ export class SdkModelService {
           ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
           : {}),
       };
-
-      // settingSources: match the chat query. When using a translation proxy
-      // (127.0.0.1), exclude 'user' to prevent ~/.claude/settings.json from
-      // overriding ANTHROPIC_BASE_URL and routing requests away from the proxy.
       const settingSources: Array<'user' | 'project' | 'local'> =
         baseUrl?.includes('127.0.0.1')
           ? ['project', 'local']
           : ['user', 'project', 'local'];
-
-      // Collect stderr from the SDK bridge for debugging
       const stderrLines: string[] = [];
 
       tempQuery = query({
@@ -452,7 +414,6 @@ export class SdkModelService {
           pathToClaudeCodeExecutable: cliJsPath,
           settingSources,
           env,
-          // Capture stderr — critical for debugging why the bridge fails
           stderr: (data: string) => {
             stderrLines.push(data);
             if (data.includes('[ERROR]')) {
@@ -463,11 +424,6 @@ export class SdkModelService {
           },
         },
       });
-
-      // Race the supportedModels() call against a timeout.
-      // The bridge subprocess can hang if auth is misconfigured or the
-      // network is unreachable. Without a timeout, getSupportedModels()
-      // would block forever.
       const models = await Promise.race([
         tempQuery.supportedModels(),
         new Promise<ModelInfo[]>((_, reject) => {
@@ -482,9 +438,6 @@ export class SdkModelService {
           );
         }),
       ]);
-
-      // Clear timeout immediately — prevents unhandled rejection from the
-      // timeout Promise firing after supportedModels() already resolved.
       clearTimeout(timeoutId);
       timeoutId = undefined;
 
@@ -505,7 +458,6 @@ export class SdkModelService {
 
       return models;
     } catch (error) {
-      // Clear timeout on error path too
       if (timeoutId !== undefined) {
         clearTimeout(timeoutId);
       }
@@ -516,13 +468,7 @@ export class SdkModelService {
       );
       return [];
     } finally {
-      // Always clean up the subprocess — whether success, error, or timeout.
-      // Without this, the bridge process leaks on timeout.
-      try {
-        tempQuery?.close();
-      } catch {
-        // close() may throw if the process already exited — ignore
-      }
+      tempQuery?.close();
       abortController.abort();
     }
   }
@@ -540,8 +486,6 @@ export class SdkModelService {
     try {
       const apiModels = await this.fetchApiModels();
       if (apiModels.length === 0) return [];
-
-      // Convert ApiModelEntry[] to ModelInfo[] format
       const models: ModelInfo[] = apiModels.map((m) => ({
         value: m.id,
         displayName: m.displayName,
@@ -568,26 +512,22 @@ export class SdkModelService {
   /**
    * Fetch all available models from the Anthropic /v1/models API
    *
-   * TASK_2025_237: Queries the API to discover all available models dynamically,
    * including specific versions (e.g., claude-sonnet-4-5-20250514) that the SDK's
    * supportedModels() doesn't expose.
    *
    * Skipped for:
-   * - Local proxy providers (127.0.0.1) — Copilot/Codex proxies may not implement /v1/models
+   * - Local proxy providers (127.0.0.1) â€” Copilot/Codex proxies may not implement /v1/models
    * - Missing auth credentials
    *
    * @returns Array of ApiModelEntry, or empty array on failure/skip
    */
   async fetchApiModels(): Promise<ApiModelEntry[]> {
-    // Return cached if still valid
     if (
       this.cachedApiModels &&
       Date.now() - this.apiModelsCacheTime < API_MODELS_CACHE_TTL
     ) {
       return this.cachedApiModels;
     }
-
-    // Skip for local proxy providers (Copilot/Codex translation proxies)
     const baseUrl = this.authEnv.ANTHROPIC_BASE_URL;
     if (baseUrl && baseUrl.includes('127.0.0.1')) {
       this.logger.debug(
@@ -595,8 +535,6 @@ export class SdkModelService {
       );
       return [];
     }
-
-    // Need auth credentials
     const apiKey = this.authEnv.ANTHROPIC_API_KEY;
     const authToken = this.authEnv.ANTHROPIC_AUTH_TOKEN;
     if (!apiKey && !authToken) {
@@ -643,8 +581,6 @@ export class SdkModelService {
         this.logger.warn('[SdkModelService] /v1/models returned no data');
         return [];
       }
-
-      // Filter to only Claude models and map to our format
       const models: ApiModelEntry[] = body.data
         .filter((m) => m.id.startsWith('claude-'))
         .map((m) => ({
@@ -687,13 +623,13 @@ export class SdkModelService {
 
   /**
    * Resolve a model identifier to the actual model ID to use.
-   * Delegates to ModelResolver.resolve() — the single source of truth.
+   * Delegates to ModelResolver.resolve() â€” the single source of truth.
    */
   resolveModelId(model: string): string {
     const resolved = this.modelResolver.resolve(model);
     if (resolved !== model) {
       this.logger.debug(
-        `[SdkModelService] Resolved '${model}' → '${resolved}' via ModelResolver`,
+        `[SdkModelService] Resolved '${model}' â†’ '${resolved}' via ModelResolver`,
       );
     }
     return resolved;

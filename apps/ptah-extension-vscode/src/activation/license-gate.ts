@@ -8,7 +8,7 @@ import { LicenseCommands } from '../commands/license-commands';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 
 /**
- * Register only license-related commands when extension is blocked (TASK_2025_121 Batch 3)
+ * Register only license-related commands when extension is blocked.
  *
  * When license is invalid, only these commands are available:
  * - ptah.enterLicenseKey: Enter license key
@@ -22,7 +22,6 @@ export function registerLicenseOnlyCommands(
   context: vscode.ExtensionContext,
   licenseService: LicenseService,
 ): void {
-  // Create LicenseCommands instance manually (DI not fully setup)
   const licenseCommands = new LicenseCommands(licenseService);
 
   const isDev = context.extensionMode === vscode.ExtensionMode.Development;
@@ -31,7 +30,6 @@ export function registerLicenseOnlyCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand('ptah.enterLicenseKey', async () => {
       await licenseCommands.enterLicenseKey();
-      // After license key entry, reload window to complete activation
     }),
     vscode.commands.registerCommand('ptah.checkLicenseStatus', async () => {
       await licenseCommands.checkLicenseStatus();
@@ -51,10 +49,9 @@ export function registerLicenseOnlyCommands(
 }
 
 /**
- * Handle license blocking flow with embedded welcome page (TASK_2025_126)
- *
- * TASK_2025_126: Replaces the modal popup with an embedded welcome page
- * inside the extension webview. This provides a better UX for unlicensed users.
+ * Handle license blocking flow with an embedded welcome page inside the
+ * extension webview, providing a better UX for unlicensed users than a
+ * blocking modal popup.
  *
  * Flow:
  * 1. Register minimal license commands (ptah.enterLicenseKey, ptah.openPricing)
@@ -71,16 +68,9 @@ export async function handleLicenseBlocking(
   licenseService: LicenseService,
   status: LicenseStatus,
 ): Promise<void> {
-  // Register minimal commands for license management
   registerLicenseOnlyCommands(context, licenseService);
 
-  // TASK_2025_126: Show webview with welcome view instead of modal
-
   const htmlGenerator = new WebviewHtmlGenerator(context);
-
-  // Map backend license reason to frontend reason format
-  // Backend uses: 'expired' | 'revoked' | 'not_found' | 'trial_ended'
-  // Frontend expects: 'expired' | 'trial_ended' | 'no_license'
   let frontendReason: 'expired' | 'trial_ended' | 'no_license' | undefined;
   if (status.reason) {
     switch (status.reason) {
@@ -96,8 +86,6 @@ export async function handleLicenseBlocking(
         break;
     }
   }
-
-  // Create minimal webview provider for unlicensed users
   const provider: vscode.WebviewViewProvider = {
     resolveWebviewView(webviewView: vscode.WebviewView): void {
       webviewView.webview.options = {
@@ -108,8 +96,6 @@ export async function handleLicenseBlocking(
           context.extensionUri,
         ],
       };
-
-      // Generate HTML with welcome view
       const workspaceInfo = {
         name: vscode.workspace.workspaceFolders?.[0]?.name || 'Workspace',
         path: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
@@ -119,24 +105,18 @@ export async function handleLicenseBlocking(
         webviewView.webview,
         { workspaceInfo, initialView: 'welcome', isLicensed: false },
       );
-
-      // Setup minimal message listener for RPC calls (license status, command execution)
       webviewView.webview.onDidReceiveMessage(async (message) => {
-        // Handle RPC calls - minimal handler for unlicensed state
-        // Note: RPC messages have structure { type: 'rpc:call', payload: { method, params, correlationId } }
         if (message.type === 'rpc:call' || message.type === 'rpc:request') {
           const { method, params, correlationId } = message.payload || {};
 
           if (method === 'license:getStatus') {
-            // Return license status for context-aware welcome messaging
-            // TASK_2025_128: Renamed isBasic to isCommunity for freemium model
             const response = {
               success: true,
               data: {
                 valid: false,
                 tier: status.tier || 'expired',
                 isPremium: false,
-                isCommunity: false, // RENAMED from isBasic
+                isCommunity: false,
                 daysRemaining: null,
                 trialActive: false,
                 trialDaysRemaining: null,
@@ -149,7 +129,6 @@ export async function handleLicenseBlocking(
               ...response,
             });
           } else if (method === 'license:setKey') {
-            // Inline license key verification from welcome screen
             try {
               const key = params?.licenseKey;
               if (!key || typeof key !== 'string') {
@@ -161,8 +140,6 @@ export async function handleLicenseBlocking(
                 });
                 return;
               }
-
-              // Validate format
               if (!/^ptah_lic_[a-f0-9]{64}$/.test(key)) {
                 webviewView.webview.postMessage({
                   type: 'rpc:response',
@@ -176,8 +153,6 @@ export async function handleLicenseBlocking(
                 });
                 return;
               }
-
-              // Store and verify
               await licenseService.setLicenseKey(key);
               const newStatus = await licenseService.verifyLicense();
 
@@ -194,7 +169,6 @@ export async function handleLicenseBlocking(
                   },
                   correlationId,
                 });
-                // Reload window after a short delay to let the response reach the webview
                 setTimeout(
                   () =>
                     vscode.commands.executeCommand(
@@ -229,7 +203,6 @@ export async function handleLicenseBlocking(
               });
             }
           } else if (method === 'command:execute') {
-            // Execute ptah.* commands only (security: same check as CommandRpcHandlers)
             try {
               const command = params?.command;
               if (
@@ -270,9 +243,6 @@ export async function handleLicenseBlocking(
               });
             }
           } else if (method === 'settings:import') {
-            // Inline settings import for unlicensed users (TASK_2025_210)
-            // Full SettingsImportService requires DI container which isn't set up yet.
-            // Handle file dialog + secret storage directly via VS Code APIs.
             try {
               const fileUris = await vscode.window.showOpenDialog({
                 canSelectMany: false,
@@ -290,8 +260,6 @@ export async function handleLicenseBlocking(
                 });
                 return;
               }
-
-              // Read and parse JSON file
               const fileContent = await vscode.workspace.fs.readFile(
                 fileUris[0],
               );
@@ -308,8 +276,6 @@ export async function handleLicenseBlocking(
                 });
                 return;
               }
-
-              // Validate basic structure (version 1, has auth section)
               if (
                 !importData ||
                 typeof importData !== 'object' ||
@@ -325,8 +291,6 @@ export async function handleLicenseBlocking(
                 });
                 return;
               }
-
-              // Import secrets directly via context.secrets (VS Code SecretStorage)
               const imported: string[] = [];
               const errors: string[] = [];
               const auth = importData['auth'] as Record<string, unknown>;
@@ -384,8 +348,6 @@ export async function handleLicenseBlocking(
                   }
                 }
               }
-
-              // Import config values via VS Code workspace configuration
               const importConfig = importData['config'] as
                 | Record<string, unknown>
                 | undefined;
@@ -406,9 +368,6 @@ export async function handleLicenseBlocking(
                   }
                 }
               }
-
-              // Response shape must match RpcMethodRegistry['settings:import']['result']
-              // which nests imported/skipped/errors inside a `result` wrapper.
               webviewView.webview.postMessage({
                 type: 'rpc:response',
                 success: true,
@@ -418,11 +377,6 @@ export async function handleLicenseBlocking(
                 },
                 correlationId,
               });
-
-              // If a license key was imported, schedule a window reload so the
-              // extension re-runs activation with the new credentials.
-              // Same pattern as Electron's SettingsRpcHandlers — 1.5s
-              // delay lets the RPC response reach the webview before reload.
               if (imported.includes('ptah.licenseKey')) {
                 setTimeout(
                   () =>
@@ -448,13 +402,9 @@ export async function handleLicenseBlocking(
       });
     },
   };
-
-  // Register the webview provider
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('ptah.main', provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
   );
-
-  // DO NOT call showLicenseRequiredUI() - webview handles onboarding
 }

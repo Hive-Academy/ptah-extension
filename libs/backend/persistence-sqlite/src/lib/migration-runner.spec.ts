@@ -2,8 +2,7 @@
  * Unit tests for SqliteMigrationRunner.
  *
  * Uses an in-memory FakeSqliteDatabase so the suite runs without
- * better-sqlite3 native bindings — this matches the Track 0 exit
- * criteria (tests must pass before tracks 1–4 install deps).
+ * better-sqlite3 native bindings.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -128,7 +127,7 @@ describe('SqliteMigrationRunner', () => {
     }
   });
 
-  // --- D3: PRAGMA user_version written inside applyOne ---
+  // --- PRAGMA user_version written inside applyOne ---
 
   it('D3: user_version is bumped to the last applied migration version', async () => {
     const db = new FakeSqliteDatabase();
@@ -166,7 +165,7 @@ describe('SqliteMigrationRunner', () => {
     expect(db.getUserVersion()).toBe(1);
   });
 
-  // --- D2: pre-migration backup hook ---
+  // --- pre-migration backup hook ---
 
   it('D2: calls backup then rotate before applying pending migrations', async () => {
     const db = new FakeSqliteDatabase();
@@ -316,7 +315,7 @@ describe('SqliteMigrationRunner', () => {
     expect(db.tables.has('t1')).toBe(true);
   });
 
-  // --- D9 / run() interface ---
+  // --- run() interface ---
 
   it('D9 run path: migration.run() is called OUTSIDE any transaction', async () => {
     const db = new FakeSqliteDatabase();
@@ -406,7 +405,7 @@ describe('SqliteMigrationRunner', () => {
 //
 // These tests use the real `better-sqlite3` native binding to validate the
 // invariants in Section 3.3 of docs/test-strategy-plan.md. They are skipped
-// when the native module is not installed (Track 0 exit criteria).
+// when the native module is not installed.
 // ---------------------------------------------------------------------------
 
 {
@@ -677,7 +676,7 @@ describe('Migration 0009 — auto_vacuum', () => {
     expect(db.getAutoVacuumMode()).toBe(2);
   });
 
-  // D9 review fix: VACUUM INTO with a real file path
+  // VACUUM INTO with a real file path
   it('D9 review fix: with dbPath provided, uses VACUUM INTO and renames result atomically', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-0009-test-'));
     const dbPath = path.join(tmpDir, 'ptah.sqlite');

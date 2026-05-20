@@ -284,28 +284,14 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   private readonly paddleConfig = environment.paddle;
   private loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private autoCheckoutIntervalId: ReturnType<typeof setInterval> | null = null;
-
-  // Track if portal was opened to refresh on return
   private portalWasOpened = false;
-
-  // Configuration error state (for placeholder detection)
   public readonly configError = signal<string | null>(null);
-
-  // Portal session error state (separate from config errors)
   public readonly portalError = signal<string | null>(null);
-
-  // Portal loading state
   public readonly isPortalLoading = signal(false);
-
-  // Auto-checkout error state (for timeout handling)
   public readonly autoCheckoutError = signal<string | null>(null);
-
-  // Promo code state
   public readonly showPromoInput = signal(false);
   public readonly promoCode = signal<string>('');
   public promoCodeValue = ''; // ngModel binding (two-way, synced to promoCode signal)
-
-  // Expose paddle state for template
   public readonly paddleError = this.paddleService.error;
   public readonly isPaddleReady = this.paddleService.isReady;
   public readonly loadingPlanName = this.paddleService.loadingPlanName;
@@ -324,7 +310,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    */
   public readonly subscriptionContext = computed<PlanSubscriptionContext>(
     () => {
-      // Runtime validation for subscription status
       const rawStatus = this.subscriptionService.subscriptionStatus();
       const validatedStatus = this.validateSubscriptionStatus(rawStatus);
 
@@ -337,7 +322,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         trialDaysRemaining: this.subscriptionService.trialDaysRemaining(),
         subscriptionStatus: validatedStatus,
         periodEndDate: this.subscriptionService.periodEndDate(),
-        // TASK_2025_143: Include license reason for trial ended display
         licenseReason: this.subscriptionService.licenseReason(),
       };
     },
@@ -359,7 +343,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     ) {
       return status as ValidSubscriptionStatus;
     }
-    // Log unexpected status for debugging but don't crash
     console.warn(
       `[PricingGrid] Unexpected subscription status: "${status}". Treating as null.`,
     );
@@ -375,7 +358,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly isLoadingSubscription = this.subscriptionService.isLoading;
 
   public constructor() {
-    // Sync loading state with paddle service
     effect(() => {
       if (!this.paddleService.isLoading()) {
         this.clearLoadingTimeout();
@@ -391,7 +373,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public onWindowFocus(): void {
     if (this.portalWasOpened) {
       this.portalWasOpened = false;
-      // Refresh subscription state when returning from portal
       this.subscriptionService
         .refresh()
         .pipe(takeUntilDestroyed(this.destroyRef))
@@ -497,14 +478,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    */
   public ngOnInit(): void {
     this.paddleService.initialize();
-
-    // Fetch subscription state for authenticated users
     this.subscriptionService
       .fetchSubscriptionState()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe();
-
-    // Check for auto-checkout param from login redirect
     const planKey = this.route.snapshot.queryParamMap.get('autoCheckout');
     if (planKey) {
       this.triggerAutoCheckout(planKey);
@@ -536,7 +513,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * TASK_2025_128: Only Pro plan keys exist - Community is free with no checkout
    */
   private triggerAutoCheckout(planKey: string): void {
-    // Validate plan key - only allow Pro plans (Community is free, no checkout)
     const validPlanKeys = ['pro-monthly', 'pro-yearly'];
     if (!validPlanKeys.includes(planKey)) {
       this.autoCheckoutError.set(
@@ -544,11 +520,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       );
       return;
     }
-
-    // Clear any previous error
     this.autoCheckoutError.set(null);
-
-    // Determine which Pro plan to checkout based on key
     let plan: PricingPlan;
     switch (planKey) {
       case 'pro-yearly':
@@ -559,18 +531,12 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         plan = this.proMonthlyPlan;
         break;
     }
-
-    // Wait for Paddle to be ready, then trigger checkout
     const startTime = Date.now();
     this.autoCheckoutIntervalId = setInterval(() => {
       if (this.isPaddleReady()) {
         this.clearAutoCheckoutInterval();
-
-        // Check if user already has a Pro subscription - skip auto-checkout if so
-        // TASK_2025_128: Community users should still be able to auto-checkout Pro
         const ctx = this.subscriptionContext();
         if (ctx.isAuthenticated && ctx.currentPlanTier === 'pro') {
-          // User already has Pro subscription, clear the query param and skip
           this.router.navigate([], {
             relativeTo: this.route,
             queryParams: { autoCheckout: null },
@@ -578,13 +544,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           });
           return;
         }
-
-        // Small delay to ensure UI is fully rendered
         setTimeout(() => {
           this.proceedWithCheckout(plan);
         }, 500);
       } else if (Date.now() - startTime > this.AUTO_CHECKOUT_TIMEOUT) {
-        // Timeout - stop waiting and show user-visible error
         this.clearAutoCheckoutInterval();
         this.autoCheckoutError.set(
           'Unable to start checkout automatically. Please click the checkout button to try again.',
@@ -626,28 +589,20 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Pro plan uses 'checkout' action (opens Paddle checkout).
    */
   public handleCtaClick(plan: PricingPlan): void {
-    // Clear any running auto-checkout interval to prevent race conditions
     this.clearAutoCheckoutInterval();
-
-    // Community plan: download action handled by CommunityPlanCardComponent directly
-    // Pro plan: checkout action
     if (plan.ctaAction === 'checkout') {
-      // Validate price ID first
       if (isPriceIdPlaceholder(plan.priceId)) {
         this.configError.set(
           'Checkout is not configured yet. Please try again later.',
         );
         return;
       }
-
-      // Check authentication FIRST before checkout
       this.authService
         .isAuthenticated()
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (isAuth) => {
             if (!isAuth) {
-              // Not authenticated - redirect to login with return URL
               const planKey = this.getPlanKey(plan);
               this.router.navigate(['/login'], {
                 queryParams: {
@@ -657,12 +612,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
               });
               return;
             }
-
-            // Authenticated - proceed with checkout
             this.proceedWithCheckout(plan);
           },
           error: () => {
-            // Auth check failed - redirect to login as fallback
             const planKey = this.getPlanKey(plan);
             this.router.navigate(['/login'], {
               queryParams: {
@@ -689,7 +641,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Proceed with Paddle checkout (called after auth check passes)
    */
   private proceedWithCheckout(plan: PricingPlan): void {
-    // Validate priceId exists before proceeding
     if (!plan.priceId) {
       this.configError.set(
         'Price configuration error. Please contact support.',
@@ -704,8 +655,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       this.paddleService.setLoadingPlan(null);
       this.loadingTimeoutId = null;
     }, this.CHECKOUT_TIMEOUT);
-
-    // Capture priceId and promoCode to avoid TypeScript narrowing issues in callback
     const priceId = plan.priceId;
     const discountCode = this.promoCode() || undefined;
 
@@ -771,28 +720,21 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Pattern source: profile-page.component.ts:360-386
    */
   public handleManageSubscription(): void {
-    // Prevent double-click while loading
     if (this.isPortalLoading()) return;
-
-    // Check auth before making API call
     this.authService
       .isAuthenticated()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (isAuth) => {
           if (!isAuth) {
-            // Auth expired - redirect to login
             this.router.navigate(['/login'], {
               queryParams: { returnUrl: '/pricing' },
             });
             return;
           }
-
-          // Auth valid - proceed with portal session
           this.openPortalSession();
         },
         error: () => {
-          // Auth check failed - redirect to login as fallback
           this.router.navigate(['/login'], {
             queryParams: { returnUrl: '/pricing' },
           });
@@ -816,7 +758,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (response) => {
           this.isPortalLoading.set(false);
-          // Track that portal was opened for refresh on return
           this.portalWasOpened = true;
           window.open(response.url, '_blank', 'noopener,noreferrer');
         },

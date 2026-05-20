@@ -11,8 +11,6 @@
  * - Large components (>500 lines)
  * - Missing trackBy in *ngFor / track in @for
  *
- * TASK_2025_144: Phase E2 - Framework-Specific Anti-Pattern Rules
- *
  * @packageDocumentation
  */
 
@@ -22,10 +20,6 @@ import {
   createHeuristicRule,
   getLineFromPosition,
 } from './rule-base';
-
-// ============================================
-// Angular Rules
-// ============================================
 
 /**
  * Detects Angular components without OnPush change detection or
@@ -69,22 +63,15 @@ export const improperChangeDetectionRule: AntiPatternRule = createHeuristicRule(
     fileExtensions: ['.ts'],
     check: (content: string, filePath: string): AntiPatternMatch[] => {
       const matches: AntiPatternMatch[] = [];
-
-      // Only check files with @Component decorator
       const hasComponent = /@Component\s*\(/.test(content);
       if (!hasComponent) {
         return [];
       }
-
-      // Check for OnPush change detection
       const hasOnPush = /ChangeDetectionStrategy\s*\.\s*OnPush/.test(content);
-
-      // Check for manual detectChanges calls
       const detectChangesPattern = /\.detectChanges\s*\(/g;
       let detectMatch: RegExpExecArray | null;
 
       if (!hasOnPush) {
-        // Find the @Component decorator position for location
         const componentMatch = /@Component\s*\(/.exec(content);
         const line = componentMatch
           ? getLineFromPosition(content, componentMatch.index)
@@ -101,8 +88,6 @@ export const improperChangeDetectionRule: AntiPatternRule = createHeuristicRule(
           },
         });
       }
-
-      // Also flag detectChanges calls (even with OnPush, these indicate improper patterns)
       while ((detectMatch = detectChangesPattern.exec(content)) !== null) {
         matches.push({
           type: 'angular-improper-change-detection',
@@ -122,7 +107,7 @@ export const improperChangeDetectionRule: AntiPatternRule = createHeuristicRule(
     suggestionTemplate:
       'Use `ChangeDetectionStrategy.OnPush` to improve rendering performance. ' +
       'Avoid manual `detectChanges()` calls -- use signals or the async pipe instead.',
-  }
+  },
 );
 
 /**
@@ -159,29 +144,22 @@ export const subscriptionLeakRule: AntiPatternRule = createHeuristicRule({
   category: 'angular',
   fileExtensions: ['.ts'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Only check files with @Component decorator
     const hasComponent = /@Component\s*\(/.test(content);
     if (!hasComponent) {
       return [];
     }
-
-    // Count .subscribe() calls
     const subscribeMatches = content.match(/\.subscribe\s*\(/g);
     if (!subscribeMatches || subscribeMatches.length === 0) {
       return [];
     }
-
-    // Check for cleanup patterns
     const hasCleanupPattern =
       /takeUntilDestroyed|takeUntil\s*\(|\.unsubscribe\s*\(|DestroyRef|ngOnDestroy/.test(
-        content
+        content,
       );
 
     if (hasCleanupPattern) {
       return [];
     }
-
-    // Find the first .subscribe() location for reporting
     const firstSubscribe = /\.subscribe\s*\(/.exec(content);
     const line = firstSubscribe
       ? getLineFromPosition(content, firstSubscribe.index)
@@ -258,7 +236,6 @@ export const largeComponentRule: AntiPatternRule = createHeuristicRule({
   category: 'angular',
   fileExtensions: ['.ts'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
-    // Only check files with @Component decorator
     const hasComponent = /@Component\s*\(/.test(content);
     if (!hasComponent) {
       return [];
@@ -319,9 +296,6 @@ export const missingTrackByRule: AntiPatternRule = createHeuristicRule({
   fileExtensions: ['.ts', '.html'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
     const matches: AntiPatternMatch[] = [];
-
-    // Check for *ngFor without trackBy
-    // Pattern: *ngFor="let x of y" without trackBy in the directive string
     const ngForPattern = /\*ngFor\s*=\s*"([^"]*)"/g;
     let ngForMatch: RegExpExecArray | null;
 
@@ -341,9 +315,6 @@ export const missingTrackByRule: AntiPatternRule = createHeuristicRule({
         });
       }
     }
-
-    // Check for @for blocks without track
-    // Pattern: @for (...) { where the parenthesized part does not include '; track'
     const forBlockPattern = /@for\s*\(([^)]*)\)/g;
     let forMatch: RegExpExecArray | null;
 
@@ -370,10 +341,6 @@ export const missingTrackByRule: AntiPatternRule = createHeuristicRule({
     'Add a `trackBy` function to `*ngFor` or `track` expression to `@for` ' +
     'to prevent unnecessary DOM re-rendering.',
 });
-
-// ============================================
-// Exports
-// ============================================
 
 /**
  * All Angular anti-pattern detection rules.

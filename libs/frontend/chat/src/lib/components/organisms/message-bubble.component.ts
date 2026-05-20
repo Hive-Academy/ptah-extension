@@ -72,11 +72,6 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class.is-streaming]': 'isStreaming()',
-    // `data-finalized` gates `content-visibility: auto` in CSS so it only
-    // applies to historical/finalized bubbles. The active streaming bubble
-    // must NEVER have `content-visibility: auto` — its intrinsic-size guess
-    // mismatches the rapidly growing real height, causing layout shift each
-    // time the bubble crosses the viewport boundary.
     '[attr.data-finalized]': '!isStreaming()',
   },
 })
@@ -93,10 +88,9 @@ export class MessageBubbleComponent {
   readonly isStreaming = input<boolean>(false);
 
   /**
-   * TASK_2026_TREE_STABILITY Fix 5/8: True while the chat is in the
-   * streaming → finalized handoff window (~300ms). Forwarded down to
-   * ExecutionNodeComponent so it can suppress fade keyframes that would
-   * otherwise stack on top of the layout settle.
+   * True while the chat is in the streaming → finalized handoff window
+   * (~300ms). Forwarded down to ExecutionNodeComponent so it can suppress
+   * fade keyframes that would otherwise stack on top of the layout settle.
    */
   readonly isFinalizing = input<boolean>(false);
 
@@ -115,8 +109,6 @@ export class MessageBubbleComponent {
    * unrelated views) keep current behaviour.
    */
   readonly isSessionActive = input<boolean>(true);
-
-  // Lucide icons
   readonly UserIcon = User;
   readonly FileTextIcon = FileText;
   readonly ImageIcon = Image;
@@ -154,8 +146,6 @@ export class MessageBubbleComponent {
     if (msg.role !== 'assistant') return false;
     if (this.isStreaming()) return false;
     if (!msg.streamingState) return false;
-    // Keep last 4 positions expanded to ensure the last ~2 assistant messages
-    // stay visible (accounts for interspersed user messages in alternating pattern)
     const index = this.messageIndex();
     const total = this.totalMessages();
     return index < total - 4;
@@ -204,8 +194,6 @@ export class MessageBubbleComponent {
   });
 
   constructor() {
-    // Reset userToggled when the component is reused for a different message
-    // (Angular @for may reuse component instances when session changes)
     effect(() => {
       const id = this.message().id;
       if (this.previousMessageId !== null && id !== this.previousMessageId) {
@@ -213,8 +201,6 @@ export class MessageBubbleComponent {
       }
       this.previousMessageId = id;
     });
-
-    // Auto-collapse based on position, but respect user's manual toggle.
     effect(() => {
       const shouldCollapse = this.shouldAutoCollapse();
       if (!this.userToggled) {
@@ -269,11 +255,6 @@ export class MessageBubbleComponent {
 
   /** Click handler for the "Rewind to here" action on user bubbles. */
   protected onRewindClick(): void {
-    // Defence-in-depth — the template `[disabled]` guard already blocks
-    // pointer clicks, but keyboard / programmatic invocations can still
-    // reach here. Backend `rewindFiles` throws `SessionNotActiveError`
-    // for inactive sessions (Sentry NODE-NESTJS-2Y / 2N / 2X). The parent
-    // chat-view has its own re-check + user-facing toast.
     if (!this.isSessionActive()) return;
     this.rewindRequested.emit(this.message().id);
   }
@@ -288,8 +269,6 @@ export class MessageBubbleComponent {
   protected toggleContinuationCollapse(): void {
     this.isContinuationCollapsed.update((v) => !v);
   }
-
-  // TASK_2025_109: onResumeRequested removed - now uses context injection
 
   protected formatTime(timestamp: number): string {
     const date = new Date(timestamp);
@@ -308,7 +287,6 @@ export class MessageBubbleComponent {
    * Extract file name from a full path
    */
   protected getFileName(filePath: string): string {
-    // Handle both Windows and Unix paths
     const parts = filePath.split(/[/\\]/);
     return parts[parts.length - 1] || filePath;
   }

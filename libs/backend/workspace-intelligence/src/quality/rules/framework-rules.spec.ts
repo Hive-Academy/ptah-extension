@@ -6,8 +6,6 @@
  * - NestJS rules (5 rules)
  * - React rules (5 rules)
  * - RuleRegistry integration for new categories
- *
- * TASK_2025_144: Phase E2 - Framework-Specific Anti-Pattern Rules
  */
 
 import {

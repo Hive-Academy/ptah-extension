@@ -1,10 +1,10 @@
 /**
  * Electron Browser Capabilities
- * TASK_2025_244: CDP browser integration using Electron's native BrowserWindow
- * TASK_2025_254: Visible mode, screen recording, inactivity timer control
  *
- * Uses a dedicated BrowserWindow with webContents.debugger for CDP access.
- * Zero external dependencies — leverages Electron's built-in Chromium engine.
+ * CDP browser integration using Electron's native BrowserWindow with
+ * webContents.debugger. Zero external dependencies — leverages Electron's
+ * built-in Chromium engine. Supports visible mode, screen recording, and
+ * inactivity timer control.
  *
  * Session lifecycle: 5-min inactivity timeout (headless) / 15-min (visible),
  * 30-min max lifetime, auto-cleanup.
@@ -27,7 +27,7 @@ interface NetworkEntry {
 }
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (headless)
-const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TASK_2025_254)
+const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible)
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
 
@@ -48,7 +48,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   /** Concurrency guard — prevents duplicate session creation from parallel calls */
   private sessionPromise: Promise<void> | null = null;
 
-  /** Recording service (TASK_2025_254) */
+  /** Recording service */
   private recorder: ScreenRecorderService | null = null;
   /** Whether current session is headless — agent-controlled, default false (visible) */
   private _headless = false;
@@ -224,8 +224,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
-
-      // Focus the element
       const focusResult = await this.evaluate(
         `(() => {
           const el = document.querySelector(${JSON.stringify(selector)});
@@ -246,8 +244,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
           error: `Element not found: ${selector}`,
         };
       }
-
-      // Type the text using Input.insertText
       await this.sendCDP('Input.insertText', { text });
 
       return { success: true };
@@ -359,16 +355,10 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     await this.cleanup();
   }
 
-  // ========================================
-  // Private helpers
-  // ========================================
-
   private async ensureSession(): Promise<void> {
     if (this.window && !this.window.isDestroyed() && this.connected) {
       return;
     }
-
-    // Concurrency guard: if a session is already being created, await it
     if (this.sessionPromise) {
       await this.sessionPromise;
       return;
@@ -383,17 +373,12 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async createSession(): Promise<void> {
-    // Clean up any stale state from a crashed session (auto-reconnect)
     await this.cleanup();
-
-    // Consume pending session options (agent-controlled headless + viewport)
     this._headless = this._pendingOptions.headless ?? false;
     this._viewport = this._pendingOptions.viewport
       ? { ...this._pendingOptions.viewport }
       : { ...DEFAULT_VIEWPORT };
     this._pendingOptions = {};
-
-    // Create BrowserWindow — visible when not headless
     this.window = new BrowserWindow({
       show: !this._headless,
       width: this._viewport.width,
@@ -405,8 +390,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
         webSecurity: true,
       },
     });
-
-    // Attach CDP debugger
     try {
       this.window.webContents.debugger.attach('1.3');
     } catch (err) {
@@ -416,21 +399,15 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
         `Failed to attach debugger: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-
-    // Enable CDP domains
     await this.sendCDP('Page.enable', {});
     await this.sendCDP('Network.enable', {});
     await this.sendCDP('Runtime.enable', {});
-
-    // Set viewport via CDP Emulation (matches ChromeLauncherBrowserCapabilities behavior)
     await this.sendCDP('Emulation.setDeviceMetricsOverride', {
       width: this._viewport.width,
       height: this._viewport.height,
       deviceScaleFactor: 1,
       mobile: false,
     });
-
-    // Set up network monitoring
     this.networkEntries = [];
     this.pendingResponses.clear();
 
@@ -444,8 +421,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
         this.handleCDPEvent(method, params);
       },
     );
-
-    // Handle window destruction
     this.window.on('closed', () => {
       this.connected = false;
       this.window = null;
@@ -453,8 +428,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
 
     this.connected = true;
     this.startedAt = Date.now();
-
-    // Set up session lifecycle timers
     this.resetInactivityTimer();
     this.lifetimeTimer = setTimeout(() => {
       this.cleanup();
@@ -511,8 +484,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
           type: pending.type,
           size: contentLength ? parseInt(contentLength, 10) : undefined,
         });
-
-        // Ring buffer — keep only the last N entries
         if (this.networkEntries.length > MAX_NETWORK_ENTRIES) {
           this.networkEntries = this.networkEntries.slice(-MAX_NETWORK_ENTRIES);
         }
@@ -520,20 +491,12 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
         this.pendingResponses.delete(requestId);
       }
     }
-
-    // TASK_2025_254: Handle screencast frames for recording
     if (method === 'Page.screencastFrame') {
       const data = params.data as string;
       const sessionId = params.sessionId as number;
-
-      // Acknowledge frame immediately to avoid backpressure
       this.sendCDP('Page.screencastFrameAck', { sessionId }).catch(
-        (_ackError: unknown) => {
-          // Intentionally swallowed: ack failures are non-critical
-        },
+        (_ackError: unknown) => {},
       );
-
-      // Add frame data to ring buffer
       this.recorder?.addFrame(data);
     }
   }
@@ -542,8 +505,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
-
-    // TASK_2025_254: Use longer timeout for visible mode
     const timeout = this._headless
       ? INACTIVITY_TIMEOUT_MS
       : VISIBLE_INACTIVITY_TIMEOUT_MS;
@@ -554,14 +515,9 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async cleanup(): Promise<void> {
-    // TASK_2025_254: Stop recording if active (best-effort GIF save)
     if (this.recorder?.isRecording()) {
-      try {
-        const recordingDir = this.getRecordingDir();
-        await this.recorder.stopRecording(recordingDir || undefined);
-      } catch {
-        // Best-effort: don't let recording cleanup failure block session cleanup
-      }
+      const recordingDir = this.getRecordingDir();
+      await this.recorder.stopRecording(recordingDir || undefined);
     }
     this.recorder = null;
 
@@ -575,11 +531,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     }
 
     if (this.window && !this.window.isDestroyed()) {
-      try {
-        this.window.webContents.debugger.detach();
-      } catch {
-        // Debugger may already be detached
-      }
+      this.window.webContents.debugger.detach();
       this.window.destroy();
     }
 
@@ -590,8 +542,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.pendingResponses.clear();
     this._pendingOptions = {};
   }
-
-  // Recording methods (TASK_2025_254)
 
   async startRecording(options?: {
     maxFrames?: number;
@@ -608,15 +558,11 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
-
-      // Initialize recorder
       this.recorder = new ScreenRecorderService();
       const startResult = this.recorder.startRecording(options);
       if (!startResult.success) {
         return startResult;
       }
-
-      // Start CDP screencast via Electron debugger
       await this.sendCDP('Page.startScreencast', {
         format: 'jpeg',
         quality: 60,
@@ -654,16 +600,11 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     }
 
     try {
-      // Stop CDP screencast
       if (this.connected && this.window && !this.window.isDestroyed()) {
         await this.sendCDP('Page.stopScreencast', {}).catch(
-          (_stopError: unknown) => {
-            // Intentionally swallowed: screencast may already be stopped
-          },
+          (_stopError: unknown) => {},
         );
       }
-
-      // Assemble GIF
       const recordingDir = this.getRecordingDir();
       return await this.recorder.stopRecording(recordingDir || undefined);
     } catch (error) {

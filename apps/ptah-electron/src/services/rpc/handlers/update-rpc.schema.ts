@@ -4,8 +4,6 @@
  * Both `update:check-now` and `update:install-now` accept empty payloads.
  * Schemas are kept here so they can be unit-tested in isolation without
  * spinning up the full handler surface.
- *
- * TASK_2026_117: In-App Electron Auto-Update UX (VS Code-Style)
  */
 
 import { z } from 'zod';

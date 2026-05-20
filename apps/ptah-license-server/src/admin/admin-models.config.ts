@@ -90,8 +90,6 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     ],
     searchFields: ['licenseKey', 'userId', 'plan', 'status', 'source'],
     sortableFields: ['createdAt', 'expiresAt', 'status', 'plan', 'source'],
-    // licenseKey IMMUTABLE per spec. userId not editable (FK safety).
-    // `source` is system-set (paddle | complimentary | manual) — NOT editable.
     editableFields: ['plan', 'status', 'expiresAt'],
     readOnly: false,
     defaultSortBy: 'createdAt',

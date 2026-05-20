@@ -13,7 +13,7 @@ export interface WebviewHtmlOptions {
   initialView?: string;
   /** Whether the user has a valid license (default: true for licensed activation) */
   isLicensed?: boolean;
-  /** Unique panel identifier for multi-webview support (TASK_2025_117) */
+  /** Unique panel identifier for multi-webview support. */
   panelId?: string;
 }
 
@@ -49,7 +49,6 @@ export class WebviewHtmlGenerator {
       | null,
   ): string {
     try {
-      // Support both new options object and legacy workspaceInfo object
       let workspaceInfo: Record<string, unknown> | undefined;
       let initialView: string | undefined;
       let isLicensed = true; // Default to licensed for normal activation
@@ -65,7 +64,6 @@ export class WebviewHtmlGenerator {
           'panelId' in options ||
           'initialSessionId' in options
         ) {
-          // New format with explicit options
           workspaceInfo = (
             options as { workspaceInfo?: Record<string, unknown> }
           ).workspaceInfo;
@@ -77,7 +75,6 @@ export class WebviewHtmlGenerator {
           initialSessionName = (options as { initialSessionName?: string })
             .initialSessionName;
         } else {
-          // Legacy format - treat as workspaceInfo directly
           workspaceInfo = options as Record<string, unknown>;
         }
       }
@@ -94,7 +91,6 @@ export class WebviewHtmlGenerator {
       return htmlContent;
     } catch (error) {
       console.error('Error generating webview content:', error);
-      // Fallback to basic HTML
       return this.generateFallbackHtml(
         webview,
         options as Record<string, unknown>,
@@ -115,7 +111,6 @@ export class WebviewHtmlGenerator {
     initialSessionId?: string,
     initialSessionName?: string,
   ): string {
-    // CRITICAL: Validate initialView to prevent invalid views from crashing navigation
     const VALID_VIEWS = [
       'chat',
       'command-builder',
@@ -123,7 +118,7 @@ export class WebviewHtmlGenerator {
       'context-tree',
       'settings',
       'setup-wizard',
-      'welcome', // TASK_2025_126: Welcome view for unlicensed users
+      'welcome',
     ];
 
     if (initialView && !VALID_VIEWS.includes(initialView)) {
@@ -133,16 +128,12 @@ export class WebviewHtmlGenerator {
         )}`,
       );
     }
-    // Path to Angular dist folder (browser build output)
-    // FIXED: context.extensionPath already points to dist/apps/ptah-extension-vscode
     const appDistPath = path.join(
       this.context.extensionPath,
       'webview',
       'browser',
     );
     const appDistPathUri = vscode.Uri.file(appDistPath);
-
-    // Read the actual Angular-generated index.html
     const indexPath = path.join(appDistPath, 'index.html');
 
     if (!fs.existsSync(indexPath)) {
@@ -150,23 +141,13 @@ export class WebviewHtmlGenerator {
     }
 
     let indexHtml = fs.readFileSync(indexPath, { encoding: 'utf8' });
-
-    // CRITICAL: DO NOT modify the base href - VS Code webviews don't support it
-    // We will transform individual asset URIs instead
-    // Keep base href as "/" to avoid confusing VS Code's webview URI resolution
-
-    // IMPROVED CSP: Fix Google Fonts and add proper nonce support
     const nonce = this.generateNonce();
     const cspContent = this.getImprovedCSP(webview, nonce);
-
-    // Add CSP meta tag after charset
     indexHtml = indexHtml.replace(
       '<meta charset="utf-8">',
       `<meta charset="utf-8">
         <meta http-equiv="Content-Security-Policy" content="${cspContent}">`,
     );
-
-    // Add VS Code integration and theme support
     const theme = vscode.window.activeColorTheme.kind;
     const integrationScript = this.getVSCodeIntegrationScript(
       theme,
@@ -179,8 +160,6 @@ export class WebviewHtmlGenerator {
       initialSessionName,
     );
     const themeStyles = this.getThemeStyles();
-
-    // Inject theme styles in head
     indexHtml = indexHtml.replace(
       '</head>',
       `  <style nonce="${nonce}">
@@ -188,14 +167,10 @@ export class WebviewHtmlGenerator {
         </style>
       </head>`,
     );
-
-    // Add VS Code theme class to body
     indexHtml = indexHtml.replace(
       '<body>',
       `<body class="vscode-body ${this.getThemeClass(theme)}">`,
     );
-
-    // Inject VS Code integration script before closing body
     indexHtml = indexHtml.replace(
       '</body>',
       `  <script nonce="${nonce}">
@@ -206,18 +181,12 @@ export class WebviewHtmlGenerator {
         </script>
       </body>`,
     );
-
-    // Transform all asset URIs (styles.css, main.js, polyfills.js) to webview URIs
-    // This is REQUIRED for VS Code webviews - base href alone doesn't work
     indexHtml = indexHtml.replace(
       /(src|href)="([^"]+)"/g,
       (match, attribute, uri) => {
-        // CRITICAL: Skip base href (/) - it's a special HTML tag
         if (uri === '/') {
           return match;
         }
-
-        // Skip external resources, data URIs, and already-transformed URIs
         if (
           uri.startsWith('http') ||
           uri.startsWith('data:') ||
@@ -229,19 +198,13 @@ export class WebviewHtmlGenerator {
         ) {
           return match;
         }
-
-        // Transform relative URIs to webview URIs
         const fullUri = webview.asWebviewUri(
           vscode.Uri.joinPath(appDistPathUri, uri),
         );
         return `${attribute}="${fullUri}"`;
       },
     );
-
-    // Add nonce to inline styles (Angular critical CSS)
     indexHtml = indexHtml.replace(/<style>/g, `<style nonce="${nonce}">`);
-
-    // Add nonces to script and link tags
     indexHtml = indexHtml
       .replace(/<script([^>]*?)>/g, (match, attributes) => {
         if (!attributes.includes('nonce=')) {
@@ -273,11 +236,9 @@ export class WebviewHtmlGenerator {
     baseUri: vscode.Uri,
     nonce: string,
   ): string {
-    // Transform all src and href attributes using the specified regex pattern
     const transformedHtml = html.replace(
       /(src|href)="([^"]+)"/g,
       (match, attribute, uri) => {
-        // Skip already transformed URIs and external resources
         if (
           uri.startsWith('http') ||
           uri.startsWith('data:') ||
@@ -289,14 +250,10 @@ export class WebviewHtmlGenerator {
         ) {
           return match;
         }
-
-        // Transform relative URIs to webview URIs
         const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(baseUri, uri));
         return `${attribute}="${fullUri}"`;
       },
     );
-
-    // Add nonce to script and link tags that don't have it
     return transformedHtml
       .replace(/<script([^>]*src="[^"]*"[^>]*?)>/g, (match, attributes) => {
         if (!attributes.includes('nonce=')) {
@@ -388,7 +345,6 @@ export class WebviewHtmlGenerator {
   }
 
   private getAssetUris(webview: vscode.Webview) {
-    // FIXED: context.extensionUri already points to dist/apps/ptah-extension-vscode
     const angularDistPath = vscode.Uri.joinPath(
       this.context.extensionUri,
       'webview',
@@ -430,7 +386,6 @@ export class WebviewHtmlGenerator {
     initialSessionId?: string,
     initialSessionName?: string,
   ): string {
-    // Generate proper webview URIs for assets
     const appDistPath = path.join(
       this.context.extensionPath,
       'webview',
@@ -452,10 +407,7 @@ export class WebviewHtmlGenerator {
         .toString() || '';
 
     return `
-      // Acquire VS Code API
       const vscode = acquireVsCodeApi();
-
-      // Global configuration for Angular app
       window.vscode = vscode;
       window.ptahConfig = {
         isVSCode: true,
@@ -486,23 +438,15 @@ export class WebviewHtmlGenerator {
             : 'null'
         }
       };
-
-
-
-      // Restore previous state
       const previousState = vscode.getState();
       if (previousState) {
         window.ptahPreviousState = previousState;
       }
-
-      // Handle theme changes
       window.addEventListener('message', (event) => {
         const message = event.data;
         if (message.type === 'themeChanged') {
           document.body.className = 'vscode-body ' + message.themeClass;
           window.ptahConfig.theme = message.theme;
-
-          // Notify Angular about theme change
           window.dispatchEvent(new CustomEvent('vscode-theme-changed', {
             detail: { theme: message.theme, themeClass: message.themeClass }
           }));
@@ -514,7 +458,6 @@ export class WebviewHtmlGenerator {
 
   private getStartupScript(): string {
     return `
-      // Notify extension that webview is ready
       setTimeout(() => {
         if (window.vscode) {
           window.vscode.postMessage({ type: '${MESSAGE_TYPES.WEBVIEW_READY}' });

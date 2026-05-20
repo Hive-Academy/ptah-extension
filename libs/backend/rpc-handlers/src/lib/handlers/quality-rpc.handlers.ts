@@ -5,9 +5,6 @@
  * - quality:getAssessment - Get quality assessment (with optional cache bypass)
  * - quality:getHistory - Get historical assessment entries
  * - quality:export - Export quality report in Markdown/JSON/CSV
- *
- * TASK_2025_144: Phase G - Reporting and Visualization
- * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode APIs with platform abstractions)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -109,31 +106,21 @@ export class QualityRpcHandlers {
             'No workspace folder open. Please open a folder to analyze.',
           );
         }
-
-        // Optionally invalidate cache for fresh analysis
         if (params?.forceRefresh) {
           this.intelligenceService.invalidateCache(workspaceRoot);
         }
-
-        // Track timing to detect if result came from cache
         const preCallMs = Date.now();
 
         const intelligence =
           await this.intelligenceService.getIntelligence(workspaceRoot);
-
-        // Determine cache status: fresh analysis takes measurable time,
-        // cached results return nearly instantly
         const callDurationMs = Date.now() - preCallMs;
         const fromCache = !params?.forceRefresh && callDurationMs < 50;
-
-        // Only record in history when result is fresh (avoid duplicate entries)
         if (!fromCache) {
           try {
             await this.historyService.recordAssessment(
               intelligence.qualityAssessment,
             );
           } catch (historyError) {
-            // History recording failure should not block the response
             this.logger.warn('Failed to record assessment in history', {
               error:
                 historyError instanceof Error
@@ -224,8 +211,6 @@ export class QualityRpcHandlers {
           }
 
           this.logger.debug('RPC: quality:export called', { format });
-
-          // Get latest intelligence (may use cache)
           const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
           if (!workspaceRoot) {
             throw new Error(
@@ -235,8 +220,6 @@ export class QualityRpcHandlers {
 
           const intelligence =
             await this.intelligenceService.getIntelligence(workspaceRoot);
-
-          // Generate export content based on format
           let content: string;
           let filename: string;
           let mimeType: string;
@@ -263,8 +246,6 @@ export class QualityRpcHandlers {
             default:
               throw new Error(`Unsupported export format: ${format}`);
           }
-
-          // Save file via platform save dialog (webview can't use blob download)
           let saved = false;
           let filePath: string | undefined;
 
@@ -309,10 +290,6 @@ export class QualityRpcHandlers {
       },
     );
   }
-
-  // ============================================
-  // Private Helper Methods
-  // ============================================
 
   /**
    * Returns VS Code save dialog file filters for a given export format.

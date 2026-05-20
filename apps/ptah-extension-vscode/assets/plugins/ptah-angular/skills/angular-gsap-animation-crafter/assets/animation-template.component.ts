@@ -344,9 +344,6 @@ import {
   `,
 })
 export class MyAnimationComponent {
-  // ============================================
-  // SAMPLE DATA
-  // ============================================
 
   features = signal([
     {
@@ -381,12 +378,6 @@ export class MyAnimationComponent {
     'Performant',
     'Customizable',
   ]);
-
-  // ============================================
-  // OPTIONAL: REDUCED MOTION SUPPORT
-  // ============================================
-
-  // Uncomment to add accessibility support
   /*
   private mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   prefersReducedMotion = signal(this.mediaQuery.matches);
@@ -408,10 +399,6 @@ export class MyAnimationComponent {
     return baseConfig;
   }
   */
-
-  // ============================================
-  // OPTIONAL: HIJACKED SCROLL EVENT HANDLER
-  // ============================================
 
   onStepChange(index: number) {
     console.log('Current step:', index);

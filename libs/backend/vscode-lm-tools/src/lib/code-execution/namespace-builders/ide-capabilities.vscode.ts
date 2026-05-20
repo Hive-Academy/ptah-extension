@@ -7,8 +7,6 @@
  * This file is the ONLY place in the namespace-builders directory that
  * imports `vscode`. It encapsulates all VS Code-specific IDE integration
  * so that ide-namespace.builder.ts remains platform-agnostic.
- *
- * TASK_2025_226 - Batch 3: Extracted from ide-namespace.builder.ts
  */
 
 import * as vscode from 'vscode';
@@ -25,22 +23,15 @@ import type { IIDECapabilities } from './ide-namespace.builder';
 /**
  * Resolve a file path relative to workspace root if it's not absolute.
  * Handles relative paths like 'src/contexts/AuthContext.tsx' by prepending workspace root.
- *
- * Moved from ide-namespace.builder.ts during TASK_2025_226 decoupling.
  */
 function resolveFilePath(filePath: string): vscode.Uri {
-  // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
-
-  // Check if it's already an absolute path (starts with drive letter or /)
   const isAbsolute =
     /^[a-zA-Z]:/.test(normalizedPath) || normalizedPath.startsWith('/');
 
   if (isAbsolute) {
     return vscode.Uri.file(normalizedPath);
   }
-
-  // Relative path - resolve to workspace root
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
     throw new Error(
@@ -158,16 +149,11 @@ export class VscodeIDECapabilities implements IIDECapabilities {
         if (!hovers || hovers.length === 0) {
           return null;
         }
-
-        // Use the first hover result
         const hover = hovers[0];
-
-        // Convert MarkdownString[] or MarkedString[] to string[]
         const contents = hover.contents.map((content) => {
           if (typeof content === 'string') {
             return content;
           } else {
-            // MarkdownString has 'value' property
             return content.value;
           }
         });
@@ -175,8 +161,6 @@ export class VscodeIDECapabilities implements IIDECapabilities {
         const result: HoverInfo = {
           contents,
         };
-
-        // Add range if available
         if (hover.range) {
           result.range = {
             start: {
@@ -313,8 +297,6 @@ export class VscodeIDECapabilities implements IIDECapabilities {
         line: editor.selection.active.line,
         column: editor.selection.active.character,
       };
-
-      // Add selection if there's a non-empty selection
       if (!editor.selection.isEmpty) {
         result.selection = {
           start: {
@@ -338,13 +320,9 @@ export class VscodeIDECapabilities implements IIDECapabilities {
      */
     getOpenFiles: async (): Promise<string[]> => {
       const documents = vscode.workspace.textDocuments;
-
-      // Filter out non-file schemes (e.g., output, debug, git)
       const filePaths = documents
         .filter((doc) => doc.uri.scheme === 'file')
         .map((doc) => doc.uri.fsPath);
-
-      // Remove duplicates (same file can be open in multiple editors)
       return Array.from(new Set(filePaths));
     },
 
@@ -353,8 +331,6 @@ export class VscodeIDECapabilities implements IIDECapabilities {
      */
     getDirtyFiles: async (): Promise<string[]> => {
       const documents = vscode.workspace.textDocuments;
-
-      // Filter to dirty files only
       const dirtyPaths = documents
         .filter((doc) => doc.uri.scheme === 'file' && doc.isDirty)
         .map((doc) => doc.uri.fsPath);
@@ -372,11 +348,7 @@ export class VscodeIDECapabilities implements IIDECapabilities {
       const filePaths = visibleEditors
         .filter((editor) => editor.document.uri.scheme === 'file')
         .map((editor) => editor.document.uri.fsPath);
-
-      // Remove duplicates
       const uniquePaths = Array.from(new Set(filePaths));
-
-      // Apply limit if specified
       if (limit !== undefined && limit > 0) {
         return uniquePaths.slice(0, limit);
       }
@@ -393,15 +365,11 @@ export class VscodeIDECapabilities implements IIDECapabilities {
       if (!editor) {
         return null;
       }
-
-      // Get visible ranges (can be multiple if editor is split)
       const visibleRanges = editor.visibleRanges;
 
       if (visibleRanges.length === 0) {
         return null;
       }
-
-      // Use the first visible range
       const range = visibleRanges[0];
 
       return {
@@ -458,8 +426,6 @@ export class VscodeIDECapabilities implements IIDECapabilities {
         const uri = resolveFilePath(file);
         const position = new vscode.Position(line, 0);
         const range = new vscode.Range(position, position);
-
-        // Get available actions
         const actions = await vscode.commands.executeCommand<
           vscode.CodeAction[]
         >('vscode.executeCodeActionProvider', uri, range);
@@ -467,14 +433,10 @@ export class VscodeIDECapabilities implements IIDECapabilities {
         if (!actions || actions.length === 0) {
           return false;
         }
-
-        // Find action by title
         const action = actions.find((a) => a.title === actionTitle);
         if (!action) {
           return false;
         }
-
-        // Apply the action
         if (action.edit) {
           const success = await vscode.workspace.applyEdit(action.edit);
           return success;

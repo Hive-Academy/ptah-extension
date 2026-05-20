@@ -5,6 +5,7 @@ export interface ICompactionCallbackRegistry {
       trigger: 'manual' | 'auto';
       timestamp: number;
       preTokens: number;
+      cwd?: string | null;
     }) => void,
   ): () => void;
 }

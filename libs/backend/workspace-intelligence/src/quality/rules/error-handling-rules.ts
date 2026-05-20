@@ -8,8 +8,6 @@
  * - Empty catch blocks (swallowing errors)
  * - Console-only catch blocks (logging without proper handling)
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
- *
  * @packageDocumentation
  */
 
@@ -19,10 +17,6 @@ import {
   createHeuristicRule,
   getLineFromPosition,
 } from './rule-base';
-
-// ============================================
-// Error Handling Rules
-// ============================================
 
 /**
  * Detects empty catch blocks that silently swallow errors.
@@ -62,8 +56,6 @@ export const emptyCatchRule: AntiPatternRule = createRegexRule({
   severity: 'error',
   category: 'error-handling',
   fileExtensions: ['.ts', '.tsx', '.js', '.jsx'],
-  // Match catch with optional parameter followed by empty braces
-  // Handles various whitespace patterns between catch and braces
   pattern: /catch\s*\([^)]*\)\s*\{\s*\}/g,
   suggestionTemplate:
     'Handle the error appropriately: log it with context, rethrow it, ' +
@@ -116,30 +108,18 @@ export const consoleOnlyCatchRule: AntiPatternRule = createHeuristicRule({
   fileExtensions: ['.ts', '.tsx', '.js', '.jsx'],
   check: (content: string, filePath: string): AntiPatternMatch[] => {
     const matches: AntiPatternMatch[] = [];
-
-    // Pattern to match catch blocks containing only console statements
-    // This pattern is more complex because it needs to analyze block content
-    // Match: catch (...) { console.log/warn/error(...); }
-    // The block should ONLY contain console statements and whitespace/semicolons
     const catchBlockPattern =
       /catch\s*\(([^)]*)\)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
 
     let match: RegExpExecArray | null;
     while ((match = catchBlockPattern.exec(content)) !== null) {
       const blockContent = match[2].trim();
-
-      // Skip if block is empty (handled by emptyCatchRule)
       if (!blockContent) {
         continue;
       }
-
-      // Check if block contains ONLY console statements
-      // Remove console.log/warn/error/info/debug calls
       const withoutConsole = blockContent
         .replace(/console\.(log|warn|error|info|debug)\s*\([^)]*\)\s*;?/g, '')
         .trim();
-
-      // If nothing remains after removing console calls, it's console-only
       if (withoutConsole === '' || withoutConsole === ';') {
         const lineNumber = getLineFromPosition(content, match.index);
 
@@ -165,10 +145,6 @@ export const consoleOnlyCatchRule: AntiPatternRule = createHeuristicRule({
     'return an error result, or implement recovery logic. ' +
     'Callers should know when operations fail.',
 });
-
-// ============================================
-// Exports
-// ============================================
 
 /**
  * All error handling anti-pattern detection rules.

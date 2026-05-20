@@ -11,5 +11,6 @@ export default {
   moduleNameMapper: {
     '^vscode$': '<rootDir>/../../__mocks__/vscode.ts',
     '^electron$': '<rootDir>/__mocks__/electron.ts',
+    '(^|/)wasm-bundle-dir(\\.js)?$': '<rootDir>/__mocks__/wasm-bundle-dir.ts',
   },
 };

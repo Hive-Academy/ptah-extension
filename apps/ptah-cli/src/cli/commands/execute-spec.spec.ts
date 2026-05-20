@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah execute-spec` — TASK_2026_104 Sub-batch B10d.
+ * Unit tests for `ptah execute-spec`.
  *
  * Coverage:
  *   - missing --id → exit 1, ptah_code:'unknown', task.error emitted

@@ -4,8 +4,7 @@
  * Centralized feature access control based on license tier.
  * Determines which features are available to users based on their subscription level.
  *
- * TASK_2025_121 Batch 3: Two-tier paid model enforcement
- * TASK_2025_128: Freemium model (Community + Pro)
+ * Freemium model (Community + Pro tier enforcement).
  *
  * @packageDocumentation
  */
@@ -26,7 +25,7 @@ import type { LicenseService, LicenseStatus } from './license.service';
  * - cost_tracking: Real-time cost tracking and analytics
  *
  * Community features (available to ALL users):
- * - openrouter_proxy: OpenRouter proxy for 200+ models (TASK_2025_129)
+ * - openrouter_proxy: OpenRouter proxy for 200+ models
  */
 export type ProOnlyFeature =
   | 'mcp_server'
@@ -36,9 +35,8 @@ export type ProOnlyFeature =
   | 'cost_tracking';
 
 /**
- * All gated features (both Community and Pro tiers)
+ * All gated features (both Community and Pro tiers).
  *
- * TASK_2025_128: Freemium model
  * Community tier features are available to all users (free).
  * Pro tier features require Pro or trial_pro subscription.
  */
@@ -112,15 +110,15 @@ export class FeatureGateService {
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.logger.debug('[FeatureGateService] Service initialized');
   }
 
   /**
-   * Check if a feature is enabled for the current license tier
+   * Check if a feature is enabled for the current license tier.
    *
-   * TASK_2025_128: Freemium model feature access rules:
+   * Freemium model feature access rules:
    * - No valid license (expired): All features disabled
    * - Community tier: Community features only (free)
    * - Pro tier (pro, trial_pro): All features enabled
@@ -137,20 +135,16 @@ export class FeatureGateService {
    */
   async isFeatureEnabled(feature: Feature): Promise<boolean> {
     const status = await this.getLicenseStatus();
-
-    // No valid license (expired) = no features
     if (!status.valid) {
       this.logger.debug(
         '[FeatureGateService.isFeatureEnabled] License invalid, feature disabled',
         {
           feature,
           tier: status.tier,
-        }
+        },
       );
       return false;
     }
-
-    // Pro-only features require Pro tier (or Pro trial)
     if (this.isProOnlyFeature(feature)) {
       const isEnabled = status.tier === 'pro' || status.tier === 'trial_pro';
       this.logger.debug(
@@ -159,26 +153,24 @@ export class FeatureGateService {
           feature,
           tier: status.tier,
           enabled: isEnabled,
-        }
+        },
       );
       return isEnabled;
     }
-
-    // All other features are available to any valid license (Community or Pro)
     this.logger.debug(
       '[FeatureGateService.isFeatureEnabled] Community feature enabled',
       {
         feature,
         tier: status.tier,
-      }
+      },
     );
     return true;
   }
 
   /**
-   * Check if user has any valid license (Community or Pro)
+   * Check if user has any valid license (Community or Pro).
    *
-   * TASK_2025_128: Freemium model - Community users always have valid: true
+   * Freemium model — Community users always have valid: true.
    * Use this for hard blocking (e.g., extension activation).
    * For feature-specific checks, use isFeatureEnabled().
    *
@@ -224,8 +216,6 @@ export class FeatureGateService {
   /**
    * Check if user has Community tier (free tier)
    *
-   * TASK_2025_128: Replaces isBasicTier
-   *
    * Community tier includes core features:
    * - Visual chat interface
    * - Session history
@@ -242,9 +232,9 @@ export class FeatureGateService {
   }
 
   /**
-   * Check if user is in trial period (Pro trial only)
+   * Check if user is in trial period (Pro trial only).
    *
-   * TASK_2025_128: Community has no trial (it's always free)
+   * Community tier has no trial (it's always free).
    *
    * @returns true if user is in trial, false otherwise
    */

@@ -5,8 +5,6 @@
  * - plugins:list-available - List all bundled plugins with metadata
  * - plugins:get-config - Get per-workspace plugin configuration
  * - plugins:save-config - Save plugin configuration (enabled plugins + disabled skills)
- *
- * TASK_2025_153: Plugin Configuration Feature
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -27,8 +25,6 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for plugin configuration operations.
- *
- * TASK_2025_153: Plugin Configuration Feature
  *
  * Exposes plugin management to the frontend for:
  * - Displaying available plugins in the Plugin Browser modal
@@ -168,7 +164,6 @@ export class PluginRpcHandlers {
       { success: boolean; error?: string }
     >('plugins:save-config', async (params) => {
       try {
-        // Validate and sanitize plugin IDs
         const rawIds = params?.enabledPluginIds ?? [];
         const knownPluginIds = this.pluginLoader
           .getAvailablePlugins()
@@ -181,13 +176,8 @@ export class PluginRpcHandlers {
             ),
           ),
         ];
-
-        // Resolve plugin paths early (needed for both skill validation and junction creation)
         const pluginPaths =
           this.pluginLoader.resolvePluginPaths(enabledPluginIds);
-
-        // Validate and sanitize disabled skill IDs.
-        // When disabledSkillIds is not provided, preserve existing config (backward compat with TUI)
         let disabledSkillIds: string[];
         if (Array.isArray(params?.disabledSkillIds)) {
           disabledSkillIds = [
@@ -198,12 +188,9 @@ export class PluginRpcHandlers {
             ),
           ];
         } else {
-          // Preserve existing disabled skills when caller doesn't provide them
           const existingConfig = this.pluginLoader.getWorkspacePluginConfig();
           disabledSkillIds = existingConfig.disabledSkillIds;
         }
-
-        // Validate disabled skill IDs against actual skills from enabled plugins
         const discoveredSkills =
           this.pluginLoader.discoverSkillsForPlugins(pluginPaths);
         const knownSkillIds = new Set(discoveredSkills.map((s) => s.skillId));
@@ -230,12 +217,7 @@ export class PluginRpcHandlers {
           enabledPluginIds,
           disabledSkillIds: validatedDisabledSkillIds,
         });
-
-        // Invalidate command discovery cache so next search picks up
-        // newly junctioned skills and copied commands from .claude/
         this.commandDiscovery.invalidateCache();
-
-        // Re-create junctions to apply disabled skill changes immediately
         this.skillJunction.createJunctions(
           pluginPaths,
           validatedDisabledSkillIds,

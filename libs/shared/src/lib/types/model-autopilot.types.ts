@@ -1,9 +1,7 @@
 /**
  * Autopilot & Permission Type Definitions
- * TASK_2025_035: Model selector and autopilot integration
- * TASK_2025_237: Removed dead model constants (AVAILABLE_MODELS, MODEL_DISPLAY_NAMES,
- *   MODEL_DESCRIPTIONS, ModelInfo, isSelectableClaudeModel) — models are now fully
- *   dynamic from SDK via SdkModelInfo in rpc-config.types.ts.
+ *
+ * Models are fully dynamic from SDK via SdkModelInfo in rpc-config.types.ts.
  */
 
 /**

@@ -10,7 +10,6 @@
  * - Correlate agents to tasks by timestamp proximity
  * - Extract tool_result blocks from user messages
  *
- * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -64,7 +63,7 @@ export class AgentCorrelationService {
    * @returns Map of agentId to agent data entry
    */
   buildAgentDataMap(
-    agentSessions: AgentSessionData[]
+    agentSessions: AgentSessionData[],
   ): Map<string, AgentDataMapEntry> {
     const map = new Map<string, AgentDataMapEntry>();
 
@@ -74,23 +73,14 @@ export class AgentCorrelationService {
 
       for (const msg of agent.messages) {
         if (msg.slug && !slug) slug = msg.slug;
-        // Only extract timestamp from first message that has it
         if (msg.timestamp && timestamp === null) {
           timestamp = new Date(msg.timestamp).getTime();
         }
       }
-
-      // Default to current time if no timestamp found
       if (timestamp === null) {
         timestamp = Date.now();
       }
-
-      // Filter warmup agents by checking first message content
-      // Warmup agents have first user message content = "Warmup"
-      // Real agents have first user message content = actual task prompt
       const firstMsg = agent.messages[0];
-      // Cast to unknown first since actual JSONL format has string content for user messages
-      // but the JSONLMessage type expects ContentBlock[]
       const msgContent = firstMsg?.message?.content as unknown;
       let firstMsgContent = '';
       if (typeof msgContent === 'string') {
@@ -181,21 +171,12 @@ export class AgentCorrelationService {
    */
   correlateAgentsToTasks(
     taskToolUses: TaskToolUse[],
-    agentDataMap: Map<string, AgentDataMapEntry>
+    agentDataMap: Map<string, AgentDataMapEntry>,
   ): Map<string, string> {
     const map = new Map<string, string>();
     const usedAgents = new Set<string>();
-
-    // === FIRST PASS: Direct mapping for resume Tasks ===
-    // Resume Tasks have a `resumeAgentId` that maps directly to the agent file.
-    // This avoids timestamp-based matching failures for resumed agents.
-    // We do NOT add to usedAgents here so the initial Task can still
-    // timestamp-match the same agent in the second pass.
     for (const task of taskToolUses) {
       if (!task.resumeAgentId) continue;
-
-      // The agent data map is keyed by agentId from the file name (e.g., "a329b32").
-      // The resume field stores the same agentId.
       const agentKey = `agent-${task.resumeAgentId}`;
       const directMatch =
         agentDataMap.get(agentKey) ?? agentDataMap.get(task.resumeAgentId);
@@ -214,21 +195,18 @@ export class AgentCorrelationService {
             toolUseId: task.toolUseId,
             resumeAgentId: task.resumeAgentId,
             availableKeys: [...agentDataMap.keys()].slice(0, 10),
-          }
+          },
         );
       }
     }
-
-    // === SECOND PASS: Timestamp-based matching for non-resume Tasks ===
     const sortedTasks = [...taskToolUses].sort(
-      (a, b) => a.timestamp - b.timestamp
+      (a, b) => a.timestamp - b.timestamp,
     );
     const sortedAgents = [...agentDataMap.values()].sort(
-      (a, b) => a.timestamp - b.timestamp
+      (a, b) => a.timestamp - b.timestamp,
     );
 
     for (const task of sortedTasks) {
-      // Skip resume tasks — already handled in first pass
       if (task.resumeAgentId) continue;
 
       let bestMatch: string | null = null;
@@ -238,7 +216,6 @@ export class AgentCorrelationService {
         if (usedAgents.has(agent.agentId)) continue;
 
         const timeDiff = agent.timestamp - task.timestamp;
-        // Correlation window: agent must start within configured window of task
         if (
           timeDiff >= this.CORRELATION_WINDOW_START_MS &&
           timeDiff < bestTimeDiff &&
@@ -274,7 +251,7 @@ export class AgentCorrelationService {
    * @returns Map of tool_use_id to tool result data
    */
   extractAllToolResults(
-    messages: SessionHistoryMessage[]
+    messages: SessionHistoryMessage[],
   ): Map<string, ToolResultData> {
     const results = new Map<string, ToolResultData>();
 

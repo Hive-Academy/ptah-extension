@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah git` command — TASK_2026_104 Sub-batch B5d.
+ * Unit tests for `ptah git` command.
  *
  * Coverage:
  *   - info / worktrees: emit git.info / git.worktrees with RPC payload

@@ -1,7 +1,3 @@
-// DO NOT add /admin* to sitemap.xml or public navigation.
-// The admin dashboard is intentionally hidden — discovery happens via direct
-// URL (bookmarked by operators) and access is enforced server-side by the
-// ADMIN_EMAILS allowlist (see apps/ptah-license-server/src/admin/admin.guard.ts).
 import { Routes } from '@angular/router';
 
 import { AdminLayout } from './admin-layout/admin-layout';

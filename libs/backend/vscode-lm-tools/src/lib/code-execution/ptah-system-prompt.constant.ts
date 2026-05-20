@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Behavioral system prompt for Ptah MCP Server
  * Appended to AI agent context for premium+MCP users
  *
@@ -276,12 +276,8 @@ const result = await ptah.code.searchSymbols("authenticate user", { maxResults: 
 if ('error' in result) {
   console.log('Search unavailable:', result.error);
 } else {
-  // result.hits: MemoryHit[] filtered to code symbols
-  // result.bm25Only: true if vector search was unavailable
   for (const hit of result.hits) {
     console.log(hit.subject, hit.chunkText, hit.score);
-    // subject format: "code:<kind>:<absoluteFilePath>:<symbolName>"
-    // e.g. "code:function:/workspace/src/auth.ts:authenticateUser"
   }
 }
 \`\`\`
@@ -295,15 +291,12 @@ Options:
 Trigger workspace re-indexing or re-index a single file.
 
 \`\`\`typescript
-// Full workspace re-index (fire-and-forget is OK for large workspaces)
 const stats = await ptah.code.reindex();
 if ('error' in stats) {
   console.log('Reindex unavailable:', stats.error);
 } else {
   console.log(\`Indexed \${stats.symbolsIndexed} symbols in \${stats.durationMs}ms\`);
 }
-
-// Single file re-index
 await ptah.code.reindex({ filePath: '/absolute/path/to/file.ts' });
 \`\`\`
 
@@ -347,13 +340,9 @@ export function buildPlatformSystemPrompt(hasIDECapabilities: boolean): string {
   if (hasIDECapabilities) {
     return PTAH_SYSTEM_PROMPT;
   }
-
-  // Remove VS Code-only tool sections from the prompt.
-  // Each section is a markdown heading + description line.
   let prompt = PTAH_SYSTEM_PROMPT;
   for (const section of VS_CODE_ONLY_TOOL_SECTIONS) {
     prompt = prompt.replace(section + '\n\n', '');
-    // Handle case where the section is the last one (no trailing double newline)
     prompt = prompt.replace(section + '\n', '');
     prompt = prompt.replace(section, '');
   }

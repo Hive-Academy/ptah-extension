@@ -1,13 +1,7 @@
 /**
  * Setup Wizard analysis types — architecture patterns, key file locations,
  * language stats, diagnostics, test coverage estimate.
- *
- * Extracted from setup-wizard.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
-
-// ============================================================================
-// Architecture Pattern Types
-// ============================================================================
 
 /**
  * Known architecture pattern names.
@@ -77,10 +71,6 @@ export interface ArchitecturePattern {
   description?: string;
 }
 
-// ============================================================================
-// Key File Locations Types
-// ============================================================================
-
 /**
  * Key file locations organized by purpose.
  *
@@ -120,10 +110,6 @@ export interface KeyFileLocations {
   utilities?: string[];
 }
 
-// ============================================================================
-// Language Statistics Types
-// ============================================================================
-
 /**
  * Language distribution statistics.
  *
@@ -150,10 +136,6 @@ export interface LanguageStats {
   /** Optional: Estimated lines of code. */
   linesOfCode?: number;
 }
-
-// ============================================================================
-// Diagnostic Summary Types
-// ============================================================================
 
 /**
  * Summary of existing code issues from VS Code diagnostics.
@@ -190,10 +172,6 @@ export interface DiagnosticSummary {
     source: string;
   }>;
 }
-
-// ============================================================================
-// Test Coverage Types
-// ============================================================================
 
 /**
  * Estimated test coverage information.

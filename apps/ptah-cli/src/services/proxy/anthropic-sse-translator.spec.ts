@@ -1,5 +1,5 @@
 /**
- * Unit tests for `AnthropicSseTranslator` — TASK_2026_104 P2.
+ * Unit tests for `AnthropicSseTranslator`.
  *
  * Covers the translation table:
  *   1. start() emits `message_start` once (idempotent).

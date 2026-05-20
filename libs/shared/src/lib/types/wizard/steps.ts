@@ -1,12 +1,6 @@
 /**
  * Setup Wizard saved analysis metadata (persistent analysis history).
- *
- * Extracted from setup-wizard.types.ts (TASK_2025_291 Wave C2) — zero behavior change.
  */
-
-// ============================================================================
-// Saved Analysis Types (Persistent Analysis History)
-// ============================================================================
 
 /**
  * Metadata for a saved analysis (lightweight, for listing).

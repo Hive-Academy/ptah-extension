@@ -25,8 +25,6 @@ import type { TodoItem, TodoWriteToolInput } from '@ptah-extension/shared';
  * - Completed tasks show faded text
  * - Pending tasks show circle icon with low opacity
  */
-
-// Re-export for backwards compatibility - use `TodoWriteToolInput` instead
 /** @deprecated Use TodoWriteToolInput from @ptah-extension/shared */
 export type TodoWriteInput = TodoWriteToolInput;
 export type { TodoItem };
@@ -97,8 +95,6 @@ export type { TodoItem };
 })
 export class TodoListDisplayComponent {
   readonly toolInput = input.required<TodoWriteToolInput>();
-
-  // Computed signals for reactive data
   readonly todos = computed(() => this.toolInput().todos);
   readonly totalCount = computed(() => this.todos().length);
   readonly completedCount = computed(
@@ -109,8 +105,6 @@ export class TodoListDisplayComponent {
       ? (this.completedCount() / this.totalCount()) * 100
       : 0,
   );
-
-  // Icons
   readonly CircleIcon = Circle;
   readonly CheckIcon = CheckCircle2;
   readonly SpinnerIcon = Loader2;

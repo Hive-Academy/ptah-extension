@@ -5,8 +5,6 @@
  *
  * Services resolved lazily via getter functions for graceful degradation when
  * SQLite / CodeSymbolIndexer is not registered.
- *
- * TASK_2026_THOTH_CODE_INDEX
  */
 
 import type {
@@ -76,15 +74,12 @@ export function buildCodeNamespace(
         const maxResults = options.maxResults ?? 20;
         const workspaceRoot = getWorkspaceRoot();
         const page = await reader.search(query, maxResults, workspaceRoot);
-        // Post-filter to code symbols only: tier='archival' + subject starts with 'code:'
-        // This removes conversational memory contamination from the results.
         const codeHits = page.hits.filter(
           (hit: MemoryHit) =>
             hit.tier === 'archival' &&
             typeof hit.subject === 'string' &&
             hit.subject.startsWith('code:'),
         );
-        // Apply optional filePath filter
         const filtered =
           options.filePath != null
             ? codeHits.filter((h: MemoryHit) =>

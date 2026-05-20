@@ -1,9 +1,9 @@
 /**
  * `ptah plugin` command — workspace plugin management.
  *
- * TASK_2026_104 Sub-batch B6c. Backed by the shared `PluginRpcHandlers`
- * (registered globally via `registerAllRpcHandlers()`), so VS Code, Electron,
- * and the CLI all dispatch identical RPC verbs.
+ * Backed by the shared `PluginRpcHandlers` (registered globally via
+ * `registerAllRpcHandlers()`), so VS Code, Electron, and the CLI all
+ * dispatch identical RPC verbs.
  *
  * Sub-commands (per task-description.md §3.1 `plugin *` table):
  *
@@ -16,7 +16,7 @@
  *                                     RPC `plugins:save-config`
  *   skills list [--plugins <list>]    RPC `plugins:list-skills`
  *
- * **NO `install` sub-subcommand** (Discovery D8 — "install = enable").
+ * **NO `install` sub-subcommand** ("install = enable").
  *
  * Idempotency contract (`plugin.config.updated` payload):
  *   - `changed: bool` — true on first effective enable/disable (or `config set`
@@ -103,10 +103,6 @@ export async function execute(
     return ExitCode.InternalFailure;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Sub-commands
-// ---------------------------------------------------------------------------
 
 async function runList(
   globals: GlobalOptions,
@@ -335,8 +331,6 @@ async function runSkillsList(
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // Default: list skills for currently-enabled plugins. Caller may override
-    // via --plugins to inspect a different subset.
     let pluginIds: string[];
     if (opts.plugins && opts.plugins.length > 0) {
       pluginIds = opts.plugins;
@@ -361,10 +355,6 @@ async function runSkillsList(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — kept module-private.
-// ---------------------------------------------------------------------------
 
 /**
  * Order-insensitive equality check for two string arrays. Used by

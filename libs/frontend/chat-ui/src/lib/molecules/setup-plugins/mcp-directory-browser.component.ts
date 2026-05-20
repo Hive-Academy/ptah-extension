@@ -398,8 +398,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   protected readonly CheckIcon = Check;
   protected readonly allTargets = ALL_TARGETS;
 
-  // ===== State Signals =====
-
   readonly searchQuery = signal('');
   readonly searchResults = signal<McpRegistryEntry[]>([]);
   readonly popularServers = signal<McpRegistryEntry[]>([]);
@@ -412,15 +410,11 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   readonly uninstallingServerKeys = signal<Set<string>>(new Set());
   readonly error = signal<string | null>(null);
   readonly activeView = signal<'browse' | 'installed'>('browse');
-
-  // Install panel state
   readonly expandedServerName = signal<string | null>(null);
   readonly suggestedConfig = signal<McpServerConfig | null>(null);
   readonly selectedTargets = signal<Set<McpInstallTarget>>(
     new Set(ALL_TARGETS),
   );
-
-  // ===== Computed Signals =====
 
   readonly installedCount = computed(() => {
     const keys = new Set(this.installedServers().map((s) => s.serverKey));
@@ -450,11 +444,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     () => new Set(this.installedServers().map((s) => s.serverKey)),
   );
 
-  // ===== Private =====
-
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  // ===== Lifecycle =====
 
   /** Re-load installed servers when refreshTrigger changes (skips initial value of 0) */
   private readonly refreshEffect = effect(() => {
@@ -478,8 +468,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ===== Event Handlers =====
-
   onSearchInput(event: Event): void {
     const query = (event.target as HTMLInputElement).value;
     this.searchQuery.set(query);
@@ -499,7 +487,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   }
 
   async toggleInstallPanel(server: McpRegistryEntry): Promise<void> {
-    // Toggle off if already expanded
     if (this.expandedServerName() === server.name) {
       this.expandedServerName.set(null);
       this.suggestedConfig.set(null);
@@ -509,14 +496,10 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     this.expandedServerName.set(server.name);
     this.selectedTargets.set(new Set(ALL_TARGETS));
     this.suggestedConfig.set(null);
-
-    // If we already have version_detail, generate config immediately
     if (server.version_detail) {
       this.suggestedConfig.set(this.generateConfig(server));
       return;
     }
-
-    // Otherwise, fetch details from the registry
     this.isLoadingDetails.set(true);
     try {
       const result = await this.rpcService.call('mcpDirectory:getDetails', {
@@ -627,15 +610,12 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ===== Template Helpers =====
-
   isServerInstalled(serverName: string): boolean {
     const key = this.deriveServerKey(serverName);
     return this.installedKeySet().has(key);
   }
 
   getDisplayName(name: string): string {
-    // "io.github.user/server-name" → "server-name"
     const parts = name.split('/');
     return parts[parts.length - 1] || name;
   }
@@ -655,11 +635,8 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     if (config.type === 'stdio') {
       return `${config.command} ${config.args?.join(' ') || ''}`.trim();
     }
-    // http or sse — both have .url
     return config.url;
   }
-
-  // ===== Private Methods =====
 
   private deriveServerKey(name: string): string {
     const parts = name.split('/');
@@ -732,6 +709,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
   private async loadPopular(): Promise<void> {
     this.isLoadingPopular.set(true);
+    this.error.set(null);
 
     try {
       const result = await this.rpcService.call('mcpDirectory:getPopular', {});
@@ -740,9 +718,14 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
       if (result.isSuccess()) {
         this.popularServers.set(result.data.servers);
+      } else {
+        this.error.set('Failed to load popular MCP servers');
+        this.popularServers.set([]);
       }
     } catch {
       if (this.destroyed) return;
+      this.error.set('Failed to load popular MCP servers');
+      this.popularServers.set([]);
     } finally {
       if (!this.destroyed) this.isLoadingPopular.set(false);
     }

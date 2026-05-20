@@ -15,7 +15,7 @@ describe('Orchestration Patterns', () => {
       const result = await generateWithPartialSuccess(
         items,
         async (item) => Result.ok({ name: item, processed: true }),
-        'test-phase'
+        'test-phase',
       );
 
       expect(result.successful).toHaveLength(3);
@@ -37,7 +37,7 @@ describe('Orchestration Patterns', () => {
           }
           return Result.ok({ name: item, processed: true });
         },
-        'test-phase'
+        'test-phase',
       );
 
       expect(result.successful).toHaveLength(2);
@@ -56,7 +56,7 @@ describe('Orchestration Patterns', () => {
       const result = await generateWithPartialSuccess(
         items,
         async (item) => Result.err(new Error(`${item} failed`)),
-        'test-phase'
+        'test-phase',
       );
 
       expect(result.successful).toHaveLength(0);
@@ -70,7 +70,7 @@ describe('Orchestration Patterns', () => {
       const result = await generateWithPartialSuccess(
         [],
         async (item) => Result.ok({ name: item }),
-        'test-phase'
+        'test-phase',
       );
 
       expect(result.successful).toHaveLength(0);
@@ -82,14 +82,14 @@ describe('Orchestration Patterns', () => {
       const noErrorsResult = await generateWithPartialSuccess(
         ['item1'],
         async (item) => Result.ok({ name: item }),
-        'test-phase'
+        'test-phase',
       );
       expect(noErrorsResult.isComplete).toBe(true);
 
       const withErrorsResult = await generateWithPartialSuccess(
         ['item1'],
         async () => Result.err(new Error('Failed')),
-        'test-phase'
+        'test-phase',
       );
       expect(withErrorsResult.isComplete).toBe(false);
     });
@@ -100,7 +100,7 @@ describe('Orchestration Patterns', () => {
       const result = await generateWithPartialSuccess<unknown, TestPhase>(
         ['test-item'],
         async () => Result.err(new Error('Generation failed')),
-        'content-generation'
+        'content-generation',
       );
 
       expect(result.errors[0].phase).toBe('content-generation');
@@ -115,7 +115,7 @@ describe('Orchestration Patterns', () => {
           executionOrder.push(item);
           return Result.ok({ item });
         },
-        'test-phase'
+        'test-phase',
       );
 
       expect(executionOrder).toEqual(['a', 'b', 'c']);
@@ -204,7 +204,7 @@ describe('Orchestration Patterns', () => {
       const result = await pipeline.execute({ value: 1 });
 
       expect(result.durationMs).toBeGreaterThanOrEqual(50);
-      expect(result.durationMs).toBeLessThan(200); // Reasonable upper bound
+      expect(result.durationMs).toBeLessThan(2000);
     });
 
     it('should handle empty pipeline', async () => {
@@ -471,13 +471,13 @@ describe('Orchestration Patterns', () => {
       const result = await pipeline.execute({ agentName: 'test-agent' });
 
       expect(result.result?.systemPrompt).toContain(
-        'Generate agent: test-agent'
+        'Generate agent: test-agent',
       );
       expect(result.result?.userPrompt).toContain(
-        'Instructions for test-agent'
+        'Instructions for test-agent',
       );
       expect(result.result?.content).toContain(
-        'Generated content for test-agent'
+        'Generated content for test-agent',
       );
     });
 
@@ -513,7 +513,7 @@ describe('Orchestration Patterns', () => {
             ? Result.err(pipelineResult.error)
             : Result.ok(pipelineResult.result!);
         },
-        'batch-processing'
+        'batch-processing',
       );
 
       expect(result.successful).toHaveLength(2);

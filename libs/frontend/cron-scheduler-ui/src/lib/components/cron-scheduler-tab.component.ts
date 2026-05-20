@@ -1,5 +1,3 @@
-// NOTE: backend cron:create is the trust boundary. Client-side
-// cron-expression validation here is preview-only.
 import {
   ChangeDetectionStrategy,
   Component,
@@ -420,7 +418,6 @@ export class CronSchedulerTabComponent implements OnInit {
   public readonly selectedJob = this.state.selectedJob;
   public readonly stats = this.state.stats;
 
-  // Editor form state
   public readonly formOpen = signal<boolean>(false);
   public readonly form = signal<CronJobFormState>(
     emptyForm(this.detectedTimezone),
@@ -505,7 +502,6 @@ export class CronSchedulerTabComponent implements OnInit {
         enabled: f.enabled,
       });
     } else {
-      // R5 mitigation: pass user's timezone in cron:create payload.
       const params: CronCreateParams = {
         name: f.name,
         cronExpr: f.cronExpr,

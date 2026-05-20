@@ -1,6 +1,6 @@
 /**
  * `proxy-auth` — bearer-token mint + verify for the Anthropic-compatible HTTP
- * proxy (TASK_2026_104 P2).
+ * proxy.
  *
  * Three responsibilities:
  *   1. Mint a fresh 32-byte (256-bit) random token via `crypto.randomBytes`
@@ -68,9 +68,6 @@ export async function writeProxyTokenFile(
 ): Promise<string> {
   const tokenPath = resolveProxyTokenPath(port, userDataPath);
   const tokenDir = path.dirname(tokenPath);
-  // `recursive: true` is idempotent if the directory already exists. Mode
-  // is best-effort on Windows (NTFS ACLs override POSIX mode); the call still
-  // succeeds and the test suite asserts mode only on POSIX.
   await mkdir(tokenDir, { recursive: true, mode: 0o700 });
   await writeFile(tokenPath, token, { encoding: 'utf8', mode: 0o600 });
   return tokenPath;
@@ -86,10 +83,19 @@ export async function deleteProxyTokenFile(
   userDataPath?: string,
 ): Promise<void> {
   const tokenPath = resolveProxyTokenPath(port, userDataPath);
+
   try {
     await unlink(tokenPath);
-  } catch {
-    /* swallow — file may already be gone or unwritable */
+  } catch (error: unknown) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
+    ) {
+      return;
+    }
+    throw error;
   }
 }
 
@@ -111,8 +117,6 @@ export function verifyProxyToken(presented: string, expected: string): boolean {
   }
   const a = Buffer.from(presented, 'utf8');
   const b = Buffer.from(expected, 'utf8');
-  // Sanity — Buffer length must match (UTF-8 string of same char length CAN
-  // differ if multibyte, but tokens are hex so this is always true).
   if (a.length !== b.length) {
     return false;
   }

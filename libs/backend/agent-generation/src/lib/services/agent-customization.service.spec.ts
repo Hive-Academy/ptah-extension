@@ -34,7 +34,10 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   },
 }));
 
-import { AgentCustomizationService } from './agent-customization.service';
+import {
+  AgentCustomizationService,
+  AgentCustomizationFallbackError,
+} from './agent-customization.service';
 import { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
@@ -470,9 +473,7 @@ describe('AgentCustomizationService', () => {
     });
 
     describe('Retry Exhaustion with Fallback', () => {
-      // SKIPPED: Pre-existing test failure - retry exhaustion logic changed
-      it.skip('should return empty string after 3 failed validation attempts', async () => {
-        // Arrange
+      it('should return AgentCustomizationFallbackError after 3 failed validation attempts', async () => {
         mockTemplateStorage.loadTemplate.mockResolvedValue(
           Result.ok(sampleTemplate),
         );
@@ -483,27 +484,23 @@ describe('AgentCustomizationService', () => {
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
 
-        // Act
         const result = await service.customizeSection(
           'Tech Stack',
           'backend-developer',
           projectContext,
         );
 
-        // Assert
-        expect(result.isOk()).toBe(true);
-        expect(result.value).toBe(''); // Fallback to empty string
+        expect(result.isErr()).toBe(true);
+        expect(result.error).toBeInstanceOf(AgentCustomizationFallbackError);
         expect(mockPtahApi.ai.invokeAgent).toHaveBeenCalledTimes(3);
         expect(mockValidator.validate).toHaveBeenCalledTimes(3);
-        expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect(mockLogger.error).toHaveBeenCalledWith(
           'Max retries exhausted - validation failed',
           expect.objectContaining({ sectionTopic: 'Tech Stack' }),
         );
       });
 
-      // SKIPPED: Pre-existing test failure - retry exhaustion logic changed
-      it.skip('should return empty string when validation service fails repeatedly', async () => {
-        // Arrange
+      it('should return error when validation service returns Result.err repeatedly', async () => {
         mockTemplateStorage.loadTemplate.mockResolvedValue(
           Result.ok(sampleTemplate),
         );
@@ -514,17 +511,17 @@ describe('AgentCustomizationService', () => {
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
 
-        // Act
         const result = await service.customizeSection(
           'Architecture',
           'backend-developer',
           projectContext,
         );
 
-        // Assert
-        expect(result.isOk()).toBe(true);
-        expect(result.value).toBe(''); // Fallback on validation service error
-        expect(mockValidator.validate).toHaveBeenCalledTimes(3);
+        expect(result.isErr()).toBe(true);
+        expect(result.error!.message).toContain(
+          'Validation service unavailable',
+        );
+        expect(mockValidator.validate).toHaveBeenCalledTimes(1);
       });
     });
 
@@ -655,9 +652,7 @@ describe('AgentCustomizationService', () => {
         expect(mockPtahApi.ai.invokeAgent).toHaveBeenCalledTimes(1);
       });
 
-      // SKIPPED: Pre-existing test failure - retry/fallback logic changed
-      it.skip('should handle validation score just below threshold (69)', async () => {
-        // Arrange
+      it('should return AgentCustomizationFallbackError when score is just below threshold (69)', async () => {
         mockTemplateStorage.loadTemplate.mockResolvedValue(
           Result.ok(sampleTemplate),
         );
@@ -668,22 +663,18 @@ describe('AgentCustomizationService', () => {
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
 
-        // Act
         const result = await service.customizeSection(
           'Architecture',
           'backend-developer',
           projectContext,
         );
 
-        // Assert
-        expect(result.isOk()).toBe(true);
-        expect(result.value).toBe(''); // Fallback due to low score
+        expect(result.isErr()).toBe(true);
+        expect(result.error).toBeInstanceOf(AgentCustomizationFallbackError);
         expect(mockPtahApi.ai.invokeAgent).toHaveBeenCalledTimes(3);
       });
 
-      // SKIPPED: Pre-existing test failure - retry/fallback logic changed
-      it.skip('should handle empty LLM response', async () => {
-        // Arrange
+      it('should return AgentCustomizationFallbackError on empty LLM response with zero score', async () => {
         mockTemplateStorage.loadTemplate.mockResolvedValue(
           Result.ok(sampleTemplate),
         );
@@ -694,16 +685,14 @@ describe('AgentCustomizationService', () => {
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
 
-        // Act
         const result = await service.customizeSection(
           'Best Practices',
           'backend-developer',
           projectContext,
         );
 
-        // Assert
-        expect(result.isOk()).toBe(true);
-        expect(result.value).toBe(''); // Fallback on empty response
+        expect(result.isErr()).toBe(true);
+        expect(result.error).toBeInstanceOf(AgentCustomizationFallbackError);
       });
     });
   });
@@ -811,9 +800,7 @@ describe('AgentCustomizationService', () => {
         expect(mockPtahApi.ai.invokeAgent).toHaveBeenCalledTimes(4);
       });
 
-      // SKIPPED: Pre-existing test failure - batch fallback logic changed
-      it.skip('should handle mix of successful and failed sections', async () => {
-        // Arrange
+      it('should handle mix of successful and failed sections', async () => {
         const sections = [
           {
             sectionId: 'success',
@@ -828,8 +815,8 @@ describe('AgentCustomizationService', () => {
             projectContext,
           },
           {
-            sectionId: 'fallback',
-            sectionTopic: 'Fallback Section',
+            sectionId: 'exhausted',
+            sectionTopic: 'Exhausted Section',
             templateId: 'backend-developer',
             projectContext,
           },
@@ -844,37 +831,36 @@ describe('AgentCustomizationService', () => {
 
         mockPtahApi.ai.invokeAgent
           .mockResolvedValueOnce('success content')
-          .mockResolvedValueOnce('fallback content') // attempt 1
-          .mockResolvedValueOnce('fallback content') // attempt 2
-          .mockResolvedValueOnce('fallback content'); // attempt 3
+          .mockResolvedValueOnce('bad content')
+          .mockResolvedValueOnce('bad content')
+          .mockResolvedValueOnce('bad content');
 
-        // Mock validation: success passes, fallback needs 3 failures to trigger fallback (MAX_RETRIES=2)
         mockValidator.validate
           .mockResolvedValueOnce(
             Result.ok({ isValid: true, issues: [], score: 90 }),
-          ) // 'success' section - passes
+          )
           .mockResolvedValueOnce(
             Result.ok({ isValid: false, issues: [], score: 40 }),
-          ) // 'fallback' section attempt 1
+          )
           .mockResolvedValueOnce(
             Result.ok({ isValid: false, issues: [], score: 40 }),
-          ) // 'fallback' section attempt 2
+          )
           .mockResolvedValueOnce(
             Result.ok({ isValid: false, issues: [], score: 40 }),
-          ); // 'fallback' section attempt 3 -> returns ''
+          );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
 
-        // Act
         const results = await service.batchCustomize(sections);
 
-        // Assert
         expect(results.size).toBe(3);
         expect(results.get('success')?.isOk()).toBe(true);
         expect(results.get('success')?.value).toBe('success content');
         expect(results.get('fail')?.isErr()).toBe(true);
-        expect(results.get('fallback')?.isOk()).toBe(true);
-        expect(results.get('fallback')?.value).toBe(''); // Fallback
+        expect(results.get('exhausted')?.isErr()).toBe(true);
+        expect(results.get('exhausted')?.error).toBeInstanceOf(
+          AgentCustomizationFallbackError,
+        );
       });
     });
 
@@ -919,9 +905,7 @@ describe('AgentCustomizationService', () => {
         );
       });
 
-      // SKIPPED: Pre-existing test failure - batch statistics tracking changed
-      it.skip('should track fallback count separately from failures', async () => {
-        // Arrange
+      it('should track failed count for both template errors and fallback errors', async () => {
         const sections = [
           {
             sectionId: 'success',
@@ -930,8 +914,8 @@ describe('AgentCustomizationService', () => {
             projectContext,
           },
           {
-            sectionId: 'fallback',
-            sectionTopic: 'Fallback',
+            sectionId: 'exhausted',
+            sectionTopic: 'Exhausted',
             templateId: 'backend-developer',
             projectContext,
           },
@@ -951,34 +935,31 @@ describe('AgentCustomizationService', () => {
         });
 
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
-        // Mock validation: success for first section, repeated failures for fallback section (needs 3 failures for MAX_RETRIES=2)
         mockValidator.validate
           .mockResolvedValueOnce(
             Result.ok({ isValid: true, issues: [], score: 85 }),
-          ) // 'success' section - passes
+          )
           .mockResolvedValueOnce(
             Result.ok({ isValid: false, issues: [], score: 30 }),
-          ) // 'fallback' section attempt 1
+          )
           .mockResolvedValueOnce(
             Result.ok({ isValid: false, issues: [], score: 30 }),
-          ) // 'fallback' section attempt 2
+          )
           .mockResolvedValueOnce(
             Result.ok({ isValid: false, issues: [], score: 30 }),
-          ); // 'fallback' section attempt 3 -> fallback
+          );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
 
-        // Act
         await service.batchCustomize(sections);
 
-        // Assert
         expect(mockLogger.info).toHaveBeenCalledWith(
           'Batch customization complete',
           expect.objectContaining({
             total: 3,
-            successful: 1, // Only 'success'
-            fallbacks: 1, // 'fallback' section
-            failed: 1, // 'error' section
+            successful: 1,
+            fallbacks: 0,
+            failed: 2,
           }),
         );
       });

@@ -7,10 +7,6 @@
  * Design: Pure TypeScript types, no runtime dependencies (shared library boundary).
  */
 
-// ========================================
-// MCP Install Targets
-// ========================================
-
 /**
  * Targets where MCP server configs can be installed.
  *
@@ -27,10 +23,6 @@ export type McpInstallTarget =
   | 'cursor'
   | 'gemini'
   | 'copilot';
-
-// ========================================
-// MCP Server Transport Configuration
-// ========================================
 
 /** Base fields shared by all transport types */
 interface McpServerConfigBase {
@@ -67,10 +59,6 @@ export interface McpSseConfig extends McpServerConfigBase {
 
 /** Discriminated union of all MCP server transport configs */
 export type McpServerConfig = McpStdioConfig | McpHttpConfig | McpSseConfig;
-
-// ========================================
-// Official MCP Registry API Response Types
-// ========================================
 
 /** Package deployment info from the registry */
 export interface McpRegistryPackage {
@@ -170,10 +158,6 @@ export interface McpRegistryListResponse {
   };
 }
 
-// ========================================
-// Installation State Types
-// ========================================
-
 /** Result of installing an MCP server to a single target */
 export interface McpInstallResult {
   /** Which target was written to */
@@ -219,10 +203,6 @@ export interface McpInstallManifest {
     }
   >;
 }
-
-// ========================================
-// RPC Method Types
-// ========================================
 
 /** Params for mcpDirectory:search */
 export interface McpDirectorySearchParams {

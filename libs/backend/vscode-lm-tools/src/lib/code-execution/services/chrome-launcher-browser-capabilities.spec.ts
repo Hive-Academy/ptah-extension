@@ -1,5 +1,5 @@
 /**
- * Specs for ChromeLauncherBrowserCapabilities (TASK_2026_100 P1.B7).
+ * Specs for ChromeLauncherBrowserCapabilities.
  *
  * Covers:
  *   - session lifecycle: lazy create via ensureSession(), cleanup on close()

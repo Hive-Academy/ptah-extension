@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah agent-cli` command — TASK_2026_104 B7.
+ * Unit tests for `ptah agent-cli` command.
  *
  * Locked allowlist contract:
  *   - `validateCliAgent` accepts ONLY `'glm' | 'gemini'`. Everything else → null.

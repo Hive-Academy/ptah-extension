@@ -1,5 +1,5 @@
 /**
- * Electron Platform Commands Implementation (TASK_2025_203)
+ * Electron Platform Commands Implementation
  *
  * Stub/limited implementation for Electron:
  * - reloadWindow: Uses Electron app.relaunch() + app.exit()
@@ -27,17 +27,12 @@ export class ElectronPlatformCommands implements IPlatformCommands {
   async reloadWindow(): Promise<void> {
     this.logger.info('[ElectronPlatformCommands] reloadWindow requested');
     try {
-      // Reload the renderer (webContents) instead of restarting the entire
-      // process. This gives a smooth ~1s reload vs a 3-5s cold restart.
-      // Backend DI services stay alive — reload triggers (license set/clear,
-      // settings import) already update backend state before scheduling this.
       const { BrowserWindow } = await import('electron');
       const win =
         BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       if (win) {
         win.webContents.reload();
       } else {
-        // Fallback: full relaunch if no window is available
         this.logger.warn(
           '[ElectronPlatformCommands] No window found, falling back to app.relaunch()',
         );
@@ -53,7 +48,6 @@ export class ElectronPlatformCommands implements IPlatformCommands {
   }
 
   openTerminal(name: string, command: string): void {
-    // Electron does not have an integrated terminal
     this.logger.warn(
       '[ElectronPlatformCommands] openTerminal is not supported in Electron',
       { name, command },

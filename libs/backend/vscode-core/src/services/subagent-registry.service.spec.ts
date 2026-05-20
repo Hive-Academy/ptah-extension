@@ -1,5 +1,5 @@
 /**
- * SubagentRegistryService specs — pruneSession (TASK_2026_109 A4 + C4).
+ * SubagentRegistryService specs — pruneSession.
  *
  * Coverage:
  *   - pruneSession(parentSessionId) removes non-background entries that

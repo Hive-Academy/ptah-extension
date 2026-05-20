@@ -15,8 +15,8 @@
  *    recorded in `walCheckpointCalls` for assertion in tests.
  *
  * Anything outside that grammar throws — that is intentional. Tests should
- * exercise real better-sqlite3 once Track 1+ install it. This fake is for
- * the prep track only.
+ * exercise real better-sqlite3 when the native module is installed; this
+ * fake is for environments where it is not.
  */
 
 import * as fs from 'node:fs';
@@ -33,7 +33,7 @@ interface MigrationRow {
 export class FakeSqliteDatabase implements SqliteDatabase {
   readonly tables = new Set<string>();
   readonly pragmas: string[] = [];
-  /** Records every `wal_checkpoint(TRUNCATE)` call — asserted in D1 tests. */
+  /** Records every `wal_checkpoint(TRUNCATE)` call — asserted in tests. */
   readonly walCheckpointCalls: string[] = [];
   private migrationRows: MigrationRow[] = [];
   private isOpen = true;
@@ -136,7 +136,6 @@ export class FakeSqliteDatabase implements SqliteDatabase {
       this.inTxn = false;
       return;
     }
-    // PRAGMA user_version = N — track the value.
     const userVersionMatch = /^PRAGMA\s+USER_VERSION\s*=\s*(\d+)$/i.exec(
       normalised,
     );
@@ -153,22 +152,14 @@ export class FakeSqliteDatabase implements SqliteDatabase {
       return;
     }
     if (/^CREATE (UNIQUE )?INDEX/i.test(normalised)) {
-      // Indexes are silently accepted.
       return;
     }
     if (/^CREATE TRIGGER/i.test(normalised)) {
       return;
     }
-    // ALTER TABLE / DROP statements — silently accepted. The fake doesn't
-    // model a column catalog so additive schema changes (e.g. migration 0006
-    // adding `pairing_code`) are inert here; production better-sqlite3
-    // applies them for real.
     if (/^ALTER TABLE/i.test(normalised) || /^DROP /i.test(normalised)) {
       return;
     }
-    // VACUUM / VACUUM INTO — no-op in the fake (no page rewriting needed),
-    // but enforces the real SQLite constraint that VACUUM cannot run inside a
-    // transaction. VACUUM INTO is accepted and silently ignored (no file I/O).
     if (/^VACUUM\b/i.test(normalised)) {
       if (this.inTxn) {
         throw new Error(
@@ -186,10 +177,8 @@ export class FakeSqliteDatabase implements SqliteDatabase {
       upper.startsWith('UPDATE') ||
       upper.startsWith('DELETE')
     ) {
-      // These shouldn't be sent through exec() in our codepath; ignore.
       return;
     }
-    // Unknown statement — throw so tests of bad SQL surface clearly.
     throw new Error(
       `FakeSqliteDatabase: unsupported statement: ${normalised.slice(0, 80)}`,
     );
@@ -202,14 +191,10 @@ export class FakeSqliteDatabase implements SqliteDatabase {
 
   pragma(pragma: string, options?: { simple?: boolean }): unknown {
     this.pragmas.push(pragma);
-
-    // WAL checkpoint calls are tracked separately for D1 test assertions.
     if (/wal_checkpoint/i.test(pragma)) {
       this.walCheckpointCalls.push(pragma);
       return [];
     }
-
-    // Return structured values for health/boot pragmas when simple=true.
     if (options?.simple) {
       const key = pragma.trim().toLowerCase();
       if (key === 'quick_check') return this.quickCheckResult;
@@ -219,18 +204,12 @@ export class FakeSqliteDatabase implements SqliteDatabase {
       if (key === 'journal_mode') return 'wal';
       if (key === 'user_version') return this.userVersion;
     }
-
-    // foreign_key_check — return seeded violations (empty by default).
     if (/^foreign_key_check/i.test(pragma.trim())) {
       return this.foreignKeyViolations;
     }
-
-    // auto_vacuum read — return current mode (0=NONE by default).
     if (/^auto_vacuum$/i.test(pragma.trim())) {
       return this.autoVacuumMode;
     }
-
-    // auto_vacuum set — update mode from pragma string like 'auto_vacuum = INCREMENTAL'.
     const avSetMatch = /^auto_vacuum\s*=\s*(\w+)$/i.exec(pragma.trim());
     if (avSetMatch) {
       const val = avSetMatch[1].toUpperCase();
@@ -266,7 +245,6 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     return fn;
   }
 
-  // Internal helpers used by FakeStatement.
   insertMigrationRow(version: number, appliedAt: number): void {
     const idx = this.migrationRows.findIndex((r) => r.version === version);
     if (idx >= 0) {
@@ -324,10 +302,6 @@ class FakeStatement implements SqliteStatement {
 }
 
 function splitStatements(sql: string): string[] {
-  // Strip line comments then split on `;` while respecting BEGIN..END blocks
-  // (used by triggers in 0002_memory.sql). For our test grammar we treat
-  // `BEGIN` outside a transaction context as a trigger body opener that runs
-  // until matching `END;`.
   const noComments = sql
     .split(/\r?\n/)
     .map((line) => line.replace(/--.*$/, ''))
@@ -338,7 +312,6 @@ function splitStatements(sql: string): string[] {
   let inTriggerBody = false;
   for (const line of noComments.split(/\r?\n/)) {
     const trimmed = line.trim();
-    // Trigger bodies start when a CREATE TRIGGER ... BEGIN line ends with BEGIN.
     if (/CREATE TRIGGER/i.test(trimmed) && /\bBEGIN\b\s*$/i.test(trimmed)) {
       inTriggerBody = true;
     }

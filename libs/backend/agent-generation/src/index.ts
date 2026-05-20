@@ -11,26 +11,12 @@
  *
  * @see README.md for development status and extraction tasks
  */
-
-// DI tokens (Task 0.3)
 export * from './lib/di';
-
-// Type system (Task 0.2)
 export * from './lib/types';
-
-// Service interfaces (Task 0.4)
 export * from './lib/interfaces';
-
-// Error classes (Task 0.5)
 export * from './lib/errors';
-
-// Content processing utilities (Task -1.2)
 export * from './lib/utils/content-processor';
-
-// Orchestration patterns (Task -1.3)
 export * from './lib/patterns';
-
-// Services (Batch 1, Batch 3A, Batch 3B)
 export { TemplateStorageService } from './lib/services/template-storage.service';
 export { ContentGenerationService } from './lib/services/content-generation.service';
 export { OutputValidationService } from './lib/services/output-validation.service';
@@ -41,18 +27,10 @@ export {
   SetupStatusService,
   type SetupStatus,
 } from './lib/services/setup-status.service';
-
-// Analysis storage service (Persistent Analysis History)
 export { AnalysisStorageService } from './lib/services/analysis-storage.service';
-
-// Orchestrator types (exported for RPC handler consumption)
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
-
-// Multi-CLI Agent Transforms (TASK_2025_160)
 export { MultiCliAgentWriterService } from './lib/services/cli-agent-transforms';
 export type { ICliAgentTransformer } from './lib/services/cli-agent-transforms';
-
-// Wizard child services and shared analysis schema
 export {
   WizardWebviewLifecycleService,
   AgenticAnalysisService,
@@ -64,3 +42,63 @@ export {
   type WizardPanelInitialData,
   type ProjectAnalysisZodOutput,
 } from './lib/services/wizard';
+export {
+  PromptDesignerAgent,
+  PROMPT_DESIGNER_SYSTEM_PROMPT,
+  buildGenerationUserPrompt,
+  buildFallbackGuidance,
+  parseStructuredResponse,
+  parseTextResponse,
+  validateOutput,
+  formatAsPromptSection,
+  truncateToTokenBudget,
+  PromptDesignerResponseSchema,
+  DEFAULT_PROMPT_DESIGNER_CONFIG,
+} from './lib/services/prompt-designer';
+export type {
+  PromptDesignerInput,
+  PromptDesignerOutput,
+  PromptDesignerConfig,
+  PromptDesignerResponse,
+  PromptGenerationProgress,
+  PromptGenerationStatus,
+  CachedPromptDesign,
+} from './lib/services/prompt-designer';
+export {
+  PromptCacheService,
+  DEFAULT_CACHE_CONFIG,
+  INVALIDATION_TRIGGER_FILES,
+  INVALIDATION_IGNORE_PATTERNS,
+  CACHE_CONFIG_VERSION,
+  DEFAULT_CACHE_TTL_MS,
+  computeHash,
+  generateCacheKey,
+  extractDependencyInfo,
+  isInvalidationTrigger,
+  getInvalidationReason,
+  isCacheExpired,
+  createInvalidationEvent,
+} from './lib/services/prompt-designer';
+export type {
+  PromptCacheConfig,
+  InvalidationReason,
+  InvalidationEvent,
+  CacheKeyComponents,
+} from './lib/services/prompt-designer';
+export {
+  EnhancedPromptsService,
+  DEFAULT_ENHANCED_PROMPTS_CONFIG,
+  createInitialEnhancedPromptsState,
+} from './lib/services/enhanced-prompts';
+export type {
+  EnhancedPromptsState,
+  EnhancedPromptsStatus,
+  EnhancedPromptsConfig,
+  EnhancedPromptsWizardResult,
+  EnhancedPromptsSummary,
+  EnhancedPromptsSdkConfig,
+  DetectedStack,
+  RegeneratePromptsRequest,
+  RegeneratePromptsResponse,
+  IMultiPhaseAnalysisReader,
+} from './lib/services/enhanced-prompts';

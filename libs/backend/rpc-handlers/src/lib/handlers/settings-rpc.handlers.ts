@@ -9,7 +9,7 @@
  * Platform-agnostic settings collection / import is delegated to
  * `SettingsExportService` and `SettingsImportService` from `@ptah-extension/agent-sdk`.
  *
- * TASK_2026_107 Bug 6: Lifted from
+ * Lifted from
  * `apps/ptah-electron/src/services/rpc/handlers/settings-rpc.handlers.ts` so all
  * three apps consume it via `registerAllRpcHandlers()`. The Electron-specific
  * `dialog.showMessageBox` plaintext warning is dropped — the renderer is the
@@ -140,9 +140,6 @@ export class SettingsRpcHandlers {
   private registerImport(): void {
     this.rpcHandler.registerMethod('settings:import', async () => {
       try {
-        // Hosts without a native picker (CLI / headless) cannot drive an
-        // interactive import. Return cancelled rather than throwing so the
-        // renderer can fall back to a paste-based flow.
         if (!this.userInteraction.showOpenDialog) {
           this.logger.info(
             '[RPC] settings:import unavailable on this host (no showOpenDialog)',
@@ -216,10 +213,6 @@ export class SettingsRpcHandlers {
             },
           };
         }
-
-        // Validate the parsed payload against the versioned Zod schema.
-        // We do NOT expose raw Zod error details to the client — those can
-        // contain user-supplied values.  Log details internally only.
         const parseResult = PtahSettingsExportSchema.safeParse(parsedData);
         if (!parseResult.success) {
           this.logger.warn('[RPC] settings:import - schema validation failed', {
@@ -242,10 +235,6 @@ export class SettingsRpcHandlers {
         }
 
         const validated = parseResult.data;
-
-        // Version check (Q4 — Option B): reject exports produced by a newer
-        // version of Ptah.  Older versions are accepted; the schema uses
-        // .passthrough() to handle unknown fields from future revisions.
         if (validated.version > CURRENT_SETTINGS_EXPORT_VERSION) {
           this.logger.warn('[RPC] settings:import - export version too high', {
             fileVersion: validated.version,
@@ -264,20 +253,9 @@ export class SettingsRpcHandlers {
             },
           };
         }
-
-        // Cast is safe: Zod has validated the required fields and
-        // CURRENT_SETTINGS_EXPORT_VERSION >= validated.version so the shape
-        // is compatible with PtahSettingsExport.
         const exportData = validated as unknown as PtahSettingsExport;
-
-        // Delegate secrets / provider keys to the platform-agnostic service.
         const importResult =
           await this.settingsImportService.importSettings(exportData);
-
-        // Config values: SettingsImportService reports config as skipped
-        // because IWorkspaceProvider used to be read-only. The interface now
-        // exposes setConfiguration() so we can write them here and promote
-        // each entry from skipped → imported.
         if (exportData.config && Object.keys(exportData.config).length > 0) {
           for (const [key, value] of Object.entries(exportData.config)) {
             try {
@@ -310,11 +288,6 @@ export class SettingsRpcHandlers {
           skipped: importResult.skipped.length,
           errors: importResult.errors.length,
         });
-
-        // If a license key was imported, verify with the server first so the
-        // in-memory cache is fresh; then schedule a window reload. If
-        // verification fails we leave reload off — otherwise the stale cache
-        // would push the user back to the welcome screen.
         if (importResult.imported.includes(SECRET_KEYS.LICENSE_KEY)) {
           this.logger.info(
             '[RPC] License key imported, verifying and scheduling reload',
@@ -368,7 +341,6 @@ export class SettingsRpcHandlers {
    * just for this; the renderer treats the value as informational.
    */
   private detectSource(): 'vscode' | 'electron' | 'cli' {
-    // Electron: process.versions.electron is set in both main and renderer.
     if (
       typeof process !== 'undefined' &&
       typeof process.versions === 'object' &&
@@ -376,7 +348,6 @@ export class SettingsRpcHandlers {
     ) {
       return 'electron';
     }
-    // VS Code extension host: env var is set by the runtime.
     if (typeof process !== 'undefined' && process.env['VSCODE_PID']) {
       return 'vscode';
     }

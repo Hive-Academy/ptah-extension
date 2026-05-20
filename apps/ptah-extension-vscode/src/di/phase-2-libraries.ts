@@ -1,30 +1,19 @@
 /**
- * Phase 2 — Library Services (workspace-intelligence, vscode-lm-tools, agent-sdk,
- *                             agent-generation, llm-abstraction)
+ * Phase 2 â€” Library Services (workspace-intelligence, vscode-lm-tools, agent-sdk,
+ *                             agent-generation)
  *
- * Extracted from `container.ts` as part of TASK_2025_291 Wave C1, Step 2a.
- * Corresponds to the original file's Phase 2 / 2.5 / 2.7 / 2.8 / 2.9 blocks.
- *
- * Runs AFTER `registerPhase3Handlers` in `DIContainer.setup`. This preserves the
- * original container's ordering (RPC handlers registered before workspace
- * intelligence). Handler factories are lazy, so the SDK / agent-generation /
- * llm-abstraction tokens they resolve are safely supplied here before any actual
- * resolution happens via `container.resolve(RPC_METHOD_REGISTRATION_SERVICE)`.
+ * Runs AFTER `registerPhase3Handlers` in `DIContainer.setup`. RPC handlers are
+ * registered before workspace intelligence. Handler factories are lazy, so the
+ * SDK / agent-generation tokens they resolve are safely supplied here before
+ * any actual resolution happens via
+ * `container.resolve(RPC_METHOD_REGISTRATION_SERVICE)`.
  */
 
 import { Lifecycle } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
-import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-// NOTE: persistence-sqlite, memory-curator, skill-synthesis, cron-scheduler
-// are intentionally NOT imported here. SQLite-backed features (Cron, Gateway,
-// Memory, Skill Synthesis) are Electron-only by design — see
-// rpc-method-registration.service.ts ELECTRON_ONLY_METHODS. The VS Code build
-// must not register these tokens or the activation chain will eagerly load
-// better-sqlite3's native binary, which is not shipped with the marketplace
-// VSIX (would require platform-specific packages).
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -34,54 +23,42 @@ import {
 import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 import {
   registerSdkServices,
-  SDK_TOKENS,
-  EnhancedPromptsService,
-  VscodeCopilotAuthService,
-  SdkAgentAdapter,
+  wireAgentAdapterAliases,
 } from '@ptah-extension/agent-sdk';
-import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
+import {
+  registerAuthProvidersServices,
+  AUTH_PROVIDERS_TOKENS,
+  VscodeCopilotAuthService,
+} from '@ptah-extension/auth-providers';
+import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
+  EnhancedPromptsService,
 } from '@ptah-extension/agent-generation';
+import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type IMemoryReader,
+} from '@ptah-extension/memory-contracts';
 
 export function registerPhase2Libraries(
   container: DependencyContainer,
   logger: Logger,
 ): void {
-  // ========================================
-  // PHASE 2: Workspace Intelligence Services
-  // ========================================
   registerWorkspaceIntelligenceServices(container, logger);
-
-  // ========================================
-  // PHASE 2.5: Code Execution MCP (TASK_2025_025)
-  // ========================================
   registerVsCodeLmToolsServices(container, logger);
-
-  // TASK_2025_226: Register VS Code IDE capabilities for PtahAPIBuilder.
-  // VscodeIDECapabilities wraps VS Code's LSP commands, editor state, and code
-  // actions. PtahAPIBuilder resolves this lazily via
-  // `container.isRegistered(IDE_CAPABILITIES_TOKEN)`. In Electron, this token is
-  // NOT registered, so `buildIDENamespace()` returns graceful degradation stubs.
   container.register(IDE_CAPABILITIES_TOKEN, {
     useValue: new VscodeIDECapabilities(),
   });
-
-  // TASK_2025_244: Register browser capabilities for PtahAPIBuilder.
-  // ChromeLauncherBrowserCapabilities uses chrome-launcher + chrome-remote-interface
-  // to launch and control Chrome for browser automation tools. Headless/viewport
-  // are agent-controlled via `ptah_browser_navigate` params.
   {
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
     container.register(BROWSER_CAPABILITIES_TOKEN, {
       useValue: new ChromeLauncherBrowserCapabilities(
-        // getRecordingDir — routed via file-based settings for Electron parity.
-        // Defaults to {workspace}/.ptah/recordings/ when no explicit dir is configured.
         () => {
           const configured =
             workspaceProvider.getConfiguration<string>(
@@ -97,49 +74,27 @@ export function registerPhase2Libraries(
       ),
     });
   }
-
-  // ========================================
-  // PHASE 2.7: Agent SDK Integration (TASK_2025_044 Batch 3)
-  // ========================================
-  // Register Agent SDK services (adapter, storage, permission handler).
-  // TASK_2025_092: SdkPermissionHandler now handles permission emitter directly.
-  // TASK_2025_199: Removed context parameter — SDK services inject platform
-  // abstractions via PLATFORM_TOKENS instead of receiving vscode.ExtensionContext.
+  registerAuthProvidersServices(container, logger);
   registerSdkServices(container, logger);
-
-  // TASK_2025_224: Override CopilotAuthService with VS Code-enhanced version.
-  // VscodeCopilotAuthService adds native GitHub OAuth via vscode.authentication
-  // (best UX in VS Code) before falling back to file-based/device-code flow.
+  registerCliAgentRuntimeServices(container, logger);
   container.register(
-    SDK_TOKENS.SDK_COPILOT_AUTH,
+    AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
     { useClass: VscodeCopilotAuthService },
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding, deep-agent removed TASK_2025_293).
-  // tsyringe rejects `Lifecycle.Singleton` with factory providers. The factory
-  // delegates to `SDK_TOKENS.SDK_AGENT_ADAPTER` which IS already a singleton
-  // (useClass + Lifecycle.Singleton in registerSdkServices), so every call
-  // returns the same cached instance.
-  container.register(TOKENS.AGENT_ADAPTER, {
-    useFactory: (c) => c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+  wireAgentAdapterAliases(container);
+
+  const noopMemoryReader: IMemoryReader = {
+    search: async () => ({ hits: [], bm25Only: true }),
+  };
+  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
+    useValue: noopMemoryReader,
   });
-
-  // ========================================
-  // PHASE 2.8: Agent Generation Services (TASK_2025_069)
-  // ========================================
-  // SetupStatusService, SetupWizardService, and supporting services required
-  // for setup wizard functionality.
-  // TASK_2025_199: Removed extensionPath parameter — services now inject
-  // IPlatformInfo directly via PLATFORM_TOKENS.PLATFORM_INFO.
   registerAgentGenerationServices(container, logger);
-
-  // TASK_2025_154: Wire multi-phase analysis reader into EnhancedPromptsService.
-  // Both SDK and agent-generation services are now registered, so we can safely
-  // resolve and connect them for optional multi-phase enrichment.
   try {
     const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-      SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+      AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,
     );
     const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
       AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
@@ -151,27 +106,7 @@ export function registerPhase2Libraries(
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
-
-  // TASK_2025_209: TOKENS.LLM_RPC_HANDLERS deleted. Shared LlmRpcHandlers (from
-  // @ptah-extension/rpc-handlers) is now platform-agnostic and registered in
-  // Phase 1.6 as AppLlmRpcHandlers.
-  //
-  // TASK_2025_291 Wave C5: CLI agent services (CliDetectionService,
-  // AgentProcessManager, CliPluginSyncService) are now registered by
-  // registerSdkServices (called earlier in Phase 2). The llm-abstraction
-  // library has been deleted.
-
-  // ========================================
-  // PHASES 2.55 – 2.7: SQLite-backed services — INTENTIONALLY NOT REGISTERED
-  // ========================================
-  // Persistence-SQLite, Memory Curator, Skill Synthesis, Cron Scheduler, and
-  // Messaging Gateway are Electron-only. The VS Code marketplace VSIX is a
-  // single cross-platform package and does not ship `better-sqlite3` /
-  // `sqlite-vec` native binaries (those would require per-platform VSIXes).
-  //
-  // The Thoth shell tabs (Memory / Skills / Cron / Gateway) detect the
-  // missing DI registrations and render a "desktop-only" placeholder. The
-  // ELECTRON_ONLY_METHODS list in rpc-method-registration.service.ts
-  // documents the corresponding RPC methods that are intentionally absent.
-  logger.info('[DI] SQLite-backed services skipped — Electron-only by design');
+  logger.info(
+    '[DI] SQLite-backed services skipped â€” Electron-only by design',
+  );
 }

@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah skill` command — TASK_2026_104 Sub-batch B6b.
+ * Unit tests for `ptah skill` command.
  *
  * Coverage:
  *   - search: dispatches skillsSh:search; usage error without query;

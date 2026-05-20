@@ -33,8 +33,6 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
  *
  * After stage/unstage/discard/commit, the GitStatusService auto-refreshes
  * via push events from the backend watcher (no manual refresh needed).
- *
- * TASK_2025_273
  */
 @Component({
   selector: 'ptah-source-control-panel',
@@ -184,20 +182,14 @@ export class SourceControlPanelComponent {
 
   readonly fileClicked = output<string>();
   readonly diffRequested = output<string>();
-
-  // UI state
   protected commitMessage = '';
   protected readonly isCommitting = signal(false);
   protected readonly stagedExpanded = signal(true);
   protected readonly unstagedExpanded = signal(true);
-
-  // Icons
   readonly PlusIcon = Plus;
   readonly MinusIcon = Minus;
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
-
-  // Computed file groups
   protected readonly stagedFiles = computed(() =>
     this.files().filter((f) => f.staged),
   );

@@ -2,8 +2,6 @@
  * Backend push events (`pushAdapter` EventEmitter) → JSON-RPC notifications
  * on stdout via the `Formatter`.
  *
- * TASK_2026_104 Batch 3.
- *
  * The `pushAdapter` is a generic `EventEmitter`. Backend services call
  * `sendMessage(viewType, type, payload)` which fires `emit(type, payload)`.
  * This pipe subscribes to a fixed mapping table from backend event types to
@@ -25,48 +23,22 @@ import type { Formatter } from './formatter.js';
 
 /** Mapping table from backend event type → Ptah notification method. */
 export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
-  // NOTE: chat surface (chat:chunk/chat:complete/chat:error) is handled by ChatBridge in cli/chat/chat-bridge.ts (B10b) — events are demuxed and reshaped per spec § 4.1.2 there, not here.
-  // Session metering — handled specially (delta computation below).
   'session:cost': 'session.cost',
   'session:cost-delta': 'session.cost',
   'session:tokens': 'session.token_usage',
   'session:token-delta': 'session.token_usage',
-  // Task lifecycle
   'task:start': 'task.start',
   'task:complete': 'task.complete',
   'task:error': 'task.error',
-  // Diagnostics — only forwarded when `globals.verbose === true`. The CLI
-  // DI container emits `debug.di.phase` events at the start/end of each
-  // numbered bootstrap phase (see `apps/ptah-cli/src/di/container.ts`).
-  // TASK_2026_104 Batch 4 (task-description.md § 4.1.9).
   'debug.di.phase': 'debug.di.phase',
-  // Resource Catalog — TASK_2026_104 Sub-batch B6b (task-description.md §4.1.5).
-  // Forwarded only when backend services emit them. The CLI commands themselves
-  // emit the same notifications synchronously via `formatter.writeNotification`,
-  // so these mappings exist for parity with Electron push events (e.g. when
-  // a remote install pipeline completes asynchronously).
   'skill:installed': 'skill.installed',
   'skill:removed': 'skill.removed',
   'mcp:installed': 'mcp.installed',
   'mcp:uninstalled': 'mcp.uninstalled',
-  // Plugin / Prompts / Harness — TASK_2026_104 Sub-batch B6c
-  // (task-description.md §3.1). Most B6c notifications are emitted
-  // synchronously by the CLI command body via `formatter.writeNotification`,
-  // so these mappings exist purely for parity with Electron push events
-  // (e.g. an asynchronous skill-junction rebuild after `plugins:save-config`,
-  // a streaming `harness:design-agents` run, or `setup-wizard:enhance-stream`
-  // chunks during `enhancedPrompts:regenerate`). No `harness.chat.*` mapping
-  // is added here — `harness chat` is a deferred-to-Batch-10 alias stub that
-  // emits `task.error` synchronously without any push events. See harness.ts.
   'plugin:config-updated': 'plugin.config.updated',
   'setup-wizard:enhance-stream': 'prompts.regenerate.start',
   'harness:flat-stream': 'harness.document.stream',
   'harness:flat-stream-complete': 'harness.document.complete',
-  // Setup-wizard generation — TASK_2026_104 Sub-batch B9a
-  // (task-description.md §4.1.3). Forwarded when the backend
-  // `setup-wizard:generation-*` push events fire during wizard prompt
-  // generation. Consumed by the upcoming B9c phase-runner async-broadcast
-  // mode and the B9d setup orchestrator.
   'setup-wizard:generation-progress': 'wizard.generation.progress',
   'setup-wizard:generation-stream': 'wizard.generation.stream',
   'setup-wizard:generation-complete': 'wizard.generation.complete',
@@ -122,7 +94,6 @@ export class EventPipe {
     this.adapter = adapter;
     for (const eventType of Object.keys(EVENT_MAP)) {
       const listener = (payload: unknown) => {
-        // Fire-and-forget — formatter writes are queued and ordered.
         void this.handleEvent(eventType, payload);
       };
       this.listeners.set(eventType, listener);
@@ -143,18 +114,12 @@ export class EventPipe {
     this.tokensBySession.clear();
   }
 
-  // ------------------------------------------------------------------
-  // Event handlers
-  // ------------------------------------------------------------------
-
   private async handleEvent(
     eventType: string,
     payload: unknown,
   ): Promise<void> {
     const method = EVENT_MAP[eventType];
     if (!method) return;
-
-    // Verbose-only events are dropped silently when --verbose is off.
     if (VERBOSE_ONLY_EVENTS.has(eventType) && !this.verbose) {
       return;
     }
@@ -177,8 +142,6 @@ export class EventPipe {
     const obj = isObject(payload) ? payload : {};
     const sessionId = stringOr(obj['session_id'], '_default');
     const turnId = stringOr(obj['turn_id'], '');
-    // Accept either a `delta_usd` (already computed) or a `total_usd` (compute
-    // delta against running total).
     const explicitDelta = numberOr(obj['delta_usd'], null);
     const explicitTotal = numberOr(obj['total_usd'], null);
 
@@ -192,7 +155,6 @@ export class EventPipe {
       delta = explicitTotal - running.totalUsd;
       total = explicitTotal;
     } else {
-      // No usable numeric — forward as-is, skip delta tracking.
       await this.formatter.writeNotification(method, payload);
       return;
     }
@@ -213,9 +175,6 @@ export class EventPipe {
     const obj = isObject(payload) ? payload : {};
     const sessionId = stringOr(obj['session_id'], '_default');
     const turnId = stringOr(obj['turn_id'], '');
-    // Two payload shapes accepted:
-    //  (a) per-turn deltas already: { input_tokens, output_tokens, ... }
-    //  (b) running totals: { total_input_tokens, total_output_tokens, ... }
     const inputTokens = numberOr(obj['input_tokens'], null);
     const outputTokens = numberOr(obj['output_tokens'], null);
     const cacheReadTokens = numberOr(obj['cache_read_tokens'], null);
@@ -239,17 +198,14 @@ export class EventPipe {
     let dCacheCreation = 0;
 
     if (inputTokens !== null || outputTokens !== null) {
-      // Shape (a) — payload is already a delta.
       dInput = inputTokens ?? 0;
       dOutput = outputTokens ?? 0;
       dCacheRead = cacheReadTokens ?? 0;
       dCacheCreation = cacheCreationTokens ?? 0;
     } else if (totalInput !== null || totalOutput !== null) {
-      // Shape (b) — compute delta against running totals.
       dInput = (totalInput ?? running.inputTokens) - running.inputTokens;
       dOutput = (totalOutput ?? running.outputTokens) - running.outputTokens;
     } else {
-      // Nothing usable — forward as-is.
       await this.formatter.writeNotification(method, payload);
       return;
     }
@@ -272,10 +228,6 @@ export class EventPipe {
     await this.formatter.writeNotification(method, params);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Local helpers — kept module-private; tests rely only on observable behavior.
-// ---------------------------------------------------------------------------
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

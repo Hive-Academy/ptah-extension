@@ -10,13 +10,9 @@ import { encode } from 'gpt-tokenizer';
 
 export class VscodeTokenCounter implements ITokenCounter {
   async countTokens(text: string): Promise<number> {
-    try {
-      const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-      if (models.length > 0) {
-        return await models[0].countTokens(text);
-      }
-    } catch {
-      // VS Code LM API unavailable, fall through to gpt-tokenizer
+    const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    if (models.length > 0) {
+      return await models[0].countTokens(text);
     }
     try {
       return encode(text).length;
@@ -26,13 +22,9 @@ export class VscodeTokenCounter implements ITokenCounter {
   }
 
   async getMaxInputTokens(): Promise<number | null> {
-    try {
-      const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-      if (models.length > 0) {
-        return models[0].maxInputTokens;
-      }
-    } catch {
-      // VS Code LM API unavailable
+    const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    if (models.length > 0) {
+      return models[0].maxInputTokens;
     }
     return null;
   }

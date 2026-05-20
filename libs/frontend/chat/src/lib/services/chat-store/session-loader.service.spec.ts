@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SessionLoaderService specs â€” focuses on the pieces that can be tested as a
  * unit without the full RPC/state orchestration:
  *

@@ -1,8 +1,6 @@
 /**
  * `ptah settings` command — export / import portable settings bundles.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1):
  *
  *   export [--out <path>]      Collect settings via SDK SettingsExportService
@@ -101,10 +99,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// `settings export`
-// ---------------------------------------------------------------------------
-
 async function runExport(
   opts: SettingsOptions,
   globals: GlobalOptions,
@@ -119,8 +113,6 @@ async function runExport(
     const json = JSON.stringify(bundle, null, 2);
 
     if (opts.out) {
-      // Atomic + restrictive-permission write: tmp file in the same dir,
-      // 0o600, then rename onto the target.
       await atomicWriteSecret(opts.out, json);
       await formatter.writeNotification('settings.exported', {
         path: opts.out,
@@ -128,7 +120,6 @@ async function runExport(
         version: bundle.version,
       });
     } else {
-      // Stream to stdout (or test sink). Caller is responsible for chmod.
       const out = hooks.stdout ?? process.stdout;
       out.write(`${json}\n`);
       stderr.write(
@@ -143,10 +134,6 @@ async function runExport(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// `settings import`
-// ---------------------------------------------------------------------------
 
 async function runImport(
   opts: SettingsOptions,
@@ -193,10 +180,6 @@ async function runImport(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Service resolution helpers
-// ---------------------------------------------------------------------------
-
 function resolveExportService(ctx: EngineContext): {
   collectSettings(
     source: 'vscode' | 'electron' | 'cli',
@@ -217,10 +200,6 @@ function resolveImportService(ctx: EngineContext): {
 } {
   return ctx.container.resolve(SDK_TOKENS.SDK_SETTINGS_IMPORT);
 }
-
-// ---------------------------------------------------------------------------
-// IO helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Write `data` to `target` with 0o600 perms via tmp+rename. The tmp file lives
@@ -245,12 +224,8 @@ async function atomicWriteSecret(target: string, data: string): Promise<void> {
     }
     throw error;
   }
-  // Defensive chmod after rename in case the dest filesystem ignored mode.
-  try {
-    await fs.chmod(target, 0o600);
-  } catch {
-    /* best-effort — Windows refs do not honor POSIX bits */
-  }
+
+  await fs.chmod(target, 0o600);
 }
 
 async function readAllStream(stream: Readable): Promise<string> {

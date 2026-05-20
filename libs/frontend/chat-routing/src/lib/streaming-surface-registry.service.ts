@@ -1,5 +1,5 @@
 /**
- * StreamingSurfaceRegistry — TASK_2026_107 Phase 2.
+ * StreamingSurfaceRegistry.
  *
  * Owns the `SurfaceId → SurfaceAdapter` relation. A "surface" is a non-tab
  * consumer of the streaming pipeline (setup-wizard analysis phase, harness
@@ -7,11 +7,6 @@
  * slot via `getState`/`setState` so the canonical `StreamingAccumulatorCore`
  * (in `@ptah-extension/chat-streaming`) can mutate it without knowing
  * anything about the consumer's storage layout.
- *
- * Phase 2 ships this in shadow mode — `StreamRouter.routeStreamEventForSurface`
- * resolves adapters through this registry, but no caller (wizard / harness)
- * has been wired in yet. The registry has zero behaviour-affecting writes
- * until Phase 3 / Phase 4 lands.
  *
  * Design notes:
  *   - Signal-backed Map for testability — consumers and tests can assert

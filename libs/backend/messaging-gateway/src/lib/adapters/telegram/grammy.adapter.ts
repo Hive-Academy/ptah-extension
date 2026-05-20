@@ -110,7 +110,6 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
         });
       }
     });
-    // grammy.start() returns a long-running promise; do not await it.
     void this.bot.start({ drop_pending_updates: true });
     this.running = true;
     this.logger.info('[gateway] telegram adapter started');
@@ -161,10 +160,6 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
     if (!message || !this.listener) return;
     const fromId = message.from?.id ? String(message.from.id) : '';
     if (this.allowedUserIds.size) {
-      // SECURITY: when an allowlist is configured, drop messages with no
-      // identifiable sender (channel posts, automated messages where `from`
-      // is absent) and messages from unlisted users. An empty fromId should
-      // never pass through — it cannot be verified against the allowlist.
       if (!fromId || !this.allowedUserIds.has(fromId)) {
         this.logger.debug('[gateway] telegram inbound rejected by allow-list', {
           fromId: fromId || '(empty)',
@@ -172,12 +167,6 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
         return;
       }
     }
-    // SECURITY: When an allow-list is configured, reject group/supergroup/
-    // channel chats by default so an allow-listed user who happens to be a
-    // member of a group cannot have the bot answer (and leak the user's
-    // session contents) into the group. Telegram private chat ids are
-    // POSITIVE; group / supergroup / channel ids are NEGATIVE. Operators who
-    // explicitly want a group must add the chat id to the allow-list as well.
     const chatIdNum =
       typeof message.chat.id === 'number'
         ? message.chat.id
@@ -212,7 +201,6 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
 
   private async awaitRateLimit(chatId: string): Promise<void> {
     const now = Date.now();
-    // Prune global window.
     const cutoff = now - 1_000;
     this.globalRecent = this.globalRecent.filter((ts) => ts > cutoff);
     if (this.globalRecent.length >= GLOBAL_LIMIT_PER_SEC) {
@@ -220,7 +208,6 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
       const wait = Math.max(1, oldest + 1_000 - now);
       await new Promise((r) => setTimeout(r, wait));
     }
-    // Per-chat throttle.
     const last = this.perChatLast.get(chatId) ?? 0;
     const sinceLast = now - last;
     if (sinceLast < PER_CHAT_INTERVAL_MS) {

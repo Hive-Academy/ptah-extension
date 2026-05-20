@@ -8,7 +8,6 @@
  * - Batch file matching with boolean logic
  *
  * @see https://github.com/micromatch/picomatch - 7.2x faster than minimatch
- * @see .ptah/specs/TASK_PRV_005/research-report.md - Research Finding 5
  */
 
 import { injectable } from 'tsyringe';
@@ -29,7 +28,6 @@ class LRUCache<K, V> {
   get(key: K): V | undefined {
     const value = this.cache.get(key);
     if (value !== undefined) {
-      // Move to end (most recently used)
       this.cache.delete(key);
       this.cache.set(key, value);
     }
@@ -37,15 +35,10 @@ class LRUCache<K, V> {
   }
 
   set(key: K, value: V): void {
-    // Remove if exists (to update position)
     if (this.cache.has(key)) {
       this.cache.delete(key);
     }
-
-    // Add to end
     this.cache.set(key, value);
-
-    // Evict oldest if over size limit
     if (this.cache.size > this.maxSize) {
       const firstKey = this.cache.keys().next().value as K;
       if (firstKey !== undefined) {
@@ -126,10 +119,7 @@ export class PatternMatcherService {
   private resultCache: LRUCache<string, boolean>;
 
   constructor() {
-    // Cache up to 100 compiled patterns
     this.patternCache = new LRUCache<string, MatcherFunction>(100);
-
-    // Cache up to 1000 match results
     this.resultCache = new LRUCache<string, boolean>(1000);
   }
 
@@ -153,24 +143,14 @@ export class PatternMatcherService {
     pattern: string,
     options?: PatternMatchOptions,
   ): boolean {
-    // Normalize Windows-style backslashes to forward slashes — picomatch
-    // operates on POSIX paths and treats `\` as literal on Linux.
     const normalizedPath = path.replace(/\\/g, '/');
-
-    // Check result cache first
     const cacheKey = `${normalizedPath}::${pattern}::${JSON.stringify(options || {})}`;
     const cachedResult = this.resultCache.get(cacheKey);
     if (cachedResult !== undefined) {
       return cachedResult;
     }
-
-    // Get or compile matcher
     const matcher = this.getCompiledMatcher(pattern, options);
-
-    // Test path against matcher
     const result = matcher(normalizedPath);
-
-    // Cache result
     this.resultCache.set(cacheKey, result);
 
     return result;
@@ -228,7 +208,6 @@ export class PatternMatcherService {
     patterns: string[],
     options?: PatternMatchOptions,
   ): PatternMatchResult[] {
-    // Separate inclusion and exclusion patterns
     const inclusionPatterns = patterns.filter((p) => !p.startsWith('!'));
     const exclusionPatterns = patterns
       .filter((p) => p.startsWith('!'))
@@ -237,24 +216,16 @@ export class PatternMatcherService {
     return paths.map((path) => {
       const matchedInclusions: string[] = [];
       const matchedExclusions: string[] = [];
-
-      // Check inclusion patterns
       for (const pattern of inclusionPatterns) {
         if (this.isMatch(path, pattern, options)) {
           matchedInclusions.push(pattern);
         }
       }
-
-      // Check exclusion patterns
       for (const pattern of exclusionPatterns) {
         if (this.isMatch(path, pattern, options)) {
           matchedExclusions.push(`!${pattern}`);
         }
       }
-
-      // A file matches if:
-      // - It matches at least one inclusion pattern (or no inclusion patterns specified)
-      // - AND it doesn't match any exclusion patterns
       const hasInclusion =
         inclusionPatterns.length === 0 || matchedInclusions.length > 0;
       const hasExclusion = matchedExclusions.length > 0;
@@ -304,34 +275,21 @@ export class PatternMatcherService {
     pattern: string,
     options?: PatternMatchOptions,
   ): MatcherFunction {
-    // Create cache key from pattern + options
     const cacheKey = `${pattern}::${JSON.stringify(options || {})}`;
-
-    // Check cache first
     const cached = this.patternCache.get(cacheKey);
     if (cached) {
       return cached;
     }
-
-    // Compile new matcher with picomatch
     const picomatchOptions: picomatch.PicomatchOptions = {
       dot: options?.dot,
-      // Handle case sensitivity: default to case-sensitive (false for nocase)
-      // If caseSensitive is explicitly set to false, enable nocase
-      // If nocase is explicitly set, use that
       nocase:
         options?.caseSensitive === false ? true : (options?.nocase ?? false),
-      // Follow Bash 4.3 glob spec
       bash: true,
-      // Enable brace expansion: {a,b,c}
       nobrace: false,
-      // Enable advanced globstar: **
       noglobstar: false,
     };
 
     const matcher = picomatch(pattern, picomatchOptions);
-
-    // Cache compiled matcher
     this.patternCache.set(cacheKey, matcher);
 
     return matcher;

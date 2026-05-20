@@ -1,4 +1,4 @@
-﻿/**
+/**
  * BatchedUpdateService specs â€” RAF-batched streaming state updates.
  *
  * The service coalesces rapid `setStreamingState(state)` calls into one

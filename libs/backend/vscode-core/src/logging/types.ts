@@ -1,6 +1,5 @@
 /**
  * Logging Types - Type definitions for structured logging
- * Based on TASK_CORE_001 implementation plan
  */
 
 /**

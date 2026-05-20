@@ -1,7 +1,5 @@
 /**
  * ErrorHandler Service - Centralized error management
- * Based on TASK_CORE_001 implementation plan
- * Extracted from apps/ptah-extension-vscode/src/handlers/error-handler.ts
  *
  * Features:
  * - Dependency injection via TSyringe
@@ -37,22 +35,18 @@ export class ErrorHandler {
   handleError(
     error: Error | string,
     context?: ErrorContext,
-    showToUser = true
+    showToUser = true,
   ): void {
     const errorMessage = this.formatError(error);
     const fullMessage = context
       ? `${context.service}.${context.operation}: ${errorMessage}`
       : errorMessage;
-
-    // Log with context
     this.logger.error(fullMessage, {
       service: context?.service,
       operation: context?.operation,
       metadata: context?.metadata,
       error: error instanceof Error ? error : undefined,
     });
-
-    // Show to user if requested
     if (showToUser) {
       const userMessage = context
         ? `${context.service} error: ${errorMessage}`
@@ -74,7 +68,7 @@ export class ErrorHandler {
   async handleAsyncError<T>(
     promise: Promise<T>,
     context?: ErrorContext,
-    showToUser = true
+    showToUser = true,
   ): Promise<T | undefined> {
     try {
       return await promise;
@@ -82,7 +76,7 @@ export class ErrorHandler {
       this.handleError(
         error instanceof Error ? error : String(error),
         context,
-        showToUser
+        showToUser,
       );
       return undefined;
     }
@@ -100,7 +94,7 @@ export class ErrorHandler {
   createErrorBoundary<T>(
     fn: () => T,
     fallback?: T,
-    context?: ErrorContext
+    context?: ErrorContext,
   ): ErrorBoundaryResult<T> {
     try {
       const value = fn();
@@ -109,7 +103,7 @@ export class ErrorHandler {
       this.handleError(
         error instanceof Error ? error : String(error),
         context,
-        false
+        false,
       );
 
       return {
@@ -132,7 +126,7 @@ export class ErrorHandler {
   async createAsyncErrorBoundary<T>(
     fn: () => Promise<T>,
     fallback?: T,
-    context?: ErrorContext
+    context?: ErrorContext,
   ): Promise<ErrorBoundaryResult<T>> {
     try {
       const value = await fn();
@@ -141,7 +135,7 @@ export class ErrorHandler {
       this.handleError(
         error instanceof Error ? error : String(error),
         context,
-        false
+        false,
       );
 
       return {
@@ -163,27 +157,23 @@ export class ErrorHandler {
   async showErrorToUser(
     error: Error | string,
     actions?: ErrorAction[],
-    context?: ErrorContext
+    context?: ErrorContext,
   ): Promise<void> {
     const errorMessage = this.formatError(error);
     const fullMessage = context
       ? `${context.service} error: ${errorMessage}`
       : `Error: ${errorMessage}`;
-
-    // Log the error
     this.logger.error(fullMessage, {
       service: context?.service,
       operation: context?.operation,
       metadata: context?.metadata,
       error: error instanceof Error ? error : undefined,
     });
-
-    // Show notification with actions
     if (actions && actions.length > 0) {
       const actionTitles = actions.map((a) => a.title);
       const result = await vscode.window.showErrorMessage(
         `Ptah: ${fullMessage}`,
-        ...actionTitles
+        ...actionTitles,
       );
 
       if (result) {
@@ -215,7 +205,7 @@ export class ErrorHandler {
   handleCommandError(
     commandId: string,
     error: unknown,
-    context?: string
+    context?: string,
   ): void {
     this.handleError(error instanceof Error ? error : String(error), {
       service: 'CommandManager',
@@ -238,7 +228,7 @@ export class ErrorHandler {
         service: serviceName,
         operation: 'initialize',
       },
-      true
+      true,
     );
   }
 
@@ -258,7 +248,7 @@ export class ErrorHandler {
         operation: viewId,
         metadata: context ? { context } : undefined,
       },
-      true
+      true,
     );
   }
 
@@ -281,8 +271,8 @@ export class ErrorHandler {
           handler: async () => {
             await vscode.env.openExternal(
               vscode.Uri.parse(
-                'https://github.com/your-repo/ptah-extension#claude-cli-setup'
-              )
+                'https://github.com/your-repo/ptah-extension#claude-cli-setup',
+              ),
             );
           },
         },
@@ -290,7 +280,7 @@ export class ErrorHandler {
       {
         service: 'ClaudeCli',
         operation: operation || 'unknown',
-      }
+      },
     );
   }
 
@@ -328,7 +318,7 @@ export class ErrorHandler {
             service,
             operation,
           },
-          true
+          true,
         ),
     };
   }

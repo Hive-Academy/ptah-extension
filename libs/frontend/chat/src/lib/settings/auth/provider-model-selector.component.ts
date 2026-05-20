@@ -76,8 +76,6 @@ const TIER_CONFIGS: TierConfig[] = [
  * - Tool use warning for non-compatible models
  * - Reset to default button per tier
  * - Hides Refresh button for providers with static model lists
- *
- * TASK_2025_091 Phase 2 (OpenRouter), TASK_2025_132 (generalized to all providers)
  */
 @Component({
   selector: 'ptah-provider-model-selector',
@@ -309,8 +307,6 @@ const TIER_CONFIGS: TierConfig[] = [
 export class ProviderModelSelectorComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly modelState = inject(ModelStateService);
-
-  // Icons
   readonly AlertTriangleIcon = AlertTriangle;
   readonly CheckIcon = Check;
   readonly WrenchIcon = Wrench;
@@ -318,26 +314,13 @@ export class ProviderModelSelectorComponent implements OnInit {
   readonly SearchIcon = Search;
   readonly RefreshCwIcon = RefreshCw;
   readonly PenLineIcon = PenLine;
-
-  // Tier configurations
   readonly tierConfigs = TIER_CONFIGS;
-
-  // Input: provider ID (optional, defaults to active provider on backend)
   readonly providerId = input<string | undefined>(undefined);
-
-  // Input: whether the provider has a key configured (guards model loading)
   readonly hasKey = input<boolean>(false);
-
-  // Input: scope determines whether writes affect the main agent's globals
-  // or are isolated to a CLI sub-agent's config.
   readonly scope = input.required<ProviderTierScope>();
-
-  // Template ref for autocomplete
   readonly modelSuggestionTemplate = viewChild.required<
     TemplateRef<{ $implicit: ProviderModelInfo }>
   >('modelSuggestionTemplate');
-
-  // State
   readonly availableModels = signal<ProviderModelInfo[]>([]);
   readonly isLoading = signal(false);
   readonly error = signal<string | null>(null);
@@ -354,8 +337,6 @@ export class ProviderModelSelectorComponent implements OnInit {
     opus: null,
     haiku: null,
   });
-
-  // Custom model input state — tracks open/closed and typed value per tier
   readonly customInputOpen = signal<Record<ProviderModelTier, boolean>>({
     sonnet: false,
     opus: false,
@@ -366,16 +347,10 @@ export class ProviderModelSelectorComponent implements OnInit {
     opus: '',
     haiku: '',
   });
-
-  // AbortController for cancelling in-flight model/tier loads on provider switch
   private loadAbortController: AbortController | null = null;
-
-  // Current tier mappings
   readonly sonnetModel = signal<string | null>(null);
   readonly opusModel = signal<string | null>(null);
   readonly haikuModel = signal<string | null>(null);
-
-  // Computed: filtered models based on the active tier's search query
   readonly filteredModels = computed(() => {
     const tier = this.activeTier();
     const query = tier ? this.searchQueries()[tier].toLowerCase().trim() : '';
@@ -393,18 +368,13 @@ export class ProviderModelSelectorComponent implements OnInit {
       )
       .slice(0, 50);
   });
-
-  // Computed: count of models with tool use support
   readonly toolUseModelsCount = computed(
     () => this.availableModels().filter((m) => m.supportsToolUse).length,
   );
-
-  // Track previous providerId to detect changes (skip initial load handled by ngOnInit)
   private previousProviderId: string | undefined | null = null;
   private initialized = false;
 
   constructor() {
-    // React to providerId and hasKey input changes after initial load
     effect(() => {
       const currentId = this.providerId();
       const keyAvailable = this.hasKey();
@@ -412,7 +382,6 @@ export class ProviderModelSelectorComponent implements OnInit {
       if (!this.initialized) return;
 
       if (currentId !== this.previousProviderId) {
-        // Provider changed
         this.previousProviderId = currentId;
         if (keyAvailable) {
           this.reloadForProvider();
@@ -424,7 +393,6 @@ export class ProviderModelSelectorComponent implements OnInit {
         this.availableModels().length === 0 &&
         !this.isLoading()
       ) {
-        // Same provider, key just became available, no models loaded yet
         this.reloadForProvider();
       }
     });
@@ -437,10 +405,6 @@ export class ProviderModelSelectorComponent implements OnInit {
     }
     this.initialized = true;
   }
-
-  // ============================================================================
-  // TIER ACCESSORS
-  // ============================================================================
 
   /**
    * Get current value for a tier
@@ -471,10 +435,6 @@ export class ProviderModelSelectorComponent implements OnInit {
     return this.searchQueries()[tier];
   }
 
-  // ============================================================================
-  // DROPDOWN INTERACTIONS
-  // ============================================================================
-
   /**
    * Handle search input for a tier (updates only that tier's query)
    */
@@ -490,8 +450,6 @@ export class ProviderModelSelectorComponent implements OnInit {
   openDropdown(tier: ProviderModelTier): void {
     this.activeTier.set(tier);
     this.isDropdownOpen.set(true);
-
-    // Load models on first open if needed
     if (this.availableModels().length === 0 && !this.isLoading()) {
       this.loadModels();
     }
@@ -532,10 +490,8 @@ export class ProviderModelSelectorComponent implements OnInit {
       });
 
       if (result.isSuccess() && result.data?.success) {
-        // Clear any previous error for this tier
         this.tierErrors.update((prev) => ({ ...prev, [tier]: null }));
         this.setTierValue(tier, null);
-        // Refresh model dropdown to remove cleared provider model IDs
         this.modelState.refreshModels();
       } else {
         this.tierErrors.update((prev) => ({
@@ -558,10 +514,6 @@ export class ProviderModelSelectorComponent implements OnInit {
   async refreshModels(): Promise<void> {
     await this.loadModels();
   }
-
-  // ============================================================================
-  // CUSTOM MODEL INPUT
-  // ============================================================================
 
   isCustomInputOpen(tier: ProviderModelTier): boolean {
     return this.customInputOpen()[tier];
@@ -598,10 +550,6 @@ export class ProviderModelSelectorComponent implements OnInit {
       this.closeCustomInput(tier);
     }
   }
-
-  // ============================================================================
-  // PRIVATE HELPERS
-  // ============================================================================
 
   /**
    * Core RPC call to persist a model ID for a tier.
@@ -656,12 +604,9 @@ export class ProviderModelSelectorComponent implements OnInit {
    * Cancels any in-flight loads from a previous provider switch.
    */
   private async reloadForProvider(): Promise<void> {
-    // Cancel any in-flight loads from a previous provider switch
     this.loadAbortController?.abort();
     this.loadAbortController = new AbortController();
     const abortSignal = this.loadAbortController.signal;
-
-    // Clear stale state from the previous provider
     this.availableModels.set([]);
     this.sonnetModel.set(null);
     this.opusModel.set(null);
@@ -689,15 +634,12 @@ export class ProviderModelSelectorComponent implements OnInit {
         toolUseOnly: false,
         providerId: this.providerId(),
       });
-
-      // If this load was aborted (provider changed mid-flight), discard the result
       if (abortSignal?.aborted) return;
 
       if (result.isSuccess() && result.data) {
         const data = result.data as ProviderListModelsResult;
         this.availableModels.set(data.models);
         this.isStatic.set(data.isStatic ?? false);
-        // Handle soft errors (auth failures returned as successful RPC with error field)
         if (data.error) {
           this.error.set(data.error);
         }
@@ -726,8 +668,6 @@ export class ProviderModelSelectorComponent implements OnInit {
         providerId: this.providerId(),
         scope: this.scope(),
       });
-
-      // If this load was aborted (provider changed mid-flight), discard the result
       if (abortSignal?.aborted) return;
 
       if (result.isSuccess() && result.data) {

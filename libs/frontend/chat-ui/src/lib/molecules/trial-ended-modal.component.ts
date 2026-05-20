@@ -21,8 +21,6 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
 /**
  * TrialEndedModalComponent - Modal for trial/subscription expiration
  *
- * TASK_2025_142: Requirement 2
- *
  * Displays when license:getStatus returns reason: 'trial_ended' or 'expired'.
  * Redirects users to the website to manage their plan (upgrade or community).
  * Once they have a new license key from the website, they enter it in the extension.
@@ -148,13 +146,8 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
   `,
 })
 export class TrialEndedModalComponent {
-  // Input: License status reason
   readonly reason = input<string | undefined>(undefined);
-
-  // Internal state
   readonly isOpen = signal(false);
-
-  // Icons
   protected readonly ClockIcon = Clock;
   protected readonly SparklesIcon = Sparkles;
   protected readonly ZapIcon = Zap;
@@ -162,14 +155,11 @@ export class TrialEndedModalComponent {
   protected readonly BotIcon = Bot;
   protected readonly ExternalLinkIcon = ExternalLink;
 
-  // TASK_2025_142: Use constant instead of hardcoded value
   protected readonly trialDurationDays = TRIAL_DURATION_DAYS;
 
   private readonly rpcService = inject(ClaudeRpcService);
 
   constructor() {
-    // Use effect to watch for reason changes (e.g., when license status is fetched async)
-    // Effect runs on initial value AND subsequent changes, so no ngOnInit needed
     effect(() => {
       const currentReason = this.reason();
       this.checkAndShowModal(currentReason);
@@ -180,13 +170,10 @@ export class TrialEndedModalComponent {
    * Check if modal should be shown based on reason
    */
   private checkAndShowModal(currentReason: string | undefined): void {
-    // Show for both 'trial_ended' and 'expired' reasons
     if (currentReason !== 'trial_ended' && currentReason !== 'expired') {
       this.isOpen.set(false);
       return;
     }
-
-    // Show modal
     this.isOpen.set(true);
   }
 
@@ -195,13 +182,9 @@ export class TrialEndedModalComponent {
    * User manages their plan there and gets a new license key.
    */
   async goToAccount(): Promise<void> {
-    try {
-      await this.rpcService.call('command:execute', {
-        command: 'ptah.openSignup',
-      });
-    } catch {
-      // Silently fail - browser should still open
-    }
+    await this.rpcService.call('command:execute', {
+      command: 'ptah.openSignup',
+    });
     this.isOpen.set(false);
   }
 

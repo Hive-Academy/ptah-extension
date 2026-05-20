@@ -1,7 +1,5 @@
 /**
  * Logger Service - Structured logging with VS Code integration
- * Based on TASK_CORE_001 implementation plan
- * Extracted from apps/ptah-extension-vscode/src/core/logger.ts
  *
  * Features:
  * - Dependency injection via TSyringe
@@ -50,13 +48,9 @@ export class Logger {
   };
 
   constructor(
-    @inject(OUTPUT_MANAGER) private readonly outputManager: OutputManager
+    @inject(OUTPUT_MANAGER) private readonly outputManager: OutputManager,
   ) {
-    // Ensure output channel is created for logging
     this.outputManager.createOutputChannel({ name: Logger.CHANNEL_NAME });
-
-    // Detect development mode and apply centralized log level defaults.
-    // PTAH_LOG_LEVEL env var always takes priority for explicit overrides.
     const explicitLevel = process.env['PTAH_LOG_LEVEL'] as LogLevel | undefined;
     if (explicitLevel && Logger.LEVEL_ORDER[explicitLevel] !== undefined) {
       this.minLevel = explicitLevel;
@@ -77,9 +71,6 @@ export class Logger {
    */
   private detectDevelopmentMode(): boolean {
     try {
-      // Check for VS Code extension development mode
-      // process.env.VSCODE_DEBUG_MODE is set during F5 debugging
-      // NODE_ENV can also be used for explicit configuration
       return (
         process.env['VSCODE_DEBUG_MODE'] === 'true' ||
         process.env['NODE_ENV'] === 'development' ||
@@ -139,13 +130,11 @@ export class Logger {
    */
   error(
     message: string | Error,
-    errorOrContext?: Error | Record<string, unknown>
+    errorOrContext?: Error | Record<string, unknown>,
   ): void {
     let actualMessage: string;
     let actualError: Error | undefined;
     let actualContext: Record<string, unknown> | undefined;
-
-    // Handle different parameter combinations
     if (message instanceof Error) {
       actualError = message;
       actualMessage = message.message;
@@ -180,7 +169,6 @@ export class Logger {
    * @param context - Contextual information
    */
   logWithContext(level: LogLevel, message: string, context: LogContext): void {
-    // Skip logging if below minimum level
     if (!this.shouldLog(level)) return;
 
     const entry = this.createLogEntry(level, message, context);
@@ -198,10 +186,7 @@ export class Logger {
   /**
    * Dispose resources (called on extension deactivation)
    */
-  dispose(): void {
-    // OutputManager handles disposal of channels
-    // No additional cleanup needed for Logger
-  }
+  dispose(): void {}
 
   /**
    * Log message with arguments
@@ -215,11 +200,7 @@ export class Logger {
    * @param args - Additional arguments
    */
   private log(level: LogLevel, message: string, args: unknown[]): void {
-    // Skip logging if below minimum level (early check for performance)
     if (!this.shouldLog(level)) return;
-
-    // DIAGNOSTIC: Inline objects directly into the message for easier debugging
-    // This makes log entries self-contained and visible in saved log files
     let inlinedMessage = message;
     if (args.length > 0) {
       const inlinedArgs = args
@@ -236,8 +217,6 @@ export class Logger {
         .join(' ');
       inlinedMessage = `${message}: ${inlinedArgs}`;
     }
-
-    // Use empty context since args are now inlined into message
     this.logWithContext(level, inlinedMessage, {});
   }
 
@@ -252,7 +231,7 @@ export class Logger {
   private createLogEntry(
     level: LogLevel,
     message: string,
-    context?: LogContext
+    context?: LogContext,
   ): LogEntry {
     return {
       level,
@@ -273,48 +252,62 @@ export class Logger {
     const levelPrefix = entry.level.toUpperCase().padEnd(5);
     const timestamp = entry.timestamp.toISOString();
     const formattedMessage = `[${levelPrefix}] ${timestamp} - ${entry.message}`;
-
-    // Write to output channel
     this.outputManager.write(Logger.CHANNEL_NAME, formattedMessage);
-
-    // Add context information if available
     if (entry.context) {
       if (entry.context.service) {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
-          `  Service: ${entry.context.service}`
+          `  Service: ${entry.context.service}`,
         );
       }
 
       if (entry.context.operation) {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
-          `  Operation: ${entry.context.operation}`
+          `  Operation: ${entry.context.operation}`,
         );
       }
 
       if (entry.context.metadata) {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
-          `  Metadata: ${JSON.stringify(entry.context.metadata, null, 2)}`
+          `  Metadata: ${JSON.stringify(entry.context.metadata, null, 2)}`,
         );
       }
 
       if (entry.context.error) {
         this.outputManager.write(
           Logger.CHANNEL_NAME,
-          `  Error: ${entry.context.error.message}`
+          `  Error: ${entry.context.error.message}`,
+        );
+      }
+
+      const KNOWN_KEYS = new Set(['service', 'operation', 'metadata', 'error']);
+      const extras: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(
+        entry.context as Record<string, unknown>,
+      )) {
+        if (!KNOWN_KEYS.has(key) && value !== undefined) {
+          extras[key] = value;
+        }
+      }
+      if (Object.keys(extras).length > 0) {
+        let serializedExtras: string;
+        try {
+          serializedExtras = JSON.stringify(extras, null, 2);
+        } catch {
+          serializedExtras = '[Unserializable]';
+        }
+        this.outputManager.write(
+          Logger.CHANNEL_NAME,
+          `  Extras: ${serializedExtras}`,
         );
       }
     }
-
-    // Add stack trace for errors
     if (entry.stackTrace) {
       this.outputManager.write(Logger.CHANNEL_NAME, `  Stack trace:`);
       this.outputManager.write(Logger.CHANNEL_NAME, entry.stackTrace);
     }
-
-    // Also log to console when enabled (dev mode)
     if (this.logToConsole) {
       this.writeToConsole(entry);
     }
@@ -344,7 +337,7 @@ export class Logger {
         console.error(
           consoleMessage,
           entry.context?.error || '',
-          ...consoleArgs
+          ...consoleArgs,
         );
         break;
     }

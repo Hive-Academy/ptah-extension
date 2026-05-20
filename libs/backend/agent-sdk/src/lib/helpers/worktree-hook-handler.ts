@@ -18,7 +18,6 @@
  * 4. Session host sends RPC notification to frontend
  * 5. Hook returns { continue: true } to allow SDK to proceed
  *
- * @see TASK_2025_236 - Worktree Integration
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -110,11 +109,8 @@ export class WorktreeHookHandler {
     onWorktreeCreated?: WorktreeCreatedCallback,
     onWorktreeRemoved?: WorktreeRemovedCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // Capture callbacks in closure for use in hooks
     const capturedCreatedCallback = onWorktreeCreated;
     const capturedRemovedCallback = onWorktreeRemoved;
-
-    // DIAGNOSTIC: Log hook creation
     this.logger.info('[WorktreeHookHandler] Creating hooks', {
       hasCreatedCallback: !!capturedCreatedCallback,
       hasRemovedCallback: !!capturedRemovedCallback,
@@ -129,7 +125,6 @@ export class WorktreeHookHandler {
               _toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
-              // Log that the hook was invoked by SDK
               this.logger.info(
                 '[WorktreeHookHandler] WorktreeCreate hook invoked',
                 {
@@ -139,7 +134,6 @@ export class WorktreeHookHandler {
               );
 
               try {
-                // Use type guard for type safety
                 if (!isWorktreeCreateHook(input)) {
                   this.logger.warn(
                     '[WorktreeHookHandler] Unexpected hook input type for WorktreeCreate',
@@ -150,15 +144,11 @@ export class WorktreeHookHandler {
                   );
                   return { continue: true };
                 }
-
-                // Log worktree creation details
                 this.logger.info('[WorktreeHookHandler] Worktree created', {
                   sessionId: input.session_id,
                   name: input.name,
                   cwd: input.cwd,
                 });
-
-                // Notify via callback if provided
                 if (capturedCreatedCallback) {
                   const worktreeData = {
                     sessionId: input.session_id,
@@ -171,13 +161,9 @@ export class WorktreeHookHandler {
                     '[WorktreeHookHandler] Invoking worktree created callback',
                     worktreeData,
                   );
-
-                  // Invoke callback but don't await (fire-and-forget)
-                  // This ensures we don't block the SDK even if callback takes time
                   try {
                     capturedCreatedCallback(worktreeData);
                   } catch (callbackError) {
-                    // Log but don't throw - callback errors shouldn't block SDK
                     this.logger.error(
                       '[WorktreeHookHandler] Error in worktree created callback',
                       callbackError instanceof Error
@@ -192,14 +178,11 @@ export class WorktreeHookHandler {
                   { sessionId: input.session_id },
                 );
               } catch (error) {
-                // CRITICAL: Never throw from hooks - it would break SDK
                 this.logger.error(
                   '[WorktreeHookHandler] Error in WorktreeCreate hook',
                   error instanceof Error ? error : new Error(String(error)),
                 );
               }
-
-              // Always return continue: true to not block SDK
               return { continue: true };
             },
           ],
@@ -213,7 +196,6 @@ export class WorktreeHookHandler {
               _toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
-              // Log that the hook was invoked by SDK
               this.logger.info(
                 '[WorktreeHookHandler] WorktreeRemove hook invoked',
                 {
@@ -223,7 +205,6 @@ export class WorktreeHookHandler {
               );
 
               try {
-                // Use type guard for type safety
                 if (!isWorktreeRemoveHook(input)) {
                   this.logger.warn(
                     '[WorktreeHookHandler] Unexpected hook input type for WorktreeRemove',
@@ -234,15 +215,11 @@ export class WorktreeHookHandler {
                   );
                   return { continue: true };
                 }
-
-                // Log worktree removal details
                 this.logger.info('[WorktreeHookHandler] Worktree removed', {
                   sessionId: input.session_id,
                   worktreePath: input.worktree_path,
                   cwd: input.cwd,
                 });
-
-                // Notify via callback if provided
                 if (capturedRemovedCallback) {
                   const worktreeData = {
                     sessionId: input.session_id,
@@ -255,13 +232,9 @@ export class WorktreeHookHandler {
                     '[WorktreeHookHandler] Invoking worktree removed callback',
                     worktreeData,
                   );
-
-                  // Invoke callback but don't await (fire-and-forget)
-                  // This ensures we don't block the SDK even if callback takes time
                   try {
                     capturedRemovedCallback(worktreeData);
                   } catch (callbackError) {
-                    // Log but don't throw - callback errors shouldn't block SDK
                     this.logger.error(
                       '[WorktreeHookHandler] Error in worktree removed callback',
                       callbackError instanceof Error
@@ -276,14 +249,11 @@ export class WorktreeHookHandler {
                   { sessionId: input.session_id },
                 );
               } catch (error) {
-                // CRITICAL: Never throw from hooks - it would break SDK
                 this.logger.error(
                   '[WorktreeHookHandler] Error in WorktreeRemove hook',
                   error instanceof Error ? error : new Error(String(error)),
                 );
               }
-
-              // Always return continue: true to not block SDK
               return { continue: true };
             },
           ],

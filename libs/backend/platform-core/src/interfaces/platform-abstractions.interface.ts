@@ -8,7 +8,6 @@
  * Defined in platform-core (L0.5) per the monorepo layer rule:
  * platform abstraction interfaces live at the same layer as PLATFORM_TOKENS.
  *
- * Moved from @ptah-extension/rpc-handlers (L4) in Wave C8 (TASK_2025_291).
  * The rpc-handlers public barrel re-exports from here for backwards-compatible
  * consumption; new code should import from @ptah-extension/platform-core.
  */

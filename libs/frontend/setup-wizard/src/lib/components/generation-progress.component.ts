@@ -460,9 +460,6 @@ export class GenerationProgressComponent implements OnDestroy {
     return this.wizardState.completionData()?.errors ?? [];
   });
 
-  // Auto-transition handled by SetupWizardStateService.handleGenerationComplete()
-  // to avoid duplicate navigation to 'enhance' step.
-
   /**
    * Get completed count for a specific item type.
    */
@@ -509,8 +506,6 @@ export class GenerationProgressComponent implements OnDestroy {
    */
   protected async onRetryItem(itemId: string): Promise<void> {
     const currentRetries = this.retryCounts.get(itemId) ?? 0;
-
-    // Check if max retries reached
     if (currentRetries >= GenerationProgressComponent.MAX_RETRIES) {
       this.wizardState.updateSkillGenerationItem(itemId, {
         status: 'error',
@@ -518,28 +513,20 @@ export class GenerationProgressComponent implements OnDestroy {
       });
       return;
     }
-
-    // Prevent concurrent retries for same item
     if (this.pendingRetries.has(itemId)) {
       return;
     }
 
     this.pendingRetries.add(itemId);
     this.retryCounts.set(itemId, currentRetries + 1);
-
-    // Apply exponential backoff delay: 1s, 2s, 4s
     const delay =
       GenerationProgressComponent.BASE_DELAY_MS * Math.pow(2, currentRetries);
     await new Promise((resolve) => setTimeout(resolve, delay));
-
-    // Reset item status to pending
     this.wizardState.retryGenerationItem(itemId);
 
     try {
-      // Trigger regeneration via RPC
       await this.wizardRpc.retryGenerationItem(itemId);
     } catch (error) {
-      // Update item with error status and remaining retries info
       const message = error instanceof Error ? error.message : 'Retry failed';
       const retriesLeft =
         GenerationProgressComponent.MAX_RETRIES - (currentRetries + 1);

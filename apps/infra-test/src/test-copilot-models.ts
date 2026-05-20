@@ -8,8 +8,6 @@
  */
 import * as https from 'https';
 import * as http from 'http';
-
-// Model formats to test — try both raw and prefixed variants
 const MODEL_FORMATS = [
   'claude-sonnet-4.6', // Copilot CLI format (dotted)
   'copilot/claude-sonnet-4.6', // With copilot/ prefix
@@ -102,13 +100,9 @@ async function postJson(
 }
 
 async function getGitHubToken(): Promise<string> {
-  // Try to read from environment or a local token file
   if (process.env['GITHUB_TOKEN']) {
     return process.env['GITHUB_TOKEN'];
   }
-
-  // Try VS Code auth - this only works inside VS Code extension host
-  // For standalone testing, set GITHUB_TOKEN env var
   throw new Error(
     'Set GITHUB_TOKEN env var with a GitHub token that has copilot scope.\n' +
       'Get one from: https://github.com/settings/tokens (needs "copilot" scope)\n' +
@@ -211,8 +205,6 @@ async function main() {
   console.log('============================================================');
   console.log('Copilot Model Format Test');
   console.log('============================================================\n');
-
-  // Step 1: Get GitHub token
   let githubToken: string;
   try {
     githubToken = await getGitHubToken();
@@ -221,8 +213,6 @@ async function main() {
     console.error(`✗ ${(err as Error).message}`);
     process.exit(1);
   }
-
-  // Step 2: Exchange for Copilot bearer token
   let tokenResponse: TokenResponse;
   try {
     tokenResponse = await exchangeForCopilotToken(githubToken);
@@ -240,8 +230,6 @@ async function main() {
 
   const apiEndpoint =
     tokenResponse.endpoints?.api ?? 'https://api.githubcopilot.com';
-
-  // Step 3: Test each model format
   console.log('Testing model formats against Copilot API...\n');
   console.log('  Model Format                        | Status | Result');
   console.log('  ------------------------------------|--------|--------');

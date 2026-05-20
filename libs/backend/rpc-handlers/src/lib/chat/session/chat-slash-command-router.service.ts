@@ -1,5 +1,5 @@
 /**
- * Slash command router (Wave C7e cleanup pass 2).
+ * Slash command router.
  *
  * Owns the chat:continue follow-up slash-command interception path
  * extracted from `ChatSessionService.handleFollowUpSlashCommand`. The
@@ -70,7 +70,6 @@ export class ChatSlashCommandRouterService {
    *
    * Extracted from `ChatSessionService.handleFollowUpSlashCommand` — every
    * log message and MESSAGE_TYPES.CHAT_COMPLETE payload is byte-identical.
-   * @see TASK_2025_184
    */
   async routeFollowUpSlashCommand(
     prompt: string,
@@ -92,7 +91,6 @@ export class ChatSlashCommandRouterService {
       });
 
       if (interceptResult.commandName === 'clear') {
-        // End the current session, frontend handles reset
         await this.sdkAdapter.interruptSession(sessionId);
 
         await this.webviewManager.broadcastMessage(
@@ -107,8 +105,6 @@ export class ChatSlashCommandRouterService {
         );
         return { success: true, sessionId };
       }
-
-      // Other native commands — not yet implemented
       this.logger.warn('[RPC] chat:continue - unrecognized native command', {
         command: interceptResult.commandName,
         sessionId,
@@ -124,8 +120,6 @@ export class ChatSlashCommandRouterService {
           sessionId,
         },
       );
-
-      // Resolve premium config for the new query
       const licenseStatus = await this.licenseService.verifyLicense();
       const isPremium = isPremiumTier(licenseStatus);
       const mcpServerRunning = this.premiumContext.isMcpServerRunning();
@@ -135,13 +129,7 @@ export class ChatSlashCommandRouterService {
           isPremium,
         );
       const pluginPaths = this.premiumContext.resolvePluginPaths(isPremium);
-
-      // TASK_2025_184: Use rawCommand with fallback — safe regardless of whether
-      // SlashCommandResult uses discriminated union or optional rawCommand
       const command = interceptResult.rawCommand ?? prompt;
-
-      // Execute the slash command as a new query with resume. Surface a
-      // structured error back to the webview instead of failing mid-stream.
       try {
         const stream = await this.sdkAdapter.executeSlashCommand(
           sessionId,
@@ -161,8 +149,6 @@ export class ChatSlashCommandRouterService {
             tabId,
           },
         );
-
-        // Reconnect streaming to the frontend
         this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
 
         return { success: true, sessionId };

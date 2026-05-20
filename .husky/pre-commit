@@ -23,4 +23,17 @@ if [ -n "$SKILL_FILES_CHANGED" ]; then
   echo "✅ Skill validation passed!"
 fi
 
+echo "🏗️  Verifying electron main bundle builds..."
+if [ "${PTAH_PRECOMMIT_PARANOID:-0}" = "1" ]; then
+  npx nx affected -t build --base=HEAD~1
+else
+  npx nx run ptah-electron:build-main:development
+fi
+
+if [ $? -ne 0 ]; then
+  echo "❌ Build gate failed — electron main bundle (TASK_2026_123 cycle gate) failed to compile."
+  echo "   Set PTAH_PRECOMMIT_PARANOID=1 to run full affected build instead."
+  exit 1
+fi
+
 echo "✅ Pre-commit checks passed!"

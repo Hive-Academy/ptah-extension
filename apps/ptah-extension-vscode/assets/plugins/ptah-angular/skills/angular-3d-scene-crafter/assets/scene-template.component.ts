@@ -6,21 +6,15 @@ import {
 } from '@angular/core';
 import {
   Scene3dComponent,
-  // Primitives
   SphereComponent,
   TorusComponent,
-  // Space & Cosmic
   StarFieldComponent,
-  // Lights
   AmbientLightComponent,
   PointLightComponent,
-  // Effects
   EffectComposerComponent,
   BloomEffectComponent,
-  // Directives (imported as directives, not components)
   Float3dDirective,
   Rotate3dDirective,
-  // Controls
   OrbitControlsComponent,
 } from '@hive-academy/angular-3d';
 
@@ -46,7 +40,6 @@ import {
   standalone: true,
   imports: [
     Scene3dComponent,
-    // Import components used below
     SphereComponent,
     TorusComponent,
     StarFieldComponent,
@@ -160,11 +153,8 @@ import {
   `,
 })
 export class MySceneComponent {
-  // Optional: Reactive state for dynamic themes
   isDarkMode = signal(true);
 
   backgroundColor = computed(() => (this.isDarkMode() ? 0x050510 : 0x326696));
-
-  // Optional: Math constants for template
   Math = Math;
 }

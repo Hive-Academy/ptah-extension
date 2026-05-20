@@ -8,12 +8,6 @@ import { defineSetting } from './definition';
  * A deliberate permissive schema is used here so the settings-core lib does not
  * take a hard dependency on @ptah-extension/shared. The tighter typed version
  * lives in the shared lib and is used at the RPC boundary.
- *
- * TODO(Phase 3): Tighten this schema to match PtahCliConfig exactly once
- * the migration of rpc-handlers to settings-core handles is complete.
- * The full shape includes: id (string), name (string), providerId (string),
- * enabled (boolean), tierMappings ({sonnet?, opus?, haiku?}),
- * selectedModel? (string), updatedAt (number).
  */
 const PTAH_CLI_AGENT_ITEM_SCHEMA = z.object({
   id: z.string(),

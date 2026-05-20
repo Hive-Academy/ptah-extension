@@ -26,10 +26,6 @@
  * @see libs/backend/vscode-core/src/di/tokens.ts for canonical convention reference
  */
 
-// ========================================
-// Core Orchestration Services
-// ========================================
-
 /**
  * SetupWizardService - Orchestrates 6-step wizard UI flow
  * Responsibilities: Manage wizard step transitions, handle RPC messages, track session state
@@ -50,10 +46,6 @@ export const AGENT_GENERATION_ORCHESTRATOR = Symbol.for(
   'AgentGenerationOrchestratorService',
 );
 
-// ========================================
-// Template Management Services
-// ========================================
-
 /**
  * TemplateStorageService - Template loading and metadata caching
  * Responsibilities: Load templates, parse YAML frontmatter, cache templates, extract metadata
@@ -65,10 +57,6 @@ export const TEMPLATE_STORAGE_SERVICE = Symbol.for('TemplateStorageService');
  * Responsibilities: Substitute variables, assemble sections, process conditionals, inject metadata
  */
 export const AGENT_TEMPLATE_RENDERER = Symbol.for('AgentTemplateRenderer');
-
-// ========================================
-// Agent Selection Services
-// ========================================
 
 /**
  * AgentSelectionService - Agent relevance scoring and selection
@@ -83,10 +71,6 @@ export const AGENT_SELECTION_SERVICE = Symbol.for('AgentSelectionService');
 export const AGENT_RECOMMENDATION_SERVICE = Symbol.for(
   'AgentRecommendationService',
 );
-
-// ========================================
-// Content Generation Services
-// ========================================
 
 /**
  * ContentGenerationService - Template rendering with variable substitution
@@ -110,10 +94,6 @@ export const AGENT_CUSTOMIZATION_SERVICE = Symbol.for(
  */
 export const OUTPUT_VALIDATION_SERVICE = Symbol.for('OutputValidationService');
 
-// ========================================
-// File Operations Services
-// ========================================
-
 /**
  * AgentFileWriterService - Agent file writing with overwrite semantics
  * Responsibilities: Write agents to .claude/agents/, overwrite existing in place
@@ -121,26 +101,18 @@ export const OUTPUT_VALIDATION_SERVICE = Symbol.for('OutputValidationService');
 export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
 
 /**
- * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs (TASK_2025_160)
+ * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs
  * Responsibilities: Transform Claude agents to Copilot/Gemini format, write to user-level directories
  */
 export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
   'MultiCliAgentWriterService',
 );
 
-// ========================================
-// Migration Services (Future Phase)
-// ========================================
-
 /**
  * MigrationService - Agent upgrade and migration
  * Responsibilities: Detect outdated agents, calculate update impact, show diff preview, regenerate with consent
  */
 export const MIGRATION_SERVICE = Symbol.for('MigrationService');
-
-// ========================================
-// Wizard Child Services (TASK_2025_115)
-// ========================================
 
 /**
  * WizardWebviewLifecycleService - Webview panel management
@@ -170,51 +142,59 @@ export const MULTI_PHASE_ANALYSIS_SERVICE = Symbol.for(
   'MultiPhaseAnalysisService',
 );
 
-// ========================================
-// Token Registry (Type-Safe Access)
-// ========================================
+/**
+ * PromptDesignerAgent - Pure prompt builder + result parser
+ * Responsibilities: Build prompts + JSON Schema for SDK structured output, parse/validate output, generate fallback guidance
+ *
+ * NOTE: Symbol.for('SdkPromptDesignerAgent') preserves the global symbol identity
+ * from the original SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT registration so cross-lib
+ * resolution remains intact.
+ */
+export const PROMPT_DESIGNER_AGENT = Symbol.for('SdkPromptDesignerAgent');
+
+/**
+ * PromptCacheService - Smart caching with file-based invalidation
+ * Responsibilities: Dual-layer cache (in-memory + persisted), file-based invalidation, TTL management
+ *
+ * NOTE: Symbol.for('SdkPromptCacheService') preserves the global symbol identity
+ * from the original SDK_TOKENS.SDK_PROMPT_CACHE_SERVICE registration.
+ */
+export const PROMPT_CACHE_SERVICE = Symbol.for('SdkPromptCacheService');
+
+/**
+ * EnhancedPromptsService - Orchestrates the Enhanced Prompts feature
+ * Responsibilities: State management, wizard execution flow, integration with PromptDesignerAgent + PromptCacheService
+ *
+ * NOTE: Symbol.for('SdkEnhancedPromptsService') preserves the global symbol identity
+ * from the original SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE registration.
+ */
+export const ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
 
 /**
  * AGENT_GENERATION_TOKENS - Centralized token registry
  * Provides a single source of truth for all agent-generation DI tokens
  */
 export const AGENT_GENERATION_TOKENS = {
-  // Core Orchestration
   SETUP_WIZARD_SERVICE,
   SETUP_STATUS_SERVICE,
   AGENT_GENERATION_ORCHESTRATOR,
-
-  // Template Management
   TEMPLATE_STORAGE_SERVICE,
   AGENT_TEMPLATE_RENDERER,
-
-  // Agent Selection
   AGENT_SELECTION_SERVICE,
   AGENT_RECOMMENDATION_SERVICE,
-
-  // Content Generation
   CONTENT_GENERATION_SERVICE,
   AGENT_CUSTOMIZATION_SERVICE,
   OUTPUT_VALIDATION_SERVICE,
-
-  // File Operations
   AGENT_FILE_WRITER_SERVICE,
   MULTI_CLI_AGENT_WRITER_SERVICE,
-
-  // Migration (Future)
   MIGRATION_SERVICE,
-
-  // Wizard Child Services
   WIZARD_WEBVIEW_LIFECYCLE,
-
-  // Agentic Analysis
   AGENTIC_ANALYSIS_SERVICE,
-
-  // Analysis Storage
   ANALYSIS_STORAGE_SERVICE,
-
-  // Multi-Phase Analysis
   MULTI_PHASE_ANALYSIS_SERVICE,
+  PROMPT_DESIGNER_AGENT,
+  PROMPT_CACHE_SERVICE,
+  ENHANCED_PROMPTS_SERVICE,
 } as const;
 
 /**

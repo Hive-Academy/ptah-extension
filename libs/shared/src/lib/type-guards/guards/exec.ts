@@ -1,9 +1,3 @@
-// Execution / agent-control domain tool types and guards.
-// Tools: Bash, BashOutput, KillShell, Task, TaskOutput, TaskStop, TodoWrite,
-// AskUserQuestion, ExitPlanMode, plus isAgentDispatchTool.
-// Extracted from tool-input-guards.ts (TASK_2025_291 Wave C2) — zero behavior change.
-
-// --- TOOL INPUT TYPES ---
 /** Bash tool input — Tool: Bash (execute bash command). */
 export interface BashToolInput {
   /** The command to execute */
@@ -106,8 +100,6 @@ export interface ExitPlanModeToolInput {
   /** The plan to run by the user for approval */
   plan: string;
 }
-
-// --- TOOL OUTPUT TYPES ---
 /** Task tool output — Tool: Task (result from subagent). */
 export interface TaskToolOutput {
   /** Final result message from the subagent */
@@ -177,8 +169,6 @@ export interface ExitPlanModeToolOutput {
   /** Whether user approved the plan */
   approved?: boolean;
 }
-
-// --- TOOL INPUT TYPE GUARDS ---
 /** Type guard for Bash tool input */
 export function isBashToolInput(input: unknown): input is BashToolInput {
   return (
@@ -273,8 +263,6 @@ export function isExitPlanModeToolInput(
     typeof (input as ExitPlanModeToolInput).plan === 'string'
   );
 }
-
-// --- AGENT DISPATCH TOOL DETECTION ---
 /**
  * Known tool names used by the Claude Agent SDK for subagent dispatch.
  * SDK renamed "Task" to "Agent" in v2.1.x — both must be recognized
@@ -293,8 +281,6 @@ const AGENT_DISPATCH_TOOL_NAMES = new Set([
 export function isAgentDispatchTool(toolName: string): boolean {
   return AGENT_DISPATCH_TOOL_NAMES.has(toolName);
 }
-
-// --- TOOL OUTPUT TYPE GUARDS ---
 /** Type guard for Task tool output */
 export function isTaskToolOutput(output: unknown): output is TaskToolOutput {
   return (

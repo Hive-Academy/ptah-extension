@@ -1,5 +1,5 @@
 /**
- * Unit tests for `WorkspaceMcpCollector` — TASK_2026_104 P2.
+ * Unit tests for `WorkspaceMcpCollector`.
  *
  * Covers:
  *   1. Collects MCP servers from `mcpDirectory:listInstalled`.

@@ -1,4 +1,4 @@
-﻿import {
+import {
   Component,
   ChangeDetectionStrategy,
   inject,
@@ -18,11 +18,9 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 /**
  * TabBarComponent - Chrome-style scrollable tab bar
  *
- * TASK_2025_248: Replaced simple overflow-x-auto container with
- * scroll-arrow buttons that appear when tabs overflow their container.
+ * Scroll-arrow buttons appear when tabs overflow their container.
  * Hidden native scrollbar, smooth scroll-by on arrow click.
  *
- * Complexity Level: 2 (Scroll detection + arrow rendering)
  * Patterns: Signal-based state, viewChild, afterNextRender
  */
 @Component({
@@ -103,11 +101,9 @@ export class TabBarComponent {
   private wheelHandler: ((e: WheelEvent) => void) | null = null;
 
   constructor() {
-    // Re-check scroll state when tabs change and scroll active tab into view
     effect(() => {
       this.tabs(); // track dependency
       const activeId = this.activeTabId();
-      // Clear previous timer to prevent stale callbacks on rapid switching
       if (this.scrollTimerId) clearTimeout(this.scrollTimerId);
       this.scrollTimerId = setTimeout(() => {
         this.scrollActiveTabIntoView(activeId);
@@ -115,8 +111,6 @@ export class TabBarComponent {
         this.scrollTimerId = null;
       }, 0);
     });
-
-    // Setup non-passive wheel listener and ResizeObserver after first render
     afterNextRender(
       () => {
         this.setupWheelListener();

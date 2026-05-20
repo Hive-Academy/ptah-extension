@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah quality` command — TASK_2026_104 Sub-batch B9b.
+ * Unit tests for `ptah quality` command.
  *
  * Coverage:
  *   - assessment: dispatches quality:getAssessment, emits quality.assessment

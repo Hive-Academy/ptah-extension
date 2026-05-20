@@ -62,13 +62,9 @@ interface ChunkRow {
 function rowToMemory(row: MemoryRow): Memory {
   let sourceMessageIds: readonly string[] = [];
   if (row.source_message_ids) {
-    try {
-      const parsed = JSON.parse(row.source_message_ids);
-      if (Array.isArray(parsed))
-        sourceMessageIds = parsed.filter((x) => typeof x === 'string');
-    } catch {
-      // ignore malformed JSON; treat as empty
-    }
+    const parsed = JSON.parse(row.source_message_ids);
+    if (Array.isArray(parsed))
+      sourceMessageIds = parsed.filter((x) => typeof x === 'string');
   }
   return {
     id: memoryId(row.id),
@@ -156,9 +152,6 @@ export class MemoryStore implements IMemoryLister {
       last_used_at: now,
       expires_at: insert.expiresAt ?? null,
     };
-
-    // Compute embeddings before opening tx (better-sqlite3 transactions are
-    // synchronous and we cannot await inside).
     const vecAvailable = this.connection.vecExtensionLoaded;
     const embeddings: Float32Array[] =
       vecAvailable && chunks.length > 0
@@ -186,11 +179,6 @@ export class MemoryStore implements IMemoryLister {
     const fetchRowidStmt = db.prepare(
       `SELECT rowid AS rowid FROM memory_chunks WHERE id = ?`,
     );
-
-    // better-sqlite3's `db.transaction()` is typed against a generic varargs
-    // callback. Cast the typed inner function exactly once to a callable
-    // matching that signature, then back to our typed wrapper — one cast in,
-    // one cast out, instead of three chained `as unknown as`.
     type TxnFn = (m: typeof memoryParams) => MemoryId;
     const txnFn = ((m: typeof memoryParams): MemoryId => {
       insertMemoryStmt.run(m);
@@ -228,9 +216,6 @@ export class MemoryStore implements IMemoryLister {
       this.bumpWriteCounter(insert.workspaceRoot);
       return result;
     } catch (err: unknown) {
-      // D5: If this is a fatal disk-full error, close the connection and mark it
-      // unavailable so subsequent RPC calls surface PERSISTENCE_UNAVAILABLE
-      // instead of opaque SQLITE_FULL errors.
       this.connection.handleFatalWriteError(err);
       throw err;
     }
@@ -287,9 +272,6 @@ export class MemoryStore implements IMemoryLister {
     const totalRow = this.connection.db
       .prepare(`SELECT COUNT(*) AS n FROM memories ${whereSql}`)
       .get(params) as { n: number } | undefined;
-    // Parameterize LIMIT/OFFSET — even though `limit` and `offset` are clamped
-    // to safe integers above, parameterizing prevents any future caller from
-    // accidentally re-introducing string interpolation as a refactor pattern.
     const rows = this.connection.db
       .prepare(
         `SELECT * FROM memories ${whereSql} ORDER BY salience DESC, last_used_at DESC LIMIT @__limit OFFSET @__offset`,
@@ -314,7 +296,7 @@ export class MemoryStore implements IMemoryLister {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (workspaceRoot) {
-      conditions.push('(workspace_root IS NULL OR workspace_root = ?)');
+      conditions.push('workspace_root IS ?');
       params.push(workspaceRoot);
     }
     if (tier) {
@@ -382,13 +364,11 @@ export class MemoryStore implements IMemoryLister {
    * Delete all memory rows whose subject starts with `prefix` and matches workspaceRoot.
    * Used by CodeSymbolIndexer to clear stale file symbols before re-indexing.
    * Returns count of deleted rows.
-   * TASK_2026_THOTH_CODE_INDEX
    *
    * Uses ESCAPE clause to prevent LIKE metacharacters (`%`, `_`, `\`) in file paths
    * from silently over-matching and deleting symbols from the wrong files.
    */
   deleteBySubjectPrefix(prefix: string, workspaceRoot: string): number {
-    // Escape backslashes first, then % and _ so SQLite LIKE treats them literally.
     const escaped = prefix
       .replace(/\\/g, '\\\\')
       .replace(/%/g, '\\%')
@@ -434,14 +414,12 @@ export class MemoryStore implements IMemoryLister {
 
     let likePattern: string;
     if (mode === 'substring') {
-      // Escape backslashes first, then % and _ so SQLite LIKE treats them literally.
       const escaped = pattern
         .replace(/\\/g, '\\\\')
         .replace(/%/g, '\\%')
         .replace(/_/g, '\\_');
       likePattern = `%${escaped}%`;
     } else {
-      // mode === 'like': caller provides the raw LIKE pattern verbatim.
       likePattern = pattern;
     }
 
@@ -554,8 +532,6 @@ export class MemoryStore implements IMemoryLister {
       txn();
       this.bumpWriteCounter(ws);
     } catch (err: unknown) {
-      // D5: Wire fatal write error classification so disk-full errors close the
-      // connection and surface PERSISTENCE_UNAVAILABLE instead of raw SQLITE_FULL.
       this.connection.handleFatalWriteError(err);
       throw err;
     }
@@ -563,12 +539,13 @@ export class MemoryStore implements IMemoryLister {
 
   stats(workspaceRoot?: string | null): MemoryStatsResponse {
     const db = this.connection.db;
-    const where =
+    const whereSql =
       workspaceRoot !== undefined ? 'WHERE workspace_root IS ?' : '';
     const args = workspaceRoot !== undefined ? [workspaceRoot] : [];
+
     const tiers = db
       .prepare(
-        `SELECT tier, COUNT(*) AS n FROM memories ${where} GROUP BY tier`,
+        `SELECT tier, COUNT(*) AS n FROM memories ${whereSql} GROUP BY tier`,
       )
       .all(...args) as Array<{ tier: MemoryTier; n: number }>;
     const counts: Record<MemoryTier, number> = {
@@ -577,9 +554,11 @@ export class MemoryStore implements IMemoryLister {
       archival: 0,
     };
     for (const t of tiers) counts[t.tier] = t.n;
+
     const last = db
-      .prepare(`SELECT MAX(updated_at) AS m FROM memories ${where}`)
+      .prepare(`SELECT MAX(updated_at) AS m FROM memories ${whereSql}`)
       .get(...args) as { m: number | null } | undefined;
+
     return {
       core: counts.core,
       recall: counts.recall,
@@ -610,7 +589,6 @@ export class MemoryStore implements IMemoryLister {
           `SELECT rowid AS rowid, text FROM memory_chunks ORDER BY rowid ASC`,
         )
         .all() as Array<{ rowid: number; text: string }>;
-      // Embed in batches of 32 to avoid worker stalls.
       const batch = 32;
       const insertVecStmt = db.prepare(
         `INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (?, ?)`,

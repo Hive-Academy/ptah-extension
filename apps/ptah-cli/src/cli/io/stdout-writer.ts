@@ -1,8 +1,6 @@
 /**
  * Serialized writer over an arbitrary `Writable` stream.
  *
- * TASK_2026_104 Batch 3.
- *
  * Internally queues writes so concurrent callers see strict FIFO ordering.
  * Awaits the `'drain'` event when `process.stdout.write(...)` returns
  * `false`, preventing memory growth under backpressure on slow consumers.
@@ -57,24 +55,17 @@ export class StdoutWriter {
     if (this.chain === null && this.queue.length === 0) {
       return;
     }
-    // Snapshot the current chain; new writes after this call are intentionally
-    // not awaited (caller can call flush() again).
     await this.chain;
   }
 
   private drainQueue(): void {
     if (this.draining) {
-      // Already draining — runQueue's loop will pick up the freshly enqueued
-      // item before it exits.
       return;
     }
     this.draining = true;
     this.chain = this.runQueue().finally(() => {
       this.draining = false;
       this.chain = null;
-      // If new writes were enqueued while `.finally` callbacks were settling
-      // (e.g. caller awaited write #1 then synchronously called write #2 in
-      // the same microtask before our finally ran), kick off another drain.
       if (this.queue.length > 0) {
         this.drainQueue();
       }
@@ -82,9 +73,6 @@ export class StdoutWriter {
   }
 
   private async runQueue(): Promise<void> {
-    // Loop until the queue is empty AND no new items have been pushed during
-    // the current iteration's awaited write. Items pushed by callers while
-    // we're draining will be picked up by this same loop.
     while (this.queue.length > 0) {
       const item = this.queue.shift();
       if (!item) break;
@@ -107,7 +95,6 @@ export class StdoutWriter {
         if (ok) {
           resolve();
         }
-        // If !ok, resolution waits on 'drain' below.
       });
 
       if (!ok) {

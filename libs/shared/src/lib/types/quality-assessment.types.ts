@@ -4,14 +4,10 @@
  * Type definitions for code quality assessment, anti-pattern detection,
  * and prescriptive guidance generation.
  *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
+ * Unified Project Intelligence with Code Quality Assessment.
  *
  * @packageDocumentation
  */
-
-// ============================================
-// Anti-Pattern Types
-// ============================================
 
 /**
  * Categories of anti-patterns detected by the quality assessment system.
@@ -19,38 +15,31 @@
  * Angular, NestJS, React
  */
 export type AntiPatternType =
-  // TypeScript anti-patterns
   | 'typescript-explicit-any'
   | 'typescript-implicit-any'
   | 'typescript-ts-ignore'
   | 'typescript-non-null-assertion'
-  // Error handling anti-patterns
   | 'error-empty-catch'
   | 'error-console-only-catch'
   | 'error-unhandled-promise'
   | 'error-missing-try-catch'
-  // Architecture anti-patterns
   | 'arch-file-too-large'
   | 'arch-function-too-large'
   | 'arch-too-many-imports'
   | 'arch-circular-dependency'
-  // Testing anti-patterns
   | 'test-missing-spec'
   | 'test-no-assertions'
   | 'test-all-skipped'
-  // Angular anti-patterns (Phase E2 - TASK_2025_144)
   | 'angular-improper-change-detection'
   | 'angular-subscription-leak'
   | 'angular-circular-dependency'
   | 'angular-large-component'
   | 'angular-missing-trackby'
-  // NestJS anti-patterns (Phase E2 - TASK_2025_144)
   | 'nestjs-missing-decorator'
   | 'nestjs-controller-logic'
   | 'nestjs-unsafe-repository'
   | 'nestjs-missing-guard'
   | 'nestjs-circular-module'
-  // React anti-patterns (Phase E2 - TASK_2025_144)
   | 'react-missing-key'
   | 'react-direct-state-mutation'
   | 'react-useeffect-dependencies'
@@ -92,10 +81,6 @@ export interface AntiPattern {
   frequency: number;
 }
 
-// ============================================
-// Quality Gap Types
-// ============================================
-
 /**
  * Priority levels for quality gaps
  */
@@ -115,10 +100,6 @@ export interface QualityGap {
   recommendation: string;
 }
 
-// ============================================
-// Quality Assessment Types
-// ============================================
-
 /**
  * Comprehensive quality assessment result
  */
@@ -137,7 +118,7 @@ export interface QualityAssessment {
   analysisTimestamp: number;
   /** Duration of analysis in milliseconds */
   analysisDurationMs: number;
-  /** Statistics from incremental analysis (Phase F - TASK_2025_144) */
+  /** Statistics from incremental analysis */
   incrementalStats?: {
     /** Number of files retrieved from cache */
     cachedFiles: number;
@@ -147,10 +128,6 @@ export interface QualityAssessment {
     cacheHitRate: number;
   };
 }
-
-// ============================================
-// Prescriptive Guidance Types
-// ============================================
 
 /**
  * A single recommendation with priority
@@ -181,10 +158,6 @@ export interface PrescriptiveGuidance {
   /** Whether guidance was truncated due to token budget */
   wasTruncated: boolean;
 }
-
-// ============================================
-// Project Intelligence Types
-// ============================================
 
 /**
  * Unified project intelligence combining workspace context and quality assessment
@@ -223,10 +196,6 @@ export interface WorkspaceContext {
   architecturePatterns: string[];
 }
 
-// ============================================
-// Quality History Types (Phase G - TASK_2025_144)
-// ============================================
-
 /**
  * A single quality assessment snapshot for historical tracking.
  *
@@ -247,10 +216,6 @@ export interface QualityHistoryEntry {
   /** Anti-pattern counts by category prefix (e.g., 'typescript': 3, 'angular': 2) */
   categoryCounts: Record<string, number>;
 }
-
-// ============================================
-// Sampling Configuration Types
-// ============================================
 
 /**
  * Configuration for intelligent file sampling

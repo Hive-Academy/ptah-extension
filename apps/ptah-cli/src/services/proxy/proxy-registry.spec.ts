@@ -1,5 +1,5 @@
 /**
- * Unit tests for `proxy-registry` — TASK_2026_108 T3.
+ * Unit tests for `proxy-registry`.
  *
  * Coverage:
  *   1. `register` writes JSON file with mode 0o600 (POSIX only — Windows

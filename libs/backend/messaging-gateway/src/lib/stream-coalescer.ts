@@ -96,7 +96,6 @@ export class StreamCoalescer {
         flushing: false,
       };
       this.buffers.set(conversationKey, state);
-      // Hard ceiling timer — only set once per buffer lifetime.
       state.ageTimer = setTimeout(
         () => void this.doFlush(conversationKey),
         this.opts.maxAgeMs,
@@ -109,10 +108,6 @@ export class StreamCoalescer {
       () => void this.doFlush(conversationKey),
       this.opts.idleMs,
     );
-
-    // Trigger an immediate flush when the *delta* since the last flush crosses
-    // the token threshold — so a long-running stream emits at most one edit
-    // per maxTokens worth of new content.
     if (approxTokens(state.pendingDelta) >= this.opts.maxTokens) {
       void this.doFlush(conversationKey);
     }
@@ -151,8 +146,6 @@ export class StreamCoalescer {
     if (!state) return;
     if (state.flushing) return; // reentrancy guard
     if (!state.pendingDelta) {
-      // Nothing new to send — clear timers but keep entry so subsequent
-      // appends do not reset `flushed`/`isFirstFlush`.
       if (state.idleTimer) {
         clearTimeout(state.idleTimer);
         state.idleTimer = null;
@@ -162,9 +155,6 @@ export class StreamCoalescer {
 
     state.flushing = true;
     const isFirstFlush = !state.flushed;
-    // Send the *cumulative* body so editMessage callers replace the message
-    // with the full assistant output (architecture §8.5: "concatenated
-    // within the window then sent as a single message edit").
     const body = state.body;
     state.pendingDelta = '';
     state.flushed = true;
@@ -176,7 +166,6 @@ export class StreamCoalescer {
       await this.flush({ conversationKey, body, isFirstFlush });
     } finally {
       state.flushing = false;
-      // If new chunks arrived during flush, schedule another idle flush.
       if (state.pendingDelta) {
         state.idleTimer = setTimeout(
           () => void this.doFlush(conversationKey),

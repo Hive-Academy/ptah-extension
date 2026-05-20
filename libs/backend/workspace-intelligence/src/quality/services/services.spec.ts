@@ -6,8 +6,6 @@
  * - CodeQualityAssessmentService
  * - PrescriptiveGuidanceService
  * - ProjectIntelligenceService
- *
- * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
  */
 
 import 'reflect-metadata';

@@ -19,11 +19,7 @@
  * } from '@ptah-extension/ui';
  * ```
  */
-
-// Foundation services
 export * from './shared';
-
-// Core components
 export * from './option';
 export * from './dropdown';
 export * from './popover';

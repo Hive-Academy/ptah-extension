@@ -7,8 +7,6 @@
  *
  * This handler is Electron-local and must NOT appear in
  * `libs/backend/rpc-handlers/` or the SHARED_HANDLERS list.
- *
- * TASK_2026_117: In-App Electron Auto-Update UX (VS Code-Style)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -38,7 +36,6 @@ export class UpdateRpcHandlers {
     this.rpcHandler.registerMethod(
       'update:check-now',
       async (params: unknown) => {
-        // Validate input (empty object schema)
         UpdateCheckNowSchema.parse(params ?? {});
 
         try {
@@ -61,11 +58,7 @@ export class UpdateRpcHandlers {
     this.rpcHandler.registerMethod(
       'update:install-now',
       async (params: unknown) => {
-        // Validate input (empty object schema)
         UpdateInstallNowSchema.parse(params ?? {});
-
-        // Synchronous read — _currentState is set before broadcastMessage,
-        // so there is no race condition with async event listeners.
         const state = this.updateManager.getCurrentState();
 
         if (state.state !== 'downloaded') {
@@ -75,15 +68,9 @@ export class UpdateRpcHandlers {
             error: 'No update is ready to install',
           };
         }
-
-        // FIX 3: Wrap quitAndInstall() in try/catch so that synchronous
-        // throws (e.g. Windows elevation failure, expired code signature)
-        // are returned as structured errors rather than unhandled rejections.
         try {
           const { autoUpdater } = await import('electron-updater');
           autoUpdater.quitAndInstall();
-          // quitAndInstall() terminates the app; return below is technically
-          // unreachable on success but satisfies the type contract.
           return { success: true };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);

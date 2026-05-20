@@ -1,5 +1,5 @@
 /**
- * Chat sub-service DI registration (Wave C7e).
+ * Chat sub-service DI registration.
  *
  * Registers the extracted chat services as tsyringe singletons bound
  * to the tokens in `./tokens.ts`.
@@ -33,34 +33,22 @@ import { ChatSessionService } from './session/chat-session.service';
 export { CHAT_TOKENS } from './tokens';
 
 export function registerChatServices(container: DependencyContainer): void {
-  // Leaf-level service — depends only on framework collaborators.
   container.registerSingleton(
     CHAT_TOKENS.PREMIUM_CONTEXT,
     ChatPremiumContextService,
   );
-
-  // Depends on PREMIUM_CONTEXT.
   container.registerSingleton(CHAT_TOKENS.PTAH_CLI, ChatPtahCliService);
-
-  // Depends on PTAH_CLI.
   container.registerSingleton(
     CHAT_TOKENS.STREAM_BROADCASTER,
     ChatStreamBroadcaster,
   );
-
-  // Depends on PTAH_CLI (for transcript existence checks).
   container.registerSingleton(
     CHAT_TOKENS.SUBAGENT_CONTEXT_INJECTOR,
     ChatSubagentContextInjectorService,
   );
-
-  // Depends on PREMIUM_CONTEXT, STREAM_BROADCASTER.
   container.registerSingleton(
     CHAT_TOKENS.SLASH_COMMAND_ROUTER,
     ChatSlashCommandRouterService,
   );
-
-  // Depends on PREMIUM_CONTEXT, PTAH_CLI, STREAM_BROADCASTER,
-  // SUBAGENT_CONTEXT_INJECTOR, SLASH_COMMAND_ROUTER.
   container.registerSingleton(CHAT_TOKENS.SESSION, ChatSessionService);
 }

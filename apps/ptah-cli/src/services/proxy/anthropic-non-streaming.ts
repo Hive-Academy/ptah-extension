@@ -3,8 +3,6 @@
  * `chat:chunk` events into the Anthropic Messages API non-streaming JSON
  * response shape (`stream: false`).
  *
- * TASK_2026_104 P2 (Anthropic-compatible HTTP proxy).
- *
  * Mirrors the same translation table as `anthropic-sse-translator.ts` but
  * collapses the streaming frames back into a single response body. The
  * proxy service uses this when the caller's request had `stream: false`.
@@ -107,7 +105,6 @@ export class AnthropicNonStreamingAccumulator {
       case 'message_complete':
         this.handleMessageComplete(event);
         return;
-      // thinking / tool_result / agent_start / message_start are dropped.
       default:
         return;
     }
@@ -137,7 +134,6 @@ export class AnthropicNonStreamingAccumulator {
    */
   build(): AnthropicMessageResponse | null {
     if (this.errorMessage !== null) return null;
-    // Flush any unclosed block defensively so partial responses still land.
     this.flushOpenBlocks();
     return {
       id: this.messageId,
@@ -150,10 +146,6 @@ export class AnthropicNonStreamingAccumulator {
       usage: this.usage,
     };
   }
-
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
 
   private handleTextDelta(event: ChatChunkEventLike): void {
     const text = event.delta ?? event.text ?? '';
@@ -168,7 +160,6 @@ export class AnthropicNonStreamingAccumulator {
   }
 
   private handleToolStart(event: ChatChunkEventLike): void {
-    // Close any prior block before opening tool_use.
     this.flushTextBlock();
     this.flushToolBlock();
     const id = event.toolCallId ?? event.id ?? `toolu_${this.content.length}`;
@@ -233,23 +224,17 @@ export class AnthropicNonStreamingAccumulator {
     if (this.currentToolBlock === null) return;
     const block = this.currentToolBlock;
     this.currentToolBlock = null;
-    // If we accumulated streamed JSON deltas, parse them onto `input`. Best
-    // effort — malformed JSON keeps whatever upfront `input` was set.
     if (block.partialJson.length > 0) {
-      try {
-        const parsed: unknown = JSON.parse(block.partialJson);
-        if (
-          typeof parsed === 'object' &&
-          parsed !== null &&
-          !Array.isArray(parsed)
-        ) {
-          block.input = {
-            ...block.input,
-            ...(parsed as Record<string, unknown>),
-          };
-        }
-      } catch {
-        /* keep upfront input on parse failure */
+      const parsed: unknown = JSON.parse(block.partialJson);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        !Array.isArray(parsed)
+      ) {
+        block.input = {
+          ...block.input,
+          ...(parsed as Record<string, unknown>),
+        };
       }
     }
     this.content.push({

@@ -1,5 +1,5 @@
 /**
- * Shared RPC Handler Registration (TASK_2025_291 Wave C4b)
+ * Shared RPC Handler Registration
  *
  * Centralizes shared RPC handler registration so each app no longer needs
  * to hand-maintain a per-handler fan-out. Each handler class declares a
@@ -98,7 +98,6 @@ export interface RegisterAllRpcHandlersOptions {
  * tsyringe's `constructor<T>` so the class-as-token `container.resolve`
  * call type-checks when iterating the union.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SharedHandlerCtor = new (...args: any[]) => { register(): void };
 
 export function registerAllRpcHandlers(
@@ -112,8 +111,6 @@ export function registerAllRpcHandlers(
     instance.register();
   }
 }
-
-// --- Compile-time invariants -------------------------------------------------
 
 /**
  * Flatten: union of every handler's `METHODS` tuple element type.

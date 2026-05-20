@@ -1,7 +1,7 @@
 /**
  * Multi-CLI Agent Writer Service
- * TASK_2025_160: Orchestrates agent transformation and writing for all target CLIs
  *
+ * Orchestrates agent transformation and writing for all target CLIs.
  * Called by AgentGenerationOrchestratorService after Phase 4 (Claude agent writing).
  * Transforms GeneratedAgent[] from Claude format to each target CLI format and
  * writes to user-level directories.
@@ -34,7 +34,6 @@ export class MultiCliAgentWriterService {
     new Map();
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
-    // Instantiate transformers internally (not DI-injected, they are pure functions)
     this.transformers.set('copilot', new CopilotAgentTransformer());
     this.transformers.set('gemini', new GeminiAgentTransformer());
     this.transformers.set('codex', new CodexAgentTransformer());
@@ -99,13 +98,8 @@ export class MultiCliAgentWriterService {
 
     for (const agent of agents) {
       try {
-        // Transform agent content for this CLI
         const transformResult = transformer.transform(agent);
-
-        // Ensure target directory exists
         await mkdir(dirname(transformResult.filePath), { recursive: true });
-
-        // Write transformed content
         await writeFile(
           transformResult.filePath,
           transformResult.content,

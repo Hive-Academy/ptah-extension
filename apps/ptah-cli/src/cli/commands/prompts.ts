@@ -1,8 +1,8 @@
 /**
  * `ptah prompts` command — Enhanced Prompts management (premium-gated).
  *
- * TASK_2026_104 Sub-batch B6c. Backed by the shared `EnhancedPromptsRpcHandlers`
- * (registered globally via `registerAllRpcHandlers()`).
+ * Backed by the shared `EnhancedPromptsRpcHandlers` (registered globally via
+ * `registerAllRpcHandlers()`).
  *
  * Sub-commands (per task-description.md §3.1 `prompts *` table):
  *
@@ -99,10 +99,6 @@ export async function execute(
     return ExitCode.InternalFailure;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Sub-commands
-// ---------------------------------------------------------------------------
 
 async function runStatus(
   globals: GlobalOptions,
@@ -232,10 +228,6 @@ async function runDownload(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — kept module-private.
-// ---------------------------------------------------------------------------
 
 async function callRpc<T = unknown>(
   transport: CliMessageTransport,

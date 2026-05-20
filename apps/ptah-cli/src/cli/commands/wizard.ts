@@ -1,8 +1,8 @@
 /**
  * `ptah wizard` command — low-level Setup Wizard escape hatch.
  *
- * TASK_2026_104 Sub-batch B9c. Backed by `WizardGenerationRpcHandlers`
- * (registered globally via `registerAllRpcHandlers()`):
+ * Backed by `WizardGenerationRpcHandlers` (registered globally via
+ * `registerAllRpcHandlers()`):
  *
  *   submit-selection --file <path>   RPC `wizard:submit-selection`
  *                                    fire-and-forget; broadcasts via
@@ -153,10 +153,6 @@ export async function execute(
   }
 }
 
-// ---------------------------------------------------------------------------
-// submit-selection — RPC `wizard:submit-selection` (fire-and-forget)
-// ---------------------------------------------------------------------------
-
 async function runSubmitSelection(
   opts: WizardOptions,
   globals: GlobalOptions,
@@ -200,8 +196,6 @@ async function runSubmitSelection(
   const payload = validated.payload;
 
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // Build the RPC params — only forward optional fields that were present
-    // in the file so the backend gets exactly the user's intent.
     const params: WizardSubmitSelectionParams = {
       selectedAgentIds: payload.selectedAgentIds,
     };
@@ -216,12 +210,6 @@ async function runSubmitSelection(
       params.analysisDir = payload.analysisDir;
     }
     if (payload.model !== undefined) params.model = payload.model;
-
-    // Register the completion listener BEFORE the synchronous RPC accept so
-    // we never miss a fast broadcast. The event-pipe (B9a) independently
-    // forwards `setup-wizard:generation-*` events to stdout as
-    // `wizard.generation.*` notifications — this command does NOT re-emit
-    // them; it only consumes the completion event to terminate.
     const completionPromise = waitForCompletion(ctx.pushAdapter);
 
     const ack = await callRpc<WizardSubmitSelectionResponse>(
@@ -230,16 +218,12 @@ async function runSubmitSelection(
       params,
     );
     if (!ack?.success) {
-      // The synchronous accept itself failed (e.g. concurrent generation
-      // guard). No completion event will fire — surface immediately.
       await formatter.writeNotification('task.error', {
         ptah_code: 'generation_failed',
         message: ack?.error ?? 'wizard:submit-selection rejected the request',
       });
       return ExitCode.GeneralError;
     }
-
-    // Race the completion event against the 10-minute backend cap.
     const completionPayload = await Promise.race<
       GenerationCompletePayload | { __timeout: true }
     >([
@@ -290,10 +274,6 @@ function waitForCompletion(
   });
 }
 
-// ---------------------------------------------------------------------------
-// cancel <session-id> — RPC `wizard:cancel { saveProgress: true }`
-// ---------------------------------------------------------------------------
-
 async function runCancel(
   opts: WizardOptions,
   globals: GlobalOptions,
@@ -312,8 +292,6 @@ async function runCancel(
       'wizard:cancel',
       { saveProgress: true },
     );
-    // Idempotent: handler returns `{ cancelled: false }` when there is no
-    // active session — surface as `changed: false`. Always exits 0.
     await formatter.writeNotification('wizard.cancelled', {
       sessionId: opts.sessionId,
       changed: result?.cancelled === true,
@@ -323,10 +301,6 @@ async function runCancel(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// retry-item <item-id> — RPC `wizard:retry-item` (synchronous)
-// ---------------------------------------------------------------------------
 
 async function runRetryItem(
   opts: WizardOptions,
@@ -366,10 +340,6 @@ async function runRetryItem(
   });
 }
 
-// ---------------------------------------------------------------------------
-// status — read setup.lastCompletedPhase from WORKSPACE_STATE_STORAGE
-// ---------------------------------------------------------------------------
-
 async function runStatus(
   globals: GlobalOptions,
   formatter: Formatter,
@@ -388,10 +358,6 @@ async function runStatus(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers — module-private.
-// ---------------------------------------------------------------------------
 
 interface ValidatedSubmitSelection {
   payload: SubmitSelectionFile;

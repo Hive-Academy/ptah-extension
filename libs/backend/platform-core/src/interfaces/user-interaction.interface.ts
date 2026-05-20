@@ -108,9 +108,6 @@ export interface IUserInteraction {
    * Returns an array of selected absolute paths (single-element when
    * `properties.openDirectory` is used without `multiSelections`), or an empty
    * array when the user cancels.
-   *
-   * TASK_2026_104 Sub-batch B5a: Added so the lifted `WorkspaceRpcHandlers`
-   * can request a directory without `import('electron')`.
    */
   showOpenDialog?(options: {
     title?: string;

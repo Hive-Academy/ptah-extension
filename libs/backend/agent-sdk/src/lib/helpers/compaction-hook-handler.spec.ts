@@ -1,5 +1,5 @@
 /**
- * CompactionHookHandler specs — PreCompact callback enrichment (TASK_2026_109 A2).
+ * CompactionHookHandler specs — PreCompact callback enrichment.
  *
  * Coverage:
  *   - The PreCompact hook callback enriches the start payload with
@@ -52,9 +52,10 @@ describe('CompactionHookHandler — PreCompact callback (TASK_2026_109 A2)', () 
       trigger: 'manual' | 'auto';
       timestamp: number;
       preTokens: number;
+      cwd?: string | null;
     }> = [];
 
-    const hooks = handler.createHooks('sess-42', (data) => {
+    const hooks = handler.createHooks('sess-42', null, (data) => {
       received.push(data);
     });
 

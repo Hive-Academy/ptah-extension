@@ -19,10 +19,6 @@ import type {
   TagRef,
 } from '@ptah-extension/shared';
 
-// ============================================================================
-// PERSISTENCE
-// ============================================================================
-
 /**
  * Webview state key used by VSCodeService.{getState,setState} to persist
  * recently-visited branch names. The stored value is a workspace-keyed map
@@ -34,10 +30,6 @@ const RECENT_BRANCHES_STATE_KEY = 'gitBranches.recentBranchesByWorkspace';
 const MAX_RECENT_BRANCHES = 5;
 
 type RecentBranchesByWorkspace = Record<string, string[]>;
-
-// ============================================================================
-// EMPTY DEFAULTS
-// ============================================================================
 
 const EMPTY_BRANCHES: GitBranchesResult = {
   current: '',
@@ -59,17 +51,11 @@ const EMPTY_BRANCHES: GitBranchesResult = {
  *
  * Recent-branches persistence uses VSCodeService webview state keyed by
  * workspace root so each repo gets its own most-recent list.
- *
- * Wave: TASK_2026_111 Batch 3.
  */
 @Injectable({ providedIn: 'root' })
 export class GitBranchesService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
-
-  // ============================================================================
-  // PRIVATE WRITABLE SIGNALS
-  // ============================================================================
 
   private readonly _branches = signal<GitBranchesResult>(EMPTY_BRANCHES);
   private readonly _stashCount = signal<number>(0);
@@ -78,10 +64,6 @@ export class GitBranchesService {
   private readonly _tags = signal<TagRef[]>([]);
   private readonly _isLoading = signal<boolean>(false);
   private readonly _recentBranches = signal<string[]>([]);
-
-  // ============================================================================
-  // PUBLIC READONLY SIGNALS
-  // ============================================================================
 
   /** Full branches result — { current, local, remote, recent }. */
   readonly branches = this._branches.asReadonly();
@@ -98,10 +80,6 @@ export class GitBranchesService {
   /** Recently visited branch names (most-recent first, max 5). */
   readonly recentBranches = this._recentBranches.asReadonly();
 
-  // ============================================================================
-  // COMPUTED SIGNALS
-  // ============================================================================
-
   /** Current branch short name (empty string when not in a repo). */
   readonly currentBranch = computed(() => this._branches().current);
   /** Local branches (always present, may be empty). */
@@ -110,10 +88,6 @@ export class GitBranchesService {
   readonly remoteBranches = computed<BranchRef[]>(
     () => this._branches().remote,
   );
-
-  // ============================================================================
-  // LISTENER STATE
-  // ============================================================================
 
   private _isListening = false;
   private _messageHandler: ((event: MessageEvent) => void) | null = null;
@@ -127,18 +101,9 @@ export class GitBranchesService {
   private _isRefreshing = false;
 
   constructor() {
-    // Restore recent-branches list for the current workspace from webview state.
     this.restoreRecentBranches();
-
-    // Cleanup: ensure the message listener is removed when the root injector
-    // is torn down (HMR / test teardown), even if `stopListening()` is never
-    // called explicitly by a consumer.
     this.destroyRef.onDestroy(() => this.stopListening());
   }
-
-  // ============================================================================
-  // EVENT LISTENING (event-driven — no polling)
-  // ============================================================================
 
   /**
    * Start listening for `git:status-update` push events from the backend
@@ -153,8 +118,6 @@ export class GitBranchesService {
     this._messageHandler = (event: MessageEvent): void => {
       const data = event.data;
       if (data?.type === 'git:status-update') {
-        // Branch list, stash, and last commit may all have changed if the
-        // user just switched branches or made a commit.
         void this.refreshBranches();
       }
     };
@@ -173,10 +136,6 @@ export class GitBranchesService {
     }
   }
 
-  // ============================================================================
-  // REFRESH (RPC pulls)
-  // ============================================================================
-
   /**
    * Fetch branches + stash count + last commit in parallel and update
    * the corresponding signals. Each RPC is wrapped in its own try/catch
@@ -187,8 +146,6 @@ export class GitBranchesService {
     this._isRefreshing = true;
     try {
       this._isLoading.set(true);
-
-      // Fire all three RPCs in parallel — they're independent reads.
       const [branchesResult, stashResult, lastCommitResult] = await Promise.all(
         [
           this.safeRpc<GitBranchesResult>('git:branches', {
@@ -221,10 +178,6 @@ export class GitBranchesService {
     if (result) this._remotes.set(result.remotes);
   }
 
-  // ============================================================================
-  // RECENT BRANCHES PERSISTENCE
-  // ============================================================================
-
   /**
    * Record a branch as recently visited. Prepends to the list, deduplicates
    * (case-sensitive), and caps at {@link MAX_RECENT_BRANCHES} entries.
@@ -235,7 +188,6 @@ export class GitBranchesService {
     if (!branchName) return;
 
     const current = this._recentBranches();
-    // Dedupe and prepend.
     const updated = [
       branchName,
       ...current.filter((b) => b !== branchName),
@@ -244,10 +196,6 @@ export class GitBranchesService {
     this._recentBranches.set(updated);
     this.persistRecentBranches(updated);
   }
-
-  // ============================================================================
-  // CHECKOUT (passthrough)
-  // ============================================================================
 
   /**
    * Checkout a branch. The backend handler returns `{ dirty: true }` when
@@ -280,10 +228,6 @@ export class GitBranchesService {
       };
     }
   }
-
-  // ============================================================================
-  // PRIVATE HELPERS
-  // ============================================================================
 
   /**
    * Wrapper around `rpcCall` that returns `null` on transport failure or

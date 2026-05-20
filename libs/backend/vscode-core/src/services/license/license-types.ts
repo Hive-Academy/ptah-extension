@@ -1,6 +1,6 @@
 /**
  * License Types — shared types used by the coordinator and helpers
- * in the license service split (Wave C7a — TASK_2025_291).
+ * in the license service split.
  *
  * These types mirror the public contracts of {@link LicenseService} and are
  * re-exported from the coordinator file so no public API changes are needed.
@@ -11,7 +11,6 @@
 /**
  * License tier values for the freemium model
  *
- * TASK_2025_128: Freemium model conversion
  * - 'community': FREE forever, always valid, no license required
  * - 'pro': Active Pro subscription ($5/month)
  * - 'trial_pro': Pro plan during 100-day trial
@@ -53,13 +52,13 @@ export interface LicenseStatus {
   trialDaysRemaining?: number;
   /** Reason for invalid status */
   reason?: 'expired' | 'revoked' | 'not_found' | 'trial_ended';
-  /** User profile data from license server (TASK_2025_129) */
+  /** User profile data from license server */
   user?: {
     email: string;
     firstName: string | null;
     lastName: string | null;
   };
-  /** Ed25519 signature of the response payload (TASK_2025_188: MITM prevention) */
+  /** Ed25519 signature of the response payload (MITM prevention) */
   signature?: string;
 }
 

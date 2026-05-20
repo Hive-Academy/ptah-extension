@@ -88,6 +88,14 @@ jobs:
         with:
           main-branch-name: main
 
+      # DI invariant gate — every @inject(token) must resolve to a
+      # register*(token, ...) call somewhere. Also runs the meta self-test
+      # against a planted fixture so a broken linter can't silently pass.
+      - name: di-lint (DI invariant + self-test)
+        run: |
+          npx nx run di-lint:self-test
+          npx nx run di-lint:lint
+
       # Required coverage gate (TASK_2025_294 W8.B1). Per-project
       # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
       # to the current baseline rounded down to the nearest 5. A drop below

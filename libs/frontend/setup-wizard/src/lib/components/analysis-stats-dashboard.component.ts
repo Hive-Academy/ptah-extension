@@ -154,8 +154,6 @@ export class AnalysisStatsDashboardComponent {
 
   /** Array used for skeleton card iteration in the template */
   protected readonly skeletonItems = [1, 2, 3, 4];
-
-  // Icons
   protected readonly MessageSquareIcon = MessageSquare;
   protected readonly TerminalIcon = Terminal;
   protected readonly ActivityIcon = Activity;
@@ -173,7 +171,6 @@ export class AnalysisStatsDashboardComponent {
   private timerInterval: ReturnType<typeof setInterval> | null = null;
 
   public constructor() {
-    // Track analysis start time from first message
     effect(() => {
       const stream = this.wizardState.analysisStream();
       if (stream.length > 0 && this.analysisStartTime() === null) {
@@ -181,16 +178,10 @@ export class AnalysisStatsDashboardComponent {
         this.startTimer();
       }
     });
-
-    // CRITICAL: Clean up timer on component destroy to prevent memory leaks.
-    // The plan's code omitted this -- this is the mitigation for the MEDIUM risk
-    // identified in the Plan Validation Summary.
     this.destroyRef.onDestroy(() => {
       this.stopTimer();
     });
   }
-
-  // === Computed Signals for Metrics ===
 
   protected readonly messageCount = computed(
     () => this.wizardState.analysisStream().length
@@ -232,8 +223,6 @@ export class AnalysisStatsDashboardComponent {
   });
 
   protected readonly elapsedTime = this.elapsedTimeValue.asReadonly();
-
-  // === Timer Logic ===
 
   private startTimer(): void {
     if (this.timerInterval) return;

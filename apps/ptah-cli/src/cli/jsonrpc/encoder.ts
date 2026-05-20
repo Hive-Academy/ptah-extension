@@ -1,8 +1,6 @@
 /**
  * JSON-RPC 2.0 wire-format helpers (NDJSON envelope).
  *
- * TASK_2026_104 Batch 3.
- *
  * Pure stateless functions:
  *   - `encodeNotification(method, params)` → NDJSON line
  *   - `encodeRequest(id, method, params)`  → NDJSON line

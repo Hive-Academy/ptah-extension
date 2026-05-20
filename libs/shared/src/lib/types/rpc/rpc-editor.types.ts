@@ -14,10 +14,6 @@
  *     `loadSessions()` calls.
  */
 
-// ============================================================
-// editor:revertFiles RPC Types (M3)
-// ============================================================
-
 /** Parameters for editor:revertFiles RPC method. */
 export interface EditorRevertFilesParams {
   /** Absolute file paths to revert in the host editor. */
@@ -32,10 +28,6 @@ export interface EditorRevertFilesResult {
    */
   revertedCount: number;
 }
-
-// ============================================================
-// session:metadataChanged Push Notification (S4)
-// ============================================================
 
 /**
  * Reason a session metadata change was emitted.

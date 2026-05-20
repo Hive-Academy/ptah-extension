@@ -50,19 +50,15 @@ export class QueryTokenAuthGuard implements CanActivate {
     }
 
     try {
-      // First, try to validate as a short-lived ticket
       const ticketData = await this.ticketService.validateAndConsume(token);
 
       if (ticketData) {
-        // Ticket is valid - attach minimal user context
         request.user = {
           userId: ticketData.userId,
           tenantId: ticketData.tenantId,
         };
         return true;
       }
-
-      // Fallback: Try to validate as a JWT token (backward compatibility)
       const user = await this.authService.validateToken(token);
       request.user = user;
       return true;

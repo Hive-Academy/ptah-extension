@@ -1,8 +1,6 @@
 /**
  * `ptah analyze` command — workspace deep-analysis runner.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Top-level command (per task-description.md §3.1):
  *
  *   analyze [--model <m>] [--save] [--out <path>]
@@ -99,15 +97,7 @@ export async function execute(
         'wizard:deep-analyze',
         opts.model ? { model: opts.model } : {},
       );
-
-      // Stream phase-level discoveries derived from the manifest. We do not
-      // get token-level streaming from the in-process RPC, but each phase
-      // still surfaces as a notification so consumers can track progress.
       await emitPhaseSummaries(formatter, result);
-
-      // `analyze.recommendation` is reserved for future agent-recommendation
-      // integration. We forward an empty list today so consumers can rely on
-      // its envelope shape.
       await formatter.writeNotification('analyze.recommendation', {
         slug: result.manifest.slug,
         recommendations: [],
@@ -140,10 +130,6 @@ export async function execute(
     return ExitCode.InternalFailure;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Phase emission
-// ---------------------------------------------------------------------------
 
 /**
  * Walk the multi-phase manifest and emit framework / dependency notifications
@@ -183,10 +169,6 @@ async function emitPhaseSummaries(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Persistence
-// ---------------------------------------------------------------------------
-
 async function maybePersist(
   result: MultiPhaseAnalysisLite,
   opts: AnalyzeOptions,
@@ -222,10 +204,6 @@ async function maybePersist(
     return undefined;
   }
 }
-
-// ---------------------------------------------------------------------------
-// IO helpers
-// ---------------------------------------------------------------------------
 
 async function atomicWrite(target: string, data: string): Promise<void> {
   const tmpName = `ptah-analysis-${Date.now()}-${randomBytes(6).toString('hex')}.json`;

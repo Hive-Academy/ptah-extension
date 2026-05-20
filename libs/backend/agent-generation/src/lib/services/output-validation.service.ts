@@ -22,19 +22,12 @@ import {
  * These patterns identify potential security risks like API keys, tokens, and passwords.
  */
 const SENSITIVE_PATTERNS = [
-  // API keys (generic pattern)
   /(?:api[_-]?key|apikey)['":\s]*=?\s*['"]?[a-zA-Z0-9_-]{20,}/gi,
-  // Passwords
   /(?:password|passwd|pwd)['":\s]*=?\s*['"]?[^\s'"]{8,}/gi,
-  // Secrets and tokens
   /(?:secret|token)['":\s]*=?\s*['"]?[a-zA-Z0-9_-]{20,}/gi,
-  // OpenAI API keys
   /sk-[a-zA-Z0-9]{48}/g,
-  // GitHub personal access tokens
   /ghp_[a-zA-Z0-9]{36}/g,
-  // AWS access keys
   /AKIA[0-9A-Z]{16}/g,
-  // Private keys
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/gi,
 ];
 
@@ -43,17 +36,11 @@ const SENSITIVE_PATTERNS = [
  * These patterns identify potential script injection or malicious code execution.
  */
 const MALICIOUS_PATTERNS = [
-  // Script tags
   /<script[^>]*>/gi,
-  // JavaScript protocol
   /javascript:/gi,
-  // Eval and similar dangerous functions
   /\beval\s*\(/gi,
   /\bFunction\s*\(/gi,
-  // Data URIs with scripts
   /data:text\/html[^,]*,/gi,
-  // Event handlers in HTML attributes (e.g., <div onclick="...">)
-  // Excludes markdown/code references like `onClick`, `onChange` which are common in agent templates
   /<[^>]+\bon\w+\s*=/gi,
 ];
 
@@ -124,13 +111,8 @@ export class OutputValidationService implements IOutputValidationService {
         contentLength: content.length,
         projectType: context.projectType,
       });
-
-      // Run all validation tiers
       const schemaResult = this.validateSchema(content);
       const safetyResult = this.validateSafety(content);
-
-      // If safety validation fails critically (score 0), fail immediately
-      // This ensures malicious content is never accepted regardless of other scores
       if (safetyResult.score === 0 && !safetyResult.isValid) {
         this.logger.warn('Content failed safety validation critically', {
           safetyScore: safetyResult.score,
@@ -145,26 +127,18 @@ export class OutputValidationService implements IOutputValidationService {
       }
 
       const factualResult = this.validateFactualAccuracy(content, context);
-
-      // Combine issues from all tiers
       const allIssues = [
         ...schemaResult.issues,
         ...safetyResult.issues,
         ...factualResult.issues,
       ];
-
-      // Calculate total score
       const totalScore =
         schemaResult.score + safetyResult.score + factualResult.score;
-
-      // Determine validity (score >= threshold AND no critical errors)
       const hasCriticalErrors = allIssues.some(
         (issue) => issue.severity === 'error'
       );
       const isValid =
         totalScore >= THRESHOLDS.VALID_SCORE && !hasCriticalErrors;
-
-      // Add review warning if score is borderline
       if (
         totalScore >= THRESHOLDS.REVIEW_THRESHOLD &&
         totalScore < THRESHOLDS.VALID_SCORE
@@ -227,30 +201,23 @@ export class OutputValidationService implements IOutputValidationService {
       });
 
       const hallucinations: string[] = [];
-
-      // Extract file path references (e.g., `src/app/...`, `libs/...`)
       const filePathPattern =
         /(?:^|\s)([a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)+)/gm;
       const pathMatches = content.matchAll(filePathPattern);
 
       for (const match of pathMatches) {
         const filePath = match[1];
-        // Check if path might reference a file in project
         const isRelevantPath = context.relevantFiles.some(
           (file) =>
             file.relativePath.includes(filePath) ||
             filePath.includes(file.relativePath)
         );
-
-        // If path looks like project file but not found, it might be hallucinated
         if (!isRelevantPath && this.looksLikeProjectPath(filePath, context)) {
           hallucinations.push(
             `Referenced file path "${filePath}" not found in project context`
           );
         }
       }
-
-      // Check framework references
       const frameworkPattern =
         /\b(React|Vue|Angular|Express|NestJS|Django|FastAPI|Rails)\b/g;
       const frameworkMatches = content.matchAll(frameworkPattern);
@@ -267,19 +234,14 @@ export class OutputValidationService implements IOutputValidationService {
           );
         }
       }
-
-      // Check import statements
       const importPattern = /import\s+.*\s+from\s+['"]([^'"]+)['"]/g;
       const importMatches = content.matchAll(importPattern);
 
       for (const match of importMatches) {
         const packageName = match[1];
-        // Check if it's a known package in tech stack
         const isKnownPackage = context.techStack.frameworks.some(
           (fw) => fw.toLowerCase() === packageName.toLowerCase()
         );
-
-        // If it's not a relative import and not in tech stack, might be hallucinated
         if (
           !packageName.startsWith('.') &&
           !packageName.startsWith('@') &&
@@ -322,8 +284,6 @@ export class OutputValidationService implements IOutputValidationService {
   private validateSchema(content: string): ValidationResult {
     const issues: ValidationIssue[] = [];
     let score = VALIDATION_WEIGHTS.SCHEMA;
-
-    // Check empty content
     if (!content || content.trim().length === 0) {
       issues.push({
         severity: 'error',
@@ -332,8 +292,6 @@ export class OutputValidationService implements IOutputValidationService {
       });
       return { isValid: false, issues, score: 0 };
     }
-
-    // Check minimum length
     if (content.length < THRESHOLDS.MIN_CONTENT_LENGTH) {
       issues.push({
         severity: 'error',
@@ -342,8 +300,6 @@ export class OutputValidationService implements IOutputValidationService {
       });
       score -= 15;
     }
-
-    // Check maximum length
     if (content.length > THRESHOLDS.MAX_CONTENT_LENGTH) {
       issues.push({
         severity: 'warning',
@@ -352,16 +308,11 @@ export class OutputValidationService implements IOutputValidationService {
       });
       score -= 5;
     }
-
-    // Check for YAML frontmatter (optional — section content won't have it)
     const hasFrontmatter = /^---\s*\n[\s\S]*?\n---\s*\n/.test(content);
     if (hasFrontmatter) {
-      // Validate frontmatter structure if present
       const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
       if (frontmatterMatch) {
         const frontmatter = frontmatterMatch[1];
-
-        // Check for required frontmatter fields (common in agent templates)
         const hasId = /\bid\s*:/i.test(frontmatter);
         const hasName = /\bname\s*:/i.test(frontmatter);
         const hasVersion = /\bversion\s*:/i.test(frontmatter);
@@ -377,8 +328,6 @@ export class OutputValidationService implements IOutputValidationService {
         }
       }
     }
-
-    // Check for template markers (LLM sections): <!-- LLM:ID --> ... <!-- /LLM:ID -->
     const llmOpenMarkers = Array.from(content.matchAll(/<!-- LLM:(\w+) -->/g));
     const llmCloseMarkers = Array.from(
       content.matchAll(/<!-- \/LLM:(\w+) -->/g)
@@ -393,8 +342,6 @@ export class OutputValidationService implements IOutputValidationService {
       });
       score -= 10;
     }
-
-    // Check for static markers: <!-- STATIC:ID --> ... <!-- /STATIC:ID -->
     const staticOpenMarkers = Array.from(
       content.matchAll(/<!-- STATIC:(\w+) -->/g)
     );
@@ -411,8 +358,6 @@ export class OutputValidationService implements IOutputValidationService {
       });
       score -= 5;
     }
-
-    // Check for basic markdown structure (headers)
     const hasHeaders = /^#{1,6}\s+.+$/m.test(content);
     if (!hasHeaders) {
       issues.push({
@@ -422,8 +367,6 @@ export class OutputValidationService implements IOutputValidationService {
       });
       score -= 5;
     }
-
-    // Ensure score doesn't go negative
     score = Math.max(0, score);
 
     return {
@@ -447,8 +390,6 @@ export class OutputValidationService implements IOutputValidationService {
   private validateSafety(content: string): ValidationResult {
     const issues: ValidationIssue[] = [];
     let score = VALIDATION_WEIGHTS.SAFETY;
-
-    // Check for malicious code patterns
     for (const pattern of MALICIOUS_PATTERNS) {
       const matches = content.matchAll(pattern);
       const matchArray = Array.from(matches);
@@ -460,12 +401,9 @@ export class OutputValidationService implements IOutputValidationService {
           suggestion:
             'Remove script tags, eval calls, and dangerous code execution patterns',
         });
-        // Critical security issue - fail immediately
         return { isValid: false, issues, score: 0 };
       }
     }
-
-    // Check for sensitive data patterns
     let sensitiveDataFound = false;
     for (const pattern of SENSITIVE_PATTERNS) {
       const matches = content.matchAll(pattern);
@@ -482,18 +420,13 @@ export class OutputValidationService implements IOutputValidationService {
         score -= 10;
       }
     }
-
-    // If sensitive data found, fail validation
     if (sensitiveDataFound) {
       return { isValid: false, issues, score: Math.max(0, score) };
     }
-
-    // Check for external URLs (potential security risk)
     const urlPattern = /https?:\/\/(?!localhost|127\.0\.0\.1)[^\s)'"]+/gi;
     const urls = Array.from(content.matchAll(urlPattern));
 
     if (urls.length > 0) {
-      // Filter to non-whitelisted domains
       const whitelistedDomains = [
         'github.com',
         'npmjs.com',
@@ -516,8 +449,6 @@ export class OutputValidationService implements IOutputValidationService {
         score -= 5;
       }
     }
-
-    // Check for base64 encoded content (might hide malicious code)
     const base64Pattern = /[A-Za-z0-9+/]{100,}={0,2}/g;
     const base64Matches = Array.from(content.matchAll(base64Pattern));
 
@@ -529,8 +460,6 @@ export class OutputValidationService implements IOutputValidationService {
       });
       score -= 2;
     }
-
-    // Ensure score doesn't go negative
     score = Math.max(0, score);
 
     return {
@@ -559,8 +488,6 @@ export class OutputValidationService implements IOutputValidationService {
   ): ValidationResult {
     const issues: ValidationIssue[] = [];
     let score = VALIDATION_WEIGHTS.FACTUAL;
-
-    // If no context provided, skip factual validation (use schema + safety only)
     if (
       !context ||
       !context.relevantFiles ||
@@ -580,27 +507,20 @@ export class OutputValidationService implements IOutputValidationService {
         score: VALIDATION_WEIGHTS.FACTUAL, // Full score since we can't validate
       };
     }
-
-    // Check file path references
     const filePathPattern = /(?:^|\s)([a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)+)/gm;
     const pathMatches = Array.from(content.matchAll(filePathPattern));
 
     let invalidPathCount = 0;
     for (const match of pathMatches) {
       const filePath = match[1];
-
-      // Check if path exists in project
       const pathExists = context.relevantFiles.some(
         (file) =>
           file.relativePath.includes(filePath) ||
           filePath.includes(file.relativePath)
       );
-
-      // If it looks like a project path but doesn't exist, flag it
       if (!pathExists && this.looksLikeProjectPath(filePath, context)) {
         invalidPathCount++;
         if (invalidPathCount <= 3) {
-          // Only report first 3 to avoid spam
           issues.push({
             severity: 'warning',
             message: `Referenced file path "${filePath}" not found in project`,
@@ -613,8 +533,6 @@ export class OutputValidationService implements IOutputValidationService {
     if (invalidPathCount > 0) {
       score -= Math.min(10, invalidPathCount * 3);
     }
-
-    // Check framework references
     const frameworkPattern =
       /\b(React|Vue|Angular|Express|NestJS|Django|FastAPI|Rails|Flask|Laravel|Spring)\b/g;
     const frameworkMatches = Array.from(content.matchAll(frameworkPattern));
@@ -629,7 +547,6 @@ export class OutputValidationService implements IOutputValidationService {
       if (!isKnown) {
         invalidFrameworkCount++;
         if (invalidFrameworkCount <= 2) {
-          // Only report first 2
           issues.push({
             severity: 'warning',
             message: `Referenced framework "${framework}" not in project tech stack`,
@@ -643,8 +560,6 @@ export class OutputValidationService implements IOutputValidationService {
     if (invalidFrameworkCount > 0) {
       score -= Math.min(10, invalidFrameworkCount * 5);
     }
-
-    // Check language references
     const languagePattern =
       /\b(TypeScript|JavaScript|Python|Java|Rust|Go|C\+\+|C#|Ruby|PHP)\b/g;
     const languageMatches = Array.from(content.matchAll(languagePattern));
@@ -669,8 +584,6 @@ export class OutputValidationService implements IOutputValidationService {
       });
       score -= Math.min(5, invalidLanguageCount * 2);
     }
-
-    // Ensure score doesn't go negative
     score = Math.max(0, score);
 
     return {
@@ -696,7 +609,6 @@ export class OutputValidationService implements IOutputValidationService {
     filePath: string,
     context: AgentProjectContext
   ): boolean {
-    // Common project directory prefixes
     const projectPrefixes = ['src/', 'lib/', 'libs/', 'apps/', 'packages/'];
     const hasProjectPrefix = projectPrefixes.some((prefix) =>
       filePath.startsWith(prefix)
@@ -705,8 +617,6 @@ export class OutputValidationService implements IOutputValidationService {
     if (hasProjectPrefix) {
       return true;
     }
-
-    // Check if it has file extensions used in project
     const projectExtensions = context.relevantFiles.map((file) => {
       const parts = file.relativePath.split('.');
       return parts.length > 1 ? `.${parts[parts.length - 1]}` : '';

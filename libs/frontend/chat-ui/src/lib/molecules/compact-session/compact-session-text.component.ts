@@ -39,15 +39,12 @@ export class CompactSessionTextComponent {
     const state = this.streamingState();
 
     if (state && state.textAccumulators.size > 0) {
-      // Get the latest accumulated text
       let latest = '';
       for (const text of state.textAccumulators.values()) {
         latest = text; // Last entry is the most recent
       }
       return latest.substring(0, 200);
     }
-
-    // Fall back to last message content
     const last = this.lastMessageContent();
     return last ? last.substring(0, 200) : null;
   });

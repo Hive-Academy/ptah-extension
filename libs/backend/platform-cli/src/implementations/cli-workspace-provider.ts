@@ -9,7 +9,7 @@
  * File-based settings routing: Keys in FILE_BASED_SETTINGS_KEYS are
  * transparently routed to PtahFileSettingsManager (~/.ptah/settings.json)
  * instead of the per-app config.json file. This matches the pattern used
- * by ElectronWorkspaceProvider (TASK_2025_247).
+ * by ElectronWorkspaceProvider.
  */
 
 import * as fs from 'fs';
@@ -61,8 +61,6 @@ export class CliWorkspaceProvider
 
     this.configFilePath = path.join(globalStoragePath, 'config.json');
     this.loadConfigSync();
-
-    // Resolve workspace path: use provided path, fall back to CWD
     const resolvedWorkspace = workspacePath
       ? path.resolve(workspacePath)
       : process.cwd();
@@ -87,7 +85,6 @@ export class CliWorkspaceProvider
     key: string,
     defaultValue?: T,
   ): T | undefined {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       return this.fileSettings.get<T>(key, defaultValue);
     }
@@ -108,7 +105,6 @@ export class CliWorkspaceProvider
     key: string,
     value: unknown,
   ): Promise<void> {
-    // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && isFileBasedSettingKey(key)) {
       await this.fileSettings.set(key, value);
       const fullKey = `${section}.${key}`;
@@ -139,15 +135,9 @@ export class CliWorkspaceProvider
    * Fires onDidChangeWorkspaceFolders event.
    */
   setWorkspaceFolders(folders: string[]): void {
-    // Only resolve relative paths — absolute inputs are preserved verbatim so
-    // POSIX fixtures like `/root` round-trip correctly on Windows. On Windows
-    // `path.resolve('/root')` would prepend the current drive letter and
-    // silently mangle an already-absolute POSIX path. The Electron impl
-    // stores the seed verbatim too; this aligns both impls.
     this.folders = folders.map((f) =>
       path.isAbsolute(f) ? f : path.resolve(f),
     );
-    // Update activeFolder if the current active is no longer in the list
     if (
       this.activeFolder &&
       !this.folders.some(
@@ -162,8 +152,6 @@ export class CliWorkspaceProvider
   /**
    * Add a folder to the workspace. Deduplicates by resolved path.
    * Fires onDidChangeWorkspaceFolders event if the folder was actually added.
-   *
-   * TASK_2026_104 Sub-batch B5a
    */
   addFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
@@ -185,8 +173,6 @@ export class CliWorkspaceProvider
    * If the removed folder was the active folder, promotes the first remaining
    * folder (or undefined if none remain).
    * Fires onDidChangeWorkspaceFolders event if the folder was actually removed.
-   *
-   * TASK_2026_104 Sub-batch B5a
    */
   removeFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
@@ -207,8 +193,6 @@ export class CliWorkspaceProvider
    * Set the active (primary) workspace folder.
    * The path must already exist in the folders array; no-ops for unknown paths.
    * Fires onDidChangeWorkspaceFolders event on success.
-   *
-   * TASK_2026_104 Sub-batch B5a
    */
   setActiveFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
@@ -224,8 +208,6 @@ export class CliWorkspaceProvider
 
   /**
    * Get the currently active workspace folder.
-   *
-   * TASK_2026_104 Sub-batch B5a
    */
   getActiveFolder(): string | undefined {
     return this.activeFolder;
@@ -236,7 +218,6 @@ export class CliWorkspaceProvider
       const raw = fs.readFileSync(this.configFilePath, 'utf-8');
       this.config = JSON.parse(raw);
     } catch {
-      // Config file doesn't exist on first launch — start with empty config
       this.config = {};
     }
   }

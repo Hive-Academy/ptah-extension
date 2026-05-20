@@ -1,5 +1,5 @@
 /**
- * Unit tests for `ptah settings` command — TASK_2026_104 Sub-batch B5d.
+ * Unit tests for `ptah settings` command.
  *
  * Coverage:
  *   - export with --out: writes JSON; emits settings.exported with byte count

@@ -44,7 +44,6 @@ export class TokenCounterService {
    * @returns Token count
    */
   async countTokens(text: string, cacheKey?: string): Promise<number> {
-    // Check cache first
     if (cacheKey) {
       const cached = this.getCached(cacheKey);
       if (cached !== null) {
@@ -53,8 +52,6 @@ export class TokenCounterService {
     }
 
     const count = await this.tokenCounter.countTokens(text);
-
-    // Cache result
     if (cacheKey) {
       this.setCached(cacheKey, count);
     }
@@ -74,8 +71,6 @@ export class TokenCounterService {
     if (!entry) {
       return null;
     }
-
-    // Check if expired
     const now = Date.now();
     if (now - entry.timestamp > this.cacheTTL) {
       this.cache.delete(key);
@@ -92,9 +87,7 @@ export class TokenCounterService {
    * @param count Token count to cache
    */
   private setCached(key: string, count: number): void {
-    // Evict oldest entries if cache full
     if (this.cache.size >= this.cacheMaxSize) {
-      // Simple LRU: delete first (oldest) entry
       const firstKey = this.cache.keys().next().value;
       if (firstKey) {
         this.cache.delete(firstKey);

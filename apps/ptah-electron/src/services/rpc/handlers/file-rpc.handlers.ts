@@ -7,9 +7,6 @@
  * - file:save-dialog - Open native OS save dialog and write content
  * - file:pick - Open native file picker for attaching workspace files
  * - file:pick-images - Open native file picker for images, returns base64 data
- *
- * TASK_2025_203 Batch 5: Extracted from inline registrations
- * TASK_2025_262: Added file:pick and file:pick-images for attachment buttons
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -211,9 +208,6 @@ export class FileRpcHandlers {
           if (params?.multiple !== false) {
             properties.push('multiSelections' as const);
           }
-
-          // Only offer extensions that map to Anthropic-allowed media types.
-          // Magic-byte sniffing (below) is the source of truth.
           const result = await electronDialog.showOpenDialog({
             properties,
             title: 'Attach Images',
@@ -258,8 +252,6 @@ export class FileRpcHandlers {
 
             const data = await fsModule.readFile(filePath);
             const base64 = data.toString('base64');
-            // Sniff the bytes — extension is unreliable, magic bytes are
-            // the only thing the Anthropic API will accept.
             const mediaType = resolveImageMediaType(undefined, base64);
             if (mediaType === null) {
               this.logger.warn(

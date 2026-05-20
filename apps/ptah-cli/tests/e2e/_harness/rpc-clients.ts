@@ -23,10 +23,6 @@
 
 import type { RunnerHandle } from './cli-runner.js';
 
-// Mirror the wire shapes from `src/cli/commands/interact.ts` and
-// `src/cli/session/chat-bridge.ts`. We don't import the source types directly
-// because the harness drives the BUILT bundle (no source coupling).
-
 export interface TaskSubmitParams {
   task: string;
   cwd?: string;
@@ -105,8 +101,8 @@ export class InteractRpcClient {
   }
 
   /**
-   * Race `task.complete` vs `task.error` — useful for the Bug 1+4 spec which
-   * proves chat-bridge emits a terminal envelope on every settle path.
+   * Race `task.complete` vs `task.error` — useful for specs which prove
+   * chat-bridge emits a terminal envelope on every settle path.
    */
   awaitTaskTerminal(
     timeoutMs = 30_000,

@@ -18,7 +18,6 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 export type FfmpegBinaryResolver = () => string;
 
 const defaultResolver: FfmpegBinaryResolver = () => {
-  // ffmpeg-static exports the binary path as default export (CJS string).
 
   const ffmpegPath = require('ffmpeg-static') as string | { default?: string };
   if (typeof ffmpegPath === 'string') return ffmpegPath;
@@ -61,15 +60,12 @@ export class FfmpegDecoder {
     if (!path.isAbsolute(inputPath)) {
       throw new Error('FfmpegDecoder: inputPath must be absolute');
     }
-    // Reject any path component that begins with '-' to defeat ffmpeg
-    // flag-smuggling (e.g. `-protocol_whitelist`, `-f concat -i ...`).
     const basename = path.basename(inputPath);
     if (basename.startsWith('-') || inputPath.startsWith('-')) {
       throw new Error(
         'FfmpegDecoder: inputPath must not start with "-" (flag-injection guard)',
       );
     }
-    // Resolve symlinks + verify it is a regular file before spawn.
     const resolvedInput = await fs.realpath(inputPath);
     if (!path.isAbsolute(resolvedInput) || resolvedInput.startsWith('-')) {
       throw new Error('FfmpegDecoder: resolved inputPath failed safety check');
@@ -83,8 +79,6 @@ export class FfmpegDecoder {
     const outPath = path.join(dir, 'audio.wav');
     const ffmpeg = this.resolver();
     await new Promise<void>((resolve, reject) => {
-      // `--` ends ffmpeg option processing — defence-in-depth so even if the
-      // path validation above is bypassed, no later token is treated as a flag.
       const proc = this.spawnFn(
         ffmpeg,
         [

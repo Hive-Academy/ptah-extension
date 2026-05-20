@@ -50,18 +50,12 @@ export class TokenBadgeComponent {
   readonly totalCount = computed(() => {
     const tokens = this.tokens();
     const legacyCount = this.count();
-
-    // If simple count provided (legacy or new)
     if (typeof tokens === 'number') {
       return tokens;
     }
-
-    // If legacy count input used
     if (legacyCount !== undefined) {
       return legacyCount;
     }
-
-    // If full MessageTokenUsage object
     if (tokens) {
       return tokens.input + tokens.output;
     }
@@ -73,14 +67,10 @@ export class TokenBadgeComponent {
   readonly tooltipText = computed(() => {
     const tokens = this.tokens();
     const legacyCount = this.count();
-
-    // Simple number - just show total
     if (typeof tokens === 'number' || legacyCount !== undefined) {
       const count = typeof tokens === 'number' ? tokens : (legacyCount ?? 0);
       return `${count.toLocaleString()} tokens`;
     }
-
-    // Full MessageTokenUsage - show breakdown
     if (tokens) {
       const lines = [
         `Input: ${tokens.input.toLocaleString()}`,

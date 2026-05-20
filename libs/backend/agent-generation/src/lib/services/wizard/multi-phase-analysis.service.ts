@@ -1,7 +1,7 @@
 /**
  * MultiPhaseAnalysisService - Multi-phase workspace analysis orchestrator
  *
- * TASK_2025_154: Executes 4 sequential LLM phases (project profile, architecture
+ * Executes 4 sequential LLM phases (project profile, architecture
  * assessment, quality audit, elevation plan).
  *
  * Architecture:
@@ -24,7 +24,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
+import { Result, MESSAGE_TYPES, WizardPhaseId } from '@ptah-extension/shared';
 import type {
   AnalysisPhase,
   AnalysisStreamPayload,
@@ -66,10 +66,6 @@ import {
   formatSkillsForPrompt,
 } from '@ptah-extension/agent-sdk';
 
-// ============================================================================
-// Constants
-// ============================================================================
-
 const SERVICE_TAG = '[MultiPhaseAnalysis]';
 const DEFAULT_TIMEOUT_MS = 3_600_000; // 1 hour total pipeline
 const PER_PHASE_TIMEOUT_MS = 900_000; // 15 minutes per phase
@@ -90,10 +86,6 @@ const PROMPT_BUILDERS = [
   (slugDir: string, pluginSkillsContext?: string) =>
     buildPhase4Prompts(slugDir, pluginSkillsContext),
 ] as const;
-
-// ============================================================================
-// Service
-// ============================================================================
 
 /**
  * MultiPhaseAnalysisService
@@ -144,8 +136,6 @@ export class MultiPhaseAnalysisService {
       isPremium,
       mcpServerRunning,
     });
-
-    // ---- Validation ----
     if (!isPremium || !mcpServerRunning) {
       return Result.err(
         new Error(
@@ -153,27 +143,19 @@ export class MultiPhaseAnalysisService {
         ),
       );
     }
-
-    // ---- Cancel any in-flight analysis before starting ----
     if (this.activeAbortController) {
       this.activeAbortController.abort('new_analysis_started');
       this.activeAbortController = null;
     }
-
-    // ---- Master abort controller ----
     const masterAbortController = new AbortController();
     this.activeAbortController = masterAbortController;
     const pipelineStart = Date.now();
-
-    // ---- Phase status tracking ----
     const phaseStatuses: Array<{
       id: string;
       status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
     }> = PHASE_CONFIGS.map((pc) => ({ id: pc.id, status: 'pending' as const }));
 
     try {
-      // ---- Create slug directory ----
-      // Use workspace folder name as the project description for the slug
       const folderName = workspacePath.split(/[\\/]/).pop() || 'project';
       const { slugDir, slug } = await this.storageService.createSlugDir(
         workspacePath,
@@ -184,8 +166,6 @@ export class MultiPhaseAnalysisService {
         slug,
         slugDir,
       });
-
-      // ---- Initialize manifest ----
       const manifest: MultiPhaseManifest = {
         version: 2,
         slug,
@@ -194,17 +174,12 @@ export class MultiPhaseAnalysisService {
         totalDurationMs: 0,
         phases: {} as Record<MultiPhaseId, PhaseResult>,
       };
-
-      // ---- Execute LLM phases 1-4 ----
       for (let i = 0; i < LLM_PHASE_COUNT; i++) {
         const phaseConfig = PHASE_CONFIGS[i];
-
-        // Check for master abort before starting each phase
         if (masterAbortController.signal.aborted) {
           this.logger.info(
             `${SERVICE_TAG} Master abort detected, skipping remaining phases`,
           );
-          // Mark remaining phases as skipped
           for (let j = i; j < PHASE_CONFIGS.length; j++) {
             manifest.phases[PHASE_CONFIGS[j].id as MultiPhaseId] = {
               status: 'skipped',
@@ -215,8 +190,6 @@ export class MultiPhaseAnalysisService {
           }
           break;
         }
-
-        // Mark phase as running
         phaseStatuses[i].status = 'running';
         this.broadcastPhaseProgress(
           phaseConfig.id as AnalysisPhase,
@@ -241,9 +214,6 @@ export class MultiPhaseAnalysisService {
             phaseStatuses,
             pluginPaths,
           );
-
-          // The agent writes the phase file directly via prompts.
-          // Verify the file exists; fall back to writing captured text if not.
           const expectedFile = join(slugDir, phaseConfig.file);
           const fileExists = await access(expectedFile)
             .then(() => true)
@@ -257,7 +227,6 @@ export class MultiPhaseAnalysisService {
             };
             phaseStatuses[i].status = 'completed';
           } else if (text) {
-            // Fallback: agent didn't write the file, use captured text
             this.logger.warn(
               `${SERVICE_TAG} Phase ${phaseConfig.id}: agent did not write file, using captured text fallback`,
             );
@@ -273,7 +242,6 @@ export class MultiPhaseAnalysisService {
             };
             phaseStatuses[i].status = 'completed';
           } else {
-            // No file and no text -- mark as failed
             manifest.phases[phaseConfig.id as MultiPhaseId] = {
               status: 'failed',
               file: phaseConfig.file,
@@ -287,7 +255,6 @@ export class MultiPhaseAnalysisService {
             );
           }
         } catch (error) {
-          // Check if this was caused by master abort
           if (masterAbortController.signal.aborted) {
             manifest.phases[phaseConfig.id as MultiPhaseId] = {
               status: 'skipped',
@@ -295,8 +262,6 @@ export class MultiPhaseAnalysisService {
               durationMs: Date.now() - phaseStart,
             };
             phaseStatuses[i].status = 'skipped';
-
-            // Mark remaining phases as skipped
             for (let j = i + 1; j < PHASE_CONFIGS.length; j++) {
               manifest.phases[PHASE_CONFIGS[j].id as MultiPhaseId] = {
                 status: 'skipped',
@@ -307,8 +272,6 @@ export class MultiPhaseAnalysisService {
             }
             break;
           }
-
-          // Phase failed -- log with full diagnostics and continue to next phase
           const errorMessage =
             error instanceof Error ? error.message : String(error);
           const phaseDurationMs = Date.now() - phaseStart;
@@ -333,8 +296,6 @@ export class MultiPhaseAnalysisService {
           };
           phaseStatuses[i].status = 'failed';
         }
-
-        // Broadcast updated statuses after each phase
         this.broadcastPhaseProgress(
           phaseConfig.id as AnalysisPhase,
           i,
@@ -344,9 +305,6 @@ export class MultiPhaseAnalysisService {
             ? `${phaseConfig.label.replace('...', '')} complete`
             : phaseConfig.label,
         );
-
-        // Broadcast inter-phase transition status so the UI doesn't appear frozen
-        // between the end of one phase and the start of the next SDK session.
         const nextPhaseIndex = i + 1;
         if (
           nextPhaseIndex < LLM_PHASE_COUNT &&
@@ -360,8 +318,6 @@ export class MultiPhaseAnalysisService {
           });
         }
       }
-
-      // ---- Write manifest ----
       manifest.totalDurationMs = Date.now() - pipelineStart;
       await this.storageService.writeManifest(slugDir, manifest);
 
@@ -373,8 +329,6 @@ export class MultiPhaseAnalysisService {
           durationMs: r.durationMs,
         })),
       });
-
-      // Final progress broadcast
       this.broadcastPhaseProgress(
         'elevation-plan' as AnalysisPhase,
         PHASE_CONFIGS.length - 1,
@@ -411,10 +365,6 @@ export class MultiPhaseAnalysisService {
     }
   }
 
-  // ==========================================================================
-  // Phase Execution
-  // ==========================================================================
-
   /**
    * Execute a single LLM phase (1-4).
    *
@@ -438,8 +388,6 @@ export class MultiPhaseAnalysisService {
   ): Promise<string | null> {
     const phaseConfig = PHASE_CONFIGS[phaseIndex];
     const promptBuilder = PROMPT_BUILDERS[phaseIndex];
-
-    // Discover plugin skills for Phase 4 prompt enrichment
     let pluginSkillsContext: string | undefined;
     if (pluginPaths && pluginPaths.length > 0) {
       const skills = discoverPluginSkills(pluginPaths);
@@ -469,8 +417,6 @@ export class MultiPhaseAnalysisService {
         pluginPathCount: pluginPaths?.length ?? 0,
       },
     );
-
-    // Create per-phase AbortController linked to master
     const phaseAbortController = new AbortController();
     const onMasterAbort = () => phaseAbortController.abort('master_cancelled');
     masterAbortController.signal.addEventListener('abort', onMasterAbort, {
@@ -490,7 +436,6 @@ export class MultiPhaseAnalysisService {
         maxTurns: MAX_AGENT_TURNS,
         abortController: phaseAbortController,
         pluginPaths,
-        // No outputFormat -- we want free-form markdown
       });
 
       this.logger.info(
@@ -525,10 +470,6 @@ export class MultiPhaseAnalysisService {
     }
   }
 
-  // ==========================================================================
-  // Stream Processing
-  // ==========================================================================
-
   /**
    * Process the SDK message stream for a single phase.
    *
@@ -551,15 +492,11 @@ export class MultiPhaseAnalysisService {
     text: string | null;
     resultMeta?: StreamProcessorResult['resultMeta'];
   }> {
-    // Text capture: accumulate from text events + capture result message text
     let capturedResultText: string | null = null;
     const textChunks: string[] = [];
-
-    // TASK_2025_229: Conversion context for FlatStreamEventUnion generation.
-    // Tracks mutable state (counters, active tool ID) across events within this phase.
     const convCtx = {
       messageId: `wizard-phase-${phaseId}`,
-      sessionId: `wizard-${phaseId}`,
+      sessionId: WizardPhaseId.fromPhase(phaseId),
       counter: 0,
       textBlockIndex: 0,
       thinkingBlockIndex: 0,
@@ -571,27 +508,20 @@ export class MultiPhaseAnalysisService {
 
     const emitter: StreamEventEmitter = {
       emit: (event: StreamEvent) => {
-        // Accumulate text chunks for fallback capture
         if (event.kind === 'text' && event.content) {
           textChunks.push(event.content);
         }
-
-        // TASK_2025_229: Convert StreamEvent to FlatStreamEventUnion
         const flatEvent = this.convertStreamEventToFlatEvent(
           event,
           phaseId,
           convCtx,
         );
-
-        // Forward to frontend stream display with optional flatEvent attached
         this.broadcastStreamMessage({
           ...event,
           flatEvent: flatEvent ?? undefined,
         });
       },
     };
-
-    // TASK_2025_229: Emit message_start before processing the stream
     this.broadcastStreamMessage({
       kind: 'status',
       content: `Phase ${phaseId} starting...`,
@@ -605,8 +535,6 @@ export class MultiPhaseAnalysisService {
         role: 'assistant',
       } as MessageStartEvent,
     });
-
-    // Wrap the stream to intercept result messages for text extraction
     const wrappedStream = this.createTextCapturingStream(
       stream,
       (resultText: string) => {
@@ -623,11 +551,6 @@ export class MultiPhaseAnalysisService {
     });
 
     const result = await processor.process(wrappedStream);
-
-    // Emit synthetic tool_result for any tool still in-flight (e.g., StructuredOutput).
-    // The SDK's outputFormat uses an internal StructuredOutput tool that never receives
-    // a tool_result event — the result arrives via message.structured_output instead.
-    // Without this, the ExecutionTreeBuilder leaves the tool stuck in "Executing..." state.
     if (convCtx.activeToolCallId) {
       const syntheticToolResult: FlatStreamEventUnion = {
         id: `${phaseId}-tool-result-${convCtx.counter++}`,
@@ -650,8 +573,6 @@ export class MultiPhaseAnalysisService {
 
       convCtx.activeToolCallId = null;
     }
-
-    // TASK_2025_229: Emit message_complete after processing finishes
     this.broadcastStreamMessage({
       kind: 'status',
       content: `Phase ${phaseId} complete`,
@@ -664,10 +585,6 @@ export class MultiPhaseAnalysisService {
         messageId: convCtx.messageId,
       } as MessageCompleteEvent,
     });
-
-    // Determine the final text:
-    // Priority 1: result message's `result` field (the agent's full text response)
-    // Priority 2: accumulated text chunks from stream events
     const finalText =
       capturedResultText ||
       (textChunks.length > 0 ? textChunks.join('') : null);
@@ -687,7 +604,6 @@ export class MultiPhaseAnalysisService {
     onResultText: (text: string) => void,
   ): AsyncIterable<SDKMessage> {
     for await (const message of stream) {
-      // Intercept result messages to capture the text
       if (
         message.type === 'result' &&
         message.subtype === 'success' &&
@@ -699,10 +615,6 @@ export class MultiPhaseAnalysisService {
       yield message;
     }
   }
-
-  // ==========================================================================
-  // Progress Broadcasting
-  // ==========================================================================
 
   /**
    * Broadcast phase-level progress to the frontend.
@@ -750,7 +662,7 @@ export class MultiPhaseAnalysisService {
    * Convert a StreamEvent (kind-based) to a FlatStreamEventUnion (eventType-based)
    * for the ExecutionNode rendering pipeline.
    *
-   * TASK_2025_229: Maps each StreamEvent kind to the corresponding FlatStreamEventUnion
+   * Maps each StreamEvent kind to the corresponding FlatStreamEventUnion
    * variant. Returns null for event kinds that have no FlatStreamEventUnion equivalent
    * (error, status).
    */
@@ -784,7 +696,6 @@ export class MultiPhaseAnalysisService {
         } as TextDeltaEvent;
 
       case 'thinking': {
-        // Emit thinking_start on first thinking delta for this block
         if (!ctx.thinkingStartEmitted) {
           ctx.thinkingStartEmitted = true;
           this.broadcastStreamMessage({
@@ -798,7 +709,6 @@ export class MultiPhaseAnalysisService {
               blockIndex: ctx.thinkingBlockIndex,
             } as FlatStreamEventUnion,
           });
-          // New id for the actual delta event
           baseFields.id = `${phaseId}-${ctx.counter++}`;
         }
         return {
@@ -810,12 +720,9 @@ export class MultiPhaseAnalysisService {
       }
 
       case 'tool_start': {
-        // Increment block indices — next text/thinking after this tool is a new block
         ctx.textBlockIndex++;
         ctx.thinkingBlockIndex++;
         ctx.thinkingStartEmitted = false;
-
-        // Store toolCallId so subsequent tool_input/tool_result correlate correctly
         const toolCallId = event.toolCallId ?? `${phaseId}-tool-${ctx.counter}`;
         ctx.activeToolCallId = toolCallId;
 
@@ -840,8 +747,6 @@ export class MultiPhaseAnalysisService {
       case 'tool_result': {
         const toolResultId =
           event.toolCallId ?? ctx.activeToolCallId ?? `${phaseId}-tool-unk`;
-        // Clear active tool so the post-stream synthetic tool_result
-        // check doesn't double-fire for tools that already received a real result.
         ctx.activeToolCallId = null;
         return {
           ...baseFields,

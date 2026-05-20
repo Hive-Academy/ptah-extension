@@ -1,8 +1,6 @@
 /**
  * `ptah websearch` command — search provider settings + connectivity test.
  *
- * TASK_2026_104 Sub-batch B5d.
- *
  * Sub-commands (per task-description.md §3.1) — all delegate to the shared
  * WebSearchRpcHandlers:
  *
@@ -101,8 +99,6 @@ async function runStatus(
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full' }, async (ctx) => {
-    // First learn the active provider (so `status` without --provider answers
-    // the most useful question: "is the active provider configured?").
     const config = await callRpc<{ provider?: string; maxResults?: number }>(
       ctx.transport,
       'webSearch:getConfig',
@@ -248,10 +244,6 @@ async function runConfigSet(
     return ExitCode.Success;
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function wrapResult(result: unknown): Record<string, unknown> {
   if (result === null || result === undefined) return {};
