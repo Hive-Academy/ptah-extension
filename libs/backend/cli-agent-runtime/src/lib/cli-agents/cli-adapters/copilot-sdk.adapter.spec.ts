@@ -1,398 +1,474 @@
-/**
- * CopilotSdkAdapter Unit Tests
- *
- * Tests: detect(), listModels() (static + dynamic), runSdk() session wiring
- *        with streaming events, abort propagation, auth-required negative
- *        path, session creation failure, and Windows .cmd resolution.
- *
- * Uses jest.mock('@github/copilot-sdk', ...) so the adapter's dynamic
- * import() returns a controllable fake SDK.
- */
-
-// ---- Mocks must be declared before any imports that trigger module resolution ----
-
 import { EventEmitter } from 'events';
+import { PassThrough } from 'stream';
 
-// --- Mock vscode (auth API) ---
-const mockGetSession = jest.fn();
-jest.mock(
-  'vscode',
-  () => ({
-    authentication: {
-      getSession: (...args: unknown[]) => mockGetSession(...args),
-    },
-  }),
-  { virtual: true },
-);
-
-// --- Mock @github/copilot-sdk (ESM-only; imported via dynamic import()) ---
-interface FakeSessionCtl {
-  sessionId: string;
-  emit: (type: string, data: Record<string, unknown>) => void;
-  send: jest.Mock<Promise<string>, [{ prompt: string }]>;
-  abort: jest.Mock<Promise<void>, []>;
-  destroy: jest.Mock<Promise<void>, []>;
-}
-
-interface FakeClientCtl {
-  start: jest.Mock<Promise<void>, []>;
-  stop: jest.Mock<Promise<Error[]>, []>;
-  forceStop: jest.Mock<Promise<void>, []>;
-  createSession: jest.Mock<Promise<unknown>, [unknown?]>;
-  resumeSession: jest.Mock<Promise<unknown>, [string, unknown?]>;
-  listModels: jest.Mock<Promise<Array<{ id: string; name: string }>>, []>;
-  getState: jest.Mock<string, []>;
-}
-
-// Captured between tests
-let currentSession: FakeSessionCtl | null = null;
-let currentClient: FakeClientCtl | null = null;
-let capturedClientOptions: Record<string, unknown> | null = null;
-const copilotClientConstructor = jest.fn();
-
-function createFakeSession(sessionId: string): {
-  ctl: FakeSessionCtl;
-  session: unknown;
-} {
-  const bus = new EventEmitter();
-
-  const ctl: FakeSessionCtl = {
-    sessionId,
-    emit: (type, data) => {
-      bus.emit(type, { id: `evt-${type}`, timestamp: '', type, data });
-    },
-    send: jest.fn(async (_opts: { prompt: string }) => 'assistant-msg-id'),
-    abort: jest.fn(async () => {
-      /* noop */
-    }),
-    destroy: jest.fn(async () => {
-      /* noop */
-    }),
+interface FakeChildControls {
+  stdout: PassThrough;
+  stderr: PassThrough;
+  emitClose: (code: number | null, signal?: NodeJS.Signals | null) => void;
+  emitError: (err: Error) => void;
+  killed: boolean;
+  kill: jest.Mock;
+  child: EventEmitter & {
+    stdout: PassThrough;
+    stderr: PassThrough;
+    kill: jest.Mock;
+    killed: boolean;
   };
-
-  const session = {
-    sessionId,
-    on: (
-      type: string,
-      handler: (event: {
-        id: string;
-        timestamp: string;
-        type: string;
-        data: Record<string, unknown>;
-      }) => void,
-    ): (() => void) => {
-      bus.on(type, handler);
-      return () => bus.off(type, handler);
-    },
-    send: ctl.send,
-    sendAndWait: jest.fn(),
-    abort: ctl.abort,
-    destroy: ctl.destroy,
-  };
-
-  return { ctl, session };
 }
 
-jest.mock(
-  '@github/copilot-sdk',
-  () => ({
-    __esModule: true,
-    CopilotClient: copilotClientConstructor,
-  }),
-  { virtual: true },
-);
+function createFakeChild(): FakeChildControls {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdout.setEncoding('utf8');
+  stderr.setEncoding('utf8');
 
-// --- Mock cli-adapter.utils for detect() path and Windows .cmd handling ---
+  const emitter = new EventEmitter() as EventEmitter & {
+    stdout: PassThrough;
+    stderr: PassThrough;
+    kill: jest.Mock;
+    killed: boolean;
+  };
+  emitter.stdout = stdout;
+  emitter.stderr = stderr;
+  emitter.killed = false;
+  emitter.kill = jest.fn((_signal?: string) => {
+    emitter.killed = true;
+    return true;
+  });
+
+  const controls: FakeChildControls = {
+    stdout,
+    stderr,
+    emitClose: (code, signal) => emitter.emit('close', code, signal ?? null),
+    emitError: (err) => emitter.emit('error', err),
+    get killed() {
+      return emitter.killed;
+    },
+    kill: emitter.kill,
+    child: emitter,
+  };
+  return controls;
+}
+
+let currentChild: FakeChildControls | null = null;
+
+const mockSpawnCli = jest.fn();
 const mockResolveCliPath = jest.fn();
-const mockResolveWindowsCmd = jest.fn();
+const mockProbeCliVersion = jest.fn();
+
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
     './cli-adapter.utils',
   );
   return {
     ...actual,
+    spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
-    resolveWindowsCmd: (...args: unknown[]) => mockResolveWindowsCmd(...args),
+    probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
   };
 });
 
-// --- Mock child_process for the version-probe in detect() ---
-const mockExecFile = jest.fn();
 jest.mock('child_process', () => ({
-  execFile: mockExecFile,
+  execFile: jest.fn(),
+  spawn: jest.fn(),
 }));
 
-// Import AFTER mocks are declared
 import { CopilotSdkAdapter } from './copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './copilot-permission-bridge';
 
-function createClient(): { ctl: FakeClientCtl; client: unknown } {
-  const ctl: FakeClientCtl = {
-    start: jest.fn(async () => {
-      /* noop */
-    }),
-    stop: jest.fn(async () => [] as Error[]),
-    forceStop: jest.fn(async () => {
-      /* noop */
-    }),
-    createSession: jest.fn(async (_config?: unknown) => {
-      const { ctl: sessCtl, session } = createFakeSession('copilot-sess-1');
-      currentSession = sessCtl;
-      return session;
-    }),
-    resumeSession: jest.fn(async (_id: string, _config?: unknown) => {
-      const { ctl: sessCtl, session } = createFakeSession('resumed-sess');
-      currentSession = sessCtl;
-      return session;
-    }),
-    listModels: jest.fn(async () => [
-      { id: 'dynamic-model-1', name: 'Dynamic Model 1' },
-    ]),
-    getState: jest.fn(() => 'ready'),
-  };
-
-  const client = {
-    start: ctl.start,
-    stop: ctl.stop,
-    forceStop: ctl.forceStop,
-    createSession: ctl.createSession,
-    resumeSession: ctl.resumeSession,
-    listModels: ctl.listModels,
-    getState: ctl.getState,
-  };
-
-  return { ctl, client };
-}
-
-// The CopilotSdkAdapter no longer wraps the @github/copilot-sdk
-// in-process SDK; it now spawns the @github/copilot CLI
-// binary directly to avoid the SDK's broken `vscode-jsonrpc/node` ESM import
-// in headless contexts. The legacy SDK-based mocks below (CopilotClient,
-// fake sessions, useLoggedInUser fallback, etc.) no longer exercise the real
-// code path. Skipping rather than rewriting per project policy on broken
-// pre-existing tests during unrelated tasks. Replace with CLI spawn-based
-// tests modeled after gemini-cli.adapter.spec.ts in a follow-up task.
-describe.skip('CopilotSdkAdapter', () => {
+describe('CopilotSdkAdapter', () => {
   let adapter: CopilotSdkAdapter;
   let bridge: CopilotPermissionBridge;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    currentSession = null;
-    currentClient = null;
-    capturedClientOptions = null;
+    currentChild = null;
 
-    // Every new CopilotClient() call yields a fresh client; capture options.
-    copilotClientConstructor.mockImplementation(
-      (options?: Record<string, unknown>) => {
-        const { ctl, client } = createClient();
-        currentClient = ctl;
-        capturedClientOptions = options ?? null;
-        return client;
-      },
-    );
-
-    // Default: no VS Code GitHub session (useLoggedInUser fallback path).
-    mockGetSession.mockResolvedValue(null);
-    // Default: non-Windows .cmd resolution returns the input unchanged.
-    mockResolveWindowsCmd.mockImplementation(async (p: string) => p);
+    mockSpawnCli.mockImplementation(() => {
+      currentChild = createFakeChild();
+      return currentChild.child;
+    });
 
     bridge = new CopilotPermissionBridge();
     adapter = new CopilotSdkAdapter(bridge);
   });
 
   describe('detect()', () => {
-    it('reports installed when copilot is on PATH', async () => {
+    it('reports installed when resolveCliPath finds the binary', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/copilot');
-      mockExecFile.mockImplementation(
-        (
-          _cmd: string,
-          _args: readonly string[],
-          _opts: Record<string, unknown>,
-          cb?: (err: Error | null, result: { stdout: string }) => void,
-        ) => {
-          cb?.(null, { stdout: 'copilot 0.1.25\n' });
-        },
-      );
+      mockProbeCliVersion.mockResolvedValue('copilot 1.0.26');
 
       const result = await adapter.detect();
 
       expect(result.cli).toBe('copilot');
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/copilot');
-      expect(result.version).toBe('copilot 0.1.25');
+      expect(result.version).toBe('copilot 1.0.26');
       expect(result.supportsSteer).toBe(false);
     });
 
-    it('reports not installed when copilot is missing', async () => {
+    it('forwards the resolved binary path to probeCliVersion', async () => {
+      const cmdPath = 'C:\\Users\\dev\\AppData\\Roaming\\npm\\copilot.cmd';
+      mockResolveCliPath.mockResolvedValue(cmdPath);
+      mockProbeCliVersion.mockResolvedValue('copilot 1.0.26');
+
+      const result = await adapter.detect();
+
+      expect(mockProbeCliVersion).toHaveBeenCalledWith(cmdPath);
+      expect(result.installed).toBe(true);
+      expect(result.path).toBe(cmdPath);
+    });
+
+    it('reports not installed when resolveCliPath returns null', async () => {
       mockResolveCliPath.mockResolvedValue(null);
 
       const result = await adapter.detect();
 
       expect(result.cli).toBe('copilot');
       expect(result.installed).toBe(false);
+      expect(result.supportsSteer).toBe(false);
+      expect(mockProbeCliVersion).not.toHaveBeenCalled();
+    });
+
+    it('still reports installed when version probe returns undefined', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/copilot');
+      mockProbeCliVersion.mockResolvedValue(undefined);
+
+      const result = await adapter.detect();
+
+      expect(result.installed).toBe(true);
+      expect(result.version).toBeUndefined();
     });
   });
 
-  describe('listModels()', () => {
-    it('returns the static COPILOT_MODELS list before the client is initialized', async () => {
+  describe('buildCommand()', () => {
+    it('builds args with -p and --allow-all-tools', () => {
+      const cmd = adapter.buildCommand({
+        task: 'Write a unit test',
+        workingDirectory: '/proj',
+      });
+
+      expect(cmd.binary).toBe('copilot');
+      expect(cmd.args).toContain('-p');
+      expect(cmd.args).toContain('--allow-all-tools');
+      const pIndex = cmd.args.indexOf('-p');
+      expect(cmd.args[pIndex + 1]).toContain('Write a unit test');
+    });
+  });
+
+  describe('listModels() / supportsSteer() / parseOutput()', () => {
+    it('returns the curated Copilot model list including claude-sonnet-4.5', async () => {
       const models = await adapter.listModels();
-      // Static list contains claude-sonnet-4.5 etc.
+      expect(models.length).toBeGreaterThan(0);
       expect(models.some((m) => m.id === 'claude-sonnet-4.5')).toBe(true);
     });
 
-    it('delegates to client.listModels() once the client is initialized', async () => {
-      // Run a full runSdk() to force ensureClient() to wire the singleton.
-      const handle = await adapter.runSdk({
-        task: 'warm up the client',
-        workingDirectory: '/proj',
-      });
-      handle.onOutput(() => {
-        /* drain */
-      });
-      currentSession?.emit('session.idle', {});
-      await handle.done;
+    it('reports supportsSteer() false', () => {
+      expect(adapter.supportsSteer()).toBe(false);
+    });
 
-      const models = await adapter.listModels();
-      expect(currentClient?.listModels).toHaveBeenCalled();
-      expect(models).toEqual([
-        { id: 'dynamic-model-1', name: 'Dynamic Model 1' },
-      ]);
+    it('strips ANSI escape codes via parseOutput()', () => {
+      expect(adapter.parseOutput('\x1b[31mred\x1b[0m text')).toBe('red text');
     });
   });
 
-  describe('runSdk() — session wiring', () => {
+  describe('runSdk() — binary missing', () => {
+    it('returns a done=1 handle immediately when copilot binary cannot be resolved', async () => {
+      mockResolveCliPath.mockResolvedValue(null);
+
+      const handle = await adapter.runSdk({
+        task: 'anything',
+        workingDirectory: '/proj',
+      });
+      const output: string[] = [];
+      handle.onOutput((d) => output.push(d));
+
+      const code = await handle.done;
+      expect(code).toBe(1);
+      expect(output.join('')).toContain('copilot');
+      expect(mockSpawnCli).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('runSdk() — spawn and streaming', () => {
     const defaultOptions = {
       task: 'Implement feature X',
       workingDirectory: '/proj',
     };
 
-    it('uses useLoggedInUser when no VS Code GitHub session is available (auth-required negative path)', async () => {
-      mockGetSession.mockResolvedValue(null);
+    beforeEach(() => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/copilot');
+    });
 
+    it('spawns copilot with --output-format json and -s flags', async () => {
       const handle = await adapter.runSdk(defaultOptions);
-      handle.onOutput(() => {
-        /* drain */
-      });
+      handle.onOutput(() => {});
 
-      expect(copilotClientConstructor).toHaveBeenCalledTimes(1);
-      expect(capturedClientOptions?.['useLoggedInUser']).toBe(true);
-      expect(capturedClientOptions?.['githubToken']).toBeUndefined();
-      expect(currentClient?.start).toHaveBeenCalled();
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+      const [binaryArg, argsArg] = mockSpawnCli.mock.calls[0] as [
+        string,
+        string[],
+        Record<string, unknown>,
+      ];
+      expect(binaryArg).toBe('/usr/local/bin/copilot');
+      expect(argsArg).toContain('--output-format');
+      expect(argsArg).toContain('json');
+      expect(argsArg).toContain('--allow-all-tools');
+      expect(argsArg).toContain('-s');
 
-      // Resolve done via idle.
-      currentSession?.emit('session.idle', {});
+      currentChild?.emitClose(0);
       const code = await handle.done;
       expect(code).toBe(0);
     });
 
-    it('passes a GitHub token when a VS Code session exists', async () => {
-      mockGetSession.mockResolvedValue({ accessToken: 'gh-token-abc' });
-
-      const handle = await adapter.runSdk(defaultOptions);
-      handle.onOutput(() => {
-        /* drain */
-      });
-
-      expect(capturedClientOptions?.['githubToken']).toBe('gh-token-abc');
-      expect(capturedClientOptions?.['useLoggedInUser']).toBeUndefined();
-
-      currentSession?.emit('session.idle', {});
-      await handle.done;
-    });
-
-    it('resolves Windows .cmd binaryPath via resolveWindowsCmd before passing to the SDK', async () => {
-      const cmdPath = 'C:\\Users\\dev\\AppData\\Roaming\\npm\\copilot.cmd';
-      mockResolveWindowsCmd.mockResolvedValue(
-        'C:\\real\\path\\copilot\\bin\\copilot.js',
-      );
-
+    it('passes binaryPath directly to spawnCli when provided', async () => {
       const handle = await adapter.runSdk({
         ...defaultOptions,
-        binaryPath: cmdPath,
+        binaryPath: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\copilot.cmd',
       });
-      handle.onOutput(() => {
-        /* drain */
-      });
+      handle.onOutput(() => {});
 
-      expect(mockResolveWindowsCmd).toHaveBeenCalledWith(cmdPath);
-      expect(capturedClientOptions?.['cliPath']).toBe(
-        'C:\\real\\path\\copilot\\bin\\copilot.js',
+      const [binaryArg] = mockSpawnCli.mock.calls[0] as [
+        string,
+        string[],
+        Record<string, unknown>,
+      ];
+      expect(binaryArg).toBe(
+        'C:\\Users\\dev\\AppData\\Roaming\\npm\\copilot.cmd',
       );
 
-      currentSession?.emit('session.idle', {});
+      currentChild?.emitClose(0);
       await handle.done;
     });
 
-    it('streams assistant.message_delta events as text output + text segments', async () => {
+    it('requests needsConsole:true for ConPTY compatibility', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+
+      const [, , opts] = mockSpawnCli.mock.calls[0] as [
+        string,
+        string[],
+        { needsConsole?: boolean },
+      ];
+      expect(opts.needsConsole).toBe(true);
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('appends --resume=<id> when resumeSessionId is provided', async () => {
+      const handle = await adapter.runSdk({
+        ...defaultOptions,
+        resumeSessionId: 'sess-prev-123',
+      });
+      handle.onOutput(() => {});
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg.some((a) => a.startsWith('--resume='))).toBe(true);
+      expect(argsArg.find((a) => a.startsWith('--resume='))).toBe(
+        '--resume=sess-prev-123',
+      );
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('appends --model when model option is provided', async () => {
+      const handle = await adapter.runSdk({
+        ...defaultOptions,
+        model: 'claude-sonnet-4.5',
+      });
+      handle.onOutput(() => {});
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      const modelIdx = argsArg.indexOf('--model');
+      expect(modelIdx).toBeGreaterThanOrEqual(0);
+      expect(argsArg[modelIdx + 1]).toBe('claude-sonnet-4.5');
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('appends --additional-mcp-config when mcpPort is provided', async () => {
+      const handle = await adapter.runSdk({
+        ...defaultOptions,
+        mcpPort: 51820,
+      });
+      handle.onOutput(() => {});
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      const idx = argsArg.indexOf('--additional-mcp-config');
+      expect(idx).toBeGreaterThanOrEqual(0);
+      const mcpJson = argsArg[idx + 1];
+      expect(mcpJson).toContain('51820');
+      expect(mcpJson).toContain('ptah');
+
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('streams assistant.message_delta events as text output and segments', async () => {
       const handle = await adapter.runSdk(defaultOptions);
 
       const output: string[] = [];
       const segments: Array<{ type: string; content: string }> = [];
-      handle.onOutput((data) => output.push(data));
+      handle.onOutput((d) => output.push(d));
       handle.onSegment?.((seg) =>
         segments.push({ type: seg.type, content: seg.content }),
       );
 
-      currentSession?.emit('assistant.message_delta', {
-        deltaContent: 'Hello ',
-      });
-      currentSession?.emit('assistant.message_delta', {
-        deltaContent: 'world',
-      });
-      // Full assistant.message after deltas should be skipped.
-      currentSession?.emit('assistant.message', {
-        content: 'Hello world',
-      });
-      currentSession?.emit('session.idle', {});
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message_delta',
+          data: { deltaContent: 'Hello ' },
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message_delta',
+          data: { deltaContent: 'world' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
 
       const code = await handle.done;
       expect(code).toBe(0);
       expect(output.join('')).toContain('Hello ');
       expect(output.join('')).toContain('world');
-      // Check we got two delta segments but no duplicate full-message segment.
       const textSegs = segments.filter((s) => s.type === 'text');
       expect(textSegs.map((s) => s.content)).toEqual(['Hello ', 'world']);
     });
 
-    it('maps tool.execution_start/complete into tool-call + tool-result segments', async () => {
+    it('skips assistant.message full content when deltas were already received', async () => {
       const handle = await adapter.runSdk(defaultOptions);
 
-      const segments: Array<{
-        type: string;
-        toolName?: string;
-        content: string;
-      }> = [];
-      handle.onOutput(() => {
-        /* drain */
-      });
-      handle.onSegment?.((seg) =>
-        segments.push({
-          type: seg.type,
-          toolName: seg.toolName,
-          content: seg.content,
-        }),
+      const output: string[] = [];
+      handle.onOutput((d) => output.push(d));
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message_delta',
+          data: { deltaContent: 'partial' },
+        }) + '\n',
       );
-
-      currentSession?.emit('tool.execution_start', {
-        toolName: 'read_file',
-        arguments: { path: 'src/app.ts' },
-        toolCallId: 'tc-1',
-      });
-      currentSession?.emit('tool.execution_complete', {
-        success: true,
-        toolCallId: 'tc-1',
-        result: { content: 'file contents here' },
-      });
-      currentSession?.emit('session.idle', {});
-
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message',
+          data: { content: 'full duplicate content' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
       await handle.done;
 
+      expect(output.join('')).not.toContain('full duplicate content');
+    });
+
+    it('emits assistant.message full content when no deltas were received', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const output: string[] = [];
+      handle.onOutput((d) => output.push(d));
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message',
+          data: { content: 'full non-delta content' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(output.join('')).toContain('full non-delta content');
+    });
+
+    it('emits thinking segments for assistant.reasoning_delta events', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const segments: Array<{ type: string; content: string }> = [];
+      handle.onOutput(() => {});
+      handle.onSegment?.((seg) =>
+        segments.push({ type: seg.type, content: seg.content }),
+      );
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.reasoning_delta',
+          data: { deltaContent: 'thinking...' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(
+        segments.some(
+          (s) => s.type === 'thinking' && s.content === 'thinking...',
+        ),
+      ).toBe(true);
+    });
+
+    it('maps tool.execution_start into a tool-call segment', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const output: string[] = [];
+      const segments: Array<{ type: string; toolName?: string }> = [];
+      handle.onOutput((d) => output.push(d));
+      handle.onSegment?.((seg) =>
+        segments.push({ type: seg.type, toolName: seg.toolName }),
+      );
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'tool.execution_start',
+          data: {
+            toolName: 'read_file',
+            arguments: { path: 'src/app.ts' },
+            toolCallId: 'tc-1',
+          },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(output.join('')).toContain('**Tool:** `read_file`');
       expect(
         segments.some(
           (s) => s.type === 'tool-call' && s.toolName === 'read_file',
         ),
       ).toBe(true);
+    });
+
+    it('maps successful tool.execution_complete into a tool-result segment', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const segments: Array<{ type: string; content: string }> = [];
+      handle.onOutput(() => {});
+      handle.onSegment?.((seg) =>
+        segments.push({ type: seg.type, content: seg.content }),
+      );
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'tool.execution_start',
+          data: {
+            toolName: 'read_file',
+            arguments: { path: 'src/app.ts' },
+            toolCallId: 'tc-1',
+          },
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'tool.execution_complete',
+          data: {
+            success: true,
+            toolCallId: 'tc-1',
+            result: { content: 'file contents here' },
+          },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
       expect(
         segments.some(
           (s) =>
@@ -401,28 +477,69 @@ describe.skip('CopilotSdkAdapter', () => {
       ).toBe(true);
     });
 
-    it('maps tool.execution_complete errors to tool-result-error segments', async () => {
+    it('maps shell tool.execution_complete into a command segment', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const segments: Array<{ type: string }> = [];
+      handle.onOutput(() => {});
+      handle.onSegment?.((seg) => segments.push({ type: seg.type }));
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'tool.execution_start',
+          data: {
+            toolName: 'run_shell_command',
+            arguments: { command: 'ls -la' },
+            toolCallId: 'tc-shell',
+          },
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'tool.execution_complete',
+          data: {
+            success: true,
+            toolCallId: 'tc-shell',
+            result: { content: 'file1.ts\nfile2.ts' },
+          },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(segments.some((s) => s.type === 'command')).toBe(true);
+    });
+
+    it('maps failed tool.execution_complete into a tool-result-error segment', async () => {
       const handle = await adapter.runSdk(defaultOptions);
 
       const segments: Array<{ type: string; content: string }> = [];
-      handle.onOutput(() => {
-        /* drain */
-      });
+      handle.onOutput(() => {});
       handle.onSegment?.((seg) =>
         segments.push({ type: seg.type, content: seg.content }),
       );
 
-      currentSession?.emit('tool.execution_start', {
-        toolName: 'write_file',
-        arguments: { path: '/readonly/file' },
-        toolCallId: 'tc-err',
-      });
-      currentSession?.emit('tool.execution_complete', {
-        success: false,
-        toolCallId: 'tc-err',
-        error: { message: 'EACCES: permission denied' },
-      });
-      currentSession?.emit('session.idle', {});
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'tool.execution_start',
+          data: {
+            toolName: 'write_file',
+            arguments: { path: '/readonly/file' },
+            toolCallId: 'tc-err',
+          },
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'tool.execution_complete',
+          data: {
+            success: false,
+            toolCallId: 'tc-err',
+            error: { message: 'EACCES: permission denied' },
+          },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
       await handle.done;
 
       expect(
@@ -434,126 +551,180 @@ describe.skip('CopilotSdkAdapter', () => {
       ).toBe(true);
     });
 
-    it('resolves done with 1 when session.error fires', async () => {
+    it('emits an error segment for session.error events', async () => {
       const handle = await adapter.runSdk(defaultOptions);
 
       const output: string[] = [];
-      handle.onOutput((data) => output.push(data));
+      handle.onOutput((d) => output.push(d));
 
-      currentSession?.emit('session.error', {
-        message: 'upstream Copilot API failure',
-      });
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'session.error',
+          data: { message: 'upstream Copilot API failure' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(1);
 
       const code = await handle.done;
       expect(code).toBe(1);
       expect(output.join('')).toContain('upstream Copilot API failure');
     });
 
-    it('aborts the session and resolves done with 1 when AbortController fires', async () => {
+    it('emits usage info from assistant.usage events', async () => {
       const handle = await adapter.runSdk(defaultOptions);
-      handle.onOutput(() => {
-        /* drain */
-      });
+
+      const output: string[] = [];
+      handle.onOutput((d) => output.push(d));
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.usage',
+          data: {
+            model: 'claude-sonnet-4.5',
+            inputTokens: 1000,
+            outputTokens: 500,
+            cost: 0.0025,
+          },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const joined = output.join('');
+      expect(joined).toContain('Usage:');
+      expect(joined).toContain('claude-sonnet-4.5');
+    });
+
+    it('captures sessionId from result event', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-abc',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(handle.getSessionId?.()).toBe('copilot-sess-abc');
+    });
+
+    it('tolerates malformed JSON by emitting non-brace lines as raw text', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const output: string[] = [];
+      handle.onOutput((d) => output.push(d));
+
+      currentChild?.stdout.write('plain fallback line\n');
+      currentChild?.stdout.write('{bogus json line\n');
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(output.join('')).toContain('plain fallback line');
+      expect(output.join('')).not.toContain('{bogus json line');
+    });
+
+    it('propagates AbortSignal by sending SIGTERM to the child process', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
 
       handle.abort.abort();
 
-      expect(currentSession?.abort).toHaveBeenCalled();
-      expect(currentSession?.destroy).toHaveBeenCalled();
+      expect(currentChild?.kill).toHaveBeenCalledWith('SIGTERM');
 
+      currentChild?.emitClose(null, 'SIGTERM');
       const code = await handle.done;
       expect(code).toBe(1);
       expect(handle.abort.signal.aborted).toBe(true);
     });
 
-    it('returns a failed handle (done=1) when createSession throws', async () => {
-      // Override the client factory to throw on createSession.
-      copilotClientConstructor.mockImplementationOnce(
-        (options?: Record<string, unknown>) => {
-          capturedClientOptions = options ?? null;
-          return {
-            start: jest.fn(async () => {
-              /* noop */
-            }),
-            stop: jest.fn(async () => [] as Error[]),
-            forceStop: jest.fn(async () => {
-              /* noop */
-            }),
-            createSession: jest.fn(async () => {
-              throw new Error('account not entitled');
-            }),
-            resumeSession: jest.fn(),
-            listModels: jest.fn(async () => []),
-            getState: jest.fn(() => 'error'),
-          };
-        },
-      );
-
+    it('resolves done with 1 and emits error output on spawn-level error', async () => {
       const handle = await adapter.runSdk(defaultOptions);
 
       const output: string[] = [];
-      handle.onOutput((data) => output.push(data));
-      // In the failure branch, the adapter may push buffered output when
-      // onOutput is registered. Give the buffer a tick to flush.
-      await new Promise((r) => setImmediate(r));
+      handle.onOutput((d) => output.push(d));
+
+      const spawnError = Object.assign(new Error('spawn ENOENT'), {
+        code: 'ENOENT',
+      });
+      currentChild?.emitError(spawnError);
 
       const code = await handle.done;
       expect(code).toBe(1);
-      expect(output.join('')).toContain('account not entitled');
+      expect(output.join('')).toContain('[Copilot CLI Error]');
+      expect(output.join('')).toContain('spawn ENOENT');
     });
 
-    it('uses resumeSession when resumeSessionId is provided', async () => {
-      const handle = await adapter.runSdk({
-        ...defaultOptions,
-        resumeSessionId: 'prev-session-123',
-      });
-      handle.onOutput(() => {
-        /* drain */
-      });
-
-      expect(currentClient?.resumeSession).toHaveBeenCalledWith(
-        'prev-session-123',
-        expect.any(Object),
-      );
-      expect(currentClient?.createSession).not.toHaveBeenCalled();
-
-      currentSession?.emit('session.idle', {});
-      await handle.done;
-    });
-
-    it('updates the agentId used for permission routing via setAgentId()', async () => {
+    it('resolves done with non-zero exit code when the CLI exits non-zero', async () => {
       const handle = await adapter.runSdk(defaultOptions);
-      handle.onOutput(() => {
-        /* drain */
-      });
+      handle.onOutput(() => {});
 
-      expect(typeof handle.setAgentId).toBe('function');
-      // Just smoke-test that calling it is safe and returns nothing.
-      expect(handle.setAgentId?.('real-agent-id')).toBeUndefined();
+      currentChild?.emitClose(2);
+      const code = await handle.done;
+      expect(code).toBe(2);
+    });
 
-      currentSession?.emit('session.idle', {});
+    it('filters Windows ConPTY noise and stack frames from stderr', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const segments: Array<{ type: string; content: string }> = [];
+      handle.onOutput(() => {});
+      handle.onSegment?.((seg) =>
+        segments.push({ type: seg.type, content: seg.content }),
+      );
+
+      currentChild?.stderr.write('conpty_console_list_agent.js failed\n');
+      currentChild?.stderr.write(
+        '    at Object.spawn (node_modules/blah.js:1)\n',
+      );
+      currentChild?.stderr.write(
+        '    at file:///C:/Users/dev/node_modules/x.js:5\n',
+      );
+      currentChild?.stderr.write('actual error: quota exceeded\n');
+      currentChild?.emitClose(1);
       await handle.done;
+
+      const contents = segments.map((s) => s.content);
+      expect(
+        contents.some((c) => c.includes('conpty_console_list_agent')),
+      ).toBe(false);
+      expect(contents.some((c) => c.includes('node_modules'))).toBe(false);
+      expect(contents.some((c) => c.includes('quota exceeded'))).toBe(true);
+    });
+
+    it('emits session.compaction_start and session.compaction_complete as info', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const output: string[] = [];
+      handle.onOutput((d) => output.push(d));
+
+      currentChild?.stdout.write(
+        JSON.stringify({ type: 'session.compaction_start', data: {} }) + '\n',
+      );
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'session.compaction_complete',
+          data: { tokensBefore: 5000, tokensAfter: 1200 },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const joined = output.join('');
+      expect(joined).toContain('compaction');
+      expect(joined).toContain('5000');
+      expect(joined).toContain('1200');
     });
   });
 
   describe('dispose()', () => {
-    it('stops the singleton client and cleans up the permission bridge', async () => {
-      // Warm the client via a runSdk() round-trip.
-      const handle = await adapter.runSdk({
-        task: 'warm client',
-        workingDirectory: '/proj',
-      });
-      handle.onOutput(() => {
-        /* drain */
-      });
-      currentSession?.emit('session.idle', {});
-      await handle.done;
-
+    it('calls permissionBridge.cleanup()', async () => {
       const cleanupSpy = jest.spyOn(bridge, 'cleanup');
-      const stopSpy = currentClient?.stop;
       await adapter.dispose();
-
       expect(cleanupSpy).toHaveBeenCalled();
-      expect(stopSpy).toHaveBeenCalled();
     });
   });
 });

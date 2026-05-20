@@ -5,6 +5,15 @@ echo "🚀 Running pre-push checks..."
 # Get the current branch
 current_branch=$(git rev-parse --abbrev-ref HEAD)
 
+# DI invariant check — runs on every push regardless of branch (fast, ~2s).
+# Asserts every @inject(token) resolves to a register*(token, ...) call.
+echo "🔗 Running di-lint (DI invariant check)..."
+npx nx run di-lint:lint
+if [ $? -ne 0 ]; then
+  echo "❌ di-lint failed — an @inject token has no matching registration."
+  exit 1
+fi
+
 # Only run full checks if pushing to main or develop
 if [ "$current_branch" = "main" ] || [ "$current_branch" = "develop" ]; then
 
