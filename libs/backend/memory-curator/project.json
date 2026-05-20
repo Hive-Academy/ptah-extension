@@ -1,5 +1,5 @@
 {
-  "name": "memory-curator",
+  "name": "@ptah-extension/memory-curator",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/memory-curator/src",

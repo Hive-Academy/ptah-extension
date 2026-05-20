@@ -1,5 +1,5 @@
 {
-  "name": "cron-scheduler",
+  "name": "@ptah-extension/cron-scheduler",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/cron-scheduler/src",
