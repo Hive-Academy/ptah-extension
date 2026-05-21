@@ -50,6 +50,14 @@ export {
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
 export {
+  SessionEndCallbackRegistry,
+  type SessionEndCallback,
+  type SessionEndPayload,
+  SessionActivityRegistry,
+  type SessionActivityCallback,
+  type SessionActivityPayload,
+} from './lib/helpers';
+export {
   CompactionHookHandler,
   type CompactionStartCallback,
 } from './lib/helpers';

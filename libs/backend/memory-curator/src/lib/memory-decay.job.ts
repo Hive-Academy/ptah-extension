@@ -20,8 +20,18 @@ export interface DecayJobOptions {
   readonly nowMs?: number;
 }
 
+export interface DecayRunStats {
+  readonly scanned: number;
+  readonly demoted: number;
+  readonly archived: number;
+  readonly expired: number;
+}
+
 @injectable()
 export class MemoryDecayJob {
+  private lastDecayAt: number | null = null;
+  private lastDecayStats: DecayRunStats | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
@@ -29,12 +39,14 @@ export class MemoryDecayJob {
     private readonly scorer: SalienceScorer,
   ) {}
 
-  async run(options: DecayJobOptions): Promise<{
-    scanned: number;
-    demoted: number;
-    archived: number;
-    expired: number;
-  }> {
+  lastDecayInfo(): {
+    readonly at: number | null;
+    readonly stats: DecayRunStats | null;
+  } {
+    return { at: this.lastDecayAt, stats: this.lastDecayStats };
+  }
+
+  async run(options: DecayJobOptions): Promise<DecayRunStats> {
     const now = options.nowMs ?? Date.now();
     const halflifeMs = Math.max(1, options.halflifeDays) * MS_PER_DAY;
     let demoted = 0;
@@ -79,6 +91,14 @@ export class MemoryDecayJob {
       archived,
       expired,
     });
-    return { scanned: memories.length, demoted, archived, expired };
+    const stats: DecayRunStats = {
+      scanned: memories.length,
+      demoted,
+      archived,
+      expired,
+    };
+    this.lastDecayAt = Date.now();
+    this.lastDecayStats = stats;
+    return stats;
   }
 }

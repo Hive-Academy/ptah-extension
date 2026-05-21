@@ -27,7 +27,22 @@ export { MemorySearchService } from './lib/memory-search.service';
 export { SalienceScorer } from './lib/salience-scorer';
 export type { ScoreInputs } from './lib/salience-scorer';
 export { MemoryDecayJob } from './lib/memory-decay.job';
-export type { DecayJobOptions } from './lib/memory-decay.job';
+export type { DecayJobOptions, DecayRunStats } from './lib/memory-decay.job';
+export { MemoryTriggerService } from './lib/triggers/memory-trigger.service';
+export { BootScanRunner } from './lib/triggers/boot-scan-runner';
+export type {
+  BootScanPipeline,
+  BootScanResult,
+  BootScanRunnerOptions,
+} from './lib/triggers/boot-scan-runner';
+export { MemoryDiagnosticsService } from './lib/diagnostics.service';
+export type {
+  MemoryCuratorEvent,
+  MemoryCuratorEventKind,
+  MemoryDbHealth,
+  MemoryDecayStats,
+  MemoryDiagnosticsSnapshot,
+} from './lib/diagnostics.types';
 export { MemoryCuratorService } from './lib/memory-curator.service';
 export type { CuratorRunStats } from './lib/memory-curator.service';
 export type {
