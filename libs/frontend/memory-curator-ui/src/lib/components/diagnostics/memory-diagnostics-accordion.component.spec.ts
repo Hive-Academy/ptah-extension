@@ -284,4 +284,125 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     );
     expect(hint).toBeNull();
   });
+
+  it('toggling PostToolUse persists nested DTO via setTriggers', () => {
+    triggers.set({
+      preCompact: true,
+      idleMs: 600_000,
+      turnThreshold: 20,
+      bootScan: true,
+      postToolUse: { enabled: false },
+    });
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const allToggles = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      'ptah-memory-trigger-toggle',
+    );
+    const postToolUseRow = Array.from(allToggles).find((el) =>
+      (el.textContent ?? '').includes('PostToolUse'),
+    );
+    if (!postToolUseRow) throw new Error('PostToolUse row not found');
+    const checkbox = postToolUseRow.querySelector(
+      'input[type="checkbox"]',
+    ) as HTMLInputElement;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change'));
+    expect(setTriggersMock).toHaveBeenCalledWith({
+      postToolUse: { enabled: true },
+    });
+  });
+
+  it('toggling UserPromptSubmit persists nested DTO with cue list preserved', () => {
+    triggers.set({
+      preCompact: true,
+      idleMs: 600_000,
+      turnThreshold: 20,
+      bootScan: true,
+      userPromptSubmit: {
+        enabled: false,
+        cueList: ['remember', 'note that'],
+        minPromptLength: 0,
+      },
+    });
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const allToggles = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      'ptah-memory-trigger-toggle',
+    );
+    const cuesRow = Array.from(allToggles).find((el) =>
+      (el.textContent ?? '').includes('UserPromptSubmit cues'),
+    );
+    if (!cuesRow) throw new Error('UserPromptSubmit cues row not found');
+    const checkbox = cuesRow.querySelector(
+      'input[type="checkbox"]',
+    ) as HTMLInputElement;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change'));
+    expect(setTriggersMock).toHaveBeenCalledWith({
+      userPromptSubmit: {
+        enabled: true,
+        cueList: ['remember', 'note that'],
+        minPromptLength: 0,
+      },
+    });
+  });
+
+  it('changing Max curates per hour value persists via setTriggers', () => {
+    triggers.set({
+      preCompact: true,
+      idleMs: 600_000,
+      turnThreshold: 20,
+      bootScan: true,
+      maxCuratesPerHour: 60,
+    });
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const allToggles = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      'ptah-memory-trigger-toggle',
+    );
+    const maxRow = Array.from(allToggles).find((el) =>
+      (el.textContent ?? '').includes('Max curates per hour'),
+    );
+    if (!maxRow) throw new Error('Max curates per hour row not found');
+    const number = maxRow.querySelector(
+      'input[type="number"]',
+    ) as HTMLInputElement;
+    number.value = '120';
+    number.dispatchEvent(new Event('change'));
+    expect(setTriggersMock).toHaveBeenCalledWith({ maxCuratesPerHour: 120 });
+  });
+
+  it('renders read-only cue list textarea joined by newlines', () => {
+    triggers.set({
+      preCompact: true,
+      idleMs: 600_000,
+      turnThreshold: 20,
+      bootScan: true,
+      userPromptSubmit: {
+        enabled: true,
+        cueList: ['remember', 'note that', 'fyi'],
+        minPromptLength: 0,
+      },
+    });
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const textarea = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="memory-cue-list"]',
+    ) as HTMLTextAreaElement;
+    expect(textarea).not.toBeNull();
+    expect(textarea.readOnly).toBe(true);
+    expect(textarea.value).toBe('remember\nnote that\nfyi');
+  });
 });

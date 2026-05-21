@@ -49,4 +49,54 @@ describe('SkillEventFeedComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('boom');
   });
+
+  it('renders subagent-stop with subagent identifier', () => {
+    TestBed.configureTestingModule({ imports: [HostComponent] });
+    const fixture = TestBed.createComponent(HostComponent);
+    fixture.componentInstance.events.set([
+      {
+        kind: 'subagent-stop',
+        timestamp: Date.now(),
+        stats: { subagent: 'frontend-developer' },
+      },
+    ]);
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent ?? '';
+    expect(text).toContain('subagent-stop');
+    expect(text).toContain('subagent=frontend-developer');
+  });
+
+  it('renders edit-then-test with edit count', () => {
+    TestBed.configureTestingModule({ imports: [HostComponent] });
+    const fixture = TestBed.createComponent(HostComponent);
+    fixture.componentInstance.events.set([
+      {
+        kind: 'edit-then-test',
+        timestamp: Date.now(),
+        stats: { editCount: 5 },
+      },
+    ]);
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent ?? '';
+    expect(text).toContain('edit-then-test');
+    expect(text).toContain('edits=5');
+  });
+
+  it('renders rate-limited with reset time', () => {
+    const resetAt = new Date('2026-05-21T14:30:00Z').getTime();
+    TestBed.configureTestingModule({ imports: [HostComponent] });
+    const fixture = TestBed.createComponent(HostComponent);
+    fixture.componentInstance.events.set([
+      {
+        kind: 'rate-limited',
+        timestamp: Date.now(),
+        stats: { limit: 60, resetAt },
+      },
+    ]);
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent ?? '';
+    expect(text).toContain('rate-limited');
+    expect(text).toContain('Limit 60/hour reached');
+    expect(text).toMatch(/resets at \d{1,2}:\d{2}/);
+  });
 });

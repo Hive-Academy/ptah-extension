@@ -56,7 +56,7 @@ export class SkillEventFeedComponent {
       timestamp: new Date(ev.timestamp).toISOString(),
       relative: this.formatRelative(now - ev.timestamp),
       sessionId: ev.sessionId ?? null,
-      outcome: ev.error ?? this.summarizeStats(ev.stats) ?? '—',
+      outcome: this.outcomeFor(ev),
     }));
   });
 
@@ -70,9 +70,47 @@ export class SkillEventFeedComponent {
         return 'badge-error';
       case 'curator-pass':
         return 'badge-info';
+      case 'subagent-stop':
+        return 'badge-info';
+      case 'edit-then-test':
+        return 'badge-success';
+      case 'rate-limited':
+        return 'badge-warning';
       default:
         return 'badge-ghost';
     }
+  }
+
+  private outcomeFor(ev: SkillSynthesisEventWire): string {
+    if (ev.error) return ev.error;
+    if (ev.kind === 'rate-limited') return this.formatRateLimited(ev.stats);
+    if (ev.kind === 'subagent-stop') {
+      const subagent = ev.stats?.['subagent'];
+      if (typeof subagent === 'string' && subagent.length > 0)
+        return `subagent=${subagent}`;
+    }
+    if (ev.kind === 'edit-then-test') {
+      const edits = ev.stats?.['editCount'];
+      if (typeof edits === 'number') return `edits=${edits}, tests passed`;
+    }
+    return this.summarizeStats(ev.stats) ?? '—';
+  }
+
+  private formatRateLimited(stats: SkillSynthesisEventWire['stats']): string {
+    const limit = stats?.['limit'];
+    const resetAt = stats?.['resetAt'];
+    const limitText =
+      typeof limit === 'number'
+        ? `Limit ${limit}/hour reached`
+        : 'Rate limit reached';
+    if (typeof resetAt === 'number' && Number.isFinite(resetAt)) {
+      const time = new Date(resetAt).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      return `${limitText}, resets at ${time}`;
+    }
+    return limitText;
   }
 
   private formatRelative(diffMs: number): string {
