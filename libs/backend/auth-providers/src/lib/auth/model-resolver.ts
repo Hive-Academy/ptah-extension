@@ -25,6 +25,13 @@ import {
 
 @injectable()
 export class ModelResolver {
+  /**
+   * Tracks which third-party model IDs have already produced a "no tier
+   * override" debug log so we don't spam the channel during history scans
+   * that process hundreds of messages.
+   */
+  private readonly unmappedThirdPartyModelsLogged = new Set<string>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
@@ -148,9 +155,13 @@ export class ModelResolver {
     }
     const resolved = this.resolve(modelId, env);
 
-    if (resolved === modelId) {
+    if (
+      resolved === modelId &&
+      !this.unmappedThirdPartyModelsLogged.has(modelId)
+    ) {
+      this.unmappedThirdPartyModelsLogged.add(modelId);
       this.logger.debug(
-        `[ModelResolver] resolveForPricing: no tier override for '${modelId}' on third-party provider â€” pricing map will use fallback`,
+        `[ModelResolver] resolveForPricing: no tier override for '${modelId}' on third-party provider — relying on pricing map (logged once per model).`,
       );
     }
 

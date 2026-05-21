@@ -282,17 +282,26 @@ export class AppShellComponent {
           if (!rpcResult.isSuccess() || !rpcResult.data) return;
           if (this.currentView() !== 'chat') return;
           const data = rpcResult.data;
+          const activeProvider = data.availableProviders?.find(
+            (p) => p.id === data.anthropicProviderId,
+          );
+          const providerNeedsNoKey =
+            activeProvider?.isLocal === true ||
+            activeProvider?.authType === 'none' ||
+            activeProvider?.supportsOptionalApiKey === true;
           const hasAnyAuth =
             data.hasApiKey ||
             data.hasOpenRouterKey ||
             data.hasAnyProviderKey ||
-            data.copilotAuthenticated;
+            data.copilotAuthenticated ||
+            data.codexAuthenticated ||
+            data.claudeCliInstalled ||
+            providerNeedsNoKey;
           if (!hasAnyAuth) {
             this.appState.setCurrentView('settings');
           }
         })
-        .catch(() => {
-        });
+        .catch(() => {});
     });
   }
 
