@@ -48,6 +48,8 @@ import {
   SubagentStopCallbackRegistry,
   PostToolUseCallbackRegistry,
   PostToolUseHookHandler,
+  UserPromptSubmitCallbackRegistry,
+  UserPromptSubmitHookHandler,
   LiveUsageTracker,
   WorktreeHookHandler,
   SlashCommandInterceptor,
@@ -182,6 +184,18 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER,
     { useClass: PostToolUseHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY,
+    { useClass: UserPromptSubmitCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER,
+    { useClass: UserPromptSubmitHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 

@@ -63,6 +63,12 @@ export {
   type PostToolUsePayload,
 } from './post-tool-use-callback-registry';
 export { PostToolUseHookHandler } from './post-tool-use-hook-handler';
+export {
+  UserPromptSubmitCallbackRegistry,
+  type UserPromptSubmitCallback,
+  type UserPromptSubmitPayload,
+} from './user-prompt-submit-callback-registry';
+export { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 export { LiveUsageTracker } from './live-usage-tracker';
 export {
   WorktreeHookHandler,

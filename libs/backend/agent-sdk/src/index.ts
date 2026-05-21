@@ -63,6 +63,10 @@ export {
   type PostToolUseCallback,
   type PostToolUsePayload,
   PostToolUseHookHandler,
+  UserPromptSubmitCallbackRegistry,
+  type UserPromptSubmitCallback,
+  type UserPromptSubmitPayload,
+  UserPromptSubmitHookHandler,
 } from './lib/helpers';
 export {
   CompactionHookHandler,
