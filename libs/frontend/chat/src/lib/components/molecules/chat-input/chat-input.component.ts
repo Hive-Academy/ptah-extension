@@ -19,6 +19,8 @@ import {
   ImageIcon,
   Paperclip,
   ImagePlus,
+  Database,
+  Sparkles,
   File as FileIcon,
   Folder as FolderIcon,
 } from 'lucide-angular';
@@ -35,7 +37,9 @@ import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
+  VSCodeService,
 } from '@ptah-extension/core';
+import { SessionActionsService } from '../../../services/session-actions.service';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
 import {
@@ -200,6 +204,28 @@ interface PastedImage {
             >
               <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
             </button>
+            @if (isElectron()) {
+              <button
+                class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
+                [disabled]="!canRunSessionAction()"
+                (click)="handleSaveToMemory()"
+                title="Save to memory"
+                type="button"
+                data-test="chat-input-save-to-memory"
+              >
+                <lucide-angular [img]="DatabaseIcon" class="w-3.5 h-3.5" />
+              </button>
+              <button
+                class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
+                [disabled]="!canRunSessionAction()"
+                (click)="handleExtractSkill()"
+                title="Extract skill"
+                type="button"
+                data-test="chat-input-extract-skill"
+              >
+                <lucide-angular [img]="SparklesIcon" class="w-3.5 h-3.5" />
+              </button>
+            }
           </div>
           <textarea
             #inputElement
@@ -335,7 +361,17 @@ export class ChatInputComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
   readonly filePicker = inject(FilePickerService);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
+  private readonly vscodeService = inject(VSCodeService);
+  readonly sessionActions = inject(SessionActionsService);
   readonly authMethodLabel = signal<string | null>(null);
+  readonly isElectron = computed<boolean>(
+    () => this.vscodeService.isElectron === true,
+  );
+  readonly canRunSessionAction = computed<boolean>(
+    () =>
+      this.sessionActions.hasActiveSession() &&
+      !this.sessionActions.actionInFlight(),
+  );
 
   /**
    * Use the same streaming indicator as tab spinner.
@@ -389,6 +425,8 @@ export class ChatInputComponent implements OnInit {
   readonly ImageIconRef = ImageIcon;
   readonly PaperclipIcon = Paperclip;
   readonly ImagePlusIcon = ImagePlus;
+  readonly DatabaseIcon = Database;
+  readonly SparklesIcon = Sparkles;
   private _lastSessionId: string | null = null;
   private readonly _currentMessage = signal('');
   private readonly _showSuggestions = signal(false);
@@ -674,6 +712,14 @@ export class ChatInputComponent implements OnInit {
     } finally {
       this._isPickingImages.set(false);
     }
+  }
+
+  async handleSaveToMemory(): Promise<void> {
+    await this.sessionActions.saveToMemory();
+  }
+
+  async handleExtractSkill(): Promise<void> {
+    await this.sessionActions.extractSkill();
   }
 
   /**
