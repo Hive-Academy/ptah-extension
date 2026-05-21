@@ -92,18 +92,15 @@ export class WorkspaceIndexingService implements MessageHandler {
     }
 
     switch (status.state) {
-      case 'never-indexed':
-        return { kind: 'never-indexed' };
-      case 'indexing': {
+      case 'never-indexed': {
         const p = this._progress();
-        return {
-          kind: 'indexing',
-          percent: p?.percent ?? 0,
-          label: p?.currentLabel ?? '',
-          elapsedMs: p?.elapsedMs ?? 0,
-          totalKnown: p?.totalKnown ?? false,
-        };
+        if (p !== null && p.percent < 100) {
+          return this.buildIndexingState(p);
+        }
+        return { kind: 'never-indexed' };
       }
+      case 'indexing':
+        return this.buildIndexingState(this._progress());
       case 'paused': {
         const p = this._progress();
         return { kind: 'paused', percent: p?.percent ?? 0 };
@@ -153,6 +150,16 @@ export class WorkspaceIndexingService implements MessageHandler {
     const payload = message.payload as IndexingProgressEvent | undefined;
     if (!payload) return;
     this._progress.set(payload);
+  }
+
+  private buildIndexingState(p: IndexingProgressEvent | null): IndexingUiState {
+    return {
+      kind: 'indexing',
+      percent: p?.percent ?? 0,
+      label: p?.currentLabel ?? '',
+      elapsedMs: p?.elapsedMs ?? 0,
+      totalKnown: p?.totalKnown ?? false,
+    };
   }
 
   /**
