@@ -1,0 +1,38 @@
+# Normalize all text files to LF in the repository, regardless of the
+# checkout platform. Avoids spurious "modified" entries on Windows when
+# core.autocrlf=true would otherwise rewrite committed-as-LF files.
+* text=auto eol=lf
+
+# Windows-native scripts must keep CRLF or the shell refuses to execute them
+*.bat        text eol=crlf
+*.cmd        text eol=crlf
+*.ps1        text eol=crlf
+
+# Binary assets — never touch line endings
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.gif        binary
+*.ico        binary
+*.webp       binary
+*.svg        text eol=lf
+*.pdf        binary
+*.wasm       binary
+*.zip        binary
+*.gz         binary
+*.tgz        binary
+*.tar        binary
+*.node       binary
+*.exe        binary
+*.dll        binary
+*.so         binary
+*.dylib      binary
+*.vsix       binary
+*.woff       binary
+*.woff2      binary
+*.ttf        binary
+*.eot        binary
+*.otf        binary
+*.mp4        binary
+*.mp3        binary
+*.webm       binary
