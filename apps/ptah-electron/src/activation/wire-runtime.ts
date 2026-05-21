@@ -31,6 +31,7 @@ import {
 import {
   MEMORY_TOKENS,
   type MemoryCuratorService,
+  type MemoryTriggerService,
   type IndexingControlService,
   type IndexingRunDeps,
 } from '@ptah-extension/memory-curator';
@@ -38,6 +39,7 @@ import { IndexingRpcHandlers } from '@ptah-extension/rpc-handlers';
 import {
   SKILL_SYNTHESIS_TOKENS,
   type SkillSynthesisService,
+  type SkillTriggerService,
 } from '@ptah-extension/skill-synthesis';
 import {
   CRON_TOKENS,
@@ -83,11 +85,23 @@ export interface WireRuntimeResult {
      */
     memoryCurator: MemoryCuratorService | null;
     /**
+     * Memory trigger service handle for orderly shutdown. Null when the
+     * parent memory curator did not start or `start()` failed. Must be
+     * stopped BEFORE the memory curator in the LIFO will-quit chain.
+     */
+    memoryTrigger: MemoryTriggerService | null;
+    /**
      * Skill synthesis service handle for orderly shutdown. Null when
      * persistence-sqlite is unavailable or `start()` failed â€” caller still
      * owns the LIFO will-quit chain and must tolerate null.
      */
     skillSynthesis: SkillSynthesisService | null;
+    /**
+     * Skill trigger service handle for orderly shutdown. Null when the
+     * parent skill synthesis did not start or `start()` failed. Must be
+     * stopped BEFORE the skill synthesis in the LIFO will-quit chain.
+     */
+    skillTrigger: SkillTriggerService | null;
     /**
      * Cron scheduler handle for orderly shutdown. Null when
      * persistence-sqlite is unavailable, croner is missing, or `start()`
@@ -124,7 +138,9 @@ export async function wireRuntime(
     gitWatcher: null,
     sqliteConnection: null,
     memoryCurator: null,
+    memoryTrigger: null,
     skillSynthesis: null,
+    skillTrigger: null,
     cronScheduler: null,
     messagingGateway: null,
     symbolWatcher: null,
@@ -251,6 +267,25 @@ export async function wireRuntime(
       refs.memoryCurator = null;
     }
     try {
+      if (
+        refs.memoryCurator !== null &&
+        container.isRegistered(MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE)
+      ) {
+        const memoryTrigger = container.resolve<MemoryTriggerService>(
+          MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE,
+        );
+        memoryTrigger.start();
+        refs.memoryTrigger = memoryTrigger;
+        console.log('[Ptah Electron] Memory trigger service started');
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Memory trigger start skipped (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+      refs.memoryTrigger = null;
+    }
+    try {
       refs.skillSynthesis = container.resolve<SkillSynthesisService>(
         SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
       );
@@ -262,6 +297,25 @@ export async function wireRuntime(
         error instanceof Error ? error.message : String(error),
       );
       refs.skillSynthesis = null;
+    }
+    try {
+      if (
+        refs.skillSynthesis !== null &&
+        container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
+      ) {
+        const skillTrigger = container.resolve<SkillTriggerService>(
+          SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
+        );
+        skillTrigger.start();
+        refs.skillTrigger = skillTrigger;
+        console.log('[Ptah Electron] Skill trigger service started');
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Skill trigger start skipped (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+      refs.skillTrigger = null;
     }
 
     try {
