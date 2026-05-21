@@ -27,6 +27,7 @@ interface StubState {
   loading: ReturnType<typeof signal<boolean>>;
   error: ReturnType<typeof signal<string | null>>;
   sessionsAnalyzedToday: ReturnType<typeof signal<number>>;
+  hasActiveSession: ReturnType<typeof signal<boolean>>;
   refresh: jest.Mock<Promise<void>, []>;
   startPolling: jest.Mock<void, []>;
   stopPolling: jest.Mock<void, []>;
@@ -62,6 +63,7 @@ function makeStub(): StubState {
     loading: signal(false),
     error: signal<string | null>(null),
     sessionsAnalyzedToday: signal(10),
+    hasActiveSession: signal(true),
     refresh: jest.fn(async () => undefined),
     startPolling: jest.fn(),
     stopPolling: jest.fn(),
@@ -149,5 +151,51 @@ describe('SkillDiagnosticsAccordionComponent', () => {
     fixture.detectChanges();
     fixture.destroy();
     expect(stub.stopPolling).toHaveBeenCalledTimes(1);
+  });
+
+  it('Analyze current session button is disabled when no active session', () => {
+    const stub = makeStub();
+    stub.hasActiveSession.set(false);
+    const fixture = createFixture(stub);
+    fixture.detectChanges();
+
+    const btn = fixture.nativeElement.querySelector(
+      '[data-test="analyze-now"]',
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute('title')).toBe(
+      'Open a session to analyze it manually',
+    );
+  });
+
+  it('shows "no active session" hint when hasActiveSession is false', () => {
+    const stub = makeStub();
+    stub.hasActiveSession.set(false);
+    const fixture = createFixture(stub);
+    fixture.detectChanges();
+
+    const hint = fixture.nativeElement.querySelector(
+      '[data-test="no-active-session-hint"]',
+    );
+    expect(hint).not.toBeNull();
+    expect(hint?.textContent ?? '').toContain(
+      'Open a session to analyze it manually',
+    );
+  });
+
+  it('Analyze current session button is enabled when hasActiveSession is true', () => {
+    const stub = makeStub();
+    stub.hasActiveSession.set(true);
+    const fixture = createFixture(stub);
+    fixture.detectChanges();
+
+    const btn = fixture.nativeElement.querySelector(
+      '[data-test="analyze-now"]',
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    const hint = fixture.nativeElement.querySelector(
+      '[data-test="no-active-session-hint"]',
+    );
+    expect(hint).toBeNull();
   });
 });

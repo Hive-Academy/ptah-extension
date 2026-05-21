@@ -147,11 +147,25 @@ import {
             <button
               type="button"
               class="btn btn-sm btn-primary"
-              [disabled]="loading()"
+              [disabled]="loading() || !hasActiveSession()"
+              [title]="
+                !hasActiveSession()
+                  ? 'Open a session to analyze it manually'
+                  : ''
+              "
               (click)="onAnalyzeNow()"
+              data-test="analyze-now"
             >
               Analyze current session
             </button>
+            @if (!hasActiveSession()) {
+              <span
+                class="text-xs text-base-content/60"
+                data-test="no-active-session-hint"
+              >
+                Open a session to analyze it manually
+              </span>
+            }
             <button
               type="button"
               class="btn btn-sm btn-ghost"
@@ -178,6 +192,7 @@ export class SkillDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
   protected readonly sessionsAnalyzedToday = this.state.sessionsAnalyzedToday;
+  protected readonly hasActiveSession = this.state.hasActiveSession;
 
   protected readonly formattedLastRun = computed<string>(() => {
     const ts = this.state.lastAnalyzeRunAt();

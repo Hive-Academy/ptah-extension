@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type { SkillDiagnosticsResult } from '@ptah-extension/shared';
 
 import { SkillDiagnosticsRpcService } from './skill-diagnostics-rpc.service';
@@ -12,6 +13,15 @@ describe('SkillDiagnosticsStateService', () => {
   let analyzeNow: jest.Mock;
   let setTriggers: jest.Mock;
   let getTriggers: jest.Mock;
+
+  const workspaceSignal = signal<{
+    name: string;
+    path: string;
+    type: string;
+  } | null>({ name: 'w', path: '/ws', type: 'workspace' });
+  const activeTabSignal = signal<{ claudeSessionId: string | null } | null>({
+    claudeSessionId: 'sess-real-uuid',
+  });
 
   const snapshot: SkillDiagnosticsResult = {
     lastAnalyzeRunAt: 1234,
@@ -44,6 +54,9 @@ describe('SkillDiagnosticsStateService', () => {
     setTriggers = jest.fn().mockResolvedValue({ triggers: snapshot.triggers });
     getTriggers = jest.fn().mockResolvedValue({ triggers: snapshot.triggers });
 
+    workspaceSignal.set({ name: 'w', path: '/ws', type: 'workspace' });
+    activeTabSignal.set({ claudeSessionId: 'sess-real-uuid' });
+
     TestBed.configureTestingModule({
       providers: [
         SkillDiagnosticsStateService,
@@ -54,12 +67,12 @@ describe('SkillDiagnosticsStateService', () => {
         {
           provide: AppStateManager,
           useValue: {
-            workspaceInfo: signal({
-              name: 'w',
-              path: '/ws',
-              type: 'workspace',
-            }),
+            workspaceInfo: workspaceSignal,
           },
+        },
+        {
+          provide: TabManagerService,
+          useValue: { activeTab: activeTabSignal },
         },
       ],
     });
@@ -91,14 +104,60 @@ describe('SkillDiagnosticsStateService', () => {
     expect(service.loading()).toBe(false);
   });
 
-  it('analyzeNow() dispatches with force=true and refreshes', async () => {
+  it('analyzeNow() passes the real claudeSessionId from TabManager with force=true and refreshes', async () => {
     await service.analyzeNow();
     expect(analyzeNow).toHaveBeenCalledWith({
-      sessionId: 'manual',
+      sessionId: 'sess-real-uuid',
       workspaceRoot: '/ws',
       force: true,
     });
+    // The literal 'manual' must NEVER be sent — Trajectory extractor would
+    // look up ~/.claude/projects/<encoded>/manual.jsonl and always report
+    // tooFewTurns, skewing the eligibility histogram.
+    expect(analyzeNow).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'manual' }),
+    );
     expect(diagnostics).toHaveBeenCalled();
+  });
+
+  it('analyzeNow() no-ops + sets error when there is no active session', async () => {
+    activeTabSignal.set(null);
+
+    await service.analyzeNow();
+
+    expect(analyzeNow).not.toHaveBeenCalled();
+    expect(service.error()).toBe('No active session to analyze.');
+  });
+
+  it('analyzeNow() no-ops + sets error when active tab has a null claudeSessionId', async () => {
+    activeTabSignal.set({ claudeSessionId: null });
+
+    await service.analyzeNow();
+
+    expect(analyzeNow).not.toHaveBeenCalled();
+    expect(service.error()).toBe('No active session to analyze.');
+  });
+
+  it('analyzeNow() blocks when no workspace is open', async () => {
+    workspaceSignal.set(null);
+
+    await service.analyzeNow();
+
+    expect(analyzeNow).not.toHaveBeenCalled();
+    expect(service.error()).toBe('No active workspace');
+  });
+
+  it('hasActiveSession reflects TabManager.activeTab().claudeSessionId presence', () => {
+    expect(service.hasActiveSession()).toBe(true);
+
+    activeTabSignal.set({ claudeSessionId: null });
+    expect(service.hasActiveSession()).toBe(false);
+
+    activeTabSignal.set(null);
+    expect(service.hasActiveSession()).toBe(false);
+
+    activeTabSignal.set({ claudeSessionId: 'sess-real-uuid' });
+    expect(service.hasActiveSession()).toBe(true);
   });
 
   it('setTriggers() persists and refreshes', async () => {

@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 
 import { MemoryDiagnosticsRpcService } from './memory-diagnostics-rpc.service';
 import {
@@ -16,6 +17,9 @@ describe('MemoryDiagnosticsStateService', () => {
   let getTriggersMock: jest.Mock;
 
   const workspaceSignal = signal<{ path: string } | null>({ path: '/ws' });
+  const activeTabSignal = signal<{ claudeSessionId: string | null } | null>({
+    claudeSessionId: 'sess-real-uuid',
+  });
 
   const baseTriggers = {
     preCompact: true,
@@ -60,6 +64,9 @@ describe('MemoryDiagnosticsStateService', () => {
       .mockResolvedValue({ triggers: { ...baseTriggers, preCompact: false } });
     getTriggersMock = jest.fn().mockResolvedValue({ triggers: baseTriggers });
 
+    activeTabSignal.set({ claudeSessionId: 'sess-real-uuid' });
+    workspaceSignal.set({ path: '/ws' });
+
     TestBed.configureTestingModule({
       providers: [
         MemoryDiagnosticsStateService,
@@ -75,6 +82,10 @@ describe('MemoryDiagnosticsStateService', () => {
         {
           provide: AppStateManager,
           useValue: { workspaceInfo: workspaceSignal },
+        },
+        {
+          provide: TabManagerService,
+          useValue: { activeTab: activeTabSignal },
         },
       ],
     });
@@ -108,13 +119,17 @@ describe('MemoryDiagnosticsStateService', () => {
     expect(service.loading()).toBe(false);
   });
 
-  it('runNow() calls RPC then refreshes signals', async () => {
+  it('runNow() passes the real claudeSessionId from TabManager and refreshes signals', async () => {
     await service.runNow();
 
     expect(runNowMock).toHaveBeenCalledWith({
-      sessionId: 'manual',
+      sessionId: 'sess-real-uuid',
       workspaceRoot: '/ws',
     });
+    // The literal 'manual' must NEVER be sent — pollutes memories.session_id.
+    expect(runNowMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'manual' }),
+    );
     expect(diagnosticsMock).toHaveBeenCalled();
     expect(service.error()).toBeNull();
   });
@@ -128,6 +143,37 @@ describe('MemoryDiagnosticsStateService', () => {
     expect(service.error()).toBe('No workspace is open.');
 
     workspaceSignal.set({ path: '/ws' });
+  });
+
+  it('runNow() no-ops + sets error when there is no active session', async () => {
+    activeTabSignal.set(null);
+
+    await service.runNow();
+
+    expect(runNowMock).not.toHaveBeenCalled();
+    expect(service.error()).toBe('No active session to curate.');
+  });
+
+  it('runNow() no-ops + sets error when active tab has a null claudeSessionId', async () => {
+    activeTabSignal.set({ claudeSessionId: null });
+
+    await service.runNow();
+
+    expect(runNowMock).not.toHaveBeenCalled();
+    expect(service.error()).toBe('No active session to curate.');
+  });
+
+  it('hasActiveSession reflects TabManager.activeTab().claudeSessionId presence', () => {
+    expect(service.hasActiveSession()).toBe(true);
+
+    activeTabSignal.set({ claudeSessionId: null });
+    expect(service.hasActiveSession()).toBe(false);
+
+    activeTabSignal.set(null);
+    expect(service.hasActiveSession()).toBe(false);
+
+    activeTabSignal.set({ claudeSessionId: 'sess-real-uuid' });
+    expect(service.hasActiveSession()).toBe(true);
   });
 
   it('setTriggers() updates the triggers signal from RPC response', async () => {

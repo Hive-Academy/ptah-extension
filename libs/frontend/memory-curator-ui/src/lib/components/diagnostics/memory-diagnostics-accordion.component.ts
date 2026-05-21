@@ -107,7 +107,10 @@ import { EventFeedComponent } from './event-feed.component';
         <button
           type="button"
           class="btn btn-sm btn-primary"
-          [disabled]="loading()"
+          [disabled]="loading() || !hasActiveSession()"
+          [title]="
+            !hasActiveSession() ? 'Open a session to run curator manually' : ''
+          "
           (click)="onRunCuratorNow()"
           data-testid="run-curator-now"
         >
@@ -116,6 +119,14 @@ import { EventFeedComponent } from './event-feed.component';
           }
           Run curator now
         </button>
+        @if (!hasActiveSession()) {
+          <span
+            class="text-xs text-base-content/60"
+            data-testid="no-active-session-hint"
+          >
+            Open a session to run curator manually
+          </span>
+        }
         <button
           type="button"
           class="btn btn-sm btn-ghost"
@@ -139,6 +150,7 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   protected readonly dbHealth = this.state.dbHealth;
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
+  protected readonly hasActiveSession = this.state.hasActiveSession;
 
   protected readonly now = computed(() => {
     this.recentEvents();

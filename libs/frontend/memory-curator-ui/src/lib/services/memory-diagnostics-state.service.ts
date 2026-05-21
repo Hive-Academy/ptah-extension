@@ -1,5 +1,6 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   MemoryCuratorEventWire,
   MemoryDbHealthDto,
@@ -21,6 +22,7 @@ export const DIAGNOSTICS_POLL_MS = 30_000;
 export class MemoryDiagnosticsStateService {
   private readonly rpc = inject(MemoryDiagnosticsRpcService);
   private readonly appState = inject(AppStateManager);
+  private readonly tabManager = inject(TabManagerService);
 
   private readonly _triggers = signal<MemoryTriggersDto | null>(null);
   private readonly _lastRun = signal<LastRunSnapshot | null>(null);
@@ -39,6 +41,11 @@ export class MemoryDiagnosticsStateService {
   public readonly dbHealth = this._dbHealth.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
+
+  public readonly hasActiveSession = computed<boolean>(() => {
+    const tab = this.tabManager.activeTab();
+    return tab !== null && tab.claudeSessionId !== null;
+  });
 
   private subscriberCount = 0;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,10 +82,18 @@ export class MemoryDiagnosticsStateService {
       this._error.set('No workspace is open.');
       return;
     }
+    const sessionId = this.tabManager.activeTab()?.claudeSessionId ?? null;
+    if (!sessionId) {
+      this._error.set('No active session to curate.');
+      return;
+    }
     this._loading.set(true);
     this._error.set(null);
     try {
-      await this.rpc.runNow({ sessionId: 'manual', workspaceRoot: root });
+      await this.rpc.runNow({
+        sessionId: String(sessionId),
+        workspaceRoot: root,
+      });
       await this.refresh();
     } catch (err) {
       this._error.set(toErrorMessage(err));

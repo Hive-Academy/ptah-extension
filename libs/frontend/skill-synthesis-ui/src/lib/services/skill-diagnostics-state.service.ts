@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   EligibilityHistogramDto,
   SkillDiagnosticsResult,
@@ -36,6 +37,7 @@ export interface SkillByStatusCounts {
 export class SkillDiagnosticsStateService {
   private readonly rpc = inject(SkillDiagnosticsRpcService);
   private readonly appState = inject(AppStateManager);
+  private readonly tabManager = inject(TabManagerService);
 
   private readonly _triggers = signal<SkillTriggersDto>(DEFAULT_TRIGGERS);
   private readonly _lastAnalyzeRunAt = signal<number | null>(null);
@@ -73,6 +75,11 @@ export class SkillDiagnosticsStateService {
     );
   });
 
+  public readonly hasActiveSession = computed<boolean>(() => {
+    const tab = this.tabManager.activeTab();
+    return tab !== null && tab.claudeSessionId !== null;
+  });
+
   private pollHandle: ReturnType<typeof setInterval> | null = null;
 
   public async refresh(): Promise<void> {
@@ -95,11 +102,16 @@ export class SkillDiagnosticsStateService {
       this._error.set('No active workspace');
       return;
     }
+    const sessionId = this.tabManager.activeTab()?.claudeSessionId ?? null;
+    if (!sessionId) {
+      this._error.set('No active session to analyze.');
+      return;
+    }
     this._loading.set(true);
     this._error.set(null);
     try {
       await this.rpc.analyzeNow({
-        sessionId: 'manual',
+        sessionId: String(sessionId),
         workspaceRoot,
         force: true,
       });

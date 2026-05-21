@@ -41,6 +41,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
   });
   const loading = signal<boolean>(false);
   const error = signal<string | null>(null);
+  const hasActiveSession = signal<boolean>(true);
 
   let runNowMock: jest.Mock;
   let setTriggersMock: jest.Mock;
@@ -70,6 +71,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     });
     loading.set(false);
     error.set(null);
+    hasActiveSession.set(true);
 
     runNowMock = jest.fn(() => Promise.resolve());
     setTriggersMock = jest.fn(() => Promise.resolve());
@@ -90,6 +92,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
             dbHealth,
             loading,
             error,
+            hasActiveSession,
             runNow: runNowMock,
             setTriggers: setTriggersMock,
             refresh: refreshMock,
@@ -231,5 +234,54 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent ?? '').toContain(
       'boom',
     );
+  });
+
+  it('Run curator now button is disabled when no active session', () => {
+    hasActiveSession.set(false);
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const btn = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="run-curator-now"]',
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute('title')).toBe(
+      'Open a session to run curator manually',
+    );
+  });
+
+  it('shows "no active session" hint when hasActiveSession is false', () => {
+    hasActiveSession.set(false);
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const hint = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="no-active-session-hint"]',
+    );
+    expect(hint).not.toBeNull();
+    expect(hint?.textContent ?? '').toContain(
+      'Open a session to run curator manually',
+    );
+  });
+
+  it('Run curator now button is enabled when hasActiveSession is true', () => {
+    hasActiveSession.set(true);
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const btn = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="run-curator-now"]',
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    const hint = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="no-active-session-hint"]',
+    );
+    expect(hint).toBeNull();
   });
 });
