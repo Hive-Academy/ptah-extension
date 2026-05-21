@@ -85,4 +85,55 @@ describe('isFileBasedSettingKey', () => {
       expect(FILE_BASED_SETTINGS_KEYS.size).toBeGreaterThan(0);
     });
   });
+
+  describe('curator/synthesis trigger keys (TASK_2026_126)', () => {
+    const memoryTriggerKeys = [
+      'memory.triggers.preCompact',
+      'memory.triggers.idleMs',
+      'memory.triggers.turnThreshold',
+      'memory.triggers.bootScan',
+    ] as const;
+
+    const skillTriggerKeys = [
+      'skillSynthesis.triggers.sessionEnd',
+      'skillSynthesis.triggers.idleMs',
+      'skillSynthesis.triggers.bootScan',
+    ] as const;
+
+    const expectedDefaults: Record<string, boolean | number> = {
+      'memory.triggers.preCompact': true,
+      'memory.triggers.idleMs': 600000,
+      'memory.triggers.turnThreshold': 20,
+      'memory.triggers.bootScan': true,
+      'skillSynthesis.triggers.sessionEnd': true,
+      'skillSynthesis.triggers.idleMs': 600000,
+      'skillSynthesis.triggers.bootScan': true,
+    };
+
+    it.each([...memoryTriggerKeys, ...skillTriggerKeys])(
+      'registers %s in FILE_BASED_SETTINGS_KEYS',
+      (key) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      },
+    );
+
+    it.each([...memoryTriggerKeys, ...skillTriggerKeys])(
+      'declares a default for %s in FILE_BASED_SETTINGS_DEFAULTS',
+      (key) => {
+        expect(
+          Object.prototype.hasOwnProperty.call(
+            FILE_BASED_SETTINGS_DEFAULTS,
+            key,
+          ),
+        ).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expectedDefaults[key]);
+      },
+    );
+
+    it('routes every trigger key through isFileBasedSettingKey', () => {
+      for (const key of [...memoryTriggerKeys, ...skillTriggerKeys]) {
+        expect(isFileBasedSettingKey(key)).toBe(true);
+      }
+    });
+  });
 });
