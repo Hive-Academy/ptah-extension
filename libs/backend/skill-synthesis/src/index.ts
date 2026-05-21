@@ -43,6 +43,16 @@ export {
   type CuratorReport,
 } from './lib/skill-curator.service';
 export { cosineSimilarity } from './lib/cosine-similarity';
+export { SkillTriggerService } from './lib/triggers/skill-trigger.service';
+export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
+export type {
+  SkillSynthesisEvent,
+  SkillSynthesisEventKind,
+  SkillIneligibleReason,
+  EligibilityHistogram,
+  SkillCandidateStatusCounts,
+  SkillSynthesisDiagnosticsSnapshot,
+} from './lib/diagnostics.types';
 
 export { JUDGE_DEFAULT_MODEL_ID } from './lib/types';
 export type {

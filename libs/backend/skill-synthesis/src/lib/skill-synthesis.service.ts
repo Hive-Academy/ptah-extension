@@ -37,6 +37,10 @@ import type {
   RegisterCandidateResult,
   SkillSynthesisSettings,
 } from './types';
+import type {
+  EligibilityHistogram,
+  SkillSynthesisEvent,
+} from './diagnostics.types';
 
 /**
  * Cross-library token for the session-end callback registry.
@@ -69,11 +73,27 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
 
 @injectable()
 export class SkillSynthesisService {
+  private static readonly RING_CAPACITY = 200;
   private started = false;
   /** Sessions already analyzed in this process (≤1 candidate per session). */
   private readonly analyzedSessions = new Set<string>();
   /** Disposer returned by the session-end registry — called in stop(). */
   private _sessionEndDisposer?: () => void;
+  private readonly events: SkillSynthesisEvent[] = [];
+  private eligibilityCounters: {
+    tooFewTurns: number;
+    lowFidelity: number;
+    insufficientAbstraction: number;
+    accepted: number;
+  } = {
+    tooFewTurns: 0,
+    lowFidelity: 0,
+    insufficientAbstraction: 0,
+    accepted: 0,
+  };
+  private countersDate: string = SkillSynthesisService.todayKey();
+  private lastAnalyzeRunAtMs: number | null = null;
+  private lastCuratorPassAtMs: number | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -202,14 +222,38 @@ export class SkillSynthesisService {
   async analyzeSession(
     sessionId: string,
     workspaceRoot: string,
-    embeddingProvider?: IEmbedder | null,
+    embeddingProviderOrOptions?:
+      | IEmbedder
+      | null
+      | { force?: boolean; embeddingProvider?: IEmbedder | null },
+    maybeOptions?: { force?: boolean },
   ): Promise<RegisterCandidateResult | null> {
+    let embeddingProvider: IEmbedder | null | undefined;
+    let force = false;
+    if (
+      embeddingProviderOrOptions &&
+      typeof embeddingProviderOrOptions === 'object' &&
+      !('embed' in embeddingProviderOrOptions)
+    ) {
+      embeddingProvider = embeddingProviderOrOptions.embeddingProvider;
+      force = embeddingProviderOrOptions.force === true;
+    } else {
+      embeddingProvider = embeddingProviderOrOptions as
+        | IEmbedder
+        | null
+        | undefined;
+      force = maybeOptions?.force === true;
+    }
+
     if (!this.started) {
       this.logger.debug('[skill-synthesis] analyzeSession called before start');
       return null;
     }
     const settings = this.readSettings();
     if (!settings.enabled) return null;
+    if (force) {
+      this.analyzedSessions.delete(sessionId);
+    }
     if (this.analyzedSessions.has(sessionId)) return null;
     this.analyzedSessions.add(sessionId);
 
@@ -223,6 +267,13 @@ export class SkillSynthesisService {
         '[skill-synthesis] session ineligible (trajectory null — <5 turns or no success marker)',
         { sessionId },
       );
+      this.incrementEligibility('tooFewTurns');
+      this.pushEvent({
+        kind: 'ineligible',
+        timestamp: Date.now(),
+        sessionId,
+        reason: 'tooFewTurns',
+      });
       return null;
     }
     const fidelityRatio =
@@ -238,6 +289,13 @@ export class SkillSynthesisService {
           threshold: settings.minTrajectoryFidelityRatio,
         },
       );
+      this.incrementEligibility('lowFidelity');
+      this.pushEvent({
+        kind: 'ineligible',
+        timestamp: Date.now(),
+        sessionId,
+        reason: 'lowFidelity',
+      });
       return null;
     }
     const existing = this.store.findByTrajectoryHash(trajectory.hash);
@@ -273,6 +331,13 @@ export class SkillSynthesisService {
         '[skill-synthesis] candidate rejected: insufficient abstraction',
         { sessionId, editDist, threshold: settings.minAbstractionEditDistance },
       );
+      this.incrementEligibility('insufficientAbstraction');
+      this.pushEvent({
+        kind: 'ineligible',
+        timestamp: Date.now(),
+        sessionId,
+        reason: 'insufficientAbstraction',
+      });
       return null;
     }
 
@@ -332,7 +397,79 @@ export class SkillSynthesisService {
       reused: result.reused,
       sessionId,
     });
+    this.incrementEligibility('accepted');
+    this.lastAnalyzeRunAtMs = Date.now();
+    this.pushEvent({
+      kind: 'analyze-run',
+      timestamp: this.lastAnalyzeRunAtMs,
+      sessionId,
+      candidateId: result.candidate.id,
+    });
     return result;
+  }
+
+  pushEvent(ev: SkillSynthesisEvent): void {
+    this.events.push(ev);
+    if (this.events.length > SkillSynthesisService.RING_CAPACITY) {
+      this.events.shift();
+    }
+  }
+
+  recentEvents(limit = 10): readonly SkillSynthesisEvent[] {
+    const safe = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
+    return this.events.slice(-safe);
+  }
+
+  getEligibilityHistogram(): EligibilityHistogram {
+    this.rolloverCountersIfNewDay();
+    return { ...this.eligibilityCounters };
+  }
+
+  lastRunSummary(): {
+    readonly lastAnalyzeRunAt: number | null;
+    readonly lastCuratorPassAt: number | null;
+  } {
+    return {
+      lastAnalyzeRunAt: this.lastAnalyzeRunAtMs,
+      lastCuratorPassAt: this.lastCuratorPassAtMs,
+    };
+  }
+
+  recordCuratorPass(timestamp = Date.now()): void {
+    this.lastCuratorPassAtMs = timestamp;
+    this.pushEvent({ kind: 'curator-pass', timestamp });
+  }
+
+  private incrementEligibility(
+    bucket:
+      | 'tooFewTurns'
+      | 'lowFidelity'
+      | 'insufficientAbstraction'
+      | 'accepted',
+  ): void {
+    this.rolloverCountersIfNewDay();
+    this.eligibilityCounters[bucket]++;
+  }
+
+  private rolloverCountersIfNewDay(): void {
+    const today = SkillSynthesisService.todayKey();
+    if (today !== this.countersDate) {
+      this.countersDate = today;
+      this.eligibilityCounters = {
+        tooFewTurns: 0,
+        lowFidelity: 0,
+        insufficientAbstraction: 0,
+        accepted: 0,
+      };
+    }
+  }
+
+  private static todayKey(): string {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   /** Manual promote (RPC `skillSynthesis:promote`). */
