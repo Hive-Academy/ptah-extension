@@ -59,6 +59,10 @@ export {
   SubagentStopCallbackRegistry,
   type SubagentStopCallback,
   type SubagentStopPayload,
+  PostToolUseCallbackRegistry,
+  type PostToolUseCallback,
+  type PostToolUsePayload,
+  PostToolUseHookHandler,
 } from './lib/helpers';
 export {
   CompactionHookHandler,

@@ -57,6 +57,12 @@ export {
   type SubagentStopCallback,
   type SubagentStopPayload,
 } from './subagent-stop-callback-registry';
+export {
+  PostToolUseCallbackRegistry,
+  type PostToolUseCallback,
+  type PostToolUsePayload,
+} from './post-tool-use-callback-registry';
+export { PostToolUseHookHandler } from './post-tool-use-hook-handler';
 export { LiveUsageTracker } from './live-usage-tracker';
 export {
   WorktreeHookHandler,
