@@ -67,6 +67,9 @@ export {
   type UserPromptSubmitCallback,
   type UserPromptSubmitPayload,
   UserPromptSubmitHookHandler,
+  CuratorRateLimitService,
+  type RateLimitDecision,
+  type RateLimitSnapshot,
 } from './lib/helpers';
 export {
   CompactionHookHandler,

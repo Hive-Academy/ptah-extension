@@ -69,6 +69,11 @@ export {
   type UserPromptSubmitPayload,
 } from './user-prompt-submit-callback-registry';
 export { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
+export {
+  CuratorRateLimitService,
+  type RateLimitDecision,
+  type RateLimitSnapshot,
+} from './curator-rate-limit.service';
 export { LiveUsageTracker } from './live-usage-tracker';
 export {
   WorktreeHookHandler,

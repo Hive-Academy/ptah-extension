@@ -50,6 +50,7 @@ import {
   PostToolUseHookHandler,
   UserPromptSubmitCallbackRegistry,
   UserPromptSubmitHookHandler,
+  CuratorRateLimitService,
   LiveUsageTracker,
   WorktreeHookHandler,
   SlashCommandInterceptor,
@@ -196,6 +197,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER,
     { useClass: UserPromptSubmitHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_CURATOR_RATE_LIMIT,
+    { useClass: CuratorRateLimitService },
     { lifecycle: Lifecycle.Singleton },
   );
 
