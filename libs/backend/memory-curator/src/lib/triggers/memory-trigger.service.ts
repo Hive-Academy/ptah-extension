@@ -202,8 +202,8 @@ export class MemoryTriggerService {
         sqlite: this.sqlite,
         logger: this.logger,
         signal,
-        run: (sessionId, workspaceRoot) =>
-          this.curator.curate({ sessionId, workspaceRoot }),
+        run: (sessionId, workspaceRoot, runSignal) =>
+          this.curator.curate({ sessionId, workspaceRoot, signal: runSignal }),
       });
       this.curator.pushEvent({
         kind: 'boot-scan',

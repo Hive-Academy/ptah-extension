@@ -18,7 +18,11 @@ export interface BootScanRunnerOptions {
   readonly sessionsDirectory: string | null;
   readonly sqlite: SqliteConnectionService;
   readonly logger: Logger;
-  readonly run: (sessionId: string, workspaceRoot: string) => Promise<unknown>;
+  readonly run: (
+    sessionId: string,
+    workspaceRoot: string,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
   readonly signal?: AbortSignal;
   readonly throttleMs?: number;
 }
@@ -98,7 +102,11 @@ export class BootScanRunner {
       }
       const item = eligible[i];
       try {
-        await options.run(item.sessionId, options.workspaceRoot);
+        await options.run(
+          item.sessionId,
+          options.workspaceRoot,
+          options.signal,
+        );
         succeeded++;
         if (item.mtime > maxMtime) maxMtime = item.mtime;
       } catch (err: unknown) {
@@ -121,6 +129,7 @@ export class BootScanRunner {
         options.pipeline,
         options.workspaceFingerprint,
         maxMtime,
+        options.logger,
       );
     }
 
@@ -149,6 +158,7 @@ export class BootScanRunner {
     pipeline: BootScanPipeline,
     fingerprint: string,
     mtime: number,
+    logger?: Logger,
   ): void {
     try {
       const now = Date.now();
@@ -160,8 +170,11 @@ export class BootScanRunner {
            DO UPDATE SET last_scanned_session_mtime = excluded.last_scanned_session_mtime, last_run_at = excluded.last_run_at`,
         )
         .run(pipeline, fingerprint, mtime, now);
-    } catch {
-      // watermark writes are best-effort
+    } catch (err: unknown) {
+      logger?.warn('[boot-scan] watermark write failed', {
+        pipeline,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

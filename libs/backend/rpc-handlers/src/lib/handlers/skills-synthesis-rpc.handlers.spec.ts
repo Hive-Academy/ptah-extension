@@ -267,6 +267,17 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:analyzeNow', () => {
     expect(synthesis.analyzeSession).not.toHaveBeenCalled();
   });
 
+  it('rejects reserved sessionId "manual" with INVALID_PARAMS (Critical-1 guard)', async () => {
+    const { rpcHandler, synthesis } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:analyzeNow', {
+        sessionId: 'manual',
+        workspaceRoot: '/workspace/project',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+  });
+
   it('returns error envelope when synthesis throws (no leak as raw throw)', async () => {
     const { rpcHandler, synthesis } = buildHandlers();
     synthesis.analyzeSession.mockRejectedValue(new Error('JSONL read failed'));
@@ -322,6 +333,25 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:setTriggers', () => {
       }),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
     expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects degenerate idleMs (1ms) with INVALID_PARAMS (Moderate-1)', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('skillSynthesis:setTriggers', {
+        triggers: { idleMs: 1 },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('accepts idleMs = 0 (disabled)', async () => {
+    const { rpcHandler } = buildHandlers();
+    const result = await rpcHandler.call('skillSynthesis:setTriggers', {
+      triggers: { idleMs: 0 },
+    });
+    expect(result).toMatchObject({ triggers: { idleMs: 0 } });
   });
 
   it('returns PERSISTENCE_UNAVAILABLE without leaking when setConfiguration throws', async () => {

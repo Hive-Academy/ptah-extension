@@ -191,7 +191,9 @@ export class SkillSynthesisService {
     );
     const settings = this.readSettings();
     try {
-      this.curator?.start(settings);
+      this.curator?.start(settings, {
+        onPassComplete: (timestamp) => this.recordCuratorPass(timestamp),
+      });
     } catch (err: unknown) {
       this.logger.warn('[skill-synthesis] curator start failed (non-fatal)', {
         error: err instanceof Error ? err.message : String(err),
@@ -225,11 +227,16 @@ export class SkillSynthesisService {
     embeddingProviderOrOptions?:
       | IEmbedder
       | null
-      | { force?: boolean; embeddingProvider?: IEmbedder | null },
-    maybeOptions?: { force?: boolean },
+      | {
+          force?: boolean;
+          embeddingProvider?: IEmbedder | null;
+          signal?: AbortSignal;
+        },
+    maybeOptions?: { force?: boolean; signal?: AbortSignal },
   ): Promise<RegisterCandidateResult | null> {
     let embeddingProvider: IEmbedder | null | undefined;
     let force = false;
+    let signal: AbortSignal | undefined;
     if (
       embeddingProviderOrOptions &&
       typeof embeddingProviderOrOptions === 'object' &&
@@ -237,13 +244,17 @@ export class SkillSynthesisService {
     ) {
       embeddingProvider = embeddingProviderOrOptions.embeddingProvider;
       force = embeddingProviderOrOptions.force === true;
+      signal = embeddingProviderOrOptions.signal;
     } else {
       embeddingProvider = embeddingProviderOrOptions as
         | IEmbedder
         | null
         | undefined;
       force = maybeOptions?.force === true;
+      signal = maybeOptions?.signal;
     }
+
+    if (signal?.aborted) return null;
 
     if (!this.started) {
       this.logger.debug('[skill-synthesis] analyzeSession called before start');
@@ -251,6 +262,12 @@ export class SkillSynthesisService {
     }
     const settings = this.readSettings();
     if (!settings.enabled) return null;
+    if (sessionId === 'manual') {
+      this.logger.warn(
+        '[skill-synthesis] analyzeSession called with reserved sessionId "manual" — rejecting',
+      );
+      return null;
+    }
     if (force) {
       this.analyzedSessions.delete(sessionId);
     }

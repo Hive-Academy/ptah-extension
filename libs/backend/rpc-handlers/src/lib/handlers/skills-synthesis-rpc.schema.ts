@@ -61,14 +61,25 @@ export const SkillDiagnosticsParamsSchema = z.object({
 });
 
 export const SkillAnalyzeNowParamsSchema = z.object({
-  sessionId: z.string().min(1),
+  sessionId: z
+    .string()
+    .min(1)
+    .refine((v) => v !== 'manual', {
+      message: 'reserved sessionId',
+    }),
   workspaceRoot: z.string().min(1),
   force: z.boolean().optional(),
 });
 
 export const SkillTriggersSchema = z.object({
   sessionEnd: z.boolean(),
-  idleMs: z.number().int().nonnegative(),
+  idleMs: z
+    .number()
+    .int()
+    .nonnegative()
+    .refine((v) => v === 0 || v >= 5000, {
+      message: 'idleMs must be 0 or >= 5000',
+    }),
   bootScan: z.boolean(),
 });
 

@@ -357,6 +357,50 @@ describe('SkillSynthesisService', () => {
     );
   });
 
+  it('analyzeSession() rejects reserved sessionId "manual"', async () => {
+    const { svc, store, extractor } = setup();
+    await svc.start();
+    const result = await svc.analyzeSession('manual', '/repo');
+    expect(result).toBeNull();
+    expect(extractor.extract).not.toHaveBeenCalled();
+    expect(store.registerCandidate).not.toHaveBeenCalled();
+  });
+
+  it('analyzeSession() short-circuits when AbortSignal is already aborted', async () => {
+    const { svc, extractor } = setup();
+    await svc.start();
+    const controller = new AbortController();
+    controller.abort();
+    const result = await svc.analyzeSession('s1', '/repo', {
+      signal: controller.signal,
+    });
+    expect(result).toBeNull();
+    expect(extractor.extract).not.toHaveBeenCalled();
+  });
+
+  it('resets eligibility counters when calendar day changes (R14)', async () => {
+    const { svc, extractor } = setup();
+    await svc.start();
+    const today = '2026-05-21';
+    const tomorrow = '2026-05-22';
+    const todayKeySpy = jest
+      .spyOn(
+        SkillSynthesisService as unknown as {
+          todayKey: () => string;
+        },
+        'todayKey',
+      )
+      .mockReturnValue(today);
+    (extractor.extract as jest.Mock).mockResolvedValue(null);
+    await svc.analyzeSession('s1', '/repo');
+    expect(svc.getEligibilityHistogram().tooFewTurns).toBe(1);
+    todayKeySpy.mockReturnValue(tomorrow);
+    await svc.analyzeSession('s2', '/repo');
+    expect(svc.getEligibilityHistogram().tooFewTurns).toBe(1);
+    expect(svc.getEligibilityHistogram().lowFidelity).toBe(0);
+    todayKeySpy.mockRestore();
+  });
+
   it('readSettings() falls back to defaults when getConfiguration throws', () => {
     const { svc, workspaceProvider } = setup();
     (workspaceProvider.getConfiguration as jest.Mock).mockImplementation(() => {

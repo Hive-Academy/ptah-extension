@@ -111,4 +111,71 @@ describe('MemoryCuratorService — event ring buffer', () => {
     }
     expect(svc.recentEvents().length).toBe(10);
   });
+
+  it('recordDecayEvent pushes a decay-run event into the ring buffer', () => {
+    const svc = buildService();
+    svc.recordDecayEvent(
+      { scanned: 5, demoted: 1, archived: 2, expired: 0 },
+      9999,
+    );
+    const events = svc.recentEvents(5);
+    const decay = events.find((e) => e.kind === 'decay-run');
+    expect(decay).toBeDefined();
+    expect(decay?.timestamp).toBe(9999);
+    expect(decay?.stats).toMatchObject({
+      scanned: 5,
+      demoted: 1,
+      archived: 2,
+      expired: 0,
+    });
+  });
+});
+
+describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', () => {
+  it('concurrent curate calls for the same (workspaceRoot, sessionId) share a single llm.extract invocation', async () => {
+    const resolvers: ((value: unknown[]) => void)[] = [];
+    const extract = jest.fn(
+      () =>
+        new Promise<unknown[]>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const llm = {
+      extract,
+      resolve: jest.fn().mockResolvedValue([]),
+    } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+    const p1 = svc.curate({ sessionId: 'sess-A', workspaceRoot: '/ws' });
+    const p2 = svc.curate({ sessionId: 'sess-A', workspaceRoot: '/ws' });
+    expect(extract).toHaveBeenCalledTimes(1);
+    resolvers[0]([]);
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1).toBe(r2);
+  });
+
+  it('different sessions run in parallel', async () => {
+    const extract = jest.fn().mockResolvedValue([]);
+    const llm = {
+      extract,
+      resolve: jest.fn().mockResolvedValue([]),
+    } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+    await Promise.all([
+      svc.curate({ sessionId: 'A', workspaceRoot: '/ws' }),
+      svc.curate({ sessionId: 'B', workspaceRoot: '/ws' }),
+    ]);
+    expect(extract).toHaveBeenCalledTimes(2);
+  });
+
+  it('in-flight map clears after run completes so a follow-up call runs fresh', async () => {
+    const extract = jest.fn().mockResolvedValue([]);
+    const llm = {
+      extract,
+      resolve: jest.fn().mockResolvedValue([]),
+    } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+    await svc.curate({ sessionId: 'A', workspaceRoot: '/ws' });
+    await svc.curate({ sessionId: 'A', workspaceRoot: '/ws' });
+    expect(extract).toHaveBeenCalledTimes(2);
+  });
 });

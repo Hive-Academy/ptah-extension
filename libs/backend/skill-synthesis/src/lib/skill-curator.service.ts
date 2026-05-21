@@ -45,13 +45,16 @@ interface CuratorFinding {
   reason: string;
 }
 
+export interface SkillCuratorStartOptions {
+  readonly onPassComplete?: (timestamp: number) => void;
+}
+
 @injectable()
 export class SkillCuratorService {
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
-  /** Settings captured at the last `start()` call. Used by the interval callback. */
   private currentSettings: SkillSynthesisSettings | null = null;
-  /** Interval hours at the last `start()` call — used to detect no-op restarts. */
   private currentIntervalHours: number | null = null;
+  private onPassComplete: ((timestamp: number) => void) | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -63,15 +66,12 @@ export class SkillCuratorService {
     private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
-  /**
-   * Start the recurring Curator pass. No-op if `curatorEnabled` is false.
-   * Uses a plain setInterval — this is an internal daemon, not a user cron job.
-   *
-   * Stores `settings` so the periodic callback has access to the latest
-   * model and other preferences without re-reading config on every tick.
-   */
-  start(settings: SkillSynthesisSettings): void {
+  start(
+    settings: SkillSynthesisSettings,
+    options?: SkillCuratorStartOptions,
+  ): void {
     this.currentSettings = settings;
+    this.onPassComplete = options?.onPassComplete ?? null;
     if (!settings.curatorEnabled) {
       this.logger.info('[skill-curator] disabled via settings; not scheduling');
       return;
@@ -92,19 +92,15 @@ export class SkillCuratorService {
     }, intervalMs);
   }
 
-  /** Stop the recurring Curator pass. */
   stop(): void {
     if (this.intervalHandle !== null) {
       clearInterval(this.intervalHandle);
       this.intervalHandle = null;
       this.currentIntervalHours = null;
     }
+    this.onPassComplete = null;
   }
 
-  /**
-   * Trigger a manual Curator pass (e.g. from RPC).
-   * Uses the last settings passed to `start()`, or an empty report if never started.
-   */
   runManual(): Promise<CuratorReport> {
     if (!this.currentSettings) return Promise.resolve(this.emptyReport());
     return this.runPass(this.currentSettings);
@@ -226,6 +222,14 @@ export class SkillCuratorService {
       changesQueued,
       skippedPinned,
     );
+
+    try {
+      this.onPassComplete?.(Date.now());
+    } catch (err: unknown) {
+      this.logger.warn('[skill-curator] onPassComplete callback threw', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     return { reportPath, changesQueued, skippedPinned, overlaps };
   }

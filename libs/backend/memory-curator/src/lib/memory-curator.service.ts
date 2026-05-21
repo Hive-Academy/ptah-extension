@@ -43,6 +43,7 @@ export class MemoryCuratorService {
   private readonly events: MemoryCuratorEvent[] = [];
   private lastRunAtMs: number | null = null;
   private lastRunStatsCache: CuratorRunStats | null = null;
+  private readonly inFlight = new Map<string, Promise<CuratorRunStats>>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -122,6 +123,18 @@ export class MemoryCuratorService {
     return { at: this.lastRunAtMs, stats: this.lastRunStatsCache };
   }
 
+  /**
+   * Public hook for {@link MemoryDecayJob} to push a `decay-run` event into
+   * this service's ring buffer. Kept narrow so callers cannot forge other
+   * event kinds via the public surface.
+   */
+  recordDecayEvent(
+    stats: Readonly<Record<string, number | string | boolean | null>>,
+    timestamp = Date.now(),
+  ): void {
+    this.pushEvent({ kind: 'decay-run', timestamp, stats });
+  }
+
   /** Stop listening. Safe to call multiple times. */
   stop(): void {
     if (this.disposer) {
@@ -137,6 +150,24 @@ export class MemoryCuratorService {
    * that want to feed a transcript without waiting for compaction.
    */
   async curate(input: {
+    sessionId: string;
+    workspaceRoot?: string | null;
+    transcript?: string;
+    tier?: MemoryTier;
+    signal?: AbortSignal;
+  }): Promise<CuratorRunStats> {
+    const key = `${input.workspaceRoot ?? ''}::${input.sessionId ?? ''}`;
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+    const work = this.doCurate(input).finally(() => {
+      this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, work);
+    return work;
+  }
+
+  /** Internal worker. Public callers must use {@link curate}, which dedupes. */
+  private async doCurate(input: {
     sessionId: string;
     workspaceRoot?: string | null;
     transcript?: string;

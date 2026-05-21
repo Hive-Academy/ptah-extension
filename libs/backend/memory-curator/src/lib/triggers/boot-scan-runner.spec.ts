@@ -120,7 +120,7 @@ describe('BootScanRunner', () => {
     });
     expect(result.scanned).toBe(1);
     expect(run).toHaveBeenCalledTimes(1);
-    expect(run).toHaveBeenCalledWith('new', '/ws');
+    expect(run).toHaveBeenCalledWith('new', '/ws', undefined);
   });
 
   it('updates watermark to max mtime processed', async () => {
@@ -197,5 +197,66 @@ describe('BootScanRunner', () => {
     });
     expect(result.succeeded).toBeLessThanOrEqual(1);
     expect(run.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it('forwards the AbortSignal into the per-session run callback (Serious-2)', async () => {
+    const now = Date.now();
+    const dir = await makeTempSessionsDir([
+      { name: 's1.jsonl', mtime: now - 5000 },
+    ]);
+    const state: WatermarkState = { value: 0 };
+    const controller = new AbortController();
+    const run = jest.fn().mockResolvedValue(undefined);
+    await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite: makeSqlite(state),
+      logger: makeLogger(),
+      run,
+      throttleMs: 0,
+      signal: controller.signal,
+    });
+    expect(run).toHaveBeenCalledWith('s1', '/ws', controller.signal);
+  });
+
+  it('logs a warning when the watermark write throws (Moderate-4)', async () => {
+    const now = Date.now();
+    const dir = await makeTempSessionsDir([
+      { name: 's1.jsonl', mtime: now - 5000 },
+    ]);
+    const logger = makeLogger();
+    const sqlite = {
+      db: {
+        prepare: jest.fn((sql: string) => {
+          if (sql.includes('SELECT last_scanned_session_mtime')) {
+            return { get: jest.fn(() => undefined) };
+          }
+          return {
+            run: jest.fn(() => {
+              throw new Error('SQLITE_BUSY: database is locked');
+            }),
+          };
+        }),
+      },
+    } as unknown as SqliteConnectionService;
+    await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite,
+      logger,
+      run: jest.fn().mockResolvedValue(undefined),
+      throttleMs: 0,
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[boot-scan] watermark write failed',
+      expect.objectContaining({
+        pipeline: 'memory',
+        error: expect.stringContaining('SQLITE_BUSY'),
+      }),
+    );
   });
 });

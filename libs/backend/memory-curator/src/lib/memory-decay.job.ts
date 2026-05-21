@@ -11,6 +11,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
+import { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryTier } from './memory.types';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -37,6 +38,8 @@ export class MemoryDecayJob {
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
     @inject(MEMORY_TOKENS.MEMORY_SALIENCE_SCORER)
     private readonly scorer: SalienceScorer,
+    @inject(MEMORY_TOKENS.MEMORY_CURATOR)
+    private readonly curator: MemoryCuratorService,
   ) {}
 
   lastDecayInfo(): {
@@ -99,6 +102,21 @@ export class MemoryDecayJob {
     };
     this.lastDecayAt = Date.now();
     this.lastDecayStats = stats;
+    try {
+      this.curator.recordDecayEvent(
+        {
+          scanned: stats.scanned,
+          demoted: stats.demoted,
+          archived: stats.archived,
+          expired: stats.expired,
+        },
+        this.lastDecayAt,
+      );
+    } catch (err: unknown) {
+      this.logger.warn('[memory-curator] failed to record decay event', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     return stats;
   }
 }

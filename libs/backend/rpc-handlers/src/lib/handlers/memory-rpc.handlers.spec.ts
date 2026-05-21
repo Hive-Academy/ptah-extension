@@ -714,6 +714,17 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
     ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
     expect(curator.curate).not.toHaveBeenCalled();
   });
+
+  it('rejects reserved sessionId "manual" with INVALID_PARAMS (Critical-1 guard)', async () => {
+    const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+    await expect(
+      rpcHandler.call('memory:runNow', {
+        sessionId: 'manual',
+        workspaceRoot: '/workspace/project',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
 });
 
 describe('MemoryRpcHandlers — memory:setTriggers', () => {
@@ -774,6 +785,42 @@ describe('MemoryRpcHandlers — memory:setTriggers', () => {
       }),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
     expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects degenerate idleMs (1ms) with INVALID_PARAMS (Moderate-1)', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('memory:setTriggers', {
+        triggers: { idleMs: 1 },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects degenerate turnThreshold (1) with INVALID_PARAMS (Moderate-1)', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('memory:setTriggers', {
+        triggers: { turnThreshold: 1 },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('accepts idleMs = 0 (disabled) and turnThreshold = 0', async () => {
+    const { rpcHandler } = buildHandlers(['/workspace/project']);
+    const result = await rpcHandler.call('memory:setTriggers', {
+      triggers: { idleMs: 0, turnThreshold: 0 },
+    });
+    expect(result).toMatchObject({
+      triggers: { idleMs: 0, turnThreshold: 0 },
+    });
   });
 
   it('returns PERSISTENCE_UNAVAILABLE without leaking raw error when setConfiguration throws', async () => {

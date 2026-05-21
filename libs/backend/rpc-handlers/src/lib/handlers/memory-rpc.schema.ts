@@ -32,14 +32,31 @@ export const MemoryDiagnosticsParamsSchema = z.object({
 });
 
 export const MemoryRunNowParamsSchema = z.object({
-  sessionId: z.string().min(1),
+  sessionId: z
+    .string()
+    .min(1)
+    .refine((v) => v !== 'manual', {
+      message: 'reserved sessionId',
+    }),
   workspaceRoot: z.string().min(1),
 });
 
 export const MemoryTriggersSchema = z.object({
   preCompact: z.boolean(),
-  idleMs: z.number().int().nonnegative(),
-  turnThreshold: z.number().int().nonnegative(),
+  idleMs: z
+    .number()
+    .int()
+    .nonnegative()
+    .refine((v) => v === 0 || v >= 5000, {
+      message: 'idleMs must be 0 or >= 5000',
+    }),
+  turnThreshold: z
+    .number()
+    .int()
+    .nonnegative()
+    .refine((v) => v === 0 || v >= 2, {
+      message: 'turnThreshold must be 0 or >= 2',
+    }),
   bootScan: z.boolean(),
 });
 

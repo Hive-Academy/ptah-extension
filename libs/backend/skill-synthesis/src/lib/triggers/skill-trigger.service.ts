@@ -177,8 +177,10 @@ export class SkillTriggerService {
         sqlite: this.sqlite,
         logger: this.logger,
         signal,
-        run: (sessionId, workspaceRoot) =>
-          this.synthesis.analyzeSession(sessionId, workspaceRoot),
+        run: (sessionId, workspaceRoot, runSignal) =>
+          this.synthesis.analyzeSession(sessionId, workspaceRoot, {
+            signal: runSignal,
+          }),
       });
       this.synthesis.pushEvent({
         kind: 'boot-scan',
