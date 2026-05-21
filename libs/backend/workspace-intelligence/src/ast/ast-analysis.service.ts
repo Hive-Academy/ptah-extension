@@ -77,9 +77,6 @@ export class AstAnalysisService {
     filePath?: string,
   ): Promise<Result<CodeInsights, Error>> {
     const logPath = filePath || '<inline>';
-    this.logger.debug(
-      `AstAnalysisService.analyzeSource() - Analyzing ${logPath} using queries`,
-    );
 
     try {
       const langQueries = LANGUAGE_QUERIES_MAP[language];
@@ -164,10 +161,6 @@ export class AstAnalysisService {
     astData: GenericAstNode,
     filePath: string,
   ): Result<CodeInsights, Error> {
-    this.logger.debug(
-      `AstAnalysisService.analyzeAst() - Analyzing ${filePath} using traversal`,
-    );
-
     try {
       const functions: FunctionInfo[] = [];
       const classes: ClassInfo[] = [];
