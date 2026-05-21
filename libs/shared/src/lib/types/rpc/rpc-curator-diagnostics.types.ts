@@ -5,6 +5,9 @@ export type MemoryCuratorEventKind =
   | 'turn-trigger'
   | 'boot-scan'
   | 'manual-run'
+  | 'user-cue-trigger'
+  | 'commit-detect'
+  | 'rate-limited'
   | 'error';
 
 export interface MemoryCuratorEventWire {
@@ -22,6 +25,9 @@ export type SkillSynthesisEventKind =
   | 'boot-scan'
   | 'manual-run'
   | 'ineligible'
+  | 'subagent-stop'
+  | 'edit-then-test'
+  | 'rate-limited'
   | 'error';
 
 export interface SkillSynthesisEventWire {
