@@ -678,3 +678,159 @@ describe('MemoryStore B5 — sqlite-vec rowid INTEGER affinity (native-gated)', 
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// B7 regression — rebuildIndex repopulates FTS5 from memory_chunks (native-gated)
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore B7 — rebuildIndex FTS repopulation (native-gated)', () => {
+  let nativeAvailable = false;
+  try {
+    require.resolve('better-sqlite3');
+    require.resolve('sqlite-vec');
+    const Database = require('better-sqlite3') as new (file: string) => {
+      close(): void;
+    };
+    const probe = new Database(':memory:');
+    probe.close();
+    nativeAvailable = true;
+  } catch {
+    nativeAvailable = false;
+  }
+
+  const maybe = nativeAvailable ? it : it.skip;
+
+  async function bootstrap(): Promise<{
+    service: SqliteConnectionService;
+    store: MemoryStore;
+  }> {
+    const dbPath = makeTempDbPath();
+    const logger = makeLogger();
+    const service = new SqliteConnectionService(dbPath, logger);
+    await service.openAndMigrate();
+    expect(service.vecExtensionLoaded).toBe(true);
+    const embedder = makeDeterministicEmbedder();
+    const store = new MemoryStore(logger, service, embedder);
+    return { service, store };
+  }
+
+  maybe(
+    'repopulates memory_chunks_fts so FTS MATCH returns inserted rows',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'core',
+            kind: 'fact',
+            content: 'alpha body',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#alpha',
+          },
+          [
+            { ord: 0, text: 'distinctive alpha keyword', tokenCount: 3 },
+            { ord: 1, text: 'second alpha chunk', tokenCount: 3 },
+          ],
+        );
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'recall',
+            kind: 'fact',
+            content: 'bravo body',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#bravo',
+          },
+          [{ ord: 0, text: 'unique bravo phrase', tokenCount: 3 }],
+        );
+
+        const chunkCount = (
+          service.db
+            .prepare('SELECT COUNT(*) AS n FROM memory_chunks')
+            .get() as { n: number }
+        ).n;
+        expect(chunkCount).toBe(3);
+
+        const result = await store.rebuildIndex();
+        expect(result.rebuiltFts).toBe(true);
+        expect(result.rebuiltVec).toBe(true);
+
+        const alphaHits = service.db
+          .prepare(
+            `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'alpha'`,
+          )
+          .all() as Array<{ rowid: number }>;
+        expect(alphaHits.length).toBeGreaterThan(0);
+
+        const bravoHits = service.db
+          .prepare(
+            `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'bravo'`,
+          )
+          .all() as Array<{ rowid: number }>;
+        expect(bravoHits.length).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe('succeeds without error on an empty memory_chunks table', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      const result = await store.rebuildIndex();
+      expect(result.rebuiltFts).toBe(true);
+      expect(result.rebuiltVec).toBe(true);
+
+      const hits = service.db
+        .prepare(
+          `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'anything'`,
+        )
+        .all();
+      expect(hits).toEqual([]);
+    } finally {
+      service.close();
+    }
+  });
+
+  maybe(
+    'is idempotent — running twice leaves the FTS row count equal to chunks',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'core',
+            kind: 'fact',
+            content: 'gamma body',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#gamma',
+          },
+          [
+            { ord: 0, text: 'gamma chunk one', tokenCount: 3 },
+            { ord: 1, text: 'gamma chunk two', tokenCount: 3 },
+          ],
+        );
+
+        await store.rebuildIndex();
+        const firstHits = service.db
+          .prepare(
+            `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'gamma'`,
+          )
+          .all() as Array<{ rowid: number }>;
+        expect(firstHits.length).toBe(2);
+
+        await store.rebuildIndex();
+        const secondHits = service.db
+          .prepare(
+            `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'gamma'`,
+          )
+          .all() as Array<{ rowid: number }>;
+        expect(secondHits.length).toBe(2);
+        expect(secondHits.map((h) => h.rowid).sort()).toEqual(
+          firstHits.map((h) => h.rowid).sort(),
+        );
+      } finally {
+        service.close();
+      }
+    },
+  );
+});

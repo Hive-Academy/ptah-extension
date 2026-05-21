@@ -579,7 +579,8 @@ export class MemoryStore implements IMemoryLister {
   async rebuildIndex(): Promise<{ rebuiltFts: boolean; rebuiltVec: boolean }> {
     const db = this.connection.db;
     db.exec(
-      `INSERT INTO memory_chunks_fts(memory_chunks_fts) VALUES('rebuild')`,
+      `INSERT INTO memory_chunks_fts(memory_chunks_fts) VALUES('delete-all');
+       INSERT INTO memory_chunks_fts(rowid, chunk_id, text) SELECT rowid, id, text FROM memory_chunks;`,
     );
     let rebuiltVec = false;
     if (this.connection.vecExtensionLoaded) {
