@@ -29,6 +29,16 @@ export type { ScoreInputs } from './lib/salience-scorer';
 export { MemoryDecayJob } from './lib/memory-decay.job';
 export type { DecayJobOptions, DecayRunStats } from './lib/memory-decay.job';
 export { MemoryTriggerService } from './lib/triggers/memory-trigger.service';
+export {
+  DEFAULT_CUE_LIST,
+  MEMORY_TRIGGER_DEFAULTS,
+  MEMORY_TRIGGER_KEYS,
+  MEMORY_TRIGGER_PREFIXES,
+  MEMORY_TRIGGER_SECTION,
+  flattenMemoryTriggers,
+  readMemoryTriggers,
+  type PopulatedMemoryTriggers,
+} from './lib/triggers/memory-trigger-config';
 export { BootScanRunner } from './lib/triggers/boot-scan-runner';
 export type {
   BootScanPipeline,

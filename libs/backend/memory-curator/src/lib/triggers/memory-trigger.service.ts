@@ -24,42 +24,11 @@ import { MEMORY_TOKENS } from '../di/tokens';
 import { MemoryCuratorService } from '../memory-curator.service';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
-
-const SECTION = 'ptah';
-const KEYS = {
-  preCompact: 'memory.triggers.preCompact',
-  idleMs: 'memory.triggers.idleMs',
-  turnThreshold: 'memory.triggers.turnThreshold',
-  bootScan: 'memory.triggers.bootScan',
-  userPromptSubmitEnabled: 'memory.triggers.userPromptSubmit.enabled',
-  userPromptSubmitCueList: 'memory.triggers.userPromptSubmit.cueList',
-  userPromptSubmitMinPromptLength:
-    'memory.triggers.userPromptSubmit.minPromptLength',
-  postToolUseEnabled: 'memory.triggers.postToolUse.enabled',
-  maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
-} as const;
-
-const DEFAULT_CUE_LIST: readonly string[] = [
-  'remember (this|that)',
-  '(important|critical)\\s+(point|note|fact|detail)',
-  'from now on',
-  'going forward',
-  'keep in mind',
-  'note that',
-  'save to memory',
-];
-
-const DEFAULTS = {
-  preCompact: true,
-  idleMs: 600000,
-  turnThreshold: 20,
-  bootScan: true,
-  userPromptSubmitEnabled: true,
-  userPromptSubmitCueList: DEFAULT_CUE_LIST,
-  userPromptSubmitMinPromptLength: 20,
-  postToolUseEnabled: true,
-  maxCuratesPerHour: 12,
-} as const;
+import {
+  MEMORY_TRIGGER_DEFAULTS,
+  MEMORY_TRIGGER_KEYS,
+  MEMORY_TRIGGER_SECTION,
+} from './memory-trigger-config';
 
 const COMMIT_PATTERN = /^\s*git\s+commit(?:\s|$)/;
 const RATE_LIMIT_KEY = 'memory.curate';
@@ -424,73 +393,83 @@ export class MemoryTriggerService {
 
   private readIdleMs(): number {
     const v = this.workspace.getConfiguration<number>(
-      SECTION,
-      KEYS.idleMs,
-      DEFAULTS.idleMs,
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.idleMs,
+      MEMORY_TRIGGER_DEFAULTS.idleMs,
     );
-    return typeof v === 'number' ? v : DEFAULTS.idleMs;
+    return typeof v === 'number' ? v : MEMORY_TRIGGER_DEFAULTS.idleMs;
   }
 
   private readTurnThreshold(): number {
     const v = this.workspace.getConfiguration<number>(
-      SECTION,
-      KEYS.turnThreshold,
-      DEFAULTS.turnThreshold,
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.turnThreshold,
+      MEMORY_TRIGGER_DEFAULTS.turnThreshold,
     );
-    return typeof v === 'number' ? v : DEFAULTS.turnThreshold;
+    return typeof v === 'number' ? v : MEMORY_TRIGGER_DEFAULTS.turnThreshold;
   }
 
   private readBootScanFlag(): boolean {
     const v = this.workspace.getConfiguration<boolean>(
-      SECTION,
-      KEYS.bootScan,
-      DEFAULTS.bootScan,
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.bootScan,
+      MEMORY_TRIGGER_DEFAULTS.bootScan,
     );
-    return typeof v === 'boolean' ? v : DEFAULTS.bootScan;
+    return typeof v === 'boolean' ? v : MEMORY_TRIGGER_DEFAULTS.bootScan;
   }
 
   private readUserPromptSubmitEnabled(): boolean {
     const v = this.workspace.getConfiguration<boolean>(
-      SECTION,
-      KEYS.userPromptSubmitEnabled,
-      DEFAULTS.userPromptSubmitEnabled,
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.userPromptSubmit.enabled,
+      MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.enabled,
     );
-    return typeof v === 'boolean' ? v : DEFAULTS.userPromptSubmitEnabled;
+    return typeof v === 'boolean'
+      ? v
+      : MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.enabled;
   }
 
   private readUserPromptSubmitCueList(): readonly string[] {
     const v = this.workspace.getConfiguration<readonly string[]>(
-      SECTION,
-      KEYS.userPromptSubmitCueList,
-      DEFAULTS.userPromptSubmitCueList,
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.userPromptSubmit.cueList,
+      MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.cueList,
     );
-    return Array.isArray(v) ? v : DEFAULTS.userPromptSubmitCueList;
+    return Array.isArray(v)
+      ? v
+      : MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.cueList;
   }
 
   private readUserPromptSubmitMinPromptLength(): number {
     const v = this.workspace.getConfiguration<number>(
-      SECTION,
-      KEYS.userPromptSubmitMinPromptLength,
-      DEFAULTS.userPromptSubmitMinPromptLength,
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.userPromptSubmit.minPromptLength,
+      MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.minPromptLength,
     );
-    return typeof v === 'number' ? v : DEFAULTS.userPromptSubmitMinPromptLength;
+    return typeof v === 'number'
+      ? v
+      : MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.minPromptLength;
   }
 
   private readPostToolUseEnabled(): boolean {
     const v = this.workspace.getConfiguration<boolean>(
-      SECTION,
-      KEYS.postToolUseEnabled,
-      DEFAULTS.postToolUseEnabled,
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.postToolUse.enabled,
+      MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled,
     );
-    return typeof v === 'boolean' ? v : DEFAULTS.postToolUseEnabled;
+    return typeof v === 'boolean'
+      ? v
+      : MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled;
   }
 
   private readMaxCuratesPerHour(): number {
     const v = this.workspace.getConfiguration<number>(
-      SECTION,
-      KEYS.maxCuratesPerHour,
-      DEFAULTS.maxCuratesPerHour,
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.maxCuratesPerHour,
+      MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour,
     );
-    return typeof v === 'number' ? v : DEFAULTS.maxCuratesPerHour;
+    return typeof v === 'number'
+      ? v
+      : MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour;
   }
 }

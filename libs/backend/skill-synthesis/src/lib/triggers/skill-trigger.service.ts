@@ -26,27 +26,11 @@ import {
 } from '@ptah-extension/memory-curator';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import { SkillSynthesisService } from '../skill-synthesis.service';
-
-const SECTION = 'ptah';
-const KEYS = {
-  sessionEnd: 'skillSynthesis.triggers.sessionEnd',
-  idleMs: 'skillSynthesis.triggers.idleMs',
-  bootScan: 'skillSynthesis.triggers.bootScan',
-  subagentStopEnabled: 'skillSynthesis.triggers.subagentStop.enabled',
-  postToolUseEnabled: 'skillSynthesis.triggers.postToolUse.enabled',
-  postToolUseMinEditCount: 'skillSynthesis.triggers.postToolUse.minEditCount',
-  maxAnalyzesPerHour: 'skillSynthesis.triggers.maxAnalyzesPerHour',
-} as const;
-
-const DEFAULTS = {
-  sessionEnd: true,
-  idleMs: 600000,
-  bootScan: true,
-  subagentStopEnabled: true,
-  postToolUseEnabled: true,
-  postToolUseMinEditCount: 3,
-  maxAnalyzesPerHour: 6,
-} as const;
+import {
+  SKILL_TRIGGER_DEFAULTS,
+  SKILL_TRIGGER_KEYS,
+  SKILL_TRIGGER_SECTION,
+} from './skill-trigger-config';
 
 const TEST_PATTERN = /\b(npm|pnpm|yarn|jest|vitest|nx)\s+(test|run\s+test)\b/;
 const EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit']);
@@ -386,55 +370,63 @@ export class SkillTriggerService {
 
   private readIdleMs(): number {
     const v = this.workspace.getConfiguration<number>(
-      SECTION,
-      KEYS.idleMs,
-      DEFAULTS.idleMs,
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.idleMs,
+      SKILL_TRIGGER_DEFAULTS.idleMs,
     );
-    return typeof v === 'number' ? v : DEFAULTS.idleMs;
+    return typeof v === 'number' ? v : SKILL_TRIGGER_DEFAULTS.idleMs;
   }
 
   private readBootScanFlag(): boolean {
     const v = this.workspace.getConfiguration<boolean>(
-      SECTION,
-      KEYS.bootScan,
-      DEFAULTS.bootScan,
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.bootScan,
+      SKILL_TRIGGER_DEFAULTS.bootScan,
     );
-    return typeof v === 'boolean' ? v : DEFAULTS.bootScan;
+    return typeof v === 'boolean' ? v : SKILL_TRIGGER_DEFAULTS.bootScan;
   }
 
   private readSubagentStopEnabled(): boolean {
     const v = this.workspace.getConfiguration<boolean>(
-      SECTION,
-      KEYS.subagentStopEnabled,
-      DEFAULTS.subagentStopEnabled,
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.subagentStop.enabled,
+      SKILL_TRIGGER_DEFAULTS.subagentStop.enabled,
     );
-    return typeof v === 'boolean' ? v : DEFAULTS.subagentStopEnabled;
+    return typeof v === 'boolean'
+      ? v
+      : SKILL_TRIGGER_DEFAULTS.subagentStop.enabled;
   }
 
   private readPostToolUseEnabled(): boolean {
     const v = this.workspace.getConfiguration<boolean>(
-      SECTION,
-      KEYS.postToolUseEnabled,
-      DEFAULTS.postToolUseEnabled,
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.postToolUse.enabled,
+      SKILL_TRIGGER_DEFAULTS.postToolUse.enabled,
     );
-    return typeof v === 'boolean' ? v : DEFAULTS.postToolUseEnabled;
+    return typeof v === 'boolean'
+      ? v
+      : SKILL_TRIGGER_DEFAULTS.postToolUse.enabled;
   }
 
   private readPostToolUseMinEditCount(): number {
     const v = this.workspace.getConfiguration<number>(
-      SECTION,
-      KEYS.postToolUseMinEditCount,
-      DEFAULTS.postToolUseMinEditCount,
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.postToolUse.minEditCount,
+      SKILL_TRIGGER_DEFAULTS.postToolUse.minEditCount,
     );
-    return typeof v === 'number' ? v : DEFAULTS.postToolUseMinEditCount;
+    return typeof v === 'number'
+      ? v
+      : SKILL_TRIGGER_DEFAULTS.postToolUse.minEditCount;
   }
 
   private readMaxAnalyzesPerHour(): number {
     const v = this.workspace.getConfiguration<number>(
-      SECTION,
-      KEYS.maxAnalyzesPerHour,
-      DEFAULTS.maxAnalyzesPerHour,
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.maxAnalyzesPerHour,
+      SKILL_TRIGGER_DEFAULTS.maxAnalyzesPerHour,
     );
-    return typeof v === 'number' ? v : DEFAULTS.maxAnalyzesPerHour;
+    return typeof v === 'number'
+      ? v
+      : SKILL_TRIGGER_DEFAULTS.maxAnalyzesPerHour;
   }
 }

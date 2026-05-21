@@ -44,6 +44,15 @@ export {
 } from './lib/skill-curator.service';
 export { cosineSimilarity } from './lib/cosine-similarity';
 export { SkillTriggerService } from './lib/triggers/skill-trigger.service';
+export {
+  SKILL_TRIGGER_DEFAULTS,
+  SKILL_TRIGGER_KEYS,
+  SKILL_TRIGGER_PREFIXES,
+  SKILL_TRIGGER_SECTION,
+  flattenSkillTriggers,
+  readSkillTriggers,
+  type PopulatedSkillTriggers,
+} from './lib/triggers/skill-trigger-config';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,

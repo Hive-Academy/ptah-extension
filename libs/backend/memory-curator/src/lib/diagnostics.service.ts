@@ -9,6 +9,7 @@ import {
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryCuratorService } from './memory-curator.service';
 import { MemoryDecayJob } from './memory-decay.job';
+import { readMemoryTriggers } from './triggers/memory-trigger-config';
 import type {
   MemoryCuratorEvent,
   MemoryDbHealth,
@@ -18,41 +19,6 @@ import type {
 interface CountRow {
   readonly n: number;
 }
-
-const TRIGGER_KEYS = {
-  preCompact: 'memory.triggers.preCompact',
-  idleMs: 'memory.triggers.idleMs',
-  turnThreshold: 'memory.triggers.turnThreshold',
-  bootScan: 'memory.triggers.bootScan',
-  userPromptSubmitEnabled: 'memory.triggers.userPromptSubmit.enabled',
-  userPromptSubmitCueList: 'memory.triggers.userPromptSubmit.cueList',
-  userPromptSubmitMinPromptLength:
-    'memory.triggers.userPromptSubmit.minPromptLength',
-  postToolUseEnabled: 'memory.triggers.postToolUse.enabled',
-  maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
-} as const;
-
-const DEFAULT_CUE_LIST: readonly string[] = [
-  'remember (this|that)',
-  '(important|critical)\\s+(point|note|fact|detail)',
-  'from now on',
-  'going forward',
-  'keep in mind',
-  'note that',
-  'save to memory',
-];
-
-const TRIGGER_DEFAULTS = {
-  preCompact: true,
-  idleMs: 600000,
-  turnThreshold: 20,
-  bootScan: true,
-  userPromptSubmitEnabled: true,
-  userPromptSubmitCueList: DEFAULT_CUE_LIST,
-  userPromptSubmitMinPromptLength: 20,
-  postToolUseEnabled: true,
-  maxCuratesPerHour: 12,
-} as const;
 
 @injectable()
 export class MemoryDiagnosticsService {
@@ -77,7 +43,7 @@ export class MemoryDiagnosticsService {
     const recentEvents: readonly MemoryCuratorEvent[] =
       this.curator.recentEvents(eventLimit);
     const dbHealth = this.readDbHealth();
-    const triggers = this.readTriggers();
+    const triggers = readMemoryTriggers(this.workspace);
 
     return {
       lastRunAt: lastRun.at,
@@ -87,76 +53,6 @@ export class MemoryDiagnosticsService {
       recentEvents,
       dbHealth,
       triggers,
-    };
-  }
-
-  private readTriggers(): MemoryDiagnosticsSnapshot['triggers'] {
-    const preCompact =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.preCompact,
-        TRIGGER_DEFAULTS.preCompact,
-      ) ?? TRIGGER_DEFAULTS.preCompact;
-    const idleMs =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.idleMs,
-        TRIGGER_DEFAULTS.idleMs,
-      ) ?? TRIGGER_DEFAULTS.idleMs;
-    const turnThreshold =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.turnThreshold,
-        TRIGGER_DEFAULTS.turnThreshold,
-      ) ?? TRIGGER_DEFAULTS.turnThreshold;
-    const bootScan =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.bootScan,
-        TRIGGER_DEFAULTS.bootScan,
-      ) ?? TRIGGER_DEFAULTS.bootScan;
-    const userPromptSubmitEnabled =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.userPromptSubmitEnabled,
-        TRIGGER_DEFAULTS.userPromptSubmitEnabled,
-      ) ?? TRIGGER_DEFAULTS.userPromptSubmitEnabled;
-    const userPromptSubmitCueList =
-      this.workspace.getConfiguration<readonly string[]>(
-        'ptah',
-        TRIGGER_KEYS.userPromptSubmitCueList,
-        TRIGGER_DEFAULTS.userPromptSubmitCueList,
-      ) ?? TRIGGER_DEFAULTS.userPromptSubmitCueList;
-    const userPromptSubmitMinPromptLength =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.userPromptSubmitMinPromptLength,
-        TRIGGER_DEFAULTS.userPromptSubmitMinPromptLength,
-      ) ?? TRIGGER_DEFAULTS.userPromptSubmitMinPromptLength;
-    const postToolUseEnabled =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.postToolUseEnabled,
-        TRIGGER_DEFAULTS.postToolUseEnabled,
-      ) ?? TRIGGER_DEFAULTS.postToolUseEnabled;
-    const maxCuratesPerHour =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.maxCuratesPerHour,
-        TRIGGER_DEFAULTS.maxCuratesPerHour,
-      ) ?? TRIGGER_DEFAULTS.maxCuratesPerHour;
-    return {
-      preCompact,
-      idleMs,
-      turnThreshold,
-      bootScan,
-      userPromptSubmit: {
-        enabled: userPromptSubmitEnabled,
-        cueList: userPromptSubmitCueList,
-        minPromptLength: userPromptSubmitMinPromptLength,
-      },
-      postToolUse: { enabled: postToolUseEnabled },
-      maxCuratesPerHour,
     };
   }
 

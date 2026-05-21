@@ -10,6 +10,8 @@ import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   MEMORY_TOKENS,
   memoryId,
+  flattenMemoryTriggers,
+  readMemoryTriggers,
   type CodeSymbolStore,
   type Memory,
   type MemoryChunk,
@@ -52,7 +54,6 @@ import type {
   MemorySetTriggersResult,
   MemoryStatsParams,
   MemoryStatsResult,
-  MemoryTriggersDto,
   MemoryWire,
   RpcMethodName,
 } from '@ptah-extension/shared';
@@ -66,59 +67,6 @@ import {
   MemorySetTriggersParamsSchema,
 } from './memory-rpc.schema';
 
-const DEFAULT_MEMORY_CUE_LIST: readonly string[] = [
-  'remember (this|that)',
-  '(important|critical)\\s+(point|note|fact|detail)',
-  'from now on',
-  'going forward',
-  'keep in mind',
-  'note that',
-  'save to memory',
-];
-
-const MEMORY_TRIGGER_DEFAULTS = {
-  preCompact: true,
-  idleMs: 600000,
-  turnThreshold: 20,
-  bootScan: true,
-  userPromptSubmit: {
-    enabled: true,
-    cueList: DEFAULT_MEMORY_CUE_LIST,
-    minPromptLength: 20,
-  },
-  postToolUse: { enabled: true },
-  maxCuratesPerHour: 12,
-} as const;
-
-const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> = {
-  preCompact: 'memory.triggers.preCompact',
-  idleMs: 'memory.triggers.idleMs',
-  turnThreshold: 'memory.triggers.turnThreshold',
-  bootScan: 'memory.triggers.bootScan',
-  userPromptSubmit: 'memory.triggers.userPromptSubmit',
-  postToolUse: 'memory.triggers.postToolUse',
-  maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
-};
-
-function flattenTrigger(
-  prefix: string,
-  value: unknown,
-): Array<[string, unknown]> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return [[prefix, value]];
-  }
-  const out: Array<[string, unknown]> = [];
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out.push(...flattenTrigger(`${prefix}.${k}`, v));
-  }
-  return out;
-}
-
-/**
- * Narrow schema for extracting workspaceRoot independently of the full
- * MemorySearchParamsSchema. This ensures that a bad `topK` or `query` value
- * cannot poison the scope — workspaceRoot survives any other field's failure.
- */
 const WorkspaceRootSchema = z.string().min(1).optional();
 
 function toMemoryWire(m: Memory): MemoryWire {
@@ -596,24 +544,16 @@ export class MemoryRpcHandlers {
           );
         }
         try {
-          const incoming = validated.triggers;
-          const entries: Array<[keyof MemoryTriggersDto, unknown]> =
-            Object.entries(incoming) as Array<
-              [keyof MemoryTriggersDto, unknown]
-            >;
-          for (const [key, value] of entries) {
-            if (value === undefined) continue;
-            const prefix = MEMORY_TRIGGER_PREFIXES[key];
-            const leaves = flattenTrigger(prefix, value);
-            for (const [flatKey, flatValue] of leaves) {
-              await this.workspaceProvider.setConfiguration(
-                'ptah',
-                flatKey,
-                flatValue,
-              );
-            }
+          for (const [flatKey, flatValue] of flattenMemoryTriggers(
+            validated.triggers,
+          )) {
+            await this.workspaceProvider.setConfiguration(
+              'ptah',
+              flatKey,
+              flatValue,
+            );
           }
-          return { triggers: this.readMemoryTriggers() };
+          return { triggers: readMemoryTriggers(this.workspaceProvider) };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           this.logger.error('[memory] setTriggers failed', { error: message });
@@ -641,81 +581,11 @@ export class MemoryRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        return { triggers: this.readMemoryTriggers() };
+        return { triggers: readMemoryTriggers(this.workspaceProvider) };
       },
     );
 
     void this.curator;
     this.logger.info('[memory] RPC handlers registered');
-  }
-
-  private readMemoryTriggers(): MemoryTriggersDto {
-    const preCompact =
-      this.workspaceProvider.getConfiguration<boolean>(
-        'ptah',
-        'memory.triggers.preCompact',
-        MEMORY_TRIGGER_DEFAULTS.preCompact,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.preCompact;
-    const idleMs =
-      this.workspaceProvider.getConfiguration<number>(
-        'ptah',
-        'memory.triggers.idleMs',
-        MEMORY_TRIGGER_DEFAULTS.idleMs,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.idleMs;
-    const turnThreshold =
-      this.workspaceProvider.getConfiguration<number>(
-        'ptah',
-        'memory.triggers.turnThreshold',
-        MEMORY_TRIGGER_DEFAULTS.turnThreshold,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.turnThreshold;
-    const bootScan =
-      this.workspaceProvider.getConfiguration<boolean>(
-        'ptah',
-        'memory.triggers.bootScan',
-        MEMORY_TRIGGER_DEFAULTS.bootScan,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.bootScan;
-    const userPromptSubmitEnabled =
-      this.workspaceProvider.getConfiguration<boolean>(
-        'ptah',
-        'memory.triggers.userPromptSubmit.enabled',
-        MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.enabled,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.enabled;
-    const userPromptSubmitCueList =
-      this.workspaceProvider.getConfiguration<readonly string[]>(
-        'ptah',
-        'memory.triggers.userPromptSubmit.cueList',
-        MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.cueList,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.cueList;
-    const userPromptSubmitMinPromptLength =
-      this.workspaceProvider.getConfiguration<number>(
-        'ptah',
-        'memory.triggers.userPromptSubmit.minPromptLength',
-        MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.minPromptLength,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.minPromptLength;
-    const postToolUseEnabled =
-      this.workspaceProvider.getConfiguration<boolean>(
-        'ptah',
-        'memory.triggers.postToolUse.enabled',
-        MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled;
-    const maxCuratesPerHour =
-      this.workspaceProvider.getConfiguration<number>(
-        'ptah',
-        'memory.triggers.maxCuratesPerHour',
-        MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour;
-    return {
-      preCompact,
-      idleMs,
-      turnThreshold,
-      bootScan,
-      userPromptSubmit: {
-        enabled: userPromptSubmitEnabled,
-        cueList: userPromptSubmitCueList,
-        minPromptLength: userPromptSubmitMinPromptLength,
-      },
-      postToolUse: { enabled: postToolUseEnabled },
-      maxCuratesPerHour,
-    };
   }
 }

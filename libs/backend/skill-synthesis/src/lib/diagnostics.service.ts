@@ -5,30 +5,11 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillSynthesisService } from './skill-synthesis.service';
 import { SkillCandidateStore } from './skill-candidate.store';
+import { readSkillTriggers } from './triggers/skill-trigger-config';
 import type {
   SkillSynthesisDiagnosticsSnapshot,
   SkillSynthesisEvent,
 } from './diagnostics.types';
-
-const TRIGGER_KEYS = {
-  sessionEnd: 'skillSynthesis.triggers.sessionEnd',
-  idleMs: 'skillSynthesis.triggers.idleMs',
-  bootScan: 'skillSynthesis.triggers.bootScan',
-  subagentStopEnabled: 'skillSynthesis.triggers.subagentStop.enabled',
-  postToolUseEnabled: 'skillSynthesis.triggers.postToolUse.enabled',
-  postToolUseMinEditCount: 'skillSynthesis.triggers.postToolUse.minEditCount',
-  maxAnalyzesPerHour: 'skillSynthesis.triggers.maxAnalyzesPerHour',
-} as const;
-
-const TRIGGER_DEFAULTS = {
-  sessionEnd: true,
-  idleMs: 600000,
-  bootScan: true,
-  subagentStopEnabled: true,
-  postToolUseEnabled: true,
-  postToolUseMinEditCount: 3,
-  maxAnalyzesPerHour: 6,
-} as const;
 
 @injectable()
 export class SkillSynthesisDiagnosticsService {
@@ -51,7 +32,7 @@ export class SkillSynthesisDiagnosticsService {
       this.synthesis.recentEvents(eventLimit);
     const histogram = this.synthesis.getEligibilityHistogram();
     const stats = this.readStats();
-    const triggers = this.readTriggers();
+    const triggers = readSkillTriggers(this.workspace);
 
     return {
       lastAnalyzeRunAt: lastRun.lastAnalyzeRunAt,
@@ -79,61 +60,5 @@ export class SkillSynthesisDiagnosticsService {
       });
       return { candidate: 0, promoted: 0, rejected: 0, invocations: 0 };
     }
-  }
-
-  private readTriggers(): SkillSynthesisDiagnosticsSnapshot['triggers'] {
-    const sessionEnd =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.sessionEnd,
-        TRIGGER_DEFAULTS.sessionEnd,
-      ) ?? TRIGGER_DEFAULTS.sessionEnd;
-    const idleMs =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.idleMs,
-        TRIGGER_DEFAULTS.idleMs,
-      ) ?? TRIGGER_DEFAULTS.idleMs;
-    const bootScan =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.bootScan,
-        TRIGGER_DEFAULTS.bootScan,
-      ) ?? TRIGGER_DEFAULTS.bootScan;
-    const subagentStopEnabled =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.subagentStopEnabled,
-        TRIGGER_DEFAULTS.subagentStopEnabled,
-      ) ?? TRIGGER_DEFAULTS.subagentStopEnabled;
-    const postToolUseEnabled =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.postToolUseEnabled,
-        TRIGGER_DEFAULTS.postToolUseEnabled,
-      ) ?? TRIGGER_DEFAULTS.postToolUseEnabled;
-    const postToolUseMinEditCount =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.postToolUseMinEditCount,
-        TRIGGER_DEFAULTS.postToolUseMinEditCount,
-      ) ?? TRIGGER_DEFAULTS.postToolUseMinEditCount;
-    const maxAnalyzesPerHour =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.maxAnalyzesPerHour,
-        TRIGGER_DEFAULTS.maxAnalyzesPerHour,
-      ) ?? TRIGGER_DEFAULTS.maxAnalyzesPerHour;
-    return {
-      sessionEnd,
-      idleMs,
-      bootScan,
-      subagentStop: { enabled: subagentStopEnabled },
-      postToolUse: {
-        enabled: postToolUseEnabled,
-        minEditCount: postToolUseMinEditCount,
-      },
-      maxAnalyzesPerHour,
-    };
   }
 }
