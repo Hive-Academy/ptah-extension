@@ -38,6 +38,8 @@ import type {
   HookJSONOutput,
   HookInput,
 } from '../types/sdk-types/claude-sdk.types';
+import { SDK_TOKENS } from '../di/tokens';
+import { SubagentStopCallbackRegistry } from './subagent-stop-callback-registry';
 
 /**
  * SubagentHookHandler Service
@@ -60,6 +62,8 @@ export class SubagentHookHandler {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY)
+    private readonly subagentStopRegistry: SubagentStopCallbackRegistry,
   ) {}
 
   /**
@@ -156,7 +160,7 @@ export class SubagentHookHandler {
                 );
                 return { continue: true };
               }
-              return this.handleSubagentStop(input, toolUseId);
+              return this.handleSubagentStop(input, toolUseId, workspacePath);
             },
           ],
         },
@@ -254,6 +258,7 @@ export class SubagentHookHandler {
   private async handleSubagentStop(
     input: SubagentStopHookInput,
     toolUseId: string | undefined,
+    workspacePath: string,
   ): Promise<HookJSONOutput> {
     try {
       this.logger.debug('[SubagentHookHandler] SubagentStop received', {
@@ -319,6 +324,42 @@ export class SubagentHookHandler {
         }
       }
 
+      if (record && input.agent_transcript_path) {
+        const derivedSessionId = this.deriveSubagentSessionId(
+          input.agent_transcript_path,
+        );
+        if (derivedSessionId !== null) {
+          try {
+            this.subagentStopRegistry.notifyAll({
+              subagentSessionId: derivedSessionId,
+              parentSessionId: input.session_id,
+              workspaceRoot: workspacePath,
+              agentId: input.agent_id,
+              agentType: record.agentType,
+              transcriptPath: input.agent_transcript_path,
+              timestamp: Date.now(),
+            });
+          } catch (notifyError: unknown) {
+            this.logger.warn(
+              '[subagent-hook] SubagentStopCallbackRegistry.notifyAll threw',
+              {
+                error:
+                  notifyError instanceof Error
+                    ? notifyError.message
+                    : String(notifyError),
+              },
+            );
+          }
+        } else {
+          this.logger.warn(
+            '[subagent-hook] could not derive subagentSessionId from agent_transcript_path',
+            {
+              transcriptPath: input.agent_transcript_path,
+            },
+          );
+        }
+      }
+
       this.logger.debug(
         '[SubagentHookHandler] SubagentStop processed successfully',
         {
@@ -334,6 +375,11 @@ export class SubagentHookHandler {
       );
     }
     return { continue: true };
+  }
+
+  private deriveSubagentSessionId(agentTranscriptPath: string): string | null {
+    const match = /([0-9a-f-]{36})\.jsonl$/i.exec(agentTranscriptPath);
+    return match ? match[1] : null;
   }
 
   /**
