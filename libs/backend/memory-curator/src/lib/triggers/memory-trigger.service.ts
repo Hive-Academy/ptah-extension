@@ -61,7 +61,7 @@ const DEFAULTS = {
   maxCuratesPerHour: 12,
 } as const;
 
-const COMMIT_PATTERN = /^\s*git\s+commit\b/;
+const COMMIT_PATTERN = /^\s*git\s+commit(?:\s|$)/;
 const RATE_LIMIT_KEY = 'memory.curate';
 const MAX_CUE_PATTERN_LENGTH = 200;
 
@@ -196,6 +196,13 @@ export class MemoryTriggerService {
 
   private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {
     if (!this.readUserPromptSubmitEnabled()) return;
+    if (!payload.sessionId || payload.sessionId.length === 0) {
+      this.logger.warn(
+        '[memory-curator] empty sessionId in onUserPromptSubmit, skipping',
+        { workspaceRoot: payload.workspaceRoot },
+      );
+      return;
+    }
     const minLength = this.readUserPromptSubmitMinPromptLength();
     if (payload.prompt.length < minLength) return;
 
@@ -249,6 +256,13 @@ export class MemoryTriggerService {
     const command = this.extractBashCommand(payload.toolInput);
     if (!command || !COMMIT_PATTERN.test(command)) return;
     if (!this.readPostToolUseEnabled()) return;
+    if (!payload.sessionId || payload.sessionId.length === 0) {
+      this.logger.warn(
+        '[memory-curator] empty sessionId in onPostToolUse, skipping',
+        { workspaceRoot: payload.workspaceRoot },
+      );
+      return;
+    }
 
     const decision = this.rateLimiter.tryAcquire(
       RATE_LIMIT_KEY,

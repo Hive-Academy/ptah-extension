@@ -578,6 +578,20 @@ describe('MemoryTriggerService — user-cue trigger', () => {
     );
   });
 
+  it('empty sessionId in payload short-circuits before rate-limit acquire', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const acquireSpy = jest.spyOn(rateLimiter, 'tryAcquire');
+    const { service, userPromptSubmit, curator } = buildService({
+      rateLimiter,
+    });
+    service.start();
+    userPromptSubmit.fire(userPromptPayload({ sessionId: '' }));
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+    expect(curator.pushEvent).not.toHaveBeenCalled();
+    expect(acquireSpy).not.toHaveBeenCalled();
+  });
+
   it('userPromptSubmit enabled=false short-circuits handler', async () => {
     const { service, userPromptSubmit, curator } = buildService({
       workspace: makeWorkspace({
@@ -727,6 +741,31 @@ describe('MemoryTriggerService — commit-detect trigger', () => {
     );
     await Promise.resolve();
     expect(curator.curate).not.toHaveBeenCalled();
+  });
+
+  it('hyphenated git commit forms (e.g. git commit-hook) are ignored', async () => {
+    const { service, postToolUse, curator } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolInput: { command: 'git commit-hook --install' },
+      }),
+    );
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+    expect(curator.pushEvent).not.toHaveBeenCalled();
+  });
+
+  it('empty sessionId in payload short-circuits before rate-limit acquire', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const acquireSpy = jest.spyOn(rateLimiter, 'tryAcquire');
+    const { service, postToolUse, curator } = buildService({ rateLimiter });
+    service.start();
+    postToolUse.fire(postToolUsePayload({ sessionId: '' }));
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+    expect(curator.pushEvent).not.toHaveBeenCalled();
+    expect(acquireSpy).not.toHaveBeenCalled();
   });
 });
 

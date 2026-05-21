@@ -178,6 +178,13 @@ export class SkillTriggerService {
 
   private onSubagentStop(payload: SubagentStopPayload): void {
     if (!this.readSubagentStopEnabled()) return;
+    if (!payload.subagentSessionId || payload.subagentSessionId.length === 0) {
+      this.logger.warn(
+        '[skill-synthesis] empty sessionId in onSubagentStop, skipping',
+        { workspaceRoot: payload.workspaceRoot },
+      );
+      return;
+    }
 
     const decision = this.rateLimiter.tryAcquire(
       RATE_LIMIT_KEY,
@@ -212,6 +219,13 @@ export class SkillTriggerService {
 
   private onPostToolUse(payload: PostToolUsePayload): void {
     if (!this.readPostToolUseEnabled()) return;
+    if (!payload.sessionId || payload.sessionId.length === 0) {
+      this.logger.warn(
+        '[skill-synthesis] empty sessionId in onPostToolUse, skipping',
+        { workspaceRoot: payload.workspaceRoot },
+      );
+      return;
+    }
     const minEditCount = this.readPostToolUseMinEditCount();
     const now = payload.timestamp;
 

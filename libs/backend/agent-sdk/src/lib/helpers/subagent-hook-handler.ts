@@ -324,7 +324,7 @@ export class SubagentHookHandler {
         }
       }
 
-      if (record && input.agent_transcript_path) {
+      if (input.agent_transcript_path) {
         const derivedSessionId = this.deriveSubagentSessionId(
           input.agent_transcript_path,
         );
@@ -335,7 +335,7 @@ export class SubagentHookHandler {
               parentSessionId: input.session_id,
               workspaceRoot: workspacePath,
               agentId: input.agent_id,
-              agentType: record.agentType,
+              agentType: record?.agentType ?? 'unknown',
               transcriptPath: input.agent_transcript_path,
               timestamp: Date.now(),
             });

@@ -73,13 +73,18 @@ export class PostToolUseHookHandler {
                 }
                 const exitCode = extractExitCode(input.tool_response);
                 const success = deriveSuccess(input.tool_response, exitCode);
+                const resolvedSessionId =
+                  typeof input.session_id === 'string' &&
+                  input.session_id.length > 0
+                    ? input.session_id
+                    : sessionId;
                 this.callbackRegistry.notifyAll({
                   toolName: input.tool_name,
                   toolInput: input.tool_input,
                   toolOutput: input.tool_response,
                   exitCode,
                   success,
-                  sessionId,
+                  sessionId: resolvedSessionId,
                   workspaceRoot: cwd,
                   timestamp: Date.now(),
                 });

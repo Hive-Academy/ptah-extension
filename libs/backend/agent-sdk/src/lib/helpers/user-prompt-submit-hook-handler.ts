@@ -39,9 +39,14 @@ export class UserPromptSubmitHookHandler {
                 if (this.callbackRegistry.size === 0) {
                   return { continue: true };
                 }
+                const resolvedSessionId =
+                  typeof input.session_id === 'string' &&
+                  input.session_id.length > 0
+                    ? input.session_id
+                    : sessionId;
                 this.callbackRegistry.notifyAll({
                   prompt: input.prompt,
-                  sessionId,
+                  sessionId: resolvedSessionId,
                   workspaceRoot: cwd,
                   timestamp: Date.now(),
                 });

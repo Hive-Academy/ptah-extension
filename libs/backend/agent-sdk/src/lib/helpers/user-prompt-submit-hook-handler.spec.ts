@@ -114,6 +114,58 @@ describe('UserPromptSubmitHookHandler', () => {
     );
   });
 
+  it('prefers input.session_id over closure-captured sessionId when present', async () => {
+    const logger = makeLogger();
+    const registry = new UserPromptSubmitCallbackRegistry(logger);
+    const captured: Array<{ sessionId: string }> = [];
+    registry.register((payload) => {
+      captured.push({ sessionId: payload.sessionId });
+    });
+    const handler = new UserPromptSubmitHookHandler(logger, registry);
+    const fn = getHookCallback(handler, 'closure-sess', '/workspace');
+
+    const input = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'sdk-sess-real',
+      prompt: 'hello',
+    } as unknown as HookInput;
+
+    await fn(input, undefined, { signal: new AbortController().signal });
+
+    expect(captured).toEqual([{ sessionId: 'sdk-sess-real' }]);
+  });
+
+  it('falls back to closure sessionId when input.session_id is missing or empty', async () => {
+    const logger = makeLogger();
+    const registry = new UserPromptSubmitCallbackRegistry(logger);
+    const captured: Array<{ sessionId: string }> = [];
+    registry.register((payload) => {
+      captured.push({ sessionId: payload.sessionId });
+    });
+    const handler = new UserPromptSubmitHookHandler(logger, registry);
+    const fn = getHookCallback(handler, 'closure-sess', '/workspace');
+
+    const inputMissing = {
+      hook_event_name: 'UserPromptSubmit',
+      prompt: 'hello',
+    } as unknown as HookInput;
+    await fn(inputMissing, undefined, {
+      signal: new AbortController().signal,
+    });
+
+    const inputEmpty = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: '',
+      prompt: 'world',
+    } as unknown as HookInput;
+    await fn(inputEmpty, undefined, { signal: new AbortController().signal });
+
+    expect(captured).toEqual([
+      { sessionId: 'closure-sess' },
+      { sessionId: 'closure-sess' },
+    ]);
+  });
+
   it('skips fan-out when there are zero registered subscribers', async () => {
     const logger = makeLogger();
     const registry = new UserPromptSubmitCallbackRegistry(logger);

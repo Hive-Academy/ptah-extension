@@ -4,7 +4,10 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type { SubagentRecord } from '@ptah-extension/shared';
 import { SubagentHookHandler } from './subagent-hook-handler';
-import { SubagentStopCallbackRegistry } from './subagent-stop-callback-registry';
+import {
+  SubagentStopCallbackRegistry,
+  type SubagentStopPayload,
+} from './subagent-stop-callback-registry';
 import type {
   HookInput,
   HookJSONOutput,
@@ -61,15 +64,17 @@ function getStopCallback(
 const VALID_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
 describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
-  it('valid agent_transcript_path with UUID basename → notifyAll called with derived subagentSessionId', async () => {
+  it('valid agent_transcript_path with UUID basename → notifyAll fires with derived subagentSessionId', async () => {
     const logger = makeLogger();
     const registry = makeRegistry({
       toolCallId: 'tu-1',
       agentType: 'backend-developer',
     });
-    const stopRegistry = {
-      notifyAll: jest.fn(),
-    } as unknown as jest.Mocked<SubagentStopCallbackRegistry>;
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    const captured: SubagentStopPayload[] = [];
+    stopRegistry.register((payload) => {
+      captured.push(payload);
+    });
     const handler = new SubagentHookHandler(logger, registry, stopRegistry);
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
@@ -87,8 +92,8 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     });
 
     expect(result).toEqual({ continue: true });
-    expect(stopRegistry.notifyAll).toHaveBeenCalledTimes(1);
-    expect(stopRegistry.notifyAll).toHaveBeenCalledWith(
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual(
       expect.objectContaining({
         subagentSessionId: VALID_UUID,
         parentSessionId: 'parent-sess-1',
@@ -100,12 +105,14 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     );
   });
 
-  it('agent_transcript_path without UUID basename → notifyAll NOT called; logger.warn fires with path', async () => {
+  it('agent_transcript_path without UUID basename → no fan-out; logger.warn fires with path', async () => {
     const logger = makeLogger();
     const registry = makeRegistry({ toolCallId: 'tu-1' });
-    const stopRegistry = {
-      notifyAll: jest.fn(),
-    } as unknown as jest.Mocked<SubagentStopCallbackRegistry>;
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    const captured: SubagentStopPayload[] = [];
+    stopRegistry.register((payload) => {
+      captured.push(payload);
+    });
     const handler = new SubagentHookHandler(logger, registry, stopRegistry);
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
@@ -124,7 +131,7 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     });
 
     expect(result).toEqual({ continue: true });
-    expect(stopRegistry.notifyAll).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
     const warnedAboutDerive = logger.warn.mock.calls.some(
       ([msg, ctx]) =>
         typeof msg === 'string' &&
@@ -135,14 +142,13 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     expect(warnedAboutDerive).toBe(true);
   });
 
-  it('registry.notifyAll throws → caught and logged; subagentRegistry.update still ran; returns continue:true', async () => {
+  it('registry.notifyAll subscriber throws → registry logs error; subagentRegistry.update still ran; returns continue:true', async () => {
     const logger = makeLogger();
     const registry = makeRegistry({ toolCallId: 'tu-1' });
-    const stopRegistry = {
-      notifyAll: jest.fn().mockImplementation(() => {
-        throw new Error('subscriber boom');
-      }),
-    } as unknown as jest.Mocked<SubagentStopCallbackRegistry>;
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    stopRegistry.register(() => {
+      throw new Error('subscriber boom');
+    });
     const handler = new SubagentHookHandler(logger, registry, stopRegistry);
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
@@ -160,27 +166,28 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     });
 
     expect(result).toEqual({ continue: true });
-    expect(stopRegistry.notifyAll).toHaveBeenCalledTimes(1);
     expect(registry.update).toHaveBeenCalledWith(
       'tu-1',
       expect.objectContaining({ status: 'completed' }),
     );
-    const warnedAboutThrow = logger.warn.mock.calls.some(
-      ([msg, ctx]) =>
+    const errorLogged = logger.error.mock.calls.some(
+      ([msg]) =>
         typeof msg === 'string' &&
-        msg.includes('SubagentStopCallbackRegistry.notifyAll threw') &&
-        (ctx as { error?: string } | undefined)?.error === 'subscriber boom',
+        msg.includes('SubagentStopCallbackRegistry') &&
+        msg.includes('subscriber threw'),
     );
-    expect(warnedAboutThrow).toBe(true);
+    expect(errorLogged).toBe(true);
   });
 
-  it('record is null (no toolCallId match, no agentId fallback) → notifyAll NOT called', async () => {
+  it('record is null (no toolCallId match, no agentId fallback) → fan-out STILL fires with agentType:unknown', async () => {
     const logger = makeLogger();
     const registry = makeRegistry(null);
     (registry.getToolCallIdByAgentId as jest.Mock).mockReturnValue(undefined);
-    const stopRegistry = {
-      notifyAll: jest.fn(),
-    } as unknown as jest.Mocked<SubagentStopCallbackRegistry>;
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    const captured: SubagentStopPayload[] = [];
+    stopRegistry.register((payload) => {
+      captured.push(payload);
+    });
     const handler = new SubagentHookHandler(logger, registry, stopRegistry);
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
@@ -198,6 +205,16 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     });
 
     expect(result).toEqual({ continue: true });
-    expect(stopRegistry.notifyAll).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual(
+      expect.objectContaining({
+        subagentSessionId: VALID_UUID,
+        parentSessionId: 'parent-sess-1',
+        workspaceRoot: '/workspace',
+        agentId: 'agent-xyz',
+        agentType: 'unknown',
+        transcriptPath: `/tmp/transcripts/${VALID_UUID}.jsonl`,
+      }),
+    );
   });
 });

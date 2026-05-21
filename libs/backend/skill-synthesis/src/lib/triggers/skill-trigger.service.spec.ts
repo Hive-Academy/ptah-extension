@@ -502,6 +502,18 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     );
   });
 
+  it('empty subagentSessionId in payload short-circuits before rate-limit acquire', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const acquireSpy = jest.spyOn(rateLimiter, 'tryAcquire');
+    const { service, subagentStop, synthesis } = buildService({ rateLimiter });
+    service.start();
+    subagentStop.fire(subagentStopPayload({ subagentSessionId: '' }));
+    await Promise.resolve();
+    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.pushEvent).not.toHaveBeenCalled();
+    expect(acquireSpy).not.toHaveBeenCalled();
+  });
+
   it('subagentStop enabled=false short-circuits handler', async () => {
     const { service, subagentStop, synthesis } = buildService({
       workspace: makeWorkspace({
@@ -722,6 +734,34 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
     );
     await Promise.resolve();
     expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+  });
+
+  it('empty sessionId in payload short-circuits before any FSM mutation', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const acquireSpy = jest.spyOn(rateLimiter, 'tryAcquire');
+    const { service, postToolUse, synthesis } = buildService({ rateLimiter });
+    service.start();
+    for (let i = 0; i < 3; i++) {
+      postToolUse.fire(
+        postToolUsePayload({
+          toolName: 'Edit',
+          sessionId: '',
+          timestamp: 1000 + i,
+        }),
+      );
+    }
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Bash',
+        toolInput: { command: 'npm test' },
+        sessionId: '',
+        timestamp: 2000,
+      }),
+    );
+    await Promise.resolve();
+    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.pushEvent).not.toHaveBeenCalled();
+    expect(acquireSpy).not.toHaveBeenCalled();
   });
 
   it('Bash test with non-zero exit does not fire', async () => {
