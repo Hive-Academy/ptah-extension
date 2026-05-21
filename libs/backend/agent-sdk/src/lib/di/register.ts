@@ -45,6 +45,7 @@ import {
   CompactionCallbackRegistry,
   SessionEndCallbackRegistry,
   SessionActivityRegistry,
+  SubagentStopCallbackRegistry,
   LiveUsageTracker,
   WorktreeHookHandler,
   SlashCommandInterceptor,
@@ -161,6 +162,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_ACTIVITY_REGISTRY,
     { useClass: SessionActivityRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY,
+    { useClass: SubagentStopCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 

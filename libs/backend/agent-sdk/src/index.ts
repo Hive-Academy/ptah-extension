@@ -56,6 +56,9 @@ export {
   SessionActivityRegistry,
   type SessionActivityCallback,
   type SessionActivityPayload,
+  SubagentStopCallbackRegistry,
+  type SubagentStopCallback,
+  type SubagentStopPayload,
 } from './lib/helpers';
 export {
   CompactionHookHandler,

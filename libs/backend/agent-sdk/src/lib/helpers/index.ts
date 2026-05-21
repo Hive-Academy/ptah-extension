@@ -52,6 +52,11 @@ export {
   type SessionActivityCallback,
   type SessionActivityPayload,
 } from './session-activity-registry';
+export {
+  SubagentStopCallbackRegistry,
+  type SubagentStopCallback,
+  type SubagentStopPayload,
+} from './subagent-stop-callback-registry';
 export { LiveUsageTracker } from './live-usage-tracker';
 export {
   WorktreeHookHandler,
