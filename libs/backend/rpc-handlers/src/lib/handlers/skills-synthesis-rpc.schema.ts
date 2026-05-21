@@ -54,3 +54,26 @@ export type UnpinSkillParams = z.infer<typeof UnpinSkillParamsSchema>;
 export const RunCuratorParamsSchema = z.object({});
 
 export type RunCuratorParams = z.infer<typeof RunCuratorParamsSchema>;
+
+export const SkillDiagnosticsParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).nullable().optional(),
+  eventLimit: z.number().int().positive().max(200).optional(),
+});
+
+export const SkillAnalyzeNowParamsSchema = z.object({
+  sessionId: z.string().min(1),
+  workspaceRoot: z.string().min(1),
+  force: z.boolean().optional(),
+});
+
+export const SkillTriggersSchema = z.object({
+  sessionEnd: z.boolean(),
+  idleMs: z.number().int().nonnegative(),
+  bootScan: z.boolean(),
+});
+
+export const SkillSetTriggersParamsSchema = z.object({
+  triggers: SkillTriggersSchema.partial(),
+});
+
+export const SkillGetTriggersParamsSchema = z.object({}).strict().optional();

@@ -14,6 +14,7 @@ import {
   type Memory,
   type MemoryChunk,
   type MemoryCuratorService,
+  type MemoryDiagnosticsService,
   type MemorySearchService,
   type MemoryStore,
 } from '@ptah-extension/memory-curator';
@@ -24,10 +25,14 @@ import {
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import type {
   MemoryChunkWire,
+  MemoryDiagnosticsParams,
+  MemoryDiagnosticsResult,
   MemoryForgetParams,
   MemoryForgetResult,
   MemoryGetParams,
   MemoryGetResult,
+  MemoryGetTriggersParams,
+  MemoryGetTriggersResult,
   MemoryListParams,
   MemoryListResult,
   MemoryPinParams,
@@ -38,17 +43,42 @@ import type {
   MemoryPurgeJunkResult,
   MemoryRebuildIndexParams,
   MemoryRebuildIndexResult,
+  MemoryRunNowParams,
+  MemoryRunNowResult,
   MemorySearchHitWire,
   MemorySearchParams,
   MemorySearchResult,
+  MemorySetTriggersParams,
+  MemorySetTriggersResult,
   MemoryStatsParams,
   MemoryStatsResult,
+  MemoryTriggersDto,
   MemoryWire,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import { z } from 'zod';
-import { MemoryPurgeBySubjectPatternParamsSchema } from './memory-rpc.schema';
+import {
+  MemoryDiagnosticsParamsSchema,
+  MemoryGetTriggersParamsSchema,
+  MemoryPurgeBySubjectPatternParamsSchema,
+  MemoryRunNowParamsSchema,
+  MemorySetTriggersParamsSchema,
+} from './memory-rpc.schema';
+
+const MEMORY_TRIGGER_DEFAULTS: MemoryTriggersDto = {
+  preCompact: true,
+  idleMs: 600000,
+  turnThreshold: 20,
+  bootScan: true,
+} as const;
+
+const MEMORY_TRIGGER_KEYS = {
+  preCompact: 'memory.triggers.preCompact',
+  idleMs: 'memory.triggers.idleMs',
+  turnThreshold: 'memory.triggers.turnThreshold',
+  bootScan: 'memory.triggers.bootScan',
+} as const;
 
 /**
  * Narrow schema for extracting workspaceRoot independently of the full
@@ -102,6 +132,10 @@ export class MemoryRpcHandlers {
     'memory:stats',
     'memory:purgeBySubjectPattern',
     'memory:purgeJunk',
+    'memory:diagnostics',
+    'memory:runNow',
+    'memory:setTriggers',
+    'memory:getTriggers',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -114,6 +148,8 @@ export class MemoryRpcHandlers {
     private readonly search: MemorySearchService,
     @inject(MEMORY_TOKENS.MEMORY_CURATOR)
     private readonly curator: MemoryCuratorService,
+    @inject(MEMORY_TOKENS.MEMORY_DIAGNOSTICS_SERVICE)
+    private readonly diagnostics: MemoryDiagnosticsService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
@@ -354,7 +390,244 @@ export class MemoryRpcHandlers {
       },
     );
 
+    this.rpcHandler.registerMethod(
+      'memory:diagnostics',
+      async (
+        params: MemoryDiagnosticsParams | undefined,
+      ): Promise<MemoryDiagnosticsResult> => {
+        let validated: z.infer<typeof MemoryDiagnosticsParamsSchema>;
+        try {
+          validated = MemoryDiagnosticsParamsSchema.parse(params ?? {});
+        } catch (err: unknown) {
+          this.logger.warn('[memory] diagnostics — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:diagnostics',
+            'INVALID_PARAMS',
+          );
+        }
+        try {
+          const snapshot = await this.diagnostics.getSnapshot(
+            validated.workspaceRoot ?? undefined,
+            validated.eventLimit,
+          );
+          return {
+            lastRunAt: snapshot.lastRunAt,
+            lastRunStats: snapshot.lastRunStats
+              ? {
+                  extracted: snapshot.lastRunStats.extracted,
+                  merged: snapshot.lastRunStats.merged,
+                  created: snapshot.lastRunStats.created,
+                  skipped: snapshot.lastRunStats.skipped,
+                }
+              : null,
+            lastDecayAt: snapshot.lastDecayAt,
+            lastDecayStats: snapshot.lastDecayStats
+              ? {
+                  scanned: snapshot.lastDecayStats.scanned,
+                  demoted: snapshot.lastDecayStats.demoted,
+                  archived: snapshot.lastDecayStats.archived,
+                  expired: snapshot.lastDecayStats.expired,
+                }
+              : null,
+            recentEvents: snapshot.recentEvents.map((e) => ({
+              kind: e.kind,
+              timestamp: e.timestamp,
+              sessionId: e.sessionId,
+              stats: e.stats,
+              error: e.error,
+            })),
+            dbHealth: {
+              memories: snapshot.dbHealth.memories,
+              memory_chunks: snapshot.dbHealth.memory_chunks,
+              memory_chunks_vec: snapshot.dbHealth.memory_chunks_vec,
+              memory_chunks_fts: snapshot.dbHealth.memory_chunks_fts,
+              code_symbols: snapshot.dbHealth.code_symbols,
+              code_symbols_vec: snapshot.dbHealth.code_symbols_vec,
+              coherent: snapshot.dbHealth.coherent,
+              mismatches: snapshot.dbHealth.mismatches,
+            },
+            triggers: {
+              preCompact: snapshot.triggers.preCompact,
+              idleMs: snapshot.triggers.idleMs,
+              turnThreshold: snapshot.triggers.turnThreshold,
+              bootScan: snapshot.triggers.bootScan,
+            },
+          };
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error('[memory] diagnostics failed', { error: message });
+          throw new RpcUserError(
+            'memory:diagnostics failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'memory:runNow',
+      async (
+        params: MemoryRunNowParams | undefined,
+      ): Promise<MemoryRunNowResult> => {
+        let validated: z.infer<typeof MemoryRunNowParamsSchema>;
+        try {
+          validated = MemoryRunNowParamsSchema.parse(params);
+        } catch (err: unknown) {
+          this.logger.warn('[memory] runNow — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:runNow',
+            'INVALID_PARAMS',
+          );
+        }
+        if (
+          !isAuthorizedWorkspace(
+            validated.workspaceRoot,
+            this.workspaceProvider,
+          )
+        ) {
+          throw new RpcUserError(
+            'Workspace not authorized',
+            'UNAUTHORIZED_WORKSPACE',
+          );
+        }
+        const startedAt = Date.now();
+        try {
+          const stats = await this.curator.curate({
+            sessionId: validated.sessionId,
+            workspaceRoot: validated.workspaceRoot,
+          });
+          this.curator.pushEvent({
+            kind: 'manual-run',
+            timestamp: Date.now(),
+            sessionId: validated.sessionId,
+            stats: {
+              extracted: stats.extracted,
+              merged: stats.merged,
+              created: stats.created,
+              skipped: stats.skipped,
+            },
+          });
+          return {
+            success: true,
+            startedAt,
+            completedAt: Date.now(),
+            stats: {
+              extracted: stats.extracted,
+              merged: stats.merged,
+              created: stats.created,
+              skipped: stats.skipped,
+            },
+          };
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error('[memory] runNow failed', { error: message });
+          return {
+            success: false,
+            startedAt,
+            completedAt: Date.now(),
+            stats: null,
+            error: message,
+          };
+        }
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'memory:setTriggers',
+      async (
+        params: MemorySetTriggersParams | undefined,
+      ): Promise<MemorySetTriggersResult> => {
+        let validated: z.infer<typeof MemorySetTriggersParamsSchema>;
+        try {
+          validated = MemorySetTriggersParamsSchema.parse(params);
+        } catch (err: unknown) {
+          this.logger.warn('[memory] setTriggers — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:setTriggers',
+            'INVALID_PARAMS',
+          );
+        }
+        try {
+          const incoming = validated.triggers;
+          const entries: Array<[keyof MemoryTriggersDto, unknown]> =
+            Object.entries(incoming) as Array<
+              [keyof MemoryTriggersDto, unknown]
+            >;
+          for (const [key, value] of entries) {
+            if (value === undefined) continue;
+            await this.workspaceProvider.setConfiguration(
+              'ptah',
+              MEMORY_TRIGGER_KEYS[key],
+              value,
+            );
+          }
+          return { triggers: this.readMemoryTriggers() };
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error('[memory] setTriggers failed', { error: message });
+          throw new RpcUserError(
+            'memory:setTriggers failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'memory:getTriggers',
+      async (
+        params: MemoryGetTriggersParams | undefined,
+      ): Promise<MemoryGetTriggersResult> => {
+        try {
+          MemoryGetTriggersParamsSchema.parse(params);
+        } catch (err: unknown) {
+          this.logger.warn('[memory] getTriggers — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:getTriggers',
+            'INVALID_PARAMS',
+          );
+        }
+        return { triggers: this.readMemoryTriggers() };
+      },
+    );
+
     void this.curator;
     this.logger.info('[memory] RPC handlers registered');
+  }
+
+  private readMemoryTriggers(): MemoryTriggersDto {
+    const preCompact =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        MEMORY_TRIGGER_KEYS.preCompact,
+        MEMORY_TRIGGER_DEFAULTS.preCompact,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.preCompact;
+    const idleMs =
+      this.workspaceProvider.getConfiguration<number>(
+        'ptah',
+        MEMORY_TRIGGER_KEYS.idleMs,
+        MEMORY_TRIGGER_DEFAULTS.idleMs,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.idleMs;
+    const turnThreshold =
+      this.workspaceProvider.getConfiguration<number>(
+        'ptah',
+        MEMORY_TRIGGER_KEYS.turnThreshold,
+        MEMORY_TRIGGER_DEFAULTS.turnThreshold,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.turnThreshold;
+    const bootScan =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        MEMORY_TRIGGER_KEYS.bootScan,
+        MEMORY_TRIGGER_DEFAULTS.bootScan,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.bootScan;
+    return { preCompact, idleMs, turnThreshold, bootScan };
   }
 }

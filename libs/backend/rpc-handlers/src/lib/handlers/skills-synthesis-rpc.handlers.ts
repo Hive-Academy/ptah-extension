@@ -25,6 +25,7 @@ import {
 import {
   SKILL_SYNTHESIS_TOKENS,
   type SkillCandidateStore,
+  type SkillSynthesisDiagnosticsService,
   type SkillSynthesisService,
   type SkillSynthesisSettings,
   type CandidateId,
@@ -34,6 +35,14 @@ import {
 } from '@ptah-extension/skill-synthesis';
 import type {
   RpcMethodName,
+  SkillAnalyzeNowParams,
+  SkillAnalyzeNowResult,
+  SkillDiagnosticsParams,
+  SkillDiagnosticsResult,
+  SkillGetTriggersParams,
+  SkillGetTriggersResult,
+  SkillSetTriggersParams,
+  SkillSetTriggersResult,
   SkillSynthesisCandidateDetail,
   SkillSynthesisCandidateSummary,
   SkillSynthesisGetCandidateParams,
@@ -56,18 +65,37 @@ import type {
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsParams,
   SkillSynthesisStatsResult,
+  SkillTriggersDto,
   SkillSynthesisUnpinParams,
   SkillSynthesisUnpinResult,
   SkillSynthesisUpdateSettingsParams,
   SkillSynthesisUpdateSettingsResult,
 } from '@ptah-extension/shared';
+import { RpcUserError } from '@ptah-extension/vscode-core';
+import { z } from 'zod';
 import {
   PinSkillParamsSchema,
   RunCuratorParamsSchema,
+  SkillAnalyzeNowParamsSchema,
+  SkillDiagnosticsParamsSchema,
+  SkillGetTriggersParamsSchema,
+  SkillSetTriggersParamsSchema,
   SkillSynthesisSettingsSchema,
   UnpinSkillParamsSchema,
   UpdateSkillSynthesisSettingsParamsSchema,
 } from './skills-synthesis-rpc.schema';
+
+const SKILL_TRIGGER_DEFAULTS: SkillTriggersDto = {
+  sessionEnd: true,
+  idleMs: 600000,
+  bootScan: true,
+} as const;
+
+const SKILL_TRIGGER_KEYS = {
+  sessionEnd: 'skillSynthesis.triggers.sessionEnd',
+  idleMs: 'skillSynthesis.triggers.idleMs',
+  bootScan: 'skillSynthesis.triggers.bootScan',
+} as const;
 
 /** Minimal interface for the Curator service. */
 interface ICuratorService {
@@ -94,6 +122,10 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:pin',
     'skillSynthesis:unpin',
     'skillSynthesis:runCurator',
+    'skillSynthesis:diagnostics',
+    'skillSynthesis:analyzeNow',
+    'skillSynthesis:setTriggers',
+    'skillSynthesis:getTriggers',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -105,6 +137,8 @@ export class SkillsSynthesisRpcHandlers {
     private readonly synthesis: SkillSynthesisService,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
     private readonly store: SkillCandidateStore,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE)
+    private readonly diagnostics: SkillSynthesisDiagnosticsService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE, { isOptional: true })
@@ -123,6 +157,10 @@ export class SkillsSynthesisRpcHandlers {
     this.registerPin();
     this.registerUnpin();
     this.registerRunCurator();
+    this.registerDiagnostics();
+    this.registerAnalyzeNow();
+    this.registerSetTriggers();
+    this.registerGetTriggers();
 
     this.logger.debug('Skill Synthesis RPC handlers registered', {
       methods: SkillsSynthesisRpcHandlers.METHODS as unknown as string[],
@@ -386,6 +424,214 @@ export class SkillsSynthesisRpcHandlers {
         throw error;
       }
     });
+  }
+
+  private registerDiagnostics(): void {
+    this.rpcHandler.registerMethod<
+      SkillDiagnosticsParams,
+      SkillDiagnosticsResult
+    >('skillSynthesis:diagnostics', async (params) => {
+      let validated: z.infer<typeof SkillDiagnosticsParamsSchema>;
+      try {
+        validated = SkillDiagnosticsParamsSchema.parse(params ?? {});
+      } catch (err: unknown) {
+        this.logger.warn('[skill-synthesis] diagnostics — invalid params', {
+          err: String(err),
+        });
+        throw new RpcUserError(
+          'Invalid parameters for skillSynthesis:diagnostics',
+          'INVALID_PARAMS',
+        );
+      }
+      try {
+        const snapshot = await this.diagnostics.getSnapshot(
+          validated.workspaceRoot ?? undefined,
+          validated.eventLimit,
+        );
+        const stats = this.store.getStats();
+        return {
+          lastAnalyzeRunAt: snapshot.lastAnalyzeRunAt,
+          lastCuratorPassAt: snapshot.lastCuratorPassAt,
+          totalCandidates: stats.candidates,
+          totalPromoted: stats.promoted,
+          totalRejected: stats.rejected,
+          totalInvocations: stats.invocations,
+          activeSkills: stats.promoted,
+          eligibilityHistogram: {
+            tooFewTurns: snapshot.eligibilityHistogram.tooFewTurns,
+            lowFidelity: snapshot.eligibilityHistogram.lowFidelity,
+            insufficientAbstraction:
+              snapshot.eligibilityHistogram.insufficientAbstraction,
+            accepted: snapshot.eligibilityHistogram.accepted,
+          },
+          recentEvents: snapshot.recentEvents.map((e) => ({
+            kind: e.kind,
+            timestamp: e.timestamp,
+            sessionId: e.sessionId,
+            stats: e.stats,
+            error: e.error,
+          })),
+          triggers: {
+            sessionEnd: snapshot.triggers.sessionEnd,
+            idleMs: snapshot.triggers.idleMs,
+            bootScan: snapshot.triggers.bootScan,
+          },
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerDiagnostics');
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error('[skill-synthesis] diagnostics failed', {
+          error: message,
+        });
+        throw new RpcUserError(
+          'skillSynthesis:diagnostics failed; please try again.',
+          'PERSISTENCE_UNAVAILABLE',
+        );
+      }
+    });
+  }
+
+  private registerAnalyzeNow(): void {
+    this.rpcHandler.registerMethod<
+      SkillAnalyzeNowParams,
+      SkillAnalyzeNowResult
+    >('skillSynthesis:analyzeNow', async (params) => {
+      let validated: z.infer<typeof SkillAnalyzeNowParamsSchema>;
+      try {
+        validated = SkillAnalyzeNowParamsSchema.parse(params);
+      } catch (err: unknown) {
+        this.logger.warn('[skill-synthesis] analyzeNow — invalid params', {
+          err: String(err),
+        });
+        throw new RpcUserError(
+          'Invalid parameters for skillSynthesis:analyzeNow',
+          'INVALID_PARAMS',
+        );
+      }
+      const startedAt = Date.now();
+      try {
+        const result = await this.synthesis.analyzeSession(
+          validated.sessionId,
+          validated.workspaceRoot,
+          { force: validated.force === true },
+        );
+        const completedAt = Date.now();
+        if (!result) {
+          return {
+            success: false,
+            startedAt,
+            completedAt,
+            candidateId: null,
+            reason: 'ineligible',
+          };
+        }
+        return {
+          success: true,
+          startedAt,
+          completedAt,
+          candidateId: result.candidate.id as unknown as string,
+          reason: result.reused ? 'reused' : null,
+        };
+      } catch (error: unknown) {
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerAnalyzeNow');
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          success: false,
+          startedAt,
+          completedAt: Date.now(),
+          candidateId: null,
+          reason: null,
+          error: message,
+        };
+      }
+    });
+  }
+
+  private registerSetTriggers(): void {
+    this.rpcHandler.registerMethod<
+      SkillSetTriggersParams,
+      SkillSetTriggersResult
+    >('skillSynthesis:setTriggers', async (params) => {
+      let validated: z.infer<typeof SkillSetTriggersParamsSchema>;
+      try {
+        validated = SkillSetTriggersParamsSchema.parse(params);
+      } catch (err: unknown) {
+        this.logger.warn('[skill-synthesis] setTriggers — invalid params', {
+          err: String(err),
+        });
+        throw new RpcUserError(
+          'Invalid parameters for skillSynthesis:setTriggers',
+          'INVALID_PARAMS',
+        );
+      }
+      try {
+        const incoming = validated.triggers;
+        const entries: Array<[keyof SkillTriggersDto, unknown]> =
+          Object.entries(incoming) as Array<[keyof SkillTriggersDto, unknown]>;
+        for (const [key, value] of entries) {
+          if (value === undefined) continue;
+          await this.workspaceProvider.setConfiguration(
+            'ptah',
+            SKILL_TRIGGER_KEYS[key],
+            value,
+          );
+        }
+        return { triggers: this.readSkillTriggers() };
+      } catch (error: unknown) {
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerSetTriggers');
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error('[skill-synthesis] setTriggers failed', {
+          error: message,
+        });
+        throw new RpcUserError(
+          'skillSynthesis:setTriggers failed; please try again.',
+          'PERSISTENCE_UNAVAILABLE',
+        );
+      }
+    });
+  }
+
+  private registerGetTriggers(): void {
+    this.rpcHandler.registerMethod<
+      SkillGetTriggersParams,
+      SkillGetTriggersResult
+    >('skillSynthesis:getTriggers', async (params) => {
+      try {
+        SkillGetTriggersParamsSchema.parse(params);
+      } catch (err: unknown) {
+        this.logger.warn('[skill-synthesis] getTriggers — invalid params', {
+          err: String(err),
+        });
+        throw new RpcUserError(
+          'Invalid parameters for skillSynthesis:getTriggers',
+          'INVALID_PARAMS',
+        );
+      }
+      return { triggers: this.readSkillTriggers() };
+    });
+  }
+
+  private readSkillTriggers(): SkillTriggersDto {
+    const sessionEnd =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        SKILL_TRIGGER_KEYS.sessionEnd,
+        SKILL_TRIGGER_DEFAULTS.sessionEnd,
+      ) ?? SKILL_TRIGGER_DEFAULTS.sessionEnd;
+    const idleMs =
+      this.workspaceProvider.getConfiguration<number>(
+        'ptah',
+        SKILL_TRIGGER_KEYS.idleMs,
+        SKILL_TRIGGER_DEFAULTS.idleMs,
+      ) ?? SKILL_TRIGGER_DEFAULTS.idleMs;
+    const bootScan =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        SKILL_TRIGGER_KEYS.bootScan,
+        SKILL_TRIGGER_DEFAULTS.bootScan,
+      ) ?? SKILL_TRIGGER_DEFAULTS.bootScan;
+    return { sessionEnd, idleMs, bootScan };
   }
 
   private collectByStatus(

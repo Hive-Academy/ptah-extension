@@ -25,3 +25,26 @@ export const MemorySearchParamsSchema = z.object({
 export type MemoryPurgeBySubjectPatternParams = z.infer<
   typeof MemoryPurgeBySubjectPatternParamsSchema
 >;
+
+export const MemoryDiagnosticsParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).nullable().optional(),
+  eventLimit: z.number().int().positive().max(200).optional(),
+});
+
+export const MemoryRunNowParamsSchema = z.object({
+  sessionId: z.string().min(1),
+  workspaceRoot: z.string().min(1),
+});
+
+export const MemoryTriggersSchema = z.object({
+  preCompact: z.boolean(),
+  idleMs: z.number().int().nonnegative(),
+  turnThreshold: z.number().int().nonnegative(),
+  bootScan: z.boolean(),
+});
+
+export const MemorySetTriggersParamsSchema = z.object({
+  triggers: MemoryTriggersSchema.partial(),
+});
+
+export const MemoryGetTriggersParamsSchema = z.object({}).strict().optional();

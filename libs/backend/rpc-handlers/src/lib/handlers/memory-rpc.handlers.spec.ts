@@ -16,7 +16,11 @@
 
 import 'reflect-metadata';
 import { container } from 'tsyringe';
-import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  RpcUserError,
+  ALLOWED_METHOD_PREFIXES,
+} from '@ptah-extension/vscode-core';
 import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
@@ -92,7 +96,43 @@ function makeMemorySearch() {
 }
 
 function makeMemoryCurator() {
-  return {};
+  return {
+    curate: jest.fn().mockResolvedValue({
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    }),
+    pushEvent: jest.fn(),
+  };
+}
+
+function makeMemoryDiagnostics() {
+  return {
+    getSnapshot: jest.fn().mockResolvedValue({
+      lastRunAt: null,
+      lastRunStats: null,
+      lastDecayAt: null,
+      lastDecayStats: null,
+      recentEvents: [],
+      dbHealth: {
+        memories: 0,
+        memory_chunks: 0,
+        memory_chunks_vec: 0,
+        memory_chunks_fts: 0,
+        code_symbols: 0,
+        code_symbols_vec: 0,
+        coherent: true,
+        mismatches: [],
+      },
+      triggers: {
+        preCompact: true,
+        idleMs: 600000,
+        turnThreshold: 20,
+        bootScan: true,
+      },
+    }),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +146,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   const codeSymbols = makeCodeSymbolStore();
   const search = makeMemorySearch();
   const curator = makeMemoryCurator();
+  const diagnostics = makeMemoryDiagnostics();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
   });
@@ -117,6 +158,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   child.registerInstance(MEMORY_TOKENS.CODE_SYMBOL_STORE, codeSymbols);
   child.registerInstance(MEMORY_TOKENS.MEMORY_SEARCH, search);
   child.registerInstance(MEMORY_TOKENS.MEMORY_CURATOR, curator);
+  child.registerInstance(MEMORY_TOKENS.MEMORY_DIAGNOSTICS_SERVICE, diagnostics);
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
   child.register(MemoryRpcHandlers, { useClass: MemoryRpcHandlers });
 
@@ -129,6 +171,8 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
     store,
     codeSymbols,
     search,
+    curator,
+    diagnostics,
     logger,
     workspaceProvider,
   };
@@ -507,5 +551,292 @@ describe('MemoryRpcHandlers — memory:purgeBySubjectPattern', () => {
         expect.objectContaining({ error: expect.any(String) }),
       );
     });
+  });
+});
+
+describe('MemoryRpcHandlers — memory:diagnostics', () => {
+  it('returns wire-shaped snapshot from diagnostics service', async () => {
+    const { rpcHandler, diagnostics } = buildHandlers(['/workspace/project']);
+    diagnostics.getSnapshot.mockResolvedValue({
+      lastRunAt: 1700000000000,
+      lastRunStats: { extracted: 5, merged: 2, created: 3, skipped: 0 },
+      lastDecayAt: 1699000000000,
+      lastDecayStats: { scanned: 100, demoted: 4, archived: 1, expired: 0 },
+      recentEvents: [
+        {
+          kind: 'curator-run',
+          timestamp: 1700000000000,
+          sessionId: 's1',
+          stats: { extracted: 5, merged: 2, created: 3, skipped: 0 },
+        },
+      ],
+      dbHealth: {
+        memories: 50,
+        memory_chunks: 50,
+        memory_chunks_vec: 50,
+        memory_chunks_fts: 50,
+        code_symbols: 100,
+        code_symbols_vec: 100,
+        coherent: true,
+        mismatches: [],
+      },
+      triggers: {
+        preCompact: true,
+        idleMs: 600000,
+        turnThreshold: 20,
+        bootScan: true,
+      },
+    });
+
+    const result = await rpcHandler.call('memory:diagnostics', {
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(diagnostics.getSnapshot).toHaveBeenCalledWith(
+      '/workspace/project',
+      undefined,
+    );
+    expect(result).toMatchObject({
+      lastRunAt: 1700000000000,
+      lastRunStats: { extracted: 5, merged: 2, created: 3, skipped: 0 },
+      lastDecayAt: 1699000000000,
+      dbHealth: { coherent: true },
+      triggers: { preCompact: true, idleMs: 600000 },
+    });
+    expect((result as { recentEvents: unknown[] }).recentEvents).toHaveLength(
+      1,
+    );
+  });
+
+  it('rejects invalid params with INVALID_PARAMS error envelope', async () => {
+    const { rpcHandler, diagnostics } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:diagnostics', { workspaceRoot: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(diagnostics.getSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('wraps service throw in PERSISTENCE_UNAVAILABLE and does not leak raw message', async () => {
+    const { rpcHandler, diagnostics } = buildHandlers(['/workspace/project']);
+    diagnostics.getSnapshot.mockRejectedValue(
+      new Error('SQLITE_CORRUPT: malformed disk image'),
+    );
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('memory:diagnostics', {});
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    const rpcErr = thrown as RpcUserError;
+    expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+    expect(rpcErr.message).not.toContain('SQLITE_CORRUPT');
+    expect(rpcErr.message).not.toContain('malformed');
+  });
+});
+
+describe('MemoryRpcHandlers — memory:runNow', () => {
+  it('calls curator.curate with sessionId+workspaceRoot and returns wire result', async () => {
+    const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+    curator.curate.mockResolvedValue({
+      extracted: 4,
+      merged: 1,
+      created: 3,
+      skipped: 0,
+    });
+
+    const result = await rpcHandler.call('memory:runNow', {
+      sessionId: 'sess-1',
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(curator.curate).toHaveBeenCalledWith({
+      sessionId: 'sess-1',
+      workspaceRoot: '/workspace/project',
+    });
+    expect(result).toMatchObject({
+      success: true,
+      stats: { extracted: 4, merged: 1, created: 3, skipped: 0 },
+    });
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'manual-run',
+        sessionId: 'sess-1',
+      }),
+    );
+  });
+
+  it('rejects empty sessionId with INVALID_PARAMS', async () => {
+    const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:runNow', {
+        sessionId: '',
+        workspaceRoot: '/workspace/project',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+
+  it('returns error envelope (not throw) when curator throws — message preserved internally only', async () => {
+    const { rpcHandler, curator, logger } = buildHandlers([
+      '/workspace/project',
+    ]);
+    curator.curate.mockRejectedValue(new Error('LLM rate limit'));
+
+    const result = await rpcHandler.call('memory:runNow', {
+      sessionId: 'sess-x',
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      stats: null,
+      error: 'LLM rate limit',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      '[memory] runNow failed',
+      expect.objectContaining({ error: expect.any(String) }),
+    );
+  });
+
+  it('rejects unauthorized workspace', async () => {
+    const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:runNow', {
+        sessionId: 'sess-1',
+        workspaceRoot: '/other/workspace',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoryRpcHandlers — memory:setTriggers', () => {
+  it('persists each provided field via setConfiguration and returns the read-back triggers', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    const result = await rpcHandler.call('memory:setTriggers', {
+      triggers: {
+        preCompact: false,
+        idleMs: 300000,
+        turnThreshold: 10,
+        bootScan: false,
+      },
+    });
+
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.preCompact',
+      false,
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.idleMs',
+      300000,
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.turnThreshold',
+      10,
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.bootScan',
+      false,
+    );
+    expect(result).toMatchObject({
+      triggers: {
+        preCompact: false,
+        idleMs: 300000,
+        turnThreshold: 10,
+        bootScan: false,
+      },
+    });
+  });
+
+  it('rejects invalid field types with INVALID_PARAMS', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await expect(
+      rpcHandler.call('memory:setTriggers', {
+        triggers: { idleMs: -100 },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns PERSISTENCE_UNAVAILABLE without leaking raw error when setConfiguration throws', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    jest
+      .spyOn(workspaceProvider, 'setConfiguration')
+      .mockRejectedValue(new Error('EACCES: ~/.ptah/settings.json'));
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('memory:setTriggers', {
+        triggers: { preCompact: false },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    const rpcErr = thrown as RpcUserError;
+    expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+    expect(rpcErr.message).not.toContain('EACCES');
+  });
+});
+
+describe('MemoryRpcHandlers — memory:getTriggers', () => {
+  it('returns defaults when no settings present', async () => {
+    const { rpcHandler } = buildHandlers(['/workspace/project']);
+    const result = await rpcHandler.call('memory:getTriggers', {});
+    expect(result).toEqual({
+      triggers: {
+        preCompact: true,
+        idleMs: 600000,
+        turnThreshold: 20,
+        bootScan: true,
+      },
+    });
+  });
+
+  it('returns persisted values after setTriggers', async () => {
+    const { rpcHandler } = buildHandlers(['/workspace/project']);
+    await rpcHandler.call('memory:setTriggers', {
+      triggers: { idleMs: 120000, turnThreshold: 5 },
+    });
+    const result = await rpcHandler.call('memory:getTriggers', {});
+    expect(result).toMatchObject({
+      triggers: { idleMs: 120000, turnThreshold: 5 },
+    });
+  });
+
+  it('rejects unknown fields when params is non-empty object with extras', async () => {
+    const { rpcHandler } = buildHandlers(['/workspace/project']);
+    await expect(
+      rpcHandler.call('memory:getTriggers', { junk: 'value' } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('MemoryRpcHandlers — dual-registration smoke', () => {
+  it('every METHODS entry has a prefix listed in ALLOWED_METHOD_PREFIXES', () => {
+    for (const method of MemoryRpcHandlers.METHODS) {
+      const ok = ALLOWED_METHOD_PREFIXES.some((p) => method.startsWith(p));
+      expect(ok).toBe(true);
+    }
   });
 });
