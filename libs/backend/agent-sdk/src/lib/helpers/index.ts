@@ -47,6 +47,11 @@ export {
   type SessionEndCallback,
   type SessionEndPayload,
 } from './session-end-callback-registry';
+export {
+  SessionActivityRegistry,
+  type SessionActivityCallback,
+  type SessionActivityPayload,
+} from './session-activity-registry';
 export { LiveUsageTracker } from './live-usage-tracker';
 export {
   WorktreeHookHandler,

@@ -43,6 +43,7 @@ export const SDK_TOKENS = {
   SDK_SESSION_END_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionEndCallbackRegistry',
   ),
+  SDK_SESSION_ACTIVITY_REGISTRY: Symbol.for('SdkSessionActivityRegistry'),
   SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
   SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
