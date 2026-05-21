@@ -141,6 +141,10 @@ export {
   type RewindFilesParams,
 } from './session-fork.service';
 export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
+export {
+  CallbackRegistryBase,
+  type CallbackRegistryCallback,
+} from './callback-registry.base';
 
 export { SdkRuntimeStateService } from './sdk-runtime-state.service';
 export {

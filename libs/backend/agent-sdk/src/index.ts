@@ -50,6 +50,10 @@ export {
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
 export {
+  CallbackRegistryBase,
+  type CallbackRegistryCallback,
+} from './lib/helpers';
+export {
   SessionEndCallbackRegistry,
   type SessionEndCallback,
   type SessionEndPayload,
