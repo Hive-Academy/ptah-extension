@@ -58,6 +58,19 @@ export const MemoryTriggersSchema = z.object({
       message: 'turnThreshold must be 0 or >= 2',
     }),
   bootScan: z.boolean(),
+  userPromptSubmit: z
+    .object({
+      enabled: z.boolean(),
+      cueList: z.array(z.string().min(1).max(200)).max(50),
+      minPromptLength: z.number().int().min(0).max(10000),
+    })
+    .optional(),
+  postToolUse: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
+  maxCuratesPerHour: z.number().int().min(0).max(1000).optional(),
 });
 
 export const MemorySetTriggersParamsSchema = z.object({

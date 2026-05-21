@@ -14,6 +14,11 @@ import {
   type SessionEndPayload,
   type SessionEndCallbackRegistry,
   type JsonlReaderService,
+  type PostToolUseCallbackRegistry,
+  type PostToolUsePayload,
+  type UserPromptSubmitCallbackRegistry,
+  type UserPromptSubmitPayload,
+  type CuratorRateLimitService,
 } from '@ptah-extension/agent-sdk';
 import { MEMORY_TOKENS } from '../di/tokens';
 import { MemoryCuratorService } from '../memory-curator.service';
@@ -26,13 +31,39 @@ const KEYS = {
   idleMs: 'memory.triggers.idleMs',
   turnThreshold: 'memory.triggers.turnThreshold',
   bootScan: 'memory.triggers.bootScan',
+  userPromptSubmitEnabled: 'memory.triggers.userPromptSubmit.enabled',
+  userPromptSubmitCueList: 'memory.triggers.userPromptSubmit.cueList',
+  userPromptSubmitMinPromptLength:
+    'memory.triggers.userPromptSubmit.minPromptLength',
+  postToolUseEnabled: 'memory.triggers.postToolUse.enabled',
+  maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
 } as const;
+
+const DEFAULT_CUE_LIST: readonly string[] = [
+  'remember (this|that)',
+  '(important|critical)\\s+(point|note|fact|detail)',
+  'from now on',
+  'going forward',
+  'keep in mind',
+  'note that',
+  'save to memory',
+];
+
 const DEFAULTS = {
   preCompact: true,
   idleMs: 600000,
   turnThreshold: 20,
   bootScan: true,
+  userPromptSubmitEnabled: true,
+  userPromptSubmitCueList: DEFAULT_CUE_LIST,
+  userPromptSubmitMinPromptLength: 20,
+  postToolUseEnabled: true,
+  maxCuratesPerHour: 12,
 } as const;
+
+const COMMIT_PATTERN = /^\s*git\s+commit\b/;
+const RATE_LIMIT_KEY = 'memory.curate';
+const MAX_CUE_PATTERN_LENGTH = 200;
 
 interface SessionState {
   readonly workspaceRoot: string;
@@ -45,8 +76,14 @@ export class MemoryTriggerService {
   private started = false;
   private activityDisposer: (() => void) | null = null;
   private sessionEndDisposer: (() => void) | null = null;
+  private userPromptSubmitDisposer: (() => void) | null = null;
+  private postToolUseDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private bootScanController: AbortController | null = null;
+  private cueCache: {
+    source: readonly string[];
+    compiled: RegExp[];
+  } | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -64,6 +101,12 @@ export class MemoryTriggerService {
     private readonly sqlite: SqliteConnectionService,
     @inject(SDK_TOKENS.SDK_JSONL_READER)
     private readonly jsonl: JsonlReaderService,
+    @inject(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY)
+    private readonly userPromptSubmitRegistry: UserPromptSubmitCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY)
+    private readonly postToolUseRegistry: PostToolUseCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT)
+    private readonly rateLimiter: CuratorRateLimitService,
   ) {}
 
   start(): void {
@@ -75,6 +118,14 @@ export class MemoryTriggerService {
     });
     this.sessionEndDisposer = this.sessionEnd.register((payload) => {
       this.onSessionEnd(payload);
+    });
+    this.userPromptSubmitDisposer = this.userPromptSubmitRegistry.register(
+      (payload) => {
+        this.onUserPromptSubmit(payload);
+      },
+    );
+    this.postToolUseDisposer = this.postToolUseRegistry.register((payload) => {
+      this.onPostToolUse(payload);
     });
 
     if (this.readBootScanFlag()) {
@@ -89,8 +140,12 @@ export class MemoryTriggerService {
     if (!this.started) return;
     this.activityDisposer?.();
     this.sessionEndDisposer?.();
+    this.userPromptSubmitDisposer?.();
+    this.postToolUseDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
+    this.userPromptSubmitDisposer = null;
+    this.postToolUseDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
@@ -139,6 +194,133 @@ export class MemoryTriggerService {
     this.sessions.delete(payload.sessionId);
   }
 
+  private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {
+    if (!this.readUserPromptSubmitEnabled()) return;
+    const minLength = this.readUserPromptSubmitMinPromptLength();
+    if (payload.prompt.length < minLength) return;
+
+    const source = this.readUserPromptSubmitCueList();
+    const compiled = this.getCompiledCues(source);
+    let matchedCue: string | null = null;
+    for (let i = 0; i < compiled.length; i++) {
+      if (compiled[i].test(payload.prompt)) {
+        matchedCue = source[i] ?? null;
+        break;
+      }
+    }
+    if (!matchedCue) return;
+
+    const decision = this.rateLimiter.tryAcquire(
+      RATE_LIMIT_KEY,
+      this.readMaxCuratesPerHour(),
+    );
+    if (!decision.allowed) {
+      this.curator.pushEvent({
+        kind: 'rate-limited',
+        timestamp: payload.timestamp,
+        sessionId: payload.sessionId,
+        stats: {
+          source: 'user-cue',
+          limit: decision.limit,
+          resetAt: decision.resetAt,
+          usedThisWindow: decision.usedThisWindow,
+        },
+      });
+      return;
+    }
+
+    this.curator.pushEvent({
+      kind: 'user-cue-trigger',
+      timestamp: payload.timestamp,
+      sessionId: payload.sessionId,
+      stats: { cue: matchedCue },
+    });
+    void this.invokeCurate(
+      payload.sessionId,
+      payload.workspaceRoot,
+      'user-cue',
+      payload.prompt,
+    );
+  }
+
+  private onPostToolUse(payload: PostToolUsePayload): void {
+    if (payload.toolName !== 'Bash') return;
+    if (!payload.success || payload.exitCode !== 0) return;
+    const command = this.extractBashCommand(payload.toolInput);
+    if (!command || !COMMIT_PATTERN.test(command)) return;
+    if (!this.readPostToolUseEnabled()) return;
+
+    const decision = this.rateLimiter.tryAcquire(
+      RATE_LIMIT_KEY,
+      this.readMaxCuratesPerHour(),
+    );
+    if (!decision.allowed) {
+      this.curator.pushEvent({
+        kind: 'rate-limited',
+        timestamp: payload.timestamp,
+        sessionId: payload.sessionId,
+        stats: {
+          source: 'commit-detect',
+          limit: decision.limit,
+          resetAt: decision.resetAt,
+          usedThisWindow: decision.usedThisWindow,
+        },
+      });
+      return;
+    }
+
+    this.curator.pushEvent({
+      kind: 'commit-detect',
+      timestamp: payload.timestamp,
+      sessionId: payload.sessionId,
+    });
+    void this.invokeCurate(
+      payload.sessionId,
+      payload.workspaceRoot,
+      'commit-detect',
+    );
+  }
+
+  private extractBashCommand(toolInput: unknown): string | null {
+    if (
+      typeof toolInput === 'object' &&
+      toolInput !== null &&
+      'command' in toolInput
+    ) {
+      const c = (toolInput as { command?: unknown }).command;
+      return typeof c === 'string' ? c : null;
+    }
+    return null;
+  }
+
+  private getCompiledCues(source: readonly string[]): RegExp[] {
+    if (this.cueCache && this.cueCache.source === source) {
+      return this.cueCache.compiled;
+    }
+    const compiled: RegExp[] = [];
+    for (const pattern of source) {
+      if (pattern.length > MAX_CUE_PATTERN_LENGTH) {
+        this.logger.warn('[memory-curator] cue pattern too long, skipping', {
+          len: pattern.length,
+        });
+        compiled.push(/(?!x)x/);
+        continue;
+      }
+      try {
+        compiled.push(new RegExp(pattern, 'i'));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn('[memory-curator] invalid cue regex, skipping', {
+          pattern,
+          error: message,
+        });
+        compiled.push(/(?!x)x/);
+      }
+    }
+    this.cueCache = { source, compiled };
+    return compiled;
+  }
+
   private fireIdle(sessionId: string): void {
     const state = this.sessions.get(sessionId);
     if (!state) return;
@@ -167,10 +349,11 @@ export class MemoryTriggerService {
   private async invokeCurate(
     sessionId: string,
     workspaceRoot: string,
-    source: 'idle' | 'turn' | 'boot',
+    source: 'idle' | 'turn' | 'boot' | 'user-cue' | 'commit-detect',
+    transcript?: string,
   ): Promise<void> {
     try {
-      await this.curator.curate({ sessionId, workspaceRoot });
+      await this.curator.curate({ sessionId, workspaceRoot, transcript });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.curator.pushEvent({
@@ -250,5 +433,50 @@ export class MemoryTriggerService {
       DEFAULTS.bootScan,
     );
     return typeof v === 'boolean' ? v : DEFAULTS.bootScan;
+  }
+
+  private readUserPromptSubmitEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      SECTION,
+      KEYS.userPromptSubmitEnabled,
+      DEFAULTS.userPromptSubmitEnabled,
+    );
+    return typeof v === 'boolean' ? v : DEFAULTS.userPromptSubmitEnabled;
+  }
+
+  private readUserPromptSubmitCueList(): readonly string[] {
+    const v = this.workspace.getConfiguration<readonly string[]>(
+      SECTION,
+      KEYS.userPromptSubmitCueList,
+      DEFAULTS.userPromptSubmitCueList,
+    );
+    return Array.isArray(v) ? v : DEFAULTS.userPromptSubmitCueList;
+  }
+
+  private readUserPromptSubmitMinPromptLength(): number {
+    const v = this.workspace.getConfiguration<number>(
+      SECTION,
+      KEYS.userPromptSubmitMinPromptLength,
+      DEFAULTS.userPromptSubmitMinPromptLength,
+    );
+    return typeof v === 'number' ? v : DEFAULTS.userPromptSubmitMinPromptLength;
+  }
+
+  private readPostToolUseEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      SECTION,
+      KEYS.postToolUseEnabled,
+      DEFAULTS.postToolUseEnabled,
+    );
+    return typeof v === 'boolean' ? v : DEFAULTS.postToolUseEnabled;
+  }
+
+  private readMaxCuratesPerHour(): number {
+    const v = this.workspace.getConfiguration<number>(
+      SECTION,
+      KEYS.maxCuratesPerHour,
+      DEFAULTS.maxCuratesPerHour,
+    );
+    return typeof v === 'number' ? v : DEFAULTS.maxCuratesPerHour;
   }
 }

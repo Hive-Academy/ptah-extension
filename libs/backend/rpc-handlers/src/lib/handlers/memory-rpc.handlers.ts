@@ -66,19 +66,53 @@ import {
   MemorySetTriggersParamsSchema,
 } from './memory-rpc.schema';
 
-const MEMORY_TRIGGER_DEFAULTS: MemoryTriggersDto = {
+const DEFAULT_MEMORY_CUE_LIST: readonly string[] = [
+  'remember (this|that)',
+  '(important|critical)\\s+(point|note|fact|detail)',
+  'from now on',
+  'going forward',
+  'keep in mind',
+  'note that',
+  'save to memory',
+];
+
+const MEMORY_TRIGGER_DEFAULTS = {
   preCompact: true,
   idleMs: 600000,
   turnThreshold: 20,
   bootScan: true,
+  userPromptSubmit: {
+    enabled: true,
+    cueList: DEFAULT_MEMORY_CUE_LIST,
+    minPromptLength: 20,
+  },
+  postToolUse: { enabled: true },
+  maxCuratesPerHour: 12,
 } as const;
 
-const MEMORY_TRIGGER_KEYS = {
+const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> = {
   preCompact: 'memory.triggers.preCompact',
   idleMs: 'memory.triggers.idleMs',
   turnThreshold: 'memory.triggers.turnThreshold',
   bootScan: 'memory.triggers.bootScan',
-} as const;
+  userPromptSubmit: 'memory.triggers.userPromptSubmit',
+  postToolUse: 'memory.triggers.postToolUse',
+  maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
+};
+
+function flattenTrigger(
+  prefix: string,
+  value: unknown,
+): Array<[string, unknown]> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return [[prefix, value]];
+  }
+  const out: Array<[string, unknown]> = [];
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out.push(...flattenTrigger(`${prefix}.${k}`, v));
+  }
+  return out;
+}
 
 /**
  * Narrow schema for extracting workspaceRoot independently of the full
@@ -453,6 +487,14 @@ export class MemoryRpcHandlers {
               idleMs: snapshot.triggers.idleMs,
               turnThreshold: snapshot.triggers.turnThreshold,
               bootScan: snapshot.triggers.bootScan,
+              userPromptSubmit: {
+                enabled: snapshot.triggers.userPromptSubmit.enabled,
+                cueList: snapshot.triggers.userPromptSubmit.cueList,
+                minPromptLength:
+                  snapshot.triggers.userPromptSubmit.minPromptLength,
+              },
+              postToolUse: { enabled: snapshot.triggers.postToolUse.enabled },
+              maxCuratesPerHour: snapshot.triggers.maxCuratesPerHour,
             },
           };
         } catch (err: unknown) {
@@ -561,11 +603,15 @@ export class MemoryRpcHandlers {
             >;
           for (const [key, value] of entries) {
             if (value === undefined) continue;
-            await this.workspaceProvider.setConfiguration(
-              'ptah',
-              MEMORY_TRIGGER_KEYS[key],
-              value,
-            );
+            const prefix = MEMORY_TRIGGER_PREFIXES[key];
+            const leaves = flattenTrigger(prefix, value);
+            for (const [flatKey, flatValue] of leaves) {
+              await this.workspaceProvider.setConfiguration(
+                'ptah',
+                flatKey,
+                flatValue,
+              );
+            }
           }
           return { triggers: this.readMemoryTriggers() };
         } catch (err: unknown) {
@@ -607,27 +653,69 @@ export class MemoryRpcHandlers {
     const preCompact =
       this.workspaceProvider.getConfiguration<boolean>(
         'ptah',
-        MEMORY_TRIGGER_KEYS.preCompact,
+        'memory.triggers.preCompact',
         MEMORY_TRIGGER_DEFAULTS.preCompact,
       ) ?? MEMORY_TRIGGER_DEFAULTS.preCompact;
     const idleMs =
       this.workspaceProvider.getConfiguration<number>(
         'ptah',
-        MEMORY_TRIGGER_KEYS.idleMs,
+        'memory.triggers.idleMs',
         MEMORY_TRIGGER_DEFAULTS.idleMs,
       ) ?? MEMORY_TRIGGER_DEFAULTS.idleMs;
     const turnThreshold =
       this.workspaceProvider.getConfiguration<number>(
         'ptah',
-        MEMORY_TRIGGER_KEYS.turnThreshold,
+        'memory.triggers.turnThreshold',
         MEMORY_TRIGGER_DEFAULTS.turnThreshold,
       ) ?? MEMORY_TRIGGER_DEFAULTS.turnThreshold;
     const bootScan =
       this.workspaceProvider.getConfiguration<boolean>(
         'ptah',
-        MEMORY_TRIGGER_KEYS.bootScan,
+        'memory.triggers.bootScan',
         MEMORY_TRIGGER_DEFAULTS.bootScan,
       ) ?? MEMORY_TRIGGER_DEFAULTS.bootScan;
-    return { preCompact, idleMs, turnThreshold, bootScan };
+    const userPromptSubmitEnabled =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'memory.triggers.userPromptSubmit.enabled',
+        MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.enabled,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.enabled;
+    const userPromptSubmitCueList =
+      this.workspaceProvider.getConfiguration<readonly string[]>(
+        'ptah',
+        'memory.triggers.userPromptSubmit.cueList',
+        MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.cueList,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.cueList;
+    const userPromptSubmitMinPromptLength =
+      this.workspaceProvider.getConfiguration<number>(
+        'ptah',
+        'memory.triggers.userPromptSubmit.minPromptLength',
+        MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.minPromptLength,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.userPromptSubmit.minPromptLength;
+    const postToolUseEnabled =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'memory.triggers.postToolUse.enabled',
+        MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled;
+    const maxCuratesPerHour =
+      this.workspaceProvider.getConfiguration<number>(
+        'ptah',
+        'memory.triggers.maxCuratesPerHour',
+        MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour,
+      ) ?? MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour;
+    return {
+      preCompact,
+      idleMs,
+      turnThreshold,
+      bootScan,
+      userPromptSubmit: {
+        enabled: userPromptSubmitEnabled,
+        cueList: userPromptSubmitCueList,
+        minPromptLength: userPromptSubmitMinPromptLength,
+      },
+      postToolUse: { enabled: postToolUseEnabled },
+      maxCuratesPerHour,
+    };
   }
 }

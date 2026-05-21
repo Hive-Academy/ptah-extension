@@ -24,13 +24,34 @@ const TRIGGER_KEYS = {
   idleMs: 'memory.triggers.idleMs',
   turnThreshold: 'memory.triggers.turnThreshold',
   bootScan: 'memory.triggers.bootScan',
+  userPromptSubmitEnabled: 'memory.triggers.userPromptSubmit.enabled',
+  userPromptSubmitCueList: 'memory.triggers.userPromptSubmit.cueList',
+  userPromptSubmitMinPromptLength:
+    'memory.triggers.userPromptSubmit.minPromptLength',
+  postToolUseEnabled: 'memory.triggers.postToolUse.enabled',
+  maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
 } as const;
+
+const DEFAULT_CUE_LIST: readonly string[] = [
+  'remember (this|that)',
+  '(important|critical)\\s+(point|note|fact|detail)',
+  'from now on',
+  'going forward',
+  'keep in mind',
+  'note that',
+  'save to memory',
+];
 
 const TRIGGER_DEFAULTS = {
   preCompact: true,
   idleMs: 600000,
   turnThreshold: 20,
   bootScan: true,
+  userPromptSubmitEnabled: true,
+  userPromptSubmitCueList: DEFAULT_CUE_LIST,
+  userPromptSubmitMinPromptLength: 20,
+  postToolUseEnabled: true,
+  maxCuratesPerHour: 12,
 } as const;
 
 @injectable()
@@ -94,7 +115,49 @@ export class MemoryDiagnosticsService {
         TRIGGER_KEYS.bootScan,
         TRIGGER_DEFAULTS.bootScan,
       ) ?? TRIGGER_DEFAULTS.bootScan;
-    return { preCompact, idleMs, turnThreshold, bootScan };
+    const userPromptSubmitEnabled =
+      this.workspace.getConfiguration<boolean>(
+        'ptah',
+        TRIGGER_KEYS.userPromptSubmitEnabled,
+        TRIGGER_DEFAULTS.userPromptSubmitEnabled,
+      ) ?? TRIGGER_DEFAULTS.userPromptSubmitEnabled;
+    const userPromptSubmitCueList =
+      this.workspace.getConfiguration<readonly string[]>(
+        'ptah',
+        TRIGGER_KEYS.userPromptSubmitCueList,
+        TRIGGER_DEFAULTS.userPromptSubmitCueList,
+      ) ?? TRIGGER_DEFAULTS.userPromptSubmitCueList;
+    const userPromptSubmitMinPromptLength =
+      this.workspace.getConfiguration<number>(
+        'ptah',
+        TRIGGER_KEYS.userPromptSubmitMinPromptLength,
+        TRIGGER_DEFAULTS.userPromptSubmitMinPromptLength,
+      ) ?? TRIGGER_DEFAULTS.userPromptSubmitMinPromptLength;
+    const postToolUseEnabled =
+      this.workspace.getConfiguration<boolean>(
+        'ptah',
+        TRIGGER_KEYS.postToolUseEnabled,
+        TRIGGER_DEFAULTS.postToolUseEnabled,
+      ) ?? TRIGGER_DEFAULTS.postToolUseEnabled;
+    const maxCuratesPerHour =
+      this.workspace.getConfiguration<number>(
+        'ptah',
+        TRIGGER_KEYS.maxCuratesPerHour,
+        TRIGGER_DEFAULTS.maxCuratesPerHour,
+      ) ?? TRIGGER_DEFAULTS.maxCuratesPerHour;
+    return {
+      preCompact,
+      idleMs,
+      turnThreshold,
+      bootScan,
+      userPromptSubmit: {
+        enabled: userPromptSubmitEnabled,
+        cueList: userPromptSubmitCueList,
+        minPromptLength: userPromptSubmitMinPromptLength,
+      },
+      postToolUse: { enabled: postToolUseEnabled },
+      maxCuratesPerHour,
+    };
   }
 
   private readDbHealth(): MemoryDbHealth {
