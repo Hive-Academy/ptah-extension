@@ -14,12 +14,20 @@ const TRIGGER_KEYS = {
   sessionEnd: 'skillSynthesis.triggers.sessionEnd',
   idleMs: 'skillSynthesis.triggers.idleMs',
   bootScan: 'skillSynthesis.triggers.bootScan',
+  subagentStopEnabled: 'skillSynthesis.triggers.subagentStop.enabled',
+  postToolUseEnabled: 'skillSynthesis.triggers.postToolUse.enabled',
+  postToolUseMinEditCount: 'skillSynthesis.triggers.postToolUse.minEditCount',
+  maxAnalyzesPerHour: 'skillSynthesis.triggers.maxAnalyzesPerHour',
 } as const;
 
 const TRIGGER_DEFAULTS = {
   sessionEnd: true,
   idleMs: 600000,
   bootScan: true,
+  subagentStopEnabled: true,
+  postToolUseEnabled: true,
+  postToolUseMinEditCount: 3,
+  maxAnalyzesPerHour: 6,
 } as const;
 
 @injectable()
@@ -92,6 +100,40 @@ export class SkillSynthesisDiagnosticsService {
         TRIGGER_KEYS.bootScan,
         TRIGGER_DEFAULTS.bootScan,
       ) ?? TRIGGER_DEFAULTS.bootScan;
-    return { sessionEnd, idleMs, bootScan };
+    const subagentStopEnabled =
+      this.workspace.getConfiguration<boolean>(
+        'ptah',
+        TRIGGER_KEYS.subagentStopEnabled,
+        TRIGGER_DEFAULTS.subagentStopEnabled,
+      ) ?? TRIGGER_DEFAULTS.subagentStopEnabled;
+    const postToolUseEnabled =
+      this.workspace.getConfiguration<boolean>(
+        'ptah',
+        TRIGGER_KEYS.postToolUseEnabled,
+        TRIGGER_DEFAULTS.postToolUseEnabled,
+      ) ?? TRIGGER_DEFAULTS.postToolUseEnabled;
+    const postToolUseMinEditCount =
+      this.workspace.getConfiguration<number>(
+        'ptah',
+        TRIGGER_KEYS.postToolUseMinEditCount,
+        TRIGGER_DEFAULTS.postToolUseMinEditCount,
+      ) ?? TRIGGER_DEFAULTS.postToolUseMinEditCount;
+    const maxAnalyzesPerHour =
+      this.workspace.getConfiguration<number>(
+        'ptah',
+        TRIGGER_KEYS.maxAnalyzesPerHour,
+        TRIGGER_DEFAULTS.maxAnalyzesPerHour,
+      ) ?? TRIGGER_DEFAULTS.maxAnalyzesPerHour;
+    return {
+      sessionEnd,
+      idleMs,
+      bootScan,
+      subagentStop: { enabled: subagentStopEnabled },
+      postToolUse: {
+        enabled: postToolUseEnabled,
+        minEditCount: postToolUseMinEditCount,
+      },
+      maxAnalyzesPerHour,
+    };
   }
 }

@@ -119,10 +119,13 @@ describe('SkillSynthesisDiagnosticsService', () => {
       invocations: 12,
     });
     expect(snap.recentEvents).toHaveLength(1);
-    expect(snap.triggers).toEqual({
+    expect(snap.triggers).toMatchObject({
       sessionEnd: true,
       idleMs: 600000,
       bootScan: true,
+      subagentStop: { enabled: true },
+      postToolUse: { enabled: true, minEditCount: 3 },
+      maxAnalyzesPerHour: 6,
     });
   });
 
@@ -138,7 +141,7 @@ describe('SkillSynthesisDiagnosticsService', () => {
       }),
     );
     const snap = await service.getSnapshot('/ws');
-    expect(snap.triggers).toEqual({
+    expect(snap.triggers).toMatchObject({
       sessionEnd: false,
       idleMs: 60000,
       bootScan: false,

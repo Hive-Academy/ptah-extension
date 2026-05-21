@@ -88,7 +88,14 @@ function makeDiagnostics() {
       },
       byStatus: { candidate: 0, promoted: 0, rejected: 0, invocations: 0 },
       recentEvents: [],
-      triggers: { sessionEnd: true, idleMs: 600000, bootScan: true },
+      triggers: {
+        sessionEnd: true,
+        idleMs: 600000,
+        bootScan: true,
+        subagentStop: { enabled: true },
+        postToolUse: { enabled: true, minEditCount: 3 },
+        maxAnalyzesPerHour: 6,
+      },
     }),
   };
 }
@@ -153,7 +160,14 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       recentEvents: [
         { kind: 'analyze-run', timestamp: 1700000000000, sessionId: 's-1' },
       ],
-      triggers: { sessionEnd: true, idleMs: 300000, bootScan: false },
+      triggers: {
+        sessionEnd: true,
+        idleMs: 300000,
+        bootScan: false,
+        subagentStop: { enabled: true },
+        postToolUse: { enabled: true, minEditCount: 3 },
+        maxAnalyzesPerHour: 6,
+      },
     });
     store.getStats.mockReturnValue({
       candidates: 10,
@@ -378,8 +392,15 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getTriggers', () => {
   it('returns defaults when no settings present', async () => {
     const { rpcHandler } = buildHandlers();
     const result = await rpcHandler.call('skillSynthesis:getTriggers', {});
-    expect(result).toEqual({
-      triggers: { sessionEnd: true, idleMs: 600000, bootScan: true },
+    expect(result).toMatchObject({
+      triggers: {
+        sessionEnd: true,
+        idleMs: 600000,
+        bootScan: true,
+        subagentStop: { enabled: true },
+        postToolUse: { enabled: true, minEditCount: 3 },
+        maxAnalyzesPerHour: 6,
+      },
     });
   });
 
@@ -401,6 +422,104 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getTriggers', () => {
         junk: 'value',
       } as unknown),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — nested triggers (subagentStop / postToolUse / maxAnalyzesPerHour)', () => {
+  it('persists nested subagentStop via flat dotted keys and round-trips', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    const result = await rpcHandler.call('skillSynthesis:setTriggers', {
+      triggers: { subagentStop: { enabled: false } },
+    });
+
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'skillSynthesis.triggers.subagentStop.enabled',
+      false,
+    );
+    expect(result).toMatchObject({
+      triggers: { subagentStop: { enabled: false } },
+    });
+
+    const getResult = await rpcHandler.call('skillSynthesis:getTriggers', {});
+    expect(getResult).toMatchObject({
+      triggers: { subagentStop: { enabled: false } },
+    });
+  });
+
+  it('persists nested postToolUse via 2 flat dotted keys', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await rpcHandler.call('skillSynthesis:setTriggers', {
+      triggers: { postToolUse: { enabled: false, minEditCount: 5 } },
+    });
+
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'skillSynthesis.triggers.postToolUse.enabled',
+      false,
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'skillSynthesis.triggers.postToolUse.minEditCount',
+      5,
+    );
+  });
+
+  it('persists maxAnalyzesPerHour as top-level flat key', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await rpcHandler.call('skillSynthesis:setTriggers', {
+      triggers: { maxAnalyzesPerHour: 24 },
+    });
+
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'skillSynthesis.triggers.maxAnalyzesPerHour',
+      24,
+    );
+
+    const getResult = await rpcHandler.call('skillSynthesis:getTriggers', {});
+    expect(getResult).toMatchObject({
+      triggers: { maxAnalyzesPerHour: 24 },
+    });
+  });
+
+  it('rejects minEditCount=0 (below min) via Zod refinement', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('skillSynthesis:setTriggers', {
+        triggers: { postToolUse: { enabled: true, minEditCount: 0 } },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects minEditCount=21 (above max) via Zod refinement', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('skillSynthesis:setTriggers', {
+        triggers: { postToolUse: { enabled: true, minEditCount: 21 } },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects maxAnalyzesPerHour > 1000 via Zod refinement', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('skillSynthesis:setTriggers', {
+        triggers: { maxAnalyzesPerHour: 1001 },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
   });
 });
 

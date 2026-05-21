@@ -58,6 +58,14 @@ export interface SkillTriggersDto {
   readonly sessionEnd: boolean;
   readonly idleMs: number;
   readonly bootScan: boolean;
+  readonly subagentStop?: {
+    readonly enabled: boolean;
+  };
+  readonly postToolUse?: {
+    readonly enabled: boolean;
+    readonly minEditCount: number;
+  };
+  readonly maxAnalyzesPerHour?: number;
 }
 
 export interface MemoryDbHealthDto {

@@ -85,17 +85,37 @@ import {
   UpdateSkillSynthesisSettingsParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
-const SKILL_TRIGGER_DEFAULTS: SkillTriggersDto = {
+const SKILL_TRIGGER_DEFAULTS = {
   sessionEnd: true,
   idleMs: 600000,
   bootScan: true,
+  subagentStop: { enabled: true },
+  postToolUse: { enabled: true, minEditCount: 3 },
+  maxAnalyzesPerHour: 6,
 } as const;
 
-const SKILL_TRIGGER_KEYS = {
+const SKILL_TRIGGER_PREFIXES: Record<keyof SkillTriggersDto, string> = {
   sessionEnd: 'skillSynthesis.triggers.sessionEnd',
   idleMs: 'skillSynthesis.triggers.idleMs',
   bootScan: 'skillSynthesis.triggers.bootScan',
-} as const;
+  subagentStop: 'skillSynthesis.triggers.subagentStop',
+  postToolUse: 'skillSynthesis.triggers.postToolUse',
+  maxAnalyzesPerHour: 'skillSynthesis.triggers.maxAnalyzesPerHour',
+};
+
+function flattenSkillTrigger(
+  prefix: string,
+  value: unknown,
+): Array<[string, unknown]> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return [[prefix, value]];
+  }
+  const out: Array<[string, unknown]> = [];
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out.push(...flattenSkillTrigger(`${prefix}.${k}`, v));
+  }
+  return out;
+}
 
 /** Minimal interface for the Curator service. */
 interface ICuratorService {
@@ -475,6 +495,12 @@ export class SkillsSynthesisRpcHandlers {
             sessionEnd: snapshot.triggers.sessionEnd,
             idleMs: snapshot.triggers.idleMs,
             bootScan: snapshot.triggers.bootScan,
+            subagentStop: { enabled: snapshot.triggers.subagentStop.enabled },
+            postToolUse: {
+              enabled: snapshot.triggers.postToolUse.enabled,
+              minEditCount: snapshot.triggers.postToolUse.minEditCount,
+            },
+            maxAnalyzesPerHour: snapshot.triggers.maxAnalyzesPerHour,
           },
         };
       } catch (error: unknown) {
@@ -571,11 +597,15 @@ export class SkillsSynthesisRpcHandlers {
           Object.entries(incoming) as Array<[keyof SkillTriggersDto, unknown]>;
         for (const [key, value] of entries) {
           if (value === undefined) continue;
-          await this.workspaceProvider.setConfiguration(
-            'ptah',
-            SKILL_TRIGGER_KEYS[key],
-            value,
-          );
+          const prefix = SKILL_TRIGGER_PREFIXES[key];
+          const leaves = flattenSkillTrigger(prefix, value);
+          for (const [flatKey, flatValue] of leaves) {
+            await this.workspaceProvider.setConfiguration(
+              'ptah',
+              flatKey,
+              flatValue,
+            );
+          }
         }
         return { triggers: this.readSkillTriggers() };
       } catch (error: unknown) {
@@ -616,22 +646,56 @@ export class SkillsSynthesisRpcHandlers {
     const sessionEnd =
       this.workspaceProvider.getConfiguration<boolean>(
         'ptah',
-        SKILL_TRIGGER_KEYS.sessionEnd,
+        'skillSynthesis.triggers.sessionEnd',
         SKILL_TRIGGER_DEFAULTS.sessionEnd,
       ) ?? SKILL_TRIGGER_DEFAULTS.sessionEnd;
     const idleMs =
       this.workspaceProvider.getConfiguration<number>(
         'ptah',
-        SKILL_TRIGGER_KEYS.idleMs,
+        'skillSynthesis.triggers.idleMs',
         SKILL_TRIGGER_DEFAULTS.idleMs,
       ) ?? SKILL_TRIGGER_DEFAULTS.idleMs;
     const bootScan =
       this.workspaceProvider.getConfiguration<boolean>(
         'ptah',
-        SKILL_TRIGGER_KEYS.bootScan,
+        'skillSynthesis.triggers.bootScan',
         SKILL_TRIGGER_DEFAULTS.bootScan,
       ) ?? SKILL_TRIGGER_DEFAULTS.bootScan;
-    return { sessionEnd, idleMs, bootScan };
+    const subagentStopEnabled =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'skillSynthesis.triggers.subagentStop.enabled',
+        SKILL_TRIGGER_DEFAULTS.subagentStop.enabled,
+      ) ?? SKILL_TRIGGER_DEFAULTS.subagentStop.enabled;
+    const postToolUseEnabled =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'skillSynthesis.triggers.postToolUse.enabled',
+        SKILL_TRIGGER_DEFAULTS.postToolUse.enabled,
+      ) ?? SKILL_TRIGGER_DEFAULTS.postToolUse.enabled;
+    const postToolUseMinEditCount =
+      this.workspaceProvider.getConfiguration<number>(
+        'ptah',
+        'skillSynthesis.triggers.postToolUse.minEditCount',
+        SKILL_TRIGGER_DEFAULTS.postToolUse.minEditCount,
+      ) ?? SKILL_TRIGGER_DEFAULTS.postToolUse.minEditCount;
+    const maxAnalyzesPerHour =
+      this.workspaceProvider.getConfiguration<number>(
+        'ptah',
+        'skillSynthesis.triggers.maxAnalyzesPerHour',
+        SKILL_TRIGGER_DEFAULTS.maxAnalyzesPerHour,
+      ) ?? SKILL_TRIGGER_DEFAULTS.maxAnalyzesPerHour;
+    return {
+      sessionEnd,
+      idleMs,
+      bootScan,
+      subagentStop: { enabled: subagentStopEnabled },
+      postToolUse: {
+        enabled: postToolUseEnabled,
+        minEditCount: postToolUseMinEditCount,
+      },
+      maxAnalyzesPerHour,
+    };
   }
 
   private collectByStatus(

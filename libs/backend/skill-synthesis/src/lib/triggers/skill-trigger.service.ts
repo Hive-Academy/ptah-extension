@@ -14,6 +14,11 @@ import {
   type SessionEndPayload,
   type SessionEndCallbackRegistry,
   type JsonlReaderService,
+  type SubagentStopCallbackRegistry,
+  type SubagentStopPayload,
+  type PostToolUseCallbackRegistry,
+  type PostToolUsePayload,
+  type CuratorRateLimitService,
 } from '@ptah-extension/agent-sdk';
 import {
   BootScanRunner,
@@ -27,16 +32,37 @@ const KEYS = {
   sessionEnd: 'skillSynthesis.triggers.sessionEnd',
   idleMs: 'skillSynthesis.triggers.idleMs',
   bootScan: 'skillSynthesis.triggers.bootScan',
+  subagentStopEnabled: 'skillSynthesis.triggers.subagentStop.enabled',
+  postToolUseEnabled: 'skillSynthesis.triggers.postToolUse.enabled',
+  postToolUseMinEditCount: 'skillSynthesis.triggers.postToolUse.minEditCount',
+  maxAnalyzesPerHour: 'skillSynthesis.triggers.maxAnalyzesPerHour',
 } as const;
+
 const DEFAULTS = {
   sessionEnd: true,
   idleMs: 600000,
   bootScan: true,
+  subagentStopEnabled: true,
+  postToolUseEnabled: true,
+  postToolUseMinEditCount: 3,
+  maxAnalyzesPerHour: 6,
 } as const;
+
+const TEST_PATTERN = /\b(npm|pnpm|yarn|jest|vitest|nx)\s+(test|run\s+test)\b/;
+const EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit']);
+const EDIT_WINDOW_MS = 10 * 60 * 1000;
+const RATE_LIMIT_KEY = 'skill.analyze';
 
 interface SessionState {
   readonly workspaceRoot: string;
   idleTimer: ReturnType<typeof setTimeout> | null;
+}
+
+interface EditTestState {
+  readonly workspaceRoot: string;
+  editCount: number;
+  lastEditAt: number;
+  windowStartAt: number;
 }
 
 @injectable()
@@ -44,7 +70,10 @@ export class SkillTriggerService {
   private started = false;
   private activityDisposer: (() => void) | null = null;
   private sessionEndDisposer: (() => void) | null = null;
+  private subagentStopDisposer: (() => void) | null = null;
+  private postToolUseDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
+  private readonly editTestStates = new Map<string, EditTestState>();
   private bootScanController: AbortController | null = null;
 
   constructor(
@@ -63,6 +92,12 @@ export class SkillTriggerService {
     private readonly sqlite: SqliteConnectionService,
     @inject(SDK_TOKENS.SDK_JSONL_READER)
     private readonly jsonl: JsonlReaderService,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY)
+    private readonly subagentStopRegistry: SubagentStopCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY)
+    private readonly postToolUseRegistry: PostToolUseCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT)
+    private readonly rateLimiter: CuratorRateLimitService,
   ) {}
 
   start(): void {
@@ -74,6 +109,14 @@ export class SkillTriggerService {
     });
     this.sessionEndDisposer = this.sessionEnd.register((payload) => {
       this.onSessionEnd(payload);
+    });
+    this.subagentStopDisposer = this.subagentStopRegistry.register(
+      (payload) => {
+        this.onSubagentStop(payload);
+      },
+    );
+    this.postToolUseDisposer = this.postToolUseRegistry.register((payload) => {
+      this.onPostToolUse(payload);
     });
 
     if (this.readBootScanFlag()) {
@@ -88,12 +131,17 @@ export class SkillTriggerService {
     if (!this.started) return;
     this.activityDisposer?.();
     this.sessionEndDisposer?.();
+    this.subagentStopDisposer?.();
+    this.postToolUseDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
+    this.subagentStopDisposer = null;
+    this.postToolUseDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
     this.sessions.clear();
+    this.editTestStates.clear();
     this.bootScanController?.abort();
     this.bootScanController = null;
     this.started = false;
@@ -121,9 +169,125 @@ export class SkillTriggerService {
 
   private onSessionEnd(payload: SessionEndPayload): void {
     const state = this.sessions.get(payload.sessionId);
+    if (state) {
+      if (state.idleTimer) clearTimeout(state.idleTimer);
+      this.sessions.delete(payload.sessionId);
+    }
+    this.editTestStates.delete(payload.sessionId);
+  }
+
+  private onSubagentStop(payload: SubagentStopPayload): void {
+    if (!this.readSubagentStopEnabled()) return;
+
+    const decision = this.rateLimiter.tryAcquire(
+      RATE_LIMIT_KEY,
+      this.readMaxAnalyzesPerHour(),
+    );
+    if (!decision.allowed) {
+      this.synthesis.pushEvent({
+        kind: 'rate-limited',
+        timestamp: payload.timestamp,
+        sessionId: payload.subagentSessionId,
+        stats: {
+          source: 'subagent-stop',
+          limit: decision.limit,
+          resetAt: decision.resetAt,
+          usedThisWindow: decision.usedThisWindow,
+        },
+      });
+      return;
+    }
+
+    this.synthesis.pushEvent({
+      kind: 'subagent-stop',
+      timestamp: payload.timestamp,
+      sessionId: payload.subagentSessionId,
+    });
+    void this.invokeAnalyze(
+      payload.subagentSessionId,
+      payload.workspaceRoot,
+      'subagent-stop',
+    );
+  }
+
+  private onPostToolUse(payload: PostToolUsePayload): void {
+    if (!this.readPostToolUseEnabled()) return;
+    const minEditCount = this.readPostToolUseMinEditCount();
+    const now = payload.timestamp;
+
+    if (EDIT_TOOL_NAMES.has(payload.toolName)) {
+      let state = this.editTestStates.get(payload.sessionId);
+      if (!state || now - state.windowStartAt > EDIT_WINDOW_MS) {
+        state = {
+          workspaceRoot: payload.workspaceRoot,
+          editCount: 0,
+          lastEditAt: now,
+          windowStartAt: now,
+        };
+        this.editTestStates.set(payload.sessionId, state);
+      }
+      state.editCount++;
+      state.lastEditAt = now;
+      return;
+    }
+
+    if (payload.toolName !== 'Bash') return;
+    if (!payload.success || payload.exitCode !== 0) return;
+    const cmd = this.extractBashCommand(payload.toolInput);
+    if (!cmd || !TEST_PATTERN.test(cmd)) return;
+
+    const state = this.editTestStates.get(payload.sessionId);
     if (!state) return;
-    if (state.idleTimer) clearTimeout(state.idleTimer);
-    this.sessions.delete(payload.sessionId);
+    if (now - state.windowStartAt > EDIT_WINDOW_MS) {
+      this.editTestStates.delete(payload.sessionId);
+      return;
+    }
+    if (state.editCount < minEditCount) return;
+
+    const decision = this.rateLimiter.tryAcquire(
+      RATE_LIMIT_KEY,
+      this.readMaxAnalyzesPerHour(),
+    );
+    if (!decision.allowed) {
+      this.synthesis.pushEvent({
+        kind: 'rate-limited',
+        timestamp: now,
+        sessionId: payload.sessionId,
+        stats: {
+          source: 'edit-then-test',
+          limit: decision.limit,
+          resetAt: decision.resetAt,
+          usedThisWindow: decision.usedThisWindow,
+        },
+      });
+      this.editTestStates.delete(payload.sessionId);
+      return;
+    }
+
+    this.synthesis.pushEvent({
+      kind: 'edit-then-test',
+      timestamp: now,
+      sessionId: payload.sessionId,
+      stats: { editCount: state.editCount },
+    });
+    void this.invokeAnalyze(
+      payload.sessionId,
+      state.workspaceRoot,
+      'edit-then-test',
+    );
+    this.editTestStates.delete(payload.sessionId);
+  }
+
+  private extractBashCommand(toolInput: unknown): string | null {
+    if (
+      typeof toolInput === 'object' &&
+      toolInput !== null &&
+      'command' in toolInput
+    ) {
+      const c = (toolInput as { command?: unknown }).command;
+      return typeof c === 'string' ? c : null;
+    }
+    return null;
   }
 
   private fireIdle(sessionId: string): void {
@@ -142,10 +306,12 @@ export class SkillTriggerService {
   private async invokeAnalyze(
     sessionId: string,
     workspaceRoot: string,
-    source: 'idle' | 'boot',
+    source: 'idle' | 'boot' | 'subagent-stop' | 'edit-then-test',
   ): Promise<void> {
     try {
-      await this.synthesis.analyzeSession(sessionId, workspaceRoot);
+      await this.synthesis.analyzeSession(sessionId, workspaceRoot, {
+        force: false,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.synthesis.pushEvent({
@@ -220,5 +386,41 @@ export class SkillTriggerService {
       DEFAULTS.bootScan,
     );
     return typeof v === 'boolean' ? v : DEFAULTS.bootScan;
+  }
+
+  private readSubagentStopEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      SECTION,
+      KEYS.subagentStopEnabled,
+      DEFAULTS.subagentStopEnabled,
+    );
+    return typeof v === 'boolean' ? v : DEFAULTS.subagentStopEnabled;
+  }
+
+  private readPostToolUseEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      SECTION,
+      KEYS.postToolUseEnabled,
+      DEFAULTS.postToolUseEnabled,
+    );
+    return typeof v === 'boolean' ? v : DEFAULTS.postToolUseEnabled;
+  }
+
+  private readPostToolUseMinEditCount(): number {
+    const v = this.workspace.getConfiguration<number>(
+      SECTION,
+      KEYS.postToolUseMinEditCount,
+      DEFAULTS.postToolUseMinEditCount,
+    );
+    return typeof v === 'number' ? v : DEFAULTS.postToolUseMinEditCount;
+  }
+
+  private readMaxAnalyzesPerHour(): number {
+    const v = this.workspace.getConfiguration<number>(
+      SECTION,
+      KEYS.maxAnalyzesPerHour,
+      DEFAULTS.maxAnalyzesPerHour,
+    );
+    return typeof v === 'number' ? v : DEFAULTS.maxAnalyzesPerHour;
   }
 }
