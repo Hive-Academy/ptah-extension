@@ -239,10 +239,10 @@ export class AssistantMessageTransformer {
         : undefined;
 
     const cost = tokenUsage
-      ? calculateMessageCost(
+      ? (calculateMessageCost(
           helpers.modelResolver.resolveForPricing(message.model || ''),
           tokenUsage,
-        )
+        ) ?? undefined)
       : undefined;
 
     const messageCompleteEvent: MessageCompleteEvent = {

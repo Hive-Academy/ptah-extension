@@ -131,7 +131,7 @@ describe('SkillDiagnosticsAccordionComponent', () => {
     const checkboxes = fixture.nativeElement.querySelectorAll(
       '[data-test="panel-triggers"] input[type="checkbox"]',
     ) as NodeListOf<HTMLInputElement>;
-    expect(checkboxes.length).toBe(3);
+    expect(checkboxes.length).toBeGreaterThanOrEqual(3);
     checkboxes[0].checked = false;
     checkboxes[0].dispatchEvent(new Event('change'));
     expect(stub.setTriggers).toHaveBeenCalledWith({ sessionEnd: false });
@@ -197,5 +197,71 @@ describe('SkillDiagnosticsAccordionComponent', () => {
       '[data-test="no-active-session-hint"]',
     );
     expect(hint).toBeNull();
+  });
+
+  it('toggling subagentStop persists nested DTO via setTriggers', () => {
+    const stub = makeStub();
+    stub.triggers.set({
+      sessionEnd: true,
+      idleMs: 600_000,
+      bootScan: true,
+      subagentStop: { enabled: false },
+    });
+    const fixture = createFixture(stub);
+    fixture.detectChanges();
+
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-test="panel-triggers"] ptah-skill-trigger-toggle[key="subagentStop"] input[type="checkbox"]',
+    ) as HTMLInputElement;
+    expect(toggle).toBeTruthy();
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    expect(stub.setTriggers).toHaveBeenCalledWith({
+      subagentStop: { enabled: true },
+    });
+  });
+
+  it('changing postToolUse minEditCount persists nested DTO via setTriggers', () => {
+    const stub = makeStub();
+    stub.triggers.set({
+      sessionEnd: true,
+      idleMs: 600_000,
+      bootScan: true,
+      postToolUse: { enabled: true, minEditCount: 1 },
+    });
+    const fixture = createFixture(stub);
+    fixture.detectChanges();
+
+    const input = fixture.nativeElement.querySelector(
+      '[data-test="panel-triggers"] ptah-skill-trigger-toggle[key="postToolUseMinEditCount"] input[type="number"]',
+    ) as HTMLInputElement;
+    expect(input).toBeTruthy();
+    input.value = '5';
+    input.dispatchEvent(new Event('change'));
+    expect(stub.setTriggers).toHaveBeenCalledWith({
+      postToolUse: { enabled: true, minEditCount: 5 },
+    });
+  });
+
+  it('changing maxAnalyzesPerHour persists flat field via setTriggers', () => {
+    const stub = makeStub();
+    stub.triggers.set({
+      sessionEnd: true,
+      idleMs: 600_000,
+      bootScan: true,
+      maxAnalyzesPerHour: 60,
+    });
+    const fixture = createFixture(stub);
+    fixture.detectChanges();
+
+    const input = fixture.nativeElement.querySelector(
+      '[data-test="panel-triggers"] ptah-skill-trigger-toggle[key="maxAnalyzesPerHour"] input[type="number"]',
+    ) as HTMLInputElement;
+    expect(input).toBeTruthy();
+    input.value = '120';
+    input.dispatchEvent(new Event('change'));
+    expect(stub.setTriggers).toHaveBeenCalledWith({
+      maxAnalyzesPerHour: 120,
+    });
   });
 });

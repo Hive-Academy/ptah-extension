@@ -7,6 +7,9 @@ export type MemoryCuratorEventKind =
   | 'turn-trigger'
   | 'boot-scan'
   | 'manual-run'
+  | 'user-cue-trigger'
+  | 'commit-detect'
+  | 'rate-limited'
   | 'error';
 
 export interface MemoryCuratorEvent {
@@ -47,5 +50,14 @@ export interface MemoryDiagnosticsSnapshot {
     readonly idleMs: number;
     readonly turnThreshold: number;
     readonly bootScan: boolean;
+    readonly userPromptSubmit: {
+      readonly enabled: boolean;
+      readonly cueList: readonly string[];
+      readonly minPromptLength: number;
+    };
+    readonly postToolUse: {
+      readonly enabled: boolean;
+    };
+    readonly maxCuratesPerHour: number;
   };
 }

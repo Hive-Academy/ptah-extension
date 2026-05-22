@@ -5,7 +5,14 @@ import {
   output,
 } from '@angular/core';
 
-export type SkillTriggerKey = 'sessionEnd' | 'idleMs' | 'bootScan';
+export type SkillTriggerKey =
+  | 'sessionEnd'
+  | 'idleMs'
+  | 'bootScan'
+  | 'subagentStop'
+  | 'postToolUse'
+  | 'postToolUseMinEditCount'
+  | 'maxAnalyzesPerHour';
 
 export interface SkillTriggerChange {
   readonly key: SkillTriggerKey;
@@ -33,6 +40,8 @@ export interface SkillTriggerChange {
           type="number"
           class="input input-bordered input-xs w-24"
           [value]="numericValue()"
+          [attr.min]="min() ?? null"
+          [attr.max]="max() ?? null"
           [attr.aria-label]="label() + ' value'"
           (change)="onNumericChange($event)"
         />
@@ -45,6 +54,8 @@ export class SkillTriggerToggleComponent {
   public readonly label = input.required<string>();
   public readonly enabled = input.required<boolean>();
   public readonly numericValue = input<number | null>(null);
+  public readonly min = input<number | null>(null);
+  public readonly max = input<number | null>(null);
 
   public readonly triggerChange = output<SkillTriggerChange>();
 

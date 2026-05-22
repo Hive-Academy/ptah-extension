@@ -74,4 +74,58 @@ describe('EventFeedComponent', () => {
     expect(text).toContain('promoted=3');
     expect(text).toContain('1m ago');
   });
+
+  it('renders user-cue-trigger with cue text', () => {
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [
+      {
+        kind: 'user-cue-trigger',
+        timestamp: 0,
+        sessionId: 'sess-1',
+        stats: { cue: 'remember (this|that)' },
+      } satisfies MemoryCuratorEventWire,
+    ]);
+    fixture.componentRef.setInput('now', 1_000);
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('user-cue-trigger');
+    expect(text).toContain('cue=remember (this|that)');
+  });
+
+  it('renders commit-detect with sha', () => {
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [
+      {
+        kind: 'commit-detect',
+        timestamp: 0,
+        stats: { sha: 'abc1234' },
+      } satisfies MemoryCuratorEventWire,
+    ]);
+    fixture.componentRef.setInput('now', 1_000);
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('commit-detect');
+    expect(text).toContain('commit abc1234');
+  });
+
+  it('renders rate-limited event with reset time', () => {
+    const resetAt = new Date('2026-05-21T14:30:00Z').getTime();
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [
+      {
+        kind: 'rate-limited',
+        timestamp: 0,
+        stats: { limit: 60, resetAt },
+      } satisfies MemoryCuratorEventWire,
+    ]);
+    fixture.componentRef.setInput('now', 1_000);
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('rate-limited');
+    expect(text).toContain('Limit 60/hour reached');
+    expect(text).toMatch(/resets at \d{1,2}:\d{2}/);
+  });
 });

@@ -24,6 +24,8 @@ import {
 } from '@ptah-extension/platform-core';
 import {
   SKILL_SYNTHESIS_TOKENS,
+  flattenSkillTriggers,
+  readSkillTriggers,
   type SkillCandidateStore,
   type SkillSynthesisDiagnosticsService,
   type SkillSynthesisService,
@@ -65,7 +67,6 @@ import type {
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsParams,
   SkillSynthesisStatsResult,
-  SkillTriggersDto,
   SkillSynthesisUnpinParams,
   SkillSynthesisUnpinResult,
   SkillSynthesisUpdateSettingsParams,
@@ -85,19 +86,6 @@ import {
   UpdateSkillSynthesisSettingsParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
-const SKILL_TRIGGER_DEFAULTS: SkillTriggersDto = {
-  sessionEnd: true,
-  idleMs: 600000,
-  bootScan: true,
-} as const;
-
-const SKILL_TRIGGER_KEYS = {
-  sessionEnd: 'skillSynthesis.triggers.sessionEnd',
-  idleMs: 'skillSynthesis.triggers.idleMs',
-  bootScan: 'skillSynthesis.triggers.bootScan',
-} as const;
-
-/** Minimal interface for the Curator service. */
 interface ICuratorService {
   runManual(): Promise<{
     reportPath: string;
@@ -475,6 +463,12 @@ export class SkillsSynthesisRpcHandlers {
             sessionEnd: snapshot.triggers.sessionEnd,
             idleMs: snapshot.triggers.idleMs,
             bootScan: snapshot.triggers.bootScan,
+            subagentStop: { enabled: snapshot.triggers.subagentStop.enabled },
+            postToolUse: {
+              enabled: snapshot.triggers.postToolUse.enabled,
+              minEditCount: snapshot.triggers.postToolUse.minEditCount,
+            },
+            maxAnalyzesPerHour: snapshot.triggers.maxAnalyzesPerHour,
           },
         };
       } catch (error: unknown) {
@@ -566,18 +560,16 @@ export class SkillsSynthesisRpcHandlers {
         );
       }
       try {
-        const incoming = validated.triggers;
-        const entries: Array<[keyof SkillTriggersDto, unknown]> =
-          Object.entries(incoming) as Array<[keyof SkillTriggersDto, unknown]>;
-        for (const [key, value] of entries) {
-          if (value === undefined) continue;
+        for (const [flatKey, flatValue] of flattenSkillTriggers(
+          validated.triggers,
+        )) {
           await this.workspaceProvider.setConfiguration(
             'ptah',
-            SKILL_TRIGGER_KEYS[key],
-            value,
+            flatKey,
+            flatValue,
           );
         }
-        return { triggers: this.readSkillTriggers() };
+        return { triggers: readSkillTriggers(this.workspaceProvider) };
       } catch (error: unknown) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerSetTriggers');
         const message = error instanceof Error ? error.message : String(error);
@@ -608,30 +600,8 @@ export class SkillsSynthesisRpcHandlers {
           'INVALID_PARAMS',
         );
       }
-      return { triggers: this.readSkillTriggers() };
+      return { triggers: readSkillTriggers(this.workspaceProvider) };
     });
-  }
-
-  private readSkillTriggers(): SkillTriggersDto {
-    const sessionEnd =
-      this.workspaceProvider.getConfiguration<boolean>(
-        'ptah',
-        SKILL_TRIGGER_KEYS.sessionEnd,
-        SKILL_TRIGGER_DEFAULTS.sessionEnd,
-      ) ?? SKILL_TRIGGER_DEFAULTS.sessionEnd;
-    const idleMs =
-      this.workspaceProvider.getConfiguration<number>(
-        'ptah',
-        SKILL_TRIGGER_KEYS.idleMs,
-        SKILL_TRIGGER_DEFAULTS.idleMs,
-      ) ?? SKILL_TRIGGER_DEFAULTS.idleMs;
-    const bootScan =
-      this.workspaceProvider.getConfiguration<boolean>(
-        'ptah',
-        SKILL_TRIGGER_KEYS.bootScan,
-        SKILL_TRIGGER_DEFAULTS.bootScan,
-      ) ?? SKILL_TRIGGER_DEFAULTS.bootScan;
-    return { sessionEnd, idleMs, bootScan };
   }
 
   private collectByStatus(

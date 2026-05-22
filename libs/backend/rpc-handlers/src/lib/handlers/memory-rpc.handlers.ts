@@ -10,6 +10,8 @@ import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   MEMORY_TOKENS,
   memoryId,
+  flattenMemoryTriggers,
+  readMemoryTriggers,
   type CodeSymbolStore,
   type Memory,
   type MemoryChunk,
@@ -52,7 +54,6 @@ import type {
   MemorySetTriggersResult,
   MemoryStatsParams,
   MemoryStatsResult,
-  MemoryTriggersDto,
   MemoryWire,
   RpcMethodName,
 } from '@ptah-extension/shared';
@@ -66,25 +67,6 @@ import {
   MemorySetTriggersParamsSchema,
 } from './memory-rpc.schema';
 
-const MEMORY_TRIGGER_DEFAULTS: MemoryTriggersDto = {
-  preCompact: true,
-  idleMs: 600000,
-  turnThreshold: 20,
-  bootScan: true,
-} as const;
-
-const MEMORY_TRIGGER_KEYS = {
-  preCompact: 'memory.triggers.preCompact',
-  idleMs: 'memory.triggers.idleMs',
-  turnThreshold: 'memory.triggers.turnThreshold',
-  bootScan: 'memory.triggers.bootScan',
-} as const;
-
-/**
- * Narrow schema for extracting workspaceRoot independently of the full
- * MemorySearchParamsSchema. This ensures that a bad `topK` or `query` value
- * cannot poison the scope — workspaceRoot survives any other field's failure.
- */
 const WorkspaceRootSchema = z.string().min(1).optional();
 
 function toMemoryWire(m: Memory): MemoryWire {
@@ -453,6 +435,14 @@ export class MemoryRpcHandlers {
               idleMs: snapshot.triggers.idleMs,
               turnThreshold: snapshot.triggers.turnThreshold,
               bootScan: snapshot.triggers.bootScan,
+              userPromptSubmit: {
+                enabled: snapshot.triggers.userPromptSubmit.enabled,
+                cueList: snapshot.triggers.userPromptSubmit.cueList,
+                minPromptLength:
+                  snapshot.triggers.userPromptSubmit.minPromptLength,
+              },
+              postToolUse: { enabled: snapshot.triggers.postToolUse.enabled },
+              maxCuratesPerHour: snapshot.triggers.maxCuratesPerHour,
             },
           };
         } catch (err: unknown) {
@@ -554,20 +544,16 @@ export class MemoryRpcHandlers {
           );
         }
         try {
-          const incoming = validated.triggers;
-          const entries: Array<[keyof MemoryTriggersDto, unknown]> =
-            Object.entries(incoming) as Array<
-              [keyof MemoryTriggersDto, unknown]
-            >;
-          for (const [key, value] of entries) {
-            if (value === undefined) continue;
+          for (const [flatKey, flatValue] of flattenMemoryTriggers(
+            validated.triggers,
+          )) {
             await this.workspaceProvider.setConfiguration(
               'ptah',
-              MEMORY_TRIGGER_KEYS[key],
-              value,
+              flatKey,
+              flatValue,
             );
           }
-          return { triggers: this.readMemoryTriggers() };
+          return { triggers: readMemoryTriggers(this.workspaceProvider) };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           this.logger.error('[memory] setTriggers failed', { error: message });
@@ -595,39 +581,11 @@ export class MemoryRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        return { triggers: this.readMemoryTriggers() };
+        return { triggers: readMemoryTriggers(this.workspaceProvider) };
       },
     );
 
     void this.curator;
     this.logger.info('[memory] RPC handlers registered');
-  }
-
-  private readMemoryTriggers(): MemoryTriggersDto {
-    const preCompact =
-      this.workspaceProvider.getConfiguration<boolean>(
-        'ptah',
-        MEMORY_TRIGGER_KEYS.preCompact,
-        MEMORY_TRIGGER_DEFAULTS.preCompact,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.preCompact;
-    const idleMs =
-      this.workspaceProvider.getConfiguration<number>(
-        'ptah',
-        MEMORY_TRIGGER_KEYS.idleMs,
-        MEMORY_TRIGGER_DEFAULTS.idleMs,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.idleMs;
-    const turnThreshold =
-      this.workspaceProvider.getConfiguration<number>(
-        'ptah',
-        MEMORY_TRIGGER_KEYS.turnThreshold,
-        MEMORY_TRIGGER_DEFAULTS.turnThreshold,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.turnThreshold;
-    const bootScan =
-      this.workspaceProvider.getConfiguration<boolean>(
-        'ptah',
-        MEMORY_TRIGGER_KEYS.bootScan,
-        MEMORY_TRIGGER_DEFAULTS.bootScan,
-      ) ?? MEMORY_TRIGGER_DEFAULTS.bootScan;
-    return { preCompact, idleMs, turnThreshold, bootScan };
   }
 }

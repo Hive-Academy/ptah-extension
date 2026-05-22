@@ -81,6 +81,18 @@ export const SkillTriggersSchema = z.object({
       message: 'idleMs must be 0 or >= 5000',
     }),
   bootScan: z.boolean(),
+  subagentStop: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
+  postToolUse: z
+    .object({
+      enabled: z.boolean(),
+      minEditCount: z.number().int().min(1).max(20),
+    })
+    .optional(),
+  maxAnalyzesPerHour: z.number().int().min(0).max(1000).optional(),
 });
 
 export const SkillSetTriggersParamsSchema = z.object({

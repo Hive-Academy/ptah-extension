@@ -130,6 +130,13 @@ function makeMemoryDiagnostics() {
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
+        userPromptSubmit: {
+          enabled: true,
+          cueList: [],
+          minPromptLength: 20,
+        },
+        postToolUse: { enabled: true },
+        maxCuratesPerHour: 12,
       },
     }),
   };
@@ -585,6 +592,13 @@ describe('MemoryRpcHandlers — memory:diagnostics', () => {
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
+        userPromptSubmit: {
+          enabled: true,
+          cueList: [],
+          minPromptLength: 20,
+        },
+        postToolUse: { enabled: true },
+        maxCuratesPerHour: 12,
       },
     });
 
@@ -850,12 +864,18 @@ describe('MemoryRpcHandlers — memory:getTriggers', () => {
   it('returns defaults when no settings present', async () => {
     const { rpcHandler } = buildHandlers(['/workspace/project']);
     const result = await rpcHandler.call('memory:getTriggers', {});
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       triggers: {
         preCompact: true,
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
+        userPromptSubmit: expect.objectContaining({
+          enabled: true,
+          minPromptLength: 20,
+        }),
+        postToolUse: { enabled: true },
+        maxCuratesPerHour: 12,
       },
     });
   });
@@ -876,6 +896,149 @@ describe('MemoryRpcHandlers — memory:getTriggers', () => {
     await expect(
       rpcHandler.call('memory:getTriggers', { junk: 'value' } as unknown),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('MemoryRpcHandlers — nested triggers (userPromptSubmit / postToolUse / maxCuratesPerHour)', () => {
+  it('persists nested userPromptSubmit via flat dotted keys and round-trips', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    const result = await rpcHandler.call('memory:setTriggers', {
+      triggers: {
+        userPromptSubmit: {
+          enabled: false,
+          cueList: ['custom-cue'],
+          minPromptLength: 50,
+        },
+      },
+    });
+
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.userPromptSubmit.enabled',
+      false,
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.userPromptSubmit.cueList',
+      ['custom-cue'],
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.userPromptSubmit.minPromptLength',
+      50,
+    );
+
+    expect(result).toMatchObject({
+      triggers: {
+        userPromptSubmit: {
+          enabled: false,
+          cueList: ['custom-cue'],
+          minPromptLength: 50,
+        },
+      },
+    });
+
+    const getResult = await rpcHandler.call('memory:getTriggers', {});
+    expect(getResult).toMatchObject({
+      triggers: {
+        userPromptSubmit: {
+          enabled: false,
+          cueList: ['custom-cue'],
+          minPromptLength: 50,
+        },
+      },
+    });
+  });
+
+  it('persists nested postToolUse via flat dotted keys', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await rpcHandler.call('memory:setTriggers', {
+      triggers: { postToolUse: { enabled: false } },
+    });
+
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.postToolUse.enabled',
+      false,
+    );
+  });
+
+  it('persists maxCuratesPerHour as top-level flat key', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await rpcHandler.call('memory:setTriggers', {
+      triggers: { maxCuratesPerHour: 25 },
+    });
+
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.maxCuratesPerHour',
+      25,
+    );
+
+    const getResult = await rpcHandler.call('memory:getTriggers', {});
+    expect(getResult).toMatchObject({
+      triggers: { maxCuratesPerHour: 25 },
+    });
+  });
+
+  it('rejects cueList with too many entries (>50) via Zod refinement', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    const tooMany = Array.from({ length: 51 }, (_, i) => `cue${i}`);
+    await expect(
+      rpcHandler.call('memory:setTriggers', {
+        triggers: {
+          userPromptSubmit: {
+            enabled: true,
+            cueList: tooMany,
+            minPromptLength: 20,
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects maxCuratesPerHour > 1000 via Zod refinement', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('memory:setTriggers', {
+        triggers: { maxCuratesPerHour: 1001 },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns nested defaults when no nested settings present', async () => {
+    const { rpcHandler } = buildHandlers(['/workspace/project']);
+    const result = await rpcHandler.call('memory:getTriggers', {});
+    expect(result).toMatchObject({
+      triggers: {
+        userPromptSubmit: expect.objectContaining({
+          enabled: true,
+          minPromptLength: 20,
+        }),
+        postToolUse: { enabled: true },
+        maxCuratesPerHour: 12,
+      },
+    });
   });
 });
 

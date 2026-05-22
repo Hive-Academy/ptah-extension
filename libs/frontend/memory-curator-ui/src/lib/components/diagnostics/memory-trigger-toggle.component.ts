@@ -36,6 +36,8 @@ export interface TriggerToggleChange {
             class="input input-bordered input-xs w-20"
             [value]="value() ?? 0"
             [disabled]="!enabled()"
+            [attr.min]="min() ?? null"
+            [attr.max]="max() ?? null"
             (change)="onValueChange($event)"
             [attr.aria-label]="label() + ' value'"
           />
@@ -52,6 +54,8 @@ export class MemoryTriggerToggleComponent {
   public readonly enabled = input.required<boolean>();
   public readonly value = input<number | undefined>(undefined);
   public readonly valueLabel = input<string | undefined>(undefined);
+  public readonly min = input<number | undefined>(undefined);
+  public readonly max = input<number | undefined>(undefined);
 
   public readonly triggerChange = output<TriggerToggleChange>();
 

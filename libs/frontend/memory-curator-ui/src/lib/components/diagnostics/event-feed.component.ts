@@ -92,6 +92,15 @@ function formatRelative(deltaMs: number): string {
 
 function buildOutcome(ev: MemoryCuratorEventWire): string {
   if (ev.error) return ev.error;
+  if (ev.kind === 'rate-limited') return formatRateLimited(ev.stats);
+  if (ev.kind === 'user-cue-trigger') {
+    const cue = ev.stats?.['cue'];
+    if (typeof cue === 'string' && cue.length > 0) return `cue=${cue}`;
+  }
+  if (ev.kind === 'commit-detect') {
+    const sha = ev.stats?.['sha'];
+    if (typeof sha === 'string' && sha.length > 0) return `commit ${sha}`;
+  }
   const stats = ev.stats;
   if (stats) {
     const entries = Object.entries(stats)
@@ -104,9 +113,33 @@ function buildOutcome(ev: MemoryCuratorEventWire): string {
   return ev.kind;
 }
 
+function formatRateLimited(stats: MemoryCuratorEventWire['stats']): string {
+  const limit = stats?.['limit'];
+  const resetAt = stats?.['resetAt'];
+  const limitText =
+    typeof limit === 'number'
+      ? `Limit ${limit}/hour reached`
+      : 'Rate limit reached';
+  if (typeof resetAt === 'number' && Number.isFinite(resetAt)) {
+    const time = new Date(resetAt).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return `${limitText}, resets at ${time}`;
+  }
+  return limitText;
+}
+
 function toneFor(ev: MemoryCuratorEventWire): FeedRow['tone'] {
   if (ev.kind === 'error') return 'error';
   if (ev.kind === 'curator-run' || ev.kind === 'manual-run') return 'success';
-  if (ev.kind === 'idle-trigger' || ev.kind === 'turn-trigger') return 'info';
+  if (
+    ev.kind === 'idle-trigger' ||
+    ev.kind === 'turn-trigger' ||
+    ev.kind === 'user-cue-trigger' ||
+    ev.kind === 'commit-detect'
+  )
+    return 'info';
+  if (ev.kind === 'rate-limited') return 'warning';
   return 'warning';
 }

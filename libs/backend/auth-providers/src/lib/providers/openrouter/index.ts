@@ -7,5 +7,7 @@
  */
 export { OpenRouterAuthService } from './openrouter-auth.service';
 export { OpenRouterTranslationProxy } from './openrouter-translation-proxy';
+export { OpenRouterPricingService } from './openrouter-pricing.service';
+export type { OpenRouterModel } from './openrouter-pricing.service';
 export { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from './openrouter-provider.types';
 export type { IOpenRouterAuthService } from './openrouter-provider.types';

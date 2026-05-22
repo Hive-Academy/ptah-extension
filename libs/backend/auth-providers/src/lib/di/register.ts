@@ -13,6 +13,7 @@ import {
   CliStrategy,
 } from '../auth/strategies';
 import { registerProviders } from '../providers/register-providers';
+import type { OpenRouterPricingService } from '../providers/openrouter';
 
 export function registerAuthProvidersServices(
   container: DependencyContainer,
@@ -66,4 +67,20 @@ export function registerAuthProvidersServices(
   );
 
   logger.info('[auth-providers] Services registered');
+
+  // Fire-and-forget pricing catalog warmup. Failures degrade silently —
+  // costs read as "unavailable" until the next process or manual refresh.
+  // Resolved lazily so the synchronous DI registration above is unaffected.
+  try {
+    const pricing = container.resolve<OpenRouterPricingService>(
+      AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PRICING,
+    );
+    pricing.warmup();
+  } catch (error: unknown) {
+    logger.warn(
+      `[auth-providers] OpenRouter pricing warmup skipped: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 }

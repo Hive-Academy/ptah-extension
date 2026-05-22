@@ -5,6 +5,9 @@ export type MemoryCuratorEventKind =
   | 'turn-trigger'
   | 'boot-scan'
   | 'manual-run'
+  | 'user-cue-trigger'
+  | 'commit-detect'
+  | 'rate-limited'
   | 'error';
 
 export interface MemoryCuratorEventWire {
@@ -22,6 +25,9 @@ export type SkillSynthesisEventKind =
   | 'boot-scan'
   | 'manual-run'
   | 'ineligible'
+  | 'subagent-stop'
+  | 'edit-then-test'
+  | 'rate-limited'
   | 'error';
 
 export interface SkillSynthesisEventWire {
@@ -37,12 +43,29 @@ export interface MemoryTriggersDto {
   readonly idleMs: number;
   readonly turnThreshold: number;
   readonly bootScan: boolean;
+  readonly userPromptSubmit?: {
+    readonly enabled: boolean;
+    readonly cueList: readonly string[];
+    readonly minPromptLength: number;
+  };
+  readonly postToolUse?: {
+    readonly enabled: boolean;
+  };
+  readonly maxCuratesPerHour?: number;
 }
 
 export interface SkillTriggersDto {
   readonly sessionEnd: boolean;
   readonly idleMs: number;
   readonly bootScan: boolean;
+  readonly subagentStop?: {
+    readonly enabled: boolean;
+  };
+  readonly postToolUse?: {
+    readonly enabled: boolean;
+    readonly minEditCount: number;
+  };
+  readonly maxAnalyzesPerHour?: number;
 }
 
 export interface MemoryDbHealthDto {

@@ -204,6 +204,26 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
         .mockImplementation((m: string) => m || 'claude-sonnet-4'),
     };
 
+    const memoryPromptInjector = {
+      buildBlock: jest.fn().mockResolvedValue(''),
+    };
+
+    const postToolUseHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+
+    const userPromptSubmitHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+
     const ctor = SdkQueryOptionsBuilder as unknown as new (
       ...args: unknown[]
     ) => SdkQueryOptionsBuilder;
@@ -216,6 +236,9 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
       worktreeHookHandler,
       authEnv,
       modelService,
+      memoryPromptInjector,
+      postToolUseHookHandler,
+      userPromptSubmitHookHandler,
     );
   }
 
@@ -315,6 +338,24 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
         ),
     };
 
+    const memoryPromptInjector = {
+      buildBlock: jest.fn().mockResolvedValue(''),
+    };
+    const postToolUseHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+    const userPromptSubmitHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+
     const ctor = SdkQueryOptionsBuilder as unknown as new (
       ...args: unknown[]
     ) => SdkQueryOptionsBuilder;
@@ -328,6 +369,9 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       // Third-party provider: non-Anthropic base URL triggers model validation.
       { ANTHROPIC_BASE_URL: 'https://api.moonshot.cn/v1' } as AuthEnv,
       modelService,
+      memoryPromptInjector,
+      postToolUseHookHandler,
+      userPromptSubmitHookHandler,
     );
   }
 
@@ -454,6 +498,15 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
         .fn()
         .mockResolvedValue([{ value: 'claude-3-5-sonnet-20241022' }]),
     };
+    const memoryPromptInjector = {
+      buildBlock: jest.fn().mockResolvedValue(''),
+    };
+    const postToolUseHookHandler = {
+      createHooks: jest.fn().mockReturnValue({}),
+    };
+    const userPromptSubmitHookHandler = {
+      createHooks: jest.fn().mockReturnValue({}),
+    };
     const builder = new ctor(
       logger,
       permissionHandler,
@@ -463,6 +516,9 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       worktreeHookHandler,
       { ANTHROPIC_BASE_URL: 'https://api.anthropic.com' } as AuthEnv,
       modelService,
+      memoryPromptInjector,
+      postToolUseHookHandler,
+      userPromptSubmitHookHandler,
     );
 
     const sessionConfig = {
@@ -556,6 +612,23 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
         .fn()
         .mockImplementation((m: string) => m || 'claude-sonnet-4'),
     };
+    const memoryPromptInjector = {
+      buildBlock: jest.fn().mockResolvedValue(''),
+    };
+    const postToolUseHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+    const userPromptSubmitHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
     const ctor = SdkQueryOptionsBuilder as unknown as new (
       ...args: unknown[]
     ) => SdkQueryOptionsBuilder;
@@ -568,6 +641,9 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       worktreeHookHandler,
       authEnv,
       modelService,
+      memoryPromptInjector,
+      postToolUseHookHandler,
+      userPromptSubmitHookHandler,
     );
     return { builder, logger, permissionHandler };
   }
@@ -640,5 +716,161 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     );
     expect(warnedAboutRouting).toBe(true);
     expect(warnedAboutTabId).toBe(true);
+  });
+});
+
+describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit merger', () => {
+  interface BuilderWithCreateHooks {
+    createHooks(
+      cwd: string,
+      sessionId?: string,
+    ): Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  }
+
+  function makeBuilderWithSpies(): {
+    builder: BuilderWithCreateHooks;
+    postToolUseHookHandler: { createHooks: jest.Mock };
+    userPromptSubmitHookHandler: { createHooks: jest.Mock };
+    subagentHookHandler: { createHooks: jest.Mock };
+    compactionHookHandler: { createHooks: jest.Mock };
+    worktreeHookHandler: { createHooks: jest.Mock };
+  } {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    };
+    const permissionHandler = {
+      createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })),
+    };
+    const subagentMatcher: HookCallbackMatcher = {
+      hooks: [jest.fn().mockResolvedValue({ continue: true })],
+    };
+    const compactionMatcher: HookCallbackMatcher = {
+      hooks: [jest.fn().mockResolvedValue({ continue: true })],
+    };
+    const worktreeMatcher: HookCallbackMatcher = {
+      hooks: [jest.fn().mockResolvedValue({ continue: true })],
+    };
+    const postToolUseMatcher: HookCallbackMatcher = {
+      hooks: [jest.fn().mockResolvedValue({ continue: true })],
+    };
+    const userPromptSubmitMatcher: HookCallbackMatcher = {
+      hooks: [jest.fn().mockResolvedValue({ continue: true })],
+    };
+    const subagentHookHandler = {
+      createHooks: jest.fn().mockReturnValue({
+        SubagentStop: [subagentMatcher],
+      } as Partial<Record<HookEvent, HookCallbackMatcher[]>>),
+    };
+    const compactionConfigProvider = {
+      getConfig: jest
+        .fn()
+        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+    };
+    const compactionHookHandler = {
+      createHooks: jest.fn().mockReturnValue({
+        PreCompact: [compactionMatcher],
+      } as Partial<Record<HookEvent, HookCallbackMatcher[]>>),
+    };
+    const worktreeHookHandler = {
+      createHooks: jest.fn().mockReturnValue({
+        WorktreeCreate: [worktreeMatcher],
+      } as Partial<Record<HookEvent, HookCallbackMatcher[]>>),
+    };
+    const authEnv: AuthEnv = {} as AuthEnv;
+    const modelService = {
+      resolveModelId: jest
+        .fn()
+        .mockImplementation((m: string) => m || 'claude-sonnet-4'),
+    };
+    const memoryPromptInjector = {
+      buildBlock: jest.fn().mockResolvedValue(''),
+    };
+    const postToolUseHookHandler = {
+      createHooks: jest.fn().mockReturnValue({
+        PostToolUse: [postToolUseMatcher],
+      } as Partial<Record<HookEvent, HookCallbackMatcher[]>>),
+    };
+    const userPromptSubmitHookHandler = {
+      createHooks: jest.fn().mockReturnValue({
+        UserPromptSubmit: [userPromptSubmitMatcher],
+      } as Partial<Record<HookEvent, HookCallbackMatcher[]>>),
+    };
+
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    const builder = new ctor(
+      logger,
+      permissionHandler,
+      subagentHookHandler,
+      compactionConfigProvider,
+      compactionHookHandler,
+      worktreeHookHandler,
+      authEnv,
+      modelService,
+      memoryPromptInjector,
+      postToolUseHookHandler,
+      userPromptSubmitHookHandler,
+    );
+    return {
+      builder: builder as unknown as BuilderWithCreateHooks,
+      postToolUseHookHandler,
+      userPromptSubmitHookHandler,
+      subagentHookHandler,
+      compactionHookHandler,
+      worktreeHookHandler,
+    };
+  }
+
+  it('invokes PostToolUseHookHandler.createHooks with (sessionId, cwd)', () => {
+    const { builder, postToolUseHookHandler } = makeBuilderWithSpies();
+    builder.createHooks('D:/tmp/ws', 'sess-abc');
+    expect(postToolUseHookHandler.createHooks).toHaveBeenCalledWith(
+      'sess-abc',
+      'D:/tmp/ws',
+    );
+  });
+
+  it('invokes UserPromptSubmitHookHandler.createHooks with (sessionId, cwd)', () => {
+    const { builder, userPromptSubmitHookHandler } = makeBuilderWithSpies();
+    builder.createHooks('D:/tmp/ws', 'sess-abc');
+    expect(userPromptSubmitHookHandler.createHooks).toHaveBeenCalledWith(
+      'sess-abc',
+      'D:/tmp/ws',
+    );
+  });
+
+  it('merged hooks output includes PostToolUse and UserPromptSubmit alongside existing keys', () => {
+    const { builder } = makeBuilderWithSpies();
+    const merged = builder.createHooks('D:/tmp/ws', 'sess-abc');
+    const keys = Object.keys(merged);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'SubagentStop',
+        'PreCompact',
+        'WorktreeCreate',
+        'PostToolUse',
+        'UserPromptSubmit',
+      ]),
+    );
+    expect(merged.PostToolUse).toHaveLength(1);
+    expect(merged.UserPromptSubmit).toHaveLength(1);
+  });
+
+  it('defaults sessionId to empty string when undefined is passed', () => {
+    const { builder, postToolUseHookHandler, userPromptSubmitHookHandler } =
+      makeBuilderWithSpies();
+    builder.createHooks('D:/tmp/ws');
+    expect(postToolUseHookHandler.createHooks).toHaveBeenCalledWith(
+      '',
+      'D:/tmp/ws',
+    );
+    expect(userPromptSubmitHookHandler.createHooks).toHaveBeenCalledWith(
+      '',
+      'D:/tmp/ws',
+    );
   });
 });

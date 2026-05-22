@@ -5,22 +5,11 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillSynthesisService } from './skill-synthesis.service';
 import { SkillCandidateStore } from './skill-candidate.store';
+import { readSkillTriggers } from './triggers/skill-trigger-config';
 import type {
   SkillSynthesisDiagnosticsSnapshot,
   SkillSynthesisEvent,
 } from './diagnostics.types';
-
-const TRIGGER_KEYS = {
-  sessionEnd: 'skillSynthesis.triggers.sessionEnd',
-  idleMs: 'skillSynthesis.triggers.idleMs',
-  bootScan: 'skillSynthesis.triggers.bootScan',
-} as const;
-
-const TRIGGER_DEFAULTS = {
-  sessionEnd: true,
-  idleMs: 600000,
-  bootScan: true,
-} as const;
 
 @injectable()
 export class SkillSynthesisDiagnosticsService {
@@ -43,7 +32,7 @@ export class SkillSynthesisDiagnosticsService {
       this.synthesis.recentEvents(eventLimit);
     const histogram = this.synthesis.getEligibilityHistogram();
     const stats = this.readStats();
-    const triggers = this.readTriggers();
+    const triggers = readSkillTriggers(this.workspace);
 
     return {
       lastAnalyzeRunAt: lastRun.lastAnalyzeRunAt,
@@ -71,27 +60,5 @@ export class SkillSynthesisDiagnosticsService {
       });
       return { candidate: 0, promoted: 0, rejected: 0, invocations: 0 };
     }
-  }
-
-  private readTriggers(): SkillSynthesisDiagnosticsSnapshot['triggers'] {
-    const sessionEnd =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.sessionEnd,
-        TRIGGER_DEFAULTS.sessionEnd,
-      ) ?? TRIGGER_DEFAULTS.sessionEnd;
-    const idleMs =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.idleMs,
-        TRIGGER_DEFAULTS.idleMs,
-      ) ?? TRIGGER_DEFAULTS.idleMs;
-    const bootScan =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.bootScan,
-        TRIGGER_DEFAULTS.bootScan,
-      ) ?? TRIGGER_DEFAULTS.bootScan;
-    return { sessionEnd, idleMs, bootScan };
   }
 }

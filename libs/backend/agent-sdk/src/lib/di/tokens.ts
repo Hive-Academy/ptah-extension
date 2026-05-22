@@ -78,6 +78,21 @@ export const SDK_TOKENS = {
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
   SDK_RUNTIME_STATE: Symbol.for('SdkRuntimeState'),
   SDK_ADAPTER_EVENTS: Symbol.for('SdkAdapterEvents'),
+
+  SDK_SUBAGENT_STOP_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSubagentStopCallbackRegistry',
+  ),
+  SDK_POST_TOOL_USE_CALLBACK_REGISTRY: Symbol.for(
+    'SdkPostToolUseCallbackRegistry',
+  ),
+  SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY: Symbol.for(
+    'SdkUserPromptSubmitCallbackRegistry',
+  ),
+  SDK_POST_TOOL_USE_HOOK_HANDLER: Symbol.for('SdkPostToolUseHookHandler'),
+  SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER: Symbol.for(
+    'SdkUserPromptSubmitHookHandler',
+  ),
+  SDK_CURATOR_RATE_LIMIT: Symbol.for('SdkCuratorRateLimit'),
 } as const;
 
 /**

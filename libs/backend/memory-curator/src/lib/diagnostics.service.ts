@@ -9,6 +9,7 @@ import {
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryCuratorService } from './memory-curator.service';
 import { MemoryDecayJob } from './memory-decay.job';
+import { readMemoryTriggers } from './triggers/memory-trigger-config';
 import type {
   MemoryCuratorEvent,
   MemoryDbHealth,
@@ -18,20 +19,6 @@ import type {
 interface CountRow {
   readonly n: number;
 }
-
-const TRIGGER_KEYS = {
-  preCompact: 'memory.triggers.preCompact',
-  idleMs: 'memory.triggers.idleMs',
-  turnThreshold: 'memory.triggers.turnThreshold',
-  bootScan: 'memory.triggers.bootScan',
-} as const;
-
-const TRIGGER_DEFAULTS = {
-  preCompact: true,
-  idleMs: 600000,
-  turnThreshold: 20,
-  bootScan: true,
-} as const;
 
 @injectable()
 export class MemoryDiagnosticsService {
@@ -56,7 +43,7 @@ export class MemoryDiagnosticsService {
     const recentEvents: readonly MemoryCuratorEvent[] =
       this.curator.recentEvents(eventLimit);
     const dbHealth = this.readDbHealth();
-    const triggers = this.readTriggers();
+    const triggers = readMemoryTriggers(this.workspace);
 
     return {
       lastRunAt: lastRun.at,
@@ -67,34 +54,6 @@ export class MemoryDiagnosticsService {
       dbHealth,
       triggers,
     };
-  }
-
-  private readTriggers(): MemoryDiagnosticsSnapshot['triggers'] {
-    const preCompact =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.preCompact,
-        TRIGGER_DEFAULTS.preCompact,
-      ) ?? TRIGGER_DEFAULTS.preCompact;
-    const idleMs =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.idleMs,
-        TRIGGER_DEFAULTS.idleMs,
-      ) ?? TRIGGER_DEFAULTS.idleMs;
-    const turnThreshold =
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        TRIGGER_KEYS.turnThreshold,
-        TRIGGER_DEFAULTS.turnThreshold,
-      ) ?? TRIGGER_DEFAULTS.turnThreshold;
-    const bootScan =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        TRIGGER_KEYS.bootScan,
-        TRIGGER_DEFAULTS.bootScan,
-      ) ?? TRIGGER_DEFAULTS.bootScan;
-    return { preCompact, idleMs, turnThreshold, bootScan };
   }
 
   private readDbHealth(): MemoryDbHealth {

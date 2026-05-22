@@ -75,4 +75,20 @@ describe('MemoryTriggerToggleComponent', () => {
     ) as HTMLInputElement;
     expect(number.disabled).toBe(true);
   });
+
+  it('applies min and max attributes to numeric input', () => {
+    const fixture = TestBed.createComponent(MemoryTriggerToggleComponent);
+    fixture.componentRef.setInput('label', 'Max curates per hour');
+    fixture.componentRef.setInput('enabled', true);
+    fixture.componentRef.setInput('value', 60);
+    fixture.componentRef.setInput('min', 0);
+    fixture.componentRef.setInput('max', 1000);
+    fixture.detectChanges();
+
+    const number = (fixture.nativeElement as HTMLElement).querySelector(
+      'input[type="number"]',
+    ) as HTMLInputElement;
+    expect(number.getAttribute('min')).toBe('0');
+    expect(number.getAttribute('max')).toBe('1000');
+  });
 });

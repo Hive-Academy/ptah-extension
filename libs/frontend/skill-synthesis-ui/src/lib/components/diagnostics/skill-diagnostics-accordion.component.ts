@@ -133,6 +133,36 @@ import {
               [enabled]="triggers().bootScan"
               (triggerChange)="onTriggerChange($event)"
             />
+            <ptah-skill-trigger-toggle
+              key="subagentStop"
+              label="Subagent stop"
+              [enabled]="triggers().subagentStop?.enabled ?? false"
+              (triggerChange)="onTriggerChange($event)"
+            />
+            <ptah-skill-trigger-toggle
+              key="postToolUse"
+              label="PostToolUse (edit+test)"
+              [enabled]="triggers().postToolUse?.enabled ?? false"
+              (triggerChange)="onTriggerChange($event)"
+            />
+            <ptah-skill-trigger-toggle
+              key="postToolUseMinEditCount"
+              label="Min edit count"
+              [enabled]="triggers().postToolUse?.enabled ?? false"
+              [numericValue]="triggers().postToolUse?.minEditCount ?? 0"
+              [min]="1"
+              [max]="20"
+              (triggerChange)="onTriggerChange($event)"
+            />
+            <ptah-skill-trigger-toggle
+              key="maxAnalyzesPerHour"
+              label="Max analyzes per hour"
+              [enabled]="(triggers().maxAnalyzesPerHour ?? 0) > 0"
+              [numericValue]="triggers().maxAnalyzesPerHour ?? 0"
+              [min]="0"
+              [max]="1000"
+              (triggerChange)="onTriggerChange($event)"
+            />
           </div>
         </div>
       </section>
@@ -228,6 +258,45 @@ export class SkillDiagnosticsAccordionComponent implements OnInit, OnDestroy {
     }
     if (change.key === 'bootScan' && typeof change.value === 'boolean') {
       void this.state.setTriggers({ bootScan: change.value });
+      return;
+    }
+    if (change.key === 'subagentStop' && typeof change.value === 'boolean') {
+      void this.state.setTriggers({
+        subagentStop: { enabled: change.value },
+      });
+      return;
+    }
+    if (change.key === 'postToolUse' && typeof change.value === 'boolean') {
+      const current = this.triggers().postToolUse;
+      void this.state.setTriggers({
+        postToolUse: {
+          enabled: change.value,
+          minEditCount: current?.minEditCount ?? 1,
+        },
+      });
+      return;
+    }
+    if (
+      change.key === 'postToolUseMinEditCount' &&
+      typeof change.value === 'number'
+    ) {
+      const current = this.triggers().postToolUse;
+      void this.state.setTriggers({
+        postToolUse: {
+          enabled: current?.enabled ?? false,
+          minEditCount: change.value,
+        },
+      });
+      return;
+    }
+    if (change.key === 'maxAnalyzesPerHour') {
+      if (typeof change.value === 'boolean') {
+        void this.state.setTriggers({
+          maxAnalyzesPerHour: change.value ? 60 : 0,
+        });
+        return;
+      }
+      void this.state.setTriggers({ maxAnalyzesPerHour: change.value });
     }
   }
 

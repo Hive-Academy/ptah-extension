@@ -338,15 +338,13 @@ export class StreamTransformer {
                       model,
                       authEnv,
                     );
-                    const recalculatedCost = calculateMessageCost(
-                      resolvedModel,
-                      {
+                    const recalculatedCost =
+                      calculateMessageCost(resolvedModel, {
                         input: usage.inputTokens,
                         output: usage.outputTokens,
                         cacheHit: usage.cacheReadInputTokens ?? 0,
                         cacheCreation: usage.cacheCreationInputTokens ?? 0,
-                      },
-                    );
+                      }) ?? 0;
                     recalculatedTotalCost += recalculatedCost;
                     const knownContextWindow =
                       getModelContextWindow(resolvedModel);
@@ -389,7 +387,7 @@ export class StreamTransformer {
                 const totalCost =
                   recalculatedTotalCost > 0
                     ? recalculatedTotalCost
-                    : calculateMessageCost(
+                    : (calculateMessageCost(
                         modelResolver.resolveForPricing(initialModel, authEnv),
                         {
                           input: sdkMessage.usage.input_tokens,
@@ -399,7 +397,7 @@ export class StreamTransformer {
                           cacheCreation:
                             sdkMessage.usage.cache_creation_input_tokens ?? 0,
                         },
-                      );
+                      ) ?? 0);
 
                 const rawStats = {
                   sessionId: effectiveSessionId,

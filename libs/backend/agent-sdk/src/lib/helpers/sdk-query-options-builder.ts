@@ -37,6 +37,8 @@ import {
   type WorktreeCreatedCallback,
   type WorktreeRemovedCallback,
 } from './worktree-hook-handler';
+import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
+import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import {
   CanUseTool,
   HookEvent,
@@ -430,6 +432,10 @@ export class SdkQueryOptionsBuilder {
     private readonly modelService: SdkModelService,
     @inject(SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR)
     private readonly memoryPromptInjector: MemoryPromptInjector,
+    @inject(SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER)
+    private readonly postToolUseHookHandler: PostToolUseHookHandler,
+    @inject(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER)
+    private readonly userPromptSubmitHookHandler: UserPromptSubmitHookHandler,
   ) {}
 
   /**
@@ -982,8 +988,22 @@ export class SdkQueryOptionsBuilder {
       onWorktreeCreated,
       onWorktreeRemoved,
     );
+    const postToolUseHooks = this.postToolUseHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
+    const userPromptSubmitHooks = this.userPromptSubmitHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-    for (const hooks of [subagentHooks, compactionHooks, worktreeHooks]) {
+    for (const hooks of [
+      subagentHooks,
+      compactionHooks,
+      worktreeHooks,
+      postToolUseHooks,
+      userPromptSubmitHooks,
+    ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
         mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];

@@ -52,6 +52,28 @@ export {
   type SessionActivityCallback,
   type SessionActivityPayload,
 } from './session-activity-registry';
+export {
+  SubagentStopCallbackRegistry,
+  type SubagentStopCallback,
+  type SubagentStopPayload,
+} from './subagent-stop-callback-registry';
+export {
+  PostToolUseCallbackRegistry,
+  type PostToolUseCallback,
+  type PostToolUsePayload,
+} from './post-tool-use-callback-registry';
+export { PostToolUseHookHandler } from './post-tool-use-hook-handler';
+export {
+  UserPromptSubmitCallbackRegistry,
+  type UserPromptSubmitCallback,
+  type UserPromptSubmitPayload,
+} from './user-prompt-submit-callback-registry';
+export { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
+export {
+  CuratorRateLimitService,
+  type RateLimitDecision,
+  type RateLimitSnapshot,
+} from './curator-rate-limit.service';
 export { LiveUsageTracker } from './live-usage-tracker';
 export {
   WorktreeHookHandler,
@@ -119,6 +141,10 @@ export {
   type RewindFilesParams,
 } from './session-fork.service';
 export { SdkAdapterCallbackRegistry } from './sdk-adapter-callback-registry';
+export {
+  CallbackRegistryBase,
+  type CallbackRegistryCallback,
+} from './callback-registry.base';
 
 export { SdkRuntimeStateService } from './sdk-runtime-state.service';
 export {

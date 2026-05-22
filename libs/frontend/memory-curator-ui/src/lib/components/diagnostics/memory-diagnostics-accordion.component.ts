@@ -85,6 +85,45 @@ import { EventFeedComponent } from './event-feed.component';
               [enabled]="t.bootScan"
               (triggerChange)="onBootScanChange($event)"
             />
+            <ptah-memory-trigger-toggle
+              label="PostToolUse hook"
+              [enabled]="t.postToolUse?.enabled ?? false"
+              (triggerChange)="onPostToolUseChange($event)"
+            />
+            <ptah-memory-trigger-toggle
+              label="UserPromptSubmit cues"
+              [enabled]="t.userPromptSubmit?.enabled ?? false"
+              [value]="t.userPromptSubmit?.minPromptLength ?? 0"
+              valueLabel="min length"
+              [min]="0"
+              [max]="10000"
+              (triggerChange)="onUserPromptSubmitChange($event)"
+            />
+            <ptah-memory-trigger-toggle
+              label="Max curates per hour"
+              [enabled]="(t.maxCuratesPerHour ?? 0) > 0"
+              [value]="t.maxCuratesPerHour ?? 0"
+              valueLabel="/hour"
+              [min]="0"
+              [max]="1000"
+              (triggerChange)="onMaxCuratesChange($event)"
+            />
+          </div>
+          <div class="border-t border-base-300 px-3 py-2">
+            <label
+              class="text-xs font-semibold uppercase tracking-wide text-base-content/70"
+              for="memory-cue-list"
+            >
+              Cue list (read-only)
+            </label>
+            <textarea
+              id="memory-cue-list"
+              class="textarea textarea-bordered textarea-xs mt-1 w-full font-mono text-xs"
+              readonly
+              rows="3"
+              data-testid="memory-cue-list"
+              [value]="cueListText()"
+            ></textarea>
           </div>
         } @else {
           <div class="px-3 py-3 text-xs text-base-content/60">
@@ -164,6 +203,11 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
     formatSnapshot(this.lastDecay()),
   );
 
+  protected readonly cueListText = computed<string>(() => {
+    const cues = this.triggers()?.userPromptSubmit?.cueList ?? [];
+    return cues.join('\n');
+  });
+
   public ngOnInit(): void {
     this.state.startPolling();
   }
@@ -198,6 +242,30 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
 
   protected onBootScanChange(c: TriggerToggleChange): void {
     void this.state.setTriggers({ bootScan: c.enabled });
+  }
+
+  protected onPostToolUseChange(c: TriggerToggleChange): void {
+    void this.state.setTriggers({ postToolUse: { enabled: c.enabled } });
+  }
+
+  protected onUserPromptSubmitChange(c: TriggerToggleChange): void {
+    const current = this.triggers()?.userPromptSubmit;
+    const cueList = current?.cueList ?? [];
+    const minPromptLength = c.value ?? current?.minPromptLength ?? 0;
+    void this.state.setTriggers({
+      userPromptSubmit: {
+        enabled: c.enabled,
+        cueList,
+        minPromptLength,
+      },
+    });
+  }
+
+  protected onMaxCuratesChange(c: TriggerToggleChange): void {
+    const value = c.enabled
+      ? (c.value ?? this.triggers()?.maxCuratesPerHour ?? 0)
+      : 0;
+    void this.state.setTriggers({ maxCuratesPerHour: value });
   }
 }
 

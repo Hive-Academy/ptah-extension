@@ -5,6 +5,9 @@ export type SkillSynthesisEventKind =
   | 'boot-scan'
   | 'manual-run'
   | 'ineligible'
+  | 'subagent-stop'
+  | 'edit-then-test'
+  | 'rate-limited'
   | 'error';
 
 export type SkillIneligibleReason =
@@ -46,5 +49,13 @@ export interface SkillSynthesisDiagnosticsSnapshot {
     readonly sessionEnd: boolean;
     readonly idleMs: number;
     readonly bootScan: boolean;
+    readonly subagentStop: {
+      readonly enabled: boolean;
+    };
+    readonly postToolUse: {
+      readonly enabled: boolean;
+      readonly minEditCount: number;
+    };
+    readonly maxAnalyzesPerHour: number;
   };
 }
