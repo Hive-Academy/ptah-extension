@@ -52,6 +52,19 @@ interface FakeBridgeEnv {
   exitMock: jest.Mock;
 }
 
+const activeBridges: ApprovalBridge[] = [];
+
+afterEach(() => {
+  while (activeBridges.length > 0) {
+    const bridge = activeBridges.pop();
+    try {
+      bridge?.detach();
+    } catch {
+      // ignore — detach is idempotent and only fails if listeners are gone
+    }
+  }
+});
+
 function makeEnv(options?: { timeoutMs?: number }): FakeBridgeEnv {
   const adapter = new EventEmitter();
   const notifyCalls: NotifyCall[] = [];
@@ -89,6 +102,7 @@ function makeEnv(options?: { timeoutMs?: number }): FakeBridgeEnv {
     timeoutMs: options?.timeoutMs,
     exit: exitMock as unknown as (code: number) => never,
   });
+  activeBridges.push(bridge);
 
   return {
     bridge,
