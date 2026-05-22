@@ -33,6 +33,8 @@ import { MemoryWriterAdapter } from '../memory-writer.adapter';
 import { MemoryStoreSymbolSink } from '../symbol-sink.adapter';
 import { CodeSymbolStore } from '../code-symbol.store';
 import { IndexingControlService } from '../control/indexing-control.service';
+import { MemoryTriggerService } from '../triggers/memory-trigger.service';
+import { MemoryDiagnosticsService } from '../diagnostics.service';
 
 export function registerMemoryCuratorServices(
   container: DependencyContainer,
@@ -99,6 +101,18 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.INDEXING_CONTROL,
     { useClass: IndexingControlService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE,
+    { useClass: MemoryTriggerService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    MEMORY_TOKENS.MEMORY_DIAGNOSTICS_SERVICE,
+    { useClass: MemoryDiagnosticsService },
     { lifecycle: Lifecycle.Singleton },
   );
 

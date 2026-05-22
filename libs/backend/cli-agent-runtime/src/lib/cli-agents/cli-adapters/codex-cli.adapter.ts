@@ -435,7 +435,6 @@ export class CodexCliAdapter implements CliAdapter {
     if (!auth.tokens?.access_token) return null;
 
     return auth.tokens.access_token;
-    return null;
   }
 
   /**
@@ -477,12 +476,7 @@ export class CodexCliAdapter implements CliAdapter {
         NO_COLOR: '1',
       },
     };
-    const config: Record<string, unknown> = {
-      features: {
-        child_agents_md: true,
-        multi_agent: true,
-      },
-    };
+    const config: Record<string, unknown> = {};
     if (options.mcpPort) {
       config['mcp_servers'] = {
         ptah: {

@@ -23,6 +23,10 @@ export const MEMORY_TOKENS = {
   INDEXING_CONTROL: Symbol.for('PtahIndexingControl'),
   /** CodeSymbolStore — typed CRUD over the dedicated `code_symbols` table. */
   CODE_SYMBOL_STORE: Symbol.for('PtahCodeSymbolStore'),
+  /** MemoryTriggerService — idle/turn/boot scan trigger orchestrator. */
+  MEMORY_TRIGGER_SERVICE: Symbol.for('PtahMemoryTriggerService'),
+  /** MemoryDiagnosticsService — read-only snapshot for the Diagnostics tab. */
+  MEMORY_DIAGNOSTICS_SERVICE: Symbol.for('PtahMemoryDiagnosticsService'),
 } as const;
 
 export type MemoryDIToken = keyof typeof MEMORY_TOKENS;

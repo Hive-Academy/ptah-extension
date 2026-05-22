@@ -33,6 +33,10 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_JUDGE_SERVICE: Symbol.for('PtahSkillJudgeService'),
   /** SkillCuratorService — Hermes-style periodic skill curation daemon. */
   SKILL_CURATOR_SERVICE: Symbol.for('PtahSkillCuratorService'),
+  /** SkillTriggerService — idle + boot-scan triggers for analyzeSession. */
+  SKILL_TRIGGER_SERVICE: Symbol.for('PtahSkillTriggerService'),
+  /** SkillSynthesisDiagnosticsService — read-only diagnostics snapshot. */
+  SKILL_DIAGNOSTICS_SERVICE: Symbol.for('PtahSkillSynthesisDiagnosticsService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

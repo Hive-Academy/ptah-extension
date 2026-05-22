@@ -85,4 +85,137 @@ describe('isFileBasedSettingKey', () => {
       expect(FILE_BASED_SETTINGS_KEYS.size).toBeGreaterThan(0);
     });
   });
+
+  describe('curator/synthesis trigger keys (TASK_2026_126)', () => {
+    const memoryTriggerKeys = [
+      'memory.triggers.preCompact',
+      'memory.triggers.idleMs',
+      'memory.triggers.turnThreshold',
+      'memory.triggers.bootScan',
+    ] as const;
+
+    const skillTriggerKeys = [
+      'skillSynthesis.triggers.sessionEnd',
+      'skillSynthesis.triggers.idleMs',
+      'skillSynthesis.triggers.bootScan',
+    ] as const;
+
+    const expectedDefaults: Record<string, boolean | number> = {
+      'memory.triggers.preCompact': true,
+      'memory.triggers.idleMs': 600000,
+      'memory.triggers.turnThreshold': 20,
+      'memory.triggers.bootScan': true,
+      'skillSynthesis.triggers.sessionEnd': true,
+      'skillSynthesis.triggers.idleMs': 600000,
+      'skillSynthesis.triggers.bootScan': true,
+    };
+
+    it.each([...memoryTriggerKeys, ...skillTriggerKeys])(
+      'registers %s in FILE_BASED_SETTINGS_KEYS',
+      (key) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      },
+    );
+
+    it.each([...memoryTriggerKeys, ...skillTriggerKeys])(
+      'declares a default for %s in FILE_BASED_SETTINGS_DEFAULTS',
+      (key) => {
+        expect(
+          Object.prototype.hasOwnProperty.call(
+            FILE_BASED_SETTINGS_DEFAULTS,
+            key,
+          ),
+        ).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expectedDefaults[key]);
+      },
+    );
+
+    it('routes every trigger key through isFileBasedSettingKey', () => {
+      for (const key of [...memoryTriggerKeys, ...skillTriggerKeys]) {
+        expect(isFileBasedSettingKey(key)).toBe(true);
+      }
+    });
+  });
+
+  describe('SDK-hook trigger keys (TASK_2026_127)', () => {
+    const memoryHookTriggerKeys = [
+      'memory.triggers.userPromptSubmit.enabled',
+      'memory.triggers.userPromptSubmit.cueList',
+      'memory.triggers.userPromptSubmit.minPromptLength',
+      'memory.triggers.postToolUse.enabled',
+      'memory.triggers.maxCuratesPerHour',
+    ] as const;
+
+    const skillHookTriggerKeys = [
+      'skillSynthesis.triggers.subagentStop.enabled',
+      'skillSynthesis.triggers.postToolUse.enabled',
+      'skillSynthesis.triggers.postToolUse.minEditCount',
+      'skillSynthesis.triggers.maxAnalyzesPerHour',
+    ] as const;
+
+    const allHookKeys = [
+      ...memoryHookTriggerKeys,
+      ...skillHookTriggerKeys,
+    ] as const;
+
+    const expectedScalarDefaults: Record<string, boolean | number> = {
+      'memory.triggers.userPromptSubmit.enabled': true,
+      'memory.triggers.userPromptSubmit.minPromptLength': 20,
+      'memory.triggers.postToolUse.enabled': true,
+      'memory.triggers.maxCuratesPerHour': 12,
+      'skillSynthesis.triggers.subagentStop.enabled': true,
+      'skillSynthesis.triggers.postToolUse.enabled': true,
+      'skillSynthesis.triggers.postToolUse.minEditCount': 3,
+      'skillSynthesis.triggers.maxAnalyzesPerHour': 6,
+    };
+
+    const expectedCueList = [
+      'remember (this|that)',
+      '(important|critical)\\s+(point|note|fact|detail)',
+      'from now on',
+      'going forward',
+      'keep in mind',
+      'note that',
+      'save to memory',
+    ];
+
+    it.each(allHookKeys)('registers %s in FILE_BASED_SETTINGS_KEYS', (key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+    });
+
+    it.each(allHookKeys)(
+      'declares a default for %s in FILE_BASED_SETTINGS_DEFAULTS',
+      (key) => {
+        expect(
+          Object.prototype.hasOwnProperty.call(
+            FILE_BASED_SETTINGS_DEFAULTS,
+            key,
+          ),
+        ).toBe(true);
+      },
+    );
+
+    it.each(Object.entries(expectedScalarDefaults))(
+      'declares scalar default %s = %s',
+      (key, expected) => {
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+
+    it('declares the 7 default cues for memory.triggers.userPromptSubmit.cueList', () => {
+      const cueList =
+        FILE_BASED_SETTINGS_DEFAULTS[
+          'memory.triggers.userPromptSubmit.cueList'
+        ];
+      expect(Array.isArray(cueList)).toBe(true);
+      expect(cueList).toEqual(expectedCueList);
+      expect((cueList as readonly string[]).length).toBe(7);
+    });
+
+    it('routes every new hook-trigger key through isFileBasedSettingKey', () => {
+      for (const key of allHookKeys) {
+        expect(isFileBasedSettingKey(key)).toBe(true);
+      }
+    });
+  });
 });

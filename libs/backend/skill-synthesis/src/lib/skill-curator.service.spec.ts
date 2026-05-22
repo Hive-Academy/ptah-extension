@@ -129,6 +129,51 @@ describe('SkillCuratorService', () => {
     expect(report.overlaps).toHaveLength(0);
   });
 
+  it('invokes onPassComplete callback after a successful pass (Critical-2 wiring)', async () => {
+    const promoted = fakePromotedRow('sk1');
+    const store = makeStore([promoted]);
+    const query = {
+      execute: jest.fn().mockResolvedValue({
+        stream: (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: '[]' }] },
+          };
+          yield { type: 'result' };
+        })(),
+      }),
+    };
+    const onPassComplete = jest.fn();
+    const svc = new SkillCuratorService(
+      noopLogger,
+      store,
+      query as never,
+      noopWorkspaceProvider,
+    );
+    svc.start(makeSettings(), { onPassComplete });
+    await svc.runManual();
+    expect(onPassComplete).toHaveBeenCalledTimes(1);
+    expect(onPassComplete).toHaveBeenCalledWith(expect.any(Number));
+  });
+
+  it('does not invoke onPassComplete when LLM call throws', async () => {
+    const promoted = fakePromotedRow('sk1');
+    const store = makeStore([promoted]);
+    const query = {
+      execute: jest.fn().mockRejectedValue(new Error('llm down')),
+    };
+    const onPassComplete = jest.fn();
+    const svc = new SkillCuratorService(
+      noopLogger,
+      store,
+      query as never,
+      noopWorkspaceProvider,
+    );
+    svc.start(makeSettings(), { onPassComplete });
+    await svc.runManual();
+    expect(onPassComplete).not.toHaveBeenCalled();
+  });
+
   it('never-delete invariant: updateStatus is never called with rejected for a pinned skill', async () => {
     const pinnedSkill = fakePromotedRow('pinned-sk', true);
     const store = makeStore([pinnedSkill]);

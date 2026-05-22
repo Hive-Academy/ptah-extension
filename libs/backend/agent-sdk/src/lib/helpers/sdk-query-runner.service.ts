@@ -38,6 +38,8 @@ import { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import { CompactionHookHandler } from './compaction-hook-handler';
+import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
+import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
@@ -110,6 +112,10 @@ export class SdkQueryRunner {
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
+    @inject(SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER)
+    private readonly postToolUseHookHandler: PostToolUseHookHandler,
+    @inject(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER)
+    private readonly userPromptSubmitHookHandler: UserPromptSubmitHookHandler,
   ) {}
 
   async runOneShot(input: OneShotRunInput): Promise<OneShotRunResult> {
@@ -436,13 +442,27 @@ This clarification takes precedence over any other identity instructions in the 
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const subagentHooks = this.subagentHookHandler.createHooks(cwd);
+    const oneShotSessionId = `internal-query-${Date.now()}`;
     const compactionHooks = this.compactionHookHandler.createHooks(
-      `internal-query-${Date.now()}`,
+      oneShotSessionId,
+      cwd,
+    );
+    const postToolUseHooks = this.postToolUseHookHandler.createHooks(
+      oneShotSessionId,
+      cwd,
+    );
+    const userPromptSubmitHooks = this.userPromptSubmitHookHandler.createHooks(
+      oneShotSessionId,
       cwd,
     );
 
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-    for (const hooks of [subagentHooks, compactionHooks]) {
+    for (const hooks of [
+      subagentHooks,
+      compactionHooks,
+      postToolUseHooks,
+      userPromptSubmitHooks,
+    ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
         mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];

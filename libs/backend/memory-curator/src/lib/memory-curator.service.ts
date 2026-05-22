@@ -23,6 +23,7 @@ import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import { memoryId, type MemoryTier } from './memory.types';
+import type { MemoryCuratorEvent } from './diagnostics.types';
 
 const TRANSCRIPT_PLACEHOLDER =
   '[Compaction transcript window unavailable; curator running on session metadata only.]';
@@ -36,8 +37,13 @@ export interface CuratorRunStats {
 
 @injectable()
 export class MemoryCuratorService {
+  private static readonly RING_CAPACITY = 200;
   private disposer: (() => void) | null = null;
   private running: Promise<unknown> | null = null;
+  private readonly events: MemoryCuratorEvent[] = [];
+  private lastRunAtMs: number | null = null;
+  private lastRunStatsCache: CuratorRunStats | null = null;
+  private readonly inFlight = new Map<string, Promise<CuratorRunStats>>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -83,6 +89,12 @@ export class MemoryCuratorService {
           transcript,
         });
       })().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.pushEvent({
+          kind: 'error',
+          timestamp: Date.now(),
+          error: message,
+        });
         this.logger.error(
           '[memory-curator] curate() failed',
           err instanceof Error ? err : new Error(String(err)),
@@ -90,6 +102,37 @@ export class MemoryCuratorService {
       });
     });
     this.logger.info('[memory-curator] started — subscribed to PreCompact');
+  }
+
+  pushEvent(ev: MemoryCuratorEvent): void {
+    this.events.push(ev);
+    if (this.events.length > MemoryCuratorService.RING_CAPACITY) {
+      this.events.shift();
+    }
+  }
+
+  recentEvents(limit = 10): readonly MemoryCuratorEvent[] {
+    const safe = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
+    return this.events.slice(-safe);
+  }
+
+  lastRunInfo(): {
+    readonly at: number | null;
+    readonly stats: CuratorRunStats | null;
+  } {
+    return { at: this.lastRunAtMs, stats: this.lastRunStatsCache };
+  }
+
+  /**
+   * Public hook for {@link MemoryDecayJob} to push a `decay-run` event into
+   * this service's ring buffer. Kept narrow so callers cannot forge other
+   * event kinds via the public surface.
+   */
+  recordDecayEvent(
+    stats: Readonly<Record<string, number | string | boolean | null>>,
+    timestamp = Date.now(),
+  ): void {
+    this.pushEvent({ kind: 'decay-run', timestamp, stats });
   }
 
   /** Stop listening. Safe to call multiple times. */
@@ -113,12 +156,44 @@ export class MemoryCuratorService {
     tier?: MemoryTier;
     signal?: AbortSignal;
   }): Promise<CuratorRunStats> {
+    const key = `${input.workspaceRoot ?? ''}::${input.sessionId ?? ''}`;
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+    const work = this.doCurate(input).finally(() => {
+      this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, work);
+    return work;
+  }
+
+  /** Internal worker. Public callers must use {@link curate}, which dedupes. */
+  private async doCurate(input: {
+    sessionId: string;
+    workspaceRoot?: string | null;
+    transcript?: string;
+    tier?: MemoryTier;
+    signal?: AbortSignal;
+  }): Promise<CuratorRunStats> {
     const transcript =
       (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER;
     const tier: MemoryTier = input.tier ?? 'recall';
     const drafts = await this.llm.extract(transcript, input.signal);
     if (drafts.length === 0) {
-      return { extracted: 0, merged: 0, created: 0, skipped: 0 };
+      const emptyStats: CuratorRunStats = {
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      };
+      this.lastRunAtMs = Date.now();
+      this.lastRunStatsCache = emptyStats;
+      this.pushEvent({
+        kind: 'curator-run',
+        timestamp: this.lastRunAtMs,
+        sessionId: input.sessionId,
+        stats: { extracted: 0, merged: 0, created: 0, skipped: 0 },
+      });
+      return emptyStats;
     }
     const subjects = new Set(
       drafts.map((d) => d.subject).filter((s): s is string => !!s),
@@ -200,7 +275,26 @@ export class MemoryCuratorService {
       }
     }
 
-    return { extracted: drafts.length, merged, created, skipped };
+    const stats: CuratorRunStats = {
+      extracted: drafts.length,
+      merged,
+      created,
+      skipped,
+    };
+    this.lastRunAtMs = Date.now();
+    this.lastRunStatsCache = stats;
+    this.pushEvent({
+      kind: 'curator-run',
+      timestamp: this.lastRunAtMs,
+      sessionId: input.sessionId,
+      stats: {
+        extracted: stats.extracted,
+        merged: stats.merged,
+        created: stats.created,
+        skipped: stats.skipped,
+      },
+    });
+    return stats;
   }
 
   /**

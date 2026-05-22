@@ -25,3 +25,56 @@ export const MemorySearchParamsSchema = z.object({
 export type MemoryPurgeBySubjectPatternParams = z.infer<
   typeof MemoryPurgeBySubjectPatternParamsSchema
 >;
+
+export const MemoryDiagnosticsParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).nullable().optional(),
+  eventLimit: z.number().int().positive().max(200).optional(),
+});
+
+export const MemoryRunNowParamsSchema = z.object({
+  sessionId: z
+    .string()
+    .min(1)
+    .refine((v) => v !== 'manual', {
+      message: 'reserved sessionId',
+    }),
+  workspaceRoot: z.string().min(1),
+});
+
+export const MemoryTriggersSchema = z.object({
+  preCompact: z.boolean(),
+  idleMs: z
+    .number()
+    .int()
+    .nonnegative()
+    .refine((v) => v === 0 || v >= 5000, {
+      message: 'idleMs must be 0 or >= 5000',
+    }),
+  turnThreshold: z
+    .number()
+    .int()
+    .nonnegative()
+    .refine((v) => v === 0 || v >= 2, {
+      message: 'turnThreshold must be 0 or >= 2',
+    }),
+  bootScan: z.boolean(),
+  userPromptSubmit: z
+    .object({
+      enabled: z.boolean(),
+      cueList: z.array(z.string().min(1).max(200)).max(50),
+      minPromptLength: z.number().int().min(0).max(10000),
+    })
+    .optional(),
+  postToolUse: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
+  maxCuratesPerHour: z.number().int().min(0).max(1000).optional(),
+});
+
+export const MemorySetTriggersParamsSchema = z.object({
+  triggers: MemoryTriggersSchema.partial(),
+});
+
+export const MemoryGetTriggersParamsSchema = z.object({}).strict().optional();

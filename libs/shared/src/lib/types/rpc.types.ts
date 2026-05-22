@@ -367,6 +367,25 @@ import type {
   UpdateInstallNowResult,
 } from './rpc/rpc-update.types';
 
+import type {
+  MemoryDiagnosticsParams,
+  MemoryDiagnosticsResult,
+  MemoryRunNowParams,
+  MemoryRunNowResult,
+  MemorySetTriggersParams,
+  MemorySetTriggersResult,
+  MemoryGetTriggersParams,
+  MemoryGetTriggersResult,
+  SkillDiagnosticsParams,
+  SkillDiagnosticsResult,
+  SkillAnalyzeNowParams,
+  SkillAnalyzeNowResult,
+  SkillSetTriggersParams,
+  SkillSetTriggersResult,
+  SkillGetTriggersParams,
+  SkillGetTriggersResult,
+} from './rpc/rpc-curator-diagnostics.types';
+
 /**
  * RPC Method Registry
  *
@@ -1160,6 +1179,22 @@ export interface RpcMethodRegistry {
     params: MemoryPurgeJunkParams;
     result: MemoryPurgeJunkResult;
   };
+  'memory:diagnostics': {
+    params: MemoryDiagnosticsParams;
+    result: MemoryDiagnosticsResult;
+  };
+  'memory:runNow': {
+    params: MemoryRunNowParams;
+    result: MemoryRunNowResult;
+  };
+  'memory:setTriggers': {
+    params: MemorySetTriggersParams;
+    result: MemorySetTriggersResult;
+  };
+  'memory:getTriggers': {
+    params: MemoryGetTriggersParams;
+    result: MemoryGetTriggersResult;
+  };
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
     result: SkillSynthesisListCandidatesResult;
@@ -1203,6 +1238,22 @@ export interface RpcMethodRegistry {
   'skillSynthesis:runCurator': {
     params: SkillSynthesisRunCuratorParams;
     result: SkillSynthesisRunCuratorResult;
+  };
+  'skillSynthesis:diagnostics': {
+    params: SkillDiagnosticsParams;
+    result: SkillDiagnosticsResult;
+  };
+  'skillSynthesis:analyzeNow': {
+    params: SkillAnalyzeNowParams;
+    result: SkillAnalyzeNowResult;
+  };
+  'skillSynthesis:setTriggers': {
+    params: SkillSetTriggersParams;
+    result: SkillSetTriggersResult;
+  };
+  'skillSynthesis:getTriggers': {
+    params: SkillGetTriggersParams;
+    result: SkillGetTriggersResult;
   };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
@@ -1890,6 +1941,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:stats': true,
   'memory:purgeBySubjectPattern': true,
   'memory:purgeJunk': true,
+  'memory:diagnostics': true,
+  'memory:runNow': true,
+  'memory:setTriggers': true,
+  'memory:getTriggers': true,
 
   'skillSynthesis:listCandidates': true,
   'skillSynthesis:getCandidate': true,
@@ -1902,6 +1957,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:pin': true,
   'skillSynthesis:unpin': true,
   'skillSynthesis:runCurator': true,
+  'skillSynthesis:diagnostics': true,
+  'skillSynthesis:analyzeNow': true,
+  'skillSynthesis:setTriggers': true,
+  'skillSynthesis:getTriggers': true,
 
   'cron:list': true,
   'cron:get': true,

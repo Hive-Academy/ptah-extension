@@ -11,6 +11,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
+import { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryTier } from './memory.types';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -20,21 +21,35 @@ export interface DecayJobOptions {
   readonly nowMs?: number;
 }
 
+export interface DecayRunStats {
+  readonly scanned: number;
+  readonly demoted: number;
+  readonly archived: number;
+  readonly expired: number;
+}
+
 @injectable()
 export class MemoryDecayJob {
+  private lastDecayAt: number | null = null;
+  private lastDecayStats: DecayRunStats | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
     @inject(MEMORY_TOKENS.MEMORY_SALIENCE_SCORER)
     private readonly scorer: SalienceScorer,
+    @inject(MEMORY_TOKENS.MEMORY_CURATOR)
+    private readonly curator: MemoryCuratorService,
   ) {}
 
-  async run(options: DecayJobOptions): Promise<{
-    scanned: number;
-    demoted: number;
-    archived: number;
-    expired: number;
-  }> {
+  lastDecayInfo(): {
+    readonly at: number | null;
+    readonly stats: DecayRunStats | null;
+  } {
+    return { at: this.lastDecayAt, stats: this.lastDecayStats };
+  }
+
+  async run(options: DecayJobOptions): Promise<DecayRunStats> {
     const now = options.nowMs ?? Date.now();
     const halflifeMs = Math.max(1, options.halflifeDays) * MS_PER_DAY;
     let demoted = 0;
@@ -79,6 +94,29 @@ export class MemoryDecayJob {
       archived,
       expired,
     });
-    return { scanned: memories.length, demoted, archived, expired };
+    const stats: DecayRunStats = {
+      scanned: memories.length,
+      demoted,
+      archived,
+      expired,
+    };
+    this.lastDecayAt = Date.now();
+    this.lastDecayStats = stats;
+    try {
+      this.curator.recordDecayEvent(
+        {
+          scanned: stats.scanned,
+          demoted: stats.demoted,
+          archived: stats.archived,
+          expired: stats.expired,
+        },
+        this.lastDecayAt,
+      );
+    } catch (err: unknown) {
+      this.logger.warn('[memory-curator] failed to record decay event', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return stats;
   }
 }

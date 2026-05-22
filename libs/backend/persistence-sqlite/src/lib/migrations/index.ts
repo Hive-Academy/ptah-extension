@@ -30,6 +30,7 @@ import { sql as sql0010Fts5Porter } from './0010_fts5_porter';
 import { sql as sql0011SkillsV2 } from './0011_skills_v2';
 import { sql as sql0012IndexingState } from './0012_indexing_state';
 import { sql as sql0013CodeSymbols } from './0013_code_symbols';
+import { sql as sql0014BootScanState } from './0014_boot_scan_state';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -116,5 +117,10 @@ export const MIGRATIONS: readonly Migration[] = [
     name: '0013_code_symbols',
     sql: sql0013CodeSymbols,
     requiresVec: true,
+  },
+  {
+    version: 14,
+    name: '0014_boot_scan_state',
+    sql: sql0014BootScanState,
   },
 ];

@@ -54,3 +54,49 @@ export type UnpinSkillParams = z.infer<typeof UnpinSkillParamsSchema>;
 export const RunCuratorParamsSchema = z.object({});
 
 export type RunCuratorParams = z.infer<typeof RunCuratorParamsSchema>;
+
+export const SkillDiagnosticsParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).nullable().optional(),
+  eventLimit: z.number().int().positive().max(200).optional(),
+});
+
+export const SkillAnalyzeNowParamsSchema = z.object({
+  sessionId: z
+    .string()
+    .min(1)
+    .refine((v) => v !== 'manual', {
+      message: 'reserved sessionId',
+    }),
+  workspaceRoot: z.string().min(1),
+  force: z.boolean().optional(),
+});
+
+export const SkillTriggersSchema = z.object({
+  sessionEnd: z.boolean(),
+  idleMs: z
+    .number()
+    .int()
+    .nonnegative()
+    .refine((v) => v === 0 || v >= 5000, {
+      message: 'idleMs must be 0 or >= 5000',
+    }),
+  bootScan: z.boolean(),
+  subagentStop: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
+  postToolUse: z
+    .object({
+      enabled: z.boolean(),
+      minEditCount: z.number().int().min(1).max(20),
+    })
+    .optional(),
+  maxAnalyzesPerHour: z.number().int().min(0).max(1000).optional(),
+});
+
+export const SkillSetTriggersParamsSchema = z.object({
+  triggers: SkillTriggersSchema.partial(),
+});
+
+export const SkillGetTriggersParamsSchema = z.object({}).strict().optional();

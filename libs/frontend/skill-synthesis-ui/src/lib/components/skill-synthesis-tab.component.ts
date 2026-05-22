@@ -26,6 +26,7 @@ import {
   SkillSynthesisStateService,
 } from '../services/skill-synthesis-state.service';
 import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
+import { SkillDiagnosticsAccordionComponent } from './diagnostics/skill-diagnostics-accordion.component';
 
 type ActionKind = 'promote' | 'reject';
 
@@ -53,7 +54,12 @@ interface ActionDialogState {
   selector: 'ptah-skill-synthesis-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ReactiveFormsModule,
+    SkillDiagnosticsAccordionComponent,
+  ],
   template: `
     @if (!isElectron()) {
       <div role="alert" class="alert alert-info">
@@ -585,6 +591,18 @@ interface ActionDialogState {
             </div>
           </section>
         }
+
+        <details
+          class="collapse collapse-arrow bg-base-200"
+          data-test="diagnostics-accordion"
+        >
+          <summary class="collapse-title text-sm font-medium">
+            Diagnostics
+          </summary>
+          <div class="collapse-content p-0">
+            <ptah-skill-diagnostics-accordion />
+          </div>
+        </details>
 
         <!-- Curator report modal -->
         @if (curatorReport(); as report) {

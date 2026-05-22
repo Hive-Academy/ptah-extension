@@ -418,12 +418,16 @@ export class SessionHistoryReaderService {
       };
       existing.input += input;
       existing.output += output;
-      existing.cost += calculateMessageCost(resolvedModel, {
-        input,
-        output,
-        cacheHit: cacheRead,
-        cacheCreation,
-      });
+      // null pricing → contribute 0 to the running total. Live OpenRouter
+      // hydration covers most models; only genuinely-unknown ones (or a
+      // pre-hydration cold start) hit this path.
+      existing.cost +=
+        calculateMessageCost(resolvedModel, {
+          input,
+          output,
+          cacheHit: cacheRead,
+          cacheCreation,
+        }) ?? 0;
       perModelUsage.set(modelKey, existing);
     };
     let statsStartIndex = 0;
@@ -525,7 +529,7 @@ export class SessionHistoryReaderService {
     const totalCost =
       modelUsageList.length > 0
         ? modelUsageList.reduce((sum, entry) => sum + entry.costUSD, 0)
-        : calculateMessageCost(
+        : (calculateMessageCost(
             this.modelResolver.resolveForPricing(detectedModel || ''),
             {
               input: totalInput,
@@ -533,7 +537,7 @@ export class SessionHistoryReaderService {
               cacheHit: totalCacheRead,
               cacheCreation: totalCacheCreation,
             },
-          );
+          ) ?? 0);
 
     return {
       totalCost,

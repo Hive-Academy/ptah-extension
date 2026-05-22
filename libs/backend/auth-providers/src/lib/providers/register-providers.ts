@@ -17,6 +17,7 @@ import { CodexAuthService, CodexTranslationProxy } from './codex';
 import {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
+  OpenRouterPricingService,
 } from './openrouter';
 import {
   OllamaModelDiscoveryService,
@@ -32,7 +33,6 @@ import {
  * previously occupied.
  */
 export function registerProviders(container: DependencyContainer): void {
-
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
     { useClass: CopilotAuthService },
@@ -66,6 +66,11 @@ export function registerProviders(container: DependencyContainer): void {
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PROXY,
     { useClass: OpenRouterTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PRICING,
+    { useClass: OpenRouterPricingService },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

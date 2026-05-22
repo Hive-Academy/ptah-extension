@@ -20,6 +20,7 @@ import {
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import type { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
+import type { SessionActivityRegistry } from './helpers/session-activity-registry';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
@@ -126,6 +127,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly sentryService: SentryService,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS)
     private readonly events: SdkAdapterEvents,
+    @inject(SDK_TOKENS.SDK_SESSION_ACTIVITY_REGISTRY)
+    private readonly activityRegistry: SessionActivityRegistry,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
     this.events.onConfigChanged(async () => {
@@ -422,12 +425,19 @@ export class SdkAgentAdapter implements IAgentAdapter {
       config?.tabId,
     );
 
+    if (config.prompt) {
+      this.notifyActivity(trackingId, 'user', resolvedProjectPath);
+    }
+
     return this.streamTransformer.transform({
       sdkQuery,
       sessionId: trackingId,
       initialModel,
       onSessionIdResolved: sessionIdCallback,
-      onResultStats: this.callbacks.getResultStats(),
+      onResultStats: this.wrapResultStatsForActivity(
+        trackingId,
+        this.callbacks.getResultStats(),
+      ),
       tabId: config?.tabId,
       abortController,
     });
@@ -478,7 +488,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
           sessionId,
           initialModel: existingSession.currentModel,
           onSessionIdResolved: this.callbacks.getSessionIdResolved(),
-          onResultStats: this.callbacks.getResultStats(),
+          onResultStats: this.wrapResultStatsForActivity(
+            sessionId,
+            this.callbacks.getResultStats(),
+          ),
           tabId: config?.tabId,
         });
       }
@@ -539,7 +552,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sessionId,
       initialModel,
       onSessionIdResolved: resumeCallback,
-      onResultStats: this.callbacks.getResultStats(),
+      onResultStats: this.wrapResultStatsForActivity(
+        sessionId,
+        this.callbacks.getResultStats(),
+      ),
       tabId: config?.tabId,
       abortController,
     });
@@ -597,6 +613,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     content: string,
     options?: AIMessageOptions,
   ): Promise<void> {
+    this.notifyActivity(sessionId, 'user');
     return this.sessionLifecycle.sendMessage(
       sessionId,
       content,
@@ -635,12 +652,17 @@ export class SdkAgentAdapter implements IAgentAdapter {
           this.runtimeState.getCliJsPath() || undefined,
       });
 
+    this.notifyActivity(sessionId, 'user');
+
     return this.streamTransformer.transform({
       sdkQuery,
       sessionId,
       initialModel,
       onSessionIdResolved: this.callbacks.getSessionIdResolved(),
-      onResultStats: this.callbacks.getResultStats(),
+      onResultStats: this.wrapResultStatsForActivity(
+        sessionId,
+        this.callbacks.getResultStats(),
+      ),
       tabId: config.tabId,
       abortController,
     });
@@ -700,5 +722,48 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     return this.sessionLifecycle.setSessionModel(sessionId, model);
+  }
+
+  private resolveActivityIds(sessionId: SessionId): {
+    sessionId: string;
+    workspaceRoot: string;
+  } {
+    const rec = this.sessionLifecycle.find(sessionId as string);
+    const resolvedSessionId = rec?.realSessionId ?? (sessionId as string);
+    const workspaceRoot = rec?.config?.projectPath ?? '';
+    return { sessionId: resolvedSessionId, workspaceRoot };
+  }
+
+  private notifyActivity(
+    sessionId: SessionId,
+    role: 'user' | 'assistant',
+    workspaceRootOverride?: string,
+  ): void {
+    try {
+      const ids = this.resolveActivityIds(sessionId);
+      this.activityRegistry.notifyAll({
+        sessionId: ids.sessionId,
+        workspaceRoot: workspaceRootOverride ?? ids.workspaceRoot,
+        role,
+        timestamp: Date.now(),
+      });
+    } catch (err: unknown) {
+      this.logger.warn(
+        '[SdkAgentAdapter] activity notify failed',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+    }
+  }
+
+  private wrapResultStatsForActivity(
+    sessionId: SessionId,
+    inner: ResultStatsCallback | undefined,
+  ): ResultStatsCallback {
+    return (stats) => {
+      this.notifyActivity(sessionId, 'assistant');
+      if (inner) {
+        inner(stats);
+      }
+    };
   }
 }

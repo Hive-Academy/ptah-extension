@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
@@ -9,6 +10,10 @@ import type {
 
 import { SkillSynthesisTabComponent } from './skill-synthesis-tab.component';
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
+
+const tabManagerStub: Pick<TabManagerService, 'activeTab'> = {
+  activeTab: signal(null) as unknown as TabManagerService['activeTab'],
+};
 
 function vscodeServiceStub(isElectron: boolean): Partial<VSCodeService> {
   return {
@@ -81,6 +86,7 @@ describe('SkillSynthesisTabComponent', () => {
       providers: [
         { provide: SkillSynthesisStateService, useValue: stub },
         { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
       ],
     });
 
@@ -118,6 +124,7 @@ describe('SkillSynthesisTabComponent', () => {
       providers: [
         { provide: SkillSynthesisStateService, useValue: stub },
         { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
       ],
     });
 
@@ -138,6 +145,7 @@ describe('SkillSynthesisTabComponent', () => {
       providers: [
         { provide: SkillSynthesisStateService, useValue: stub },
         { provide: VSCodeService, useValue: vscodeServiceStub(false) },
+        { provide: TabManagerService, useValue: tabManagerStub },
       ],
     });
 
