@@ -1008,3 +1008,239 @@ listening for `system.schema.version` separately. Existing clients
 will continue to function — extra fields on JSON-RPC payloads are
 ignored by spec-conformant parsers. This document will be updated when
 that change lands; do not depend on the field today.
+
+---
+
+## 16. MCP-serve — Drive Ptah from external agents
+
+### 16.1 What it is
+
+`ptah mcp-serve` is a second JSON-RPC stdio surface alongside `ptah
+interact`. It speaks the Model Context Protocol (`initialize`,
+`tools/list`, `tools/call`, `notifications/cancelled`) instead of
+Ptah-flavored `task.*` / `session.*` methods, so any MCP-compliant
+host can drive Ptah's agent surface without bespoke integration. This
+inverts Ptah's position: instead of Ptah calling out to other tools,
+external orchestrators delegate work into Ptah's multi-CLI dispatch
+and Team Leader harness.
+
+The wire framing is the same NDJSON JSON-RPC 2.0 as `interact`. The
+command file is `apps/ptah-cli/src/cli/commands/mcp-serve.ts`; the
+transport lib is `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/`.
+
+### 16.2 `.mcp.json` example
+
+External MCP hosts add a server block like this:
+
+```json
+{
+  "mcpServers": {
+    "ptah": {
+      "command": "npx",
+      "args": ["-y", "@hive-academy/ptah-cli", "mcp-serve", "--auto-approve"],
+      "cwd": "/path/to/your/project"
+    }
+  }
+}
+```
+
+`--auto-approve` is recommended because the host has no UI surface to
+render Ptah's permission prompts. Without it, any `tools/call` that
+triggers an approval-gated operation will hang for 5 minutes and then
+exit `auth_required` (`3`). `--auto-approve` is a global flag (see
+section 16.7); equivalent to `PTAH_AUTO_APPROVE=true` in the child env.
+
+### 16.3 7 MVP tools (advertised on `tools/list`)
+
+Source of truth:
+`libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/tool-builders.ts:32-40`.
+The MCP-wire names drop the `ptah_` prefix the internal HTTP server
+uses, because MCP hosts namespace tools by server name on the wire
+(`ptah:agent_spawn`), so the prefix would be redundant.
+
+| Tool             | Required input keys      | Optional input keys                                         | Returns                                                       | Pro?                |
+| ---------------- | ------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------- | ------------------- |
+| `agent_spawn`    | `task` (string)          | `cli`, `ptahCliId`, `workingDirectory`, `model`, plus a few | `SpawnAgentResult { agentId, cli, status, … }`                | Pro iff `ptahCliId` |
+| `agent_status`   | —                        | `agentId`                                                   | `AgentProcessInfo` (single) or full list                      | Pro iff Ptah CLI    |
+| `agent_read`     | `agentId`                | `tail` (number)                                             | Buffered stdout/stderr + exit code if finished                | Pro iff Ptah CLI    |
+| `agent_steer`    | `agentId`, `instruction` | —                                                           | `{ steered: true }` once the steering message is forwarded    | Pro iff Ptah CLI    |
+| `agent_stop`     | `agentId`                | —                                                           | Final `AgentProcessInfo` after termination                    | Pro iff Ptah CLI    |
+| `agent_list`     | —                        | —                                                           | Detected CLIs + configured Ptah CLI agents                    | Free                |
+| `session_submit` | `task` (string)          | `cwd`, `allowSubagents` (default `true`), `profile`         | Aggregated text + `structuredContent { tabId, sessionId, … }` | Pro                 |
+
+Notes:
+
+- `session_submit` is unique to the stdio surface — it builds a Team
+  Leader prompt from the supplied `task`, runs it through the agent
+  SDK session, and aggregates the result. Mid-flight progress streams
+  as `notifications/message` / `notifications/progress` frames keyed
+  off `_meta.progressToken` when supplied. Source:
+  `apps/ptah-cli/src/services/mcp/session-submit.service.ts`.
+- The tools are advertised in the order listed above; external hosts
+  that fingerprint the catalog see stable output across boots
+  (`buildMcpMvpTools()`, `tool-builders.ts:130`).
+- `--allow-tools <csv>` narrows the advertised set. Tools omitted from
+  the allowlist are NOT visible to `tools/list` and return
+  `mcp_tool_not_found` on `tools/call`.
+
+### 16.4 Premium gate behavior
+
+Source of truth: `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/mcp-license-gate.ts`.
+Six tool names are candidates for the premium gate (`PRO_ONLY_MCP_TOOLS`
+at `mcp-license-gate.ts:219-226`):
+
+```
+session_submit
+agent_spawn      (only when args.ptahCliId is set)
+agent_status     (only when args.agentId targets a Ptah CLI agent)
+agent_read       (    "                                          )
+agent_stop       (    "                                          )
+agent_steer      (    "                                          )
+```
+
+`agent_list` is always free. `agent_spawn` with `cli=gemini` (or any
+rival CLI that runs on the user's own binary) is always free. The
+gate fails CLOSED: license lookup throws, cache miss, or expired
+status all return `license_required`.
+
+On denial the dispatcher returns an MCP `result.isError: true`
+envelope inline (NOT a JSON-RPC error object — MCP tool-level errors
+travel inside `result` per spec). Shape
+(`stdio-mcp-server.service.ts:298-313`):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "<request id>",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "License required: session_submit requires a verified Ptah license. Run `ptah license set --key ptah_lic_…` to upgrade. Pricing details: https://ptah.live/pricing"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "ptah_code": "license_required",
+      "mcpCode": "mcp_tool_denied",
+      "tool": "session_submit",
+      "requiredTier": "pro",
+      "reason": "license_required",
+      "helpUrl": "https://ptah.live/pricing"
+    }
+  }
+}
+```
+
+`ptah_code` stays `'license_required'` for backward compatibility with
+host code that already handles the desktop wire policy; `mcpCode`
+adds the MCP-specific `'mcp_tool_denied'` for hosts that opt into the
+new taxonomy. Both fields are present on every gate-denied call;
+neither will be removed under the `0.1` schema version.
+
+### 16.5 Cost attribution
+
+Every `ptah mcp-serve` boot mints a `mcp_host_session_id = ulid()`
+(`mcp-serve.ts:161`) and exports it via the `PTAH_MCP_HOST_SESSION_ID`
+environment variable. Downstream services read the variable to tag
+their notifications:
+
+- Per-turn cost ticks emit `notifications/message` with
+  `{ kind: 'session.cost', mcpHostSessionId, sessionId, turnId,
+deltaUsd, totalUsd, inputTokens, outputTokens }`
+  (`session-submit.service.ts:388-403`).
+- At tool-call settlement the dispatcher emits ONE final
+  `notifications/message` with
+  `{ kind: 'mcp.session.summary', mcpHostSessionId, sessionId, tabId,
+totalUsd, totalTokens, inputTokens, outputTokens, toolCallCount }`
+  BEFORE the `tools/call` result lands on the wire
+  (`session-submit.service.ts:453-467`).
+
+External hosts that aggregate spend across long-running Ptah usage
+should key on `mcpHostSessionId` (stable for the life of the
+`mcp-serve` process) and accumulate `totalUsd` from the summary
+frames. Mid-flight `session.cost` frames are for live UIs and may
+duplicate the final summary.
+
+### 16.6 Cancellation + drain
+
+**Mid-flight cancellation**: send a `notifications/cancelled
+{ requestId: <id-of-the-tools/call> }` notification. The dispatcher
+matches the requestId against its in-flight map
+(`session-submit.service.ts:235-255`), invokes `chat:abort` on the
+in-process transport, and resolves the original `tools/call` with
+`isError: true, structuredContent.ptah_code: 'mcp_tool_cancelled'`
+within ~1 second.
+
+**Process drain**: `mcp-serve` exits on three triggers
+(`mcp-serve.ts:213-223`):
+
+- `stdin` EOF → exit `0` (normal MCP host disconnect)
+- `SIGINT` → exit `130`
+- `SIGTERM` → exit `143`
+
+All three race against a 5-second drain cap
+(`mcp-serve.ts:158, 367-382`): outstanding `tools/call` AbortControllers
+fire, the stdio transport stops, the formatter closes, and stdout
+fully flushes. Hosts that re-launch `ptah mcp-serve` on every
+`.mcp.json` reload do NOT need to send an explicit shutdown — closing
+stdin is sufficient.
+
+### 16.7 `session.describe` introspection
+
+Both `interact` and `mcp-serve` register `session.describe` and
+`session.methods` (Phase 5). Use the former to discover the live tool
+catalog without parsing `tools/list`:
+
+```jsonc
+// → request
+{ "jsonrpc": "2.0", "id": 1, "method": "session.describe" }
+
+// ← response (mcp-serve mode)
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "serverName": "ptah",
+    "version": "0.1.5",
+    "schemaVersion": "0.1",
+    "mode": "mcp-serve",
+    "catalog": {
+      "methods": [
+        "initialize", "tools/list", "tools/call",
+        "notifications/cancelled", "session.describe", "session.methods"
+      ],
+      "tools": [
+        { "name": "agent_spawn",    "description": "…" },
+        { "name": "agent_status",   "description": "…" },
+        { "name": "agent_read",     "description": "…" },
+        { "name": "agent_steer",    "description": "…" },
+        { "name": "agent_stop",     "description": "…" },
+        { "name": "agent_list",     "description": "…" },
+        { "name": "session_submit", "description": "…" }
+      ]
+    },
+    "errorCodes": ["db_lock", "provider_unavailable", "auth_required", "…",
+                   "mcp_handshake_failed", "mcp_tool_not_found",
+                   "mcp_invalid_tool_args", "mcp_tool_denied"],
+    "capabilities": ["mcp"]
+  }
+}
+```
+
+`session.methods` is the lightweight variant — returns just
+`{ methods: string[] }`. Both are documented in
+`apps/ptah-cli/docs/jsonrpc-schema.md:374-422`.
+
+### 16.8 Troubleshooting
+
+| Symptom                                                       | Likely cause                                                                                     | Fix                                                                                |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `tools/call` returns `license_required` / `mcp_tool_denied`   | Tool is Pro-gated and the cached license is missing, invalid, or community-tier.                 | `ptah license set --key ptah_lic_…`; recheck with `ptah license status`.           |
+| Host hangs on `tools/call` for ~5 minutes, then exit code `3` | Missing `--auto-approve`; an approval-gated operation is blocked because hosts have no UI.       | Add `--auto-approve` to the `args` list (or `PTAH_AUTO_APPROVE=true` to the env).  |
+| `tools/list` returns fewer than 7 tools                       | `--allow-tools <csv>` narrowed the advertised set.                                               | Drop the flag or expand the CSV to include the missing names.                      |
+| `tools/call` returns `mcp_tool_not_found`                     | Tool name typo, or the name was excluded by `--allow-tools`.                                     | Check `tools/list` output OR `session.describe` to see the live catalog.           |
+| `tools/call` returns `mcp_invalid_tool_args`                  | Zod validation failed; `structuredContent.issues` carries the field-level diagnostics.           | Inspect `issues.fieldErrors` and fix the offending key.                            |
+| `tools/call` returns `sdk_init_failed`                        | `tools/call` arrived while `withEngine` was still bootstrapping. Rare; happens during cold boot. | Retry after `notifications/initialized` lands. The handshake completes in < 3s.    |
+| First `tools/call` is slow (~1-3s)                            | Lazy `PtahAPIBuilder` walk on first dispatch; subsequent calls reuse the cached dispatcher.      | Expected. Send a no-op `tools/list` after `initialized` if predictability matters. |
+| `mcp.session.summary` never arrives                           | The `tools/call` errored before listeners attached, OR the host disconnected mid-flight.         | Check stderr for `[ptah-mcp] drain error: …` lines.                                |
