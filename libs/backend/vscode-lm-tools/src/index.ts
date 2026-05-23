@@ -17,6 +17,20 @@ export type {
 export type { IIDECapabilities } from './lib/code-execution/namespace-builders/ide-namespace.builder';
 export type { ToolResultCallback } from './lib/code-execution/mcp-core';
 export {
+  StdioTransport,
+  StdioMcpServerService,
+  createStdioMcpServer,
+  MCP_PROTOCOL_VERSION,
+  MCP_MVP_TOOL_NAMES,
+  buildMcpMvpTools,
+  registerMcpStdioServices,
+  STDIO_MCP_SERVER_TOKEN,
+  type McpStdioNotifier,
+  type StdioMcpServerConfig,
+  type StdioMcpServerInfo,
+  type McpMvpToolName,
+} from './lib/code-execution/mcp-stdio';
+export {
   PTAH_SYSTEM_PROMPT,
   PTAH_SYSTEM_PROMPT_TOKENS,
   buildPlatformSystemPrompt,
