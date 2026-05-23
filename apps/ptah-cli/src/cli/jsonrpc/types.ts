@@ -297,7 +297,10 @@ export type PtahErrorCode =
   | 'proxy_bind_failed'
   | 'proxy_invalid_request'
   | 'permission_gate_unavailable'
-  | 'claude_cli_not_found';
+  | 'claude_cli_not_found'
+  | 'mcp_handshake_failed'
+  | 'mcp_tool_not_found'
+  | 'mcp_invalid_tool_args';
 
 /** Process exit codes. */
 export const ExitCode = {
