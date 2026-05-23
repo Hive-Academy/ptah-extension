@@ -566,6 +566,157 @@ describe('ptah mcp-serve', () => {
     });
   });
 
+  describe('session.describe / session.methods introspection (Phase 5)', () => {
+    it('returns mode=mcp-serve with 7 MCP tool entries and capability=mcp', async () => {
+      const h = makeHarness();
+      const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+      await flushAsync();
+
+      h.send({ jsonrpc: '2.0', id: 'desc-1', method: 'session.describe' });
+      const resp = await h.findLine(
+        (m) =>
+          isJsonRpcSuccessResponse(m) &&
+          (m as { id: string | number }).id === 'desc-1',
+      );
+      if (!isJsonRpcSuccessResponse(resp)) throw new Error('expected success');
+      const result = resp.result as {
+        serverName: string;
+        mode: string;
+        schemaVersion: string;
+        version: string;
+        catalog: {
+          methods: string[];
+          tools: { name: string; description: string }[];
+        };
+        capabilities: string[];
+        errorCodes: string[];
+      };
+
+      expect(result.serverName).toBe('ptah');
+      expect(result.mode).toBe('mcp-serve');
+      expect(result.schemaVersion).toBe('0.1');
+      expect(result.version).toBe('0.2.32');
+      expect(result.catalog.tools).toHaveLength(7);
+      expect(result.catalog.tools.map((t) => t.name)).toEqual([
+        'agent_spawn',
+        'agent_status',
+        'agent_read',
+        'agent_steer',
+        'agent_stop',
+        'agent_list',
+        'session_submit',
+      ]);
+      expect(result.catalog.methods).toEqual(
+        expect.arrayContaining([
+          'initialize',
+          'tools/list',
+          'tools/call',
+          'notifications/cancelled',
+          'session.describe',
+          'session.methods',
+        ]),
+      );
+      expect(result.capabilities).toEqual(['mcp']);
+      expect(result.errorCodes).toEqual(
+        expect.arrayContaining([
+          'mcp_tool_denied',
+          'mcp_tool_not_found',
+          'license_required',
+        ]),
+      );
+
+      h.stdin.end();
+      await promise;
+    });
+
+    it('narrows catalog.tools when --allow-tools is supplied', async () => {
+      const h = makeHarness();
+      const promise = execute(
+        { allowTools: ['agent_spawn', 'session_submit'] },
+        baseGlobals,
+        h.hooks,
+      );
+      await flushAsync();
+
+      h.send({ jsonrpc: '2.0', id: 'desc-2', method: 'session.describe' });
+      const resp = await h.findLine(
+        (m) =>
+          isJsonRpcSuccessResponse(m) &&
+          (m as { id: string | number }).id === 'desc-2',
+      );
+      if (!isJsonRpcSuccessResponse(resp)) throw new Error('expected success');
+      const result = resp.result as {
+        catalog: { tools: { name: string }[] };
+      };
+
+      expect(result.catalog.tools.map((t) => t.name)).toEqual([
+        'agent_spawn',
+        'session_submit',
+      ]);
+
+      h.stdin.end();
+      await promise;
+    });
+
+    it('session.methods returns the registered wire methods', async () => {
+      const h = makeHarness();
+      const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+      await flushAsync();
+
+      h.send({ jsonrpc: '2.0', id: 'm-1', method: 'session.methods' });
+      const resp = await h.findLine(
+        (m) =>
+          isJsonRpcSuccessResponse(m) &&
+          (m as { id: string | number }).id === 'm-1',
+      );
+      if (!isJsonRpcSuccessResponse(resp)) throw new Error('expected success');
+      const result = resp.result as { methods: string[] };
+
+      expect(result.methods).toEqual(
+        expect.arrayContaining([
+          'initialize',
+          'tools/list',
+          'tools/call',
+          'session.describe',
+          'session.methods',
+        ]),
+      );
+
+      h.stdin.end();
+      await promise;
+    });
+
+    it('emits a debug notifications/message advertising schema_version after handshake', async () => {
+      const h = makeHarness();
+      const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+      await flushAsync();
+
+      const debugMsg = await h.findLine((m) => {
+        if (!isJsonRpcNotification(m)) return false;
+        if ((m as { method: string }).method !== 'notifications/message') {
+          return false;
+        }
+        const params = (m as { params?: { data?: { kind?: string } } }).params;
+        return params?.data?.kind === 'session.ready';
+      });
+      if (!isJsonRpcNotification(debugMsg)) throw new Error('expected notif');
+      const params = debugMsg.params as {
+        level: string;
+        data: {
+          kind: string;
+          schema_version: string;
+          capabilities: string[];
+        };
+      };
+      expect(params.level).toBe('debug');
+      expect(params.data.schema_version).toBe('0.1');
+      expect(params.data.capabilities).toEqual(['mcp']);
+
+      h.stdin.end();
+      await promise;
+    });
+  });
+
   describe('DI wiring', () => {
     it('registers tools/list, tools/call, notifications/cancelled and resolves the stdio MCP server', async () => {
       const h = makeHarness();

@@ -39,10 +39,12 @@ import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { JsonRpcServer, InvalidParamsError } from '../jsonrpc/server.js';
 import { StdinReader } from '../io/stdin-reader.js';
 import { StdoutWriter } from '../io/stdout-writer.js';
-import { ExitCode } from '../jsonrpc/types.js';
+import { ExitCode, JSONRPC_SCHEMA_VERSION } from '../jsonrpc/types.js';
+import { buildSessionDescribe } from '../session/session-describe.builder.js';
 import type { GlobalOptions } from '../router.js';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
+  buildMcpMvpTools,
   registerMcpStdioServices,
   STDIO_MCP_SERVER_TOKEN,
   StdioTransport,
@@ -52,6 +54,7 @@ import {
 } from '@ptah-extension/vscode-lm-tools';
 import type { MCPRequest } from '@ptah-extension/vscode-lm-tools';
 import { SessionSubmitService } from '../../services/mcp/session-submit.service.js';
+import type { SessionDescribeToolEntry } from '@ptah-extension/shared';
 
 export interface McpServeOptions {
   /**
@@ -315,9 +318,45 @@ export async function execute(
         },
       );
 
+      const buildMcpToolCatalog = (): readonly SessionDescribeToolEntry[] => {
+        const allowed = opts.allowTools;
+        return buildMcpMvpTools()
+          .filter(
+            (tool) =>
+              allowed === undefined ||
+              allowed.length === 0 ||
+              allowed.includes(tool.name),
+          )
+          .map((tool) => ({ name: tool.name, description: tool.description }));
+      };
+
+      server.register('session.describe', async () =>
+        buildSessionDescribe({
+          mode: 'mcp-serve',
+          version,
+          schemaVersion: JSONRPC_SCHEMA_VERSION,
+          methods: server.getRegisteredMethods(),
+          mcpTools: buildMcpToolCatalog(),
+        }),
+      );
+
+      server.register('session.methods', async () => ({
+        methods: server.getRegisteredMethods(),
+      }));
+
       await server.notify('notifications/initialized', {
         serverInfo,
         mcpHostSessionId,
+      });
+
+      await server.notify('notifications/message', {
+        level: 'debug',
+        data: {
+          kind: 'session.ready',
+          schema_version: JSONRPC_SCHEMA_VERSION,
+          capabilities: ['mcp'],
+          mcpHostSessionId,
+        },
       });
 
       process.stderr.write(
