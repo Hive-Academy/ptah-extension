@@ -28,7 +28,14 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   TOKENS: {
     LOGGER: Symbol.for('Logger'),
     PTAH_API_BUILDER: Symbol.for('PtahAPIBuilder'),
+    LICENSE_SERVICE: Symbol.for('LicenseService'),
+    AGENT_PROCESS_MANAGER: Symbol.for('AgentProcessManager'),
   },
+  isPremiumTier: jest.fn(),
+}));
+
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  AgentProcessManager: class {},
 }));
 
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -39,6 +46,24 @@ import type { MCPRequest } from '../mcp-core/types/mcp-protocol.types';
 import type { PtahAPIBuilder } from '../ptah-api-builder.service';
 import type { PtahAPI } from '../types';
 import type { ISessionSubmitHandler } from './session-submit.port';
+import type { McpLicenseGate } from './mcp-license-gate';
+
+function makeAllowGate(): McpLicenseGate {
+  return {
+    evaluate: jest.fn().mockReturnValue({ allowed: true }),
+    agentIsPtahCli: jest.fn().mockReturnValue(false),
+    getGatedToolNames: jest
+      .fn()
+      .mockReturnValue([
+        'session_submit',
+        'agent_spawn',
+        'agent_status',
+        'agent_read',
+        'agent_stop',
+        'agent_steer',
+      ]),
+  } as unknown as McpLicenseGate;
+}
 
 function makeLogger(): Logger {
   return {
@@ -88,15 +113,21 @@ function makeApiBuilder(agentApi?: Partial<PtahAPI['agent']>): PtahAPIBuilder {
   } as unknown as PtahAPIBuilder;
 }
 
-function makeService(agentApi?: Partial<PtahAPI['agent']>): {
+function makeService(
+  agentApi?: Partial<PtahAPI['agent']>,
+  gateOverride?: McpLicenseGate,
+): {
   svc: StdioMcpServerService;
   api: PtahAPI['agent'];
+  gate: McpLicenseGate;
 } {
   const builder = makeApiBuilder(agentApi);
-  const svc = new StdioMcpServerService(makeLogger(), builder);
+  const gate = gateOverride ?? makeAllowGate();
+  const svc = new StdioMcpServerService(makeLogger(), builder, gate);
   return {
     svc,
     api: (builder.build() as { agent: PtahAPI['agent'] }).agent,
+    gate,
   };
 }
 
@@ -448,10 +479,121 @@ describe('StdioMcpServerService', () => {
     });
   });
 
+  describe('license gate denial routing', () => {
+    function makeDenyGate(
+      reason: 'license_required' | 'pro_tier_required',
+    ): McpLicenseGate {
+      return {
+        evaluate: jest.fn().mockReturnValue({ allowed: false, reason }),
+        agentIsPtahCli: jest.fn().mockReturnValue(true),
+        getGatedToolNames: jest.fn().mockReturnValue([]),
+      } as unknown as McpLicenseGate;
+    }
+
+    it('returns isError:true envelope (NOT JSON-RPC error) when gate denies for license_required', async () => {
+      const { svc, api } = makeService(
+        undefined,
+        makeDenyGate('license_required'),
+      );
+      const resp = await svc.handleToolsCall(
+        makeRequest({
+          params: {
+            name: 'agent_spawn',
+            arguments: { task: 't', ptahCliId: 'openrouter' },
+          },
+        }),
+      );
+      expect(resp.error).toBeUndefined();
+      const result = resp.result as {
+        isError: boolean;
+        content: { type: string; text: string }[];
+        structuredContent: {
+          ptah_code: string;
+          mcpCode: string;
+          tool: string;
+          requiredTier: string;
+          reason: string;
+          helpUrl: string;
+        };
+      };
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.ptah_code).toBe('license_required');
+      expect(result.structuredContent.mcpCode).toBe('mcp_tool_denied');
+      expect(result.structuredContent.tool).toBe('agent_spawn');
+      expect(result.structuredContent.requiredTier).toBe('pro');
+      expect(result.structuredContent.reason).toBe('license_required');
+      expect(result.structuredContent.helpUrl).toBe(
+        'https://ptah.live/pricing',
+      );
+      expect(result.content[0].text).toContain('License required');
+      expect(result.content[0].text).toContain('ptah license set');
+      // Underlying PtahAPI must not be touched when the gate denies.
+      expect(api.spawn).not.toHaveBeenCalled();
+    });
+
+    it('returns Pro-tier-specific message when gate denies for pro_tier_required', async () => {
+      const { svc, api } = makeService(
+        undefined,
+        makeDenyGate('pro_tier_required'),
+      );
+      const resp = await svc.handleToolsCall(
+        makeRequest({
+          params: { name: 'session_submit', arguments: { task: 'go' } },
+        }),
+      );
+      const result = resp.result as {
+        isError: boolean;
+        content: { text: string }[];
+        structuredContent: { reason: string; ptah_code: string };
+      };
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.ptah_code).toBe('license_required');
+      expect(result.structuredContent.reason).toBe('pro_tier_required');
+      expect(result.content[0].text).toContain('Pro tier required');
+      expect(api.spawn).not.toHaveBeenCalled();
+    });
+
+    it('skips underlying session_submit handler when gate denies', async () => {
+      const { svc } = makeService(undefined, makeDenyGate('license_required'));
+      const handler: jest.Mocked<ISessionSubmitHandler> = {
+        dispatch: jest.fn(),
+        cancel: jest.fn(),
+      };
+      svc.setSessionSubmitHandler(handler);
+      const req = makeRequest({
+        params: { name: 'session_submit', arguments: { task: 'go' } },
+      });
+      const resp = await svc.handleToolsCall(req);
+      expect(handler.dispatch).not.toHaveBeenCalled();
+      expect((resp.result as { isError: boolean }).isError).toBe(true);
+    });
+
+    it('passes through when gate allows', async () => {
+      const { svc, api, gate } = makeService();
+      await svc.handleToolsCall(
+        makeRequest({
+          params: {
+            name: 'agent_spawn',
+            arguments: { task: 'go', cli: 'gemini' },
+          },
+        }),
+      );
+      expect(gate.evaluate).toHaveBeenCalledWith('agent_spawn', {
+        task: 'go',
+        cli: 'gemini',
+      });
+      expect(api.spawn).toHaveBeenCalled();
+    });
+  });
+
   describe('handleCancelled', () => {
     it('logs the requestId when provided', async () => {
       const logger = makeLogger();
-      const svc = new StdioMcpServerService(logger, makeApiBuilder());
+      const svc = new StdioMcpServerService(
+        logger,
+        makeApiBuilder(),
+        makeAllowGate(),
+      );
       await svc.handleCancelled({ requestId: 'req-1' });
       expect(logger.info).toHaveBeenCalledWith(
         '[StdioMcpServer] notifications/cancelled',
