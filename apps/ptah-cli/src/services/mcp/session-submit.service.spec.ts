@@ -355,6 +355,145 @@ describe('SessionSubmitService', () => {
     });
   });
 
+  describe('cost notification surface (Phase 4)', () => {
+    const ORIGINAL_ENV = process.env['PTAH_MCP_HOST_SESSION_ID'];
+
+    afterEach(() => {
+      if (ORIGINAL_ENV === undefined) {
+        delete process.env['PTAH_MCP_HOST_SESSION_ID'];
+      } else {
+        process.env['PTAH_MCP_HOST_SESSION_ID'] = ORIGINAL_ENV;
+      }
+    });
+
+    it('forwards session:cost events with mcpHostSessionId envelope', async () => {
+      process.env['PTAH_MCP_HOST_SESSION_ID'] = 'mcp-host-1';
+      const h = makeHarness();
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      h.pushAdapter.emit('session:cost', {
+        session_id: 'tab-1',
+        turn_id: 'turn-1',
+        delta_usd: 0.0125,
+        total_usd: 0.0125,
+      });
+      await flush();
+      const costCall = h.notifier.notify.mock.calls.find(
+        ([m, params]) =>
+          m === 'notifications/message' &&
+          (params as { data: { kind: string } }).data.kind === 'session.cost',
+      );
+      expect(costCall).toBeDefined();
+      const data = (
+        costCall as unknown as [string, { data: Record<string, unknown> }]
+      )[1].data;
+      expect(data['kind']).toBe('session.cost');
+      expect(data['mcpHostSessionId']).toBe('mcp-host-1');
+      expect(data['deltaUsd']).toBe(0.0125);
+      expect(data['totalUsd']).toBe(0.0125);
+      expect(data['turnId']).toBe('turn-1');
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      await promise;
+    });
+
+    it('emits mcp.session.summary on chat:complete with aggregated cost', async () => {
+      process.env['PTAH_MCP_HOST_SESSION_ID'] = 'mcp-host-2';
+      const h = makeHarness();
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      h.pushAdapter.emit('session:cost', {
+        session_id: 'tab-1',
+        total_usd: 0.05,
+      });
+      h.pushAdapter.emit('session:tokens', {
+        session_id: 'tab-1',
+        total_input_tokens: 100,
+        total_output_tokens: 250,
+      });
+      h.pushAdapter.emit('chat:chunk', {
+        tabId: 'tab-1',
+        event: { eventType: 'agent.tool_use', toolName: 'Read' },
+      });
+      h.pushAdapter.emit('chat:chunk', {
+        tabId: 'tab-1',
+        event: { eventType: 'agent.tool_use', toolName: 'Edit' },
+      });
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      await promise;
+      const summaryCall = h.notifier.notify.mock.calls.find(
+        ([m, params]) =>
+          m === 'notifications/message' &&
+          (params as { data: { kind: string } }).data.kind ===
+            'mcp.session.summary',
+      );
+      expect(summaryCall).toBeDefined();
+      const data = (
+        summaryCall as unknown as [string, { data: Record<string, unknown> }]
+      )[1].data;
+      expect(data['totalUsd']).toBe(0.05);
+      expect(data['inputTokens']).toBe(100);
+      expect(data['outputTokens']).toBe(250);
+      expect(data['totalTokens']).toBe(350);
+      expect(data['toolCallCount']).toBe(2);
+      expect(data['mcpHostSessionId']).toBe('mcp-host-2');
+    });
+
+    it('ignores session:cost for unrelated sessions', async () => {
+      const h = makeHarness();
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      h.pushAdapter.emit('session:cost', {
+        session_id: 'some-other-session',
+        total_usd: 99,
+      });
+      await flush();
+      const costCalls = h.notifier.notify.mock.calls.filter(
+        ([m, params]) =>
+          m === 'notifications/message' &&
+          (params as { data: { kind: string } }).data.kind === 'session.cost',
+      );
+      expect(costCalls).toHaveLength(0);
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      await promise;
+    });
+
+    it('emits mcp.session.summary with null mcpHostSessionId when env unset', async () => {
+      delete process.env['PTAH_MCP_HOST_SESSION_ID'];
+      const h = makeHarness();
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      await promise;
+      const summaryCall = h.notifier.notify.mock.calls.find(
+        ([m, params]) =>
+          m === 'notifications/message' &&
+          (params as { data: { kind: string } }).data.kind ===
+            'mcp.session.summary',
+      );
+      expect(summaryCall).toBeDefined();
+      const data = (
+        summaryCall as unknown as [string, { data: Record<string, unknown> }]
+      )[1].data;
+      expect(data['mcpHostSessionId']).toBeNull();
+    });
+
+    it('detaches session:cost and session:tokens listeners on settlement', async () => {
+      const h = makeHarness();
+      const baseCost = h.pushAdapter.listenerCount('session:cost');
+      const baseTokens = h.pushAdapter.listenerCount('session:tokens');
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      expect(h.pushAdapter.listenerCount('session:cost')).toBe(baseCost + 1);
+      expect(h.pushAdapter.listenerCount('session:tokens')).toBe(
+        baseTokens + 1,
+      );
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      await promise;
+      expect(h.pushAdapter.listenerCount('session:cost')).toBe(baseCost);
+      expect(h.pushAdapter.listenerCount('session:tokens')).toBe(baseTokens);
+    });
+  });
+
   describe('cancellation', () => {
     it('aborts the in-flight call and issues chat:abort', async () => {
       const h = makeHarness();
