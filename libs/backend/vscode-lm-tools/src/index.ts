@@ -15,7 +15,14 @@ export type {
   BrowserRecordStopResult,
 } from './lib/code-execution/types';
 export type { IIDECapabilities } from './lib/code-execution/namespace-builders/ide-namespace.builder';
-export type { ToolResultCallback } from './lib/code-execution/mcp-core';
+export type {
+  ToolResultCallback,
+  MCPRequest,
+  MCPResponse,
+  MCPError,
+  MCPNotification,
+  MCPToolDefinition,
+} from './lib/code-execution/mcp-core';
 export {
   StdioTransport,
   StdioMcpServerService,

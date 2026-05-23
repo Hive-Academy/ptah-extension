@@ -123,15 +123,18 @@ describe('StdioMcpServerService', () => {
       expect(result.structuredContent.tool).toBe('agent_spawn');
     });
 
-    it('returns -32601 / mcp_tool_not_found for an unknown tool', async () => {
+    it('returns isError:true / mcp_tool_not_found for an unknown tool', async () => {
       const svc = new StdioMcpServerService(makeLogger());
       const req = makeRequest({ params: { name: 'does_not_exist' } });
       const resp = await svc.handleToolsCall(req);
-      expect(resp.result).toBeUndefined();
-      expect(resp.error?.code).toBe(-32601);
-      expect((resp.error?.data as { ptah_code: string }).ptah_code).toBe(
-        'mcp_tool_not_found',
-      );
+      expect(resp.error).toBeUndefined();
+      const result = resp.result as {
+        isError: boolean;
+        structuredContent: { ptah_code: string; tool: string };
+      };
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.ptah_code).toBe('mcp_tool_not_found');
+      expect(result.structuredContent.tool).toBe('does_not_exist');
     });
 
     it('returns -32602 / mcp_invalid_tool_args for a missing name', async () => {

@@ -143,10 +143,15 @@ export class StdioMcpServerService {
       return {
         jsonrpc: '2.0',
         id: request.id,
-        error: {
-          code: -32601,
-          message: `Unknown tool: ${name}`,
-          data: { ptah_code: 'mcp_tool_not_found', tool: name },
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: `Unknown tool: ${name}. Call tools/list to see available tools.`,
+            },
+          ],
+          isError: true,
+          structuredContent: { ptah_code: 'mcp_tool_not_found', tool: name },
         },
       };
     }
