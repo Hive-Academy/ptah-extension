@@ -26,7 +26,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import {
   handleMCPRequest,
   type ProtocolHandlerDependencies,
-} from './protocol-handlers';
+} from './protocol-dispatcher';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
 
 // ---------------------------------------------------------------------------

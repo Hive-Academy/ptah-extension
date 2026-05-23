@@ -17,10 +17,7 @@ import {
   type ApprovalPromptDependencies,
 } from './approval-prompt.handler';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
-import type {
-  ApprovalPromptParams,
-  MCPRequest,
-} from '../types';
+import type { ApprovalPromptParams, MCPRequest } from '../types';
 
 function createLogger(): jest.Mocked<Logger> {
   return {
@@ -43,7 +40,8 @@ interface FakePermissionService {
   resolver?: (response: PermissionResponse) => void;
 }
 
-function createPermissionService(): FakePermissionService & PermissionPromptService {
+function createPermissionService(): FakePermissionService &
+  PermissionPromptService {
   const svc: FakePermissionService = {
     createRequest: jest.fn((params: ApprovalPromptParams) => ({
       id: 'req-123',
