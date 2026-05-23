@@ -26,16 +26,16 @@ Authoritative sources (verify behavior here when in doubt):
 
 ## 1. CLI vs Extension vs Electron — when to use which
 
-| Need                                                 | Use            |
-| ---------------------------------------------------- | -------------- |
-| Interactive coding inside an editor                  | VS Code ext    |
-| Standalone desktop app with chat UI                  | Electron       |
-| Headless agent driving Ptah from another process     | **CLI**        |
-| CI / GitHub Actions / scheduled jobs                 | **CLI**        |
-| A2A bridge (OpenClaw / NemoClaw / external orchestrator) | **CLI**    |
-| Scripted refactor or bulk task execution             | **CLI**        |
-| Anthropic-compatible HTTP proxy in front of Ptah     | **CLI** (`ptah proxy start`) |
-| TTY UI, keyboard navigation, mouse                   | NOT the CLI    |
+| Need                                                     | Use                          |
+| -------------------------------------------------------- | ---------------------------- |
+| Interactive coding inside an editor                      | VS Code ext                  |
+| Standalone desktop app with chat UI                      | Electron                     |
+| Headless agent driving Ptah from another process         | **CLI**                      |
+| CI / GitHub Actions / scheduled jobs                     | **CLI**                      |
+| A2A bridge (OpenClaw / NemoClaw / external orchestrator) | **CLI**                      |
+| Scripted refactor or bulk task execution                 | **CLI**                      |
+| Anthropic-compatible HTTP proxy in front of Ptah         | **CLI** (`ptah proxy start`) |
+| TTY UI, keyboard navigation, mouse                       | NOT the CLI                  |
 
 The CLI runs the agent backend **in-process** — there is no IPC boundary,
 just `stdin`/`stdout` carrying JSON-RPC 2.0 envelopes and `stderr`
@@ -201,11 +201,11 @@ ptah provider tier clear --tier opus
 
 Slots:
 
-| Slot     | Intended use                                            |
-| -------- | ------------------------------------------------------- |
-| `sonnet` | Default workhorse — most agent turns map here           |
-| `opus`   | Heavy reasoning — Team Leader, deep analysis            |
-| `haiku`  | Cheap classification, intent parsing, retrievals        |
+| Slot     | Intended use                                     |
+| -------- | ------------------------------------------------ |
+| `sonnet` | Default workhorse — most agent turns map here    |
+| `opus`   | Heavy reasoning — Team Leader, deep analysis     |
+| `haiku`  | Cheap classification, intent parsing, retrievals |
 
 Each provider in `provider-registry.ts` ships a default tier mapping;
 `provider tier set` overrides it.
@@ -218,15 +218,15 @@ Wire format: NDJSON, one JSON object per line, `\n`-terminated.
 
 ### 5.1 Inbound requests (client → CLI, in `interact` mode)
 
-| Method                | Params                                                              | Result                                                           |
-| --------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `task.submit`         | `{ task, cwd?, profile? }`                                          | `{ turn_id, complete, cancelled?, error?, session_id? }`         |
-| `task.cancel`         | `{ turn_id }`                                                       | `{ cancelled, turn_id?, reason? }`                               |
-| `session.shutdown`    | `{}`                                                                | `{ shutdown: true }` then drain + exit 0                         |
-| `session.history`     | `{ limit? }`                                                        | `{ messages, session_id }`                                       |
-| `permission.response` | `{ id, decision: 'allow'\|'deny'\|'always_allow', scope? }`         | (fire-and-forget, no response)                                   |
-| `question.response`   | `{ id, answer, custom? }`                                           | (fire-and-forget, no response)                                   |
-| `proxy.shutdown`      | `{}`                                                                | `{ stopped, port?, reason? }` (only when proxy embedded)         |
+| Method                | Params                                                      | Result                                                   |
+| --------------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
+| `task.submit`         | `{ task, cwd?, profile? }`                                  | `{ turn_id, complete, cancelled?, error?, session_id? }` |
+| `task.cancel`         | `{ turn_id }`                                               | `{ cancelled, turn_id?, reason? }`                       |
+| `session.shutdown`    | `{}`                                                        | `{ shutdown: true }` then drain + exit 0                 |
+| `session.history`     | `{ limit? }`                                                | `{ messages, session_id }`                               |
+| `permission.response` | `{ id, decision: 'allow'\|'deny'\|'always_allow', scope? }` | (fire-and-forget, no response)                           |
+| `question.response`   | `{ id, answer, custom? }`                                   | (fire-and-forget, no response)                           |
+| `proxy.shutdown`      | `{}`                                                        | `{ stopped, port?, reason? }` (only when proxy embedded) |
 
 Only one `task.submit` may be in flight; concurrent submit returns
 `-32603 'turn already in flight'`.
@@ -249,11 +249,11 @@ agent.thought → agent.tool_use → (permission.request ↔ permission.response
 
 ### 5.3 Outbound requests (CLI → client, response REQUIRED)
 
-| Method               | Trigger                                       | Expected reply                                                   |
-| -------------------- | --------------------------------------------- | ---------------------------------------------------------------- |
-| `permission.request` | Tool gated and `--auto-approve` not set       | `{ decision, scope? }`                                           |
-| `question.ask`       | Agent needs a user choice                     | `{ answer, custom? }`                                            |
-| `oauth.url.open`     | OAuth needs a browser (headless device-code)  | `{ opened, code? }`                                              |
+| Method               | Trigger                                      | Expected reply         |
+| -------------------- | -------------------------------------------- | ---------------------- |
+| `permission.request` | Tool gated and `--auto-approve` not set      | `{ decision, scope? }` |
+| `question.ask`       | Agent needs a user choice                    | `{ answer, custom? }`  |
+| `oauth.url.open`     | OAuth needs a browser (headless device-code) | `{ opened, code? }`    |
 
 ### 5.4 End-to-end NDJSON dialogue
 
@@ -296,18 +296,18 @@ Notes:
 
 ## 6. Headless / unattended runs — env vars
 
-| Env var               | When to set                                           | Effect                                                                                                                |
-| --------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `PTAH_AUTO_APPROVE`   | CI, daemons, `proxy start` w/o JSON-RPC peer          | Auto-allow every `permission.request` (same as `--auto-approve`).                                                     |
-| `PTAH_NO_TTY`         | Containers, CI, anything where `isTTY` may lie        | Force non-TTY mode; suppresses ANSI even with `--human`.                                                              |
-| `NO_COLOR`            | Pipelines, log aggregators                            | Any non-empty value disables ANSI in `--human` mode.                                                                  |
-| `FORCE_COLOR=0`       | Bridge spawning the CLI from another process          | Disables color in deps that read it (matches Windows spawn pattern). Combine with `setEncoding('utf8')` on streams.   |
-| `PTAH_LOG_LEVEL`      | Debugging                                             | `debug` \| `info` \| `warn` \| `error`. `debug` writes to **stderr only**; never poisons stdout.                      |
-| `PTAH_CONFIG_PATH`    | Sandboxed runs / multi-tenant CI                      | Override `~/.ptah/settings.json` location.                                                                            |
-| `PTAH_DI_LAZY`        | Fast read-only commands                               | Default `true`. Skips DI bootstrap when only metadata is needed.                                                      |
-| `ANTHROPIC_API_KEY`   | Anthropic direct without `set-key`                    | Picked up by `api-key.strategy.ts`.                                                                                   |
-| `ANTHROPIC_AUTH_TOKEN`| Z.AI / Moonshot / any Anthropic-compatible vendor     | Used together with `ANTHROPIC_BASE_URL` to point the SDK at a non-Anthropic endpoint.                                 |
-| `ANTHROPIC_BASE_URL`  | Custom Anthropic-compatible endpoint                  | Overrides the SDK's default base URL.                                                                                 |
+| Env var                | When to set                                       | Effect                                                                                                              |
+| ---------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `PTAH_AUTO_APPROVE`    | CI, daemons, `proxy start` w/o JSON-RPC peer      | Auto-allow every `permission.request` (same as `--auto-approve`).                                                   |
+| `PTAH_NO_TTY`          | Containers, CI, anything where `isTTY` may lie    | Force non-TTY mode; suppresses ANSI even with `--human`.                                                            |
+| `NO_COLOR`             | Pipelines, log aggregators                        | Any non-empty value disables ANSI in `--human` mode.                                                                |
+| `FORCE_COLOR=0`        | Bridge spawning the CLI from another process      | Disables color in deps that read it (matches Windows spawn pattern). Combine with `setEncoding('utf8')` on streams. |
+| `PTAH_LOG_LEVEL`       | Debugging                                         | `debug` \| `info` \| `warn` \| `error`. `debug` writes to **stderr only**; never poisons stdout.                    |
+| `PTAH_CONFIG_PATH`     | Sandboxed runs / multi-tenant CI                  | Override `~/.ptah/settings.json` location.                                                                          |
+| `PTAH_DI_LAZY`         | Fast read-only commands                           | Default `true`. Skips DI bootstrap when only metadata is needed.                                                    |
+| `ANTHROPIC_API_KEY`    | Anthropic direct without `set-key`                | Picked up by `api-key.strategy.ts`.                                                                                 |
+| `ANTHROPIC_AUTH_TOKEN` | Z.AI / Moonshot / any Anthropic-compatible vendor | Used together with `ANTHROPIC_BASE_URL` to point the SDK at a non-Anthropic endpoint.                               |
+| `ANTHROPIC_BASE_URL`   | Custom Anthropic-compatible endpoint              | Overrides the SDK's default base URL.                                                                               |
 
 Reminder: `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted. The
 `agent-cli` allowlist (`glm`, `gemini` only) is hard-coded at command
@@ -326,7 +326,7 @@ import { spawn } from 'node:child_process';
 const child = spawn('ptah', ['interact'], {
   stdio: ['pipe', 'pipe', 'pipe'],
   env: { ...process.env, PTAH_AUTO_APPROVE: 'true', NO_COLOR: '1', FORCE_COLOR: '0' },
-  shell: process.platform === 'win32',  // .cmd shim on Windows
+  shell: process.platform === 'win32', // .cmd shim on Windows
 });
 
 child.stdout.setEncoding('utf8');
@@ -335,15 +335,20 @@ child.stdout.on('data', (chunk) => {
   buf += chunk;
   let idx;
   while ((idx = buf.indexOf('\n')) !== -1) {
-    const line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+    const line = buf.slice(0, idx);
+    buf = buf.slice(idx + 1);
     if (line.trim()) handleEnvelope(JSON.parse(line));
   }
 });
 
-child.stdin.write(JSON.stringify({
-  jsonrpc: '2.0', id: '1', method: 'task.submit',
-  params: { task: 'refactor utils.ts' }
-}) + '\n');
+child.stdin.write(
+  JSON.stringify({
+    jsonrpc: '2.0',
+    id: '1',
+    method: 'task.submit',
+    params: { task: 'refactor utils.ts' },
+  }) + '\n',
+);
 ```
 
 The Windows `shell: true` flag is required because `ptah` resolves to a
@@ -526,3 +531,480 @@ Exit code `4`. Read-only commands (`license status`, `config list`,
   for Windows-spawn reasons.
 - **Don't** re-add `ptah run` calls. It's a deprecated alias for
   `session start --task` and emits a stderr deprecation notice.
+
+---
+
+## 11. `ptah agent-cli` reference
+
+`ptah agent-cli` manages user-installed CLI agents (model-vendor binaries
+the SDK can spawn into agent sessions). The surface is locked to a
+hard-coded allowlist enforced inside the command handler — see
+`apps/ptah-cli/src/cli/commands/agent-cli.ts:48` (`CLI_AGENT_ALLOWLIST`)
+and the per-subcommand validation in `validateCliAgent` at
+`agent-cli.ts:131-142`.
+
+**Allowlist**: only `glm` and `gemini` are accepted for `--cli`.
+`PTAH_AGENT_CLI_OVERRIDE` is **never** consulted (verified at
+`agent-cli.ts:22-23` and reinforced by the router comment at
+`router.ts:597-599`). Any other value emits `task.error` with
+`ptah_code: 'cli_agent_unavailable'` and exits `3` (`AuthRequired`).
+
+### 11.1 `ptah agent-cli detect`
+
+Detect installed CLI agents in the user's environment.
+
+| Flag     | Required | Default | Notes                       |
+| -------- | -------- | ------- | --------------------------- |
+| _(none)_ | —        | —       | Pure read; no `--cli` flag. |
+
+- **RPC**: `agent:detectClis` (`agent-cli.ts:163-178`).
+- **Notification**: `agent_cli.detection { clis: CliDetectionResult[] }`.
+- **Exit codes**: `0` on success; `5` (`InternalFailure`) on RPC error;
+  never emits `cli_agent_unavailable` (no `--cli` flag).
+
+### 11.2 `ptah agent-cli config get`
+
+Read the current agent orchestration config.
+
+| Flag     | Required | Default | Notes                                        |
+| -------- | -------- | ------- | -------------------------------------------- |
+| _(none)_ | —        | —       | Returns the full `AgentOrchestrationConfig`. |
+
+- **RPC**: `agent:getConfig` (`agent-cli.ts:181-197`).
+- **Notification**: `agent_cli.config { config: AgentOrchestrationConfig }`.
+- **Exit codes**: `0`, `5`.
+
+### 11.3 `ptah agent-cli config set`
+
+Write a single config entry. Coercion rules (`agent-cli.ts:358-399`):
+boolean keys (`codexAutoApprove`, `copilotAutoApprove`,
+`browserAllowLocalhost`) parse `true`/`1` as `true`; numeric keys
+(`maxConcurrentAgents`, `mcpPort`) parse with `parseInt`; CSV keys
+(`preferredAgentOrder`, `disabledClis`, `disabledMcpNamespaces`) split on
+commas; everything else passes through as a string.
+
+| Flag      | Required | Default | Notes                               |
+| --------- | -------- | ------- | ----------------------------------- |
+| `--key`   | yes      | —       | Settings key (see coercion table).  |
+| `--value` | yes      | —       | Raw string; coerced for known keys. |
+
+- **RPC**: `agent:setConfig` (`agent-cli.ts:199-231`).
+- **Notification**: `agent_cli.config.updated { key, value }`.
+- **Exit codes**: `0`; `2` (`UsageError`) when `--key` or `--value` is
+  missing/empty; `5` on RPC failure.
+
+### 11.4 `ptah agent-cli models list`
+
+Enumerate available models per CLI agent. With `--cli`, scopes the
+response to one allowlisted CLI; without, returns the full
+`AgentListCliModelsResult` shape (`gemini`, `codex`, `copilot` arrays).
+
+| Flag    | Required | Default | Notes                                         |
+| ------- | -------- | ------- | --------------------------------------------- |
+| `--cli` | no       | (all)   | One of `glm` \| `gemini`; rejection → exit 3. |
+
+- **RPC**: `agent:listCliModels` (`agent-cli.ts:233-275`).
+- **Notification**: `agent_cli.models { gemini, codex, copilot }` (no
+  scope) or `agent_cli.models { cli, models }` (scoped to `gemini`); the
+  scoped `glm` path returns an empty array today.
+- **Exit codes**: `0`; `3` (`AuthRequired`) on `--cli` value outside the
+  allowlist; `5` on RPC failure.
+
+### 11.5 `ptah agent-cli stop <id> --cli <id>`
+
+Terminate a running CLI-agent process by agent id.
+
+| Positional | Required | Notes                 |
+| ---------- | -------- | --------------------- |
+| `<id>`     | yes      | The agent id to stop. |
+
+| Flag    | Required | Default | Notes                                  |
+| ------- | -------- | ------- | -------------------------------------- |
+| `--cli` | yes      | —       | `glm` \| `gemini`; rejection → exit 3. |
+
+- **RPC**: `agent:stop` (`agent-cli.ts:277-308`).
+- **Notification**: `agent_cli.stopped { agentId, cli }`.
+- **Exit codes**: `0`; `2` when `<id>` is missing; `3` on allowlist
+  rejection; `5` on RPC failure.
+
+### 11.6 `ptah agent-cli resume <id> --cli <id>`
+
+Resume an existing CLI-agent session by `cliSessionId`. Optionally
+seeds a new prompt with `--task`.
+
+| Positional | Required | Notes                         |
+| ---------- | -------- | ----------------------------- |
+| `<id>`     | yes      | The `cliSessionId` to resume. |
+
+| Flag     | Required | Default | Notes                                  |
+| -------- | -------- | ------- | -------------------------------------- |
+| `--cli`  | yes      | —       | `glm` \| `gemini`; rejection → exit 3. |
+| `--task` | no       | `""`    | Free-form prompt for the resumed turn. |
+
+- **RPC**: `agent:resumeCliSession` (`agent-cli.ts:310-346`).
+- **Notification**: `agent_cli.resumed { cliSessionId, cli, agentId }`.
+- **Exit codes**: `0`; `2` when `<id>` is missing; `3` on allowlist
+  rejection; `5` on RPC failure.
+
+---
+
+## 12. `ptah license` lifecycle
+
+`ptah license` inspects, sets, and clears the local Ptah license key.
+Backed by the shared `LicenseRpcHandlers` registered under the
+`license:` RPC namespace. The `license:` prefix is `LICENSE_EXEMPT`
+(`libs/backend/vscode-core/src/messaging/rpc-handler.ts:132-138`), which
+means all three subcommands work **without a valid license** so the
+user can recover from the unlicensed state. Router wiring:
+`apps/ptah-cli/src/cli/router.ts:1676-1712`.
+
+### 12.1 State machine
+
+```
+       ┌──────────────────┐  ptah license set --key ptah_lic_…  ┌────────────┐
+       │  no-license      ├────────────────────────────────────►│  community │
+       │  (cachedStatus   │                                     │  (free)    │
+       │   === null)      │  trial activate (auto, first run)   │            │
+       └────────┬─────────┘────────────────────────────────────►└──────┬─────┘
+                │                                                      │
+                │  set --key ptah_lic_<paid>                            │
+                │ ◄──────────────────────────────────────────────────── │
+                ▼
+            ┌─────────────────────┐
+            │  pro                │
+            │  (Pro tier)         │
+            └────────┬────────────┘
+                     │  clear  /  server says expired
+                     ▼
+            ┌─────────────────────┐
+            │  expired            │
+            │  (same gate as null)│
+            └─────────────────────┘
+```
+
+- `no-license` / `expired` blocks Pro-only RPC prefixes (see
+  `PRO_ONLY_METHOD_PREFIXES` at `rpc-handler.ts:106-112`).
+- `community` permits everything except the prefixes in
+  `PRO_ONLY_METHOD_PREFIXES` (`setup-wizard:`, `wizard:`,
+  `enhancedPrompts:`, `ptahCli:`).
+- `pro` (paid or in-trial) permits all gated namespaces.
+
+### 12.2 Seven-day trial mechanics
+
+On first activation, the license service can auto-mint a seven-day
+trial that maps onto the same Pro-tier rules above. The trial is
+single-use per machine fingerprint; the server enforces uniqueness.
+Verify the active trial / expiry via:
+
+```bash
+ptah license status
+```
+
+The emitted `license.status` notification carries the absolute expiry
+timestamp; the CLI does not poll it — the host should re-check before
+issuing a Pro-only command.
+
+### 12.3 Subcommands
+
+#### `ptah license status`
+
+Inspect the current license state.
+
+| Flag     | Required | Notes      |
+| -------- | -------- | ---------- |
+| _(none)_ | —        | Read-only. |
+
+- **RPC**: `license:getStatus`.
+- **Notification**: `license.status { tier, valid, expiresAt?, …}`.
+- **License-exempt**: yes (works in `no-license` and `expired` states).
+- **Exit codes**: `0` on success; `5` on RPC failure.
+
+#### `ptah license set --key <ptah_lic_…>`
+
+Persist a new license key. The key format is
+`ptah_lic_<64-hex>` — enforced by the server, not the CLI.
+
+| Flag    | Required | Default | Notes                                              |
+| ------- | -------- | ------- | -------------------------------------------------- |
+| `--key` | yes      | —       | `ptah_lic_<64-hex>`; commander validates the flag. |
+
+- **RPC**: `license:setKey`.
+- **Notification**: `license.status` (refreshed).
+- **License-exempt**: yes — this is the recovery path.
+- **Exit codes**: `0`; `2` when `--key` is missing (commander
+  enforces); `4` (`LicenseRequired`) when the server rejects the key;
+  `5` on transport failure.
+
+#### `ptah license clear`
+
+Remove the locally-stored key (returns to `no-license`).
+
+| Flag     | Required | Notes         |
+| -------- | -------- | ------------- |
+| _(none)_ | —        | Irreversible. |
+
+- **RPC**: `license:clearKey`.
+- **Notification**: `license.status` (refreshed; tier→null).
+- **License-exempt**: yes.
+- **Exit codes**: `0`; `5` on RPC failure.
+
+---
+
+## 13. `ptah harness` walkthrough
+
+`ptah harness` scaffolds and applies project harness presets — the
+configuration bundle that drives sub-agent fan-out, skill activation,
+and document generation. Router wiring:
+`apps/ptah-cli/src/cli/router.ts:353-532`. All subcommands dispatch
+through shared `HarnessRpcHandlers`, so VS Code, Electron, and the CLI
+behave identically.
+
+### 13.1 Subcommand summary
+
+| Subcommand            | Purpose                                                                                                          |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- | ------- |
+| `init`                | Create the `.ptah/` scaffolding (pure mkdir, no DI; idempotent — emits `changed:false`).                         |
+| `status`              | Inspect `.ptah/` contents (pure fs.readdir, no DI). Emits `harness.status`.                                      |
+| `scan`                | Run `harness:initialize`. Emits `workspace_context`, `available_agents`, `available_skills`, `existing_presets`. |
+| `apply --preset <id>` | Apply a stored harness preset via `harness:apply`.                                                               |
+| `preset save <name>`  | Persist a `HarnessConfig` (read from `--from <path>`) via `harness:save-preset`.                                 |
+| `preset load`         | Emit `harness.preset.list` via `harness:load-presets`.                                                           |
+| `chat`                | Alias for `ptah session start --scope harness-skill` (full streaming surface).                                   |
+| `analyze-intent`      | Analyze a free-form intent via `harness:analyze-intent`; emits `harness.intent.analysis`.                        |
+| `design-agents`       | Design sub-agents via `harness:design-agents`.                                                                   |
+| `generate-document`   | Generate a project document via `harness:generate-document` (`--kind prd                                         | spec`). |
+
+### 13.2 End-to-end walkthrough
+
+The canonical onboarding flow — bootstrap a workspace, design agents,
+apply a preset, then run a Team-Leader-flavored chat session:
+
+```bash
+# 1. Scaffold the .ptah/ tree (idempotent).
+ptah harness init --dir .
+
+# 2. Inspect what was created.
+ptah harness status
+# stdout: harness.status { dirs: [...], files: [...] }
+
+# 3. Run a full workspace scan — emits four notifications:
+#      workspace_context, available_agents, available_skills, existing_presets
+ptah harness scan
+
+# 4. (Optional) Generate a PRD from the current workspace.
+ptah harness generate-document --kind prd
+# stdout: harness.document.stream { chunk: "..." } × N
+# stdout: harness.document.complete { path: ".ptah/specs/<id>/prd.md" }
+
+# 5. Analyze a free-form intent (used for downstream design-agents).
+ptah harness analyze-intent --intent "add a CSV importer with progress UI"
+# stdout: harness.intent.analysis { task_type, complexity, suggested_agents, ... }
+
+# 6. Design sub-agents from the analyzed intent + workspace context.
+ptah harness design-agents --workspace
+# stdout: harness.agent.designed { name, role, model_tier } × N
+
+# 7. Persist the resulting HarnessConfig as a named preset.
+ptah harness preset save my-importer --from ./harness-config.json \
+  --description "CSV importer w/ progress"
+
+# 8. Apply the preset to the workspace (writes .ptah/agents/*.md).
+ptah harness apply --preset my-importer
+
+# 9. Drive the actual Team-Leader-flavored session, auto-approving every
+#    permission gate (mandatory for unattended runs — see §6).
+ptah harness chat --task "implement the importer per the preset" \
+  --auto-approve --profile harness-skill
+```
+
+### 13.3 Resulting JSON-RPC trail
+
+`harness chat` is a streaming command — it tunnels through the same
+`session start` machinery, so the spine in §5.2 applies. The
+notifications unique to the harness lifecycle:
+
+```
+harness.initialized       (scan complete; workspace_context + agents + skills loaded)
+harness.intent.analysis   (analyze-intent result)
+harness.agent.designed    (per designed sub-agent)
+harness.preset.saved      (preset save complete)
+harness.preset.list       (preset load result)
+harness.applied           (apply complete; written file list)
+harness.document.stream   (generate-document streaming chunks)
+harness.document.complete (generate-document final path + summary)
+```
+
+`harness chat` overlays these on top of the standard
+`agent.thought → agent.tool_use → agent.tool_result → agent.message`
+stream from §5.2 — every chat turn the Team Leader prompt invokes the
+SDK's built-in `Task` tool to fan out to designed sub-agents, and each
+sub-agent emits its own nested stream prefixed with the parent
+turn id.
+
+---
+
+## 14. `ptah_*` MCP tool catalog (35 tools)
+
+The in-process MCP server (`CodeExecutionMCP`) exposes a 35-tool
+surface that internal sub-agents and the runtime self-introspection
+layer hit over HTTP. Source of truth:
+`libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-handlers/protocol-handlers.ts:213-282`
+(`handleToolsList`). Tools are grouped by **namespace toggle** —
+disabling a namespace via the `ptah.agentOrchestration.disabledMcpNamespaces`
+setting (string array) drops the entire group from `tools/list`. The
+`ide` namespace additionally requires `hasIDECapabilities === true` (set
+by the host adapter; Electron does not provide IDE capabilities).
+
+> The `mcp-serve` subcommand (Phase 7 of TASK_2026_128) will surface a
+> separate, narrower MCP wire for external hosts. This catalog
+> describes the **internal** HTTP surface only.
+
+### 14.1 Toggle table
+
+| Namespace key | Toggle value                         | Tools | Extra requirement    |
+| ------------- | ------------------------------------ | ----- | -------------------- |
+| _(always-on)_ | — (cannot be disabled)               | 7     | —                    |
+| `ide`         | `disabledMcpNamespaces: ['ide']`     | 3     | `hasIDECapabilities` |
+| `agent`       | `disabledMcpNamespaces: ['agent']`   | 6     | —                    |
+| `git`         | `disabledMcpNamespaces: ['git']`     | 3     | —                    |
+| `json`        | `disabledMcpNamespaces: ['json']`    | 1     | —                    |
+| `browser`     | `disabledMcpNamespaces: ['browser']` | 11    | —                    |
+| `harness`     | `disabledMcpNamespaces: ['harness']` | 4     | —                    |
+
+### 14.2 Always-on tools (7)
+
+| Name                     | Namespace  | Returns                                       |
+| ------------------------ | ---------- | --------------------------------------------- |
+| `ptah_workspace_analyze` | _(always)_ | Workspace metadata + structure overview.      |
+| `ptah_search_files`      | _(always)_ | Path list of matching files (glob + content). |
+| `ptah_get_diagnostics`   | _(always)_ | Diagnostics via `IDiagnosticsProvider` port.  |
+| `ptah_count_tokens`      | _(always)_ | Token-count estimate for given text/files.    |
+| `ptah_web_search`        | _(always)_ | Web-search result set (provider-routed).      |
+| `execute_code`           | _(always)_ | Bash / shell execution result.                |
+| `approval_prompt`        | _(always)_ | Permission-prompt round trip.                 |
+
+### 14.3 `ide` namespace (3)
+
+| Name                   | Returns                                         |
+| ---------------------- | ----------------------------------------------- |
+| `ptah_lsp_references`  | LSP references at a position.                   |
+| `ptah_lsp_definitions` | LSP definitions at a position.                  |
+| `ptah_get_dirty_files` | List of files with unsaved edits in the editor. |
+
+### 14.4 `agent` namespace (6)
+
+| Name                | Returns                                         |
+| ------------------- | ----------------------------------------------- |
+| `ptah_agent_spawn`  | `SpawnAgentResult { agentId, cli, status, … }`. |
+| `ptah_agent_status` | `AgentProcessInfo` (or array of all agents).    |
+| `ptah_agent_read`   | Buffered stdout/stderr + exit code if finished. |
+| `ptah_agent_steer`  | Push a steering message to a running agent.     |
+| `ptah_agent_stop`   | Final `AgentProcessInfo` after termination.     |
+| `ptah_agent_list`   | Detected CLIs + configured Ptah CLI agents.     |
+
+### 14.5 `git` namespace (3)
+
+| Name                       | Returns                          |
+| -------------------------- | -------------------------------- |
+| `ptah_git_worktree_list`   | List of git worktrees.           |
+| `ptah_git_worktree_add`    | Result of `git worktree add`.    |
+| `ptah_git_worktree_remove` | Result of `git worktree remove`. |
+
+### 14.6 `json` namespace (1)
+
+| Name                 | Returns                                 |
+| -------------------- | --------------------------------------- |
+| `ptah_json_validate` | Schema validation result + diagnostics. |
+
+### 14.7 `browser` namespace (11)
+
+| Name                        | Returns                                    |
+| --------------------------- | ------------------------------------------ |
+| `ptah_browser_navigate`     | Navigation result (URL, status code).      |
+| `ptah_browser_screenshot`   | Base64-encoded PNG.                        |
+| `ptah_browser_evaluate`     | Result of in-page JS evaluation.           |
+| `ptah_browser_click`        | Click confirmation + DOM diff.             |
+| `ptah_browser_type`         | Type confirmation.                         |
+| `ptah_browser_content`      | Current page HTML / text content.          |
+| `ptah_browser_network`      | Captured network log entries.              |
+| `ptah_browser_close`        | Browser session-close confirmation.        |
+| `ptah_browser_status`       | Active session status (URL, viewport, …).  |
+| `ptah_browser_record_start` | Start screen-recording the active session. |
+| `ptah_browser_record_stop`  | Stop recording; returns artifact path.     |
+
+### 14.8 `harness` namespace (4)
+
+| Name                               | Returns                                          |
+| ---------------------------------- | ------------------------------------------------ |
+| `ptah_harness_search_skills`       | Matching skills from the harness skill registry. |
+| `ptah_harness_create_skill`        | Newly created skill descriptor.                  |
+| `ptah_harness_search_mcp_registry` | Matching MCP servers from the registry.          |
+| `ptah_harness_list_installed_mcp`  | List of installed MCP servers in the workspace.  |
+
+**Total**: 7 + 3 + 6 + 3 + 1 + 11 + 4 = **35 tools**.
+
+---
+
+## 15. `session.ready.capabilities` enumeration
+
+At the top of every `ptah interact` session the CLI emits a
+`session.ready` notification advertising the negotiated capability
+set. Source: `apps/ptah-cli/src/cli/commands/interact.ts:400-405`.
+
+### 15.1 Current capability set
+
+```jsonc
+{
+  "method": "session.ready",
+  "params": {
+    "session_id": "<tabId>",
+    "version": "<package.json version>",
+    "capabilities": ["chat", "session", "permission", "question"],
+    "protocol_version": "2.0",
+  },
+}
+```
+
+| Capability   | Means                                                                              |
+| ------------ | ---------------------------------------------------------------------------------- |
+| `chat`       | Inbound `task.submit` / `task.cancel` accepted; the full agent.\* stream is wired. |
+| `session`    | Inbound `session.shutdown` / `session.history` accepted.                           |
+| `permission` | Outbound `permission.request` may fire; client MUST respond.                       |
+| `question`   | Outbound `question.ask` may fire; client MUST respond.                             |
+
+### 15.2 Capability lifecycle
+
+1. The CLI binds `JsonRpcServer` to stdin/stdout, attaches its
+   handlers, then emits `session.ready` — this is always the first
+   line on stdout.
+2. Immediately after, the CLI emits `system.schema.version` with the
+   active `JSONRPC_SCHEMA_VERSION` (`apps/ptah-cli/src/cli/jsonrpc/types.ts:30`,
+   currently `'0.1'`) plus the CLI version.
+3. The peer is free to call any inbound method gated by the
+   advertised capabilities. Capabilities are static for the life of
+   the `interact` process — they do not change mid-session.
+4. On `session.shutdown`, the server drains and exits 0; no
+   capability is re-advertised on a new spawn.
+
+### 15.3 Schema-version negotiation
+
+- The CLI's emitted version is **`JSONRPC_SCHEMA_VERSION = '0.1'`**
+  (`apps/ptah-cli/src/cli/jsonrpc/types.ts:30`).
+- Hosts that spawn the CLI MAY set `PTAH_HOST_SCHEMA_VERSION` in the
+  child environment. On boot, `apps/ptah-cli/src/main.ts` calls
+  `checkSchemaVersionSkew()` to compare the two; a mismatch is logged
+  to stderr but does **not** abort the process. Hosts can silence the
+  warning with the global `--quiet` flag.
+- Backward-compatible payload additions (extra keys on a known
+  notification) do not bump the schema version; only breaking changes
+  do.
+
+### 15.4 Forward-compatibility note
+
+A future schema iteration (TASK_2026_128 Phase 5) will add a
+`schema_version` field to the `session.ready` payload itself, so peers
+can read the negotiated version from the first notification without
+listening for `system.schema.version` separately. Existing clients
+will continue to function — extra fields on JSON-RPC payloads are
+ignored by spec-conformant parsers. This document will be updated when
+that change lands; do not depend on the field today.
