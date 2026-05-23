@@ -187,6 +187,7 @@ function makeFakeStdioServer(): jest.Mocked<StdioMcpServerService> {
       },
     ),
     handleCancelled: jest.fn(async (): Promise<void> => undefined),
+    setSessionSubmitHandler: jest.fn(),
   } as unknown as jest.Mocked<StdioMcpServerService>;
 }
 

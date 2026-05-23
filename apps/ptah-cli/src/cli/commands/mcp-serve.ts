@@ -48,8 +48,10 @@ import {
   StdioTransport,
   type StdioMcpServerService,
   type StdioMcpServerInfo,
+  type ISessionSubmitHandler,
 } from '@ptah-extension/vscode-lm-tools';
 import type { MCPRequest } from '@ptah-extension/vscode-lm-tools';
+import { SessionSubmitService } from '../../services/mcp/session-submit.service.js';
 
 export interface McpServeOptions {
   /**
@@ -76,6 +78,18 @@ export interface McpServeExecuteHooks {
   drainTimeoutMs?: number;
   returnExitCode?: boolean;
   serverFactory?: (logger: Logger) => StdioMcpServerService;
+  /**
+   * Override hook for the `session_submit` handler. When undefined, the
+   * default {@link SessionSubmitService} wired to the engine's transport +
+   * push adapter is used.
+   */
+  sessionSubmitFactory?: (deps: {
+    transport: unknown;
+    pushAdapter: unknown;
+    logger: Logger;
+    cwd: string;
+    notify: (method: string, params?: unknown) => Promise<void>;
+  }) => ISessionSubmitHandler;
 }
 
 /** Build the `serverInfo` block advertised on `initialize`. */
@@ -221,6 +235,29 @@ export async function execute(
             );
       cachedServerService = stdioServer;
       sdkReady = true;
+
+      const sessionSubmitHandler =
+        hooks.sessionSubmitFactory !== undefined
+          ? hooks.sessionSubmitFactory({
+              transport: ctx.transport,
+              pushAdapter: ctx.pushAdapter,
+              logger,
+              cwd: globals.cwd,
+              notify: (method, params) => server.notify(method, params),
+            })
+          : new SessionSubmitService({
+              transport: ctx.transport,
+              pushAdapter: ctx.pushAdapter,
+              logger,
+              cwd: globals.cwd,
+              notifier: {
+                notify: <TParams>(
+                  method: string,
+                  params?: TParams,
+                ): Promise<void> => server.notify(method, params),
+              },
+            });
+      stdioServer.setSessionSubmitHandler(sessionSubmitHandler);
 
       transport = new StdioTransport({
         notifier: {
