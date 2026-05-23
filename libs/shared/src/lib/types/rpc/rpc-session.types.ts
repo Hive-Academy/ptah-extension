@@ -195,3 +195,52 @@ export interface SessionRewindResult {
   /** Total lines deleted across all files in the rewind diff. */
   deletions?: number;
 }
+
+/** Catalog entry for an MCP-style tool advertised by `session.describe`. */
+export interface SessionDescribeToolEntry {
+  /** Wire name as it appears in `tools/call` (e.g. `agent_spawn`). */
+  readonly name: string;
+  /** Human-readable description shown to the host. */
+  readonly description: string;
+}
+
+/**
+ * Response payload for the inbound `session.describe` request.
+ *
+ * Returned by `ptah interact` and `ptah mcp-serve` so any host can discover
+ * the wire-protocol surface without compile-time access to the CLI's
+ * TypeScript types. Additive-only — older clients ignore unknown fields per
+ * JSON-RPC 2.0.
+ */
+export interface SessionDescribeResult {
+  /** Always `'ptah'` — identifies the CLI to mixed-server hosts. */
+  readonly serverName: 'ptah';
+  /** CLI version (matches `apps/ptah-cli/package.json` `version`). */
+  readonly version: string;
+  /** Ptah JSON-RPC schema version (matches `JSONRPC_SCHEMA_VERSION`). */
+  readonly schemaVersion: string;
+  /** Active subcommand mode. */
+  readonly mode: 'interact' | 'mcp-serve';
+  /** Tool + method catalog. */
+  readonly catalog: {
+    /** Wire method names this server accepts (e.g. `task.submit`, `tools/call`). */
+    readonly methods: readonly string[];
+    /** MCP-style tool catalog (populated in `mcp-serve`, empty in `interact`). */
+    readonly tools: readonly SessionDescribeToolEntry[];
+  };
+  /** `PtahErrorCode` values the server may surface in `error.data.ptah_code`. */
+  readonly errorCodes: readonly string[];
+  /** Capabilities advertised at `session.ready` time. */
+  readonly capabilities: readonly string[];
+}
+
+/**
+ * Response payload for the inbound `session.methods` request.
+ *
+ * Lightweight introspection — returns the method names without the
+ * surrounding catalog metadata.
+ */
+export interface SessionMethodsResult {
+  /** Wire method names this server accepts. */
+  readonly methods: readonly string[];
+}
