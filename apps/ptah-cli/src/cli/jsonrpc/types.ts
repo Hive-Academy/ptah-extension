@@ -282,26 +282,36 @@ export type PtahInboundRequest =
   | 'session.history'
   | 'proxy.shutdown';
 
+/**
+ * Iterable form of {@link PtahErrorCode}. Single source of truth for the
+ * union — `PtahErrorCode` is derived from this tuple via `[number]` indexing,
+ * so the runtime enumeration and the compile-time union can never drift.
+ *
+ * Consumed by `session.describe` to advertise the surface to external clients.
+ */
+export const PTAH_ERROR_CODES = [
+  'db_lock',
+  'provider_unavailable',
+  'auth_required',
+  'rate_limited',
+  'license_required',
+  'unknown',
+  'internal_failure',
+  'cli_agent_unavailable',
+  'sdk_init_failed',
+  'workspace_missing',
+  'proxy_bind_failed',
+  'proxy_invalid_request',
+  'permission_gate_unavailable',
+  'claude_cli_not_found',
+  'mcp_handshake_failed',
+  'mcp_tool_not_found',
+  'mcp_invalid_tool_args',
+  'mcp_tool_denied',
+] as const;
+
 /** Ptah-specific error codes (carried in `error.data.ptah_code`). */
-export type PtahErrorCode =
-  | 'db_lock'
-  | 'provider_unavailable'
-  | 'auth_required'
-  | 'rate_limited'
-  | 'license_required'
-  | 'unknown'
-  | 'internal_failure'
-  | 'cli_agent_unavailable'
-  | 'sdk_init_failed'
-  | 'workspace_missing'
-  | 'proxy_bind_failed'
-  | 'proxy_invalid_request'
-  | 'permission_gate_unavailable'
-  | 'claude_cli_not_found'
-  | 'mcp_handshake_failed'
-  | 'mcp_tool_not_found'
-  | 'mcp_invalid_tool_args'
-  | 'mcp_tool_denied';
+export type PtahErrorCode = (typeof PTAH_ERROR_CODES)[number];
 
 /** Process exit codes. */
 export const ExitCode = {
