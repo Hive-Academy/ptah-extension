@@ -32,10 +32,13 @@ export {
   buildMcpMvpTools,
   registerMcpStdioServices,
   STDIO_MCP_SERVER_TOKEN,
+  AgentToolDispatcher,
   type McpStdioNotifier,
   type StdioMcpServerConfig,
   type StdioMcpServerInfo,
   type McpMvpToolName,
+  type ISessionSubmitHandler,
+  type SessionSubmitCancellation,
 } from './lib/code-execution/mcp-stdio';
 export {
   PTAH_SYSTEM_PROMPT,

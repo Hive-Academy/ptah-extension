@@ -7,19 +7,20 @@
  * `tools/call` against the {@link IMcpServer} port and delegates
  * notification emission to the {@link StdioTransport} adapter.
  *
- * Phase 2 scope (this file):
+ * Phase 3 scope (this file):
  *   - `initialize` returns a stable `serverInfo` so the MCP handshake can
  *     complete BEFORE `withEngine` finishes bootstrapping the agent SDK
  *     (Risk Register item #4).
  *   - `tools/list` returns the 7 MVP tool definitions with their MCP-wire
  *     names (no `ptah_` prefix).
- *   - `tools/call` returns a placeholder `isError: true` payload with
- *     `ptah_code: 'not_implemented'`. Phase 3 replaces the dispatch body
- *     with real routing to the `PtahAPI.agent.*` namespace + Team Leader
- *     harness.
+ *   - `tools/call` routes to the {@link AgentToolDispatcher} for the six
+ *     `agent_*` wrapper tools and to an injected {@link ISessionSubmitHandler}
+ *     for the composite `session_submit` tool. The CLI command supplies the
+ *     handler via {@link setSessionSubmitHandler} after `withEngine`
+ *     resolves; the dispatcher is constructed once on first
+ *     `tools/call` (lazy `PtahAPIBuilder.build()` to keep handshake cheap).
  *
- * Phase 3 will inject `PtahAPIBuilder`, `LicenseService`, etc. and replace
- * the placeholder dispatcher.
+ * Phase 4 will add the per-tool premium gate around the dispatcher.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -30,6 +31,13 @@ import type {
   MCPToolDefinition,
 } from '../mcp-core/types/mcp-protocol.types';
 import type { IMcpServer } from '../mcp-core/types/mcp-transport.types';
+import type { PtahAPI } from '../types';
+import { PtahAPIBuilder } from '../ptah-api-builder.service';
+import { AgentToolDispatcher } from './agent-tool.dispatcher';
+import type {
+  ISessionSubmitHandler,
+  SessionSubmitCancellation,
+} from './session-submit.port';
 import { buildMcpMvpTools, MCP_MVP_TOOL_NAMES } from './tool-builders';
 
 /**
@@ -60,10 +68,24 @@ export interface StdioMcpServerConfig {
 
 @injectable()
 export class StdioMcpServerService {
+  private agentDispatcher: AgentToolDispatcher | null = null;
+  private sessionSubmitHandler: ISessionSubmitHandler | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
+    @inject(TOKENS.PTAH_API_BUILDER)
+    private readonly apiBuilder: PtahAPIBuilder,
   ) {}
+
+  /**
+   * Register the CLI-supplied composite-tool handler. Called once by
+   * `mcp-serve.ts` after `withEngine` resolves. Idempotent; the latest
+   * registration wins.
+   */
+  setSessionSubmitHandler(handler: ISessionSubmitHandler): void {
+    this.sessionSubmitHandler = handler;
+  }
 
   /**
    * Build the MCP initialize response. Pure function — does not touch any
@@ -113,12 +135,10 @@ export class StdioMcpServerService {
   }
 
   /**
-   * Phase 2 placeholder dispatcher. Validates that the requested tool name
-   * exists in the MVP catalog and returns an `isError: true` payload with
-   * `ptah_code: 'not_implemented'` so external hosts can distinguish "tool
-   * not yet wired" from "tool unknown".
-   *
-   * Phase 3 replaces this body with the real dispatcher.
+   * Dispatch a `tools/call` invocation through the agent-wrapper dispatcher
+   * (six tools) or the session-submit handler (one tool). Falls back to an
+   * `isError: true` envelope when the tool name is not in the MVP catalog or
+   * when the session-submit handler has not yet been registered.
    */
   async handleToolsCall(request: MCPRequest): Promise<MCPResponse> {
     const params = request.params as
@@ -156,10 +176,41 @@ export class StdioMcpServerService {
       };
     }
 
-    this.logger.info('[StdioMcpServer] tools/call (placeholder)', {
-      tool: name,
-    });
+    const args = params?.arguments;
 
+    if (name === 'session_submit') {
+      if (this.sessionSubmitHandler === null) {
+        this.logger.warn(
+          '[StdioMcpServer] session_submit called before handler registered',
+        );
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: 'session_submit handler not registered — `ptah mcp-serve` is still bootstrapping or the host runtime does not support composite dispatch.',
+              },
+            ],
+            isError: true,
+            structuredContent: {
+              ptah_code: 'sdk_init_failed',
+              tool: 'session_submit',
+            },
+          },
+        };
+      }
+      return this.sessionSubmitHandler.dispatch(request, args);
+    }
+
+    const dispatcher = this.getAgentDispatcher();
+    const resp = await dispatcher.dispatch(name, request, args);
+    if (resp !== null) return resp;
+
+    // Should never happen given the `known` check above + the MVP_TOOL_NAMES
+    // table, but kept defensive in case the catalog and the dispatcher drift.
+    this.logger.error('[StdioMcpServer] unrouted MVP tool', { tool: name });
     return {
       jsonrpc: '2.0',
       id: request.id,
@@ -167,24 +218,20 @@ export class StdioMcpServerService {
         content: [
           {
             type: 'text',
-            text: 'Tool dispatch not yet implemented — Phase 3.',
+            text: `Tool ${name} is registered in the MVP catalog but has no dispatcher route.`,
           },
         ],
         isError: true,
-        structuredContent: {
-          ptah_code: 'not_implemented',
-          tool: name,
-          phase: 2,
-        },
+        structuredContent: { ptah_code: 'internal_failure', tool: name },
       },
     };
   }
 
   /**
-   * Handle MCP `notifications/cancelled` from the peer. Phase 2 has no
-   * in-flight work to cancel; the method is registered so the wire stays
-   * spec-compliant and so Phase 3 can add real cancellation without
-   * touching `mcp-serve.ts`.
+   * Handle MCP `notifications/cancelled` from the peer. The session-submit
+   * handler tracks in-flight composite calls by their MCP `requestId`; the
+   * six wrapper tools execute synchronously against the in-process agent
+   * surface, so no cancellation surface is needed for them.
    */
   async handleCancelled(params: unknown): Promise<void> {
     const requestId =
@@ -198,16 +245,48 @@ export class StdioMcpServerService {
     this.logger.info('[StdioMcpServer] notifications/cancelled', {
       requestId,
     });
+    if (requestId === null) return;
+    if (this.sessionSubmitHandler === null) return;
+    const cancellation: SessionSubmitCancellation = { requestId };
+    try {
+      await this.sessionSubmitHandler.cancel(cancellation);
+    } catch (err) {
+      this.logger.error('[StdioMcpServer] session_submit cancel failed', {
+        error: err instanceof Error ? err.message : String(err),
+        requestId,
+      });
+    }
+  }
+
+  /**
+   * Lazy access to the agent dispatcher. `PtahAPIBuilder.build()` walks 15
+   * namespaces; deferring it until the first `tools/call` keeps the
+   * handshake cheap and lets `tools/list` answer mid-bootstrap.
+   */
+  private getAgentDispatcher(): AgentToolDispatcher {
+    if (this.agentDispatcher === null) {
+      const ptahAPI: PtahAPI = this.apiBuilder.build();
+      const callerSessionId =
+        typeof process !== 'undefined'
+          ? process.env?.['PTAH_MCP_HOST_SESSION_ID']
+          : undefined;
+      this.agentDispatcher = new AgentToolDispatcher(
+        ptahAPI,
+        this.logger,
+        callerSessionId,
+      );
+    }
+    return this.agentDispatcher;
   }
 }
 
 /**
  * Configuration helper used by `mcp-serve.ts` after `withEngine` resolves.
- * Phase 2 keeps construction explicit so the upcoming Phase 3 wiring can
- * extend it without breaking the call site.
+ * Phase 3 keeps construction explicit so tests can inject a fake builder.
  */
 export function createStdioMcpServer(deps: {
   logger: Logger;
+  apiBuilder: PtahAPIBuilder;
 }): StdioMcpServerService {
-  return new StdioMcpServerService(deps.logger);
+  return new StdioMcpServerService(deps.logger, deps.apiBuilder);
 }

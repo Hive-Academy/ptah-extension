@@ -5,6 +5,10 @@
  * resolves so the registration sees the fully-bootstrapped child container.
  * The helper is idempotent — calling it twice on the same container is
  * harmless.
+ *
+ * Phase 3 requires `TOKENS.PTAH_API_BUILDER` to be registered first (set up
+ * by `registerVsCodeLmToolsServices`); the stdio service depends on it for
+ * lazy `PtahAPI` construction at the first `tools/call`.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -22,6 +26,11 @@ export function registerMcpStdioServices(
   if (!container.isRegistered(TOKENS.LOGGER)) {
     throw new Error(
       '[McpStdio] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.',
+    );
+  }
+  if (!container.isRegistered(TOKENS.PTAH_API_BUILDER)) {
+    throw new Error(
+      '[McpStdio] DEPENDENCY ERROR: TOKENS.PTAH_API_BUILDER must be registered first.',
     );
   }
 
