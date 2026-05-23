@@ -15,7 +15,7 @@ import { registerPostWindow } from './activation/post-window';
 import type { UpdateManager } from './services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from './services/update/update-tokens';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = process.env['NODE_ENV'] === 'development';
 app.setName(isDev ? 'Ptah Dev' : 'Ptah');
 if (isDev) {
   app.setPath('userData', path.join(app.getPath('appData'), 'Ptah Dev'));

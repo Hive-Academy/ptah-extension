@@ -127,7 +127,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
         captureBeyondViewport: options?.fullPage ?? false,
       });
 
-      return { data: result.data as string, format: fmt };
+      return { data: result['data'] as string, format: fmt };
     } catch (error) {
       return {
         data: '',
@@ -152,12 +152,12 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
         timeout: 10000,
       });
 
-      const remote = result.result as {
+      const remote = result['result'] as {
         type: string;
         value?: unknown;
         description?: string;
       };
-      const exceptionDetails = result.exceptionDetails as
+      const exceptionDetails = result['exceptionDetails'] as
         | { text?: string; exception?: { description?: string } }
         | undefined;
 
@@ -452,12 +452,12 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     params: Record<string, unknown>,
   ): void {
     if (method === 'Network.requestWillBeSent') {
-      const request = params.request as {
+      const request = params['request'] as {
         url: string;
         method: string;
       };
-      const requestId = params.requestId as string;
-      const type = (params.type as string) ?? 'Other';
+      const requestId = params['requestId'] as string;
+      const type = (params['type'] as string) ?? 'Other';
 
       this.pendingResponses.set(requestId, {
         method: request.method,
@@ -467,8 +467,8 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     }
 
     if (method === 'Network.responseReceived') {
-      const requestId = params.requestId as string;
-      const response = params.response as {
+      const requestId = params['requestId'] as string;
+      const response = params['response'] as {
         status: number;
         headers?: Record<string, string>;
       };
@@ -492,8 +492,8 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       }
     }
     if (method === 'Page.screencastFrame') {
-      const data = params.data as string;
-      const sessionId = params.sessionId as number;
+      const data = params['data'] as string;
+      const sessionId = params['sessionId'] as number;
       this.sendCDP('Page.screencastFrameAck', { sessionId }).catch(
         (_ackError: unknown) => {},
       );

@@ -1,12 +1,11 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "ignoreDeprecations": "5.0",
+    "outDir": "../../dist/out-tsc",
+    "types": ["node", "electron"],
     "module": "preserve",
     "moduleResolution": "bundler",
     "target": "ES2022",
-    "outDir": "../../dist/out-tsc",
-    "types": ["node", "electron"],
     "experimentalDecorators": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
