@@ -98,6 +98,17 @@ interface InFlightCall {
   settle: (resp: MCPResponse) => void;
 }
 
+/**
+ * Per-call cost aggregation forwarded in the final `mcp.session.summary`
+ * notification. Token totals are running totals; the cost is in USD.
+ */
+interface CostAggregate {
+  totalUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  toolCallCount: number;
+}
+
 type ChatChunkEvent = {
   readonly eventType: string;
   readonly sessionId?: string;
@@ -259,6 +270,16 @@ export class SessionSubmitService implements ISessionSubmitHandler {
     let aggregatedTruncated = false;
     let resolvedSessionId: string = tabId;
     let totalEvents = 0;
+    const cost: CostAggregate = {
+      totalUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      toolCallCount: 0,
+    };
+    const mcpHostSessionId =
+      typeof process !== 'undefined'
+        ? (process.env?.['PTAH_MCP_HOST_SESSION_ID'] ?? null)
+        : null;
 
     const settlePromise = new Promise<MCPResponse>((resolve) => {
       const inflight: InFlightCall = {
@@ -319,6 +340,11 @@ export class SessionSubmitService implements ISessionSubmitHandler {
             aggregatedTruncated = true;
           }
         }
+      } else if (
+        event.eventType === 'agent.tool_use' ||
+        event.eventType === 'tool_use'
+      ) {
+        cost.toolCallCount += 1;
       }
       const messageParams: Record<string, unknown> = {
         level: 'info',
@@ -338,6 +364,75 @@ export class SessionSubmitService implements ISessionSubmitHandler {
       }
     };
 
+    const onCost = (payload: unknown): void => {
+      if (!isObject(payload)) return;
+      const sid = payload['session_id'];
+      const isOurSession =
+        (typeof sid === 'string' && sid === resolvedSessionId) ||
+        (typeof sid === 'string' && sid === tabId) ||
+        sid === undefined;
+      if (!isOurSession) return;
+      const deltaUsd =
+        typeof payload['delta_usd'] === 'number'
+          ? (payload['delta_usd'] as number)
+          : null;
+      const totalUsd =
+        typeof payload['total_usd'] === 'number'
+          ? (payload['total_usd'] as number)
+          : null;
+      if (totalUsd !== null) {
+        cost.totalUsd = totalUsd;
+      } else if (deltaUsd !== null) {
+        cost.totalUsd += deltaUsd;
+      }
+      void forward('notifications/message', {
+        level: 'info',
+        data: {
+          kind: 'session.cost',
+          mcpHostSessionId,
+          sessionId: resolvedSessionId,
+          turnId:
+            typeof payload['turn_id'] === 'string'
+              ? (payload['turn_id'] as string)
+              : null,
+          deltaUsd,
+          totalUsd: cost.totalUsd,
+          inputTokens: cost.inputTokens,
+          outputTokens: cost.outputTokens,
+        },
+      });
+    };
+
+    const onTokens = (payload: unknown): void => {
+      if (!isObject(payload)) return;
+      const sid = payload['session_id'];
+      const isOurSession =
+        (typeof sid === 'string' && sid === resolvedSessionId) ||
+        (typeof sid === 'string' && sid === tabId) ||
+        sid === undefined;
+      if (!isOurSession) return;
+      const inputTokens =
+        typeof payload['input_tokens'] === 'number'
+          ? (payload['input_tokens'] as number)
+          : null;
+      const outputTokens =
+        typeof payload['output_tokens'] === 'number'
+          ? (payload['output_tokens'] as number)
+          : null;
+      const totalIn =
+        typeof payload['total_input_tokens'] === 'number'
+          ? (payload['total_input_tokens'] as number)
+          : null;
+      const totalOut =
+        typeof payload['total_output_tokens'] === 'number'
+          ? (payload['total_output_tokens'] as number)
+          : null;
+      if (totalIn !== null) cost.inputTokens = totalIn;
+      else if (inputTokens !== null) cost.inputTokens += inputTokens;
+      if (totalOut !== null) cost.outputTokens = totalOut;
+      else if (outputTokens !== null) cost.outputTokens += outputTokens;
+    };
+
     const finalize = (resp: MCPResponse): void => {
       const tracked = this.inFlight.get(request.id);
       if (tracked === undefined) return;
@@ -345,9 +440,30 @@ export class SessionSubmitService implements ISessionSubmitHandler {
       this.deps.pushAdapter.off('chat:chunk', onChunk);
       this.deps.pushAdapter.off('chat:complete', onComplete);
       this.deps.pushAdapter.off('chat:error', onError);
+      this.deps.pushAdapter.off('session:cost', onCost);
+      this.deps.pushAdapter.off('session:cost-delta', onCost);
+      this.deps.pushAdapter.off('session:tokens', onTokens);
+      this.deps.pushAdapter.off('session:token-delta', onTokens);
       if (abortListener !== undefined) {
         abort.signal.removeEventListener('abort', abortListener);
       }
+      // Emit the per-tool summary AFTER detaching listeners (and BEFORE
+      // settling) so external hosts observe the summary before the
+      // tools/call result lands on the wire.
+      void forward('notifications/message', {
+        level: 'info',
+        data: {
+          kind: 'mcp.session.summary',
+          mcpHostSessionId,
+          sessionId: resolvedSessionId,
+          tabId,
+          totalUsd: cost.totalUsd,
+          totalTokens: cost.inputTokens + cost.outputTokens,
+          inputTokens: cost.inputTokens,
+          outputTokens: cost.outputTokens,
+          toolCallCount: cost.toolCallCount,
+        },
+      });
       tracked.settle(resp);
     };
 
@@ -414,6 +530,10 @@ export class SessionSubmitService implements ISessionSubmitHandler {
     this.deps.pushAdapter.on('chat:chunk', onChunk);
     this.deps.pushAdapter.on('chat:complete', onComplete);
     this.deps.pushAdapter.on('chat:error', onError);
+    this.deps.pushAdapter.on('session:cost', onCost);
+    this.deps.pushAdapter.on('session:cost-delta', onCost);
+    this.deps.pushAdapter.on('session:tokens', onTokens);
+    this.deps.pushAdapter.on('session:token-delta', onTokens);
 
     const rpcParams: Record<string, unknown> = {
       tabId,
