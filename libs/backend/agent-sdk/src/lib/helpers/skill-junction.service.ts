@@ -228,8 +228,11 @@ export class SkillJunctionService {
 
       try {
         let existingStat: Stats | null = null;
-
-        existingStat = lstatSync(linkPath);
+        try {
+          existingStat = lstatSync(linkPath);
+        } catch {
+          existingStat = null;
+        }
 
         if (existingStat) {
           if (existingStat.isSymbolicLink()) {
@@ -239,14 +242,18 @@ export class SkillJunctionService {
               continue;
             }
 
-            const resolvedStat = statSync(linkPath); // follows symlink
-            if (resolvedStat.isDirectory()) {
-              this.logger.debug(
-                `[SkillJunctionService] Skipping ${skillName}: valid symlink already exists (likely SDK-created)`,
-                { linkPath, existingTarget },
-              );
-              result.skipped++;
-              continue;
+            try {
+              const resolvedStat = statSync(linkPath);
+              if (resolvedStat.isDirectory()) {
+                this.logger.debug(
+                  `[SkillJunctionService] Skipping ${skillName}: valid symlink already exists (likely SDK-created)`,
+                  { linkPath, existingTarget },
+                );
+                result.skipped++;
+                continue;
+              }
+            } catch {
+              /* */
             }
             unlinkSync(linkPath);
           } else if (existingStat.isDirectory()) {
@@ -348,7 +355,11 @@ export class SkillJunctionService {
       COMMANDS_MANIFEST,
     );
 
-    unlinkSync(manifestPath);
+    try {
+      unlinkSync(manifestPath);
+    } catch {
+      /* */
+    }
   }
 
   /**
@@ -509,14 +520,23 @@ export class SkillJunctionService {
       if (!currentCommandSources.has(filename)) {
         const entryPath = join(commandsDir, filename);
 
-        unlinkSync(entryPath);
-        this.managedJunctions.delete(entryPath);
-        delete manifest[filename];
-        result.removed++;
+        try {
+          unlinkSync(entryPath);
+          this.managedJunctions.delete(entryPath);
+          delete manifest[filename];
+          result.removed++;
+        } catch {
+          /* */
+        }
       }
     }
 
-    const existingEntries = readdirSync(commandsDir);
+    let existingEntries: string[] = [];
+    try {
+      existingEntries = readdirSync(commandsDir);
+    } catch {
+      /* */
+    }
     for (const entry of existingEntries) {
       if (entry === COMMANDS_MANIFEST) continue;
       const entryPath = join(commandsDir, entry);
@@ -524,9 +544,13 @@ export class SkillJunctionService {
         !currentCommandSources.has(entry) &&
         this.isExtensionJunction(entryPath)
       ) {
-        unlinkSync(entryPath);
-        this.managedJunctions.delete(entryPath);
-        result.removed++;
+        try {
+          unlinkSync(entryPath);
+          this.managedJunctions.delete(entryPath);
+          result.removed++;
+        } catch {
+          /* */
+        }
       }
     }
     let manifestDirty = false;
@@ -541,8 +565,11 @@ export class SkillJunctionService {
           mtimeMs: sourceStat.mtimeMs,
         };
         let existingStat: Stats | null = null;
-
-        existingStat = lstatSync(targetPath);
+        try {
+          existingStat = lstatSync(targetPath);
+        } catch {
+          existingStat = null;
+        }
 
         if (existingStat) {
           if (existingStat.isSymbolicLink()) {
@@ -551,13 +578,17 @@ export class SkillJunctionService {
               this.managedJunctions.add(targetPath);
               manifest[filename] = sourceEntry;
               manifestDirty = true;
-              continue; // Already correct
+              continue;
             }
 
-            const resolvedStat = statSync(targetPath);
-            if (resolvedStat.isFile()) {
-              result.skipped++;
-              continue;
+            try {
+              const resolvedStat = statSync(targetPath);
+              if (resolvedStat.isFile()) {
+                result.skipped++;
+                continue;
+              }
+            } catch {
+              /* */
             }
             unlinkSync(targetPath);
           } else if (manifest[filename]) {
@@ -621,11 +652,15 @@ export class SkillJunctionService {
     commandsDir: string,
     manifest: CommandManifest,
   ): void {
-    writeFileSync(
-      join(commandsDir, COMMANDS_MANIFEST),
-      JSON.stringify(manifest, null, 2),
-      'utf-8',
-    );
+    try {
+      writeFileSync(
+        join(commandsDir, COMMANDS_MANIFEST),
+        JSON.stringify(manifest, null, 2),
+        'utf-8',
+      );
+    } catch {
+      /* */
+    }
   }
 
   /**
@@ -716,9 +751,13 @@ export class SkillJunctionService {
    */
   private removeAllManagedJunctions(): void {
     for (const managedPath of this.managedJunctions) {
-      const stat = lstatSync(managedPath);
-      if (stat.isSymbolicLink() || stat.isFile()) {
-        unlinkSync(managedPath);
+      try {
+        const stat = lstatSync(managedPath);
+        if (stat.isSymbolicLink() || stat.isFile()) {
+          unlinkSync(managedPath);
+        }
+      } catch {
+        /* */
       }
     }
     this.managedJunctions.clear();
@@ -760,11 +799,15 @@ export class SkillJunctionService {
           this.isExtensionJunction(entryPath) ||
           this.isOldExtensionEntry(entryPath)
         ) {
-          unlinkSync(entryPath);
-          result.removed++;
-          this.logger.debug(
-            `[SkillJunctionService] Migrated old .ptah/ entry: ${entry}`,
-          );
+          try {
+            unlinkSync(entryPath);
+            result.removed++;
+            this.logger.debug(
+              `[SkillJunctionService] Migrated old .ptah/ entry: ${entry}`,
+            );
+          } catch {
+            /* */
+          }
         }
       }
     }

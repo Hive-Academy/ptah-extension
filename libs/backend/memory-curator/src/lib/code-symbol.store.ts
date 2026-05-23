@@ -65,7 +65,7 @@ export class CodeSymbolStore {
       : null;
     const insertVecStmt = vecAvailable
       ? db.prepare(
-          `INSERT INTO code_symbols_vec(rowid, embedding) VALUES (?, ?)`,
+          `INSERT INTO code_symbols_vec(rowid, embedding) VALUES (CAST(? AS INTEGER), ?)`,
         )
       : null;
 

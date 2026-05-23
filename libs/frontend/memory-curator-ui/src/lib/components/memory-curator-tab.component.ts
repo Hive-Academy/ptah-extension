@@ -23,6 +23,8 @@ import {
 } from '../services/memory-state.service';
 import { MemoryRpcService } from '../services/memory-rpc.service';
 
+import { MemoryDiagnosticsAccordionComponent } from './diagnostics/memory-diagnostics-accordion.component';
+
 const SEARCH_DEBOUNCE_MS = 300;
 
 interface TierChip {
@@ -49,7 +51,11 @@ interface TierChip {
   selector: 'ptah-memory-curator-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, WorkspaceIndexingComponent],
+  imports: [
+    CommonModule,
+    WorkspaceIndexingComponent,
+    MemoryDiagnosticsAccordionComponent,
+  ],
   template: `
     @if (!isElectron()) {
       <div role="alert" class="alert alert-info">
@@ -500,6 +506,24 @@ interface TierChip {
 
         <details
           class="rounded-md border border-base-300 bg-base-100"
+          [open]="diagnosticsOpen()"
+          (toggle)="onDiagnosticsToggle($event)"
+          data-testid="memory-diagnostics-details"
+        >
+          <summary
+            class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
+          >
+            Diagnostics
+          </summary>
+          <div class="border-t border-base-300">
+            @if (diagnosticsOpen()) {
+              <ptah-memory-diagnostics-accordion />
+            }
+          </div>
+        </details>
+
+        <details
+          class="rounded-md border border-base-300 bg-base-100"
           [open]="advancedIndexingOpen()"
           (toggle)="onAdvancedToggle($event)"
         >
@@ -531,6 +555,8 @@ export class MemoryCuratorTabComponent implements OnInit {
   private readonly _advancedIndexingOpen = signal<boolean>(false);
   protected readonly advancedIndexingOpen =
     this._advancedIndexingOpen.asReadonly();
+  private readonly _diagnosticsOpen = signal<boolean>(false);
+  protected readonly diagnosticsOpen = this._diagnosticsOpen.asReadonly();
   protected readonly purgingJunk = signal<boolean>(false);
 
   /** Whether the webview is running inside the Electron desktop app. */
@@ -639,6 +665,13 @@ export class MemoryCuratorTabComponent implements OnInit {
     const target = event.target as HTMLDetailsElement | null;
     if (target) {
       this._advancedIndexingOpen.set(target.open);
+    }
+  }
+
+  protected onDiagnosticsToggle(event: Event): void {
+    const target = event.target as HTMLDetailsElement | null;
+    if (target) {
+      this._diagnosticsOpen.set(target.open);
     }
   }
 

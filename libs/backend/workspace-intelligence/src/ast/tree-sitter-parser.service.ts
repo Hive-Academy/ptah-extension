@@ -91,11 +91,7 @@ export class TreeSitterParserService {
    * @returns A Result indicating success or failure of initialization.
    */
   async initialize(): Promise<Result<void, Error>> {
-    this.logger.debug(
-      `Initialize called. Current state: isInitialized=${this.isInitialized}`,
-    );
     if (this.isInitialized) {
-      this.logger.debug('Already initialized.');
       return Result.ok(undefined);
     }
 
@@ -188,9 +184,6 @@ export class TreeSitterParserService {
         ),
       );
     }
-    this.logger.debug(
-      `Retrieved pre-loaded grammar for language: ${language}.`,
-    );
     return Result.ok(grammar);
   }
 
@@ -208,7 +201,6 @@ export class TreeSitterParserService {
       return Result.ok(null);
     }
 
-    this.logger.debug(`Using cached parser for language: ${language}`);
     const cachedParser = this.parserCache.get(language) as Parser;
     return Result.ok(cachedParser);
   }
@@ -643,9 +635,6 @@ export class TreeSitterParserService {
         resultMap.set(entry.key, queryMatches);
       }
 
-      this.logger.debug(
-        `queryMulti returned results for ${resultMap.size} queries, language: ${language}`,
-      );
       return Result.ok(resultMap);
     } catch (error: unknown) {
       return Result.err(

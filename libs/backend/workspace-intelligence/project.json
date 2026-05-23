@@ -14,7 +14,12 @@
         "tsConfig": "libs/backend/workspace-intelligence/tsconfig.lib.json",
         "assets": ["libs/backend/workspace-intelligence/*.md"],
         "format": ["cjs"],
-        "external": ["vscode", "tsyringe", "reflect-metadata"]
+        "external": ["vscode", "tsyringe", "reflect-metadata"],
+        "esbuildOptions": {
+          "logOverride": {
+            "empty-import-meta": "silent"
+          }
+        }
       }
     },
     "test": {

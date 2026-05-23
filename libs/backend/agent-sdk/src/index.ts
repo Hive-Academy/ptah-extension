@@ -50,6 +50,32 @@ export {
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
 export {
+  CallbackRegistryBase,
+  type CallbackRegistryCallback,
+} from './lib/helpers';
+export {
+  SessionEndCallbackRegistry,
+  type SessionEndCallback,
+  type SessionEndPayload,
+  SessionActivityRegistry,
+  type SessionActivityCallback,
+  type SessionActivityPayload,
+  SubagentStopCallbackRegistry,
+  type SubagentStopCallback,
+  type SubagentStopPayload,
+  PostToolUseCallbackRegistry,
+  type PostToolUseCallback,
+  type PostToolUsePayload,
+  PostToolUseHookHandler,
+  UserPromptSubmitCallbackRegistry,
+  type UserPromptSubmitCallback,
+  type UserPromptSubmitPayload,
+  UserPromptSubmitHookHandler,
+  CuratorRateLimitService,
+  type RateLimitDecision,
+  type RateLimitSnapshot,
+} from './lib/helpers';
+export {
   CompactionHookHandler,
   type CompactionStartCallback,
 } from './lib/helpers';

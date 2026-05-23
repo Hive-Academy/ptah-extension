@@ -269,6 +269,138 @@ describe('SkillSynthesisService', () => {
     });
   });
 
+  it('analyzeSession() pushes analyze-run event + increments accepted on success', async () => {
+    const { svc } = setup();
+    await svc.start();
+    await svc.analyzeSession('s1', '/repo');
+    const events = svc.recentEvents(10);
+    expect(events.some((e) => e.kind === 'analyze-run')).toBe(true);
+    expect(svc.getEligibilityHistogram().accepted).toBe(1);
+    expect(svc.lastRunSummary().lastAnalyzeRunAt).not.toBeNull();
+  });
+
+  it('analyzeSession() pushes ineligible + increments tooFewTurns when trajectory is null', async () => {
+    const { svc, extractor } = setup();
+    await svc.start();
+    (extractor.extract as jest.Mock).mockResolvedValue(null);
+    await svc.analyzeSession('s1', '/repo');
+    expect(svc.getEligibilityHistogram().tooFewTurns).toBe(1);
+    expect(
+      svc
+        .recentEvents(10)
+        .some((e) => e.kind === 'ineligible' && e.reason === 'tooFewTurns'),
+    ).toBe(true);
+  });
+
+  it('analyzeSession() increments lowFidelity when fidelity ratio is below threshold', async () => {
+    const { svc, extractor } = setup();
+    await svc.start();
+    (extractor.extract as jest.Mock).mockResolvedValue({
+      hash: 'h2',
+      canonicalText: 'canon',
+      turnCount: 1,
+      sessionTurnCount: 10,
+      shortDescription: 'do thing',
+      slug: 'do-thing',
+    });
+    await svc.analyzeSession('s1', '/repo');
+    expect(svc.getEligibilityHistogram().lowFidelity).toBe(1);
+    expect(
+      svc
+        .recentEvents(10)
+        .some((e) => e.kind === 'ineligible' && e.reason === 'lowFidelity'),
+    ).toBe(true);
+  });
+
+  it('analyzeSession() with force=true bypasses the analyzedSessions dedup', async () => {
+    const { svc, store } = setup();
+    await svc.start();
+    await svc.analyzeSession('s1', '/repo');
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+    const second = await svc.analyzeSession('s1', '/repo', { force: true });
+    expect(second).not.toBeNull();
+    expect(store.registerCandidate).toHaveBeenCalledTimes(2);
+  });
+
+  it('analyzeSession() without options preserves dedup behavior (R9)', async () => {
+    const { svc, store } = setup();
+    await svc.start();
+    await svc.analyzeSession('s1', '/repo');
+    const second = await svc.analyzeSession('s1', '/repo');
+    expect(second).toBeNull();
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('pushEvent ring-buffer caps at 200 with FIFO eviction (R5)', async () => {
+    const { svc } = setup();
+    await svc.start();
+    for (let i = 0; i < 205; i++) {
+      svc.pushEvent({
+        kind: 'idle-trigger',
+        timestamp: i,
+        sessionId: `s${i}`,
+      });
+    }
+    const all = svc.recentEvents(500);
+    expect(all).toHaveLength(200);
+    expect(all[0].sessionId).toBe('s5');
+    expect(all[all.length - 1].sessionId).toBe('s204');
+  });
+
+  it('recordCuratorPass updates lastCuratorPassAt and emits curator-pass event', async () => {
+    const { svc } = setup();
+    await svc.start();
+    svc.recordCuratorPass(1234567890);
+    expect(svc.lastRunSummary().lastCuratorPassAt).toBe(1234567890);
+    expect(svc.recentEvents(10).some((e) => e.kind === 'curator-pass')).toBe(
+      true,
+    );
+  });
+
+  it('analyzeSession() rejects reserved sessionId "manual"', async () => {
+    const { svc, store, extractor } = setup();
+    await svc.start();
+    const result = await svc.analyzeSession('manual', '/repo');
+    expect(result).toBeNull();
+    expect(extractor.extract).not.toHaveBeenCalled();
+    expect(store.registerCandidate).not.toHaveBeenCalled();
+  });
+
+  it('analyzeSession() short-circuits when AbortSignal is already aborted', async () => {
+    const { svc, extractor } = setup();
+    await svc.start();
+    const controller = new AbortController();
+    controller.abort();
+    const result = await svc.analyzeSession('s1', '/repo', {
+      signal: controller.signal,
+    });
+    expect(result).toBeNull();
+    expect(extractor.extract).not.toHaveBeenCalled();
+  });
+
+  it('resets eligibility counters when calendar day changes (R14)', async () => {
+    const { svc, extractor } = setup();
+    await svc.start();
+    const today = '2026-05-21';
+    const tomorrow = '2026-05-22';
+    const todayKeySpy = jest
+      .spyOn(
+        SkillSynthesisService as unknown as {
+          todayKey: () => string;
+        },
+        'todayKey',
+      )
+      .mockReturnValue(today);
+    (extractor.extract as jest.Mock).mockResolvedValue(null);
+    await svc.analyzeSession('s1', '/repo');
+    expect(svc.getEligibilityHistogram().tooFewTurns).toBe(1);
+    todayKeySpy.mockReturnValue(tomorrow);
+    await svc.analyzeSession('s2', '/repo');
+    expect(svc.getEligibilityHistogram().tooFewTurns).toBe(1);
+    expect(svc.getEligibilityHistogram().lowFidelity).toBe(0);
+    todayKeySpy.mockRestore();
+  });
+
   it('readSettings() falls back to defaults when getConfiguration throws', () => {
     const { svc, workspaceProvider } = setup();
     (workspaceProvider.getConfiguration as jest.Mock).mockImplementation(() => {

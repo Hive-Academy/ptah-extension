@@ -44,6 +44,13 @@ import {
   CompactionHookHandler,
   CompactionCallbackRegistry,
   SessionEndCallbackRegistry,
+  SessionActivityRegistry,
+  SubagentStopCallbackRegistry,
+  PostToolUseCallbackRegistry,
+  PostToolUseHookHandler,
+  UserPromptSubmitCallbackRegistry,
+  UserPromptSubmitHookHandler,
+  CuratorRateLimitService,
   LiveUsageTracker,
   WorktreeHookHandler,
   SlashCommandInterceptor,
@@ -154,6 +161,48 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY,
     { useClass: SessionEndCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_ACTIVITY_REGISTRY,
+    { useClass: SessionActivityRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY,
+    { useClass: SubagentStopCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY,
+    { useClass: PostToolUseCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER,
+    { useClass: PostToolUseHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY,
+    { useClass: UserPromptSubmitCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER,
+    { useClass: UserPromptSubmitHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_CURATOR_RATE_LIMIT,
+    { useClass: CuratorRateLimitService },
     { lifecycle: Lifecycle.Singleton },
   );
 

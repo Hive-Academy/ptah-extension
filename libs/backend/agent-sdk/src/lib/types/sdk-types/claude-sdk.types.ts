@@ -164,6 +164,7 @@ import type {
   SessionStartHookInput,
   SessionEndHookInput,
   SetupHookInput,
+  UserPromptSubmitHookInput,
   WorktreeCreateHookInput,
   WorktreeRemoveHookInput,
   NonNullableUsage,
@@ -519,6 +520,12 @@ export function isPostToolUseHook(
   input: HookInput,
 ): input is PostToolUseHookInput {
   return input.hook_event_name === 'PostToolUse';
+}
+
+export function isUserPromptSubmitHook(
+  input: HookInput,
+): input is UserPromptSubmitHookInput {
+  return input.hook_event_name === 'UserPromptSubmit';
 }
 
 export function isSessionStartHook(

@@ -15,7 +15,7 @@ import { registerPostWindow } from './activation/post-window';
 import type { UpdateManager } from './services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from './services/update/update-tokens';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = process.env['NODE_ENV'] === 'development';
 app.setName(isDev ? 'Ptah Dev' : 'Ptah');
 if (isDev) {
   app.setPath('userData', path.join(app.getPath('appData'), 'Ptah Dev'));
@@ -36,7 +36,9 @@ if (!gotLock) {
   let flushWorkspacePersistence: (() => void) | null = null;
   let sqliteConnection: { close: () => void } | null = null;
   let memoryCurator: { stop: () => void } | null = null;
+  let memoryTrigger: { stop: () => void } | null = null;
   let skillSynthesis: { stop: () => void } | null = null;
+  let skillTrigger: { stop: () => void } | null = null;
   let cronScheduler: { stop: () => void } | null = null;
   let messagingGateway: { stop: () => Promise<void> } | null = null;
   let symbolWatcher: { close: () => void } | null = null;
@@ -71,7 +73,9 @@ if (!gotLock) {
     gitWatcher = wired.refs.gitWatcher;
     sqliteConnection = wired.refs.sqliteConnection;
     memoryCurator = wired.refs.memoryCurator;
+    memoryTrigger = wired.refs.memoryTrigger;
     skillSynthesis = wired.refs.skillSynthesis;
+    skillTrigger = wired.refs.skillTrigger;
     cronScheduler = wired.refs.cronScheduler;
     symbolWatcher = wired.refs.symbolWatcher;
     licenseReactivityDisposable = wired.refs.licenseReactivityDisposable;
@@ -159,6 +163,14 @@ if (!gotLock) {
       );
     }
     try {
+      skillTrigger?.stop();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Skill trigger stop failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
       skillSynthesis?.stop();
     } catch (error) {
       console.warn(
@@ -171,6 +183,14 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] Cron scheduler stop failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      memoryTrigger?.stop();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Memory trigger stop failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }

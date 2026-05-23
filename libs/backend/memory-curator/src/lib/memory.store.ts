@@ -173,7 +173,7 @@ export class MemoryStore implements IMemoryLister {
     );
     const insertVecStmt = vecAvailable
       ? db.prepare(
-          `INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (?, ?)`,
+          `INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (CAST(? AS INTEGER), ?)`,
         )
       : null;
     const fetchRowidStmt = db.prepare(
@@ -490,7 +490,7 @@ export class MemoryStore implements IMemoryLister {
     );
     const insertVecStmt = vecAvailable
       ? db.prepare(
-          `INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (?, ?)`,
+          `INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (CAST(? AS INTEGER), ?)`,
         )
       : null;
     const fetchRowidStmt = db.prepare(
@@ -579,7 +579,8 @@ export class MemoryStore implements IMemoryLister {
   async rebuildIndex(): Promise<{ rebuiltFts: boolean; rebuiltVec: boolean }> {
     const db = this.connection.db;
     db.exec(
-      `INSERT INTO memory_chunks_fts(memory_chunks_fts) VALUES('rebuild')`,
+      `INSERT INTO memory_chunks_fts(memory_chunks_fts) VALUES('delete-all');
+       INSERT INTO memory_chunks_fts(rowid, chunk_id, text) SELECT rowid, id, text FROM memory_chunks;`,
     );
     let rebuiltVec = false;
     if (this.connection.vecExtensionLoaded) {
@@ -591,7 +592,7 @@ export class MemoryStore implements IMemoryLister {
         .all() as Array<{ rowid: number; text: string }>;
       const batch = 32;
       const insertVecStmt = db.prepare(
-        `INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (?, ?)`,
+        `INSERT INTO memory_chunks_vec(rowid, embedding) VALUES (CAST(? AS INTEGER), ?)`,
       );
       for (let i = 0; i < chunkRows.length; i += batch) {
         const slice = chunkRows.slice(i, i + batch);

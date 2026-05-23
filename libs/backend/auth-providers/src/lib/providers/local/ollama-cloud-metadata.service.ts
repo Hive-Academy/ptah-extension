@@ -51,6 +51,8 @@ import {
   registerProviderPricing,
   type ModelPricing,
 } from '@ptah-extension/shared';
+import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
+import type { OpenRouterPricingService } from '../openrouter';
 
 /** TTL for cached tags response (ms) */
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -60,9 +62,6 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 /** Base host for the public ollama.com REST API */
 const OLLAMA_CLOUD_API_BASE = 'https://ollama.com';
-
-/** OpenRouter public model catalog endpoint (no auth). */
-const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 
 /** Max chars of a failed response body we include in warn logs (avoid log flooding). */
 const ERROR_BODY_SNIPPET_LEN = 200;
@@ -112,10 +111,6 @@ export interface OpenRouterModel {
     readonly input_cache_read?: string;
     readonly input_cache_write?: string;
   };
-}
-
-interface OpenRouterResponse {
-  data?: OpenRouterModel[];
 }
 
 interface CacheEntry<T> {
@@ -188,9 +183,12 @@ function extractFamily(normalizedOllama: string): string {
 @injectable()
 export class OllamaCloudMetadataService {
   private tagsCache: CacheEntry<OllamaCloudTag[]> | null = null;
-  private openRouterCache: CacheEntry<OpenRouterModel[]> | null = null;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PRICING)
+    private readonly openRouterPricing: OpenRouterPricingService,
+  ) {}
 
   /**
    * Fetch live cloud model tags from `https://ollama.com/api/tags`. Cached
@@ -293,61 +291,12 @@ export class OllamaCloudMetadataService {
   }
 
   /**
-   * Fetch the OpenRouter public model catalog. No auth required. Cached for
-   * 1 hour. Returns `[]` on any failure (logged with HTTP status + body
-   * snippet). Used as our pricing source-of-truth because OpenRouter lists
-   * the same open-source models Ollama Cloud hosts, with per-token prices.
+   * Retained for backwards compatibility: returns the OpenRouter catalog by
+   * delegating to {@link OpenRouterPricingService}, which is the single
+   * source-of-truth fetch/cache for the OpenRouter model list.
    */
   async fetchOpenRouterPricing(): Promise<OpenRouterModel[]> {
-    if (this.openRouterCache && this.isFresh(this.openRouterCache)) {
-      this.logger.debug(
-        `[OllamaCloudMetadata] Returning ${this.openRouterCache.value.length} cached OpenRouter models (cache age: ${
-          Date.now() - this.openRouterCache.fetchedAt
-        }ms)`,
-      );
-      return this.openRouterCache.value;
-    }
-
-    this.logger.info(
-      `[OllamaCloudMetadata] Fetching OpenRouter pricing catalog: GET ${OPENROUTER_MODELS_URL}`,
-    );
-
-    try {
-      const data = await this.httpJson<OpenRouterResponse>(
-        OPENROUTER_MODELS_URL,
-        null,
-      );
-
-      const raw = Array.isArray(data?.data) ? data.data : null;
-      if (!raw) {
-        this.logger.warn(
-          `[OllamaCloudMetadata] ${OPENROUTER_MODELS_URL} response missing "data" array. ` +
-            `Got keys: [${data ? Object.keys(data).join(', ') : 'null'}]. Skipping pricing overlay.`,
-        );
-        this.openRouterCache = { value: [], fetchedAt: Date.now() };
-        return [];
-      }
-      const models: OpenRouterModel[] = [];
-      for (const m of raw) {
-        if (m && typeof m.id === 'string' && m.id.length > 0) {
-          models.push(m);
-        }
-      }
-
-      this.openRouterCache = { value: models, fetchedAt: Date.now() };
-      this.logger.info(
-        `[OllamaCloudMetadata] Cached ${models.length} OpenRouter model entries for pricing lookup.`,
-      );
-      return models;
-    } catch (error) {
-      this.logger.warn(
-        `[OllamaCloudMetadata] ${OPENROUTER_MODELS_URL} fetch failed — cloud pricing will default to $0. ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      this.openRouterCache = { value: [], fetchedAt: Date.now() };
-      return [];
-    }
+    return this.openRouterPricing.getCatalog();
   }
 
   /**
@@ -526,7 +475,7 @@ export class OllamaCloudMetadataService {
    */
   async refresh(apiKey: string): Promise<void> {
     this.tagsCache = null;
-    this.openRouterCache = null;
+    this.openRouterPricing.clearCache();
     if (!apiKey?.trim()) {
       this.logger.debug(
         `[OllamaCloudMetadata] refresh() skipped — no API key configured`,
@@ -555,7 +504,7 @@ export class OllamaCloudMetadataService {
   /** Clear all caches (e.g., on auth teardown) */
   clearCache(): void {
     this.tagsCache = null;
-    this.openRouterCache = null;
+    this.openRouterPricing.clearCache();
   }
 
   private isFresh<T>(entry: CacheEntry<T>): boolean {

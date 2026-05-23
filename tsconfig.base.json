@@ -15,124 +15,128 @@
     "skipDefaultLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "baseUrl": ".",
+
     "paths": {
       "@ptah-extension/agent-generation": [
-        "libs/backend/agent-generation/src/index.ts"
+        "./libs/backend/agent-generation/src/index.ts"
       ],
-      "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/agent-sdk": ["./libs/backend/agent-sdk/src/index.ts"],
       "@ptah-extension/auth-providers": [
-        "libs/backend/auth-providers/src/index.ts"
+        "./libs/backend/auth-providers/src/index.ts"
       ],
       "@ptah-extension/auth-providers-tokens": [
-        "libs/backend/auth-providers-tokens/src/index.ts"
+        "./libs/backend/auth-providers-tokens/src/index.ts"
       ],
-      "@ptah-extension/canvas": ["libs/frontend/canvas/src/index.ts"],
-      "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
-      "@ptah-extension/chat-types": ["libs/frontend/chat-types/src/index.ts"],
-      "@ptah-extension/chat-state": ["libs/frontend/chat-state/src/index.ts"],
+      "@ptah-extension/canvas": ["./libs/frontend/canvas/src/index.ts"],
+      "@ptah-extension/chat": ["./libs/frontend/chat/src/index.ts"],
+      "@ptah-extension/chat-types": ["./libs/frontend/chat-types/src/index.ts"],
+      "@ptah-extension/chat-state": ["./libs/frontend/chat-state/src/index.ts"],
       "@ptah-extension/chat-execution-tree": [
-        "libs/frontend/chat-execution-tree/src/index.ts"
+        "./libs/frontend/chat-execution-tree/src/index.ts"
       ],
       "@ptah-extension/chat-routing": [
-        "libs/frontend/chat-routing/src/index.ts"
+        "./libs/frontend/chat-routing/src/index.ts"
       ],
       "@ptah-extension/chat-streaming": [
-        "libs/frontend/chat-streaming/src/index.ts"
+        "./libs/frontend/chat-streaming/src/index.ts"
       ],
-      "@ptah-extension/chat-ui": ["libs/frontend/chat-ui/src/index.ts"],
+      "@ptah-extension/chat-ui": ["./libs/frontend/chat-ui/src/index.ts"],
       "@ptah-extension/cli-agent-runtime": [
-        "libs/backend/cli-agent-runtime/src/index.ts"
+        "./libs/backend/cli-agent-runtime/src/index.ts"
       ],
-      "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
+      "@ptah-extension/core": ["./libs/frontend/core/src/index.ts"],
       "@ptah-extension/cron-scheduler": [
-        "libs/backend/cron-scheduler/src/index.ts"
+        "./libs/backend/cron-scheduler/src/index.ts"
       ],
       "@ptah-extension/cron-scheduler-ui": [
-        "libs/frontend/cron-scheduler-ui/src/index.ts"
+        "./libs/frontend/cron-scheduler-ui/src/index.ts"
       ],
-      "@ptah-extension/thoth-shell": ["libs/frontend/thoth-shell/src/index.ts"],
+      "@ptah-extension/thoth-shell": [
+        "./libs/frontend/thoth-shell/src/index.ts"
+      ],
       "@ptah-extension/memory-curator-ui": [
-        "libs/frontend/memory-curator-ui/src/index.ts"
+        "./libs/frontend/memory-curator-ui/src/index.ts"
       ],
       "@ptah-extension/messaging-gateway-ui": [
-        "libs/frontend/messaging-gateway-ui/src/index.ts"
+        "./libs/frontend/messaging-gateway-ui/src/index.ts"
       ],
       "@ptah-extension/skill-synthesis-ui": [
-        "libs/frontend/skill-synthesis-ui/src/index.ts"
+        "./libs/frontend/skill-synthesis-ui/src/index.ts"
       ],
       "@ptah-extension/core/testing": [
-        "libs/frontend/core/src/testing/index.ts"
+        "./libs/frontend/core/src/testing/index.ts"
       ],
-      "@ptah-extension/dashboard": ["libs/frontend/dashboard/src/index.ts"],
-      "@ptah-extension/editor": ["libs/frontend/editor/src/index.ts"],
+      "@ptah-extension/dashboard": ["./libs/frontend/dashboard/src/index.ts"],
+      "@ptah-extension/editor": ["./libs/frontend/editor/src/index.ts"],
       "@ptah-extension/editor/services": [
-        "libs/frontend/editor/src/services.ts"
+        "./libs/frontend/editor/src/services.ts"
       ],
       "@ptah-extension/platform-cli": [
-        "libs/backend/platform-cli/src/index.ts"
+        "./libs/backend/platform-cli/src/index.ts"
       ],
       "@ptah-extension/platform-core": [
-        "libs/backend/platform-core/src/index.ts"
+        "./libs/backend/platform-core/src/index.ts"
       ],
       "@ptah-extension/platform-core/testing": [
-        "libs/backend/platform-core/src/testing/index.ts"
+        "./libs/backend/platform-core/src/testing/index.ts"
       ],
       "@ptah-extension/platform-electron": [
-        "libs/backend/platform-electron/src/index.ts"
+        "./libs/backend/platform-electron/src/index.ts"
       ],
       "@ptah-extension/persistence-sqlite": [
-        "libs/backend/persistence-sqlite/src/index.ts"
+        "./libs/backend/persistence-sqlite/src/index.ts"
       ],
       "@ptah-extension/memory-contracts": [
-        "libs/backend/memory-contracts/src/index.ts"
+        "./libs/backend/memory-contracts/src/index.ts"
       ],
       "@ptah-extension/settings-core": [
-        "libs/backend/settings-core/src/index.ts"
+        "./libs/backend/settings-core/src/index.ts"
       ],
       "@ptah-extension/memory-curator": [
-        "libs/backend/memory-curator/src/index.ts"
+        "./libs/backend/memory-curator/src/index.ts"
       ],
       "@ptah-extension/messaging-gateway": [
-        "libs/backend/messaging-gateway/src/index.ts"
+        "./libs/backend/messaging-gateway/src/index.ts"
       ],
       "@ptah-extension/skill-synthesis": [
-        "libs/backend/skill-synthesis/src/index.ts"
+        "./libs/backend/skill-synthesis/src/index.ts"
       ],
       "@ptah-extension/platform-vscode": [
-        "libs/backend/platform-vscode/src/index.ts"
+        "./libs/backend/platform-vscode/src/index.ts"
       ],
       "@ptah-extension/rpc-handlers": [
-        "libs/backend/rpc-handlers/src/index.ts"
+        "./libs/backend/rpc-handlers/src/index.ts"
       ],
       "@ptah-extension/harness-builder": [
-        "libs/frontend/harness-builder/src/index.ts"
+        "./libs/frontend/harness-builder/src/index.ts"
       ],
-      "@ptah-extension/markdown": ["libs/frontend/markdown/src/index.ts"],
+      "@ptah-extension/markdown": ["./libs/frontend/markdown/src/index.ts"],
       "@ptah-extension/setup-wizard": [
-        "libs/frontend/setup-wizard/src/index.ts"
+        "./libs/frontend/setup-wizard/src/index.ts"
       ],
-      "@ptah-extension/shared": ["libs/shared/src/index.ts"],
-      "@ptah-extension/shared/testing": ["libs/shared/src/testing/index.ts"],
-      "@ptah-extension/ui": ["libs/frontend/ui/src/index.ts"],
+      "@ptah-extension/shared": ["./libs/shared/src/index.ts"],
+      "@ptah-extension/shared/testing": ["./libs/shared/src/testing/index.ts"],
+      "@ptah-extension/ui": ["./libs/frontend/ui/src/index.ts"],
       "@ptah-extension/workspace-indexing": [
-        "libs/frontend/workspace-indexing/src/index.ts"
+        "./libs/frontend/workspace-indexing/src/index.ts"
       ],
       "@ptah-extension/webview-e2e-harness": [
-        "libs/frontend/webview-e2e-harness/src/index.ts"
+        "./libs/frontend/webview-e2e-harness/src/index.ts"
       ],
-      "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
+      "@ptah-extension/vscode-core": [
+        "./libs/backend/vscode-core/src/index.ts"
+      ],
       "@ptah-extension/vscode-core/testing": [
-        "libs/backend/vscode-core/src/testing/index.ts"
+        "./libs/backend/vscode-core/src/testing/index.ts"
       ],
       "@ptah-extension/vscode-lm-tools": [
-        "libs/backend/vscode-lm-tools/src/index.ts"
+        "./libs/backend/vscode-lm-tools/src/index.ts"
       ],
       "@ptah-extension/vscode-lm-tools/vscode": [
-        "libs/backend/vscode-lm-tools/src/vscode.ts"
+        "./libs/backend/vscode-lm-tools/src/vscode.ts"
       ],
       "@ptah-extension/workspace-intelligence": [
-        "libs/backend/workspace-intelligence/src/index.ts"
+        "./libs/backend/workspace-intelligence/src/index.ts"
       ]
     }
   },

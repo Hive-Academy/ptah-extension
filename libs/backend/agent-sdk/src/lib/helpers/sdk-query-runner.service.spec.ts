@@ -15,6 +15,8 @@ import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SubagentHookHandler } from './subagent-hook-handler';
 import type { CompactionConfigProvider } from './compaction-config-provider';
 import type { CompactionHookHandler } from './compaction-hook-handler';
+import type { PostToolUseHookHandler } from './post-tool-use-hook-handler';
+import type { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import type { SdkModelService } from './sdk-model-service';
 import type { Query } from './session-lifecycle-manager';
 import type {
@@ -72,6 +74,8 @@ interface RunnerHarness {
   runtimeState: ReturnType<typeof createRuntimeState>;
   moduleLoader: ReturnType<typeof createModuleLoader>;
   queryFn: jest.Mock;
+  postToolUseHooks: { createHooks: jest.Mock };
+  userPromptSubmitHooks: { createHooks: jest.Mock };
 }
 
 function makeRunner(
@@ -97,6 +101,12 @@ function makeRunner(
   const compactionHooks = {
     createHooks: jest.fn().mockReturnValue({}),
   } as unknown as CompactionHookHandler;
+  const postToolUseHooks = {
+    createHooks: jest.fn().mockReturnValue({}),
+  };
+  const userPromptSubmitHooks = {
+    createHooks: jest.fn().mockReturnValue({}),
+  };
   const authEnv: AuthEnv = {} as AuthEnv;
   const modelService = {
     resolveModelId: jest.fn((m: string) => m),
@@ -117,9 +127,19 @@ function makeRunner(
     compactionHooks,
     authEnv,
     modelService,
+    postToolUseHooks as unknown as PostToolUseHookHandler,
+    userPromptSubmitHooks as unknown as UserPromptSubmitHookHandler,
   );
 
-  return { runner, logger, runtimeState, moduleLoader, queryFn };
+  return {
+    runner,
+    logger,
+    runtimeState,
+    moduleLoader,
+    queryFn,
+    postToolUseHooks,
+    userPromptSubmitHooks,
+  };
 }
 
 describe('SdkQueryRunner', () => {
@@ -242,6 +262,79 @@ describe('SdkQueryRunner', () => {
       expect(result.sdkQuery).toBe(freshQuery);
       expect(warmClose).not.toHaveBeenCalled();
       expect(h.queryFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('runOneShot — one-shot hook merger (PostToolUse + UserPromptSubmit)', () => {
+    it('invokes PostToolUseHookHandler.createHooks with (internal sessionId, cwd)', async () => {
+      const h = makeRunner();
+
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        isPremium: false,
+        mcpServerRunning: false,
+      });
+
+      expect(h.postToolUseHooks.createHooks).toHaveBeenCalledTimes(1);
+      const [sessionIdArg, cwdArg] = h.postToolUseHooks.createHooks.mock
+        .calls[0] as [string, string];
+      expect(sessionIdArg).toMatch(/^internal-query-\d+$/);
+      expect(cwdArg).toBe('/work');
+    });
+
+    it('invokes UserPromptSubmitHookHandler.createHooks with (internal sessionId, cwd)', async () => {
+      const h = makeRunner();
+
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        isPremium: false,
+        mcpServerRunning: false,
+      });
+
+      expect(h.userPromptSubmitHooks.createHooks).toHaveBeenCalledTimes(1);
+      const [sessionIdArg, cwdArg] = h.userPromptSubmitHooks.createHooks.mock
+        .calls[0] as [string, string];
+      expect(sessionIdArg).toMatch(/^internal-query-\d+$/);
+      expect(cwdArg).toBe('/work');
+    });
+
+    it('merged hook options include PostToolUse and UserPromptSubmit keys', async () => {
+      const h = makeRunner();
+      const postMatcher = { hooks: [jest.fn()] };
+      const promptMatcher = { hooks: [jest.fn()] };
+      h.postToolUseHooks.createHooks.mockReturnValue({
+        PostToolUse: [postMatcher],
+      });
+      h.userPromptSubmitHooks.createHooks.mockReturnValue({
+        UserPromptSubmit: [promptMatcher],
+      });
+
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        isPremium: false,
+        mcpServerRunning: false,
+      });
+
+      expect(h.queryFn).toHaveBeenCalledTimes(1);
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      const hooks = params.options.hooks as
+        | Record<string, unknown[]>
+        | undefined;
+      expect(hooks).toBeDefined();
+      expect(Object.keys(hooks ?? {})).toEqual(
+        expect.arrayContaining(['PostToolUse', 'UserPromptSubmit']),
+      );
     });
   });
 

@@ -461,3 +461,376 @@ describe('MemoryStore.purgeBySubjectPattern', () => {
     expect(store.getWriteCounter('/ws/B')).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B5 regression — sqlite-vec rowid INTEGER affinity (native-gated)
+// ---------------------------------------------------------------------------
+
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+function makeTempDbPath(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-memory-store-test-'));
+  return path.join(dir, 'ptah.db');
+}
+
+function makeDeterministicEmbedder(dim = 384): IEmbedder {
+  return {
+    dim,
+    modelId: 'test/deterministic',
+    embed: jest.fn(async (texts: readonly string[]) =>
+      texts.map((text, i) => {
+        const arr = new Float32Array(dim);
+        const seed = text.length + i;
+        for (let j = 0; j < dim; j++) {
+          arr[j] = ((seed + j) % 13) / 13;
+        }
+        return arr;
+      }),
+    ),
+    dispose: jest.fn(async () => undefined),
+  } as unknown as IEmbedder;
+}
+
+describe('MemoryStore B5 — sqlite-vec rowid INTEGER affinity (native-gated)', () => {
+  let nativeAvailable = false;
+  try {
+    require.resolve('better-sqlite3');
+    require.resolve('sqlite-vec');
+    const Database = require('better-sqlite3') as new (file: string) => {
+      close(): void;
+    };
+    const probe = new Database(':memory:');
+    probe.close();
+    nativeAvailable = true;
+  } catch {
+    nativeAvailable = false;
+  }
+
+  const maybe = nativeAvailable ? it : it.skip;
+
+  async function bootstrap(): Promise<{
+    service: SqliteConnectionService;
+    store: MemoryStore;
+    embedder: IEmbedder;
+  }> {
+    const dbPath = makeTempDbPath();
+    const logger = makeLogger();
+    const service = new SqliteConnectionService(dbPath, logger);
+    await service.openAndMigrate();
+    expect(service.vecExtensionLoaded).toBe(true);
+    const embedder = makeDeterministicEmbedder();
+    const store = new MemoryStore(logger, service, embedder);
+    return { service, store, embedder };
+  }
+
+  maybe(
+    'insertMemoryWithChunks writes memory + chunk + vec rows with matching rowid',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const id = await store.insertMemoryWithChunks(
+          {
+            tier: 'core',
+            kind: 'fact',
+            content: 'first memory body',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#first',
+          },
+          [
+            { ord: 0, text: 'chunk one text', tokenCount: 3 },
+            { ord: 1, text: 'chunk two text', tokenCount: 3 },
+          ],
+        );
+        expect(typeof id).toBe('string');
+
+        const memoryCount = (
+          service.db.prepare('SELECT COUNT(*) AS n FROM memories').get() as {
+            n: number;
+          }
+        ).n;
+        const chunkCount = (
+          service.db
+            .prepare('SELECT COUNT(*) AS n FROM memory_chunks')
+            .get() as { n: number }
+        ).n;
+        const vecCount = (
+          service.db
+            .prepare('SELECT COUNT(*) AS n FROM memory_chunks_vec')
+            .get() as { n: number }
+        ).n;
+        expect(memoryCount).toBe(1);
+        expect(chunkCount).toBe(2);
+        expect(vecCount).toBe(2);
+
+        const rowids = service.db
+          .prepare(
+            'SELECT c.rowid AS crowid, v.rowid AS vrowid FROM memory_chunks c LEFT JOIN memory_chunks_vec v ON v.rowid = c.rowid ORDER BY c.rowid',
+          )
+          .all() as Array<{ crowid: number; vrowid: number | null }>;
+        expect(rowids).toHaveLength(2);
+        for (const row of rowids) {
+          expect(row.vrowid).toBe(row.crowid);
+        }
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    're-running insertMemoryWithChunks preserves memory + chunk + vec counts',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'core',
+            kind: 'fact',
+            content: 'first',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#first',
+          },
+          [{ ord: 0, text: 'chunk text one', tokenCount: 3 }],
+        );
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'recall',
+            kind: 'fact',
+            content: 'second',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#second',
+          },
+          [{ ord: 0, text: 'chunk text two', tokenCount: 3 }],
+        );
+
+        const memoryCount = (
+          service.db.prepare('SELECT COUNT(*) AS n FROM memories').get() as {
+            n: number;
+          }
+        ).n;
+        const chunkCount = (
+          service.db
+            .prepare('SELECT COUNT(*) AS n FROM memory_chunks')
+            .get() as { n: number }
+        ).n;
+        const vecCount = (
+          service.db
+            .prepare('SELECT COUNT(*) AS n FROM memory_chunks_vec')
+            .get() as { n: number }
+        ).n;
+        expect(memoryCount).toBe(2);
+        expect(chunkCount).toBe(2);
+        expect(vecCount).toBe(2);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'appendChunks writes additional chunk + vec rows with matching rowid',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const id = await store.insertMemoryWithChunks(
+          {
+            tier: 'core',
+            kind: 'fact',
+            content: 'base',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#base',
+          },
+          [{ ord: 0, text: 'original chunk', tokenCount: 3 }],
+        );
+
+        await store.appendChunks(id, [
+          { ord: 1, text: 'appended chunk one', tokenCount: 3 },
+          { ord: 2, text: 'appended chunk two', tokenCount: 3 },
+        ]);
+
+        const chunkCount = (
+          service.db
+            .prepare('SELECT COUNT(*) AS n FROM memory_chunks')
+            .get() as { n: number }
+        ).n;
+        const vecCount = (
+          service.db
+            .prepare('SELECT COUNT(*) AS n FROM memory_chunks_vec')
+            .get() as { n: number }
+        ).n;
+        expect(chunkCount).toBe(3);
+        expect(vecCount).toBe(3);
+
+        const rowids = service.db
+          .prepare(
+            'SELECT c.rowid AS crowid, v.rowid AS vrowid FROM memory_chunks c LEFT JOIN memory_chunks_vec v ON v.rowid = c.rowid ORDER BY c.rowid',
+          )
+          .all() as Array<{ crowid: number; vrowid: number | null }>;
+        expect(rowids).toHaveLength(3);
+        for (const row of rowids) {
+          expect(row.vrowid).toBe(row.crowid);
+        }
+      } finally {
+        service.close();
+      }
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// B7 regression — rebuildIndex repopulates FTS5 from memory_chunks (native-gated)
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore B7 — rebuildIndex FTS repopulation (native-gated)', () => {
+  let nativeAvailable = false;
+  try {
+    require.resolve('better-sqlite3');
+    require.resolve('sqlite-vec');
+    const Database = require('better-sqlite3') as new (file: string) => {
+      close(): void;
+    };
+    const probe = new Database(':memory:');
+    probe.close();
+    nativeAvailable = true;
+  } catch {
+    nativeAvailable = false;
+  }
+
+  const maybe = nativeAvailable ? it : it.skip;
+
+  async function bootstrap(): Promise<{
+    service: SqliteConnectionService;
+    store: MemoryStore;
+  }> {
+    const dbPath = makeTempDbPath();
+    const logger = makeLogger();
+    const service = new SqliteConnectionService(dbPath, logger);
+    await service.openAndMigrate();
+    expect(service.vecExtensionLoaded).toBe(true);
+    const embedder = makeDeterministicEmbedder();
+    const store = new MemoryStore(logger, service, embedder);
+    return { service, store };
+  }
+
+  maybe(
+    'repopulates memory_chunks_fts so FTS MATCH returns inserted rows',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'core',
+            kind: 'fact',
+            content: 'alpha body',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#alpha',
+          },
+          [
+            { ord: 0, text: 'distinctive alpha keyword', tokenCount: 3 },
+            { ord: 1, text: 'second alpha chunk', tokenCount: 3 },
+          ],
+        );
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'recall',
+            kind: 'fact',
+            content: 'bravo body',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#bravo',
+          },
+          [{ ord: 0, text: 'unique bravo phrase', tokenCount: 3 }],
+        );
+
+        const chunkCount = (
+          service.db
+            .prepare('SELECT COUNT(*) AS n FROM memory_chunks')
+            .get() as { n: number }
+        ).n;
+        expect(chunkCount).toBe(3);
+
+        const result = await store.rebuildIndex();
+        expect(result.rebuiltFts).toBe(true);
+        expect(result.rebuiltVec).toBe(true);
+
+        const alphaHits = service.db
+          .prepare(
+            `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'alpha'`,
+          )
+          .all() as Array<{ rowid: number }>;
+        expect(alphaHits.length).toBeGreaterThan(0);
+
+        const bravoHits = service.db
+          .prepare(
+            `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'bravo'`,
+          )
+          .all() as Array<{ rowid: number }>;
+        expect(bravoHits.length).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe('succeeds without error on an empty memory_chunks table', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      const result = await store.rebuildIndex();
+      expect(result.rebuiltFts).toBe(true);
+      expect(result.rebuiltVec).toBe(true);
+
+      const hits = service.db
+        .prepare(
+          `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'anything'`,
+        )
+        .all();
+      expect(hits).toEqual([]);
+    } finally {
+      service.close();
+    }
+  });
+
+  maybe(
+    'is idempotent — running twice leaves the FTS row count equal to chunks',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'core',
+            kind: 'fact',
+            content: 'gamma body',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#gamma',
+          },
+          [
+            { ord: 0, text: 'gamma chunk one', tokenCount: 3 },
+            { ord: 1, text: 'gamma chunk two', tokenCount: 3 },
+          ],
+        );
+
+        await store.rebuildIndex();
+        const firstHits = service.db
+          .prepare(
+            `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'gamma'`,
+          )
+          .all() as Array<{ rowid: number }>;
+        expect(firstHits.length).toBe(2);
+
+        await store.rebuildIndex();
+        const secondHits = service.db
+          .prepare(
+            `SELECT rowid FROM memory_chunks_fts WHERE memory_chunks_fts MATCH 'gamma'`,
+          )
+          .all() as Array<{ rowid: number }>;
+        expect(secondHits.length).toBe(2);
+        expect(secondHits.map((h) => h.rowid).sort()).toEqual(
+          firstHits.map((h) => h.rowid).sort(),
+        );
+      } finally {
+        service.close();
+      }
+    },
+  );
+});

@@ -54,6 +54,7 @@ import {
 import { SdkAgentAdapter } from './sdk-agent-adapter';
 import { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
+import { SessionActivityRegistry } from './helpers/session-activity-registry';
 import { SdkError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
 import type {
@@ -66,6 +67,7 @@ import type {
   ExecuteQueryResult,
   Query,
   WarmQueryHandle,
+  ResultStatsCallback,
 } from './helpers';
 import type { IAuthEnvProvider } from './auth-env.port';
 import type {
@@ -297,6 +299,7 @@ function makeAdapter(
 
   const runtimeState = new SdkRuntimeStateService(asLogger(logger));
   const events = new SdkAdapterEvents(asLogger(logger));
+  const activityRegistry = new SessionActivityRegistry(asLogger(logger));
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
@@ -314,6 +317,7 @@ function makeAdapter(
     forkService as unknown as SessionForkService,
     sentry as unknown as SentryService,
     events,
+    activityRegistry,
   );
 
   return {
@@ -785,7 +789,15 @@ describe('SdkAgentAdapter', () => {
       await h.adapter.startChatSession(makeSessionConfig());
 
       const arg = h.streamTransformer.transform.mock.calls[0][0];
-      expect(arg.onResultStats).toBe(onStats);
+      expect(typeof arg.onResultStats).toBe('function');
+      const fakeStats = {
+        sessionId: 'sess' as unknown as SessionId,
+        cost: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+        duration: 0,
+      };
+      (arg.onResultStats as ResultStatsCallback)(fakeStats);
+      expect(onStats).toHaveBeenCalledWith(fakeStats);
     });
   });
 

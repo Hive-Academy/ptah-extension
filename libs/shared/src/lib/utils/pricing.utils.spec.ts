@@ -5,8 +5,8 @@
  * Covers branches for:
  *   - updatePricingMap / registerProviderPricing / getPricingMap
  *   - findModelPricing: empty input, synthetic tags, exact match, partial
- *     match (both directions), default fallback + warn-once suppression
- *   - calculateMessageCost: zero tokens, cache-inclusive, rounding
+ *     match (both directions), null return + warn-once suppression for unknown
+ *   - calculateMessageCost: zero tokens, cache-inclusive, rounding, null for unknown
  *   - getModelContextWindow: empty, known, unknown (maxTokens undefined)
  *   - getModelPricingDescription: formatting to $/1M tokens
  *   - formatModelDisplayName: every Claude / GPT / Gemini / Kimi / GLM
@@ -115,32 +115,30 @@ describe('pricing.utils', () => {
   });
 
   describe('findModelPricing', () => {
-    it('returns default when model id is empty', () => {
-      const pricing = findModelPricing('');
-      expect(pricing).toEqual(DEFAULT_MODEL_PRICING['default']);
+    it('returns null when model id is empty', () => {
+      expect(findModelPricing('')).toBeNull();
     });
 
-    it('returns default silently for synthetic SDK ids like <synthetic>', () => {
-      const pricing = findModelPricing('<synthetic>');
-      expect(pricing).toEqual(DEFAULT_MODEL_PRICING['default']);
+    it('returns null silently for synthetic SDK ids like <synthetic>', () => {
+      expect(findModelPricing('<synthetic>')).toBeNull();
       expect(console.warn).not.toHaveBeenCalled();
     });
 
     it('resolves exact match (case-insensitive)', () => {
       const pricing = findModelPricing('CLAUDE-OPUS-4-7');
-      expect(pricing.provider).toBe('anthropic');
-      expect(pricing.inputCostPerToken).toBe(15e-6);
+      expect(pricing).not.toBeNull();
+      expect(pricing?.provider).toBe('anthropic');
+      expect(pricing?.inputCostPerToken).toBe(15e-6);
     });
 
     it('resolves via partial match when modelId contains a known key', () => {
-      // "claude-opus-4-5-20251101" includes "claude-opus-4-5" as a substring.
       const pricing = findModelPricing('claude-opus-4-5-20251101');
-      expect(pricing.provider).toBe('anthropic');
-      expect(pricing.maxTokens).toBe(200_000);
+      expect(pricing).not.toBeNull();
+      expect(pricing?.provider).toBe('anthropic');
+      expect(pricing?.maxTokens).toBe(200_000);
     });
 
     it('resolves via partial match when a known key contains the modelId', () => {
-      // Register a longer key, then look up a shorter substring.
       registerProviderPricing({
         'supermodel-2099-final-edition': {
           inputCostPerToken: 1e-7,
@@ -149,12 +147,12 @@ describe('pricing.utils', () => {
         },
       });
       const pricing = findModelPricing('supermodel');
-      expect(pricing.provider).toBe('future');
+      expect(pricing?.provider).toBe('future');
     });
 
-    it('falls back to default and warns once for unknown model ids', () => {
-      findModelPricing('totally-unknown-model-xyz');
-      findModelPricing('totally-unknown-model-xyz'); // second call should not re-warn
+    it('returns null and warns once for unknown model ids', () => {
+      expect(findModelPricing('totally-unknown-model-xyz')).toBeNull();
+      expect(findModelPricing('totally-unknown-model-xyz')).toBeNull();
 
       expect(console.warn).toHaveBeenCalledTimes(1);
       expect(console.warn).toHaveBeenCalledWith(
@@ -164,10 +162,19 @@ describe('pricing.utils', () => {
   });
 
   describe('calculateMessageCost', () => {
-    it('returns 0 for zero tokens', () => {
+    it('returns 0 for zero tokens on a known model', () => {
       expect(
         calculateMessageCost('claude-opus-4-7', { input: 0, output: 0 }),
       ).toBe(0);
+    });
+
+    it('returns null when the model is unknown (no fabricated fallback)', () => {
+      expect(
+        calculateMessageCost('totally-unknown-model-xyz', {
+          input: 1000,
+          output: 500,
+        }),
+      ).toBeNull();
     });
 
     it('computes cost from input + output tokens', () => {

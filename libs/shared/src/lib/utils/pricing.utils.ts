@@ -41,13 +41,18 @@ export interface TokenBreakdown {
 }
 
 /**
- * Default pricing for supported models (bundled fallback)
+ * Bundled pricing for known-zero-cost surfaces (Copilot subscription, local
+ * Ollama / LM Studio) and a small Anthropic-direct table that ships with the
+ * binary for the case where the OpenRouter catalog hasn't fetched yet.
  *
- * Prices are in USD per token.
- * Updated: 2025-01-01 (from Anthropic pricing page and LiteLLM)
+ * For every other model the runtime pricing map is hydrated from OpenRouter's
+ * public `/api/v1/models` catalog at startup via {@link registerProviderPricing}.
+ * If hydration hasn't happened (offline first-run, fetch failure), unknown
+ * models return `null` from {@link findModelPricing} so the UI can render
+ * "Pricing unavailable" instead of a fabricated dollar figure.
  *
  * @see https://www.anthropic.com/pricing
- * @see https://openai.com/pricing
+ * @see https://openrouter.ai/api/v1/models
  */
 export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-7': {
@@ -230,13 +235,6 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     cacheCreationCostPerToken: 0,
     provider: 'ollama-cloud',
   },
-  default: {
-    inputCostPerToken: 3e-6,
-    outputCostPerToken: 15e-6,
-    cacheReadCostPerToken: 3e-7,
-    cacheCreationCostPerToken: 3.75e-6,
-    provider: 'unknown',
-  },
 };
 
 /**
@@ -305,34 +303,30 @@ export function getPricingMap(): Record<string, ModelPricing> {
 }
 
 /**
- * Find pricing for a model by ID
+ * Find pricing for a model by ID.
  *
  * Matching strategy:
- * 1. Exact match (e.g., "claude-opus-4-5-20251101")
+ * 1. Exact match (e.g., "claude-opus-4-5-20251101", "gpt-5.4", "kimi-k2.5")
  * 2. Partial match (e.g., "claude-opus-4-5" matches "claude-opus-4-5-20251101")
- * 3. Fallback to default pricing
+ * 3. Returns `null` — pricing genuinely unknown.
  *
- * @param modelId - Model identifier from Claude CLI or VS Code LM API
- * @returns Pricing for the model (never undefined)
+ * @param modelId - Model identifier from the SDK or third-party proxy.
+ * @returns Pricing entry, or `null` when no match is found. Callers should
+ *   render "Pricing unavailable" / "—" rather than fabricating a fallback.
  *
  * @example
  * ```typescript
- * const pricing = findModelPricing('claude-opus-4-5-20251101');
- * // Returns exact match for Opus 4.5
- *
- * const pricing2 = findModelPricing('gpt-4o-2024-08-06');
- * // Returns partial match for gpt-4o
- *
- * const pricing3 = findModelPricing('unknown-model');
- * // Returns default fallback pricing
+ * findModelPricing('claude-opus-4-7'); // Exact match
+ * findModelPricing('gpt-4o-2024-08-06'); // Partial match → gpt-4o
+ * findModelPricing('unknown-model'); // null
  * ```
  */
-export function findModelPricing(modelId: string): ModelPricing {
+export function findModelPricing(modelId: string): ModelPricing | null {
   if (!modelId) {
-    return modelPricingMap['default'];
+    return null;
   }
   if (modelId.startsWith('<') && modelId.endsWith('>')) {
-    return modelPricingMap['default'];
+    return null;
   }
 
   const normalizedId = modelId.toLowerCase();
@@ -340,7 +334,6 @@ export function findModelPricing(modelId: string): ModelPricing {
     return modelPricingMap[normalizedId];
   }
   for (const [key, pricing] of Object.entries(modelPricingMap)) {
-    if (key === 'default') continue;
     if (normalizedId.includes(key.toLowerCase())) {
       return pricing;
     }
@@ -351,10 +344,10 @@ export function findModelPricing(modelId: string): ModelPricing {
   if (!warnedModelIds.has(modelId)) {
     warnedModelIds.add(modelId);
     console.warn(
-      `[Pricing] Model '${modelId}' not found in pricing map, using default`,
+      `[Pricing] Model '${modelId}' not found in pricing map — cost will render as unavailable`,
     );
   }
-  return modelPricingMap['default'];
+  return null;
 }
 
 /**
@@ -387,8 +380,9 @@ export function findModelPricing(modelId: string): ModelPricing {
 export function calculateMessageCost(
   modelId: string,
   tokens: TokenBreakdown,
-): number {
+): number | null {
   const pricing = findModelPricing(modelId);
+  if (!pricing) return null;
 
   const inputCost = tokens.input * pricing.inputCostPerToken;
   const outputCost = tokens.output * pricing.outputCostPerToken;
@@ -413,7 +407,7 @@ export function calculateMessageCost(
 export function getModelContextWindow(modelId: string): number {
   if (!modelId) return 0;
   const pricing = findModelPricing(modelId);
-  return pricing.maxTokens ?? 0;
+  return pricing?.maxTokens ?? 0;
 }
 
 /**
@@ -430,6 +424,7 @@ export function getModelContextWindow(modelId: string): number {
  */
 export function getModelPricingDescription(modelId: string): string {
   const pricing = findModelPricing(modelId);
+  if (!pricing) return 'Pricing unavailable';
 
   const inputPer1M = (pricing.inputCostPerToken * 1000000).toFixed(2);
   const outputPer1M = (pricing.outputCostPerToken * 1000000).toFixed(2);

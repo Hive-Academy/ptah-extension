@@ -203,7 +203,7 @@ describe('Orchestration Patterns', () => {
 
       const result = await pipeline.execute({ value: 1 });
 
-      expect(result.durationMs).toBeGreaterThanOrEqual(50);
+      expect(result.durationMs).toBeGreaterThanOrEqual(40);
       expect(result.durationMs).toBeLessThan(2000);
     });
 

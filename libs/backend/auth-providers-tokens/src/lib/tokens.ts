@@ -16,6 +16,7 @@ export const AUTH_PROVIDERS_TOKENS = {
   SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
   SDK_OPENROUTER_AUTH: Symbol.for('SdkOpenRouterAuth'),
   SDK_OPENROUTER_PROXY: Symbol.for('SdkOpenRouterProxy'),
+  SDK_OPENROUTER_PRICING: Symbol.for('SdkOpenRouterPricing'),
   SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
   SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
   SDK_OLLAMA_CLOUD_METADATA: Symbol.for('SdkOllamaCloudMetadata'),

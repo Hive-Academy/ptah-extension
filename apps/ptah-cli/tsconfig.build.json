@@ -2,57 +2,61 @@
   "extends": "./tsconfig.app.json",
   "compilerOptions": {
     "paths": {
-      "vscode": ["apps/ptah-cli/src/shims/vscode-shim.ts"],
+      "vscode": ["../../apps/ptah-cli/src/shims/vscode-shim.ts"],
       "@ptah-extension/agent-generation": [
-        "libs/backend/agent-generation/src/index.ts"
+        "../../libs/backend/agent-generation/src/index.ts"
       ],
-      "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/agent-sdk": [
+        "../../libs/backend/agent-sdk/src/index.ts"
+      ],
       "@ptah-extension/auth-providers": [
-        "libs/backend/auth-providers/src/index.ts"
+        "../../libs/backend/auth-providers/src/index.ts"
       ],
       "@ptah-extension/auth-providers-tokens": [
-        "libs/backend/auth-providers-tokens/src/index.ts"
+        "../../libs/backend/auth-providers-tokens/src/index.ts"
       ],
       "@ptah-extension/cli-agent-runtime": [
-        "libs/backend/cli-agent-runtime/src/index.ts"
+        "../../libs/backend/cli-agent-runtime/src/index.ts"
       ],
       "@ptah-extension/platform-core": [
-        "libs/backend/platform-core/src/index.ts"
+        "../../libs/backend/platform-core/src/index.ts"
       ],
       "@ptah-extension/platform-cli": [
-        "libs/backend/platform-cli/src/index.ts"
+        "../../libs/backend/platform-cli/src/index.ts"
       ],
       "@ptah-extension/rpc-handlers": [
-        "libs/backend/rpc-handlers/src/index.ts"
+        "../../libs/backend/rpc-handlers/src/index.ts"
       ],
-      "@ptah-extension/shared": ["libs/shared/src/index.ts"],
-      "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
+      "@ptah-extension/shared": ["../../libs/shared/src/index.ts"],
+      "@ptah-extension/vscode-core": [
+        "../../libs/backend/vscode-core/src/index.ts"
+      ],
       "@ptah-extension/vscode-lm-tools": [
-        "libs/backend/vscode-lm-tools/src/index.ts"
+        "../../libs/backend/vscode-lm-tools/src/index.ts"
       ],
       "@ptah-extension/workspace-intelligence": [
-        "libs/backend/workspace-intelligence/src/index.ts"
+        "../../libs/backend/workspace-intelligence/src/index.ts"
       ],
       "@ptah-extension/persistence-sqlite": [
-        "libs/backend/persistence-sqlite/src/index.ts"
+        "../../libs/backend/persistence-sqlite/src/index.ts"
       ],
       "@ptah-extension/memory-curator": [
-        "libs/backend/memory-curator/src/index.ts"
+        "../../libs/backend/memory-curator/src/index.ts"
       ],
       "@ptah-extension/memory-contracts": [
-        "libs/backend/memory-contracts/src/index.ts"
+        "../../libs/backend/memory-contracts/src/index.ts"
       ],
       "@ptah-extension/skill-synthesis": [
-        "libs/backend/skill-synthesis/src/index.ts"
+        "../../libs/backend/skill-synthesis/src/index.ts"
       ],
       "@ptah-extension/cron-scheduler": [
-        "libs/backend/cron-scheduler/src/index.ts"
+        "../../libs/backend/cron-scheduler/src/index.ts"
       ],
       "@ptah-extension/messaging-gateway": [
-        "libs/backend/messaging-gateway/src/index.ts"
+        "../../libs/backend/messaging-gateway/src/index.ts"
       ],
       "@ptah-extension/settings-core": [
-        "libs/backend/settings-core/src/index.ts"
+        "../../libs/backend/settings-core/src/index.ts"
       ]
     }
   }

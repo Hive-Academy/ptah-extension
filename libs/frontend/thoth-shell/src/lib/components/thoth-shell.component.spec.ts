@@ -2,10 +2,15 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import { MODEL_REFRESH_CONTROL } from '@ptah-extension/chat-state';
 import { MemoryStateService } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisStateService } from '@ptah-extension/skill-synthesis-ui';
 
 import { ThothShellComponent } from './thoth-shell.component';
+
+const modelRefreshStub = {
+  refreshModels: () => Promise.resolve(),
+};
 
 /**
  * Minimal stub for {@link SkillSynthesisStateService} so the embedded
@@ -92,6 +97,7 @@ describe('ThothShellComponent', () => {
         },
         { provide: MemoryStateService, useValue: memoryStateStub },
         { provide: SkillSynthesisStateService, useValue: skillStateStub },
+        { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshStub },
       ],
     }).compileComponents();
   });
