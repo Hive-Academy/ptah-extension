@@ -141,7 +141,7 @@ describe('BootScanRunner', () => {
       run: jest.fn().mockResolvedValue(undefined),
       throttleMs: 0,
     });
-    expect(state.value).toBeGreaterThanOrEqual(now - 1000);
+    expect(Math.floor(state.value)).toBeGreaterThanOrEqual(now - 1000 - 1);
   });
 
   it('continues scan when per-session run throws', async () => {

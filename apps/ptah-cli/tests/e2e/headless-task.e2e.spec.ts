@@ -113,21 +113,22 @@ describe('headless task lifecycle (Bug 1 + Bug 4)', () => {
   });
 
   it('rejects a second task.submit while the first is in flight with -32603 "turn already in flight"', async () => {
-    runner = await CliRunner.spawn({
+    const activeRunner = await CliRunner.spawn({
       home: tmp,
       env: { ANTHROPIC_API_KEY: FAKE_API_KEY, PTAH_AUTO_APPROVE: 'true' },
     });
-    const client = new InteractRpcClient(runner);
+    runner = activeRunner;
+    const client = new InteractRpcClient(activeRunner);
 
     // Cork stdin so both writes coalesce into one OS-pipe chunk. Without cork,
     // Linux delivers them separately and handler 1 settles + clears
     // currentTurnId before handler 2 dispatches, defeating the guardrail under
     // test. Cork buffers; uncork-on-nextTick flushes the buffered queue in one
     // chunk after both write() calls have been issued.
-    runner.child.stdin.cork();
+    activeRunner.child.stdin.cork();
     const firstP = client.submitTask({ task: 'first turn' }, 60_000);
     const secondP = client.submitTask({ task: 'second turn' }, 60_000);
-    process.nextTick(() => runner.child.stdin.uncork());
+    process.nextTick(() => activeRunner.child.stdin.uncork());
     const [first, second] = await Promise.allSettled([firstP, secondP]);
 
     // Exactly one of the two must reject: the one that lost the race for
