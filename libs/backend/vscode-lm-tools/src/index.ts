@@ -8,14 +8,14 @@ export {
   IDE_CAPABILITIES_TOKEN,
   BROWSER_CAPABILITIES_TOKEN,
 } from './lib/code-execution/ptah-api-builder.service';
-export { CodeExecutionMCP } from './lib/code-execution/code-execution-mcp.service';
+export { CodeExecutionMCP } from './lib/code-execution/mcp-http/http-mcp-server.service';
 export type {
   PtahAPI,
   BrowserRecordStartResult,
   BrowserRecordStopResult,
 } from './lib/code-execution/types';
 export type { IIDECapabilities } from './lib/code-execution/namespace-builders/ide-namespace.builder';
-export type { ToolResultCallback } from './lib/code-execution/mcp-handlers';
+export type { ToolResultCallback } from './lib/code-execution/mcp-core';
 export {
   PTAH_SYSTEM_PROMPT,
   PTAH_SYSTEM_PROMPT_TOKENS,

@@ -33,4 +33,4 @@ export {
   getConfiguredPort,
   type HttpServerConfig,
   type HttpServerResult,
-} from './http-server.handler';
+} from '../mcp-http/http-server.handler';

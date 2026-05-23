@@ -57,7 +57,11 @@ async function fetchPath(
   method: string,
   path: string,
   body?: string,
-): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
+): Promise<{
+  status: number;
+  body: string;
+  headers: http.IncomingHttpHeaders;
+}> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -169,7 +173,9 @@ describe('HTTP server lifecycle', () => {
   it('retries with port 0 when configured port is already in use (EADDRINUSE)', async () => {
     // Occupy a port first.
     const occupier = http.createServer();
-    await new Promise<void>((resolve) => occupier.listen(0, 'localhost', resolve));
+    await new Promise<void>((resolve) =>
+      occupier.listen(0, 'localhost', resolve),
+    );
     const occupiedPort = (occupier.address() as AddressInfo).port;
 
     try {

@@ -40,7 +40,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
 jest.mock('../code-execution/ptah-api-builder.service', () => ({
   PtahAPIBuilder: class PtahAPIBuilderStub {},
 }));
-jest.mock('../code-execution/code-execution-mcp.service', () => ({
+jest.mock('../code-execution/mcp-http/http-mcp-server.service', () => ({
   CodeExecutionMCP: class CodeExecutionMCPStub {},
 }));
 jest.mock('../permission/permission-prompt.service', () => ({

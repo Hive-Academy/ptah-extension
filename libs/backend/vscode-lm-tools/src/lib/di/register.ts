@@ -22,7 +22,7 @@ import {
   type IMcpServerStatus,
 } from '@ptah-extension/platform-core';
 import { PtahAPIBuilder } from '../code-execution/ptah-api-builder.service';
-import { CodeExecutionMCP } from '../code-execution/code-execution-mcp.service';
+import { CodeExecutionMCP } from '../code-execution/mcp-http/http-mcp-server.service';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
 
 /**
