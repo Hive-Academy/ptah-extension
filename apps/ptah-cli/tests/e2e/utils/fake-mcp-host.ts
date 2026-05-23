@@ -160,6 +160,9 @@ function buildEnv(
   overrides: Record<string, string> | undefined,
 ): NodeJS.ProcessEnv {
   const cleaned: NodeJS.ProcessEnv = { ...process.env };
+  // Strip any real provider credentials so the e2e spawn cannot
+  // accidentally call upstream. The fake `ANTHROPIC_API_KEY` is RE-ADDED
+  // below after the strip so SDK init has *something* to bind to.
   delete cleaned['ANTHROPIC_API_KEY'];
   delete cleaned['ANTHROPIC_AUTH_TOKEN'];
   delete cleaned['OPENAI_API_KEY'];
@@ -170,6 +173,13 @@ function buildEnv(
   cleaned['PTAH_NO_TTY'] = '1';
   cleaned['NX_TUI'] = 'false';
   cleaned['PTAH_AUTO_APPROVE'] = 'true';
+  // SDK init checks for *any* configured auth, not key validity. Supply a
+  // fake key so `withEngine({ requireSdk: true })` does not reject the
+  // bootstrap with `sdk_init_failed`. The same pattern is used by every
+  // ptah-cli e2e spec that hits a `requireSdk: true` code path
+  // (`headless-task.e2e.spec.ts`, `permission-gates.e2e.spec.ts`, etc.).
+  cleaned['ANTHROPIC_API_KEY'] =
+    'sk-ant-e2e-fake-key-not-real-do-not-call-upstream';
   cleaned['HOME'] = homePath;
   cleaned['USERPROFILE'] = homePath;
   cleaned['APPDATA'] = path.join(homePath, 'AppData', 'Roaming');
@@ -272,12 +282,13 @@ export async function spawnPtahMcp(
     if (!isObj(msg) || msg['jsonrpc'] !== '2.0') return;
 
     if ('id' in msg && ('result' in msg || 'error' in msg)) {
-      const resp = msg as MCPResponse;
+      const resp = msg as unknown as MCPResponse;
+      const rawId = (msg as { id?: unknown })['id'];
       const id =
-        typeof resp.id === 'number'
-          ? resp.id
-          : typeof resp.id === 'string'
-            ? Number(resp.id)
+        typeof rawId === 'number'
+          ? rawId
+          : typeof rawId === 'string'
+            ? Number(rawId)
             : NaN;
       if (!Number.isFinite(id)) return;
       const p = pending.get(id);
@@ -487,7 +498,18 @@ export async function spawnPtahMcp(
       return { exitCode: resolvedExitCode, signal: resolvedExitSignal };
     }
     closed = true;
-    if (resolvedExitCode !== null) {
+    // Fast path: child already exited (either resolved via our `exit`
+    // handler OR Node's native `child.exitCode` is non-null). Use the
+    // native property so a SIGTERM-triggered exit that the test polled
+    // does NOT cause us to await `once('exit')` for a past event that
+    // will never re-fire.
+    if (resolvedExitCode !== null || child.exitCode !== null) {
+      rl.close();
+      try {
+        child.stdin.end();
+      } catch {
+        // Already ended.
+      }
       return { exitCode: resolvedExitCode, signal: resolvedExitSignal };
     }
     try {
@@ -496,6 +518,13 @@ export async function spawnPtahMcp(
       // Already ended.
     }
     const exitPromise = new Promise<void>((resolve) => {
+      // Re-check inside the promise body: another async path may have
+      // observed the exit event between our `child.exitCode` check above
+      // and this listener attachment.
+      if (child.exitCode !== null) {
+        resolve();
+        return;
+      }
       child.once('exit', () => resolve());
     });
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -509,13 +538,17 @@ export async function spawnPtahMcp(
     if (timer !== undefined) clearTimeout(timer);
     if (result === 'timeout') {
       await killTree(child);
-      await new Promise<void>((resolve) => {
-        if (child.exitCode !== null) {
-          resolve();
-          return;
-        }
-        child.once('exit', () => resolve());
-      });
+      // Same re-check guard: do not await `once('exit')` for an already-
+      // fired event.
+      if (child.exitCode === null) {
+        await new Promise<void>((resolve) => {
+          if (child.exitCode !== null) {
+            resolve();
+            return;
+          }
+          child.once('exit', () => resolve());
+        });
+      }
     }
     rl.close();
     return { exitCode: resolvedExitCode, signal: resolvedExitSignal };
