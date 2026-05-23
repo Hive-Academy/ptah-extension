@@ -300,7 +300,8 @@ export type PtahErrorCode =
   | 'claude_cli_not_found'
   | 'mcp_handshake_failed'
   | 'mcp_tool_not_found'
-  | 'mcp_invalid_tool_args';
+  | 'mcp_invalid_tool_args'
+  | 'mcp_tool_denied';
 
 /** Process exit codes. */
 export const ExitCode = {

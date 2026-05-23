@@ -15,9 +15,12 @@ import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { StdioMcpServerService } from './stdio-mcp-server.service';
+import { McpLicenseGate, MCP_LICENSE_GATE_TOKEN } from './mcp-license-gate';
 
 /** DI token for the stdio MCP server. Symbol-keyed to match repo convention. */
 export const STDIO_MCP_SERVER_TOKEN = Symbol.for('StdioMcpServer');
+
+export { MCP_LICENSE_GATE_TOKEN } from './mcp-license-gate';
 
 export function registerMcpStdioServices(
   container: DependencyContainer,
@@ -33,14 +36,25 @@ export function registerMcpStdioServices(
       '[McpStdio] DEPENDENCY ERROR: TOKENS.PTAH_API_BUILDER must be registered first.',
     );
   }
+  if (!container.isRegistered(TOKENS.LICENSE_SERVICE)) {
+    throw new Error(
+      '[McpStdio] DEPENDENCY ERROR: TOKENS.LICENSE_SERVICE must be registered first.',
+    );
+  }
+  if (!container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+    throw new Error(
+      '[McpStdio] DEPENDENCY ERROR: TOKENS.AGENT_PROCESS_MANAGER must be registered first.',
+    );
+  }
 
   if (container.isRegistered(STDIO_MCP_SERVER_TOKEN)) {
     return;
   }
 
   logger.info('[McpStdio] Registering stdio MCP services...');
+  container.registerSingleton(MCP_LICENSE_GATE_TOKEN, McpLicenseGate);
   container.registerSingleton(STDIO_MCP_SERVER_TOKEN, StdioMcpServerService);
   logger.info('[McpStdio] Stdio MCP services registered', {
-    services: ['STDIO_MCP_SERVER'],
+    services: ['MCP_LICENSE_GATE', 'STDIO_MCP_SERVER'],
   });
 }
