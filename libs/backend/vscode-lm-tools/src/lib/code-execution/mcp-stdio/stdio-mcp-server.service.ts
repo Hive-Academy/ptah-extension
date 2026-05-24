@@ -76,6 +76,14 @@ export interface StdioMcpServerConfig {
 export class StdioMcpServerService {
   private agentDispatcher: AgentToolDispatcher | null = null;
   private sessionSubmitHandler: ISessionSubmitHandler | null = null;
+  /**
+   * Cached SDK-init failure. Set the first time
+   * {@link getAgentDispatcher} catches a throw from
+   * `PtahAPIBuilder.build()` so subsequent `tools/call` invocations short
+   * circuit to the same MCP envelope without re-invoking the failing
+   * builder. `null` means no failure has been observed yet.
+   */
+  private sdkInitError: Error | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER)
@@ -217,7 +225,12 @@ export class StdioMcpServerService {
       return this.sessionSubmitHandler.dispatch(request, args);
     }
 
-    const dispatcher = this.getAgentDispatcher();
+    let dispatcher: AgentToolDispatcher;
+    try {
+      dispatcher = this.getAgentDispatcher();
+    } catch (err) {
+      return this.buildSdkInitFailedResponse(request, name, err);
+    }
     const resp = await dispatcher.dispatch(name, request, args);
     if (resp !== null) return resp;
 
@@ -317,10 +330,26 @@ export class StdioMcpServerService {
    * Lazy access to the agent dispatcher. `PtahAPIBuilder.build()` walks 15
    * namespaces; deferring it until the first `tools/call` keeps the
    * handshake cheap and lets `tools/list` answer mid-bootstrap.
+   *
+   * A throw from `apiBuilder.build()` is cached on
+   * {@link sdkInitError} — subsequent calls re-throw the same Error without
+   * re-invoking the failing builder. The caller converts the throw into an
+   * MCP `result.isError: true` envelope; see
+   * {@link buildSdkInitFailedResponse}.
    */
   private getAgentDispatcher(): AgentToolDispatcher {
+    if (this.sdkInitError !== null) {
+      throw this.sdkInitError;
+    }
     if (this.agentDispatcher === null) {
-      const ptahAPI: PtahAPI = this.apiBuilder.build();
+      let ptahAPI: PtahAPI;
+      try {
+        ptahAPI = this.apiBuilder.build();
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.sdkInitError = error;
+        throw error;
+      }
       const callerSessionId =
         typeof process !== 'undefined'
           ? process.env?.['PTAH_MCP_HOST_SESSION_ID']
@@ -332,6 +361,44 @@ export class StdioMcpServerService {
       );
     }
     return this.agentDispatcher;
+  }
+
+  /**
+   * Build the MCP `result.isError: true` envelope used when
+   * `PtahAPIBuilder.build()` throws on first `tools/call`. The envelope
+   * carries `structuredContent.ptah_code === 'sdk_init_failed'` so external
+   * hosts can route on the Ptah error taxonomy instead of receiving a raw
+   * JSON-RPC -32603 InternalError (which `JsonRpcServer.dispatchRequest`
+   * would otherwise collapse the throw into).
+   */
+  private buildSdkInitFailedResponse(
+    request: MCPRequest,
+    tool: string,
+    err: unknown,
+  ): MCPResponse {
+    const message = err instanceof Error ? err.message : String(err);
+    this.logger.error('[StdioMcpServer] SDK init failed on first tools/call', {
+      tool,
+      error: message,
+    });
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: `Ptah SDK failed to initialize: ${message}. Run \`ptah doctor\` to diagnose.`,
+          },
+        ],
+        isError: true,
+        structuredContent: {
+          ptah_code: 'sdk_init_failed',
+          tool,
+          error: message,
+        },
+      },
+    };
   }
 }
 

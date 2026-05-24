@@ -479,6 +479,112 @@ describe('StdioMcpServerService', () => {
     });
   });
 
+  describe('SDK init failure envelope', () => {
+    it('first tools/call returns sdk_init_failed envelope when apiBuilder.build() throws', async () => {
+      const buildFn = jest.fn(() => {
+        throw new Error('boom: anthropic credential missing');
+      });
+      const builder = { build: buildFn } as unknown as PtahAPIBuilder;
+      const svc = new StdioMcpServerService(
+        makeLogger(),
+        builder,
+        makeAllowGate(),
+      );
+      const resp = await svc.handleToolsCall(
+        makeRequest({
+          params: {
+            name: 'agent_spawn',
+            arguments: { task: 'echo hi', cli: 'gemini' },
+          },
+        }),
+      );
+      expect(resp.error).toBeUndefined();
+      const result = resp.result as {
+        isError: boolean;
+        content: { type: string; text: string }[];
+        structuredContent: { ptah_code: string; tool: string; error: string };
+      };
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.ptah_code).toBe('sdk_init_failed');
+      expect(result.structuredContent.tool).toBe('agent_spawn');
+      expect(result.structuredContent.error).toContain(
+        'anthropic credential missing',
+      );
+      expect(result.content[0].text).toContain('Ptah SDK failed to initialize');
+      expect(result.content[0].text).toContain('ptah doctor');
+      expect(buildFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('subsequent tools/call returns sdk_init_failed envelope without re-invoking apiBuilder.build()', async () => {
+      const buildFn = jest.fn(() => {
+        throw new Error('boom');
+      });
+      const builder = { build: buildFn } as unknown as PtahAPIBuilder;
+      const svc = new StdioMcpServerService(
+        makeLogger(),
+        builder,
+        makeAllowGate(),
+      );
+      const first = await svc.handleToolsCall(
+        makeRequest({
+          params: {
+            name: 'agent_spawn',
+            arguments: { task: 'echo hi', cli: 'gemini' },
+          },
+        }),
+      );
+      const second = await svc.handleToolsCall(
+        makeRequest({
+          params: { name: 'agent_list', arguments: {} },
+        }),
+      );
+      // Builder ran once; cached failure short-circuits the second call.
+      expect(buildFn).toHaveBeenCalledTimes(1);
+      const r1 = first.result as {
+        isError: boolean;
+        structuredContent: { ptah_code: string };
+      };
+      const r2 = second.result as {
+        isError: boolean;
+        structuredContent: { ptah_code: string };
+      };
+      expect(r1.structuredContent.ptah_code).toBe('sdk_init_failed');
+      expect(r2.structuredContent.ptah_code).toBe('sdk_init_failed');
+    });
+
+    it('session_submit dispatch is unaffected by SDK-init failure (does not use agent dispatcher)', async () => {
+      const buildFn = jest.fn(() => {
+        throw new Error('boom');
+      });
+      const builder = { build: buildFn } as unknown as PtahAPIBuilder;
+      const svc = new StdioMcpServerService(
+        makeLogger(),
+        builder,
+        makeAllowGate(),
+      );
+      const handler: jest.Mocked<ISessionSubmitHandler> = {
+        dispatch: jest.fn().mockResolvedValue({
+          jsonrpc: '2.0',
+          id: 1,
+          result: {
+            content: [{ type: 'text', text: 'done' }],
+            structuredContent: { tabId: 't-1' },
+          },
+        }),
+        cancel: jest.fn().mockResolvedValue(undefined),
+      };
+      svc.setSessionSubmitHandler(handler);
+      await svc.handleToolsCall(
+        makeRequest({
+          params: { name: 'session_submit', arguments: { task: 'go' } },
+        }),
+      );
+      // session_submit routes via the handler, not the agent dispatcher.
+      expect(handler.dispatch).toHaveBeenCalledTimes(1);
+      expect(buildFn).not.toHaveBeenCalled();
+    });
+  });
+
   describe('license gate denial routing', () => {
     function makeDenyGate(
       reason: 'license_required' | 'pro_tier_required',
