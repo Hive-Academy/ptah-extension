@@ -45,6 +45,7 @@ import type { GlobalOptions } from '../router.js';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   buildMcpMvpTools,
+  MCP_PROTOCOL_VERSION,
   registerMcpStdioServices,
   STDIO_MCP_SERVER_TOKEN,
   StdioTransport,
@@ -190,7 +191,7 @@ export async function execute(
       return (resp.result ?? null) as unknown;
     }
     return {
-      protocolVersion: '2024-11-05',
+      protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: { tools: {} },
       serverInfo,
     };
