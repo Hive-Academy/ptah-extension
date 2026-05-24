@@ -30,17 +30,16 @@ import type {
 import {
   PtahAPIBuilder,
   IDE_CAPABILITIES_TOKEN,
-} from './ptah-api-builder.service';
-import { type IIDECapabilities } from './namespace-builders';
-import { PermissionPromptService } from '../permission/permission-prompt.service';
-import { PtahAPI } from './types';
+} from '../ptah-api-builder.service';
+import { type IIDECapabilities } from '../namespace-builders';
+import { PermissionPromptService } from '../../permission/permission-prompt.service';
+import { PtahAPI } from '../types';
+import { handleMCPRequest, type ToolResultCallback } from '../mcp-core';
 import {
   startHttpServer,
   stopHttpServer,
   getConfiguredPort,
-  handleMCPRequest,
-  type ToolResultCallback,
-} from './mcp-handlers';
+} from './http-server.handler';
 
 @injectable()
 export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {

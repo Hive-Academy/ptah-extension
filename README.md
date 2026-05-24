@@ -24,6 +24,10 @@ Spawn multiple AI agents as headless background workers. The primary agent deleg
 
 14 API namespaces give AI agents structured access to workspace analysis, LSP diagnostics, AST parsing, file search, dependency graphs, and editor state — all in a single tool call.
 
+### Stdio MCP Server (`ptah mcp-serve`)
+
+Drive Ptah from any MCP-compliant host over stdio. External orchestrators can spawn agents, monitor and steer them, and delegate whole tasks to the Team Leader harness via the `session_submit` tool — no bespoke integration required.
+
 ### Setup Wizard
 
 Automated 6-step workspace scanning: detects project type, frameworks, and dependencies across 13+ project types. Generates project-specific agent configurations and rules.

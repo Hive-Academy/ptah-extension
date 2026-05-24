@@ -27,7 +27,7 @@ export interface CodeExecutionDependencies {
 export async function executeCode(
   code: string,
   timeout: number,
-  deps: CodeExecutionDependencies
+  deps: CodeExecutionDependencies,
 ): Promise<unknown> {
   const { ptahAPI, logger } = deps;
 
@@ -35,9 +35,7 @@ export async function executeCode(
     codePreview: code.substring(0, 100),
   });
 
-  const AsyncFunction = Object.getPrototypeOf(
-    async function () {}
-  ).constructor;
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
   const wrappedCode = wrapCodeForExecution(code);
 
@@ -59,7 +57,7 @@ export async function executeCode(
     `
     'use strict';
     ${wrappedCode}
-  `
+  `,
   ) as (
     ptah: PtahAPI,
     console: Console,
@@ -69,14 +67,14 @@ export async function executeCode(
     globalThis: undefined,
     Buffer: undefined,
     __dirname: undefined,
-    __filename: undefined
+    __filename: undefined,
   ) => Promise<unknown>;
   const validatedAPI = createValidatedProxy(ptahAPI);
   const sandboxConsole = console;
   const sandboxRequire = ((moduleName: string) => {
     throw new Error(
       `require('${moduleName}') is not available in the Ptah sandbox. ` +
-        `Use ptah.* APIs instead. For example: ptah.files.read(path), ptah.search.findFiles(pattern), ptah.workspace.analyze()`
+        `Use ptah.* APIs instead. For example: ptah.files.read(path), ptah.search.findFiles(pattern), ptah.workspace.analyze()`,
     );
   }) as unknown as NodeRequire;
   let executionPromise = asyncFunction(
@@ -88,7 +86,7 @@ export async function executeCode(
     undefined,
     undefined,
     undefined,
-    undefined
+    undefined,
   );
   executionPromise = executionPromise.then(async (result: unknown) => {
     let unwrapped = result;
@@ -107,7 +105,7 @@ export async function executeCode(
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(
       () => reject(new Error(`Execution timeout (${timeout}ms)`)),
-      timeout
+      timeout,
     );
   });
 
@@ -122,7 +120,7 @@ export async function executeCode(
   } catch (error) {
     logger.error(
       'Code execution failed',
-      error instanceof Error ? error : new Error(String(error))
+      error instanceof Error ? error : new Error(String(error)),
     );
     throw error;
   }
@@ -190,14 +188,14 @@ function createValidatedProxy(ptahAPI: PtahAPI): PtahAPI {
   for (const [ns, value] of Object.entries(ptahAPI)) {
     if (typeof value === 'object' && value !== null) {
       const methods = Object.keys(value).filter(
-        (k) => typeof (value as Record<string, unknown>)[k] === 'function'
+        (k) => typeof (value as Record<string, unknown>)[k] === 'function',
       );
       const subNamespaces: string[] = [];
       for (const [subNs, subValue] of Object.entries(value)) {
         if (typeof subValue === 'object' && subValue !== null) {
           const subMethods = Object.keys(subValue).filter(
             (k) =>
-              typeof (subValue as Record<string, unknown>)[k] === 'function'
+              typeof (subValue as Record<string, unknown>)[k] === 'function',
           );
           if (subMethods.length > 0) {
             registry.set(`${ns}.${subNs}`, subMethods);
@@ -221,7 +219,7 @@ function createValidatedProxy(ptahAPI: PtahAPI): PtahAPI {
       if (value === undefined) {
         const available = Array.from(registry.keys()).join(', ');
         throw new TypeError(
-          `"ptah.${propStr}" namespace does not exist. Available namespaces: ${available}`
+          `"ptah.${propStr}" namespace does not exist. Available namespaces: ${available}`,
         );
       }
 
@@ -229,7 +227,7 @@ function createValidatedProxy(ptahAPI: PtahAPI): PtahAPI {
         return createNamespaceProxy(
           value as Record<string, unknown>,
           propStr,
-          registry
+          registry,
         );
       }
       return value;
@@ -244,7 +242,7 @@ function createValidatedProxy(ptahAPI: PtahAPI): PtahAPI {
 function createNamespaceProxy(
   ns: Record<string, unknown>,
   nsName: string,
-  registry: Map<string, string[]>
+  registry: Map<string, string[]>,
 ): unknown {
   return new Proxy(ns, {
     get(target, prop: string | symbol) {
@@ -258,7 +256,7 @@ function createNamespaceProxy(
         const methods = registry.get(nsName) || Object.keys(target);
         throw new TypeError(
           `"ptah.${nsName}.${propStr}" is not available. ` +
-            `Available on ptah.${nsName}: ${methods.join(', ')}`
+            `Available on ptah.${nsName}: ${methods.join(', ')}`,
         );
       }
       if (
@@ -270,7 +268,7 @@ function createNamespaceProxy(
         return createNamespaceProxy(
           value as Record<string, unknown>,
           `${nsName}.${propStr}`,
-          registry
+          registry,
         );
       }
       return value;

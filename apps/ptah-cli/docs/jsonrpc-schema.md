@@ -47,7 +47,7 @@ Notifications carry no `id` and require no response. Each `params` includes a ba
 
 | Method                | Trigger                                            | Key params                                                                                         |
 | --------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `session.ready`       | `interact` startup post-DI, post-bridge attach     | `{ session_id, version, capabilities: string[], protocol_version: '2.0' }`                         |
+| `session.ready`       | `interact` startup post-DI, post-bridge attach     | `{ session_id, version, schema_version, capabilities: string[], protocol_version: '2.0' }`         |
 | `session.created`     | `session start` succeeded                          | `{ session_id, profile?, cwd, created_at }`                                                        |
 | `session.list`        | `session list` result                              | `{ entries: Array<{ id, name?, profile?, cwd, last_active, status }> }`                            |
 | `session.history`     | `session load` / inbound `session.history` request | `{ session_id, messages: Array<{ role, text, timestamp, tool_calls?, cost? }> }`                   |
@@ -63,8 +63,10 @@ Notifications carry no `id` and require no response. Each `params` includes a ba
 Example:
 
 ```json
-{ "jsonrpc": "2.0", "method": "session.ready", "params": { "session_id": "tab-abc", "version": "0.1.0", "capabilities": ["chat", "session", "permission", "question"], "protocol_version": "2.0" } }
+{ "jsonrpc": "2.0", "method": "session.ready", "params": { "session_id": "tab-abc", "version": "0.1.5", "schema_version": "0.1", "capabilities": ["chat", "session", "permission", "question"], "protocol_version": "2.0" } }
 ```
+
+> `schema_version` (added 2026-05) advertises the Ptah JSON-RPC schema version (see `JSONRPC_SCHEMA_VERSION` in `apps/ptah-cli/src/cli/jsonrpc/types.ts`). The field is **additive** — clients written against the pre-`schema_version` shape continue to work unchanged. Hosts that pin a specific schema version should match against this field. The CLI bumps it only on breaking wire changes; all Phase-5 additions (this field, `session.describe`, `session.methods`) are backward-compatible at `0.1`.
 
 ### 1.2 Agent execution (`agent.*`)
 
@@ -344,19 +346,33 @@ Client reply:
 { "jsonrpc": "2.0", "id": "req-7", "result": { "decision": "allow", "scope": "session" } }
 ```
 
+### 2.4 Outbound request timeouts
+
+The CLI waits a bounded amount of time for the client's response. After the timeout, the CLI takes the documented fallback action and continues. Timeouts are advisory — clients are still expected to reply, but the CLI never blocks indefinitely.
+
+| Outbound method      | Timeout         | On timeout                                                                                                       |
+| -------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `permission.request` | 300 000 ms (5m) | Exit code `3` (`auth_required`) — see `apps/ptah-cli/CLAUDE.md` line 52. Set `PTAH_AUTO_APPROVE=true` to bypass. |
+| `question.ask`       | 300 000 ms (5m) | Exit code `3` (`auth_required`). Same `PTAH_AUTO_APPROVE` opt-out applies.                                       |
+| `oauth.url.open`     | 30 000 ms (30s) | Log warning + fall back to opening the URL via the structured stderr formatter; the CLI continues running.       |
+
+The five-minute permission/question timeout matches the approval-gated request budget documented in the CLI guidelines (`apps/ptah-cli/CLAUDE.md`). The thirty-second OAuth timeout reflects the local-only nature of the URL handoff — if the client cannot dispatch the URL quickly, the CLI surfaces it on stderr so the user can copy it manually.
+
 ## 3. Inbound requests (client → CLI, in `interact` mode)
 
 Wired by `apps/ptah-cli/src/cli/commands/interact.ts` after `session.ready` is emitted.
 
-| Method                | Behavior                                                                                                                                                                                             | Params                                                                                           | Result                                                                                       |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `task.submit`         | Submit a new turn (or first turn — `chat:start` for the first turn, `chat:continue` thereafter). Only ONE turn may be in flight; concurrent submit returns `-32603 'turn already in flight'`.        | `{ task: string, cwd?: string, profile?: 'claude_code'\|'enhanced' }`                            | `{ turn_id: string, complete: bool, cancelled?: bool, error?: string, session_id?: string }` |
-| `task.cancel`         | Cancel an in-flight turn (races the in-flight `runTurn` with `chat:abort` via an `AbortController`). Idempotent — non-matching `turn_id` returns `{ cancelled: false, reason: 'no matching turn' }`. | `{ turn_id: string }`                                                                            | `{ cancelled: bool, turn_id?: string, reason?: string }`                                     |
-| `session.shutdown`    | Graceful shutdown. CLI responds immediately, then drains (≤ 5s) and exits 0.                                                                                                                         | `{}`                                                                                             | `{ shutdown: true }`                                                                         |
-| `session.history`     | Retrieve full conversation history; proxies `session:load`.                                                                                                                                          | `{ limit?: number }`                                                                             | `{ messages: unknown[], session_id: string }`                                                |
-| `permission.response` | Reply to a `permission.request` (handled by `ApprovalBridge`). Fire-and-forget — no response.                                                                                                        | `{ id: string\|number, decision: 'allow'\|'deny'\|'always_allow', scope?: 'session'\|'global' }` | (no response)                                                                                |
-| `question.response`   | Reply to a `question.ask` (handled by `ApprovalBridge`). Fire-and-forget — no response.                                                                                                              | `{ id: string\|number, answer: string, custom?: bool }`                                          | (no response)                                                                                |
-| `proxy.shutdown`      | Close the embedded Anthropic-compatible HTTP proxy gracefully. Only registered when `ptah proxy start` is launched inside `ptah interact`. Idempotent — second call returns `{ stopped: false }`.    | `{}`                                                                                             | `{ stopped: bool, port?: number, reason?: string }`                                          |
+| Method                | Behavior                                                                                                                                                                                                                                                                                                                                                                          | Params                                                                                           | Result                                                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `task.submit`         | Submit a new turn (or first turn — `chat:start` for the first turn, `chat:continue` thereafter). Only ONE turn may be in flight; concurrent submit returns `-32603 'turn already in flight'`.                                                                                                                                                                                     | `{ task: string, cwd?: string, profile?: 'claude_code'\|'enhanced' }`                            | `{ turn_id: string, complete: bool, cancelled?: bool, error?: string, session_id?: string }` |
+| `task.cancel`         | Cancel an in-flight turn (races the in-flight `runTurn` with `chat:abort` via an `AbortController`). Idempotent — non-matching `turn_id` returns `{ cancelled: false, reason: 'no matching turn' }`.                                                                                                                                                                              | `{ turn_id: string }`                                                                            | `{ cancelled: bool, turn_id?: string, reason?: string }`                                     |
+| `session.shutdown`    | Graceful shutdown. CLI responds immediately, then drains (≤ 5s) and exits 0.                                                                                                                                                                                                                                                                                                      | `{}`                                                                                             | `{ shutdown: true }`                                                                         |
+| `session.history`     | Retrieve full conversation history; proxies `session:load`.                                                                                                                                                                                                                                                                                                                       | `{ limit?: number }`                                                                             | `{ messages: unknown[], session_id: string }`                                                |
+| `permission.response` | Reply to a `permission.request` (handled by `ApprovalBridge`). Fire-and-forget — no response.                                                                                                                                                                                                                                                                                     | `{ id: string\|number, decision: 'allow'\|'deny'\|'always_allow', scope?: 'session'\|'global' }` | (no response)                                                                                |
+| `question.response`   | Reply to a `question.ask` (handled by `ApprovalBridge`). Fire-and-forget — no response.                                                                                                                                                                                                                                                                                           | `{ id: string\|number, answer: string, custom?: bool }`                                          | (no response)                                                                                |
+| `proxy.shutdown`      | Close the embedded Anthropic-compatible HTTP proxy gracefully. Only registered when `ptah proxy start` is launched inside `ptah interact`. Idempotent — second call returns `{ stopped: false }`.                                                                                                                                                                                 | `{}`                                                                                             | `{ stopped: bool, port?: number, reason?: string }`                                          |
+| `session.describe`    | Introspect the live wire surface. Returns `serverName`, `version`, `schemaVersion`, `mode` (`'interact'` \| `'mcp-serve'`), the registered method list, the MCP tool catalog (empty in `interact`, 7 entries in `mcp-serve`), `errorCodes` (every `PtahErrorCode` value), and the capabilities advertised at `session.ready`. Available in BOTH `interact` and `mcp-serve` modes. | `{}`                                                                                             | `SessionDescribeResult` (see `libs/shared/src/lib/types/rpc/rpc-session.types.ts`)           |
+| `session.methods`     | Lightweight introspection — returns just `{ methods: string[] }` matching `JsonRpcServer.getRegisteredMethods()`. Available in BOTH `interact` and `mcp-serve` modes.                                                                                                                                                                                                             | `{}`                                                                                             | `{ methods: string[] }`                                                                      |
 
 Example — submit a turn:
 
@@ -368,6 +384,42 @@ CLI reply (after streaming intermediate notifications):
 
 ```json
 { "jsonrpc": "2.0", "id": "sub-1", "result": { "turn_id": "turn-abc", "complete": true } }
+```
+
+Example — describe the live surface (in `interact` mode):
+
+```json
+{ "jsonrpc": "2.0", "id": "desc-1", "method": "session.describe" }
+```
+
+CLI reply:
+
+```json
+{ "jsonrpc": "2.0", "id": "desc-1", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.1", "mode": "interact", "catalog": { "methods": ["task.submit", "task.cancel", "session.shutdown", "session.history", "rpc.call", "session.describe", "session.methods"], "tools": [] }, "errorCodes": ["db_lock", "provider_unavailable", "auth_required", "rate_limited", "license_required", "unknown", "internal_failure", "cli_agent_unavailable", "sdk_init_failed", "workspace_missing", "proxy_bind_failed", "proxy_invalid_request", "permission_gate_unavailable", "claude_cli_not_found", "mcp_handshake_failed", "mcp_tool_not_found", "mcp_invalid_tool_args", "mcp_tool_denied"], "capabilities": ["chat", "session", "permission", "question"] } }
+```
+
+Example — describe in `mcp-serve` mode (catalog includes the 7 MCP tools):
+
+```json
+{ "jsonrpc": "2.0", "id": "desc-2", "method": "session.describe" }
+```
+
+CLI reply (abbreviated):
+
+```json
+{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.1", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_steer", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
+```
+
+Example — methods-only introspection:
+
+```json
+{ "jsonrpc": "2.0", "id": "m-1", "method": "session.methods" }
+```
+
+CLI reply:
+
+```json
+{ "jsonrpc": "2.0", "id": "m-1", "result": { "methods": ["task.submit", "task.cancel", "session.shutdown", "session.history", "rpc.call", "session.describe", "session.methods"] } }
 ```
 
 ## 4. Errors (CLI → client, written to stderr)

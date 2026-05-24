@@ -53,6 +53,7 @@ import { StdinReader } from '../io/stdin-reader.js';
 import { StdoutWriter } from '../io/stdout-writer.js';
 import { ChatBridge } from '../session/chat-bridge.js';
 import { ApprovalBridge } from '../session/approval-bridge.js';
+import { buildSessionDescribe } from '../session/session-describe.builder.js';
 import { ExitCode, JSONRPC_SCHEMA_VERSION } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import {
@@ -400,6 +401,7 @@ export async function execute(
       await server.notify('session.ready', {
         session_id: tabId,
         version,
+        schema_version: JSONRPC_SCHEMA_VERSION,
         capabilities: ['chat', 'session', 'permission', 'question'],
         protocol_version: '2.0',
       });
@@ -564,6 +566,20 @@ export async function execute(
           return out;
         },
       );
+
+      server.register('session.describe', async () =>
+        buildSessionDescribe({
+          mode: 'interact',
+          version,
+          schemaVersion: JSONRPC_SCHEMA_VERSION,
+          methods: server.getRegisteredMethods(),
+        }),
+      );
+
+      server.register('session.methods', async () => ({
+        methods: server.getRegisteredMethods(),
+      }));
+
       const exitCode = await drainPromise;
       await drainWithTimeout(async () => {
         stdinSource.off('end', onStdinEnd);

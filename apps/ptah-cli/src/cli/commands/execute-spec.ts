@@ -18,6 +18,14 @@ import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import { executeSessionStart } from './session.js';
+import { buildTeamLeaderPrompt } from './team-leader-prompt.js';
+
+/**
+ * Re-export the shared Team Leader prompt builder so existing call sites
+ * (`session_submit` MCP tool, future Team Leader consumers) can import it
+ * from a single canonical module.
+ */
+export { buildTeamLeaderPrompt };
 
 export interface ExecuteSpecOptions {
   /** Task spec id (e.g. `TASK_2026_104`). Required. */
@@ -30,37 +38,6 @@ export interface ExecuteSpecHooks {
   readFile?: (p: string) => Promise<string>;
   /** Override hook for tests — defaults to delegating into B10c. */
   executeSessionStart?: typeof executeSessionStart;
-}
-
-/**
- * Build the Team Leader execution prompt. Single template literal — kept
- * minimal because the Team Leader sub-agent has its own system prompt that
- * already understands batch coordination. The interpolated task-description
- * + implementation-plan provide the per-task context.
- *
- * NOTE: a search of the codebase (B10_EXPANSION § B10d guidance) for
- * `team_leader` / `team-leader-prompt` / `teamLeaderPrompt` and the Electron
- * `wizard:run` flow returned no canonical Ptah-side template, so this
- * inline template is authored fresh per the spec's fallback path.
- */
-export function buildTeamLeaderPrompt(
-  specId: string,
-  taskDescription: string,
-  implementationPlan: string,
-): string {
-  return [
-    'You are coordinating execution of a pre-planned task.',
-    '',
-    `Task ID: ${specId}`,
-    '',
-    '## Task description',
-    taskDescription,
-    '',
-    '## Implementation plan',
-    implementationPlan,
-    '',
-    'Execute the plan. Coordinate sub-agents per the implementation-plan batch breakdown. After each batch, run the validation gates (typecheck, test, lint, build) for the affected workspaces. Report progress before each batch and verification results after each batch. Halt and surface any blocker rather than improvising.',
-  ].join('\n');
 }
 
 /**

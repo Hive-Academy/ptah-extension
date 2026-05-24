@@ -61,22 +61,25 @@ jest.mock('@ptah-extension/vscode-core', () => ({
 // transitively loads workspace-intelligence + agent-sdk which in turn pull in
 // the `vscode` ambient module.  We only need the IDE_CAPABILITIES_TOKEN
 // Symbol (read by the SUT constructor) and the class as a type.
-jest.mock('./ptah-api-builder.service', () => ({
+jest.mock('../ptah-api-builder.service', () => ({
   IDE_CAPABILITIES_TOKEN: Symbol.for('IDECapabilities'),
   PtahAPIBuilder: class PtahAPIBuilderStub {},
 }));
 
 // Replace the permission-prompt service for the same reason: it transitively
 // pulls in webview/agent-sdk types we don't want to load here.
-jest.mock('../permission/permission-prompt.service', () => ({
+jest.mock('../../permission/permission-prompt.service', () => ({
   PermissionPromptService: class PermissionPromptServiceStub {},
 }));
 
-jest.mock('./mcp-handlers', () => ({
+jest.mock('../mcp-core', () => ({
+  handleMCPRequest: jest.fn(),
+}));
+
+jest.mock('./http-server.handler', () => ({
   startHttpServer: jest.fn(),
   stopHttpServer: jest.fn(),
   getConfiguredPort: jest.fn(),
-  handleMCPRequest: jest.fn(),
 }));
 
 jest.mock('fs', () => ({
@@ -104,17 +107,17 @@ import {
 } from '@ptah-extension/shared/testing';
 
 // Import AFTER jest.mock so the SUT receives the mocked module.
-import { CodeExecutionMCP } from './code-execution-mcp.service';
-import { IDE_CAPABILITIES_TOKEN } from './ptah-api-builder.service';
-import type { PtahAPIBuilder } from './ptah-api-builder.service';
-import type { PermissionPromptService } from '../permission/permission-prompt.service';
-import type { PtahAPI, MCPRequest, MCPResponse } from './types';
+import { CodeExecutionMCP } from './http-mcp-server.service';
+import { IDE_CAPABILITIES_TOKEN } from '../ptah-api-builder.service';
+import type { PtahAPIBuilder } from '../ptah-api-builder.service';
+import type { PermissionPromptService } from '../../permission/permission-prompt.service';
+import type { PtahAPI, MCPRequest, MCPResponse } from '../types';
+import { handleMCPRequest as handleMCPRequestMock } from '../mcp-core';
 import {
   startHttpServer as startHttpServerMock,
   stopHttpServer as stopHttpServerMock,
   getConfiguredPort as getConfiguredPortMock,
-  handleMCPRequest as handleMCPRequestMock,
-} from './mcp-handlers';
+} from './http-server.handler';
 
 // ---- Local test helpers --------------------------------------------------
 

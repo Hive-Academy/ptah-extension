@@ -83,6 +83,17 @@ export class JsonRpcServer {
     this.handlers.delete(method);
   }
 
+  /**
+   * Snapshot the wire-method names currently accepted by this server.
+   *
+   * Used by introspection helpers (`session.methods`, `session.describe`) so
+   * external callers can discover the live method surface without depending
+   * on a compile-time enum. Order matches insertion order of `Map`.
+   */
+  getRegisteredMethods(): readonly string[] {
+    return Array.from(this.handlers.keys());
+  }
+
   /** Attach the server to a reader + writer pair. */
   start(reader: StdinReader, writer: StdoutWriter): void {
     if (this.running) {

@@ -57,6 +57,7 @@ All commands accept the [global flags](#global-flags). Most commands emit JSON-R
 | `run --task <text>`           | DEPRECATED alias for `session start --task`. Emits a stderr deprecation notice. |
 | `execute-spec --id <task-id>` | Execute a stored spec via the Team Leader agent.                                |
 | `interact`                    | Persistent bidirectional JSON-RPC 2.0 stdio session.                            |
+| `mcp-serve`                   | Serve Ptah as a stdio Model Context Protocol server for external hosts.         |
 
 ### `session *` — chat sessions
 
@@ -259,6 +260,45 @@ All commands accept the [global flags](#global-flags). Most commands emit JSON-R
 | `wizard cancel <session-id>`  | —                          | Cancel an in-flight wizard session. Idempotent.                                            |
 | `wizard retry-item <item-id>` | —                          | Retry a single failed generation item.                                                     |
 | `wizard status`               | —                          | Emit `wizard.status` with the last completed setup phase.                                  |
+
+### `mcp-serve` — stdio Model Context Protocol server
+
+| Flag                  | Description                                                               |
+| --------------------- | ------------------------------------------------------------------------- |
+| `--allow-tools <csv>` | Comma-separated tool allowlist override. Defaults to the full 7-tool MVP. |
+
+`ptah mcp-serve` exposes Ptah as a stdio MCP server so external
+MCP-compliant hosts can drive Ptah's agent-spawn surface and the
+`session_submit` Team Leader harness without bespoke integration. The
+wire framing matches `ptah interact` (NDJSON JSON-RPC 2.0); the method
+namespace is the MCP standard (`initialize`, `tools/list`, `tools/call`,
+`notifications/cancelled`). Boot/teardown messages go to stderr with
+the `[ptah-mcp]` prefix; stdout is reserved for the MCP wire.
+
+Typical `.mcp.json` entry for an external host:
+
+```json
+{
+  "mcpServers": {
+    "ptah": {
+      "command": "npx",
+      "args": ["-y", "@hive-academy/ptah-cli", "mcp-serve", "--auto-approve"],
+      "cwd": "/path/to/your/project"
+    }
+  }
+}
+```
+
+`--auto-approve` (the global flag) is recommended because external MCP
+hosts have no UI surface to render Ptah's permission prompts; without
+it, any approval-gated `tools/call` will hang for 5 minutes and exit
+`3` (`auth_required`).
+
+Full reference — MVP tool catalog, premium-gate behavior, cost
+attribution, cancellation/drain semantics, and troubleshooting — lives
+in the `ptah-cli-usage` skill, section 16 ("MCP-serve — Drive Ptah
+from external agents") at
+`apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-cli-usage/SKILL.md`.
 
 ## Global flags
 

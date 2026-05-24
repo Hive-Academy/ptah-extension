@@ -197,11 +197,7 @@ describe('executeCode', () => {
 
   it('rejects when require() is called in the sandbox', async () => {
     await expect(
-      executeCode(
-        '(async function() { return require("fs"); })()',
-        5000,
-        deps,
-      ),
+      executeCode('(async function() { return require("fs"); })()', 5000, deps),
     ).rejects.toThrow(/require\('fs'\) is not available/);
   });
 
@@ -235,11 +231,7 @@ describe('executeCode', () => {
   });
 
   it('logs successful execution with result type', async () => {
-    await executeCode(
-      '(async function() { return "done"; })()',
-      5000,
-      deps,
-    );
+    await executeCode('(async function() { return "done"; })()', 5000, deps);
     expect(logger.info).toHaveBeenCalledWith(
       'Code execution successful',
       'CodeExecutionMCP',

@@ -8,14 +8,45 @@ export {
   IDE_CAPABILITIES_TOKEN,
   BROWSER_CAPABILITIES_TOKEN,
 } from './lib/code-execution/ptah-api-builder.service';
-export { CodeExecutionMCP } from './lib/code-execution/code-execution-mcp.service';
+export { CodeExecutionMCP } from './lib/code-execution/mcp-http/http-mcp-server.service';
 export type {
   PtahAPI,
   BrowserRecordStartResult,
   BrowserRecordStopResult,
 } from './lib/code-execution/types';
 export type { IIDECapabilities } from './lib/code-execution/namespace-builders/ide-namespace.builder';
-export type { ToolResultCallback } from './lib/code-execution/mcp-handlers';
+export type {
+  ToolResultCallback,
+  MCPRequest,
+  MCPResponse,
+  MCPError,
+  MCPNotification,
+  MCPToolDefinition,
+} from './lib/code-execution/mcp-core';
+export {
+  StdioTransport,
+  StdioMcpServerService,
+  createStdioMcpServer,
+  MCP_PROTOCOL_VERSION,
+  MCP_MVP_TOOL_NAMES,
+  buildMcpMvpTools,
+  registerMcpStdioServices,
+  STDIO_MCP_SERVER_TOKEN,
+  MCP_LICENSE_GATE_TOKEN,
+  AgentToolDispatcher,
+  McpLicenseGate,
+  PRO_ONLY_MCP_TOOLS,
+  PTAH_PRICING_URL,
+  type McpStdioNotifier,
+  type StdioMcpServerConfig,
+  type StdioMcpServerInfo,
+  type McpMvpToolName,
+  type ISessionSubmitHandler,
+  type SessionSubmitCancellation,
+  type GateResult,
+  type ProGate,
+  type ProGatePredicate,
+} from './lib/code-execution/mcp-stdio';
 export {
   PTAH_SYSTEM_PROMPT,
   PTAH_SYSTEM_PROMPT_TOKENS,

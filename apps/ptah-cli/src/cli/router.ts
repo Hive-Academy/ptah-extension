@@ -20,6 +20,7 @@ import * as harnessCmd from './commands/harness.js';
 import * as interactCmd from './commands/interact.js';
 import * as licenseCmd from './commands/license.js';
 import * as mcpCmd from './commands/mcp.js';
+import * as mcpServeCmd from './commands/mcp-serve.js';
 import * as pluginCmd from './commands/plugin.js';
 import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
@@ -2311,6 +2312,25 @@ export function buildRouter(): Command {
         process.exitCode = exit;
       },
     );
+
+  // -- ptah mcp-serve --------------------------------------------------------
+  program
+    .command('mcp-serve')
+    .description(
+      'serve Ptah as a stdio Model Context Protocol server for external hosts',
+    )
+    .option(
+      '--allow-tools <list>',
+      'comma-separated tool allowlist override (defaults to the 7 MVP tools)',
+      collectCsv,
+    )
+    .action(async (opts: { allowTools?: string[] }) => {
+      const exit = await mcpServeCmd.execute(
+        opts.allowTools !== undefined ? { allowTools: opts.allowTools } : {},
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
 
   return program;
 }

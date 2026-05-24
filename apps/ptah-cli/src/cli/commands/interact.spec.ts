@@ -321,6 +321,114 @@ describe('ptah interact', () => {
       h.stdin.end();
       await promise;
     });
+
+    it('advertises schema_version in session.ready (additive, backward-compatible)', async () => {
+      const h = makeHarness();
+      const promise = execute({}, baseGlobals, h.hooks);
+      await flushAsync();
+
+      const [first] = await h.waitForLines(1);
+      const decoded = decodeMessage(first);
+      if (!decoded.ok || !isJsonRpcNotification(decoded.message)) {
+        throw new Error('expected session.ready notification');
+      }
+      const params = decoded.message.params as Record<string, unknown>;
+      expect(params['schema_version']).toBe('0.1');
+      // Pre-existing fields remain untouched.
+      expect(params['session_id']).toBeDefined();
+      expect(params['protocol_version']).toBe('2.0');
+      expect(params['capabilities']).toBeDefined();
+
+      h.stdin.end();
+      await promise;
+    });
+  });
+
+  describe('session.describe / session.methods introspection (Phase 5)', () => {
+    it('returns mode=interact with the registered method list and empty tools', async () => {
+      const h = makeHarness();
+      const promise = execute({}, baseGlobals, h.hooks);
+      await flushAsync();
+      await h.waitForLines(1);
+
+      h.send({ jsonrpc: '2.0', id: 'desc-1', method: 'session.describe' });
+      const resp = await h.findLine(
+        (m) =>
+          isJsonRpcSuccessResponse(m) &&
+          (m as { id: string | number }).id === 'desc-1',
+      );
+      if (!isJsonRpcSuccessResponse(resp)) throw new Error('expected success');
+      const result = resp.result as {
+        serverName: string;
+        mode: string;
+        schemaVersion: string;
+        version: string;
+        catalog: { methods: string[]; tools: unknown[] };
+        capabilities: string[];
+        errorCodes: string[];
+      };
+
+      expect(result.serverName).toBe('ptah');
+      expect(result.mode).toBe('interact');
+      expect(result.schemaVersion).toBe('0.1');
+      expect(result.version).toBeDefined();
+      expect(result.catalog.tools).toEqual([]);
+      expect(result.catalog.methods).toEqual(
+        expect.arrayContaining([
+          'task.submit',
+          'task.cancel',
+          'session.shutdown',
+          'session.history',
+          'rpc.call',
+          'session.describe',
+          'session.methods',
+        ]),
+      );
+      expect(result.capabilities).toEqual([
+        'chat',
+        'session',
+        'permission',
+        'question',
+      ]);
+      expect(result.errorCodes).toEqual(
+        expect.arrayContaining([
+          'license_required',
+          'auth_required',
+          'mcp_tool_denied',
+        ]),
+      );
+
+      h.stdin.end();
+      await promise;
+    });
+
+    it('session.methods returns the same method list as session.describe.catalog.methods', async () => {
+      const h = makeHarness();
+      const promise = execute({}, baseGlobals, h.hooks);
+      await flushAsync();
+      await h.waitForLines(1);
+
+      h.send({ jsonrpc: '2.0', id: 'm-1', method: 'session.methods' });
+      const resp = await h.findLine(
+        (m) =>
+          isJsonRpcSuccessResponse(m) &&
+          (m as { id: string | number }).id === 'm-1',
+      );
+      if (!isJsonRpcSuccessResponse(resp)) throw new Error('expected success');
+      const result = resp.result as { methods: string[] };
+
+      expect(Array.isArray(result.methods)).toBe(true);
+      expect(result.methods).toEqual(
+        expect.arrayContaining([
+          'task.submit',
+          'session.describe',
+          'session.methods',
+        ]),
+      );
+
+      h.stdin.end();
+      await promise;
+    });
   });
 
   describe('protocol error envelopes (already covered by JsonRpcServer; verify wire-through)', () => {
