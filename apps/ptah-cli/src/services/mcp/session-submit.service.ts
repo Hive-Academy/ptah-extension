@@ -60,6 +60,18 @@ const MAX_TASK_LENGTH = 100 * 1024;
  */
 const AGGREGATE_BUFFER_CAP = 1024 * 1024;
 
+/**
+ * Default per-call timeout for `session_submit`. Bounds the listener +
+ * inflight-map lifetime when `chat:start` succeeds but `chat:complete` /
+ * `chat:error` never arrives (dead SDK, lost event, hung sub-agent).
+ *
+ * 15 minutes mirrors the host-side wire-timeout guidance in Risk Register
+ * item #4 and is well under the `agent_spawn` 1-hour upper bound — long
+ * enough for legitimate Team Leader fan-out, short enough that a stuck
+ * session never lingers indefinitely.
+ */
+export const SESSION_SUBMIT_DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+
 const SessionSubmitSchema = z
   .object({
     task: z.string().min(1).max(MAX_TASK_LENGTH),
@@ -89,6 +101,21 @@ export interface SessionSubmitServiceDeps {
   readonly cwd: string;
   /** Override hook for tests. */
   readonly randomId?: () => string;
+  /**
+   * Per-call timeout in milliseconds. Defaults to
+   * {@link SESSION_SUBMIT_DEFAULT_TIMEOUT_MS}. Pass `0` to disable the
+   * timeout (used by unit tests that drive the lifecycle manually).
+   */
+  readonly timeoutMs?: number;
+  /**
+   * Override hook for tests so the timer can be driven synchronously. The
+   * default uses real `setTimeout` / `clearTimeout`.
+   */
+  readonly setTimeoutImpl?: (
+    handler: () => void,
+    ms: number,
+  ) => ReturnType<typeof setTimeout>;
+  readonly clearTimeoutImpl?: (handle: ReturnType<typeof setTimeout>) => void;
 }
 
 interface InFlightCall {
@@ -96,6 +123,8 @@ interface InFlightCall {
   readonly abort: AbortController;
   /** Resolves when the in-flight chat session settles. */
   settle: (resp: MCPResponse) => void;
+  /** Hook the service uses to clean up listeners + timers on dispose. */
+  dispose: (resp: MCPResponse) => void;
 }
 
 /**
@@ -254,6 +283,54 @@ export class SessionSubmitService implements ISessionSubmitHandler {
     }
   }
 
+  /**
+   * Abort every outstanding `session_submit` call, settle each with an
+   * `mcp_tool_failed` envelope tagged `disposed`, and clear the inflight
+   * map. Wired into the `mcp-serve` drain sequence so SIGTERM / SIGINT /
+   * stdin-EOF do not leave dangling listeners or unresolved promises.
+   */
+  disposeAll(): void {
+    if (this.inFlight.size === 0) return;
+    const tracked = Array.from(this.inFlight.entries());
+    this.deps.logger.info('[McpSessionSubmit] disposing in-flight calls', {
+      count: tracked.length,
+    });
+    for (const [requestId, call] of tracked) {
+      const resp: MCPResponse = {
+        jsonrpc: '2.0',
+        id: requestId,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: 'session_submit aborted: mcp-serve is shutting down.',
+            },
+          ],
+          isError: true,
+          structuredContent: {
+            ptah_code: 'mcp_tool_failed',
+            tool: 'session_submit',
+            tabId: call.tabId,
+            disposed: true,
+          },
+        },
+      };
+      try {
+        call.dispose(resp);
+      } catch (err) {
+        this.deps.logger.warn('[McpSessionSubmit] dispose failed', {
+          requestId,
+          error: errorMessage(err),
+        });
+      }
+    }
+  }
+
+  /** Test introspection — number of currently tracked in-flight calls. */
+  inFlightCount(): number {
+    return this.inFlight.size;
+  }
+
   private async execute(
     request: MCPRequest,
     args: SessionSubmitArgs,
@@ -281,12 +358,24 @@ export class SessionSubmitService implements ISessionSubmitHandler {
         ? (process.env?.['PTAH_MCP_HOST_SESSION_ID'] ?? null)
         : null;
 
+    const setTimer =
+      this.deps.setTimeoutImpl ??
+      ((h: () => void, ms: number) => setTimeout(h, ms));
+    const clearTimer =
+      this.deps.clearTimeoutImpl ??
+      ((h: ReturnType<typeof setTimeout>) => clearTimeout(h));
+    const timeoutMs = this.deps.timeoutMs ?? SESSION_SUBMIT_DEFAULT_TIMEOUT_MS;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
     const settlePromise = new Promise<MCPResponse>((resolve) => {
       const inflight: InFlightCall = {
         tabId,
         abort,
         settle: (resp: MCPResponse): void => {
           resolve(resp);
+        },
+        dispose: (resp: MCPResponse): void => {
+          finalize(resp);
         },
       };
       this.inFlight.set(request.id, inflight);
@@ -437,6 +526,10 @@ export class SessionSubmitService implements ISessionSubmitHandler {
       const tracked = this.inFlight.get(request.id);
       if (tracked === undefined) return;
       this.inFlight.delete(request.id);
+      if (timeoutHandle !== undefined) {
+        clearTimer(timeoutHandle);
+        timeoutHandle = undefined;
+      }
       this.deps.pushAdapter.off('chat:chunk', onChunk);
       this.deps.pushAdapter.off('chat:complete', onComplete);
       this.deps.pushAdapter.off('chat:error', onError);
@@ -534,6 +627,51 @@ export class SessionSubmitService implements ISessionSubmitHandler {
     this.deps.pushAdapter.on('session:cost-delta', onCost);
     this.deps.pushAdapter.on('session:tokens', onTokens);
     this.deps.pushAdapter.on('session:token-delta', onTokens);
+
+    if (timeoutMs > 0) {
+      timeoutHandle = setTimer(() => {
+        if (!this.inFlight.has(request.id)) return;
+        const minutes = Math.round(timeoutMs / 60_000);
+        this.deps.logger.warn('[McpSessionSubmit] session_submit timed out', {
+          requestId: request.id,
+          tabId,
+          timeoutMs,
+        });
+        try {
+          void this.deps.transport
+            .call('chat:abort', { sessionId: tabId })
+            .catch((err: unknown) => {
+              this.deps.logger.warn(
+                '[McpSessionSubmit] chat:abort on timeout failed',
+                {
+                  error: errorMessage(err),
+                  tabId,
+                },
+              );
+            });
+        } catch (err) {
+          this.deps.logger.warn(
+            '[McpSessionSubmit] chat:abort on timeout threw',
+            {
+              error: errorMessage(err),
+              tabId,
+            },
+          );
+        }
+        finalize(
+          buildErrorResult(
+            request,
+            `session_submit timed out after ${minutes}m`,
+            'session_submit_timeout',
+            {
+              tabId,
+              sessionId: resolvedSessionId,
+              timeoutMs,
+            },
+          ),
+        );
+      }, timeoutMs);
+    }
 
     const rpcParams: Record<string, unknown> = {
       tabId,

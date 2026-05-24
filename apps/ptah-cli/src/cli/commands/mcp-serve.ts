@@ -224,6 +224,7 @@ export async function execute(
 
   let resolvedExitCode: number | null = null;
   let transport: StdioTransport | null = null;
+  let sessionSubmitDisposeAll: (() => void) | null = null;
 
   try {
     await engine(globals, { mode: 'full', requireSdk: true }, async (ctx) => {
@@ -261,6 +262,13 @@ export async function execute(
               },
             });
       stdioServer.setSessionSubmitHandler(sessionSubmitHandler);
+      const maybeDisposable = sessionSubmitHandler as unknown as {
+        disposeAll?: () => void;
+      };
+      if (typeof maybeDisposable.disposeAll === 'function') {
+        const disposeAll = maybeDisposable.disposeAll.bind(maybeDisposable);
+        sessionSubmitDisposeAll = disposeAll;
+      }
 
       transport = new StdioTransport({
         notifier: {
@@ -369,6 +377,17 @@ export async function execute(
         stdinSource.off('close', onStdinEnd);
         uninstallSigint();
         uninstallSigterm();
+        if (sessionSubmitDisposeAll !== null) {
+          try {
+            sessionSubmitDisposeAll();
+          } catch (err) {
+            process.stderr.write(
+              `[ptah-mcp] session_submit disposeAll failed: ${
+                err instanceof Error ? err.message : String(err)
+              }\n`,
+            );
+          }
+        }
         if (transport !== null) {
           await transport.stop();
         }

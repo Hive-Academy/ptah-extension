@@ -308,6 +308,7 @@ export const PTAH_ERROR_CODES = [
   'mcp_tool_not_found',
   'mcp_invalid_tool_args',
   'mcp_tool_denied',
+  'session_submit_timeout',
 ] as const;
 
 /** Ptah-specific error codes (carried in `error.data.ptah_code`). */

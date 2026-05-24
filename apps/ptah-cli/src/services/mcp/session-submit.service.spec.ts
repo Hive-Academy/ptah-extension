@@ -29,6 +29,7 @@
 import { EventEmitter } from 'node:events';
 
 import {
+  SESSION_SUBMIT_DEFAULT_TIMEOUT_MS,
   SessionSubmitService,
   buildSessionSubmitPrompt,
   type McpNotifier,
@@ -54,9 +55,26 @@ interface Harness {
   service: SessionSubmitService;
 }
 
-function makeHarness(
-  overrides: { ackSuccess?: boolean; ackError?: string } = {},
-): Harness {
+interface FakeTimer {
+  fire: () => void;
+  cleared: boolean;
+}
+
+interface HarnessOverrides {
+  ackSuccess?: boolean;
+  ackError?: string;
+  /** Pass 0 to disable the timeout (default for legacy tests). */
+  timeoutMs?: number;
+  /** When true, expose a controllable fake timer instead of real setTimeout. */
+  fakeTimer?: boolean;
+}
+
+interface HarnessWithTimer extends Harness {
+  fireTimer: () => void;
+  isTimerCleared: () => boolean;
+}
+
+function makeHarness(overrides: HarnessOverrides = {}): HarnessWithTimer {
   const transport = {
     call: jest.fn().mockResolvedValue({
       success: overrides.ackSuccess ?? true,
@@ -66,6 +84,20 @@ function makeHarness(
   const pushAdapter = new EventEmitter();
   pushAdapter.setMaxListeners(50);
   const notifier = { notify: jest.fn().mockResolvedValue(undefined) };
+  let timer: FakeTimer | undefined;
+  const setTimeoutImpl = overrides.fakeTimer
+    ? (handler: () => void): ReturnType<typeof setTimeout> => {
+        const fake: FakeTimer = { fire: handler, cleared: false };
+        timer = fake;
+        return fake as unknown as ReturnType<typeof setTimeout>;
+      }
+    : undefined;
+  const clearTimeoutImpl = overrides.fakeTimer
+    ? (handle: ReturnType<typeof setTimeout>): void => {
+        const fake = handle as unknown as FakeTimer;
+        fake.cleared = true;
+      }
+    : undefined;
   const service = new SessionSubmitService({
     transport: transport as unknown as CliMessageTransport,
     pushAdapter: pushAdapter as unknown as CliWebviewManagerAdapter,
@@ -76,8 +108,23 @@ function makeHarness(
       let n = 0;
       return (): string => `tab-${++n}`;
     })(),
+    timeoutMs: overrides.timeoutMs ?? 0,
+    setTimeoutImpl,
+    clearTimeoutImpl,
   });
-  return { transport, pushAdapter, notifier, service };
+  return {
+    transport,
+    pushAdapter,
+    notifier,
+    service,
+    fireTimer: (): void => {
+      if (timer === undefined) {
+        throw new Error('fake timer was never armed');
+      }
+      timer.fire();
+    },
+    isTimerCleared: (): boolean => timer?.cleared ?? false,
+  };
 }
 
 function makeRequest(
@@ -520,6 +567,135 @@ describe('SessionSubmitService', () => {
         h.service.cancel({ requestId: 'never-seen' }),
       ).resolves.toBeUndefined();
       expect(h.transport.call).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('per-call timeout', () => {
+    it('exports a sensible default timeout (15 minutes)', () => {
+      expect(SESSION_SUBMIT_DEFAULT_TIMEOUT_MS).toBe(15 * 60 * 1000);
+    });
+
+    it('settles with session_submit_timeout when timer fires before chat:complete', async () => {
+      const h = makeHarness({ timeoutMs: 60_000, fakeTimer: true });
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      // chat:start succeeded but no chat:complete arrives — fire the timer.
+      h.fireTimer();
+      const resp = await promise;
+      const result = resp.result as {
+        isError: boolean;
+        structuredContent: { ptah_code: string; timeoutMs: number };
+        content: { text: string }[];
+      };
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.ptah_code).toBe('session_submit_timeout');
+      expect(result.structuredContent.timeoutMs).toBe(60_000);
+      expect(result.content[0].text).toContain('timed out');
+    });
+
+    it('triggers chat:abort when the timer fires', async () => {
+      const h = makeHarness({ timeoutMs: 60_000, fakeTimer: true });
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      h.fireTimer();
+      await promise;
+      expect(h.transport.call).toHaveBeenCalledWith(
+        'chat:abort',
+        expect.objectContaining({ sessionId: 'tab-1' }),
+      );
+    });
+
+    it('clears the timer on normal chat:complete settlement', async () => {
+      const h = makeHarness({ timeoutMs: 60_000, fakeTimer: true });
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      await promise;
+      expect(h.isTimerCleared()).toBe(true);
+    });
+
+    it('detaches all push adapter listeners after timeout', async () => {
+      const h = makeHarness({ timeoutMs: 60_000, fakeTimer: true });
+      const baseChunk = h.pushAdapter.listenerCount('chat:chunk');
+      const baseComplete = h.pushAdapter.listenerCount('chat:complete');
+      const baseError = h.pushAdapter.listenerCount('chat:error');
+      const baseCost = h.pushAdapter.listenerCount('session:cost');
+      const baseTokens = h.pushAdapter.listenerCount('session:tokens');
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      h.fireTimer();
+      await promise;
+      expect(h.pushAdapter.listenerCount('chat:chunk')).toBe(baseChunk);
+      expect(h.pushAdapter.listenerCount('chat:complete')).toBe(baseComplete);
+      expect(h.pushAdapter.listenerCount('chat:error')).toBe(baseError);
+      expect(h.pushAdapter.listenerCount('session:cost')).toBe(baseCost);
+      expect(h.pushAdapter.listenerCount('session:tokens')).toBe(baseTokens);
+      expect(h.service.inFlightCount()).toBe(0);
+    });
+
+    it('does not arm the timer when timeoutMs is 0', async () => {
+      const h = makeHarness({ timeoutMs: 0, fakeTimer: true });
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      expect(() => h.fireTimer()).toThrow('fake timer was never armed');
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      await promise;
+    });
+  });
+
+  describe('disposeAll', () => {
+    it('settles every outstanding call with mcp_tool_failed/disposed', async () => {
+      const h = makeHarness({ timeoutMs: 0 });
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      expect(h.service.inFlightCount()).toBe(1);
+      h.service.disposeAll();
+      const resp = await promise;
+      const result = resp.result as {
+        isError: boolean;
+        structuredContent: { ptah_code: string; disposed?: boolean };
+        content: { text: string }[];
+      };
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.ptah_code).toBe('mcp_tool_failed');
+      expect(result.structuredContent.disposed).toBe(true);
+      expect(result.content[0].text).toContain('shutting down');
+      expect(h.service.inFlightCount()).toBe(0);
+    });
+
+    it('detaches all push adapter listeners after disposeAll', async () => {
+      const h = makeHarness({ timeoutMs: 0 });
+      const baseChunk = h.pushAdapter.listenerCount('chat:chunk');
+      const baseComplete = h.pushAdapter.listenerCount('chat:complete');
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      h.service.disposeAll();
+      await promise;
+      expect(h.pushAdapter.listenerCount('chat:chunk')).toBe(baseChunk);
+      expect(h.pushAdapter.listenerCount('chat:complete')).toBe(baseComplete);
+    });
+
+    it('is a no-op when nothing is in flight', () => {
+      const h = makeHarness({ timeoutMs: 0 });
+      expect(() => h.service.disposeAll()).not.toThrow();
+      expect(h.service.inFlightCount()).toBe(0);
+    });
+
+    it('handles multiple concurrent in-flight calls', async () => {
+      const h = makeHarness({ timeoutMs: 0 });
+      const promise1 = h.service.dispatch(makeRequest({ id: 'r-1' }), {
+        task: 'one',
+      });
+      const promise2 = h.service.dispatch(makeRequest({ id: 'r-2' }), {
+        task: 'two',
+      });
+      await flush();
+      expect(h.service.inFlightCount()).toBe(2);
+      h.service.disposeAll();
+      const [r1, r2] = await Promise.all([promise1, promise2]);
+      expect((r1.result as { isError: boolean }).isError).toBe(true);
+      expect((r2.result as { isError: boolean }).isError).toBe(true);
+      expect(h.service.inFlightCount()).toBe(0);
     });
   });
 });
