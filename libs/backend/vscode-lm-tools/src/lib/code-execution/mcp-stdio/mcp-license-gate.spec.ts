@@ -12,9 +12,9 @@
  *   7. `agent_list` — always allowed.
  *
  * Predicate edge-cases:
- *   - `agentIsPtahCli` returns true for an unknown agent (fail-closed).
- *   - `agentIsPtahCli` returns true when AgentProcessManager throws.
- *   - `agentIsPtahCli` returns false for a confirmed rival-CLI agent.
+ *   - `shouldGateAsPtahCli` returns true for an unknown agent (fail-closed).
+ *   - `shouldGateAsPtahCli` returns true when AgentProcessManager throws.
+ *   - `shouldGateAsPtahCli` returns false for a confirmed rival-CLI agent.
  *
  * License lookup edge-cases:
  *   - `getCachedStatus() === null` → `license_required`.
@@ -290,13 +290,13 @@ describe('McpLicenseGate', () => {
     });
   });
 
-  describe('agentIsPtahCli predicate', () => {
+  describe('shouldGateAsPtahCli predicate', () => {
     it('returns true for a ptah-cli agent', () => {
       const gate = makeGate(
         makeLicense(PRO_STATUS),
         makeAgentMgr({ 'a-1': 'ptah-cli' }),
       );
-      expect(gate.agentIsPtahCli('a-1')).toBe(true);
+      expect(gate.shouldGateAsPtahCli('a-1')).toBe(true);
     });
 
     it('returns false for a gemini agent', () => {
@@ -304,12 +304,12 @@ describe('McpLicenseGate', () => {
         makeLicense(PRO_STATUS),
         makeAgentMgr({ 'a-1': 'gemini' }),
       );
-      expect(gate.agentIsPtahCli('a-1')).toBe(false);
+      expect(gate.shouldGateAsPtahCli('a-1')).toBe(false);
     });
 
     it('fails closed (returns true) for an unknown agent id', () => {
       const gate = makeGate(makeLicense(PRO_STATUS), makeAgentMgr({}));
-      expect(gate.agentIsPtahCli('does-not-exist')).toBe(true);
+      expect(gate.shouldGateAsPtahCli('does-not-exist')).toBe(true);
     });
 
     it('fails closed when AgentProcessManager throws unexpectedly', () => {
@@ -317,7 +317,7 @@ describe('McpLicenseGate', () => {
         makeLicense(PRO_STATUS),
         makeAgentMgr({ 'a-1': 'gemini' }, { throwOn: 'a-1' }),
       );
-      expect(gate.agentIsPtahCli('a-1')).toBe(true);
+      expect(gate.shouldGateAsPtahCli('a-1')).toBe(true);
     });
   });
 

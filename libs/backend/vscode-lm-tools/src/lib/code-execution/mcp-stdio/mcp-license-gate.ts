@@ -139,13 +139,30 @@ export class McpLicenseGate {
   }
 
   /**
-   * Predicate: does {@link agentId} belong to a Ptah CLI agent? Fail-closed —
-   * if the agent does not exist or {@link AgentProcessManager.getStatus}
-   * throws, the predicate returns `true` so the gate denies the call. The
-   * alternative (returning `false`) would let a caller bypass the gate by
-   * referencing an unknown agentId.
+   * Policy predicate consulted by the Pro-gated ptah-cli predicates
+   * (`agent_status|read|stop|steer` when targeting a ptah-cli agent).
+   *
+   * Returns `true` in TWO distinct cases:
+   *
+   *   1. Confirmed match — the agent exists and its `cli` field is
+   *      `'ptah-cli'`. The gate denies the call unless the caller has a
+   *      Pro license.
+   *   2. Fail-closed unknown — the agent does NOT exist, `getStatus`
+   *      throws, or the lookup returns the list shape (which signals the
+   *      passed agentId is not a single known agent). The gate denies the
+   *      call to prevent a caller from bypassing the premium gate by
+   *      referencing an unknown agentId.
+   *
+   * Returns `false` ONLY for confirmed rival-CLI agents (gemini, codex,
+   * copilot, cursor), which are free-tier.
+   *
+   * The polarity is intentional: the predicate answers
+   * "should we gate this as a ptah-cli premium operation?", not
+   * "is this strictly a ptah-cli agent?". A maintainer changing this to a
+   * stricter "true iff confirmed ptah-cli" semantics would re-open the
+   * unknown-agent bypass.
    */
-  agentIsPtahCli(agentId: string): boolean {
+  shouldGateAsPtahCli(agentId: string): boolean {
     try {
       const info = this.agentProcessManager.getStatus(agentId);
       if (Array.isArray(info)) {
@@ -176,7 +193,7 @@ export class McpLicenseGate {
     const requirePtahCli: ProGatePredicate = (a) =>
       typeof a['agentId'] === 'string' &&
       (a['agentId'] as string).length > 0 &&
-      this.agentIsPtahCli(a['agentId'] as string);
+      this.shouldGateAsPtahCli(a['agentId'] as string);
     return Object.freeze<ProGate[]>([
       { tool: 'session_submit' },
       {

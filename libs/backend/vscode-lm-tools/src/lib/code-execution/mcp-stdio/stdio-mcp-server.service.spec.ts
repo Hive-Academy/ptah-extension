@@ -51,7 +51,7 @@ import type { McpLicenseGate } from './mcp-license-gate';
 function makeAllowGate(): McpLicenseGate {
   return {
     evaluate: jest.fn().mockReturnValue({ allowed: true }),
-    agentIsPtahCli: jest.fn().mockReturnValue(false),
+    shouldGateAsPtahCli: jest.fn().mockReturnValue(false),
     getGatedToolNames: jest
       .fn()
       .mockReturnValue([
@@ -591,7 +591,7 @@ describe('StdioMcpServerService', () => {
     ): McpLicenseGate {
       return {
         evaluate: jest.fn().mockReturnValue({ allowed: false, reason }),
-        agentIsPtahCli: jest.fn().mockReturnValue(true),
+        shouldGateAsPtahCli: jest.fn().mockReturnValue(true),
         getGatedToolNames: jest.fn().mockReturnValue([]),
       } as unknown as McpLicenseGate;
     }
