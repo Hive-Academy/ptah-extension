@@ -342,6 +342,20 @@ export class StdioMcpServerService {
       throw this.sdkInitError;
     }
     if (this.agentDispatcher === null) {
+      // E2E-only break hook. Set `PTAH_TEST_BREAK_SDK_INIT=1` to force the
+      // lazy `apiBuilder.build()` path to throw deterministically so the
+      // `sdk_init_failed` envelope path can be exercised end-to-end without
+      // having to corrupt the real SDK init surface. No-op outside tests.
+      if (
+        typeof process !== 'undefined' &&
+        process.env?.['PTAH_TEST_BREAK_SDK_INIT'] === '1'
+      ) {
+        const error = new Error(
+          'PTAH_TEST_BREAK_SDK_INIT=1 — simulated SDK init failure',
+        );
+        this.sdkInitError = error;
+        throw error;
+      }
       let ptahAPI: PtahAPI;
       try {
         ptahAPI = this.apiBuilder.build();

@@ -552,6 +552,45 @@ describe('StdioMcpServerService', () => {
       expect(r2.structuredContent.ptah_code).toBe('sdk_init_failed');
     });
 
+    it('PTAH_TEST_BREAK_SDK_INIT=1 forces sdk_init_failed without invoking apiBuilder.build()', async () => {
+      const buildFn = jest.fn(() => ({}) as unknown);
+      const builder = { build: buildFn } as unknown as PtahAPIBuilder;
+      const svc = new StdioMcpServerService(
+        makeLogger(),
+        builder,
+        makeAllowGate(),
+      );
+      const prior = process.env['PTAH_TEST_BREAK_SDK_INIT'];
+      process.env['PTAH_TEST_BREAK_SDK_INIT'] = '1';
+      try {
+        const resp = await svc.handleToolsCall(
+          makeRequest({
+            params: {
+              name: 'agent_spawn',
+              arguments: { task: 't', cli: 'gemini' },
+            },
+          }),
+        );
+        expect(resp.error).toBeUndefined();
+        const result = resp.result as {
+          isError: boolean;
+          structuredContent: { ptah_code: string; error: string };
+        };
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent.ptah_code).toBe('sdk_init_failed');
+        expect(result.structuredContent.error).toContain(
+          'PTAH_TEST_BREAK_SDK_INIT',
+        );
+        expect(buildFn).not.toHaveBeenCalled();
+      } finally {
+        if (prior === undefined) {
+          delete process.env['PTAH_TEST_BREAK_SDK_INIT'];
+        } else {
+          process.env['PTAH_TEST_BREAK_SDK_INIT'] = prior;
+        }
+      }
+    });
+
     it('session_submit dispatch is unaffected by SDK-init failure (does not use agent dispatcher)', async () => {
       const buildFn = jest.fn(() => {
         throw new Error('boom');
