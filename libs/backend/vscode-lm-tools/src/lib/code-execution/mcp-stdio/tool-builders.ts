@@ -73,21 +73,28 @@ export function buildMcpAgentListTool(): MCPToolDefinition {
 }
 
 /**
- * Placeholder builder for the composite `session_submit` tool. Full dispatch
- * (Team Leader prompt synthesis, progress streaming, abort handling) lands in
- * Phase 3; the definition is advertised in Phase 2 so external hosts can
- * discover the tool and ship `.mcp.json` configurations against a stable
- * schema.
+ * Builder for the composite `session_submit` tool. Wraps the Team Leader
+ * harness as a single MCP tool: the supplied task is decomposed into a
+ * Team Leader prompt, executed through the configured agent SDK session,
+ * and aggregated into a single MCP result. Sub-agent fan-out happens via
+ * the agent SDK's Task tool when `allowSubagents` is true; cost + token
+ * deltas stream as `notifications/message` frames during execution.
  */
 export function buildMcpSessionSubmitTool(): MCPToolDefinition {
   return {
     name: 'session_submit',
     description:
-      'Delegate an entire task to Ptah. Builds a Team Leader prompt from ' +
-      'the supplied task text, runs it through the configured agent SDK ' +
-      'session, and aggregates the result. Mid-flight progress streams as ' +
-      'MCP `notifications/progress` / `notifications/message` frames. ' +
-      'Phase 2 advertises this tool only; full dispatch ships in Phase 3.',
+      "Delegate an entire coding task to Ptah's Team Leader. Builds a Team " +
+      'Leader prompt from the supplied task text, runs it through the ' +
+      'configured agent SDK session, and aggregates the result. When ' +
+      'allowSubagents is true (default), the Team Leader fans out work to ' +
+      'sub-agents via the SDK Task tool and aggregates their results ' +
+      'before reporting back. Mid-flight progress streams as MCP ' +
+      '`notifications/progress` (when the host supplies a progressToken) ' +
+      'and `notifications/message` frames covering agent.thought, ' +
+      'agent.tool_use, agent.tool_result, text_delta, session.cost, and ' +
+      'a final mcp.session.summary. Use for high-level delegation; use ' +
+      'agent_spawn for direct CLI agent invocations.',
     inputSchema: {
       type: 'object',
       properties: {
