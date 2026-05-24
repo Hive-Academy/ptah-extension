@@ -149,7 +149,13 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   /** SDK task_id for the subagent */
   readonly taskId: string;
   /** New lifecycle status from the SDK patch */
-  readonly status: 'pending' | 'running' | 'completed' | 'failed' | 'killed';
+  readonly status:
+    | 'pending'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'killed'
+    | 'paused';
   /** Optional description update from the SDK patch */
   readonly description?: string;
   /** Error text if status is 'failed' */

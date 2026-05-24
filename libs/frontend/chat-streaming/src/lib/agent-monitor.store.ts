@@ -108,7 +108,14 @@ export interface SubagentRecord {
   /** Most recent tool name reported by progress events */
   lastToolName?: string;
   /** Lifecycle status from SDK */
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'killed' | 'stopped';
+  status:
+    | 'pending'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'killed'
+    | 'stopped'
+    | 'paused';
   /** Cumulative token usage (last reported) */
   totalTokens?: number;
   /** Tool invocation count (last reported) */
