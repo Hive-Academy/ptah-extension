@@ -547,6 +547,7 @@ describe('withEngine', () => {
       expect(initSpy).toHaveBeenCalledTimes(1);
     });
 
+
     it('calls SDK adapter dispose() on the success teardown path', async () => {
       const { bootstrap } = makeFakeBootstrap();
       let captured: FakeContainer | undefined;
