@@ -16,10 +16,12 @@
 
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type {
-  IndexingPipeline,
-  IndexingProgressEvent,
-  IndexingStatusWire,
+import {
+  MESSAGE_TYPES,
+  type IndexingCompleteEvent,
+  type IndexingPipeline,
+  type IndexingProgressEvent,
+  type IndexingStatusWire,
 } from '@ptah-extension/shared';
 import type { MessageHandler } from '@ptah-extension/core';
 
@@ -62,8 +64,8 @@ export type IndexingUiState =
       readonly message: string;
     };
 
-/** Push-message type emitted by the backend webview manager. */
-const INDEXING_PROGRESS_MESSAGE_TYPE = 'indexing:progress';
+const INDEXING_PROGRESS_MESSAGE_TYPE = MESSAGE_TYPES.INDEXING_PROGRESS;
+const INDEXING_COMPLETE_MESSAGE_TYPE = MESSAGE_TYPES.INDEXING_COMPLETE;
 
 @Injectable({ providedIn: 'root' })
 export class WorkspaceIndexingService implements MessageHandler {
@@ -71,12 +73,15 @@ export class WorkspaceIndexingService implements MessageHandler {
 
   private readonly _status = signal<IndexingStatusWire | null>(null);
   private readonly _progress = signal<IndexingProgressEvent | null>(null);
+  private readonly _completedAt = signal<number | null>(null);
   private readonly _hasWorkspace = signal<boolean>(true);
 
   /** Latest status snapshot from the backend. `null` until first load. */
   readonly status = this._status.asReadonly();
   /** Most recent progress push event (or `null` between runs). */
   readonly progress = this._progress.asReadonly();
+  /** Epoch-ms timestamp of the most recent `indexing:complete` push (or `null`). */
+  readonly completedAt = this._completedAt.asReadonly();
 
   /**
    * Derived UI state. Order matters — checks `error` and `indexing` first so
@@ -143,13 +148,25 @@ export class WorkspaceIndexingService implements MessageHandler {
     }
   });
 
-  readonly handledMessageTypes = [INDEXING_PROGRESS_MESSAGE_TYPE] as const;
+  readonly handledMessageTypes = [
+    INDEXING_PROGRESS_MESSAGE_TYPE,
+    INDEXING_COMPLETE_MESSAGE_TYPE,
+  ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
-    if (message.type !== INDEXING_PROGRESS_MESSAGE_TYPE) return;
-    const payload = message.payload as IndexingProgressEvent | undefined;
-    if (!payload) return;
-    this._progress.set(payload);
+    if (message.type === INDEXING_PROGRESS_MESSAGE_TYPE) {
+      const payload = message.payload as IndexingProgressEvent | undefined;
+      if (!payload) return;
+      this._progress.set(payload);
+      return;
+    }
+    if (message.type === INDEXING_COMPLETE_MESSAGE_TYPE) {
+      const payload = message.payload as IndexingCompleteEvent | undefined;
+      if (!payload) return;
+      this._progress.set(null);
+      this._completedAt.set(payload.completedAt);
+      void this.loadStatus(payload.workspaceRoot).catch(() => undefined);
+    }
   }
 
   private buildIndexingState(p: IndexingProgressEvent | null): IndexingUiState {

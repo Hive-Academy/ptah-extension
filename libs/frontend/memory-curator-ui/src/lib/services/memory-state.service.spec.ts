@@ -302,3 +302,65 @@ describe('MemoryStateService — workspace-scope race guard', () => {
     expect(service.error()).toBeNull();
   });
 });
+
+describe('MemoryStateService — loadSymbols', () => {
+  let service: MemoryStateService;
+  let searchSymbolsMock: jest.Mock;
+  const workspaceSignal = signal<{
+    path: string;
+    name: string;
+    type: string;
+  } | null>({
+    path: 'D:/ws',
+    name: 'ws',
+    type: 'workspace',
+  });
+
+  beforeEach(() => {
+    searchSymbolsMock = jest.fn().mockResolvedValue({
+      items: [
+        {
+          id: 's1',
+          workspaceRoot: 'D:/ws',
+          filePath: 'D:/ws/src/a.ts',
+          kind: 'function',
+          symbolName: 'doThing',
+          subject: 'doThing',
+          tokenCount: 12,
+          updatedAt: 1,
+        },
+      ],
+      total: 1,
+    });
+
+    TestBed.configureTestingModule({
+      providers: [
+        MemoryStateService,
+        {
+          provide: MemoryRpcService,
+          useValue: { searchSymbols: searchSymbolsMock },
+        },
+        {
+          provide: AppStateManager,
+          useValue: { workspaceInfo: workspaceSignal },
+        },
+      ],
+    });
+    service = TestBed.inject(MemoryStateService);
+  });
+
+  it('loadSymbols() forwards scoped workspaceRoot, query, offset and limit', async () => {
+    service.setSymbolQuery('foo');
+    service.setSymbolPage(100);
+    await service.loadSymbols();
+
+    expect(searchSymbolsMock).toHaveBeenCalledTimes(1);
+    const args = searchSymbolsMock.mock.calls[0][0];
+    expect(args.workspaceRoot).toBe('D:/ws');
+    expect(args.query).toBe('foo');
+    expect(args.offset).toBe(100);
+    expect(args.limit).toBe(50);
+    expect(service.symbolItems().length).toBe(1);
+    expect(service.symbolTotal()).toBe(1);
+  });
+});

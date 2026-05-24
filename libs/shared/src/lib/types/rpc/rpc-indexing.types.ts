@@ -48,6 +48,14 @@ export interface IndexingProgressEvent {
   readonly totalKnown: boolean;
 }
 
+export interface IndexingCompleteEvent {
+  readonly workspaceRoot: string;
+  readonly workspaceFingerprint: string;
+  readonly completedAt: number;
+  readonly gitHeadSha: string | null;
+  readonly elapsedMs: number;
+}
+
 export interface IndexingGetStatusParams {
   readonly workspaceRoot: string;
 }

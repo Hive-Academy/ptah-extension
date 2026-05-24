@@ -100,4 +100,6 @@ export type StrictMessageType =
   | 'agent-monitor:user-input-request'
   | 'agent-monitor:user-input-response'
   | 'update:statusChanged'
+  | 'indexing:progress'
+  | 'indexing:complete'
   | string; // Allow extensibility for custom message types

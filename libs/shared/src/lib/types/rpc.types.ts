@@ -270,6 +270,8 @@ import type {
   MemoryPurgeBySubjectPatternResult,
   MemoryPurgeJunkParams,
   MemoryPurgeJunkResult,
+  MemorySearchSymbolsParams,
+  MemorySearchSymbolsResult,
 } from './rpc/rpc-memory.types';
 
 import type {
@@ -1171,6 +1173,10 @@ export interface RpcMethodRegistry {
     result: MemoryRebuildIndexResult;
   };
   'memory:stats': { params: MemoryStatsParams; result: MemoryStatsResult };
+  'memory:searchSymbols': {
+    params: MemorySearchSymbolsParams;
+    result: MemorySearchSymbolsResult;
+  };
   'memory:purgeBySubjectPattern': {
     params: MemoryPurgeBySubjectPatternParams;
     result: MemoryPurgeBySubjectPatternResult;
@@ -1939,6 +1945,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:forget': true,
   'memory:rebuildIndex': true,
   'memory:stats': true,
+  'memory:searchSymbols': true,
   'memory:purgeBySubjectPattern': true,
   'memory:purgeJunk': true,
   'memory:diagnostics': true,

@@ -141,6 +141,10 @@ export const MESSAGE_TYPES = {
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
   /** Backend → Frontend: update lifecycle state changed (Electron only). */
   UPDATE_STATUS_CHANGED: 'update:statusChanged',
+  /** Backend → Frontend: workspace indexing progress tick. */
+  INDEXING_PROGRESS: 'indexing:progress',
+  /** Backend → Frontend: workspace indexing run finished successfully. */
+  INDEXING_COMPLETE: 'indexing:complete',
 } as const;
 
 /**

@@ -114,3 +114,25 @@ export interface MemoryPurgeJunkParams {
 export interface MemoryPurgeJunkResult {
   readonly deleted: number;
 }
+
+export interface CodeSymbolListItem {
+  readonly id: string;
+  readonly workspaceRoot: string;
+  readonly filePath: string;
+  readonly kind: string;
+  readonly symbolName: string;
+  readonly subject: string;
+  readonly tokenCount: number;
+  readonly updatedAt: number;
+}
+export interface MemorySearchSymbolsParams {
+  readonly workspaceRoot?: string | null;
+  readonly query?: string;
+  readonly kinds?: readonly string[];
+  readonly limit?: number;
+  readonly offset?: number;
+}
+export interface MemorySearchSymbolsResult {
+  readonly items: readonly CodeSymbolListItem[];
+  readonly total: number;
+}

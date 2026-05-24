@@ -536,12 +536,129 @@ interface TierChip {
             <ptah-workspace-indexing />
           </div>
         </details>
+
+        <details
+          class="rounded-md border border-base-300 bg-base-100"
+          [open]="indexedCodeOpen()"
+          (toggle)="onIndexedCodeToggle($event)"
+          data-testid="memory-indexed-code-details"
+        >
+          <summary
+            class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
+          >
+            Indexed code
+          </summary>
+          <div class="border-t border-base-300 p-3 flex flex-col gap-2">
+            <div class="flex flex-col gap-2 md:flex-row md:items-center">
+              <input
+                type="search"
+                class="input input-sm input-bordered w-full md:max-w-md"
+                placeholder="Search indexed symbols..."
+                [value]="symbolInput()"
+                (input)="onSymbolSearchInput($event)"
+                aria-label="Search indexed code symbols"
+              />
+              <div
+                class="flex items-center gap-2 ml-auto text-xs text-base-content/70"
+              >
+                <span data-testid="symbol-total"
+                  >{{ state.symbolTotal() }} symbols</span
+                >
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost"
+                  [disabled]="state.symbolLoading()"
+                  (click)="onSymbolReload()"
+                  aria-label="Reload symbol list"
+                >
+                  @if (state.symbolLoading()) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  }
+                  Re-load
+                </button>
+              </div>
+            </div>
+
+            @if (state.symbolError()) {
+              <div role="alert" class="alert alert-error">
+                <span class="text-sm">{{ state.symbolError() }}</span>
+              </div>
+            }
+
+            @if (state.symbolLoading() && state.symbolItems().length === 0) {
+              <div class="flex items-center justify-center py-6">
+                <span class="loading loading-spinner loading-md"></span>
+              </div>
+            } @else if (state.symbolItems().length === 0) {
+              <div
+                class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
+              >
+                No indexed code symbols match the current search.
+              </div>
+            } @else {
+              <ul class="flex flex-col gap-1">
+                @for (sym of state.symbolItems(); track sym.id) {
+                  <li
+                    class="flex flex-col gap-1 rounded-md border border-base-300 bg-base-100 p-2 md:flex-row md:items-center md:gap-3"
+                  >
+                    <span class="font-mono text-sm text-base-content">
+                      {{ sym.symbolName }}
+                    </span>
+                    <span class="badge badge-sm badge-ghost">{{
+                      sym.kind
+                    }}</span>
+                    <span
+                      class="flex-1 truncate text-xs text-base-content/60"
+                      [attr.title]="sym.filePath"
+                    >
+                      {{ symbolRelativePath(sym.filePath) }}
+                    </span>
+                    <span class="badge badge-sm badge-outline">
+                      {{ sym.tokenCount }} tok
+                    </span>
+                  </li>
+                }
+              </ul>
+            }
+
+            <div
+              class="flex items-center justify-between pt-1 text-xs text-base-content/70"
+            >
+              <span>
+                {{ state.symbolOffset() + 1 }}–{{
+                  state.symbolOffset() + state.symbolItems().length
+                }}
+                of {{ state.symbolTotal() }}
+              </span>
+              <div class="flex gap-1">
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost"
+                  [disabled]="symbolPrevDisabled() || state.symbolLoading()"
+                  (click)="onSymbolPrev()"
+                  aria-label="Previous symbol page"
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost"
+                  [disabled]="symbolNextDisabled() || state.symbolLoading()"
+                  (click)="onSymbolNext()"
+                  aria-label="Next symbol page"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
     }
   `,
 })
 export class MemoryCuratorTabComponent implements OnInit {
-  private readonly state = inject(MemoryStateService);
+  protected readonly state = inject(MemoryStateService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(MemoryRpcService);
@@ -636,6 +753,18 @@ export class MemoryCuratorTabComponent implements OnInit {
   });
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private symbolDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  protected readonly symbolInput = signal<string>('');
+  protected readonly _indexedCodeOpen = signal<boolean>(false);
+  protected readonly indexedCodeOpen = this._indexedCodeOpen.asReadonly();
+  protected readonly symbolPrevDisabled = computed(
+    () => this.state.symbolOffset() === 0,
+  );
+  protected readonly symbolNextDisabled = computed(
+    () =>
+      this.state.symbolOffset() + this.state.symbolLimit() >=
+      this.state.symbolTotal(),
+  );
 
   public constructor() {
     effect(() => {
@@ -648,6 +777,18 @@ export class MemoryCuratorTabComponent implements OnInit {
       if (!this.isElectron()) return;
       void this.state.refresh();
       void this.state.loadStats();
+      void this.state.loadSymbols();
+    });
+    effect(() => {
+      this.indexingService.completedAt();
+      if (!this.isElectron()) return;
+      void this.state.loadStats();
+      void this.state.refresh();
+      void this.state.loadSymbols();
+      const root = this.appState.workspaceInfo()?.path;
+      if (root) {
+        void this.indexingService.loadStatus(root).catch(() => undefined);
+      }
     });
   }
 
@@ -655,6 +796,7 @@ export class MemoryCuratorTabComponent implements OnInit {
     if (!this.isElectron()) return;
     void this.state.loadStats();
     void this.state.refresh();
+    void this.state.loadSymbols();
     const root = this.appState.workspaceInfo()?.path;
     if (root) {
       void this.indexingService.loadStatus(root).catch(() => undefined);
@@ -827,6 +969,58 @@ export class MemoryCuratorTabComponent implements OnInit {
     } finally {
       this.purging.set(false);
     }
+  }
+
+  protected onIndexedCodeToggle(event: Event): void {
+    const target = event.target as HTMLDetailsElement | null;
+    if (target) {
+      this._indexedCodeOpen.set(target.open);
+    }
+  }
+
+  protected onSymbolSearchInput(event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.symbolInput.set(value);
+    if (this.symbolDebounceTimer !== null) {
+      clearTimeout(this.symbolDebounceTimer);
+    }
+    this.symbolDebounceTimer = setTimeout(() => {
+      this.state.setSymbolQuery(value);
+      this.state.setSymbolPage(0);
+      void this.state.loadSymbols();
+      this.symbolDebounceTimer = null;
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  protected onSymbolReload(): void {
+    void this.state.loadSymbols();
+  }
+
+  protected onSymbolPrev(): void {
+    const next = this.state.symbolOffset() - this.state.symbolLimit();
+    this.state.setSymbolPage(next < 0 ? 0 : next);
+    void this.state.loadSymbols();
+  }
+
+  protected onSymbolNext(): void {
+    this.state.setSymbolPage(
+      this.state.symbolOffset() + this.state.symbolLimit(),
+    );
+    void this.state.loadSymbols();
+  }
+
+  protected symbolRelativePath(filePath: string): string {
+    const root = this.appState.workspaceInfo()?.path ?? '';
+    if (root.length === 0) return filePath;
+    const normalizedRoot = root.replace(/\\/g, '/');
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    if (
+      normalizedPath === normalizedRoot ||
+      normalizedPath.startsWith(normalizedRoot + '/')
+    ) {
+      return normalizedPath.slice(normalizedRoot.length + 1);
+    }
+    return filePath;
   }
 
   protected tierBadgeClass(tier: MemoryWire['tier']): string {

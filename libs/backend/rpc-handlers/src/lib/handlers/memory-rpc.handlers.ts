@@ -52,6 +52,8 @@ import type {
   MemorySearchResult,
   MemorySetTriggersParams,
   MemorySetTriggersResult,
+  MemorySearchSymbolsParams,
+  MemorySearchSymbolsResult,
   MemoryStatsParams,
   MemoryStatsResult,
   MemoryWire,
@@ -64,6 +66,7 @@ import {
   MemoryGetTriggersParamsSchema,
   MemoryPurgeBySubjectPatternParamsSchema,
   MemoryRunNowParamsSchema,
+  MemorySearchSymbolsParamsSchema,
   MemorySetTriggersParamsSchema,
 } from './memory-rpc.schema';
 
@@ -112,6 +115,7 @@ export class MemoryRpcHandlers {
     'memory:forget',
     'memory:rebuildIndex',
     'memory:stats',
+    'memory:searchSymbols',
     'memory:purgeBySubjectPattern',
     'memory:purgeJunk',
     'memory:diagnostics',
@@ -264,6 +268,7 @@ export class MemoryRpcHandlers {
         params: MemoryStatsParams | undefined,
       ): Promise<MemoryStatsResult> => {
         const workspaceRoot = params?.workspaceRoot ?? undefined;
+        this.logger.info('[memory] stats', { workspaceRoot });
         const curated = this.store.stats(workspaceRoot);
         const codeIndex = this.codeSymbols.count(workspaceRoot);
         return {
@@ -273,6 +278,45 @@ export class MemoryRpcHandlers {
           codeIndex,
           lastCuratedAt: curated.lastCuratedAt,
         };
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'memory:searchSymbols',
+      async (
+        params: MemorySearchSymbolsParams | undefined,
+      ): Promise<MemorySearchSymbolsResult> => {
+        let validated: z.infer<typeof MemorySearchSymbolsParamsSchema>;
+        try {
+          validated = MemorySearchSymbolsParamsSchema.parse(params ?? {});
+        } catch (err: unknown) {
+          this.logger.warn('[memory] searchSymbols — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:searchSymbols',
+            'INVALID_PARAMS',
+          );
+        }
+        try {
+          const result = this.codeSymbols.search({
+            workspaceRoot: validated.workspaceRoot ?? undefined,
+            query: validated.query,
+            kinds: validated.kinds,
+            limit: validated.limit,
+            offset: validated.offset,
+          });
+          return { items: result.items, total: result.total };
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error('[memory] searchSymbols failed', {
+            error: message,
+          });
+          throw new RpcUserError(
+            'memory:searchSymbols failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
       },
     );
 

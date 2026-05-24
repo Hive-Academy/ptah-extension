@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
 import type {
+  CodeSymbolListItem,
   MemoryStatsResult,
   MemoryTierWire,
   MemoryWire,
@@ -53,6 +54,13 @@ export class MemoryStateService {
   private readonly _stats = signal<MemoryStatsResult | null>(null);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
+  private readonly _symbolQuery = signal<string>('');
+  private readonly _symbolItems = signal<readonly CodeSymbolListItem[]>([]);
+  private readonly _symbolTotal = signal<number>(0);
+  private readonly _symbolLoading = signal<boolean>(false);
+  private readonly _symbolError = signal<string | null>(null);
+  private readonly _symbolOffset = signal<number>(0);
+  private readonly _symbolLimit = signal<number>(50);
   public readonly entries = this._entries.asReadonly();
   public readonly query = this._query.asReadonly();
   public readonly tierFilter = this._tierFilter.asReadonly();
@@ -60,6 +68,13 @@ export class MemoryStateService {
   public readonly stats = this._stats.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
+  public readonly symbolQuery = this._symbolQuery.asReadonly();
+  public readonly symbolItems = this._symbolItems.asReadonly();
+  public readonly symbolTotal = this._symbolTotal.asReadonly();
+  public readonly symbolLoading = this._symbolLoading.asReadonly();
+  public readonly symbolError = this._symbolError.asReadonly();
+  public readonly symbolOffset = this._symbolOffset.asReadonly();
+  public readonly symbolLimit = this._symbolLimit.asReadonly();
 
   /** Entries filtered by the active tier filter (search results bypass this). */
   public readonly filteredEntries = computed<readonly MemoryWire[]>(() => {
@@ -252,6 +267,44 @@ export class MemoryStateService {
       this._stats.set(stats);
     } catch (err) {
       this._error.set(toErrorMessage(err));
+    }
+  }
+
+  public setSymbolQuery(q: string): void {
+    this._symbolQuery.set(q);
+  }
+
+  public setSymbolPage(offset: number): void {
+    this._symbolOffset.set(offset < 0 ? 0 : offset);
+  }
+
+  public async loadSymbols(): Promise<void> {
+    const scoped = this.resolveScopedWorkspaceRoot();
+    if (!scoped.ok) {
+      this._symbolItems.set([]);
+      this._symbolTotal.set(0);
+      this._symbolError.set(scoped.error);
+      return;
+    }
+    this._symbolLoading.set(true);
+    this._symbolError.set(null);
+    try {
+      const query = this._symbolQuery();
+      const offset = this._symbolOffset();
+      const limit = this._symbolLimit();
+      const { workspaceRoot } = scoped;
+      const result = await this.rpcService.searchSymbols({
+        ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
+        ...(query.trim().length > 0 ? { query } : {}),
+        limit,
+        offset,
+      });
+      this._symbolItems.set(result.items);
+      this._symbolTotal.set(result.total);
+    } catch (err) {
+      this._symbolError.set(toErrorMessage(err));
+    } finally {
+      this._symbolLoading.set(false);
     }
   }
 }

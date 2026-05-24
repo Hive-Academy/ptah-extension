@@ -78,3 +78,11 @@ export const MemorySetTriggersParamsSchema = z.object({
 });
 
 export const MemoryGetTriggersParamsSchema = z.object({}).strict().optional();
+
+export const MemorySearchSymbolsParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).nullable().optional(),
+  query: z.string().max(500).optional(),
+  kinds: z.array(z.string().min(1).max(100)).max(50).optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+  offset: z.number().int().min(0).optional(),
+});
