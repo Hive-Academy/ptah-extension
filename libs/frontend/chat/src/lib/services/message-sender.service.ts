@@ -25,7 +25,9 @@ import {
   ModelStateService,
   EffortStateService,
   PtahCliStateService,
+  AuthStateService,
 } from '@ptah-extension/core';
+import type { RpcResult } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
   SessionId,
@@ -49,7 +51,6 @@ import type { SendMessageOptions } from '@ptah-extension/chat-types';
  */
 @Injectable({ providedIn: 'root' })
 export class MessageSenderService {
-
   private readonly claudeRpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
@@ -60,6 +61,29 @@ export class MessageSenderService {
   private readonly ptahCliState = inject(PtahCliStateService);
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly tabSessionBinding = inject(TabSessionBinding);
+  private readonly authState = inject(AuthStateService);
+
+  /**
+   * Surface an inline re-auth banner when a chat RPC failed because the
+   * provider needs (re-)authentication. The backend result-shapes this as
+   * `data.errorCode === 'AUTH_REQUIRED'`; an RpcUserError throw would set it at
+   * the envelope level instead, so check both.
+   */
+  private handleAuthRequired(
+    result: RpcResult<{
+      errorCode?: string;
+      error?: string;
+      providerId?: string;
+    }>,
+  ): boolean {
+    const code = result.errorCode ?? result.data?.errorCode;
+    if (code !== 'AUTH_REQUIRED') return false;
+    this.authState.flagAuthRequired(
+      result.data?.providerId ?? null,
+      result.data?.error ?? result.error ?? 'Authentication required.',
+    );
+    return true;
+  }
 
   /**
    * Generate unique ID for messages/sessions
@@ -352,8 +376,12 @@ export class MessageSenderService {
         { signal: abortSignal },
       );
 
-      if (!result.success) {
-        console.error('[MessageSender] Failed to start chat:', result.error);
+      const authFailed = this.handleAuthRequired(result);
+      if (!result.success || authFailed || result.data?.success === false) {
+        console.error(
+          '[MessageSender] Failed to start chat:',
+          result.data?.error ?? result.error,
+        );
         this.tabManager.markLoaded(activeTabId);
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
@@ -497,8 +525,12 @@ export class MessageSenderService {
         { signal: abortSignal },
       );
 
-      if (!result.success) {
-        console.error('[MessageSender] Failed to continue chat:', result.error);
+      const authFailed = this.handleAuthRequired(result);
+      if (!result.success || authFailed || result.data?.success === false) {
+        console.error(
+          '[MessageSender] Failed to continue chat:',
+          result.data?.error ?? result.error,
+        );
         this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');

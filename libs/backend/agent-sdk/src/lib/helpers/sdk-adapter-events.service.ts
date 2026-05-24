@@ -16,10 +16,17 @@ export interface SdkAdapterConfigChangedEvent {
   readonly timestamp: number;
 }
 
+export interface SdkAdapterAuthFileChangedEvent {
+  /** Provider whose external credential file changed (e.g. 'openai-codex'). */
+  readonly providerId: string;
+  readonly timestamp: number;
+}
+
 interface SdkAdapterEventMap {
   initialized: (event: SdkAdapterInitializedEvent) => void;
   disposed: (event: SdkAdapterDisposedEvent) => void;
   configChanged: (event: SdkAdapterConfigChangedEvent) => void;
+  authFileChanged: (event: SdkAdapterAuthFileChangedEvent) => void;
 }
 
 export type SdkAdapterEventName = keyof SdkAdapterEventMap;
@@ -42,6 +49,10 @@ export class SdkAdapterEvents {
     this.safeEmit('configChanged', event);
   }
 
+  emitAuthFileChanged(event: SdkAdapterAuthFileChangedEvent): void {
+    this.safeEmit('authFileChanged', event);
+  }
+
   onInitialized(
     listener: (event: SdkAdapterInitializedEvent) => void,
   ): () => void {
@@ -61,6 +72,13 @@ export class SdkAdapterEvents {
     return () => this.emitter.off('configChanged', listener);
   }
 
+  onAuthFileChanged(
+    listener: (event: SdkAdapterAuthFileChangedEvent) => void,
+  ): () => void {
+    this.emitter.on('authFileChanged', listener);
+    return () => this.emitter.off('authFileChanged', listener);
+  }
+
   removeAllListeners(): void {
     this.emitter.removeAllListeners();
   }
@@ -78,7 +96,8 @@ export class SdkAdapterEvents {
         event,
         payload as unknown as SdkAdapterInitializedEvent &
           SdkAdapterDisposedEvent &
-          SdkAdapterConfigChangedEvent,
+          SdkAdapterConfigChangedEvent &
+          SdkAdapterAuthFileChangedEvent,
       );
     } catch (err) {
       this.logger.warn(

@@ -95,6 +95,8 @@ function createMockCodexAuth(): jest.Mocked<ICodexAuthService> {
     getTokenStatus: jest
       .fn<Promise<{ authenticated: boolean; stale: boolean }>, []>()
       .mockResolvedValue({ authenticated: false, stale: false }),
+    startWatchingAuthFile: jest.fn<void, []>(),
+    stopWatchingAuthFile: jest.fn<void, []>(),
   };
 }
 

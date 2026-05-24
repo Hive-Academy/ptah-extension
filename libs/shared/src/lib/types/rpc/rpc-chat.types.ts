@@ -7,6 +7,7 @@
 import type { SessionId } from '../branded.types';
 import type { ThinkingConfig, EffortLevel } from '../ai-provider.types';
 import type { FlatStreamEventUnion } from '../execution';
+import type { RpcUserErrorCode } from './rpc-error-codes.types';
 
 /**
  * Minimal HTTP-flavored MCP server descriptor used by the
@@ -97,6 +98,10 @@ export interface ChatStartResult {
   success: boolean;
   sessionId?: SessionId;
   error?: string;
+  /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
+  errorCode?: RpcUserErrorCode;
+  /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
+  providerId?: string;
 }
 
 export interface ChatContinueParams {
@@ -130,6 +135,10 @@ export interface ChatContinueResult {
   success: boolean;
   sessionId?: SessionId;
   error?: string;
+  /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
+  errorCode?: RpcUserErrorCode;
+  /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
+  providerId?: string;
 }
 
 /** Parameters for chat:abort RPC method */
@@ -257,4 +266,8 @@ export interface ChatResumeResult {
    */
   activated?: boolean;
   error?: string;
+  /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
+  errorCode?: RpcUserErrorCode;
+  /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
+  providerId?: string;
 }

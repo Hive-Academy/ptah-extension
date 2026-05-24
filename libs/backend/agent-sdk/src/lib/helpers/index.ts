@@ -153,4 +153,5 @@ export {
   type SdkAdapterInitializedEvent,
   type SdkAdapterDisposedEvent,
   type SdkAdapterConfigChangedEvent,
+  type SdkAdapterAuthFileChangedEvent,
 } from './sdk-adapter-events.service';

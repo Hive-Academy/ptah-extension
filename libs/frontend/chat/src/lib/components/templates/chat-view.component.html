@@ -144,6 +144,18 @@
         />
       </div>
 
+      <!-- Auth Required Banner (e.g. expired Codex token) -->
+      @if (authRequiredBanner(); as authBanner) {
+        <div class="px-2 py-1">
+          <ptah-auth-required-banner
+            [message]="authBanner.message"
+            [providerId]="authBanner.providerId"
+            (reauth)="onAuthReauth()"
+            (dismiss)="onAuthBannerDismiss()"
+          />
+        </div>
+      }
+
       <!-- Collapsed Permission Badge (doesn't block chat area) -->
       <ptah-permission-badge
         [permissions]="chatStore.unmatchedPermissions()"

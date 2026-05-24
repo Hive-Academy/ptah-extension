@@ -37,6 +37,7 @@ export {
   SdkError,
   SessionNotActiveError,
   ModelNotAvailableError,
+  AuthRequiredError,
 } from './lib/errors';
 export {
   registerSdkServices,
@@ -81,6 +82,13 @@ export {
 } from './lib/helpers';
 export { CompactionConfigProvider } from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
+export {
+  SdkAdapterEvents,
+  type SdkAdapterInitializedEvent,
+  type SdkAdapterDisposedEvent,
+  type SdkAdapterConfigChangedEvent,
+  type SdkAdapterAuthFileChangedEvent,
+} from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
 export {
