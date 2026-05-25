@@ -11,6 +11,7 @@ description: Release notes for the Ptah desktop app.
 - **[Messaging Gateway](/automation/messaging/)** — drive Ptah from Telegram, Discord, or Slack; voice messages via ffmpeg + whisper; stream coalescing keeps chats from flapping
 - **CLI A2A bridge** — JSON-RPC stdio surface for cron, memory, gateway, and skill-synthesis (advanced / scripted use)
 - **Embedded Anthropic-compatible proxy** — `ptah interact --proxy-start` boots an in-process HTTP proxy with optional workspace-tool re-export
+- **[Drive Ptah via MCP](/mcp-and-skills/driving-ptah-via-mcp/)** — `ptah mcp-serve` exposes Ptah as a stdio MCP server so external hosts (Claude Code, Cursor, Gemini CLI) can delegate to its Team Leader and agent-spawn surface over the standard protocol
 
 All four Hermes tracks share `~/.ptah/ptah.db` and live under their respective `memory.*`, `skillSynthesis.*`, `cron.*`, `gateway.*` settings prefixes in `~/.ptah/settings.json`.
 
