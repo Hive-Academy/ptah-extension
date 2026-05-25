@@ -18,12 +18,19 @@ import {
   type PostToolUsePayload,
   type UserPromptSubmitCallbackRegistry,
   type UserPromptSubmitPayload,
+  type StopCallbackRegistry,
+  type StopPayload,
+  type SessionEndHookCallbackRegistry,
+  type SessionEndHookPayload,
+  type ToolFailureCallbackRegistry,
+  type ToolFailurePayload,
   type CuratorRateLimitService,
 } from '@ptah-extension/agent-sdk';
 import { MEMORY_TOKENS } from '../di/tokens';
 import { MemoryCuratorService } from '../memory-curator.service';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
+import { EpisodeTracker } from './episode-tracker';
 import {
   MEMORY_TRIGGER_DEFAULTS,
   MEMORY_TRIGGER_KEYS,
@@ -33,6 +40,16 @@ import {
 const COMMIT_PATTERN = /^\s*git\s+commit(?:\s|$)/;
 const RATE_LIMIT_KEY = 'memory.curate';
 const MAX_CUE_PATTERN_LENGTH = 200;
+
+type CurateSource =
+  | 'idle'
+  | 'turn'
+  | 'turn-complete'
+  | 'episode'
+  | 'commit-detect'
+  | 'session-end'
+  | 'boot'
+  | 'user-cue';
 
 interface SessionState {
   readonly workspaceRoot: string;
@@ -47,7 +64,11 @@ export class MemoryTriggerService {
   private sessionEndDisposer: (() => void) | null = null;
   private userPromptSubmitDisposer: (() => void) | null = null;
   private postToolUseDisposer: (() => void) | null = null;
+  private stopDisposer: (() => void) | null = null;
+  private toolFailureDisposer: (() => void) | null = null;
+  private sessionEndHookDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
+  private readonly episodes = new EpisodeTracker();
   private bootScanController: AbortController | null = null;
   private cueCache: {
     source: readonly string[];
@@ -74,6 +95,12 @@ export class MemoryTriggerService {
     private readonly userPromptSubmitRegistry: UserPromptSubmitCallbackRegistry,
     @inject(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY)
     private readonly postToolUseRegistry: PostToolUseCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY)
+    private readonly stopRegistry: StopCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_TOOL_FAILURE_CALLBACK_REGISTRY)
+    private readonly toolFailureRegistry: ToolFailureCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_SESSION_END_HOOK_CALLBACK_REGISTRY)
+    private readonly sessionEndHookRegistry: SessionEndHookCallbackRegistry,
     @inject(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT)
     private readonly rateLimiter: CuratorRateLimitService,
   ) {}
@@ -96,6 +123,17 @@ export class MemoryTriggerService {
     this.postToolUseDisposer = this.postToolUseRegistry.register((payload) => {
       this.onPostToolUse(payload);
     });
+    this.stopDisposer = this.stopRegistry.register((payload) => {
+      this.onStop(payload);
+    });
+    this.toolFailureDisposer = this.toolFailureRegistry.register((payload) => {
+      this.onToolFailure(payload);
+    });
+    this.sessionEndHookDisposer = this.sessionEndHookRegistry.register(
+      (payload) => {
+        this.onSessionEndHook(payload);
+      },
+    );
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
@@ -111,24 +149,35 @@ export class MemoryTriggerService {
     this.sessionEndDisposer?.();
     this.userPromptSubmitDisposer?.();
     this.postToolUseDisposer?.();
+    this.stopDisposer?.();
+    this.toolFailureDisposer?.();
+    this.sessionEndHookDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
     this.userPromptSubmitDisposer = null;
     this.postToolUseDisposer = null;
+    this.stopDisposer = null;
+    this.toolFailureDisposer = null;
+    this.sessionEndHookDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
     this.sessions.clear();
+    this.episodes.clear();
     this.bootScanController?.abort();
     this.bootScanController = null;
     this.started = false;
     this.logger.info('[memory-curator] trigger service stopped');
   }
 
+  /**
+   * Session activity drives the idle timer only. The authoritative
+   * "turn complete" signal is the SDK `Stop` hook ({@link onStop}); the
+   * legacy activity-based turn counter has been retired in favour of it.
+   */
   private onActivity(payload: SessionActivityPayload): void {
     const idleMs = this.readIdleMs();
-    const turnThreshold = this.readTurnThreshold();
-    if (idleMs <= 0 && turnThreshold <= 0) return;
+    if (idleMs <= 0) return;
 
     let state = this.sessions.get(payload.sessionId);
     if (!state) {
@@ -140,20 +189,10 @@ export class MemoryTriggerService {
       this.sessions.set(payload.sessionId, state);
     }
 
-    if (idleMs > 0) {
-      if (state.idleTimer) clearTimeout(state.idleTimer);
-      state.idleTimer = setTimeout(() => {
-        this.fireIdle(payload.sessionId);
-      }, idleMs);
-    }
-
-    if (payload.role === 'user' && turnThreshold > 0) {
-      state.turnCount++;
-      if (state.turnCount >= turnThreshold) {
-        state.turnCount = 0;
-        this.fireTurn(payload.sessionId);
-      }
-    }
+    if (state.idleTimer) clearTimeout(state.idleTimer);
+    state.idleTimer = setTimeout(() => {
+      this.fireIdle(payload.sessionId);
+    }, idleMs);
   }
 
   private onSessionEnd(payload: SessionEndPayload): void {
@@ -161,6 +200,61 @@ export class MemoryTriggerService {
     if (!state) return;
     if (state.idleTimer) clearTimeout(state.idleTimer);
     this.sessions.delete(payload.sessionId);
+  }
+
+  /** Real SDK `Stop` hook — the authoritative "assistant turn complete" signal. */
+  private onStop(payload: StopPayload): void {
+    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    const turnCount = this.episodes.recordTurn(
+      payload.sessionId,
+      payload.lastAssistantMessage,
+    );
+    if (!this.readTurnCompleteEnabled()) return;
+    if (payload.hasBackgroundWork) return;
+    const threshold = this.readTurnThreshold();
+    if (threshold > 0 && turnCount >= threshold) {
+      this.tryEpisodeCurate(
+        payload.sessionId,
+        payload.workspaceRoot,
+        'turn-complete',
+        'turn-complete-trigger',
+      );
+    }
+  }
+
+  /** Real SDK `PostToolUseFailure` hook — buffer the failure for episode context. */
+  private onToolFailure(payload: ToolFailurePayload): void {
+    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (payload.isInterrupt) return;
+    this.episodes.recordFailure(
+      payload.sessionId,
+      payload.toolName,
+      payload.error,
+    );
+    this.curator.pushEvent({
+      kind: 'tool-failure',
+      timestamp: payload.timestamp,
+      sessionId: payload.sessionId,
+      stats: { tool: payload.toolName },
+    });
+  }
+
+  /** Real SDK `SessionEnd` hook — flush whatever the episode buffer holds. */
+  private onSessionEndHook(payload: SessionEndHookPayload): void {
+    if (payload.sessionId && payload.sessionId.length > 0) {
+      if (this.readSessionEndEnabled()) {
+        this.tryEpisodeCurate(
+          payload.sessionId,
+          payload.workspaceRoot,
+          'session-end',
+          'session-end-trigger',
+        );
+      }
+      this.episodes.reset(payload.sessionId);
+      const state = this.sessions.get(payload.sessionId);
+      if (state?.idleTimer) clearTimeout(state.idleTimer);
+      this.sessions.delete(payload.sessionId);
+    }
   }
 
   private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {
@@ -220,46 +314,38 @@ export class MemoryTriggerService {
   }
 
   private onPostToolUse(payload: PostToolUsePayload): void {
+    if (!payload.sessionId || payload.sessionId.length === 0) return;
+
+    // Error→recovery detection: a previously-failed tool now succeeds. This is
+    // the highest-value "critical learning" episode boundary.
+    if (payload.success) {
+      const recovered = this.episodes.recordToolSuccess(
+        payload.sessionId,
+        payload.toolName,
+      );
+      if (recovered && this.readEpisodeEnabled()) {
+        this.tryEpisodeCurate(
+          payload.sessionId,
+          payload.workspaceRoot,
+          'episode',
+          'episode-trigger',
+        );
+        return;
+      }
+    }
+
+    // Commit detection — a committed work unit closes an episode.
     if (payload.toolName !== 'Bash') return;
     if (!payload.success || payload.exitCode !== 0) return;
     const command = this.extractBashCommand(payload.toolInput);
     if (!command || !COMMIT_PATTERN.test(command)) return;
     if (!this.readPostToolUseEnabled()) return;
-    if (!payload.sessionId || payload.sessionId.length === 0) {
-      this.logger.warn(
-        '[memory-curator] empty sessionId in onPostToolUse, skipping',
-        { workspaceRoot: payload.workspaceRoot },
-      );
-      return;
-    }
 
-    const decision = this.rateLimiter.tryAcquire(
-      RATE_LIMIT_KEY,
-      this.readMaxCuratesPerHour(),
-    );
-    if (!decision.allowed) {
-      this.curator.pushEvent({
-        kind: 'rate-limited',
-        timestamp: payload.timestamp,
-        sessionId: payload.sessionId,
-        stats: {
-          source: 'commit-detect',
-          limit: decision.limit,
-          resetAt: decision.resetAt,
-          usedThisWindow: decision.usedThisWindow,
-        },
-      });
-      return;
-    }
-
-    this.curator.pushEvent({
-      kind: 'commit-detect',
-      timestamp: payload.timestamp,
-      sessionId: payload.sessionId,
-    });
-    void this.invokeCurate(
+    this.episodes.recordCommit(payload.sessionId);
+    this.tryEpisodeCurate(
       payload.sessionId,
       payload.workspaceRoot,
+      'commit-detect',
       'commit-detect',
     );
   }
@@ -308,35 +394,95 @@ export class MemoryTriggerService {
     const state = this.sessions.get(sessionId);
     if (!state) return;
     state.idleTimer = null;
-    const timestamp = Date.now();
-    this.curator.pushEvent({
-      kind: 'idle-trigger',
-      timestamp,
+    this.tryEpisodeCurate(
       sessionId,
-    });
-    void this.invokeCurate(sessionId, state.workspaceRoot, 'idle');
+      state.workspaceRoot,
+      'idle',
+      'idle-trigger',
+    );
   }
 
-  private fireTurn(sessionId: string): void {
-    const state = this.sessions.get(sessionId);
-    if (!state) return;
-    const timestamp = Date.now();
+  /**
+   * Close the current episode for a session: rate-limit, assemble the buffered
+   * transcript, curate with a salience boost, and reset the buffer. When the
+   * episode is empty there is nothing to curate. When rate-limited the buffer
+   * is preserved so the next boundary can retry.
+   */
+  private tryEpisodeCurate(
+    sessionId: string,
+    workspaceRoot: string,
+    source: CurateSource,
+    eventKind:
+      | 'idle-trigger'
+      | 'turn-trigger'
+      | 'turn-complete-trigger'
+      | 'episode-trigger'
+      | 'commit-detect'
+      | 'session-end-trigger',
+  ): void {
+    const snap = this.episodes.snapshot(sessionId);
+    if (snap.isEmpty) {
+      this.episodes.reset(sessionId);
+      return;
+    }
+
+    const decision = this.rateLimiter.tryAcquire(
+      RATE_LIMIT_KEY,
+      this.readMaxCuratesPerHour(),
+    );
+    if (!decision.allowed) {
+      this.curator.pushEvent({
+        kind: 'rate-limited',
+        timestamp: Date.now(),
+        sessionId,
+        stats: {
+          source,
+          limit: decision.limit,
+          resetAt: decision.resetAt,
+          usedThisWindow: decision.usedThisWindow,
+        },
+      });
+      return;
+    }
+
+    const transcript = this.episodes.buildTranscript(sessionId);
+    const salienceBoost = this.episodes.salienceBoost(sessionId);
     this.curator.pushEvent({
-      kind: 'turn-trigger',
-      timestamp,
+      kind: eventKind,
+      timestamp: Date.now(),
       sessionId,
+      stats: {
+        turns: snap.turnCount,
+        failures: snap.failures.length,
+        recovered: snap.recoveredTools.length,
+        commits: snap.commits,
+        critical: snap.hasCriticalLearning,
+      },
     });
-    void this.invokeCurate(sessionId, state.workspaceRoot, 'turn');
+    this.episodes.reset(sessionId);
+    void this.invokeCurate(
+      sessionId,
+      workspaceRoot,
+      source,
+      transcript,
+      salienceBoost,
+    );
   }
 
   private async invokeCurate(
     sessionId: string,
     workspaceRoot: string,
-    source: 'idle' | 'turn' | 'boot' | 'user-cue' | 'commit-detect',
+    source: CurateSource,
     transcript?: string,
+    salienceBoost?: number,
   ): Promise<void> {
     try {
-      await this.curator.curate({ sessionId, workspaceRoot, transcript });
+      await this.curator.curate({
+        sessionId,
+        workspaceRoot,
+        transcript,
+        salienceBoost,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.curator.pushEvent({
@@ -460,6 +606,37 @@ export class MemoryTriggerService {
     return typeof v === 'boolean'
       ? v
       : MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled;
+  }
+
+  private readTurnCompleteEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.turnComplete.enabled,
+      MEMORY_TRIGGER_DEFAULTS.turnComplete.enabled,
+    );
+    return typeof v === 'boolean'
+      ? v
+      : MEMORY_TRIGGER_DEFAULTS.turnComplete.enabled;
+  }
+
+  private readEpisodeEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.episode.enabled,
+      MEMORY_TRIGGER_DEFAULTS.episode.enabled,
+    );
+    return typeof v === 'boolean' ? v : MEMORY_TRIGGER_DEFAULTS.episode.enabled;
+  }
+
+  private readSessionEndEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.sessionEnd.enabled,
+      MEMORY_TRIGGER_DEFAULTS.sessionEnd.enabled,
+    );
+    return typeof v === 'boolean'
+      ? v
+      : MEMORY_TRIGGER_DEFAULTS.sessionEnd.enabled;
   }
 
   private readMaxCuratesPerHour(): number {

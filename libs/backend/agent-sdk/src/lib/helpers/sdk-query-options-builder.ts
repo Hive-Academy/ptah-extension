@@ -39,6 +39,9 @@ import {
 } from './worktree-hook-handler';
 import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
 import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
+import { StopHookHandler } from './stop-hook-handler';
+import { SessionEndHookHandler } from './session-end-hook-handler';
+import { ToolFailureHookHandler } from './tool-failure-hook-handler';
 import {
   CanUseTool,
   HookEvent,
@@ -436,6 +439,12 @@ export class SdkQueryOptionsBuilder {
     private readonly postToolUseHookHandler: PostToolUseHookHandler,
     @inject(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER)
     private readonly userPromptSubmitHookHandler: UserPromptSubmitHookHandler,
+    @inject(SDK_TOKENS.SDK_STOP_HOOK_HANDLER)
+    private readonly stopHookHandler: StopHookHandler,
+    @inject(SDK_TOKENS.SDK_SESSION_END_HOOK_HANDLER)
+    private readonly sessionEndHookHandler: SessionEndHookHandler,
+    @inject(SDK_TOKENS.SDK_TOOL_FAILURE_HOOK_HANDLER)
+    private readonly toolFailureHookHandler: ToolFailureHookHandler,
   ) {}
 
   /**
@@ -996,6 +1005,15 @@ export class SdkQueryOptionsBuilder {
       sessionId ?? '',
       cwd,
     );
+    const stopHooks = this.stopHookHandler.createHooks(sessionId ?? '', cwd);
+    const sessionEndHooks = this.sessionEndHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
+    const toolFailureHooks = this.toolFailureHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
       subagentHooks,
@@ -1003,6 +1021,9 @@ export class SdkQueryOptionsBuilder {
       worktreeHooks,
       postToolUseHooks,
       userPromptSubmitHooks,
+      stopHooks,
+      sessionEndHooks,
+      toolFailureHooks,
     ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;

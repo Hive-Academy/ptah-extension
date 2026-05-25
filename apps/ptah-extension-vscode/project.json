@@ -33,7 +33,7 @@
             "js": "import { createRequire as __ptah_createRequire } from 'module'; import { fileURLToPath as __ptah_fileURLToPath } from 'url'; import { dirname as __ptah_dirname } from 'path'; const require = __ptah_createRequire(import.meta.url); const __filename = __ptah_fileURLToPath(import.meta.url); const __dirname = __ptah_dirname(__filename);"
           }
         },
-        "external": ["vscode"],
+        "external": ["vscode", "@cursor/sdk"],
         "assets": [
           {
             "glob": "**/*",

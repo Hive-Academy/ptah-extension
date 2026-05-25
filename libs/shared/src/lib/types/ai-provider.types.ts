@@ -103,6 +103,13 @@ export type ThinkingConfig =
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
+ * Effort levels accepted by the SDK flag-settings layer (`Settings.effortLevel`),
+ * used for mid-session changes via `applyFlagSettings`. Unlike {@link EffortLevel}
+ * it has no `'max'` tier and `null` clears the override.
+ */
+export type FlagEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | null;
+
+/**
  * AI Session Configuration
  */
 export interface AISessionConfig {

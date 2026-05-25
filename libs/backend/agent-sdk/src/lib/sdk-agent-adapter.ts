@@ -13,6 +13,7 @@ import {
   ProviderCapabilities,
   AISessionConfig,
   AIMessageOptions,
+  EffortLevel,
   SessionId,
   FlatStreamEventUnion,
   type McpHttpServerOverride,
@@ -25,7 +26,8 @@ import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
-import { SdkError } from './errors';
+import { AuthRequiredError } from './errors';
+import { getActiveProviderId } from './helpers';
 import { SessionMetadataStore } from './session-metadata-store';
 import {
   ModelInfo,
@@ -141,6 +143,39 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.cliInstallation = null;
       await this.initialize();
     });
+    this.events.onAuthFileChanged(async (event) => {
+      // Only recover when the adapter is unusable. A healthy adapter reads
+      // refreshed OAuth tokens per-request through the translation proxy, so a
+      // token refresh needs no reset — re-initializing here would loop.
+      const health = this.runtimeState.getHealth();
+      if (this.initialized && health.status !== 'error') {
+        return;
+      }
+      this.logger.info(
+        `[SdkAgentAdapter] Auth file changed for ${event.providerId} while adapter unhealthy — re-initializing...`,
+      );
+      await this.initialize();
+    });
+  }
+
+  /**
+   * Build the auth-required error thrown when an operation runs before the
+   * adapter is usable. Surfaces the active provider and the last health
+   * `errorMessage` so the UI can render an actionable re-auth banner.
+   */
+  private notInitializedError(): AuthRequiredError {
+    let providerId: string | null = null;
+    try {
+      providerId = getActiveProviderId(this.authManager.getAuthEnv());
+    } catch {
+      providerId = null;
+    }
+    const recoveryHint = this.runtimeState.getHealth().errorMessage ?? null;
+    return new AuthRequiredError(
+      recoveryHint ??
+        'Provider is not ready. Check authentication in Settings.',
+      { providerId, recoveryHint },
+    );
   }
 
   public async preloadSdk(): Promise<void> {
@@ -353,9 +388,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
-      throw new SdkError(
-        'SdkAgentAdapter not initialized. Call initialize() first.',
-      );
+      throw this.notInitializedError();
     }
 
     const {
@@ -466,9 +499,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
-      throw new SdkError(
-        'SdkAgentAdapter not initialized. Call initialize() first.',
-      );
+      throw this.notInitializedError();
     }
 
     const existingSession = this.sessionLifecycle.find(sessionId as string);
@@ -628,9 +659,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     config: SlashCommandConfig & { tabId?: string },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
-      throw new SdkError(
-        'SdkAgentAdapter not initialized. Call initialize() first.',
-      );
+      throw this.notInitializedError();
     }
 
     this.logger.info(
@@ -686,9 +715,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     title?: string,
   ): Promise<ForkSessionResult> {
     if (!this.initialized) {
-      throw new SdkError(
-        'SdkAgentAdapter not initialized. Call initialize() first.',
-      );
+      throw this.notInitializedError();
     }
     return this.forkService.forkSession({ sessionId, upToMessageId, title });
   }
@@ -699,9 +726,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     dryRun?: boolean,
   ): Promise<RewindFilesResult> {
     if (!this.initialized) {
-      throw new SdkError(
-        'SdkAgentAdapter not initialized. Call initialize() first.',
-      );
+      throw this.notInitializedError();
     }
     return this.forkService.rewindFiles({ sessionId, userMessageId, dryRun });
   }
@@ -722,6 +747,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     return this.sessionLifecycle.setSessionModel(sessionId, model);
+  }
+
+  async setSessionEffort(
+    sessionId: SessionId,
+    effort: EffortLevel | undefined,
+  ): Promise<void> {
+    return this.sessionLifecycle.setSessionEffort(sessionId, effort);
   }
 
   private resolveActivityIds(sessionId: SessionId): {

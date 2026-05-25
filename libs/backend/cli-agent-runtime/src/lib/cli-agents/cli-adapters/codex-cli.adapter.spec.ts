@@ -176,23 +176,6 @@ describe('CodexCliAdapter', () => {
     });
   });
 
-  describe('buildCommand()', () => {
-    it('should build an `exec --full-auto --ephemeral` command with the task prompt', () => {
-      // `exec` subcommand with `--full-auto --ephemeral` for non-interactive,
-      // auto-approve, no-session-persistence execution.
-      const cmd = adapter.buildCommand({
-        task: 'Write a test',
-        workingDirectory: '/project',
-      });
-
-      expect(cmd.binary).toBe('codex');
-      expect(cmd.args).toContain('exec');
-      expect(cmd.args).toContain('--full-auto');
-      expect(cmd.args).toContain('--ephemeral');
-      expect(cmd.args).toContain('Write a test');
-    });
-  });
-
   describe('supportsSteer()', () => {
     it('should return false', () => {
       expect(adapter.supportsSteer()).toBe(false);

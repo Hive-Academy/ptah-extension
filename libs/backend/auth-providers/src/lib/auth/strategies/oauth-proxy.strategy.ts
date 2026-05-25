@@ -55,12 +55,14 @@ export class OAuthProxyStrategy implements IAuthStrategy {
       return this.configureCodexOAuth(providerId, authEnv);
     }
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
+    this.codexAuth.stopWatchingAuthFile();
     return this.configureCopilotOAuth(providerId, authEnv);
   }
 
   async teardown(): Promise<void> {
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
+    this.codexAuth.stopWatchingAuthFile();
     this.codexAuth.clearCache();
   }
 
@@ -166,6 +168,9 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     authEnv: import('@ptah-extension/shared').AuthEnv,
   ): Promise<AuthConfigureResult> {
     this.logger.info(`[${this.name}] Configuring OAuth provider: OpenAI Codex`);
+    // Start watching before the auth check so that if auth currently fails, a
+    // later `codex login` is detected and the adapter re-initializes itself.
+    this.codexAuth.startWatchingAuthFile();
     const isAuthed = await this.codexAuth.isAuthenticated();
     if (!isAuthed) {
       this.logger.warn(

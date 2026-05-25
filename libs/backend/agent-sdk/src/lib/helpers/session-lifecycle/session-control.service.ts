@@ -15,7 +15,12 @@
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
-import type { SessionId, ISdkPermissionHandler } from '@ptah-extension/shared';
+import type {
+  SessionId,
+  ISdkPermissionHandler,
+  EffortLevel,
+  FlagEffortLevel,
+} from '@ptah-extension/shared';
 
 import { SdkError } from '../../errors';
 import type { IModelResolver } from '../../auth-env.port';
@@ -290,6 +295,45 @@ export class SessionControl {
     } catch (error) {
       this.logger.error(
         `[SessionLifecycle] Failed to set model for ${sessionId}`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Change reasoning effort mid-session. `undefined` clears the override.
+   * The flag-settings layer has no `max` tier, so `max` is applied as `xhigh`
+   * (the persisted `max` still takes full effect on the next session start).
+   *
+   * @param sessionId - Session to update
+   * @param effort - Effort level, or undefined to clear the override
+   */
+  async setSessionEffort(
+    sessionId: SessionId,
+    effort: EffortLevel | undefined,
+  ): Promise<void> {
+    const session = this.registry.find(sessionId as string);
+    if (!session) {
+      throw new SdkError(`Session not found: ${sessionId}`);
+    }
+
+    if (!session.query) {
+      throw new SdkError(`Session query not initialized: ${sessionId}`);
+    }
+
+    const flagEffort: FlagEffortLevel =
+      effort === undefined ? null : effort === 'max' ? 'xhigh' : effort;
+
+    this.logger.info(
+      `[SessionLifecycle] Setting effort for ${sessionId}: ${flagEffort ?? 'default'}`,
+    );
+
+    try {
+      await session.query.applyFlagSettings({ effortLevel: flagEffort });
+    } catch (error) {
+      this.logger.error(
+        `[SessionLifecycle] Failed to set effort for ${sessionId}`,
         error instanceof Error ? error : new Error(String(error)),
       );
       throw error;

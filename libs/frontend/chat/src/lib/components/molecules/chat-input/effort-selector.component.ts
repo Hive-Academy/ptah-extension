@@ -18,7 +18,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, ChevronDown, Check, Brain } from 'lucide-angular';
-import { type EffortLevel } from '@ptah-extension/shared';
+import { type EffortLevel, type SessionId } from '@ptah-extension/shared';
 import { EffortStateService } from '@ptah-extension/core';
 import {
   NativeDropdownComponent,
@@ -26,6 +26,7 @@ import {
   KeyboardNavigationService,
 } from '@ptah-extension/ui';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { ChatStore } from '../../../services/chat.store';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 
 interface EffortOption {
@@ -227,6 +228,7 @@ export class EffortSelectorComponent {
   private readonly keyboardNav = inject(KeyboardNavigationService);
   private readonly effortState = inject(EffortStateService);
   private readonly tabManager = inject(TabManagerService);
+  private readonly chatStore = inject(ChatStore);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
@@ -292,17 +294,23 @@ export class EffortSelectorComponent {
 
     const effortValue = option.value === '' ? undefined : option.value;
 
+    this.effortChanged.emit(effortValue);
+
     const ctx = this._sessionContext;
     if (ctx) {
       const tabId = ctx();
       if (tabId) {
         this.tabManager.setOverrideEffort(tabId, effortValue ?? null);
+        const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+        const tileSessionId = (tab?.claudeSessionId ??
+          null) as SessionId | null;
+        this.effortState.setEffort(effortValue, tileSessionId);
         return;
       }
     }
 
-    this.effortChanged.emit(effortValue);
-    this.effortState.setEffort(effortValue);
+    const sessionId = this.chatStore.currentSessionId() as SessionId | null;
+    this.effortState.setEffort(effortValue, sessionId);
   }
 
   onHover(index: number): void {

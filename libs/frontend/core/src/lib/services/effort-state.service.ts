@@ -8,7 +8,7 @@
 
 import { Injectable, signal, inject } from '@angular/core';
 import { ClaudeRpcService } from './claude-rpc.service';
-import type { EffortLevel } from '@ptah-extension/shared';
+import type { EffortLevel, SessionId } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
 export class EffortStateService {
@@ -27,13 +27,22 @@ export class EffortStateService {
 
   /**
    * Switch effort level with optimistic update + backend persistence.
+   *
+   * @param effort - Effort level, or undefined for SDK default
+   * @param sessionId - Active session ID for live SDK sync (optional)
    */
-  async setEffort(effort: EffortLevel | undefined): Promise<void> {
+  async setEffort(
+    effort: EffortLevel | undefined,
+    sessionId?: SessionId | null,
+  ): Promise<void> {
     const previous = this._currentEffort();
     this._currentEffort.set(effort);
 
     try {
-      const result = await this.rpc.call('config:effort-set', { effort });
+      const result = await this.rpc.call('config:effort-set', {
+        effort,
+        sessionId: sessionId ?? null,
+      });
       if (!result.isSuccess()) {
         console.error(
           '[EffortStateService] Failed to save effort:',

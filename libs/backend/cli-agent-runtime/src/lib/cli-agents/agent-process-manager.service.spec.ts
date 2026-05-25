@@ -180,10 +180,6 @@ function createSdkAdapter(
       version: '1.0.0',
       supportsSteer: false,
     }),
-    buildCommand: jest.fn().mockReturnValue({
-      binary: 'codex',
-      args: ['--quiet', 'test task'],
-    }),
     supportsSteer: jest.fn().mockReturnValue(false),
     parseOutput: jest.fn((raw: string) => raw),
     runSdk: jest
@@ -302,6 +298,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   let sdkControls: MockSdkHandleControls;
   let sdkAdapter: jest.Mocked<CliAdapter>;
   let cliDetection: jest.Mocked<CliDetectionService>;
+  let reasoningEffortGet: jest.Mock<string, []>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -315,12 +312,14 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     setupVscodeConfig();
 
     // Instantiate manager directly (tsyringe decorators are mocked to no-ops).
-    // The constructor takes 6 deps: logger, cliDetection,
-    // licenseService, subagentRegistry, workspaceProvider, sentryService.
+    // The constructor takes 7 deps: logger, cliDetection, licenseService,
+    // subagentRegistry, workspaceProvider, sentryService, reasoningSettings.
     const licenseService = createMockLicenseService();
     const subagentRegistry = createMockSubagentRegistry();
     const workspaceProvider = createMockWorkspaceProvider();
     const sentryService = createMockSentryService();
+    reasoningEffortGet = jest.fn(() => '');
+    const reasoningSettings = { effort: { get: reasoningEffortGet } };
     manager = new AgentProcessManager(
       logger,
       cliDetection,
@@ -336,6 +335,9 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       sentryService as unknown as ConstructorParameters<
         typeof AgentProcessManager
       >[5],
+      reasoningSettings as unknown as ConstructorParameters<
+        typeof AgentProcessManager
+      >[6],
     );
   });
 
@@ -390,6 +392,53 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const status = manager.getStatus(result.agentId);
       expect(status).toHaveProperty('status', 'running');
+    });
+  });
+
+  describe('reasoning effort resolution', () => {
+    const spawnCodex = async () => {
+      setTimeout(() => sdkControls.resolve(0), 10);
+      await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      return (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+    };
+
+    it('lets the UI effort selection drive the CLI agent', async () => {
+      reasoningEffortGet.mockReturnValue('high');
+      setupVscodeConfig({ codexReasoningEffort: 'low' });
+
+      const runSdkCall = await spawnCodex();
+
+      expect(runSdkCall.reasoningEffort).toBe('high');
+    });
+
+    it("maps UI 'max' to 'xhigh' (Codex/Copilot have no max tier)", async () => {
+      reasoningEffortGet.mockReturnValue('max');
+
+      const runSdkCall = await spawnCodex();
+
+      expect(runSdkCall.reasoningEffort).toBe('xhigh');
+    });
+
+    it('falls back to the per-CLI config when no UI effort is set', async () => {
+      reasoningEffortGet.mockReturnValue('');
+      setupVscodeConfig({ codexReasoningEffort: 'low' });
+
+      const runSdkCall = await spawnCodex();
+
+      expect(runSdkCall.reasoningEffort).toBe('low');
+    });
+
+    it('is undefined when neither UI effort nor config is set', async () => {
+      reasoningEffortGet.mockReturnValue('');
+      setupVscodeConfig({ codexReasoningEffort: '' });
+
+      const runSdkCall = await spawnCodex();
+
+      expect(runSdkCall.reasoningEffort).toBeUndefined();
     });
   });
 

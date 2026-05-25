@@ -9,6 +9,8 @@ import type {
   MemoryPurgeJunkResult,
   MemoryRebuildIndexResult,
   MemorySearchResult,
+  MemorySearchSymbolsParams,
+  MemorySearchSymbolsResult,
   MemoryStatsResult,
   MemoryTierWire,
 } from '@ptah-extension/shared';
@@ -199,6 +201,19 @@ export class MemoryRpcService {
       return result.data;
     }
     throw new Error(result.error || 'memory:purgeBySubjectPattern failed');
+  }
+
+  public async searchSymbols(
+    params: MemorySearchSymbolsParams,
+  ): Promise<MemorySearchSymbolsResult> {
+    const result = await this.rpc.call('memory:searchSymbols', params, {
+      timeout: MEMORY_RPC_TIMEOUTS.LIST_MS,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'memory:searchSymbols failed');
   }
 
   public async purgeJunk(

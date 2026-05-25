@@ -6,7 +6,8 @@ import {
 } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS, bindLicenseReactivity } from '@ptah-extension/vscode-core';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { SDK_TOKENS, setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import {
@@ -345,19 +346,19 @@ export async function wireRuntime(
                           Math.round((p.filesScanned / p.totalFiles) * 100),
                         )
                       : 0;
-                  const webviewManager = container.resolve<{
-                    broadcastMessage: (
-                      type: string,
-                      payload: unknown,
-                    ) => Promise<void>;
-                  }>(TOKENS.WEBVIEW_MANAGER);
-                  void webviewManager.broadcastMessage('indexing:progress', {
-                    pipeline: 'symbols',
-                    percent,
-                    currentLabel: `${p.filesScanned}/${p.totalFiles} files`,
-                    elapsedMs: Date.now() - startedAt,
-                    totalKnown: true,
-                  });
+                  const webviewManager = container.resolve<WebviewManager>(
+                    TOKENS.WEBVIEW_MANAGER,
+                  );
+                  void webviewManager.broadcastMessage(
+                    MESSAGE_TYPES.INDEXING_PROGRESS,
+                    {
+                      pipeline: 'symbols',
+                      percent,
+                      currentLabel: `${p.filesScanned}/${p.totalFiles} files`,
+                      elapsedMs: Date.now() - startedAt,
+                      totalKnown: true,
+                    },
+                  );
                 },
               });
             } catch (err: unknown) {

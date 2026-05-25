@@ -67,6 +67,7 @@ import {
   VSCodeService,
   ClaudeRpcService,
   AppStateManager,
+  AuthStateService,
 } from '@ptah-extension/core';
 import {
   TabManagerService,
@@ -216,6 +217,12 @@ function makeHarness(
     getConversationId: jest.fn(() => null),
   } as unknown as TabSessionBinding;
 
+  const authStateStub = {
+    authRequiredBanner: signal(null),
+    codexLogin: jest.fn(async () => undefined),
+    clearAuthRequiredBanner: jest.fn(),
+  } as unknown as AuthStateService;
+
   TestBed.configureTestingModule({
     imports: [ChatViewComponent],
     providers: [
@@ -235,6 +242,7 @@ function makeHarness(
       { provide: ExecutionTreeBuilderService, useValue: treeBuilderStub },
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
+      { provide: AuthStateService, useValue: authStateStub },
       { provide: SESSION_CONTEXT, useValue: null },
     ],
   });

@@ -191,21 +191,23 @@ export class CliDetectionService {
   }
 
   /**
-   * Ensure CLI OAuth tokens are fresh (non-blocking background task).
-   * Currently only Codex requires OAuth token refresh.
-   * Call during extension startup to avoid stale-token fallbacks on first use.
+   * Ensure CLI credentials are fresh (non-blocking background task).
+   * Codex refreshes OAuth tokens; Cursor confirms an API key is resolvable.
+   * Call during extension startup to avoid stale-credential fallbacks on first use.
    */
   async refreshCliTokens(): Promise<void> {
-    const codexAdapter = this.adapters.get('codex');
-    if (codexAdapter?.ensureTokensFresh) {
-      const fresh = await codexAdapter.ensureTokensFresh();
-      this.logger.info(
-        `[CliDetection] Codex token refresh: ${
-          fresh ? 'fresh' : 'stale/unavailable'
-        }`,
-      );
-      if (fresh) {
-        this.modelCache = null;
+    for (const cli of ['codex', 'cursor'] as const) {
+      const adapter = this.adapters.get(cli);
+      if (adapter?.ensureTokensFresh) {
+        const fresh = await adapter.ensureTokensFresh();
+        this.logger.info(
+          `[CliDetection] ${cli} credential refresh: ${
+            fresh ? 'fresh' : 'stale/unavailable'
+          }`,
+        );
+        if (fresh) {
+          this.modelCache = null;
+        }
       }
     }
   }

@@ -23,6 +23,8 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ReasoningSettings } from '@ptah-extension/settings-core';
 import {
   AgentId,
   AgentStatus,
@@ -42,7 +44,6 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
-import { spawnCli } from './cli-adapters/cli-adapter.utils';
 import {
   MAX_BUFFER_SIZE,
   DEFAULT_TIMEOUT,
@@ -109,12 +110,27 @@ export class AgentProcessManager {
   /** Flush timers per agent */
   private readonly flushTimers = new Map<string, NodeJS.Timeout>();
 
-  /**
-   * Resolve per-CLI reasoning effort from VS Code config.
-   * Returns undefined if the CLI doesn't support it or no effort is configured.
-   */
+  /** Allowlist an effort value to what Codex/Copilot accept (`max` → `xhigh`). */
+  private mapEffortToCli(effort: string): string | undefined {
+    switch (effort) {
+      case 'low':
+      case 'medium':
+      case 'high':
+      case 'xhigh':
+      case 'minimal':
+        return effort;
+      case 'max':
+        return 'xhigh';
+      default:
+        return undefined;
+    }
+  }
+
+  /** UI reasoning-effort selection drives Codex/Copilot; per-CLI config is the fallback. */
   private resolveReasoningEffort(cli: CliType): string | undefined {
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
+    const uiEffort = this.mapEffortToCli(this.reasoningSettings.effort.get());
+    if (uiEffort) return uiEffort;
     const effortKey =
       cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
     const effort =
@@ -123,7 +139,7 @@ export class AgentProcessManager {
         effortKey,
         '',
       ) ?? '';
-    return effort || undefined;
+    return this.mapEffortToCli(effort);
   }
 
   private resolveAutoApprove(cli: CliType): boolean | undefined {
@@ -134,6 +150,30 @@ export class AgentProcessManager {
       'copilotAutoApprove',
       true,
     );
+  }
+
+  private static readonly MODEL_CONFIG_KEYS: Partial<Record<CliType, string>> =
+    {
+      gemini: 'geminiModel',
+      codex: 'codexModel',
+      copilot: 'copilotModel',
+      cursor: 'cursorModel',
+    };
+
+  private resolveConfiguredModel(
+    cli: CliType,
+    requestModel: string | undefined,
+  ): string | undefined {
+    if (requestModel) return requestModel;
+    const configKey = AgentProcessManager.MODEL_CONFIG_KEYS[cli];
+    if (!configKey) return requestModel;
+    const configuredModel =
+      this.workspace.getConfiguration<string>(
+        'ptah.agentOrchestration',
+        configKey,
+        '',
+      ) ?? '';
+    return configuredModel || requestModel;
   }
 
   /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
@@ -155,6 +195,8 @@ export class AgentProcessManager {
     private readonly workspace: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
+    private readonly reasoningSettings: ReasoningSettings,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -230,10 +272,8 @@ export class AgentProcessManager {
       throw new Error(`No adapter registered for CLI: ${cli}`);
     }
 
-    const isSdk = typeof adapter.runSdk === 'function';
     this.logger.info('[AgentProcessManager] Adapter resolved', {
       cli,
-      adapterType: isSdk ? 'sdk' : 'cli-process',
       detectedVersion: detection.version,
       detectedPath: detection.path,
     });
@@ -242,130 +282,16 @@ export class AgentProcessManager {
     await this.validateWorkingDirectory(workingDirectory);
     const mcpPort =
       adapter.supportsMcp !== false ? await this.resolveMcpPort() : undefined;
-    const runSdk = adapter.runSdk?.bind(adapter);
-    if (runSdk) {
-      return this.doSpawnSdk(
-        runSdk,
-        request,
-        request.task,
-        workingDirectory,
-        cli,
-        adapter.displayName,
-        detection.path,
-        mcpPort,
-      );
-    }
-    let cliModel = request.model;
-    if (
-      !cliModel &&
-      (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
-    ) {
-      const configKey =
-        cli === 'gemini'
-          ? 'geminiModel'
-          : cli === 'codex'
-            ? 'codexModel'
-            : 'copilotModel';
-      const configuredModel =
-        this.workspace.getConfiguration<string>(
-          'ptah.agentOrchestration',
-          configKey,
-          '',
-        ) ?? '';
-      if (configuredModel) {
-        cliModel = configuredModel;
-      }
-    }
-    const command = adapter.buildCommand({
-      task: request.task,
+    return this.doSpawnSdk(
+      adapter.runSdk.bind(adapter),
+      request,
+      request.task,
       workingDirectory,
-      files: request.files,
-      taskFolder: request.taskFolder,
-      model: cliModel,
+      cli,
+      adapter.displayName,
+      detection.path,
       mcpPort,
-      resumeSessionId: request.resumeSessionId,
-      projectGuidance: request.projectGuidance,
-      systemPrompt: request.systemPrompt,
-      reasoningEffort: this.resolveReasoningEffort(cli),
-      autoApprove: this.resolveAutoApprove(cli),
-    });
-    const agentId = AgentId.create();
-    const startedAt = new Date().toISOString();
-
-    const info: AgentProcessInfo = {
-      agentId,
-      cli,
-      task: request.task,
-      workingDirectory,
-      taskFolder: request.taskFolder,
-      status: 'running',
-      startedAt,
-      parentSessionId: request.parentSessionId,
-      displayName: adapter.displayName,
-      model: cliModel,
-      resumedFromAgentId: request.resumedFromAgentId,
-    };
-    const binaryPath = detection.path ?? command.binary;
-    this.logger.info('[AgentProcessManager] Spawning agent', {
-      agentId,
-      cli,
-      binary: binaryPath,
-      args: command.args.length,
-      workingDirectory,
-    });
-
-    const childProcess = spawnCli(binaryPath, command.args, {
-      cwd: workingDirectory,
-      env: command.env,
-    });
-    childProcess.stdout?.setEncoding('utf8');
-    childProcess.stderr?.setEncoding('utf8');
-    const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
-    const timeoutHandle = setTimeout(() => {
-      this.handleTimeout(agentId);
-    }, timeout);
-    const tracked: TrackedAgent = {
-      info: { ...info, pid: childProcess.pid },
-      process: childProcess,
-      stdoutBuffer: '',
-      stderrBuffer: '',
-      timeoutHandle,
-      stdoutLineCount: 0,
-      stderrLineCount: 0,
-      truncated: false,
-      hasExited: false,
-      accumulatedSegments: [],
-      accumulatedStreamEvents: [],
-    };
-
-    this.agents.set(agentId, tracked);
-    childProcess.stdout?.on('data', (data: Buffer) => {
-      this.appendBuffer(agentId, 'stdout', data.toString());
-    });
-
-    childProcess.stderr?.on('data', (data: Buffer) => {
-      this.appendBuffer(agentId, 'stderr', data.toString());
-    });
-    childProcess.on('exit', (code, signal) => {
-      this.handleExit(agentId, code, signal);
-    });
-
-    childProcess.on('error', (error) => {
-      this.logger.error('[AgentProcessManager] Process error', error);
-      this.handleExit(agentId, 1, null);
-    });
-
-    const spawnResult: SpawnAgentResult = {
-      agentId,
-      cli,
-      status: 'running',
-      startedAt,
-    };
-
-    this.events.emit('agent:spawned', tracked.info);
-    this.markParentSubagentsAsCliAgent(request.parentSessionId);
-
-    return spawnResult;
+    );
   }
 
   /**
@@ -384,27 +310,7 @@ export class AgentProcessManager {
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
-    let resolvedModel = request.model;
-    if (
-      !resolvedModel &&
-      (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
-    ) {
-      const configKey =
-        cli === 'gemini'
-          ? 'geminiModel'
-          : cli === 'codex'
-            ? 'codexModel'
-            : 'copilotModel';
-      const configuredModel =
-        this.workspace.getConfiguration<string>(
-          'ptah.agentOrchestration',
-          configKey,
-          '',
-        ) ?? '';
-      if (configuredModel) {
-        resolvedModel = configuredModel;
-      }
-    }
+    const resolvedModel = this.resolveConfiguredModel(cli, request.model);
 
     const info: AgentProcessInfo = {
       agentId,
@@ -1204,7 +1110,12 @@ export class AgentProcessManager {
   }
 
   private async getPreferredCli(): Promise<CliType | null> {
-    const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
+    const systemCliTypes = new Set<string>([
+      'gemini',
+      'codex',
+      'copilot',
+      'cursor',
+    ]);
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
         'ptah',

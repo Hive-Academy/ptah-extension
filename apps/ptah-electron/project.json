@@ -30,6 +30,7 @@
           "@anthropic-ai/claude-agent-sdk",
           "@github/copilot-sdk",
           "@openai/codex-sdk",
+          "@cursor/sdk",
           "deepagents",
           "@langchain/core",
           "@langchain/langgraph",

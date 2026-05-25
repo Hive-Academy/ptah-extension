@@ -68,4 +68,12 @@ export interface ICodexAuthService {
    * Returns whether credentials exist and whether OAuth tokens are stale.
    */
   getTokenStatus(): Promise<{ authenticated: boolean; stale: boolean }>;
+  /**
+   * Begin watching ~/.codex/auth.json for external changes. On change, the
+   * cache is invalidated and an `authFileChanged` event is broadcast so the
+   * adapter can re-initialize after the user runs `codex login`. Idempotent.
+   */
+  startWatchingAuthFile(): void;
+  /** Stop watching the auth file and release the watcher handle. */
+  stopWatchingAuthFile(): void;
 }

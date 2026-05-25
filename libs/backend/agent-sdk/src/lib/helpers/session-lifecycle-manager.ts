@@ -23,6 +23,8 @@ import {
   ISdkPermissionHandler,
   InlineImageAttachment,
   type AuthEnv,
+  type EffortLevel,
+  type FlagEffortLevel,
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
@@ -65,6 +67,7 @@ export interface Query {
   interrupt(): Promise<void>;
   setPermissionMode(mode: string): Promise<void>;
   setModel(model?: string): Promise<void>;
+  applyFlagSettings(settings: { effortLevel?: FlagEffortLevel }): Promise<void>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
   /**
@@ -541,5 +544,12 @@ export class SessionLifecycleManager {
    */
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     return this._control.setSessionModel(sessionId, model);
+  }
+
+  async setSessionEffort(
+    sessionId: SessionId,
+    effort: EffortLevel | undefined,
+  ): Promise<void> {
+    return this._control.setSessionEffort(sessionId, effort);
   }
 }

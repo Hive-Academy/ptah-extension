@@ -8,6 +8,8 @@ import {
   output,
   signal,
   computed,
+  effect,
+  untracked,
   viewChild,
   EnvironmentInjector,
   createEnvironmentInjector,
@@ -18,6 +20,7 @@ import {
   TabManagerService,
   SESSION_CONTEXT,
 } from '@ptah-extension/chat';
+import { EffortStateService } from '@ptah-extension/core';
 import { LucideAngularModule, Minimize2, Maximize2 } from 'lucide-angular';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
@@ -131,7 +134,22 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly tileAgentIndicator = viewChild(TileAgentIndicatorComponent);
 
   private readonly tabManager = inject(TabManagerService);
+  private readonly effortState = inject(EffortStateService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
+
+  private readonly _freezeEffort = effect(() => {
+    if (!this.effortState.isLoaded()) return;
+    untracked(() => {
+      const id = this.tabId();
+      const tab = this.tabManager.tabs().find((t) => t.id === id);
+      if (tab && tab.overrideEffort === undefined) {
+        this.tabManager.setOverrideEffort(
+          id,
+          this.effortState.currentEffort() ?? null,
+        );
+      }
+    });
+  });
 
   /**
    * Child EnvironmentInjector providing SESSION_CONTEXT for this tile's ChatViewComponent.

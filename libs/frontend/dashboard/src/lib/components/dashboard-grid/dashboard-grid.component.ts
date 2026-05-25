@@ -7,16 +7,12 @@ import { ThothStatusCardComponent } from '../thoth-status-card/thoth-status-card
 /**
  * DashboardGridComponent
  *
- * Top-level dashboard surface that renders a responsive grid of cards.
- * Replaces the previous full-screen analytics view component;
- * page chrome (header, padding, "Back" navigation) lives here, while
- * individual cards (analytics, Thoth status) live as standalone components.
+ * Top-level dashboard surface. Page chrome (header, "Back" navigation) lives
+ * here; content is stacked as two rows:
  *
- * Currently hosts two cards:
- *
- * - `<ptah-analytics-card />` — session analytics (cost, tokens, sessions)
- * - `<ptah-thoth-status-card />` — Thoth pillar summary with click-through
- *   to the corresponding tab inside the Thoth shell
+ * - `<ptah-thoth-status-card />` — Thoth pillar stat tiles (memory, skills,
+ *   cron, gateway) with click-through to the matching Thoth tab.
+ * - `<ptah-analytics-card />` — session analytics (cost, tokens, sessions).
  */
 @Component({
   selector: 'ptah-dashboard-grid',

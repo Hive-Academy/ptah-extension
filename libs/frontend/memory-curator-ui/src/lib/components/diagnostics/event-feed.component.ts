@@ -136,10 +136,14 @@ function toneFor(ev: MemoryCuratorEventWire): FeedRow['tone'] {
   if (
     ev.kind === 'idle-trigger' ||
     ev.kind === 'turn-trigger' ||
+    ev.kind === 'turn-complete-trigger' ||
+    ev.kind === 'episode-trigger' ||
+    ev.kind === 'session-end-trigger' ||
     ev.kind === 'user-cue-trigger' ||
     ev.kind === 'commit-detect'
   )
     return 'info';
-  if (ev.kind === 'rate-limited') return 'warning';
+  if (ev.kind === 'rate-limited' || ev.kind === 'tool-failure')
+    return 'warning';
   return 'warning';
 }

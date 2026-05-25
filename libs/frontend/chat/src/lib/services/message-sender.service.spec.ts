@@ -29,6 +29,7 @@ import {
   ModelStateService,
   PtahCliStateService,
   VSCodeService,
+  AuthStateService,
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -83,6 +84,7 @@ describe('MessageSenderService', () => {
     Pick<MessageValidationService, 'validate' | 'sanitize'>
   >;
   let rpcCall: jest.Mock;
+  let flagAuthRequired: jest.Mock;
   let vscodeConfig: jest.Mock;
   let consoleWarn: jest.SpyInstance;
   let consoleError: jest.SpyInstance;
@@ -164,6 +166,7 @@ describe('MessageSenderService', () => {
     >;
 
     rpcCall = jest.fn();
+    flagAuthRequired = jest.fn();
     vscodeConfig = jest.fn(() => ({ workspaceRoot: 'D:/repo' }));
 
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
@@ -191,6 +194,10 @@ describe('MessageSenderService', () => {
         {
           provide: PtahCliStateService,
           useValue: { selectedAgentId: jest.fn(() => null) },
+        },
+        {
+          provide: AuthStateService,
+          useValue: { flagAuthRequired },
         },
       ],
     });
@@ -343,6 +350,28 @@ describe('MessageSenderService', () => {
     it('on RPC failure marks the tab loaded and calls failSession', async () => {
       rpcCall.mockResolvedValue({ success: false, error: 'nope' });
       await service.send('hello');
+      expect(sessionManager.failSession).toHaveBeenCalled();
+      expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
+    });
+
+    it('flags a re-auth banner when chat:start returns AUTH_REQUIRED', async () => {
+      rpcCall.mockResolvedValue({
+        success: true,
+        data: {
+          success: false,
+          error: 'OpenAI Codex token has expired. Run `codex login`.',
+          errorCode: 'AUTH_REQUIRED',
+          providerId: 'openai-codex',
+        },
+      });
+
+      await service.send('hello');
+
+      expect(flagAuthRequired).toHaveBeenCalledWith(
+        'openai-codex',
+        expect.stringContaining('codex login'),
+      );
+      // The send is treated as a failure so the spinner is released.
       expect(sessionManager.failSession).toHaveBeenCalled();
       expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
     });

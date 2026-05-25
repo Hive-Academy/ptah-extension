@@ -154,6 +154,7 @@ export class MemoryCuratorService {
     workspaceRoot?: string | null;
     transcript?: string;
     tier?: MemoryTier;
+    salienceBoost?: number;
     signal?: AbortSignal;
   }): Promise<CuratorRunStats> {
     const key = `${input.workspaceRoot ?? ''}::${input.sessionId ?? ''}`;
@@ -172,6 +173,7 @@ export class MemoryCuratorService {
     workspaceRoot?: string | null;
     transcript?: string;
     tier?: MemoryTier;
+    salienceBoost?: number;
     signal?: AbortSignal;
   }): Promise<CuratorRunStats> {
     const transcript =
@@ -238,7 +240,10 @@ export class MemoryCuratorService {
             continue;
           }
         }
-        const baseSalience = r.salienceHint;
+        const baseSalience = Math.min(
+          1,
+          r.salienceHint + (input.salienceBoost ?? 0),
+        );
         const memorySalience = this.scorer.score({
           base: baseSalience,
           tier,

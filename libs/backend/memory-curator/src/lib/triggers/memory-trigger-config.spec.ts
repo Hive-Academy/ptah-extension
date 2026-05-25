@@ -31,7 +31,7 @@ describe('memory-trigger-config', () => {
       );
     });
 
-    it('reads seeded values across all nine keys', () => {
+    it('reads seeded values across all keys', () => {
       const ws = createMockWorkspaceProvider({
         config: {
           [`ptah.${MEMORY_TRIGGER_KEYS.preCompact}`]: false,
@@ -44,6 +44,9 @@ describe('memory-trigger-config', () => {
           ],
           [`ptah.${MEMORY_TRIGGER_KEYS.userPromptSubmit.minPromptLength}`]: 5,
           [`ptah.${MEMORY_TRIGGER_KEYS.postToolUse.enabled}`]: false,
+          [`ptah.${MEMORY_TRIGGER_KEYS.turnComplete.enabled}`]: false,
+          [`ptah.${MEMORY_TRIGGER_KEYS.episode.enabled}`]: false,
+          [`ptah.${MEMORY_TRIGGER_KEYS.sessionEnd.enabled}`]: false,
           [`ptah.${MEMORY_TRIGGER_KEYS.maxCuratesPerHour}`]: 24,
         },
       });
@@ -59,6 +62,9 @@ describe('memory-trigger-config', () => {
           minPromptLength: 5,
         },
         postToolUse: { enabled: false },
+        turnComplete: { enabled: false },
+        episode: { enabled: false },
+        sessionEnd: { enabled: false },
         maxCuratesPerHour: 24,
       });
     });

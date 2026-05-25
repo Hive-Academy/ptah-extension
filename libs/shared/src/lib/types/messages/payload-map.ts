@@ -92,6 +92,10 @@ import type {
 import type { WorkspaceChangedPayload } from './workspace';
 import type { GatewayStatusChangedPayload } from './gateway';
 import type { UpdateStatusChangedPayload } from './update';
+import type {
+  IndexingProgressEvent,
+  IndexingCompleteEvent,
+} from '../rpc/rpc-indexing.types';
 
 /**
  * Type mapping for message payloads - eliminates 'any' types
@@ -186,6 +190,8 @@ export interface MessagePayloadMap {
   workspaceChanged: WorkspaceChangedPayload;
   'gateway:statusChanged': GatewayStatusChangedPayload;
   'update:statusChanged': UpdateStatusChangedPayload;
+  'indexing:progress': IndexingProgressEvent;
+  'indexing:complete': IndexingCompleteEvent;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

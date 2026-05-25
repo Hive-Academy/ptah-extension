@@ -17,15 +17,17 @@ import {
   deriveWorkspaceFingerprint,
   deriveGitHeadSha,
 } from '../workspace-fingerprint';
-import type {
-  IndexingState,
-  IndexingPipeline,
-  SymbolsCursor,
-  IndexingProgressEvent,
+import {
+  MESSAGE_TYPES,
+  type IndexingState,
+  type IndexingPipeline,
+  type SymbolsCursor,
+  type IndexingProgressEvent,
+  type IndexingCompleteEvent,
 } from '@ptah-extension/shared';
 
 export type { IndexingState, IndexingPipeline, SymbolsCursor };
-export type { IndexingProgressEvent };
+export type { IndexingProgressEvent, IndexingCompleteEvent };
 
 export interface IndexingStatus {
   state: IndexingState;
@@ -186,6 +188,10 @@ export class IndexingControlService {
     const { signal } = this.activeAbortController;
 
     const { fp } = await deriveWorkspaceFingerprint(workspaceRoot, this.fs);
+    this.logger.info('[indexing-control] start', {
+      workspaceRoot,
+      fingerprint: fp,
+    });
     const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
     const row = this.readRow(fp);
     this.preIndexState = row
@@ -227,6 +233,17 @@ export class IndexingControlService {
           last_error: null,
           symbols_cursor: null,
         });
+        const completeEvent: IndexingCompleteEvent = {
+          workspaceRoot,
+          workspaceFingerprint: fp,
+          completedAt: Date.now(),
+          gitHeadSha: currentSha,
+          elapsedMs: Date.now() - startedAt,
+        };
+        void this.webviewManager.broadcastMessage(
+          MESSAGE_TYPES.INDEXING_COMPLETE,
+          completeEvent,
+        );
         this.activeAbortController = null;
         this.activeWorkspaceFp = null;
       }
@@ -371,7 +388,7 @@ export class IndexingControlService {
         listener(event);
       }
       void this.webviewManager.broadcastMessage(
-        'indexing:progress' as never,
+        MESSAGE_TYPES.INDEXING_PROGRESS,
         event,
       );
     };

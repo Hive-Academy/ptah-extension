@@ -33,6 +33,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
+import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AutoAnimateDirective } from '../../directives/auto-animate.directive';
 import { ChatStore } from '../../services/chat.store';
@@ -55,6 +56,7 @@ import {
   VSCodeService,
   ClaudeRpcService,
   AppStateManager,
+  AuthStateService,
 } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -128,6 +130,7 @@ function filterCompactionNoise(
     ChatEmptyStateComponent,
     SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
+    AuthRequiredBannerComponent,
     CompactionNotificationComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
@@ -164,6 +167,31 @@ export class ChatViewComponent {
     this._compactionLifecycle.suppressAnimateOnce;
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
+  private readonly _authState = inject(AuthStateService);
+
+  /** Inline re-auth banner state (set when a send fails needing auth). */
+  protected readonly authRequiredBanner = this._authState.authRequiredBanner;
+
+  /**
+   * Handle the banner's re-authenticate action. For Codex this opens a terminal
+   * running `codex login`; the auth-file watcher then re-inits the adapter and
+   * the banner clears on the next auth-status refresh. Other providers route to
+   * Settings.
+   */
+  protected async onAuthReauth(): Promise<void> {
+    const banner = this.authRequiredBanner();
+    if (banner?.providerId === 'openai-codex') {
+      await this._authState.codexLogin();
+      return;
+    }
+    this._appState.setCurrentView('settings');
+    this._authState.clearAuthRequiredBanner();
+  }
+
+  /** Dismiss the re-auth banner. */
+  protected onAuthBannerDismiss(): void {
+    this._authState.clearAuthRequiredBanner();
+  }
 
   /**
    * Inline banner for branch/rewind actions. Sourced from the shared

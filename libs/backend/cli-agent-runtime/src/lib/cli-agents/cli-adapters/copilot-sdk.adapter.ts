@@ -39,7 +39,6 @@ import type {
 } from '@ptah-extension/shared';
 import type {
   CliAdapter,
-  CliCommand,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
@@ -176,19 +175,6 @@ export class CopilotSdkAdapter implements CliAdapter {
         supportsSteer: false,
       };
     }
-  }
-
-  /**
-   * Build command for the raw CLI spawn fallback path.
-   * Used only when runSdk() is not available (it always is here, but the
-   * interface requires this method).
-   */
-  buildCommand(options: CliCommandOptions): CliCommand {
-    const taskPrompt = buildTaskPrompt(options);
-    return {
-      binary: 'copilot',
-      args: ['-p', taskPrompt, '--allow-all-tools', '--no-color'],
-    };
   }
 
   supportsSteer(): boolean {

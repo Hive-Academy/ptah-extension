@@ -19,7 +19,7 @@ import type { MockWorkspaceProvider } from '@ptah-extension/platform-core/testin
 import type { Logger } from '@ptah-extension/vscode-core';
 import { CodexAuthService } from './codex-auth.service';
 import type { CodexAuthFile } from './codex-provider.types';
-import { SdkError } from '@ptah-extension/agent-sdk';
+import { SdkError, type SdkAdapterEvents } from '@ptah-extension/agent-sdk';
 
 // -----------------------------------------------------------------------------
 // node:fs/promises mock â€” codex-auth reads ~/.codex/auth.json directly.
@@ -29,11 +29,28 @@ import { SdkError } from '@ptah-extension/agent-sdk';
 
 jest.mock('node:fs/promises', () => ({
   readFile: jest.fn(),
+  writeFile: jest.fn(),
+  rename: jest.fn(),
 }));
 
-import { readFile } from 'node:fs/promises';
+jest.mock('axios');
+
+jest.mock('node:fs', () => ({
+  watch: jest.fn(),
+  existsSync: jest.fn(() => true),
+}));
+
+import { readFile, writeFile, rename } from 'node:fs/promises';
+import { watch, existsSync } from 'node:fs';
+import axios from 'axios';
+
+const mockedWatch = watch as jest.MockedFunction<typeof watch>;
+const mockedExistsSync = existsSync as jest.MockedFunction<typeof existsSync>;
 
 const mockedReadFile = readFile as jest.MockedFunction<typeof readFile>;
+const mockedWriteFile = writeFile as jest.MockedFunction<typeof writeFile>;
+const mockedRename = rename as jest.MockedFunction<typeof rename>;
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -79,15 +96,27 @@ describe('CodexAuthService', () => {
   let logger: ReturnType<typeof createMockLogger>;
   let workspaceProvider: MockWorkspaceProvider;
   let clock: FrozenClock;
+  let mockEvents: { emitAuthFileChanged: jest.Mock };
 
   beforeEach(() => {
     mockedReadFile.mockReset();
+    mockedWriteFile.mockReset();
+    mockedRename.mockReset();
+    mockedWriteFile.mockResolvedValue(undefined as never);
+    mockedRename.mockResolvedValue(undefined as never);
+    mockedAxios.post = jest.fn();
+    (mockedAxios.isAxiosError as unknown as jest.Mock) = jest.fn(() => false);
+    mockedWatch.mockReset();
+    mockedExistsSync.mockReset();
+    mockedExistsSync.mockReturnValue(true);
     logger = createMockLogger();
     workspaceProvider = createMockWorkspaceProvider();
+    mockEvents = { emitAuthFileChanged: jest.fn() };
     clock = freezeTime(ANCHOR);
     service = new CodexAuthService(
       logger as unknown as Logger,
       workspaceProvider,
+      mockEvents as unknown as SdkAdapterEvents,
     );
   });
 
@@ -337,7 +366,7 @@ describe('CodexAuthService', () => {
       await expect(service.ensureTokensFresh()).resolves.toBe(true);
     });
 
-    it('returns false for stale OAuth token and warns user to re-login', async () => {
+    it('returns false and warns to re-login when stale with no refresh_token', async () => {
       seedAuthFile({
         tokens: { access_token: 'oauth' },
         last_refresh: isoMinutesAgo(120, clock.now),
@@ -346,6 +375,7 @@ describe('CodexAuthService', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('`codex login`'),
       );
+      expect(mockedAxios.post).not.toHaveBeenCalled();
     });
 
     it('returns false when auth file is missing', async () => {
@@ -376,6 +406,162 @@ describe('CodexAuthService', () => {
       await service.ensureTokensFresh(); // should force 2nd read
       // 2 actual reads observed
       expect(mockedReadFile).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // OAuth token refresh (stale token + refresh_token present)
+  // ---------------------------------------------------------------------------
+  describe('ensureTokensFresh — OAuth refresh', () => {
+    const staleAuthWithRefresh: CodexAuthFile = {
+      auth_mode: 'Chatgpt',
+      tokens: {
+        access_token: 'expired-access',
+        refresh_token: 'refresh-abc',
+      },
+      last_refresh: isoMinutesAgo(120, Date.parse(ANCHOR)),
+    };
+
+    it('refreshes a stale token and persists rotated tokens atomically', async () => {
+      seedAuthFile(staleAuthWithRefresh);
+      mockedAxios.post.mockResolvedValue({
+        data: {
+          access_token: 'fresh-access',
+          refresh_token: 'refresh-def',
+          id_token: 'id-xyz',
+        },
+      });
+
+      await expect(service.ensureTokensFresh()).resolves.toBe(true);
+
+      // POSTed to the OAuth endpoint with the refresh grant
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+      const [url, body] = mockedAxios.post.mock.calls[0];
+      expect(url).toBe('https://auth.openai.com/oauth/token');
+      expect(body).toMatchObject({
+        grant_type: 'refresh_token',
+        refresh_token: 'refresh-abc',
+      });
+
+      // Atomic write: temp file then rename onto the real path
+      expect(mockedWriteFile).toHaveBeenCalledTimes(1);
+      expect(mockedRename).toHaveBeenCalledTimes(1);
+      const written = JSON.parse(
+        (mockedWriteFile.mock.calls[0][1] as string) ?? '{}',
+      ) as CodexAuthFile;
+      expect(written.tokens?.access_token).toBe('fresh-access');
+      expect(written.tokens?.refresh_token).toBe('refresh-def');
+      expect(written.last_refresh).toBe(ANCHOR);
+    });
+
+    it('keeps the prior refresh_token when the response omits a rotated one', async () => {
+      seedAuthFile(staleAuthWithRefresh);
+      mockedAxios.post.mockResolvedValue({
+        data: { access_token: 'fresh-access' },
+      });
+
+      await expect(service.ensureTokensFresh()).resolves.toBe(true);
+      const written = JSON.parse(
+        (mockedWriteFile.mock.calls[0][1] as string) ?? '{}',
+      ) as CodexAuthFile;
+      expect(written.tokens?.refresh_token).toBe('refresh-abc');
+    });
+
+    it('returns false and does not write when the refresh request fails', async () => {
+      seedAuthFile(staleAuthWithRefresh);
+      mockedAxios.post.mockRejectedValue(new Error('network down'));
+
+      await expect(service.ensureTokensFresh()).resolves.toBe(false);
+      expect(mockedWriteFile).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('`codex login`'),
+      );
+    });
+
+    it('returns false when the refresh response is missing access_token', async () => {
+      seedAuthFile(staleAuthWithRefresh);
+      mockedAxios.post.mockResolvedValue({ data: { token_type: 'Bearer' } });
+
+      await expect(service.ensureTokensFresh()).resolves.toBe(false);
+      expect(mockedWriteFile).not.toHaveBeenCalled();
+    });
+
+    it('shares a single in-flight request across concurrent callers', async () => {
+      seedAuthFile(staleAuthWithRefresh);
+      let resolvePost: (v: unknown) => void = () => undefined;
+      mockedAxios.post.mockReturnValue(
+        new Promise((resolve) => {
+          resolvePost = resolve;
+        }) as never,
+      );
+
+      const a = service.ensureTokensFresh();
+      const b = service.ensureTokensFresh();
+      resolvePost({ data: { access_token: 'fresh-access' } });
+
+      await expect(Promise.all([a, b])).resolves.toEqual([true, true]);
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Auth file watcher
+  // ---------------------------------------------------------------------------
+  describe('auth file watcher', () => {
+    interface FakeWatcher {
+      on: jest.Mock;
+      close: jest.Mock;
+    }
+    let fakeWatcher: FakeWatcher;
+    let watchCallback: (event: string, filename: string | null) => void;
+
+    beforeEach(() => {
+      fakeWatcher = { on: jest.fn(), close: jest.fn() };
+      mockedWatch.mockImplementation(((
+        _path: unknown,
+        cb: (e: string, f: string | null) => void,
+      ) => {
+        watchCallback = cb;
+        return fakeWatcher as unknown as ReturnType<typeof watch>;
+      }) as never);
+    });
+
+    it('watches the ~/.codex directory and is idempotent', () => {
+      service.startWatchingAuthFile();
+      service.startWatchingAuthFile();
+      expect(mockedWatch).toHaveBeenCalledTimes(1);
+      const watchedDir = mockedWatch.mock.calls[0][0] as string;
+      expect(watchedDir.endsWith('.codex')).toBe(true);
+    });
+
+    it('skips watching when ~/.codex does not exist', () => {
+      mockedExistsSync.mockReturnValue(false);
+      service.startWatchingAuthFile();
+      expect(mockedWatch).not.toHaveBeenCalled();
+    });
+
+    it('closes the watcher on stopWatchingAuthFile', () => {
+      service.startWatchingAuthFile();
+      service.stopWatchingAuthFile();
+      expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('emits authFileChanged (debounced) when auth.json changes', () => {
+      service.startWatchingAuthFile();
+      watchCallback('change', 'auth.json');
+      watchCallback('change', 'auth.json'); // coalesced by debounce
+      jest.advanceTimersByTime(300);
+      expect(mockEvents.emitAuthFileChanged).toHaveBeenCalledTimes(1);
+      expect(mockEvents.emitAuthFileChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ providerId: 'openai-codex' }),
+      );
+    });
+
+    it('ignores changes to unrelated files in ~/.codex', () => {
+      service.startWatchingAuthFile();
+      watchCallback('change', 'config.toml');
+      jest.advanceTimersByTime(300);
+      expect(mockEvents.emitAuthFileChanged).not.toHaveBeenCalled();
     });
   });
 

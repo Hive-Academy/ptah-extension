@@ -16,6 +16,15 @@ export const MEMORY_TRIGGER_KEYS = {
   postToolUse: {
     enabled: 'memory.triggers.postToolUse.enabled',
   },
+  turnComplete: {
+    enabled: 'memory.triggers.turnComplete.enabled',
+  },
+  episode: {
+    enabled: 'memory.triggers.episode.enabled',
+  },
+  sessionEnd: {
+    enabled: 'memory.triggers.sessionEnd.enabled',
+  },
   maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
 } as const;
 
@@ -42,6 +51,15 @@ export const MEMORY_TRIGGER_DEFAULTS = {
   postToolUse: {
     enabled: true,
   },
+  turnComplete: {
+    enabled: true,
+  },
+  episode: {
+    enabled: true,
+  },
+  sessionEnd: {
+    enabled: true,
+  },
   maxCuratesPerHour: 12,
 } as const;
 
@@ -53,6 +71,9 @@ export const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> =
     bootScan: MEMORY_TRIGGER_KEYS.bootScan,
     userPromptSubmit: 'memory.triggers.userPromptSubmit',
     postToolUse: 'memory.triggers.postToolUse',
+    turnComplete: 'memory.triggers.turnComplete',
+    episode: 'memory.triggers.episode',
+    sessionEnd: 'memory.triggers.sessionEnd',
     maxCuratesPerHour: MEMORY_TRIGGER_KEYS.maxCuratesPerHour,
   };
 
@@ -67,6 +88,15 @@ export interface PopulatedMemoryTriggers {
     readonly minPromptLength: number;
   };
   readonly postToolUse: {
+    readonly enabled: boolean;
+  };
+  readonly turnComplete: {
+    readonly enabled: boolean;
+  };
+  readonly episode: {
+    readonly enabled: boolean;
+  };
+  readonly sessionEnd: {
     readonly enabled: boolean;
   };
   readonly maxCuratesPerHour: number;
@@ -125,6 +155,24 @@ export function readMemoryTriggers(
       MEMORY_TRIGGER_KEYS.postToolUse.enabled,
       MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled,
     ) ?? MEMORY_TRIGGER_DEFAULTS.postToolUse.enabled;
+  const turnCompleteEnabled =
+    ws.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.turnComplete.enabled,
+      MEMORY_TRIGGER_DEFAULTS.turnComplete.enabled,
+    ) ?? MEMORY_TRIGGER_DEFAULTS.turnComplete.enabled;
+  const episodeEnabled =
+    ws.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.episode.enabled,
+      MEMORY_TRIGGER_DEFAULTS.episode.enabled,
+    ) ?? MEMORY_TRIGGER_DEFAULTS.episode.enabled;
+  const sessionEndEnabled =
+    ws.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.sessionEnd.enabled,
+      MEMORY_TRIGGER_DEFAULTS.sessionEnd.enabled,
+    ) ?? MEMORY_TRIGGER_DEFAULTS.sessionEnd.enabled;
   const maxCuratesPerHour =
     ws.getConfiguration<number>(
       MEMORY_TRIGGER_SECTION,
@@ -143,6 +191,15 @@ export function readMemoryTriggers(
     },
     postToolUse: {
       enabled: postToolUseEnabled,
+    },
+    turnComplete: {
+      enabled: turnCompleteEnabled,
+    },
+    episode: {
+      enabled: episodeEnabled,
+    },
+    sessionEnd: {
+      enabled: sessionEndEnabled,
     },
     maxCuratesPerHour,
   };

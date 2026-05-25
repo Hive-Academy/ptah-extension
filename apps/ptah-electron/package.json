@@ -12,7 +12,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.111",
     "@github/copilot-sdk": "0.1.32",
-    "@openai/codex-sdk": "^0.104.0",
+    "@openai/codex-sdk": "^0.133.0",
     "@slack/bolt": "4.4.0",
     "@tavily/core": "^0.7.2",
     "@huggingface/transformers": "3.8.1",

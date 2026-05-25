@@ -34,6 +34,7 @@ import {
   SDK_TOKENS,
   SlashCommandInterceptor,
   DEFAULT_FALLBACK_MODEL_ID,
+  AuthRequiredError,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -112,6 +113,24 @@ export class ChatSessionService {
    * chat:start - Start new SDK session. Uses tabId for frontend correlation;
    * SDK generates the real session UUID in the system init message.
    */
+  /**
+   * Map an error to the structured `{ errorCode, providerId }` fields when it is
+   * an `AuthRequiredError`, so the chat UI can render a re-auth banner instead
+   * of treating an expired/missing token as a generic failure.
+   */
+  private authErrorFields(error: unknown): {
+    errorCode?: 'AUTH_REQUIRED';
+    providerId?: string;
+  } {
+    if (error instanceof AuthRequiredError) {
+      return {
+        errorCode: 'AUTH_REQUIRED',
+        ...(error.providerId ? { providerId: error.providerId } : {}),
+      };
+    }
+    return {};
+  }
+
   async startSession(params: ChatStartParams): Promise<ChatStartResult> {
     try {
       const { prompt, tabId, options, name } = params;
@@ -256,6 +275,7 @@ export class ChatSessionService {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
+        ...this.authErrorFields(error),
       };
     }
   }
@@ -374,6 +394,7 @@ export class ChatSessionService {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
+        ...this.authErrorFields(error),
       };
     }
   }
@@ -511,6 +532,7 @@ export class ChatSessionService {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
+        ...this.authErrorFields(error),
       };
     }
   }

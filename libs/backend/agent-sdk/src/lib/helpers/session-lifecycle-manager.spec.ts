@@ -91,6 +91,7 @@ interface FakeQueryHandle {
     interrupt: jest.Mock;
     setPermissionMode: jest.Mock;
     setModel: jest.Mock;
+    applyFlagSettings: jest.Mock;
     streamInput: jest.Mock;
   };
 }
@@ -106,6 +107,7 @@ function createFakeQuery(messages: SDKMessage[] = []): FakeQueryHandle {
     interrupt: jest.fn().mockResolvedValue(undefined),
     setPermissionMode: jest.fn().mockResolvedValue(undefined),
     setModel: jest.fn().mockResolvedValue(undefined),
+    applyFlagSettings: jest.fn().mockResolvedValue(undefined),
     streamInput: jest.fn().mockResolvedValue(undefined),
     close: jest.fn(),
   } as unknown as FakeQueryHandle['query'];
@@ -909,18 +911,21 @@ describe('SessionLifecycleManager', () => {
   function createFakeQueryForIntegration(): {
     interrupt: jest.Mock;
     rewindFiles: jest.Mock;
+    applyFlagSettings: jest.Mock;
     query: Query;
   } {
     const interrupt = jest.fn().mockResolvedValue(undefined);
     const rewindFiles = jest.fn().mockResolvedValue({ canRewind: false });
+    const applyFlagSettings = jest.fn().mockResolvedValue(undefined);
     const { query: baseQuery } = createFakeQuery();
     const query: Query = {
       ...baseQuery,
       interrupt,
       rewindFiles,
+      applyFlagSettings,
       stopTask: jest.fn().mockResolvedValue(undefined),
     } as unknown as Query;
-    return { interrupt, rewindFiles, query };
+    return { interrupt, rewindFiles, applyFlagSettings, query };
   }
 
   // ---------------------------------------------------------------------------
@@ -1164,6 +1169,70 @@ describe('SessionLifecycleManager', () => {
       // (c) session is STILL active after interrupt (not ended)
       expect(ih.manager.find('tab_2')).toBeDefined();
       expect(ih.manager.find('real-uuid-456')).toBeDefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // setSessionEffort — mid-session reasoning effort change via applyFlagSettings
+  // ---------------------------------------------------------------------------
+
+  describe('setSessionEffort', () => {
+    it('applies the effort level to the live query as effortLevel', async () => {
+      const ih = makeIntegrationHarness();
+      const fakeQuery = createFakeQueryForIntegration();
+      ih.queryFn.mockReturnValueOnce(fakeQuery.query);
+
+      await ih.manager.executeQuery({
+        sessionId: 'tab_effort' as SessionId,
+        sessionConfig: createSessionConfig({ projectPath: '/ws/effort' }),
+      });
+
+      await ih.manager.setSessionEffort('tab_effort' as SessionId, 'high');
+
+      expect(fakeQuery.applyFlagSettings).toHaveBeenCalledWith({
+        effortLevel: 'high',
+      });
+    });
+
+    it("maps 'max' to 'xhigh' for the live query (Settings.effortLevel has no max)", async () => {
+      const ih = makeIntegrationHarness();
+      const fakeQuery = createFakeQueryForIntegration();
+      ih.queryFn.mockReturnValueOnce(fakeQuery.query);
+
+      await ih.manager.executeQuery({
+        sessionId: 'tab_max' as SessionId,
+        sessionConfig: createSessionConfig({ projectPath: '/ws/max' }),
+      });
+
+      await ih.manager.setSessionEffort('tab_max' as SessionId, 'max');
+
+      expect(fakeQuery.applyFlagSettings).toHaveBeenCalledWith({
+        effortLevel: 'xhigh',
+      });
+    });
+
+    it('clears the override (effortLevel: null) when effort is undefined', async () => {
+      const ih = makeIntegrationHarness();
+      const fakeQuery = createFakeQueryForIntegration();
+      ih.queryFn.mockReturnValueOnce(fakeQuery.query);
+
+      await ih.manager.executeQuery({
+        sessionId: 'tab_clear' as SessionId,
+        sessionConfig: createSessionConfig({ projectPath: '/ws/clear' }),
+      });
+
+      await ih.manager.setSessionEffort('tab_clear' as SessionId, undefined);
+
+      expect(fakeQuery.applyFlagSettings).toHaveBeenCalledWith({
+        effortLevel: null,
+      });
+    });
+
+    it('throws when the session does not exist', async () => {
+      const ih = makeIntegrationHarness();
+      await expect(
+        ih.manager.setSessionEffort('missing' as SessionId, 'high'),
+      ).rejects.toThrow();
     });
   });
 

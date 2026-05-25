@@ -132,6 +132,8 @@ export class AgentRpcHandlers {
             geminiModel: getCfg<string>('geminiModel', ''),
             codexModel: getCfg<string>('codexModel', ''),
             copilotModel: getCfg<string>('copilotModel', ''),
+            cursorModel: getCfg<string>('cursorModel', ''),
+            cursorApiKeyConfigured: this.isCursorApiKeyConfigured(),
             codexAutoApprove: getCfg<boolean>('codexAutoApprove', true),
             copilotAutoApprove: getCfg<boolean>('copilotAutoApprove', true),
             codexReasoningEffort: getCfg<string>('codexReasoningEffort', ''),
@@ -315,6 +317,19 @@ export class AgentRpcHandlers {
       await setCfg('copilotModel', params.copilotModel || undefined);
     }
 
+    if (params.cursorModel !== undefined) {
+      await setCfg('cursorModel', params.cursorModel || undefined);
+    }
+
+    if (params.cursorApiKey !== undefined) {
+      await this.workspaceProvider.setConfiguration(
+        'ptah',
+        'provider.cursor.apiKey',
+        params.cursorApiKey,
+      );
+      this.cliDetection.invalidateCache();
+    }
+
     if (params.copilotAutoApprove !== undefined) {
       await setCfg('copilotAutoApprove', params.copilotAutoApprove);
       const copilotAdapter = this.cliDetection.getAdapter('copilot');
@@ -430,17 +445,24 @@ export class AgentRpcHandlers {
           const modelMap = await this.cliDetection.listModelsForAll();
           const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
+          const cursor = (modelMap['cursor'] ?? []) as CliModelOption[];
           let copilot = await this.getCopilotModelsFromVsCodeLm();
           if (copilot.length === 0) {
             copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
           }
 
-          const result: AgentListCliModelsResult = { gemini, codex, copilot };
+          const result: AgentListCliModelsResult = {
+            gemini,
+            codex,
+            copilot,
+            cursor,
+          };
 
           this.logger.debug('RPC: agent:listCliModels success', {
             geminiCount: result.gemini.length,
             codexCount: result.codex.length,
             copilotCount: result.copilot.length,
+            cursorCount: result.cursor.length,
           });
 
           return result;
@@ -483,6 +505,24 @@ export class AgentRpcHandlers {
     } catch {
       return cliResults;
     }
+  }
+
+  /**
+   * Whether a Cursor API key is resolvable — either CURSOR_API_KEY in the
+   * environment or `provider.cursor.apiKey` in ~/.ptah/settings.json. Mirrors
+   * the resolution order in CursorCliAdapter; the raw key is never returned.
+   */
+  private isCursorApiKeyConfigured(): boolean {
+    const envKey = process.env['CURSOR_API_KEY'];
+    if (envKey && envKey.trim()) {
+      return true;
+    }
+    const fileKey = this.workspaceProvider.getConfiguration<string>(
+      'ptah',
+      'provider.cursor.apiKey',
+      '',
+    );
+    return !!fileKey && fileKey.trim().length > 0;
   }
 
   /**

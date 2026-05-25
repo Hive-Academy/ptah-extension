@@ -97,6 +97,15 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired */
   private readonly _codexTokenStale = signal(false);
 
+  /**
+   * Active auth-required banner, set when a chat operation fails because the
+   * provider needs (re-)authentication. Null when there is nothing to show.
+   */
+  private readonly _authRequiredBanner = signal<{
+    providerId: string | null;
+    message: string;
+  } | null>(null);
+
   /** Whether Claude CLI is installed and detected on the system */
   private readonly _claudeCliInstalled = signal(false);
 
@@ -159,6 +168,9 @@ export class AuthStateService {
 
   /** Whether Codex CLI auth token is stale/expired */
   readonly codexTokenStale = this._codexTokenStale.asReadonly();
+
+  /** Active auth-required banner for the chat surface (null when none). */
+  readonly authRequiredBanner = this._authRequiredBanner.asReadonly();
 
   /** Whether Claude CLI is installed on the system */
   readonly claudeCliInstalled = this._claudeCliInstalled.asReadonly();
@@ -617,6 +629,23 @@ export class AuthStateService {
   }
 
   /**
+   * Flag that a chat operation failed because the provider requires
+   * (re-)authentication. Surfaces an inline banner on the chat surface. Called
+   * from the chat orchestrator when an RPC returns errorCode 'AUTH_REQUIRED'.
+   */
+  flagAuthRequired(providerId: string | null, message: string): void {
+    if (providerId === 'openai-codex') {
+      this._codexTokenStale.set(true);
+    }
+    this._authRequiredBanner.set({ providerId, message });
+  }
+
+  /** Dismiss the auth-required banner (user acknowledged or re-authenticated). */
+  clearAuthRequiredBanner(): void {
+    this._authRequiredBanner.set(null);
+  }
+
+  /**
    * Clear connection status messages and reset to idle.
    * Used when user navigates away or starts a new action.
    */
@@ -692,5 +721,15 @@ export class AuthStateService {
     this._codexAuthenticated.set(response.codexAuthenticated ?? false);
     this._codexTokenStale.set(response.codexTokenStale ?? false);
     this._claudeCliInstalled.set(response.claudeCliInstalled ?? false);
+
+    // Clear a stale Codex auth banner once credentials are healthy again.
+    const banner = this._authRequiredBanner();
+    if (
+      banner?.providerId === 'openai-codex' &&
+      (response.codexAuthenticated ?? false) &&
+      !(response.codexTokenStale ?? false)
+    ) {
+      this._authRequiredBanner.set(null);
+    }
   }
 }

@@ -45,7 +45,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.111",
-    "@openai/codex-sdk": "^0.104.0",
+    "@openai/codex-sdk": "^0.133.0",
     "@tavily/core": "^0.7.2",
     "axios": "^1.15.0",
     "chokidar": "^5.0.0",

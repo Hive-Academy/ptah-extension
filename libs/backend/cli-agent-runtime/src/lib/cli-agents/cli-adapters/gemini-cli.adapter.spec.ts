@@ -1,7 +1,7 @@
 /**
  * GeminiCliAdapter Unit Tests
  *
- * Tests: detect(), buildCommand(), runSdk() streaming with JSONL events,
+ * Tests: detect(), runSdk() streaming with JSONL events,
  *        AbortSignal propagation, error propagation (spawn error, JSON parse),
  *        Windows `.cmd` shim handling via cross-spawn / spawnCli.
  *
@@ -215,23 +215,6 @@ describe('GeminiCliAdapter', () => {
 
       expect(result.installed).toBe(true);
       expect(result.version).toBeUndefined();
-    });
-  });
-
-  describe('buildCommand()', () => {
-    it('emits -p and text output-format for the CLI fallback path', () => {
-      const cmd = adapter.buildCommand({
-        task: 'Write a unit test',
-        workingDirectory: '/proj',
-      });
-
-      expect(cmd.binary).toBe('gemini');
-      expect(cmd.args).toEqual([
-        '-p',
-        expect.stringContaining('Write a unit test'),
-        '--output-format',
-        'text',
-      ]);
     });
   });
 

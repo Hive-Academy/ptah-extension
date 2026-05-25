@@ -161,6 +161,8 @@ import type {
   SubagentStopHookInput,
   PreToolUseHookInput,
   PostToolUseHookInput,
+  PostToolUseFailureHookInput,
+  StopHookInput,
   SessionStartHookInput,
   SessionEndHookInput,
   SetupHookInput,
@@ -520,6 +522,16 @@ export function isPostToolUseHook(
   input: HookInput,
 ): input is PostToolUseHookInput {
   return input.hook_event_name === 'PostToolUse';
+}
+
+export function isPostToolUseFailureHook(
+  input: HookInput,
+): input is PostToolUseFailureHookInput {
+  return input.hook_event_name === 'PostToolUseFailure';
+}
+
+export function isStopHook(input: HookInput): input is StopHookInput {
+  return input.hook_event_name === 'Stop';
 }
 
 export function isUserPromptSubmitHook(

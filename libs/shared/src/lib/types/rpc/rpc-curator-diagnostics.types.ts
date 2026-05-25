@@ -7,6 +7,10 @@ export type MemoryCuratorEventKind =
   | 'manual-run'
   | 'user-cue-trigger'
   | 'commit-detect'
+  | 'turn-complete-trigger'
+  | 'episode-trigger'
+  | 'session-end-trigger'
+  | 'tool-failure'
   | 'rate-limited'
   | 'error';
 
@@ -49,6 +53,15 @@ export interface MemoryTriggersDto {
     readonly minPromptLength: number;
   };
   readonly postToolUse?: {
+    readonly enabled: boolean;
+  };
+  readonly turnComplete?: {
+    readonly enabled: boolean;
+  };
+  readonly episode?: {
+    readonly enabled: boolean;
+  };
+  readonly sessionEnd?: {
     readonly enabled: boolean;
   };
   readonly maxCuratesPerHour?: number;

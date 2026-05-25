@@ -17,6 +17,12 @@ import type {
   UserPromptSubmitCallback,
   UserPromptSubmitCallbackRegistry,
   UserPromptSubmitPayload,
+  StopCallbackRegistry,
+  StopPayload,
+  ToolFailureCallbackRegistry,
+  ToolFailurePayload,
+  SessionEndHookCallbackRegistry,
+  SessionEndHookPayload,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { MemoryTriggerService } from './memory-trigger.service';
@@ -132,6 +138,37 @@ function makePostToolUseRegistry(): PostToolUseHarness {
   };
 }
 
+interface SetRegistryHarness<TPayload, TRegistry> {
+  registry: TRegistry;
+  fire: (payload: TPayload) => void;
+}
+
+function makeSetRegistry<TPayload>(): SetRegistryHarness<
+  TPayload,
+  { register: unknown; notifyAll: unknown; size: number }
+> {
+  const subscribers = new Set<(payload: TPayload) => void>();
+  return {
+    fire: (payload) => {
+      for (const cb of subscribers) cb(payload);
+    },
+    registry: {
+      register: jest.fn((cb: (payload: TPayload) => void) => {
+        subscribers.add(cb);
+        return () => {
+          subscribers.delete(cb);
+        };
+      }),
+      notifyAll: jest.fn((payload: TPayload) => {
+        for (const cb of subscribers) cb(payload);
+      }),
+      get size() {
+        return subscribers.size;
+      },
+    } as unknown as { register: unknown; notifyAll: unknown; size: number },
+  };
+}
+
 function makeWorkspace(
   overrides: Partial<Record<string, unknown>> = {},
 ): IWorkspaceProvider {
@@ -207,6 +244,15 @@ function buildService(opts?: {
   sessionEnd: SessionEndHarness;
   userPromptSubmit: UserPromptSubmitHarness;
   postToolUse: PostToolUseHarness;
+  stop: SetRegistryHarness<StopPayload, StopCallbackRegistry>;
+  toolFailure: SetRegistryHarness<
+    ToolFailurePayload,
+    ToolFailureCallbackRegistry
+  >;
+  sessionEndHook: SetRegistryHarness<
+    SessionEndHookPayload,
+    SessionEndHookCallbackRegistry
+  >;
   curator: MemoryCuratorService;
   workspace: IWorkspaceProvider;
   rateLimiter: CuratorRateLimitService;
@@ -215,6 +261,9 @@ function buildService(opts?: {
   const sessionEnd = makeSessionEndRegistry();
   const userPromptSubmit = makeUserPromptSubmitRegistry();
   const postToolUse = makePostToolUseRegistry();
+  const stop = makeSetRegistry<StopPayload>();
+  const toolFailure = makeSetRegistry<ToolFailurePayload>();
+  const sessionEndHook = makeSetRegistry<SessionEndHookPayload>();
   const curator = opts?.curator ?? makeCurator();
   const workspace = opts?.workspace ?? makeWorkspace();
   const rateLimiter =
@@ -230,6 +279,9 @@ function buildService(opts?: {
     makeJsonl(),
     userPromptSubmit.registry,
     postToolUse.registry,
+    stop.registry as unknown as StopCallbackRegistry,
+    toolFailure.registry as unknown as ToolFailureCallbackRegistry,
+    sessionEndHook.registry as unknown as SessionEndHookCallbackRegistry,
     rateLimiter,
   );
   return {
@@ -238,9 +290,33 @@ function buildService(opts?: {
     sessionEnd,
     userPromptSubmit,
     postToolUse,
+    stop: stop as unknown as SetRegistryHarness<
+      StopPayload,
+      StopCallbackRegistry
+    >,
+    toolFailure: toolFailure as unknown as SetRegistryHarness<
+      ToolFailurePayload,
+      ToolFailureCallbackRegistry
+    >,
+    sessionEndHook: sessionEndHook as unknown as SetRegistryHarness<
+      SessionEndHookPayload,
+      SessionEndHookCallbackRegistry
+    >,
     curator,
     workspace,
     rateLimiter,
+  };
+}
+
+function stopPayload(overrides?: Partial<StopPayload>): StopPayload {
+  return {
+    sessionId: 's1',
+    workspaceRoot: '/ws',
+    lastAssistantMessage: 'Did some work this turn.',
+    effortLevel: null,
+    hasBackgroundWork: false,
+    timestamp: 1000,
+    ...overrides,
   };
 }
 
@@ -287,7 +363,36 @@ describe('MemoryTriggerService', () => {
     expect(activity.registry.register).toHaveBeenCalledTimes(1);
   });
 
-  it('idle timer fires curate after idleMs', async () => {
+  it('idle timer fires curate after idleMs (with buffered episode)', async () => {
+    const { service, activity, stop, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 100,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    activity.registry.notifyAll({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      role: 'user',
+      timestamp: Date.now(),
+    });
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 's1',
+        workspaceRoot: '/ws',
+        transcript: expect.stringContaining('Did some work this turn.'),
+      }),
+    );
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'idle-trigger', sessionId: 's1' }),
+    );
+  });
+
+  it('idle with empty episode buffer does not curate', async () => {
     const { service, activity, curator } = buildService({
       workspace: makeWorkspace({
         'memory.triggers.idleMs': 100,
@@ -303,24 +408,18 @@ describe('MemoryTriggerService', () => {
     });
     jest.advanceTimersByTime(150);
     await Promise.resolve();
-    expect(curator.curate).toHaveBeenCalledWith({
-      sessionId: 's1',
-      workspaceRoot: '/ws',
-      transcript: undefined,
-    });
-    expect(curator.pushEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'idle-trigger', sessionId: 's1' }),
-    );
+    expect(curator.curate).not.toHaveBeenCalled();
   });
 
   it('idle timer resets on new activity', async () => {
-    const { service, activity, curator } = buildService({
+    const { service, activity, stop, curator } = buildService({
       workspace: makeWorkspace({
         'memory.triggers.idleMs': 200,
         'memory.triggers.turnThreshold': 0,
       }),
     });
     service.start();
+    stop.fire(stopPayload());
     activity.registry.notifyAll({
       sessionId: 's1',
       workspaceRoot: '/ws',
@@ -341,45 +440,27 @@ describe('MemoryTriggerService', () => {
     expect(curator.curate).toHaveBeenCalledTimes(1);
   });
 
-  it('turn threshold fires at exactly N user-role activities', async () => {
-    const { service, activity, curator } = buildService({
+  it('turn-complete fires at exactly N Stop hooks', async () => {
+    const { service, stop, curator } = buildService({
       workspace: makeWorkspace({
         'memory.triggers.idleMs': 0,
         'memory.triggers.turnThreshold': 3,
       }),
     });
     service.start();
-    for (let i = 0; i < 2; i++) {
-      activity.registry.notifyAll({
-        sessionId: 's1',
-        workspaceRoot: '/ws',
-        role: 'user',
-        timestamp: i,
-      });
-    }
+    stop.fire(stopPayload({ timestamp: 1 }));
+    stop.fire(stopPayload({ timestamp: 2 }));
     expect(curator.curate).not.toHaveBeenCalled();
-    activity.registry.notifyAll({
-      sessionId: 's1',
-      workspaceRoot: '/ws',
-      role: 'assistant',
-      timestamp: 99,
-    });
-    expect(curator.curate).not.toHaveBeenCalled();
-    activity.registry.notifyAll({
-      sessionId: 's1',
-      workspaceRoot: '/ws',
-      role: 'user',
-      timestamp: 3,
-    });
+    stop.fire(stopPayload({ timestamp: 3 }));
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
     expect(curator.pushEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'turn-trigger' }),
+      expect.objectContaining({ kind: 'turn-complete-trigger' }),
     );
   });
 
   it('turn counter resets after firing', async () => {
-    const { service, activity, curator } = buildService({
+    const { service, stop, curator } = buildService({
       workspace: makeWorkspace({
         'memory.triggers.idleMs': 0,
         'memory.triggers.turnThreshold': 2,
@@ -387,15 +468,23 @@ describe('MemoryTriggerService', () => {
     });
     service.start();
     for (let i = 0; i < 4; i++) {
-      activity.registry.notifyAll({
-        sessionId: 's1',
-        workspaceRoot: '/ws',
-        role: 'user',
-        timestamp: i,
-      });
+      stop.fire(stopPayload({ timestamp: i }));
     }
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
+  });
+
+  it('Stop with in-flight background work does not fire turn-complete', async () => {
+    const { service, stop, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload({ hasBackgroundWork: true }));
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
   });
 
   it('stop() clears all timers', () => {
@@ -454,8 +543,9 @@ describe('MemoryTriggerService', () => {
       onDidChangeWorkspaceFolders: jest.fn(),
     } as unknown as IWorkspaceProvider;
 
-    const { service, activity, curator } = buildService({ workspace });
+    const { service, activity, stop, curator } = buildService({ workspace });
     service.start();
+    stop.fire(stopPayload());
     activity.registry.notifyAll({
       sessionId: 's1',
       workspaceRoot: '/ws',
@@ -476,34 +566,31 @@ describe('MemoryTriggerService', () => {
     expect(curator.curate).toHaveBeenCalledTimes(1);
   });
 
-  it('events recorded for every trigger fire', async () => {
-    const { service, activity, curator } = buildService({
+  it('events recorded for idle-trigger and turn-complete-trigger fires', async () => {
+    const { service, activity, stop, curator } = buildService({
       workspace: makeWorkspace({
         'memory.triggers.idleMs': 100,
         'memory.triggers.turnThreshold': 2,
       }),
     });
     service.start();
+    stop.fire(stopPayload({ timestamp: 1 }));
     activity.registry.notifyAll({
       sessionId: 's1',
       workspaceRoot: '/ws',
       role: 'user',
       timestamp: 1,
     });
-    activity.registry.notifyAll({
-      sessionId: 's1',
-      workspaceRoot: '/ws',
-      role: 'user',
-      timestamp: 2,
-    });
-    await Promise.resolve();
-    expect(curator.pushEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'turn-trigger' }),
-    );
     jest.advanceTimersByTime(150);
     await Promise.resolve();
     expect(curator.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'idle-trigger' }),
+    );
+    stop.fire(stopPayload({ timestamp: 2 }));
+    stop.fire(stopPayload({ timestamp: 3 }));
+    await Promise.resolve();
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'turn-complete-trigger' }),
     );
   });
 });
@@ -656,11 +743,14 @@ describe('MemoryTriggerService — commit-detect trigger', () => {
     service.start();
     postToolUse.fire(postToolUsePayload());
     await Promise.resolve();
-    expect(curator.curate).toHaveBeenCalledWith({
-      sessionId: 's1',
-      workspaceRoot: '/ws',
-      transcript: undefined,
-    });
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 's1',
+        workspaceRoot: '/ws',
+        transcript: expect.stringContaining('Commits in this episode: 1'),
+        salienceBoost: 0.1,
+      }),
+    );
     expect(curator.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'commit-detect', sessionId: 's1' }),
     );
@@ -806,5 +896,430 @@ describe('MemoryTriggerService — lifecycle and rate-limit windows', () => {
     postToolUse.fire(postToolUsePayload({ timestamp: t0 + 3_600_001 }));
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('MemoryTriggerService — episode / failure / session-end', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('tool failure is buffered and pushes a tool-failure event without curating', async () => {
+    const { service, toolFailure, curator } = buildService();
+    service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: 'tests failed',
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'tool-failure',
+        stats: expect.objectContaining({ tool: 'Bash' }),
+      }),
+    );
+  });
+
+  it('error→recovery fires episode-trigger with critical-learning salience boost', async () => {
+    const { service, toolFailure, postToolUse, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: 'TypeError: x is undefined',
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    postToolUse.fire(
+      postToolUsePayload({
+        toolInput: { command: 'npm test' },
+        exitCode: 0,
+        success: true,
+      }),
+    );
+    await Promise.resolve();
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'episode-trigger',
+        stats: expect.objectContaining({ critical: true }),
+      }),
+    );
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 's1',
+        transcript: expect.stringContaining('Recovered after failure'),
+        salienceBoost: 0.2,
+      }),
+    );
+  });
+
+  it('interrupt failures are not buffered', async () => {
+    const { service, toolFailure, curator } = buildService();
+    service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: {},
+      error: 'aborted',
+      isInterrupt: true,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    await Promise.resolve();
+    expect(curator.pushEvent).not.toHaveBeenCalled();
+  });
+
+  it('SessionEnd hook flushes the buffered episode', async () => {
+    const { service, stop, sessionEndHook, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 20,
+    });
+    await Promise.resolve();
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'session-end-trigger' }),
+    );
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+  });
+
+  it('SessionEnd hook with empty episode does not curate', async () => {
+    const { service, sessionEndHook, curator } = buildService();
+    service.start();
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'logout',
+      timestamp: 20,
+    });
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+
+  it('sessionEnd disabled resets the buffer without curating', async () => {
+    const { service, stop, sessionEndHook, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+        'memory.triggers.sessionEnd.enabled': false,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 20,
+    });
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoryTriggerService — buffer preservation under rate-limit', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('rate-limit denial on a commit boundary PRESERVES the buffer so the next boundary curates', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const { service, postToolUse, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+        'memory.triggers.maxCuratesPerHour': 1,
+      }),
+      rateLimiter,
+    });
+    service.start();
+
+    const t0 = Date.UTC(2026, 4, 21, 10, 0, 0);
+    jest.setSystemTime(new Date(t0));
+
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 100 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'rate-limited',
+        stats: expect.objectContaining({ source: 'commit-detect' }),
+      }),
+    );
+
+    jest.setSystemTime(new Date(t0 + 3_600_001));
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 3_600_001 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(2);
+    expect(curator.curate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        transcript: expect.stringContaining('Commits in this episode: 2'),
+      }),
+    );
+  });
+
+  it('reviewer fix: session-end while rate-limited does NOT curate but RESETS the buffer (no stale curate next boundary)', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const { service, stop, sessionEndHook, postToolUse, curator } =
+      buildService({
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 0,
+          'memory.triggers.maxCuratesPerHour': 1,
+        }),
+        rateLimiter,
+      });
+    service.start();
+
+    const t0 = Date.UTC(2026, 4, 21, 10, 0, 0);
+    jest.setSystemTime(new Date(t0));
+
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+
+    stop.fire(stopPayload({ timestamp: t0 + 50 }));
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: t0 + 100,
+    });
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'rate-limited',
+        stats: expect.objectContaining({ source: 'session-end' }),
+      }),
+    );
+
+    jest.setSystemTime(new Date(t0 + 3_600_001));
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: t0 + 3_600_001,
+    });
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+  });
+
+  it('contrast: a non-session-end boundary preserves the buffer where session-end discards it', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const { service, stop, postToolUse, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+        'memory.triggers.maxCuratesPerHour': 1,
+      }),
+      rateLimiter,
+    });
+    service.start();
+
+    const t0 = Date.UTC(2026, 4, 21, 10, 0, 0);
+    jest.setSystemTime(new Date(t0));
+
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+
+    stop.fire(stopPayload({ timestamp: t0 + 50 }));
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 100 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+
+    jest.setSystemTime(new Date(t0 + 3_600_001));
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 3_600_001 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(2);
+    expect(curator.curate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        transcript: expect.stringContaining('Did some work this turn.'),
+      }),
+    );
+  });
+});
+
+describe('MemoryTriggerService — turn recording independent of firing', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('Stop with hasBackgroundWork=true never fires turn-complete but still records the turn for a later flush', async () => {
+    const { service, stop, sessionEndHook, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload({ hasBackgroundWork: true, timestamp: 1 }));
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 2,
+    });
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcript: expect.stringContaining('Did some work this turn.'),
+      }),
+    );
+  });
+
+  it('error→recovery records recovery bookkeeping even when episode.enabled=false (later boundary sees critical learning)', async () => {
+    const { service, toolFailure, postToolUse, sessionEndHook, curator } =
+      buildService({
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 0,
+          'memory.triggers.episode.enabled': false,
+        }),
+      });
+    service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: 'TypeError',
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Bash',
+        toolInput: { command: 'npm test' },
+        exitCode: 0,
+        success: true,
+        timestamp: 20,
+      }),
+    );
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+    expect(curator.pushEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'episode-trigger' }),
+    );
+
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 30,
+    });
+    await Promise.resolve();
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'session-end-trigger',
+        stats: expect.objectContaining({ critical: true }),
+      }),
+    );
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcript: expect.stringContaining('Recovered after failure'),
+        salienceBoost: 0.2,
+      }),
+    );
+  });
+});
+
+describe('MemoryTriggerService — salience boost threading', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('user-cue forwards the prompt as transcript WITHOUT a salienceBoost field', async () => {
+    const { service, userPromptSubmit, curator } = buildService();
+    service.start();
+    userPromptSubmit.fire(userPromptPayload());
+    await Promise.resolve();
+    const call = (curator.curate as jest.Mock).mock.calls[0][0];
+    expect(call.salienceBoost).toBeUndefined();
+    expect(call.transcript).toBe(
+      'please remember this important fact about the codebase',
+    );
+  });
+
+  it('commit boundary threads a salienceBoost into curate()', async () => {
+    const { service, postToolUse, curator } = buildService();
+    service.start();
+    postToolUse.fire(postToolUsePayload());
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({ salienceBoost: 0.1 }),
+    );
+  });
+
+  it('episode boundary threads the critical-learning salienceBoost into curate()', async () => {
+    const { service, toolFailure, postToolUse, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: 'TypeError',
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    postToolUse.fire(
+      postToolUsePayload({
+        toolInput: { command: 'npm test' },
+        exitCode: 0,
+        success: true,
+      }),
+    );
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({ salienceBoost: 0.2 }),
+    );
   });
 });

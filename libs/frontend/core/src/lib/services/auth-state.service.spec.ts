@@ -215,6 +215,42 @@ describe('AuthStateService', () => {
     });
   });
 
+  describe('auth-required banner', () => {
+    it('flagAuthRequired sets the banner and marks codex stale for codex', () => {
+      const service = createService();
+      service.flagAuthRequired('openai-codex', 'token expired');
+      expect(service.authRequiredBanner()).toEqual({
+        providerId: 'openai-codex',
+        message: 'token expired',
+      });
+      expect(service.codexTokenStale()).toBe(true);
+    });
+
+    it('clearAuthRequiredBanner removes the banner', () => {
+      const service = createService();
+      service.flagAuthRequired('openai-codex', 'token expired');
+      service.clearAuthRequiredBanner();
+      expect(service.authRequiredBanner()).toBeNull();
+    });
+
+    it('clears a codex banner automatically once auth refresh reports healthy', async () => {
+      const service = createService();
+      service.flagAuthRequired('openai-codex', 'token expired');
+
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess(
+          makeAuthStatusResponse({
+            codexAuthenticated: true,
+            codexTokenStale: false,
+          }),
+        ),
+      );
+      await service.refreshAuthStatus();
+
+      expect(service.authRequiredBanner()).toBeNull();
+    });
+  });
+
   describe('checkProviderKeyStatus()', () => {
     it('updates only the requested provider entry in the key map', async () => {
       const service = createService();

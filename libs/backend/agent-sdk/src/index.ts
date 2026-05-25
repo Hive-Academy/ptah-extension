@@ -37,6 +37,7 @@ export {
   SdkError,
   SessionNotActiveError,
   ModelNotAvailableError,
+  AuthRequiredError,
 } from './lib/errors';
 export {
   registerSdkServices,
@@ -71,6 +72,18 @@ export {
   type UserPromptSubmitCallback,
   type UserPromptSubmitPayload,
   UserPromptSubmitHookHandler,
+  StopCallbackRegistry,
+  type StopCallback,
+  type StopPayload,
+  StopHookHandler,
+  SessionEndHookCallbackRegistry,
+  type SessionEndHookCallback,
+  type SessionEndHookPayload,
+  SessionEndHookHandler,
+  ToolFailureCallbackRegistry,
+  type ToolFailureCallback,
+  type ToolFailurePayload,
+  ToolFailureHookHandler,
   CuratorRateLimitService,
   type RateLimitDecision,
   type RateLimitSnapshot,
@@ -81,6 +94,13 @@ export {
 } from './lib/helpers';
 export { CompactionConfigProvider } from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
+export {
+  SdkAdapterEvents,
+  type SdkAdapterInitializedEvent,
+  type SdkAdapterDisposedEvent,
+  type SdkAdapterConfigChangedEvent,
+  type SdkAdapterAuthFileChangedEvent,
+} from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
 export {
