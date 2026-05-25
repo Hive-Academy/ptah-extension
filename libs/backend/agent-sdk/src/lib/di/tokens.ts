@@ -92,6 +92,16 @@ export const SDK_TOKENS = {
   SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER: Symbol.for(
     'SdkUserPromptSubmitHookHandler',
   ),
+  SDK_STOP_CALLBACK_REGISTRY: Symbol.for('SdkStopCallbackRegistry'),
+  SDK_STOP_HOOK_HANDLER: Symbol.for('SdkStopHookHandler'),
+  SDK_SESSION_END_HOOK_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSessionEndHookCallbackRegistry',
+  ),
+  SDK_SESSION_END_HOOK_HANDLER: Symbol.for('SdkSessionEndHookHandler'),
+  SDK_TOOL_FAILURE_CALLBACK_REGISTRY: Symbol.for(
+    'SdkToolFailureCallbackRegistry',
+  ),
+  SDK_TOOL_FAILURE_HOOK_HANDLER: Symbol.for('SdkToolFailureHookHandler'),
   SDK_CURATOR_RATE_LIMIT: Symbol.for('SdkCuratorRateLimit'),
 } as const;
 

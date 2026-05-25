@@ -12,6 +12,9 @@ import {
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
   UserPromptSubmitCallbackRegistry,
+  StopCallbackRegistry,
+  ToolFailureCallbackRegistry,
+  SessionEndHookCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { MemoryTriggerService } from './memory-trigger.service';
 import type { MemoryCuratorService } from '../memory-curator.service';
@@ -98,6 +101,9 @@ interface IntegrationHarness {
   postToolUseRegistry: PostToolUseCallbackRegistry;
   sessionEndRegistry: SessionEndCallbackRegistry;
   activityRegistry: SessionActivityRegistry;
+  stopRegistry: StopCallbackRegistry;
+  toolFailureRegistry: ToolFailureCallbackRegistry;
+  sessionEndHookRegistry: SessionEndHookCallbackRegistry;
 }
 
 function buildHarness(opts?: {
@@ -116,6 +122,11 @@ function buildHarness(opts?: {
     makeLogger(),
   );
   const postToolUseRegistry = new PostToolUseCallbackRegistry(makeLogger());
+  const stopRegistry = new StopCallbackRegistry(makeLogger());
+  const toolFailureRegistry = new ToolFailureCallbackRegistry(makeLogger());
+  const sessionEndHookRegistry = new SessionEndHookCallbackRegistry(
+    makeLogger(),
+  );
   const service = new MemoryTriggerService(
     logger,
     curator,
@@ -127,6 +138,9 @@ function buildHarness(opts?: {
     makeJsonl(),
     userPromptSubmitRegistry,
     postToolUseRegistry,
+    stopRegistry,
+    toolFailureRegistry,
+    sessionEndHookRegistry,
     rateLimiter,
   );
   return {
@@ -137,6 +151,9 @@ function buildHarness(opts?: {
     postToolUseRegistry,
     sessionEndRegistry,
     activityRegistry,
+    stopRegistry,
+    toolFailureRegistry,
+    sessionEndHookRegistry,
   };
 }
 

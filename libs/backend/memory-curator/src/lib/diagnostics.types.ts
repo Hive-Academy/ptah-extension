@@ -9,6 +9,10 @@ export type MemoryCuratorEventKind =
   | 'manual-run'
   | 'user-cue-trigger'
   | 'commit-detect'
+  | 'turn-complete-trigger'
+  | 'episode-trigger'
+  | 'session-end-trigger'
+  | 'tool-failure'
   | 'rate-limited'
   | 'error';
 

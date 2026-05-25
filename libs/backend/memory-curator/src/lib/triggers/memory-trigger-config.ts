@@ -16,6 +16,15 @@ export const MEMORY_TRIGGER_KEYS = {
   postToolUse: {
     enabled: 'memory.triggers.postToolUse.enabled',
   },
+  turnComplete: {
+    enabled: 'memory.triggers.turnComplete.enabled',
+  },
+  episode: {
+    enabled: 'memory.triggers.episode.enabled',
+  },
+  sessionEnd: {
+    enabled: 'memory.triggers.sessionEnd.enabled',
+  },
   maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
 } as const;
 
@@ -40,6 +49,15 @@ export const MEMORY_TRIGGER_DEFAULTS = {
     minPromptLength: 20,
   },
   postToolUse: {
+    enabled: true,
+  },
+  turnComplete: {
+    enabled: true,
+  },
+  episode: {
+    enabled: true,
+  },
+  sessionEnd: {
     enabled: true,
   },
   maxCuratesPerHour: 12,

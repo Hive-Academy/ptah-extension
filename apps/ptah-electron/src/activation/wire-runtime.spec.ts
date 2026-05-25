@@ -16,6 +16,9 @@ import {
   PostToolUseHookHandler,
   UserPromptSubmitCallbackRegistry,
   UserPromptSubmitHookHandler,
+  StopCallbackRegistry,
+  ToolFailureCallbackRegistry,
+  SessionEndHookCallbackRegistry,
   CuratorRateLimitService,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -141,6 +144,27 @@ function buildTestContainer(): DependencyContainer {
     SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER,
     {
       useClass: UserPromptSubmitHookHandler,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  c.register(
+    SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY,
+    {
+      useClass: StopCallbackRegistry,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  c.register(
+    SDK_TOKENS.SDK_TOOL_FAILURE_CALLBACK_REGISTRY,
+    {
+      useClass: ToolFailureCallbackRegistry,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  c.register(
+    SDK_TOKENS.SDK_SESSION_END_HOOK_CALLBACK_REGISTRY,
+    {
+      useClass: SessionEndHookCallbackRegistry,
     },
     { lifecycle: Lifecycle.Singleton },
   );

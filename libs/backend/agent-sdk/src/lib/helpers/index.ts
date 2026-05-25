@@ -70,6 +70,24 @@ export {
 } from './user-prompt-submit-callback-registry';
 export { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 export {
+  StopCallbackRegistry,
+  type StopCallback,
+  type StopPayload,
+} from './stop-callback-registry';
+export { StopHookHandler } from './stop-hook-handler';
+export {
+  SessionEndHookCallbackRegistry,
+  type SessionEndHookCallback,
+  type SessionEndHookPayload,
+} from './session-end-hook-callback-registry';
+export { SessionEndHookHandler } from './session-end-hook-handler';
+export {
+  ToolFailureCallbackRegistry,
+  type ToolFailureCallback,
+  type ToolFailurePayload,
+} from './tool-failure-callback-registry';
+export { ToolFailureHookHandler } from './tool-failure-hook-handler';
+export {
   CuratorRateLimitService,
   type RateLimitDecision,
   type RateLimitSnapshot,
