@@ -1040,3 +1040,286 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     expect(curator.curate).not.toHaveBeenCalled();
   });
 });
+
+describe('MemoryTriggerService — buffer preservation under rate-limit', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('rate-limit denial on a commit boundary PRESERVES the buffer so the next boundary curates', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const { service, postToolUse, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+        'memory.triggers.maxCuratesPerHour': 1,
+      }),
+      rateLimiter,
+    });
+    service.start();
+
+    const t0 = Date.UTC(2026, 4, 21, 10, 0, 0);
+    jest.setSystemTime(new Date(t0));
+
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 100 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'rate-limited',
+        stats: expect.objectContaining({ source: 'commit-detect' }),
+      }),
+    );
+
+    jest.setSystemTime(new Date(t0 + 3_600_001));
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 3_600_001 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(2);
+    expect(curator.curate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        transcript: expect.stringContaining('Commits in this episode: 2'),
+      }),
+    );
+  });
+
+  it('reviewer fix: session-end while rate-limited does NOT curate but RESETS the buffer (no stale curate next boundary)', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const { service, stop, sessionEndHook, postToolUse, curator } =
+      buildService({
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 0,
+          'memory.triggers.maxCuratesPerHour': 1,
+        }),
+        rateLimiter,
+      });
+    service.start();
+
+    const t0 = Date.UTC(2026, 4, 21, 10, 0, 0);
+    jest.setSystemTime(new Date(t0));
+
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+
+    stop.fire(stopPayload({ timestamp: t0 + 50 }));
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: t0 + 100,
+    });
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'rate-limited',
+        stats: expect.objectContaining({ source: 'session-end' }),
+      }),
+    );
+
+    jest.setSystemTime(new Date(t0 + 3_600_001));
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: t0 + 3_600_001,
+    });
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+  });
+
+  it('contrast: a non-session-end boundary preserves the buffer where session-end discards it', async () => {
+    const rateLimiter = new CuratorRateLimitService(makeLogger());
+    const { service, stop, postToolUse, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+        'memory.triggers.maxCuratesPerHour': 1,
+      }),
+      rateLimiter,
+    });
+    service.start();
+
+    const t0 = Date.UTC(2026, 4, 21, 10, 0, 0);
+    jest.setSystemTime(new Date(t0));
+
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+
+    stop.fire(stopPayload({ timestamp: t0 + 50 }));
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 100 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+
+    jest.setSystemTime(new Date(t0 + 3_600_001));
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 3_600_001 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(2);
+    expect(curator.curate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        transcript: expect.stringContaining('Did some work this turn.'),
+      }),
+    );
+  });
+});
+
+describe('MemoryTriggerService — turn recording independent of firing', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('Stop with hasBackgroundWork=true never fires turn-complete but still records the turn for a later flush', async () => {
+    const { service, stop, sessionEndHook, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload({ hasBackgroundWork: true, timestamp: 1 }));
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 2,
+    });
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcript: expect.stringContaining('Did some work this turn.'),
+      }),
+    );
+  });
+
+  it('error→recovery records recovery bookkeeping even when episode.enabled=false (later boundary sees critical learning)', async () => {
+    const { service, toolFailure, postToolUse, sessionEndHook, curator } =
+      buildService({
+        workspace: makeWorkspace({
+          'memory.triggers.idleMs': 0,
+          'memory.triggers.turnThreshold': 0,
+          'memory.triggers.episode.enabled': false,
+        }),
+      });
+    service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: 'TypeError',
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Bash',
+        toolInput: { command: 'npm test' },
+        exitCode: 0,
+        success: true,
+        timestamp: 20,
+      }),
+    );
+    await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+    expect(curator.pushEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'episode-trigger' }),
+    );
+
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 30,
+    });
+    await Promise.resolve();
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'session-end-trigger',
+        stats: expect.objectContaining({ critical: true }),
+      }),
+    );
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcript: expect.stringContaining('Recovered after failure'),
+        salienceBoost: 0.2,
+      }),
+    );
+  });
+});
+
+describe('MemoryTriggerService — salience boost threading', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('user-cue forwards the prompt as transcript WITHOUT a salienceBoost field', async () => {
+    const { service, userPromptSubmit, curator } = buildService();
+    service.start();
+    userPromptSubmit.fire(userPromptPayload());
+    await Promise.resolve();
+    const call = (curator.curate as jest.Mock).mock.calls[0][0];
+    expect(call.salienceBoost).toBeUndefined();
+    expect(call.transcript).toBe(
+      'please remember this important fact about the codebase',
+    );
+  });
+
+  it('commit boundary threads a salienceBoost into curate()', async () => {
+    const { service, postToolUse, curator } = buildService();
+    service.start();
+    postToolUse.fire(postToolUsePayload());
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({ salienceBoost: 0.1 }),
+    );
+  });
+
+  it('episode boundary threads the critical-learning salienceBoost into curate()', async () => {
+    const { service, toolFailure, postToolUse, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: 'TypeError',
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    postToolUse.fire(
+      postToolUsePayload({
+        toolInput: { command: 'npm test' },
+        exitCode: 0,
+        success: true,
+      }),
+    );
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({ salienceBoost: 0.2 }),
+    );
+  });
+});

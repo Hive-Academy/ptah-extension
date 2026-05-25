@@ -55,6 +55,15 @@ export interface MemoryTriggersDto {
   readonly postToolUse?: {
     readonly enabled: boolean;
   };
+  readonly turnComplete?: {
+    readonly enabled: boolean;
+  };
+  readonly episode?: {
+    readonly enabled: boolean;
+  };
+  readonly sessionEnd?: {
+    readonly enabled: boolean;
+  };
   readonly maxCuratesPerHour?: number;
 }
 

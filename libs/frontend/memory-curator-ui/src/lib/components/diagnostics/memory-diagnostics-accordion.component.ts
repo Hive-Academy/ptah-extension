@@ -91,6 +91,21 @@ import { EventFeedComponent } from './event-feed.component';
               (triggerChange)="onPostToolUseChange($event)"
             />
             <ptah-memory-trigger-toggle
+              label="Turn-complete (Stop hook)"
+              [enabled]="t.turnComplete?.enabled ?? false"
+              (triggerChange)="onTurnCompleteChange($event)"
+            />
+            <ptah-memory-trigger-toggle
+              label="Error→recovery episodes"
+              [enabled]="t.episode?.enabled ?? false"
+              (triggerChange)="onEpisodeChange($event)"
+            />
+            <ptah-memory-trigger-toggle
+              label="Session-end flush"
+              [enabled]="t.sessionEnd?.enabled ?? false"
+              (triggerChange)="onSessionEndChange($event)"
+            />
+            <ptah-memory-trigger-toggle
               label="UserPromptSubmit cues"
               [enabled]="t.userPromptSubmit?.enabled ?? false"
               [value]="t.userPromptSubmit?.minPromptLength ?? 0"
@@ -246,6 +261,18 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
 
   protected onPostToolUseChange(c: TriggerToggleChange): void {
     void this.state.setTriggers({ postToolUse: { enabled: c.enabled } });
+  }
+
+  protected onTurnCompleteChange(c: TriggerToggleChange): void {
+    void this.state.setTriggers({ turnComplete: { enabled: c.enabled } });
+  }
+
+  protected onEpisodeChange(c: TriggerToggleChange): void {
+    void this.state.setTriggers({ episode: { enabled: c.enabled } });
+  }
+
+  protected onSessionEndChange(c: TriggerToggleChange): void {
+    void this.state.setTriggers({ sessionEnd: { enabled: c.enabled } });
   }
 
   protected onUserPromptSubmitChange(c: TriggerToggleChange): void {

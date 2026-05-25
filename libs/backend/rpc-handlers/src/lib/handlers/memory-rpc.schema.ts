@@ -70,6 +70,21 @@ export const MemoryTriggersSchema = z.object({
       enabled: z.boolean(),
     })
     .optional(),
+  turnComplete: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
+  episode: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
+  sessionEnd: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
   maxCuratesPerHour: z.number().int().min(0).max(1000).optional(),
 });
 

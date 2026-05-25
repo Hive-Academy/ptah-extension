@@ -486,6 +486,11 @@ export class MemoryRpcHandlers {
                   snapshot.triggers.userPromptSubmit.minPromptLength,
               },
               postToolUse: { enabled: snapshot.triggers.postToolUse.enabled },
+              turnComplete: {
+                enabled: snapshot.triggers.turnComplete.enabled,
+              },
+              episode: { enabled: snapshot.triggers.episode.enabled },
+              sessionEnd: { enabled: snapshot.triggers.sessionEnd.enabled },
               maxCuratesPerHour: snapshot.triggers.maxCuratesPerHour,
             },
           };
