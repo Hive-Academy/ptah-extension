@@ -21,7 +21,6 @@ import type {
 } from '@ptah-extension/shared';
 import type {
   CliAdapter,
-  CliCommand,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
@@ -93,18 +92,6 @@ export class GeminiCliAdapter implements CliAdapter {
         supportsSteer: false,
       };
     }
-  }
-
-  /**
-   * Build command for the raw CLI spawn fallback path.
-   * Used only when runSdk() is not available.
-   */
-  buildCommand(options: CliCommandOptions): CliCommand {
-    const taskPrompt = buildTaskPrompt(options);
-    return {
-      binary: 'gemini',
-      args: ['-p', taskPrompt, '--output-format', 'text'],
-    };
   }
 
   supportsSteer(): boolean {

@@ -44,7 +44,6 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
-import { spawnCli } from './cli-adapters/cli-adapter.utils';
 import {
   MAX_BUFFER_SIZE,
   DEFAULT_TIMEOUT,
@@ -273,10 +272,8 @@ export class AgentProcessManager {
       throw new Error(`No adapter registered for CLI: ${cli}`);
     }
 
-    const isSdk = typeof adapter.runSdk === 'function';
     this.logger.info('[AgentProcessManager] Adapter resolved', {
       cli,
-      adapterType: isSdk ? 'sdk' : 'cli-process',
       detectedVersion: detection.version,
       detectedPath: detection.path,
     });
@@ -285,110 +282,16 @@ export class AgentProcessManager {
     await this.validateWorkingDirectory(workingDirectory);
     const mcpPort =
       adapter.supportsMcp !== false ? await this.resolveMcpPort() : undefined;
-    const runSdk = adapter.runSdk?.bind(adapter);
-    if (runSdk) {
-      return this.doSpawnSdk(
-        runSdk,
-        request,
-        request.task,
-        workingDirectory,
-        cli,
-        adapter.displayName,
-        detection.path,
-        mcpPort,
-      );
-    }
-    const cliModel = this.resolveConfiguredModel(cli, request.model);
-    const command = adapter.buildCommand({
-      task: request.task,
+    return this.doSpawnSdk(
+      adapter.runSdk.bind(adapter),
+      request,
+      request.task,
       workingDirectory,
-      files: request.files,
-      taskFolder: request.taskFolder,
-      model: cliModel,
+      cli,
+      adapter.displayName,
+      detection.path,
       mcpPort,
-      resumeSessionId: request.resumeSessionId,
-      projectGuidance: request.projectGuidance,
-      systemPrompt: request.systemPrompt,
-      reasoningEffort: this.resolveReasoningEffort(cli),
-      autoApprove: this.resolveAutoApprove(cli),
-    });
-    const agentId = AgentId.create();
-    const startedAt = new Date().toISOString();
-
-    const info: AgentProcessInfo = {
-      agentId,
-      cli,
-      task: request.task,
-      workingDirectory,
-      taskFolder: request.taskFolder,
-      status: 'running',
-      startedAt,
-      parentSessionId: request.parentSessionId,
-      displayName: adapter.displayName,
-      model: cliModel,
-      resumedFromAgentId: request.resumedFromAgentId,
-    };
-    const binaryPath = detection.path ?? command.binary;
-    this.logger.info('[AgentProcessManager] Spawning agent', {
-      agentId,
-      cli,
-      binary: binaryPath,
-      args: command.args.length,
-      workingDirectory,
-    });
-
-    const childProcess = spawnCli(binaryPath, command.args, {
-      cwd: workingDirectory,
-      env: command.env,
-    });
-    childProcess.stdout?.setEncoding('utf8');
-    childProcess.stderr?.setEncoding('utf8');
-    const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
-    const timeoutHandle = setTimeout(() => {
-      this.handleTimeout(agentId);
-    }, timeout);
-    const tracked: TrackedAgent = {
-      info: { ...info, pid: childProcess.pid },
-      process: childProcess,
-      stdoutBuffer: '',
-      stderrBuffer: '',
-      timeoutHandle,
-      stdoutLineCount: 0,
-      stderrLineCount: 0,
-      truncated: false,
-      hasExited: false,
-      accumulatedSegments: [],
-      accumulatedStreamEvents: [],
-    };
-
-    this.agents.set(agentId, tracked);
-    childProcess.stdout?.on('data', (data: Buffer) => {
-      this.appendBuffer(agentId, 'stdout', data.toString());
-    });
-
-    childProcess.stderr?.on('data', (data: Buffer) => {
-      this.appendBuffer(agentId, 'stderr', data.toString());
-    });
-    childProcess.on('exit', (code, signal) => {
-      this.handleExit(agentId, code, signal);
-    });
-
-    childProcess.on('error', (error) => {
-      this.logger.error('[AgentProcessManager] Process error', error);
-      this.handleExit(agentId, 1, null);
-    });
-
-    const spawnResult: SpawnAgentResult = {
-      agentId,
-      cli,
-      status: 'running',
-      startedAt,
-    };
-
-    this.events.emit('agent:spawned', tracked.info);
-    this.markParentSubagentsAsCliAgent(request.parentSessionId);
-
-    return spawnResult;
+    );
   }
 
   /**

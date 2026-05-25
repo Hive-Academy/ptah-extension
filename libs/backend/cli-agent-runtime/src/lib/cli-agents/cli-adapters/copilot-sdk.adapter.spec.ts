@@ -141,21 +141,6 @@ describe('CopilotSdkAdapter', () => {
     });
   });
 
-  describe('buildCommand()', () => {
-    it('builds args with -p and --allow-all-tools', () => {
-      const cmd = adapter.buildCommand({
-        task: 'Write a unit test',
-        workingDirectory: '/proj',
-      });
-
-      expect(cmd.binary).toBe('copilot');
-      expect(cmd.args).toContain('-p');
-      expect(cmd.args).toContain('--allow-all-tools');
-      const pIndex = cmd.args.indexOf('-p');
-      expect(cmd.args[pIndex + 1]).toContain('Write a unit test');
-    });
-  });
-
   describe('listModels() / supportsSteer() / parseOutput()', () => {
     it('returns the curated Copilot model list including claude-sonnet-4.5', async () => {
       const models = await adapter.listModels();

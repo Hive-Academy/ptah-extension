@@ -42,12 +42,6 @@ export interface CliCommandOptions {
   readonly autoApprove?: boolean;
 }
 
-export interface CliCommand {
-  readonly binary: string;
-  readonly args: string[];
-  readonly env?: Record<string, string>;
-}
-
 /**
  * Handle returned by SDK-based adapters.
  * AgentProcessManager uses this instead of ChildProcess when present.
@@ -91,11 +85,6 @@ export interface CliAdapter {
   detect(): Promise<CliDetectionResult>;
 
   /**
-   * Build the command and arguments to spawn the CLI in headless mode
-   */
-  buildCommand(options: CliCommandOptions): CliCommand;
-
-  /**
    * Whether this CLI supports stdin steering (interactive input while running)
    */
   supportsSteer(): boolean;
@@ -115,11 +104,11 @@ export interface CliAdapter {
   readonly supportsMcp?: boolean;
 
   /**
-   * Optional: Run task via SDK instead of CLI subprocess.
-   * If implemented, AgentProcessManager will use this instead of buildCommand() + spawn().
-   * Adapters that return a value here are "SDK-based" adapters.
+   * Run the task and return a handle to its in-process execution. Every
+   * adapter runs via the SDK/streaming path; adapters that wrap a binary CLI
+   * spawn it internally and adapt its output to an SdkHandle.
    */
-  runSdk?(options: CliCommandOptions): Promise<SdkHandle>;
+  runSdk(options: CliCommandOptions): Promise<SdkHandle>;
 
   /**
    * Optional: List available models for this CLI.

@@ -1,6 +1,5 @@
 export type {
   CliAdapter,
-  CliCommand,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,

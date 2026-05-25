@@ -15,7 +15,6 @@ import type {
 } from '@ptah-extension/shared';
 import type {
   CliAdapter,
-  CliCommand,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
@@ -358,20 +357,6 @@ export class CodexCliAdapter implements CliAdapter {
         supportsSteer: false,
       };
     }
-  }
-
-  buildCommand(options: CliCommandOptions): CliCommand {
-    const taskPrompt = buildTaskPrompt(options);
-    const args = ['exec', '--full-auto', '--ephemeral', taskPrompt];
-
-    if (options.model) {
-      args.push('--model', options.model);
-    }
-
-    return {
-      binary: 'codex',
-      args,
-    };
   }
 
   supportsSteer(): boolean {

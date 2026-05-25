@@ -23,7 +23,6 @@ import type {
 } from '@ptah-extension/shared';
 import type {
   CliAdapter,
-  CliCommand,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
@@ -210,17 +209,6 @@ export class CursorCliAdapter implements CliAdapter {
    */
   async ensureTokensFresh(): Promise<boolean> {
     return resolveCursorApiKey() !== undefined;
-  }
-
-  /**
-   * Cursor has no spawnable binary — it runs in-process via runSdk(). This
-   * exists only to satisfy the CliAdapter interface and must never be reached;
-   * AgentProcessManager always takes the runSdk() branch when it is defined.
-   */
-  buildCommand(_options: CliCommandOptions): CliCommand {
-    throw new Error(
-      'Cursor runs via the @cursor/sdk in-process path (runSdk); it has no CLI binary to spawn.',
-    );
   }
 
   supportsSteer(): boolean {

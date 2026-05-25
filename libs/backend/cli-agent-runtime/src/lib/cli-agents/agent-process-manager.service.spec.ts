@@ -180,10 +180,6 @@ function createSdkAdapter(
       version: '1.0.0',
       supportsSteer: false,
     }),
-    buildCommand: jest.fn().mockReturnValue({
-      binary: 'codex',
-      args: ['--quiet', 'test task'],
-    }),
     supportsSteer: jest.fn().mockReturnValue(false),
     parseOutput: jest.fn((raw: string) => raw),
     runSdk: jest
