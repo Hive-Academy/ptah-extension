@@ -72,6 +72,10 @@ export interface AgentOrchestrationConfig {
   codexModel: string;
   /** Per-CLI model: Copilot model (empty string = default) */
   copilotModel: string;
+  /** Per-CLI model: Cursor model (empty string = SDK default) */
+  cursorModel: string;
+  /** Whether a Cursor API key is configured (CURSOR_API_KEY or provider.cursor.apiKey). The raw key is never returned to the UI. */
+  cursorApiKeyConfigured: boolean;
   /** Codex reasoning effort (empty string = SDK default) */
   codexReasoningEffort: string;
   /** Copilot reasoning effort (empty string = SDK default) */
@@ -103,6 +107,7 @@ export interface AgentListCliModelsResult {
   gemini: CliModelOption[];
   codex: CliModelOption[];
   copilot: CliModelOption[];
+  cursor: CliModelOption[];
 }
 
 /** Parameters for agent:setConfig RPC method */
@@ -117,6 +122,10 @@ export interface AgentSetConfigParams {
   codexModel?: string;
   /** Copilot model override (empty string = default) */
   copilotModel?: string;
+  /** Cursor model override (empty string = SDK default) */
+  cursorModel?: string;
+  /** Cursor API key. Written to provider.cursor.apiKey in ~/.ptah/settings.json. Empty string clears it. */
+  cursorApiKey?: string;
   /** @deprecated Codex always runs in full-auto headless mode. No-op, kept for backward compat. */
   codexAutoApprove?: boolean;
   /** Auto-approve all Copilot tool calls (default: true) */

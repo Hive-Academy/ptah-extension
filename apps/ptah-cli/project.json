@@ -30,6 +30,7 @@
         "external": [
           "@anthropic-ai/claude-agent-sdk",
           "@openai/codex-sdk",
+          "@cursor/sdk",
           "reflect-metadata",
           "tsyringe",
           "async-mutex",

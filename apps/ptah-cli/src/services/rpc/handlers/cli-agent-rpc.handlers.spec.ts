@@ -61,6 +61,7 @@ const buildCliDetectionStub = () => ({
     gemini: [],
     codex: [],
     copilot: [],
+    cursor: [],
   }),
   getAdapter: jest.fn().mockReturnValue(undefined),
 });
@@ -310,7 +311,12 @@ describe('CliAgentRpcHandlers — per-method dispatch parity', () => {
       'agent:listCliModels',
     )(undefined);
     expect(cliResult).toEqual(eleResult);
-    expect(cliResult).toEqual({ gemini: [], codex: [], copilot: [] });
+    expect(cliResult).toEqual({
+      gemini: [],
+      codex: [],
+      copilot: [],
+      cursor: [],
+    });
   });
 
   it('agent:permissionResponse — both return error when no handler present', async () => {

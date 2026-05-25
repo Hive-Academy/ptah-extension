@@ -15,6 +15,7 @@ import {
   ArrowUp,
   ArrowDown,
   GripVertical,
+  KeyRound,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
@@ -67,8 +68,8 @@ import type {
         </div>
 
         <p class="text-xs text-base-content/70 mb-3">
-          Headless agents (Gemini CLI, Codex CLI, Copilot) for parallel task
-          execution.
+          Headless agents (Gemini CLI, Codex CLI, Copilot, Cursor) for parallel
+          task execution.
         </p>
 
         <!-- Error display -->
@@ -248,11 +249,19 @@ import type {
                     >
                       @if (cli.installed) {
                         <span class="badge badge-success badge-xs gap-1">
-                          Installed
-                          @if (cli.version) {
+                          @if (cli.cli === 'cursor') {
+                            Configured
+                          } @else {
+                            Installed
+                          }
+                          @if (cli.version && cli.cli !== 'cursor') {
                             <span class="opacity-70">v{{ cli.version }}</span>
                           }
                         </span>
+                      } @else if (cli.cli === 'cursor') {
+                        <span class="badge badge-warning badge-xs"
+                          >Needs API key</span
+                        >
                       } @else {
                         <span class="badge badge-ghost badge-xs"
                           >Not Found</span
@@ -272,7 +281,10 @@ import type {
                   </div>
 
                   <!-- Expanded detail panel -->
-                  @if (isCliExpanded(cli.cli) && cli.installed) {
+                  @if (
+                    isCliExpanded(cli.cli) &&
+                    (cli.installed || cli.cli === 'cursor')
+                  ) {
                     <div class="px-2 pb-2 pt-0 border-t border-base-300/30">
                       <!-- Gemini model selector -->
                       @if (cli.cli === 'gemini') {
@@ -460,6 +472,106 @@ import type {
                           </div>
                         </div>
                       }
+
+                      <!-- Cursor API key + model -->
+                      @if (cli.cli === 'cursor') {
+                        <div class="mt-2">
+                          <label
+                            for="agent-cursor-apikey"
+                            class="text-[10px] text-base-content/50 mb-0.5 flex items-center gap-1"
+                          >
+                            <lucide-angular
+                              [img]="KeyRoundIcon"
+                              class="w-3 h-3"
+                            />
+                            API Key
+                            @if (agentConfig()?.cursorApiKeyConfigured) {
+                              <span class="badge badge-success badge-xs"
+                                >Set</span
+                              >
+                            }
+                          </label>
+                          <div class="flex items-center gap-1.5">
+                            <input
+                              id="agent-cursor-apikey"
+                              type="password"
+                              autocomplete="off"
+                              class="input input-bordered input-xs flex-1 font-mono"
+                              [placeholder]="
+                                agentConfig()?.cursorApiKeyConfigured
+                                  ? '•••••••••• (stored)'
+                                  : 'key_...'
+                              "
+                              [value]="cursorApiKeyInput()"
+                              (input)="onCursorApiKeyInput($event)"
+                            />
+                            <button
+                              class="btn btn-primary btn-xs"
+                              [disabled]="
+                                savingCursorApiKey() ||
+                                cursorApiKeyInput().trim().length === 0
+                              "
+                              (click)="saveCursorApiKey()"
+                            >
+                              @if (savingCursorApiKey()) {
+                                <span
+                                  class="loading loading-spinner loading-xs"
+                                ></span>
+                              } @else {
+                                Save
+                              }
+                            </button>
+                          </div>
+                          <p class="text-[9px] text-base-content/30 mt-1">
+                            Create a key at cursor.com → Dashboard →
+                            Integrations. Stored in
+                            <code>~/.ptah/settings.json</code>; the
+                            <code>CURSOR_API_KEY</code> env var also works.
+                          </p>
+
+                          <label
+                            for="agent-cursor-model"
+                            class="text-[10px] text-base-content/50 mt-2 mb-0.5 block"
+                          >
+                            Model
+                          </label>
+                          <select
+                            id="agent-cursor-model"
+                            class="select select-bordered select-xs w-full"
+                            [disabled]="!agentConfig()?.cursorApiKeyConfigured"
+                            (change)="onModelSelect('cursor', $event)"
+                          >
+                            <option
+                              value=""
+                              [selected]="!agentConfig()?.cursorModel"
+                            >
+                              Default
+                            </option>
+                            @for (model of cursorModels(); track model.id) {
+                              <option
+                                [value]="model.id"
+                                [selected]="
+                                  model.id === agentConfig()?.cursorModel
+                                "
+                              >
+                                {{ model.name }}
+                              </option>
+                            }
+                          </select>
+
+                          <div class="flex items-center justify-between mt-2">
+                            <div>
+                              <span class="text-[10px] text-base-content/50"
+                                >Permissions</span
+                              >
+                              <p class="text-[9px] text-base-content/30">
+                                Full auto — Cursor runs headless with full
+                                access
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      }
                     </div>
                   }
                 </div>
@@ -511,6 +623,7 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   readonly ArrowUpIcon = ArrowUp;
   readonly ArrowDownIcon = ArrowDown;
   readonly GripVerticalIcon = GripVertical;
+  readonly KeyRoundIcon = KeyRound;
   readonly reasoningEffortOptions = [
     { value: '', label: 'Default' },
     { value: 'minimal', label: 'Minimal' },
@@ -527,6 +640,10 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   readonly geminiModels = signal<CliModelOption[]>([]);
   readonly codexModels = signal<CliModelOption[]>([]);
   readonly copilotModels = signal<CliModelOption[]>([]);
+  readonly cursorModels = signal<CliModelOption[]>([]);
+  /** Draft value of the Cursor API key input (write-only; never prefilled from the backend). */
+  readonly cursorApiKeyInput = signal('');
+  readonly savingCursorApiKey = signal(false);
 
   /** System CLIs only (excludes ptah-cli entries shown via projected content) */
   readonly systemClis = computed(() => {
@@ -607,15 +724,45 @@ export class AgentOrchestrationConfigComponent implements OnInit {
       this.geminiModels.set(result.data.gemini);
       this.codexModels.set(result.data.codex);
       this.copilotModels.set(result.data.copilot);
+      this.cursorModels.set(result.data.cursor);
     }
   }
 
   public onModelSelect(
-    cli: 'gemini' | 'codex' | 'copilot',
+    cli: 'gemini' | 'codex' | 'copilot' | 'cursor',
     event: Event,
   ): void {
     const value = (event.target as HTMLSelectElement).value;
     this.setAgentModel(cli, value);
+  }
+
+  /** Update the draft Cursor API key as the user types. */
+  public onCursorApiKeyInput(event: Event): void {
+    this.cursorApiKeyInput.set((event.target as HTMLInputElement).value);
+  }
+
+  /**
+   * Persist the Cursor API key, then re-detect CLIs so availability flips
+   * once the key resolves. The raw key is write-only — never read back.
+   */
+  public async saveCursorApiKey(): Promise<void> {
+    const key = this.cursorApiKeyInput().trim();
+    this.savingCursorApiKey.set(true);
+    try {
+      const result = await this.rpcService.call('agent:setConfig', {
+        cursorApiKey: key,
+      });
+      if (result.isSuccess()) {
+        this.agentConfig.update((c) =>
+          c ? { ...c, cursorApiKeyConfigured: key.length > 0 } : c,
+        );
+        this.cursorApiKeyInput.set('');
+        await this.redetectClis();
+        await this.loadCliModels();
+      }
+    } finally {
+      this.savingCursorApiKey.set(false);
+    }
   }
 
   public onReasoningEffortSelect(cli: 'codex' | 'copilot', event: Event): void {
@@ -688,7 +835,7 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   }
 
   async setAgentModel(
-    cli: 'gemini' | 'codex' | 'copilot',
+    cli: 'gemini' | 'codex' | 'copilot' | 'cursor',
     model: string,
   ): Promise<void> {
     const key =
@@ -696,7 +843,9 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         ? 'geminiModel'
         : cli === 'codex'
           ? 'codexModel'
-          : 'copilotModel';
+          : cli === 'cursor'
+            ? 'cursorModel'
+            : 'copilotModel';
     const result = await this.rpcService.call('agent:setConfig', {
       [key]: model,
     });
