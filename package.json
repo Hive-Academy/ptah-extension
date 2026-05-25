@@ -2,6 +2,10 @@
   "name": "@ptah-extension/source",
   "version": "0.0.0",
   "license": "FSL-1.1-MIT",
+  "engines": {
+    "node": ">=22.9.0",
+    "npm": ">=11.0.0"
+  },
   "scripts": {
     "landing": "npx nx serve ptah-landing-page",
     "docker:up": "docker compose --profile webhook-testing up -d",
