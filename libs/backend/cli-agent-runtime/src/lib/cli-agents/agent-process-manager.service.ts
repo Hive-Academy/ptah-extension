@@ -23,6 +23,8 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ReasoningSettings } from '@ptah-extension/settings-core';
 import {
   AgentId,
   AgentStatus,
@@ -109,12 +111,27 @@ export class AgentProcessManager {
   /** Flush timers per agent */
   private readonly flushTimers = new Map<string, NodeJS.Timeout>();
 
-  /**
-   * Resolve per-CLI reasoning effort from VS Code config.
-   * Returns undefined if the CLI doesn't support it or no effort is configured.
-   */
+  /** Allowlist an effort value to what Codex/Copilot accept (`max` → `xhigh`). */
+  private mapEffortToCli(effort: string): string | undefined {
+    switch (effort) {
+      case 'low':
+      case 'medium':
+      case 'high':
+      case 'xhigh':
+      case 'minimal':
+        return effort;
+      case 'max':
+        return 'xhigh';
+      default:
+        return undefined;
+    }
+  }
+
+  /** UI reasoning-effort selection drives Codex/Copilot; per-CLI config is the fallback. */
   private resolveReasoningEffort(cli: CliType): string | undefined {
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
+    const uiEffort = this.mapEffortToCli(this.reasoningSettings.effort.get());
+    if (uiEffort) return uiEffort;
     const effortKey =
       cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
     const effort =
@@ -123,7 +140,7 @@ export class AgentProcessManager {
         effortKey,
         '',
       ) ?? '';
-    return effort || undefined;
+    return this.mapEffortToCli(effort);
   }
 
   private resolveAutoApprove(cli: CliType): boolean | undefined {
@@ -155,6 +172,8 @@ export class AgentProcessManager {
     private readonly workspace: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
+    private readonly reasoningSettings: ReasoningSettings,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }

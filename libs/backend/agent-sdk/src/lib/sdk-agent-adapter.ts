@@ -13,6 +13,7 @@ import {
   ProviderCapabilities,
   AISessionConfig,
   AIMessageOptions,
+  EffortLevel,
   SessionId,
   FlatStreamEventUnion,
   type McpHttpServerOverride,
@@ -746,6 +747,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     return this.sessionLifecycle.setSessionModel(sessionId, model);
+  }
+
+  async setSessionEffort(
+    sessionId: SessionId,
+    effort: EffortLevel | undefined,
+  ): Promise<void> {
+    return this.sessionLifecycle.setSessionEffort(sessionId, effort);
   }
 
   private resolveActivityIds(sessionId: SessionId): {

@@ -605,10 +605,31 @@ export class ConfigRpcHandlers {
       ConfigEffortSetResult
     >('config:effort-set', async (params) => {
       try {
-        const { effort } = params;
-        this.logger.debug('RPC: config:effort-set called', { effort });
+        const effort = parseEffortLevel(params.effort);
+        const sessionId = params.sessionId;
+        this.logger.debug('RPC: config:effort-set called', {
+          effort,
+          sessionId: sessionId ?? null,
+        });
 
         await this.reasoningSettings.effort.set(effort || '');
+
+        if (sessionId) {
+          try {
+            await this.sdkAdapter.setSessionEffort(sessionId, effort);
+            this.logger.debug('Effort synced to active session', {
+              sessionId,
+              effort,
+            });
+          } catch (syncError) {
+            this.logger.warn(
+              'Failed to sync effort to active session (config saved)',
+              syncError instanceof Error
+                ? syncError
+                : new Error(String(syncError)),
+            );
+          }
+        }
 
         this.logger.info('Reasoning effort saved', { effort });
         return { effort };

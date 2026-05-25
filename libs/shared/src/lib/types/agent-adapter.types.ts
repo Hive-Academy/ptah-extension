@@ -5,7 +5,11 @@
  * Methods that fail at runtime MUST throw an Error so the RPC layer
  * can surface a user-friendly error.
  */
-import type { IAIProvider, AISessionConfig } from './ai-provider.types';
+import type {
+  IAIProvider,
+  AISessionConfig,
+  EffortLevel,
+} from './ai-provider.types';
 import type { SessionId } from './branded.types';
 import type { FlatStreamEventUnion } from './execution';
 import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
@@ -211,6 +215,15 @@ export interface IAgentAdapter extends IAIProvider {
 
   /** Switch models mid-session. */
   setSessionModel(sessionId: SessionId, model: string): Promise<void>;
+
+  /**
+   * Change reasoning effort mid-session. `undefined` clears the override
+   * (revert to the model/provider default).
+   */
+  setSessionEffort(
+    sessionId: SessionId,
+    effort: EffortLevel | undefined,
+  ): Promise<void>;
   setSessionIdResolvedCallback(cb: SessionIdResolvedCallback): void;
   setResultStatsCallback(cb: ResultStatsCallback): void;
   setCompactionStartCallback(cb: CompactionStartCallback): void;

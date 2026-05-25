@@ -125,6 +125,7 @@ describe('EffortStateService', () => {
 
       expect(rpc.call).toHaveBeenCalledWith('config:effort-set', {
         effort: 'max',
+        sessionId: null,
       });
       expect(harness.signal('currentEffort')).toBe('max');
     });
@@ -174,6 +175,7 @@ describe('EffortStateService', () => {
 
       expect(rpc.call).toHaveBeenCalledWith('config:effort-set', {
         effort: undefined,
+        sessionId: null,
       });
       expect(harness.signal('currentEffort')).toBeUndefined();
     });

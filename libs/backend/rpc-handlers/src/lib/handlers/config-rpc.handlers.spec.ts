@@ -96,6 +96,7 @@ type MockSdkAdapter = jest.Mocked<
   Pick<
     SdkAgentAdapter,
     | 'setSessionModel'
+    | 'setSessionEffort'
     | 'setSessionPermissionLevel'
     | 'getSupportedModels'
     | 'getApiModels'
@@ -105,6 +106,7 @@ type MockSdkAdapter = jest.Mocked<
 function createMockSdkAdapter(): MockSdkAdapter {
   return {
     setSessionModel: jest.fn().mockResolvedValue(undefined),
+    setSessionEffort: jest.fn().mockResolvedValue(undefined),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     getSupportedModels: jest.fn().mockResolvedValue([]),
     getApiModels: jest.fn().mockResolvedValue([]),
@@ -800,6 +802,45 @@ describe('ConfigRpcHandlers', () => {
       h.reasoningSettings.effort.get.mockReturnValue('');
       const getResult = await call<{ effort?: string }>(h, 'config:effort-get');
       expect(getResult.effort).toBeUndefined();
+    });
+
+    it('syncs effort to the active session when sessionId is provided', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'config:effort-set', {
+        effort: 'high',
+        sessionId: 'sess-1',
+      });
+
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('high');
+      expect(h.sdkAdapter.setSessionEffort).toHaveBeenCalledWith(
+        'sess-1',
+        'high',
+      );
+    });
+
+    it('does not sync to a session when sessionId is absent', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'config:effort-set', { effort: 'low' });
+
+      expect(h.sdkAdapter.setSessionEffort).not.toHaveBeenCalled();
+    });
+
+    it('still persists when the live session sync fails', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      h.sdkAdapter.setSessionEffort.mockRejectedValue(new Error('sync failed'));
+
+      const result = await call<{ effort?: string }>(h, 'config:effort-set', {
+        effort: 'xhigh',
+        sessionId: 'sess-1',
+      });
+
+      expect(result.effort).toBe('xhigh');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('xhigh');
     });
   });
 });

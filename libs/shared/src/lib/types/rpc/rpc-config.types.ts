@@ -31,6 +31,8 @@ export interface ConfigModelGetResult {
 export interface ConfigEffortSetParams {
   /** Effort level to save, or undefined to clear (use SDK default) */
   effort: EffortLevel | undefined;
+  /** Active session ID for live SDK sync (optional) */
+  sessionId?: SessionId | null;
 }
 
 /** Response from config:effort-set RPC method */
