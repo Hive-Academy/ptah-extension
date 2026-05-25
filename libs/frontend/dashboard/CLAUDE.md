@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Home/dashboard surface for Ptah. Renders a responsive grid of cards: session analytics (cost/tokens/sessions) and a Thoth pillar status card (memory · skills · cron · gateway) with click-through to the matching Thoth tab.
+Home/dashboard surface for Ptah. Stacked two-row layout: a top Thoth pillar stat-tile row (memory · skills · cron · gateway, daisyUI `stats` tiles with big numbers + click-through to the matching Thoth tab) and a session analytics row (aggregate metrics + enhanced per-session cards with token-composition bars, per-model usage, and subagent emphasis). Back button sits left of the title.
 
 ## Boundaries
 

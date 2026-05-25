@@ -5,11 +5,9 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
 /**
  * MetricsCardsComponent
  *
- * Presentational component displaying 4 aggregate stat cards:
- * Total Cost, Total Tokens, Messages, and Sessions.
- *
- * Accepts a single `AggregateTotals` input (from SessionAnalyticsStateService).
- * Uses the same design system as SessionStatsSummaryComponent.
+ * Presentational aggregate stat row for the session analytics card. Six
+ * color-coded tiles: Total Cost, Total Tokens, Messages, Sessions, Subagents,
+ * Avg / Session. Driven by a single `AggregateTotals` input.
  */
 @Component({
   selector: 'ptah-session-metrics-cards',
@@ -18,11 +16,10 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      class="grid grid-cols-2 sm:grid-cols-4 gap-3"
+      class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3"
       role="region"
       aria-label="Aggregate session metrics"
     >
-      <!-- Total Cost -->
       <div
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20"
       >
@@ -31,12 +28,11 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         >
           Total Cost
         </div>
-        <div class="text-lg font-semibold text-success tabular-nums">
+        <div class="text-xl font-semibold text-success tabular-nums">
           {{ formatCost(aggregates().totalCost) }}
         </div>
       </div>
 
-      <!-- Total Tokens -->
       <div
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-cyan-600/20"
       >
@@ -45,24 +41,22 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         >
           Total Tokens
         </div>
-        <div class="text-lg font-semibold text-cyan-400 tabular-nums">
+        <div class="text-xl font-semibold text-cyan-400 tabular-nums">
           {{ formatTokenCount(aggregates().totalTokens) }}
         </div>
       </div>
 
-      <!-- Total Messages -->
       <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-info/20">
         <div
           class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
         >
           Messages
         </div>
-        <div class="text-lg font-semibold text-info tabular-nums">
+        <div class="text-xl font-semibold text-info tabular-nums">
           {{ aggregates().totalMessages }}
         </div>
       </div>
 
-      <!-- Sessions Shown -->
       <div
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-purple-600/20"
       >
@@ -71,8 +65,34 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         >
           Sessions
         </div>
-        <div class="text-lg font-semibold text-purple-400 tabular-nums">
+        <div class="text-xl font-semibold text-purple-400 tabular-nums">
           {{ aggregates().sessionCount }}
+        </div>
+      </div>
+
+      <div
+        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-warning/20"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+        >
+          Subagents
+        </div>
+        <div class="text-xl font-semibold text-warning tabular-nums">
+          {{ aggregates().totalSubagents }}
+        </div>
+      </div>
+
+      <div
+        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-base-content/15"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+        >
+          Avg / Session
+        </div>
+        <div class="text-xl font-semibold text-base-content/80 tabular-nums">
+          {{ formatCost(aggregates().avgCostPerSession) }}
         </div>
       </div>
     </div>

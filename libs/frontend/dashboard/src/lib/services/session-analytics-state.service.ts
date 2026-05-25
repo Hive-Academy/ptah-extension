@@ -30,6 +30,14 @@ export interface DashboardSessionEntry {
   readonly agentSessionCount: number;
   /** CLI agent types used in this session (e.g., ['gemini', 'copilot']). */
   readonly cliAgents: readonly string[];
+  /** Per-model usage breakdown (model, tokens, cost). Empty when single/unknown model. */
+  readonly modelUsageList: ReadonlyArray<{
+    readonly model: string;
+    readonly modelDisplayName: string;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly costUSD: number;
+  }>;
   /** Whether stats were successfully read from JSONL ('ok' | 'error' | 'empty'). */
   readonly status: 'ok' | 'error' | 'empty';
 }
@@ -47,6 +55,8 @@ export interface AggregateTotals {
   readonly totalCacheCreation: number;
   readonly totalMessages: number;
   readonly sessionCount: number;
+  readonly totalSubagents: number;
+  readonly avgCostPerSession: number;
 }
 
 /**
@@ -99,7 +109,8 @@ export class SessionAnalyticsStateService {
       totalOutput = 0;
     let totalCacheRead = 0,
       totalCacheCreation = 0,
-      totalMessages = 0;
+      totalMessages = 0,
+      totalSubagents = 0;
 
     for (const s of sessions) {
       totalCost += s.totalCost;
@@ -108,6 +119,7 @@ export class SessionAnalyticsStateService {
       totalCacheRead += s.tokens.cacheRead;
       totalCacheCreation += s.tokens.cacheCreation;
       totalMessages += s.messageCount;
+      totalSubagents += s.agentSessionCount;
     }
 
     return {
@@ -120,6 +132,8 @@ export class SessionAnalyticsStateService {
       totalCacheCreation,
       totalMessages,
       sessionCount: sessions.length,
+      totalSubagents,
+      avgCostPerSession: sessions.length > 0 ? totalCost / sessions.length : 0,
     };
   });
 
@@ -202,6 +216,13 @@ export class SessionAnalyticsStateService {
           messageCount: stats?.messageCount ?? 0,
           agentSessionCount: stats?.agentSessionCount ?? 0,
           cliAgents: stats?.cliAgents ?? [],
+          modelUsageList: (stats?.modelUsageList ?? []).map((m) => ({
+            model: m.model,
+            modelDisplayName: formatModelDisplayName(m.model),
+            inputTokens: m.inputTokens,
+            outputTokens: m.outputTokens,
+            costUSD: m.costUSD,
+          })),
           status: stats?.status ?? 'empty',
         };
       });
