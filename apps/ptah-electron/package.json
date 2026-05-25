@@ -10,7 +10,7 @@
   "homepage": "https://github.com/Hive-Academy/ptah-extension",
   "private": true,
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.111",
+    "@anthropic-ai/claude-agent-sdk": "0.3.150",
     "@github/copilot-sdk": "0.1.32",
     "@openai/codex-sdk": "^0.133.0",
     "@slack/bolt": "4.4.0",
