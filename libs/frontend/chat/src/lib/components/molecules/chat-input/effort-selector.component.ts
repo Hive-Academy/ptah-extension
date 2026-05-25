@@ -294,16 +294,21 @@ export class EffortSelectorComponent {
 
     const effortValue = option.value === '' ? undefined : option.value;
 
+    this.effortChanged.emit(effortValue);
+
     const ctx = this._sessionContext;
     if (ctx) {
       const tabId = ctx();
       if (tabId) {
         this.tabManager.setOverrideEffort(tabId, effortValue ?? null);
+        const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+        const tileSessionId = (tab?.claudeSessionId ??
+          null) as SessionId | null;
+        this.effortState.setEffort(effortValue, tileSessionId);
         return;
       }
     }
 
-    this.effortChanged.emit(effortValue);
     const sessionId = this.chatStore.currentSessionId() as SessionId | null;
     this.effortState.setEffort(effortValue, sessionId);
   }
