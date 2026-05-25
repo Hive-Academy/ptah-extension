@@ -48,6 +48,16 @@ describe('MemoryCuratorTabComponent', () => {
       forget: jest.fn(() => Promise.resolve()),
       rebuildIndex: jest.fn(() => Promise.resolve()),
       loadStats: jest.fn(() => Promise.resolve()),
+      symbolQuery: jest.fn(() => ''),
+      symbolItems: jest.fn(() => []),
+      symbolTotal: jest.fn(() => 0),
+      symbolLoading: jest.fn(() => false),
+      symbolError: jest.fn(() => null),
+      symbolOffset: jest.fn(() => 0),
+      symbolLimit: jest.fn(() => 50),
+      setSymbolQuery: jest.fn(),
+      setSymbolPage: jest.fn(),
+      loadSymbols: jest.fn(() => Promise.resolve()),
     } as unknown as jest.Mocked<MemoryStateService>;
 
     stateMock = baseState;
@@ -127,6 +137,16 @@ describe('MemoryCuratorTabComponent', () => {
       forget: jest.fn(() => Promise.resolve()),
       rebuildIndex: jest.fn(() => Promise.resolve()),
       loadStats: jest.fn(() => Promise.resolve()),
+      symbolQuery: jest.fn(() => ''),
+      symbolItems: jest.fn(() => []),
+      symbolTotal: jest.fn(() => 0),
+      symbolLoading: jest.fn(() => false),
+      symbolError: jest.fn(() => null),
+      symbolOffset: jest.fn(() => 0),
+      symbolLimit: jest.fn(() => 50),
+      setSymbolQuery: jest.fn(),
+      setSymbolPage: jest.fn(),
+      loadSymbols: jest.fn(() => Promise.resolve()),
     } as unknown as jest.Mocked<MemoryStateService>;
 
     await TestBed.configureTestingModule({
@@ -189,6 +209,16 @@ describe('MemoryCuratorTabComponent — purge toolbar', () => {
       forget: jest.fn(() => Promise.resolve()),
       rebuildIndex: jest.fn(() => Promise.resolve()),
       loadStats: jest.fn(() => Promise.resolve()),
+      symbolQuery: jest.fn(() => ''),
+      symbolItems: jest.fn(() => []),
+      symbolTotal: jest.fn(() => 0),
+      symbolLoading: jest.fn(() => false),
+      symbolError: jest.fn(() => null),
+      symbolOffset: jest.fn(() => 0),
+      symbolLimit: jest.fn(() => 50),
+      setSymbolQuery: jest.fn(),
+      setSymbolPage: jest.fn(),
+      loadSymbols: jest.fn(() => Promise.resolve()),
     } as unknown as jest.Mocked<MemoryStateService>;
 
     rpcMock = {

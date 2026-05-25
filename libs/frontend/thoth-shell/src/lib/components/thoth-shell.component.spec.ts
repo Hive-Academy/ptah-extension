@@ -65,6 +65,16 @@ const memoryStateStub = {
   forget: () => Promise.resolve(),
   rebuildIndex: () => Promise.resolve(),
   loadStats: () => Promise.resolve(),
+  symbolQuery: () => '',
+  symbolItems: () => [],
+  symbolTotal: () => 0,
+  symbolLoading: () => false,
+  symbolError: () => null,
+  symbolOffset: () => 0,
+  symbolLimit: () => 50,
+  setSymbolQuery: () => undefined,
+  setSymbolPage: () => undefined,
+  loadSymbols: () => Promise.resolve(),
 } as unknown as MemoryStateService;
 
 describe('ThothShellComponent', () => {
