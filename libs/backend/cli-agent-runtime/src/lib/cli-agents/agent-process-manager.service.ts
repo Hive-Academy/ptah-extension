@@ -153,6 +153,30 @@ export class AgentProcessManager {
     );
   }
 
+  private static readonly MODEL_CONFIG_KEYS: Partial<Record<CliType, string>> =
+    {
+      gemini: 'geminiModel',
+      codex: 'codexModel',
+      copilot: 'copilotModel',
+      cursor: 'cursorModel',
+    };
+
+  private resolveConfiguredModel(
+    cli: CliType,
+    requestModel: string | undefined,
+  ): string | undefined {
+    if (requestModel) return requestModel;
+    const configKey = AgentProcessManager.MODEL_CONFIG_KEYS[cli];
+    if (!configKey) return requestModel;
+    const configuredModel =
+      this.workspace.getConfiguration<string>(
+        'ptah.agentOrchestration',
+        configKey,
+        '',
+      ) ?? '';
+    return configuredModel || requestModel;
+  }
+
   /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
   private mcpHealthCache: {
     port: number | undefined;
@@ -274,27 +298,7 @@ export class AgentProcessManager {
         mcpPort,
       );
     }
-    let cliModel = request.model;
-    if (
-      !cliModel &&
-      (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
-    ) {
-      const configKey =
-        cli === 'gemini'
-          ? 'geminiModel'
-          : cli === 'codex'
-            ? 'codexModel'
-            : 'copilotModel';
-      const configuredModel =
-        this.workspace.getConfiguration<string>(
-          'ptah.agentOrchestration',
-          configKey,
-          '',
-        ) ?? '';
-      if (configuredModel) {
-        cliModel = configuredModel;
-      }
-    }
+    const cliModel = this.resolveConfiguredModel(cli, request.model);
     const command = adapter.buildCommand({
       task: request.task,
       workingDirectory,
@@ -403,27 +407,7 @@ export class AgentProcessManager {
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
-    let resolvedModel = request.model;
-    if (
-      !resolvedModel &&
-      (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
-    ) {
-      const configKey =
-        cli === 'gemini'
-          ? 'geminiModel'
-          : cli === 'codex'
-            ? 'codexModel'
-            : 'copilotModel';
-      const configuredModel =
-        this.workspace.getConfiguration<string>(
-          'ptah.agentOrchestration',
-          configKey,
-          '',
-        ) ?? '';
-      if (configuredModel) {
-        resolvedModel = configuredModel;
-      }
-    }
+    const resolvedModel = this.resolveConfiguredModel(cli, request.model);
 
     const info: AgentProcessInfo = {
       agentId,
@@ -1223,7 +1207,12 @@ export class AgentProcessManager {
   }
 
   private async getPreferredCli(): Promise<CliType | null> {
-    const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
+    const systemCliTypes = new Set<string>([
+      'gemini',
+      'codex',
+      'copilot',
+      'cursor',
+    ]);
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
         'ptah',

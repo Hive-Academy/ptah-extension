@@ -183,7 +183,7 @@ function resolveCursorApiKey(): string | undefined {
 
 export class CursorCliAdapter implements CliAdapter {
   readonly name = 'cursor' as const;
-  readonly displayName = 'Cursor Agent CLI';
+  readonly displayName = 'Cursor';
   /** MCP is configured inline via the SDK's mcpServers option. */
   readonly supportsMcp = true;
 
@@ -213,22 +213,14 @@ export class CursorCliAdapter implements CliAdapter {
   }
 
   /**
-   * Build command for the raw CLI spawn fallback path. The SDK path
-   * (runSdk) is always used; this exists only to satisfy the interface.
+   * Cursor has no spawnable binary — it runs in-process via runSdk(). This
+   * exists only to satisfy the CliAdapter interface and must never be reached;
+   * AgentProcessManager always takes the runSdk() branch when it is defined.
    */
-  buildCommand(options: CliCommandOptions): CliCommand {
-    const taskPrompt = buildTaskPrompt(options);
-    return {
-      binary: 'cursor-agent',
-      args: [
-        '--output-format',
-        'stream-json',
-        '--trust',
-        '--force',
-        '-p',
-        taskPrompt,
-      ],
-    };
+  buildCommand(_options: CliCommandOptions): CliCommand {
+    throw new Error(
+      'Cursor runs via the @cursor/sdk in-process path (runSdk); it has no CLI binary to spawn.',
+    );
   }
 
   supportsSteer(): boolean {
