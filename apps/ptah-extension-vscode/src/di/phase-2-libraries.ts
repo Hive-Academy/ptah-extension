@@ -42,6 +42,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   MEMORY_CONTRACT_TOKENS,
   type IMemoryReader,
+  type ISymbolSink,
 } from '@ptah-extension/memory-contracts';
 
 export function registerPhase2Libraries(
@@ -58,20 +59,18 @@ export function registerPhase2Libraries(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
     container.register(BROWSER_CAPABILITIES_TOKEN, {
-      useValue: new ChromeLauncherBrowserCapabilities(
-        () => {
-          const configured =
-            workspaceProvider.getConfiguration<string>(
-              'ptah',
-              'browser.recordingDir',
-              '',
-            ) ?? '';
-          if (configured) return configured;
-          const wsRoot = workspaceProvider.getWorkspaceRoot();
-          if (wsRoot) return `${wsRoot}/.ptah/recordings`;
-          return '';
-        },
-      ),
+      useValue: new ChromeLauncherBrowserCapabilities(() => {
+        const configured =
+          workspaceProvider.getConfiguration<string>(
+            'ptah',
+            'browser.recordingDir',
+            '',
+          ) ?? '';
+        if (configured) return configured;
+        const wsRoot = workspaceProvider.getWorkspaceRoot();
+        if (wsRoot) return `${wsRoot}/.ptah/recordings`;
+        return '';
+      }),
     });
   }
   registerAuthProvidersServices(container, logger);
@@ -90,6 +89,14 @@ export function registerPhase2Libraries(
   };
   container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
     useValue: noopMemoryReader,
+  });
+
+  const noopSymbolSink: ISymbolSink = {
+    deleteSymbolsForFile: () => 0,
+    insertSymbols: async () => undefined,
+  };
+  container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
+    useValue: noopSymbolSink,
   });
   registerAgentGenerationServices(container, logger);
   try {
