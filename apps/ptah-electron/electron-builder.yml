@@ -7,9 +7,12 @@ directories:
   output: ../../release
   buildResources: assets
 
-# QW-5: maximum compression + asar on
+# QW-5: asar on. Compression set to `normal` — `maximum` pushed the macOS
+# dmg+zip packaging past the CI job timeout (xz max-compress is CPU-bound and
+# the mac target compresses twice). `normal` trades ~10-20% installer size for
+# a large packaging-time win.
 asar: true
-compression: maximum
+compression: normal
 
 # Skip @electron/rebuild — rely on prebuilt native binaries (node-pty, sharp, etc.)
 # Source rebuild fails because npm tarballs omit git submodules (e.g. winpty).

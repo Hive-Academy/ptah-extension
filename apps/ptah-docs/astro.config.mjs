@@ -137,6 +137,7 @@ export default defineConfig({
             { label: 'Popular Skills', slug: 'mcp-and-skills/popular-skills' },
             { label: 'Creating Skills', slug: 'mcp-and-skills/creating-skills' },
             { label: 'Third-party MCP', slug: 'mcp-and-skills/third-party-mcp' },
+            { label: 'Driving Ptah via MCP', slug: 'mcp-and-skills/driving-ptah-via-mcp' },
           ],
         },
         {
