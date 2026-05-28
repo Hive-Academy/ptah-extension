@@ -400,15 +400,6 @@ describe('SqliteMigrationRunner', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Vec-optional migration split (Sentry NODE-NESTJS-46/47 hardening)
-//
-// Validates that base relational + FTS5 tables always exist regardless of
-// sqlite-vec availability, that vec0 tables are deferred + caught up, and that
-// later non-vec migrations (v8/v10/v11) succeed on a vec-less machine.
-// Uses the real MIGRATIONS array against FakeSqliteDatabase.
-// ---------------------------------------------------------------------------
-
 describe('SqliteMigrationRunner — vec-optional split', () => {
   const BASE_TABLES = [
     'memories',
@@ -495,6 +486,10 @@ describe('SqliteMigrationRunner — vec-optional split', () => {
     expect(second.readPendingVecVersions()).toEqual([]);
     // Pure-vec migration 7 is now recorded applied.
     expect(second.readAppliedVersions().has(7)).toBe(true);
+    // user_version converges to the true max (not the last-caught-up version 7).
+    expect(db.getUserVersion()).toBe(
+      migrations[migrations.length - 1].version,
+    );
   });
 
   it('vec cold start: all tables incl. vec, pending empty', async () => {
@@ -511,6 +506,7 @@ describe('SqliteMigrationRunner — vec-optional split', () => {
     for (const v of VEC_VERSIONS) {
       expect(runner.readAppliedVersions().has(v)).toBe(true);
     }
+    expect(db.getUserVersion()).toBe(migrations[migrations.length - 1].version);
   });
 
   it('broken-machine repair: partial schema_migrations + missing base tables', async () => {
@@ -551,6 +547,7 @@ describe('SqliteMigrationRunner — vec-optional split', () => {
       expect(db.tables.has(t)).toBe(true);
     }
     expect(withVec.readPendingVecVersions()).toEqual([]);
+    expect(db.getUserVersion()).toBe(migrations[migrations.length - 1].version);
   });
 
   it('idempotency: repeated applyAll runs are no-ops', async () => {

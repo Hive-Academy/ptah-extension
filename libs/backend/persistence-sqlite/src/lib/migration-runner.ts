@@ -173,8 +173,13 @@ export class SqliteMigrationRunner {
    *   transaction, then records bookkeeping in a separate post-run transaction.
    *   If `run()` throws, the bookkeeping transaction is NOT attempted.
    *
-   * A migration providing both `sql` and `run` is a configuration error — this
-   * method throws immediately so the misconfiguration surfaces at apply-time.
+   * A migration's `vecSql` (vec0 tables) is applied in the same transaction
+   * when `vecLoaded`; otherwise the base `sql` is recorded applied and the
+   * version is queued in `schema_migrations_vec_pending` for later catch-up.
+   *
+   * A migration providing more than one of `sql`+`run`, `run`+`vecSql`, or
+   * `requiresVec`+`sql` is a configuration error — this method throws
+   * immediately so the misconfiguration surfaces at apply-time.
    *
    * `PRAGMA user_version = N` is written inside the bookkeeping transaction
    * so it rolls back atomically with the INSERT if something goes wrong.
@@ -194,6 +199,12 @@ export class SqliteMigrationRunner {
       throw new Error(
         `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) ` +
           'defines both run and vecSql — a migration must provide exactly one.',
+      );
+    }
+    if (migration.requiresVec === true && hasSql) {
+      throw new Error(
+        `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) ` +
+          'sets requiresVec but also defines sql — requiresVec means the entire body is vec0 (use vecSql, no base sql).',
       );
     }
 
@@ -328,7 +339,6 @@ export class SqliteMigrationRunner {
               'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
             )
             .run(version, Date.now());
-          this.db.exec(`PRAGMA user_version = ${version}`);
         }
         this.db
           .prepare(
@@ -338,10 +348,11 @@ export class SqliteMigrationRunner {
         this.db.exec('COMMIT');
       } catch (err: unknown) {
         this.db.exec('ROLLBACK');
-        throw new Error(
-          `SqliteMigrationRunner: vec catch-up for migration ${version} (${migration.name}) failed: ` +
+        this.logger.warn(
+          `[persistence-sqlite] vec catch-up for migration ${version} (${migration.name}) failed; left deferred, vector search stays disabled until next boot: ` +
             stringifyError(err),
         );
+        continue;
       }
       if (needsApplyRecord && !appliedNow.includes(version)) {
         appliedNow.push(version);
@@ -350,6 +361,9 @@ export class SqliteMigrationRunner {
         `[persistence-sqlite] applied deferred vec index for migration ${version} (${migration.name})`,
       );
     }
+    const finalApplied = this.readAppliedVersions();
+    const maxApplied = finalApplied.size === 0 ? 0 : Math.max(...finalApplied);
+    this.db.exec(`PRAGMA user_version = ${maxApplied}`);
   }
 
   private clearVecPending(version: number): void {

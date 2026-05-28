@@ -62,12 +62,7 @@ asarUnpack:
   # nodejs-whisper: native bindings + downloaded model cache
   - 'node_modules/better-sqlite3/**'
   - 'node_modules/sqlite-vec/**'
-  # Match every sqlite-vec platform binary package by glob so the unpack list
-  # cannot drift from the actual published package names. The real packages are
-  # sqlite-vec-{darwin-arm64,darwin-x64,linux-x64,linux-arm64,windows-x64}; the
-  # previous explicit list referenced a non-existent "sqlite-vec-windows-x86_64"
-  # (real name is sqlite-vec-windows-x64), leaving vec0.dll trapped inside asar
-  # on Windows and breaking the memory/skills tables (vec-gated migrations).
+  # Glob covers every sqlite-vec platform binary package (avoids name drift).
   - 'node_modules/sqlite-vec-*/**'
   - 'node_modules/ffmpeg-static/**'
   - 'node_modules/nodejs-whisper/**'
