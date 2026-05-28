@@ -39,7 +39,7 @@ interface WarmupRequest {
 interface EmbedResponse {
   readonly id: number;
   readonly ok: true;
-  readonly vectors: number[][]; // structured-clone friendly
+  readonly vectors: number[][];
 }
 interface RerankResponse {
   readonly id: number;
@@ -52,7 +52,30 @@ interface ErrorResponse {
   readonly error: string;
 }
 
+export interface PipelineProgressInfo {
+  readonly status: 'initiate' | 'download' | 'progress' | 'done' | 'ready';
+  readonly name?: string;
+  readonly file?: string;
+  readonly progress?: number;
+  readonly loaded?: number;
+  readonly total?: number;
+}
+
+interface PipelineProgressMessage {
+  readonly type: 'pipeline-progress';
+  readonly info: PipelineProgressInfo;
+}
+
 type WorkerResponse = EmbedResponse | RerankResponse | ErrorResponse;
+type WorkerMessage = WorkerResponse | PipelineProgressMessage;
+
+export interface PipelineProgressListener {
+  (info: PipelineProgressInfo): void;
+}
+
+export interface Disposable {
+  dispose(): void;
+}
 
 const MODEL_ID = 'Xenova/bge-small-en-v1.5';
 const DIM = 384;
@@ -68,8 +91,8 @@ export class EmbedderWorkerClient implements IEmbedder {
     number,
     { resolve: (v: WorkerResponse) => void; reject: (e: Error) => void }
   >();
-  /** Set on first fatal worker error to prevent respawning on every embed call. */
   private workerFailed = false;
+  private readonly progressListeners = new Set<PipelineProgressListener>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -100,7 +123,6 @@ export class EmbedderWorkerClient implements IEmbedder {
     );
   }
 
-  /** Send a RERANK message to the worker. Returns ranked IDs with scores. */
   async rerank(
     query: string,
     candidates: ReadonlyArray<{ id: string; text: string }>,
@@ -119,7 +141,6 @@ export class EmbedderWorkerClient implements IEmbedder {
     return reply.ranked;
   }
 
-  /** Send a WARMUP message — pre-loads both models in the worker. */
   async warmup(): Promise<void> {
     const worker = this.ensureWorker();
     const id = this.nextId++;
@@ -137,13 +158,34 @@ export class EmbedderWorkerClient implements IEmbedder {
       const req: DisposeRequest = { id, type: 'dispose' };
       await this.send(this.worker, id, req).catch(() => undefined);
       await this.worker.terminate();
-    } catch (err) {
+    } catch (err: unknown) {
       this.logger.warn('[memory-curator] embedder worker termination failed', {
         error: err instanceof Error ? err.message : String(err),
       });
     } finally {
       this.worker = null;
       this.pending.clear();
+    }
+  }
+
+  onPipelineProgress(listener: PipelineProgressListener): Disposable {
+    this.progressListeners.add(listener);
+    return {
+      dispose: () => {
+        this.progressListeners.delete(listener);
+      },
+    };
+  }
+
+  private emitProgress(info: PipelineProgressInfo): void {
+    for (const listener of this.progressListeners) {
+      try {
+        listener(info);
+      } catch (error: unknown) {
+        this.logger.warn('[memory-curator] embedder progress listener threw', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 
@@ -155,11 +197,19 @@ export class EmbedderWorkerClient implements IEmbedder {
     const w = new Worker(this.workerPath, {
       type: 'module',
     } as unknown as ConstructorParameters<typeof Worker>[1]);
-    w.on('message', (msg: WorkerResponse) => {
-      const slot = this.pending.get(msg.id);
+    w.on('message', (msg: WorkerMessage) => {
+      if (
+        typeof (msg as PipelineProgressMessage).type === 'string' &&
+        (msg as PipelineProgressMessage).type === 'pipeline-progress'
+      ) {
+        this.emitProgress((msg as PipelineProgressMessage).info);
+        return;
+      }
+      const response = msg as WorkerResponse;
+      const slot = this.pending.get(response.id);
       if (!slot) return;
-      this.pending.delete(msg.id);
-      slot.resolve(msg);
+      this.pending.delete(response.id);
+      slot.resolve(response);
     });
     w.on('error', (err) => {
       this.logger.error('[memory-curator] embedder worker error', err);

@@ -201,12 +201,19 @@ function buildService(
     on: () => ({ dispose: () => undefined }),
     refresh: () => undefined,
   };
+  const embedderStatus = {
+    getStatus: () => ({ ready: true, downloading: false }),
+    ensureReady: async () => undefined,
+    recordError: () => undefined,
+    on: () => ({ dispose: () => undefined }),
+  };
 
   const child = container.createChildContainer();
   child.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
     useValue: sqliteConn,
   });
   child.register(PERSISTENCE_TOKENS.VEC_STATUS, { useValue: vecStatus });
+  child.register(MEMORY_TOKENS.EMBEDDER_STATUS, { useValue: embedderStatus });
   child.register(MEMORY_TOKENS.MEMORY_CURATOR, { useValue: memoryCurator });
   child.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: fs });
   child.register(TOKENS.LOGGER, { useValue: logger });

@@ -14,6 +14,7 @@ import {
 import { WebviewManager } from '@ptah-extension/vscode-core';
 import { MEMORY_TOKENS } from '../di/tokens';
 import { MemoryCuratorService } from '../memory-curator.service';
+import { EmbedderStatusService } from '../embedder/embedder-status.service';
 import {
   deriveWorkspaceFingerprint,
   deriveGitHeadSha,
@@ -130,6 +131,8 @@ export class IndexingControlService {
     private readonly webviewManager: WebviewManager,
     @inject(PERSISTENCE_TOKENS.VEC_STATUS)
     private readonly vecStatus: VecStatusService,
+    @inject(MEMORY_TOKENS.EMBEDDER_STATUS)
+    private readonly embedderStatus: EmbedderStatusService,
   ) {}
 
   /** Synchronous status read — derive state from stored row + current git HEAD. */
@@ -144,7 +147,25 @@ export class IndexingControlService {
       reason: vecSnapshot.reason,
       attemptedPath: vecSnapshot.diagnostic.attemptedPath,
     };
-    const embedder = { ready: true } as const;
+    const embedderSnapshot = this.embedderStatus.getStatus();
+    const embedder: IndexingStatus['embedder'] = {
+      ready: embedderSnapshot.ready,
+      ...(embedderSnapshot.downloading
+        ? { downloading: embedderSnapshot.downloading }
+        : {}),
+      ...(typeof embedderSnapshot.progress === 'number'
+        ? {
+            progress: {
+              loaded: 0,
+              total: 0,
+              percent: Math.max(
+                0,
+                Math.min(100, Math.round(embedderSnapshot.progress * 100)),
+              ),
+            },
+          }
+        : {}),
+    };
 
     if (!row) {
       return {
