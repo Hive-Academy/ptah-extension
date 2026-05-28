@@ -30,6 +30,9 @@ import {
   McpRegistryProvider,
   McpRegistrySourceRegistry,
   McpInstallService,
+  SmitheryRegistrySource,
+  SmitheryConnectionResolver,
+  SmitheryKeyMissingError,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   McpDirectorySearchParams,
@@ -48,10 +51,14 @@ import type {
   McpDirectorySetSmitheryApiKeyResult,
   McpDirectoryGetSmitheryKeyStatusParams,
   McpDirectoryGetSmitheryKeyStatusResult,
+  McpDirectoryResolveSmitheryParams,
+  McpDirectoryResolveSmitheryResult,
+  McpRegistrySourceKind,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
   SetSmitheryApiKeySchema,
+  ResolveSmitherySchema,
   SMITHERY_API_KEY_SECRET_ID,
 } from './mcp-directory-rpc.schema';
 
@@ -66,9 +73,12 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:getPopular',
     'mcpDirectory:setSmitheryApiKey',
     'mcpDirectory:getSmitheryKeyStatus',
+    'mcpDirectory:resolveSmithery',
   ] as const satisfies readonly RpcMethodName[];
 
   private readonly registryProvider: McpRegistryProvider;
+  private readonly smitherySource: SmitheryRegistrySource;
+  private readonly smitheryResolver: SmitheryConnectionResolver;
   private readonly sourceRegistry = new McpRegistrySourceRegistry();
   private readonly installService = new McpInstallService();
 
@@ -84,6 +94,29 @@ export class McpDirectoryRpcHandlers {
   ) {
     this.registryProvider = new McpRegistryProvider(this.logger);
     this.sourceRegistry.register(this.registryProvider);
+
+    const getSmitheryApiKey = async (): Promise<string | null> =>
+      (await this.authSecretsService.getProviderKey(
+        SMITHERY_API_KEY_SECRET_ID,
+      )) ?? null;
+
+    this.smitherySource = new SmitheryRegistrySource({
+      getApiKey: getSmitheryApiKey,
+      logger: this.logger,
+    });
+    this.sourceRegistry.register(this.smitherySource);
+
+    this.smitheryResolver = new SmitheryConnectionResolver(
+      getSmitheryApiKey,
+      this.smitherySource,
+    );
+  }
+
+  /** Resolve the requested source, defaulting to the official registry. */
+  private resolveSource(source: McpRegistrySourceKind | undefined) {
+    return (
+      this.sourceRegistry.get(source ?? 'official') ?? this.registryProvider
+    );
   }
 
   /**
@@ -98,6 +131,7 @@ export class McpDirectoryRpcHandlers {
     this.registerGetPopular();
     this.registerSetSmitheryApiKey();
     this.registerGetSmitheryKeyStatus();
+    this.registerResolveSmithery();
 
     this.logger.debug('MCP Directory RPC handlers registered', {
       methods: [
@@ -109,6 +143,7 @@ export class McpDirectoryRpcHandlers {
         'mcpDirectory:getPopular',
         'mcpDirectory:setSmitheryApiKey',
         'mcpDirectory:getSmitheryKeyStatus',
+        'mcpDirectory:resolveSmithery',
       ],
     });
   }
@@ -119,10 +154,12 @@ export class McpDirectoryRpcHandlers {
       McpDirectorySearchResult
     >('mcpDirectory:search', async (params) => {
       try {
-        this.logger.debug('RPC: mcpDirectory:search', { query: params.query });
+        this.logger.debug('RPC: mcpDirectory:search', {
+          query: params.query,
+          source: params.source ?? 'official',
+        });
 
-        const source =
-          this.sourceRegistry.get('official') ?? this.registryProvider;
+        const source = this.resolveSource(params.source);
         const result = await source.listServers({
           query: params.query,
           limit: params.limit,
@@ -134,6 +171,10 @@ export class McpDirectoryRpcHandlers {
           nextCursor: result.next_cursor,
         };
       } catch (error) {
+        if (error instanceof SmitheryKeyMissingError) {
+          this.logger.warn('RPC: mcpDirectory:search missing Smithery key');
+          return { servers: [] };
+        }
         this.sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'McpDirectoryRpcHandlers.registerSearch' },
@@ -154,10 +195,10 @@ export class McpDirectoryRpcHandlers {
       try {
         this.logger.debug('RPC: mcpDirectory:getDetails', {
           name: params.name,
+          source: params.source ?? 'official',
         });
 
-        const source =
-          this.sourceRegistry.get('official') ?? this.registryProvider;
+        const source = this.resolveSource(params.source);
         const server = await source.getServerDetails(params.name);
 
         if (!server) {
@@ -166,6 +207,10 @@ export class McpDirectoryRpcHandlers {
 
         return server;
       } catch (error) {
+        if (error instanceof SmitheryKeyMissingError) {
+          this.logger.warn('RPC: mcpDirectory:getDetails missing Smithery key');
+          return { name: params.name };
+        }
         this.sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'McpDirectoryRpcHandlers.registerGetDetails' },
@@ -304,13 +349,22 @@ export class McpDirectoryRpcHandlers {
     this.rpcHandler.registerMethod<
       McpDirectoryGetPopularParams,
       McpDirectoryGetPopularResult
-    >('mcpDirectory:getPopular', async () => {
+    >('mcpDirectory:getPopular', async (params) => {
       try {
-        this.logger.debug('RPC: mcpDirectory:getPopular');
+        this.logger.debug('RPC: mcpDirectory:getPopular', {
+          source: params.source ?? 'official',
+        });
 
-        const servers = await this.registryProvider.getPopular();
+        const servers =
+          params.source === 'smithery'
+            ? await this.smitherySource.getPopular()
+            : await this.registryProvider.getPopular();
         return { servers };
       } catch (error) {
+        if (error instanceof SmitheryKeyMissingError) {
+          this.logger.warn('RPC: mcpDirectory:getPopular missing Smithery key');
+          return { servers: [] };
+        }
         this.sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'McpDirectoryRpcHandlers.registerGetPopular' },
@@ -393,6 +447,48 @@ export class McpDirectoryRpcHandlers {
         });
         this.logger.error('RPC: mcpDirectory:getSmitheryKeyStatus failed', err);
         return { configured: false };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:resolveSmithery — resolve a Smithery server + collected config
+   * into a session-time `McpHttpConfig`.
+   *
+   * SECURITY: the resolved URL carries the key/config in its query string and
+   * is NEVER logged here or in the resolver.
+   */
+  private registerResolveSmithery(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryResolveSmitheryParams,
+      McpDirectoryResolveSmitheryResult
+    >('mcpDirectory:resolveSmithery', async (params) => {
+      try {
+        const validated = ResolveSmitherySchema.parse(params);
+        this.logger.debug('RPC: mcpDirectory:resolveSmithery', {
+          qualifiedName: validated.qualifiedName,
+        });
+
+        const config = await this.smitheryResolver.resolve({
+          qualifiedName: validated.qualifiedName,
+          config: validated.config,
+          profile: validated.profile,
+        });
+
+        return { config };
+      } catch (error: unknown) {
+        if (error instanceof SmitheryKeyMissingError) {
+          this.logger.warn(
+            'RPC: mcpDirectory:resolveSmithery missing Smithery key',
+          );
+          return { error: error.message };
+        }
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerResolveSmithery',
+        });
+        this.logger.error('RPC: mcpDirectory:resolveSmithery failed', err);
+        return { error: err.message };
       }
     });
   }

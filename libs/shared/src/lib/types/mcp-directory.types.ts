@@ -125,8 +125,25 @@ export interface McpRegistryArgument {
 }
 
 /**
- * A single MCP server entry from the Official MCP Registry.
- * Maps to GET /v0.1/servers response items.
+ * A single connection option carried on a registry entry detail.
+ * Smithery-specific: carries a per-connection `configSchema` (JSON Schema)
+ * describing the config that must be collected before a URL can be built.
+ * The official registry has no equivalent and omits this field.
+ */
+export interface McpRegistryConnection {
+  /** Transport type: "http" (Streamable HTTP) | "stdio". */
+  type?: string;
+  /** JSON Schema describing required per-server config (Smithery). */
+  configSchema?: Record<string, unknown>;
+  /** Hosted deployment URL template (Smithery), if present. */
+  deploymentUrl?: string;
+  /** Passthrough for any additional connection fields. */
+  [key: string]: unknown;
+}
+
+/**
+ * A single MCP server entry from an MCP registry source.
+ * Maps to GET /v0.1/servers response items (official) and Smithery /servers.
  */
 export interface McpRegistryEntry {
   /** Fully qualified server name (e.g., "io.github.user/server-name") */
@@ -143,7 +160,18 @@ export interface McpRegistryEntry {
   created_at?: string;
   /** Last update timestamp */
   updated_at?: string;
+  /** Provenance of this entry (drives the UI source badge). */
+  source?: McpRegistrySourceKind;
+  /** Trust signal (Smithery `verified`). */
+  verified?: boolean;
+  /** Security scan signal (Smithery `security.scanPassed`). */
+  scanPassed?: boolean;
+  /** Connection options carried on detail fetch (Smithery configSchema). */
+  connections?: McpRegistryConnection[];
 }
+
+/** Provenance discriminator for an MCP registry entry / query. */
+export type McpRegistrySourceKind = 'official' | 'smithery';
 
 /** Paginated list response from the registry */
 export interface McpRegistryListResponse {
@@ -212,6 +240,8 @@ export interface McpDirectorySearchParams {
   limit?: number;
   /** Pagination cursor from previous response */
   cursor?: string;
+  /** Registry source to query (default: 'official'). */
+  source?: McpRegistrySourceKind;
 }
 
 /** Result for mcpDirectory:search */
@@ -224,6 +254,8 @@ export interface McpDirectorySearchResult {
 export interface McpDirectoryGetDetailsParams {
   /** Fully qualified server name */
   name: string;
+  /** Registry source to query (default: 'official'). */
+  source?: McpRegistrySourceKind;
 }
 
 /** Result for mcpDirectory:getDetails */
@@ -267,8 +299,11 @@ export interface McpDirectoryListInstalledResult {
   servers: InstalledMcpServer[];
 }
 
-/** Params for mcpDirectory:getPopular (no params needed) */
-export type McpDirectoryGetPopularParams = Record<string, never>;
+/** Params for mcpDirectory:getPopular */
+export interface McpDirectoryGetPopularParams {
+  /** Registry source to query (default: 'official'). */
+  source?: McpRegistrySourceKind;
+}
 
 /** Result for mcpDirectory:getPopular */
 export interface McpDirectoryGetPopularResult {
@@ -303,4 +338,30 @@ export type McpDirectoryGetSmitheryKeyStatusParams = Record<string, never>;
  */
 export interface McpDirectoryGetSmitheryKeyStatusResult {
   configured: boolean;
+}
+
+/**
+ * Params for mcpDirectory:resolveSmithery.
+ *
+ * Resolves a Smithery server + config into a session-time `McpHttpConfig`.
+ * SECURITY: the API key is read backend-side; it is NOT part of these params.
+ */
+export interface McpDirectoryResolveSmitheryParams {
+  /** Fully qualified Smithery server name (e.g., "@owner/server"). */
+  qualifiedName: string;
+  /** Per-server config collected from the connection configSchema form. */
+  config: Record<string, unknown>;
+  /** Optional saved Smithery profile id. */
+  profile?: string;
+}
+
+/**
+ * Result for mcpDirectory:resolveSmithery.
+ *
+ * SECURITY: `config.url` carries the secret-bearing query string. The renderer
+ * must treat it as sensitive and never persist it to plaintext config files.
+ */
+export interface McpDirectoryResolveSmitheryResult {
+  config?: McpHttpConfig;
+  error?: string;
 }

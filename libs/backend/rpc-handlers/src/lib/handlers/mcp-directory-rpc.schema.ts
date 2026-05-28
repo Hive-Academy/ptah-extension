@@ -21,6 +21,20 @@ export const SetSmitheryApiKeySchema = z.object({
 export type SetSmitheryApiKeyInput = z.infer<typeof SetSmitheryApiKeySchema>;
 
 /**
+ * Validated shape for the `mcpDirectory:resolveSmithery` RPC method.
+ *
+ * `config` is collected from the connection configSchema form; the API key is
+ * NOT part of this boundary (read backend-side at resolve time).
+ */
+export const ResolveSmitherySchema = z.object({
+  qualifiedName: z.string().min(1),
+  config: z.record(z.string(), z.unknown()),
+  profile: z.string().optional(),
+});
+
+export type ResolveSmitheryInput = z.infer<typeof ResolveSmitherySchema>;
+
+/**
  * Secret storage key for the Smithery API key. Kept in lockstep with the
  * `SMITHERY_API_KEY_DEF` descriptor in `@ptah-extension/settings-core`.
  * Routed through `IAuthSecretsService` provider-key slots (each id gets an

@@ -4,6 +4,7 @@ import {
   SkillShBrowserComponent,
 } from '@ptah-extension/chat-ui';
 import { MarketplaceProviderSpec } from './provider-spec';
+import { SmitherySurfaceComponent } from './smithery-surface.component';
 
 export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
   {
@@ -30,10 +31,11 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     id: 'smithery',
     name: 'Smithery',
     icon: Blocks,
-    status: 'coming-soon',
+    status: 'live',
     kind: 'mcp',
     tagline: 'Hosted MCP servers with one-click setup',
     proGated: true,
+    surface: SmitherySurfaceComponent,
   },
   {
     id: 'composio',

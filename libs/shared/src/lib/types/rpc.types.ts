@@ -208,6 +208,8 @@ import type {
   McpDirectorySetSmitheryApiKeyResult,
   McpDirectoryGetSmitheryKeyStatusParams,
   McpDirectoryGetSmitheryKeyStatusResult,
+  McpDirectoryResolveSmitheryParams,
+  McpDirectoryResolveSmitheryResult,
 } from './mcp-directory.types';
 
 import type {
@@ -876,6 +878,10 @@ export interface RpcMethodRegistry {
   'mcpDirectory:getSmitheryKeyStatus': {
     params: McpDirectoryGetSmitheryKeyStatusParams;
     result: McpDirectoryGetSmitheryKeyStatusResult;
+  };
+  'mcpDirectory:resolveSmithery': {
+    params: McpDirectoryResolveSmitheryParams;
+    result: McpDirectoryResolveSmitheryResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1882,6 +1888,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:getPopular': true,
   'mcpDirectory:setSmitheryApiKey': true,
   'mcpDirectory:getSmitheryKeyStatus': true,
+  'mcpDirectory:resolveSmithery': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,
