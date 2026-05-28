@@ -187,8 +187,29 @@ jobs:
       - name: Fix Python distutils (native module builds)
         run: python -m pip install setuptools
 
+      # Rebuild better-sqlite3 for the runner's Node ABI before the real-native
+      # migration tests run. The Electron-ABI rebuild happens later inside
+      # electron-builder; at this point we want Node-ABI so Jest can require()
+      # better-sqlite3 directly and the SQL-M tests actually execute.
+      - name: Rebuild better-sqlite3 for runner Node ABI
+        run: npm rebuild better-sqlite3
+
+      # Cross-platform gate against Sentry NODE-NESTJS-46/47: runs the
+      # persistence-sqlite suite against real better-sqlite3 + the platform's
+      # sqlite-vec binary. The SQL-M block auto-detects native availability,
+      # so this is the only path that exercises real vec0 DDL and the 0007
+      # DROP+CREATE on Windows/macOS/Linux before we ship.
+      - name: Run persistence-sqlite native tests (real better-sqlite3 + sqlite-vec)
+        run: npx nx test persistence-sqlite
+
       - name: Build Electron app
         run: npx nx build ptah-electron
+
+      # Pre-pack guard: refuses to publish if the platform's sqlite-vec
+      # native binary is missing on disk — would otherwise ship a broken
+      # installer (asarUnpack glob matches nothing) and crash on first run.
+      - name: Validate native deps (sqlite-vec binary present)
+        run: npx nx validate-deps ptah-electron
 
       - name: Copy renderer
         run: npx nx copy-renderer ptah-electron
