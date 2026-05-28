@@ -26,14 +26,43 @@ import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
+  VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
-import type { IBackupService } from '@ptah-extension/persistence-sqlite';
+import type {
+  IBackupService,
+  VecLoadDiagnostic,
+} from '@ptah-extension/persistence-sqlite';
 import type {
   RpcMethodName,
   DbHealthResult,
   DbResetResult,
+  VecLoadDiagnosticWire,
 } from '@ptah-extension/shared';
 export type { DbHealthResult, DbResetResult } from '@ptah-extension/shared';
+
+function toVecDiagnosticWire(
+  diagnostic: VecLoadDiagnostic,
+): VecLoadDiagnosticWire {
+  const wire: VecLoadDiagnosticWire = {
+    ok: diagnostic.ok,
+    reason: diagnostic.reason,
+    electronVersion: diagnostic.electronVersion,
+    processArch: diagnostic.processArch,
+    processPlatform: diagnostic.processPlatform,
+    attemptedPath: diagnostic.attemptedPath,
+    packageName: diagnostic.packageName,
+    fsExists: diagnostic.fsExists,
+    error: diagnostic.error
+      ? { code: diagnostic.error.code, message: diagnostic.error.message }
+      : undefined,
+    errorChain: diagnostic.errorChain?.map((e) => ({
+      strategy: e.strategy,
+      code: e.code,
+      message: e.message,
+    })),
+  };
+  return wire;
+}
 
 /** Optional request params for `db:health`. */
 export interface DbHealthParams {
@@ -106,6 +135,8 @@ export class PersistenceRpcHandlers {
     private readonly connection: SqliteConnectionService,
     @inject(PERSISTENCE_TOKENS.BACKUP_SERVICE)
     private readonly backup: IBackupService,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
   ) {}
 
   /** Register both `db:*` methods with the shared RpcHandler. */
@@ -141,12 +172,14 @@ export class PersistenceRpcHandlers {
         freelistRatio: null,
         walSizeKb: null,
         vecExtensionLoaded: false,
+        vecDiagnostic: null,
         lastMigrationVersion: 0,
         fullCheckRun: false,
         integrityCheckPassed: null,
       };
     }
 
+    const vecSnapshot = this.vecStatus.getStatus();
     const result: DbHealthResult = {
       isOpen: true,
       quickCheckPassed: null,
@@ -155,7 +188,8 @@ export class PersistenceRpcHandlers {
       dbSizeMb: null,
       freelistRatio: null,
       walSizeKb: null,
-      vecExtensionLoaded: this.connection.vecExtensionLoaded,
+      vecExtensionLoaded: vecSnapshot.available,
+      vecDiagnostic: toVecDiagnosticWire(vecSnapshot.diagnostic),
       lastMigrationVersion: this.connection.lastMigrationVersion,
       fullCheckRun: fullCheck,
       integrityCheckPassed: null,
@@ -233,6 +267,7 @@ export class PersistenceRpcHandlers {
         freelistRatio: null,
         walSizeKb: null,
         vecExtensionLoaded: false,
+        vecDiagnostic: null,
         lastMigrationVersion: 0,
         fullCheckRun: false,
         integrityCheckPassed: null,

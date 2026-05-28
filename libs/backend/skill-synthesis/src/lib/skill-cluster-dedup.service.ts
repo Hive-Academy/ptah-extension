@@ -14,7 +14,7 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
-  type SqliteConnectionService,
+  VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { SkillCandidateStore } from './skill-candidate.store';
 import { cosineSimilarity } from './cosine-similarity';
@@ -26,8 +26,8 @@ export class SkillClusterDedupService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: SqliteConnectionService,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
     @inject(SkillCandidateStore)
     private readonly store: SkillCandidateStore,
   ) {}
@@ -44,7 +44,7 @@ export class SkillClusterDedupService {
     embedding: Float32Array,
     settings: SkillSynthesisSettings,
   ): boolean {
-    if (!this.connection.vecExtensionLoaded) return false;
+    if (!this.vecStatus.available) return false;
     if (this.clusters === null) {
       this.buildClusters(settings);
     }
@@ -73,7 +73,7 @@ export class SkillClusterDedupService {
    * @param settings Used to read `dedupClusterThreshold` for the merge criterion.
    */
   buildClusters(settings: SkillSynthesisSettings): void {
-    if (!this.connection.vecExtensionLoaded) return;
+    if (!this.vecStatus.available) return;
 
     const promoted = this.store.listByStatus('promoted');
     if (promoted.length === 0) {

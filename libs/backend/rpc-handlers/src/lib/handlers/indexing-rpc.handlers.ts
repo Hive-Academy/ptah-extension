@@ -57,6 +57,10 @@ function toStatusWire(status: IndexingStatus): IndexingStatusWire {
     disclosureAcknowledgedAt: status.disclosureAcknowledgedAt,
     lastDismissedStaleSha: status.lastDismissedStaleSha,
     errorMessage: status.errorMessage,
+    codeSymbolCount: status.codeSymbolCount,
+    memoryChunkCount: status.memoryChunkCount,
+    vec: status.vec,
+    embedder: status.embedder,
   };
 }
 

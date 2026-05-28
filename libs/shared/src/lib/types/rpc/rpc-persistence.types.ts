@@ -5,6 +5,33 @@
  * persistence-rpc.handlers.ts resolve to the same compile-time identity.
  */
 
+export type VecLoadReasonWire =
+  | 'ok'
+  | 'binary-missing'
+  | 'load-failed'
+  | 'extensions-disabled'
+  | 'no-resolver'
+  | 'not-attempted';
+
+export interface VecLoadAttemptErrorWire {
+  readonly strategy: string;
+  readonly code?: string;
+  readonly message: string;
+}
+
+export interface VecLoadDiagnosticWire {
+  readonly ok: boolean;
+  readonly reason: VecLoadReasonWire;
+  readonly attemptedPath?: string;
+  readonly packageName?: string;
+  readonly fsExists?: boolean;
+  readonly electronVersion: string;
+  readonly processArch: string;
+  readonly processPlatform: string;
+  readonly error?: { code?: string; message: string };
+  readonly errorChain?: readonly VecLoadAttemptErrorWire[];
+}
+
 /**
  * Shape returned by `db:health`. All nullable fields are null when the
  * connection is unavailable so the UI can render an offline badge without
@@ -32,6 +59,12 @@ export interface DbHealthResult {
   walSizeKb: number | null;
   /** Whether the sqlite-vec extension was successfully loaded. */
   vecExtensionLoaded: boolean;
+  /**
+   * Structured diagnostic for the most recent sqlite-vec load attempt.
+   * Null when the connection is unavailable. Renderer-safe — PII-bearing
+   * fields (raw stack, absolute paths beyond packageName) are not surfaced.
+   */
+  vecDiagnostic: VecLoadDiagnosticWire | null;
   /** Highest migration version applied (PRAGMA user_version). 0 if none. */
   lastMigrationVersion: number;
   /** True when `fullCheck=true` was requested and integrity_check ran. */

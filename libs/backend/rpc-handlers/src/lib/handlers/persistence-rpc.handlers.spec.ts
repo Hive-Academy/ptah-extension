@@ -65,6 +65,28 @@ function makeBackupService() {
   };
 }
 
+function makeVecStatus(available = true) {
+  const diagnostic = {
+    ok: available,
+    reason: available ? ('ok' as const) : ('load-failed' as const),
+    electronVersion: '40.0.0',
+    processArch: 'x64' as NodeJS.Architecture,
+    processPlatform: 'linux' as NodeJS.Platform,
+  };
+  return {
+    available,
+    reason: diagnostic.reason,
+    diagnostic,
+    getStatus: jest.fn(() => ({
+      available,
+      reason: diagnostic.reason,
+      diagnostic,
+    })),
+    on: jest.fn(),
+    refresh: jest.fn(),
+  };
+}
+
 // Minimal SqliteConnectionService double
 function makeConnection(opts: {
   isOpen?: boolean;
@@ -122,11 +144,13 @@ describe('PersistenceRpcHandlers', () => {
   let logger: ReturnType<typeof makeLogger>;
   let rpcHandler: ReturnType<typeof makeRpcHandler>;
   let backup: ReturnType<typeof makeBackupService>;
+  let vecStatus: ReturnType<typeof makeVecStatus>;
 
   beforeEach(() => {
     logger = makeLogger();
     rpcHandler = makeRpcHandler();
     backup = makeBackupService();
+    vecStatus = makeVecStatus(true);
     jest.clearAllMocks();
     // Default: no WAL file present
     mockStatSync.mockImplementation(() => {
@@ -148,6 +172,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -172,6 +197,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -198,6 +224,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -220,6 +247,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -247,6 +275,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -265,6 +294,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -282,6 +312,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -301,6 +332,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -327,6 +359,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -345,6 +378,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -363,6 +397,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -383,6 +418,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -414,6 +450,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -443,6 +480,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -465,6 +503,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -483,6 +522,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn1 as never,
       backup as never,
+      vecStatus as never,
     );
     handler1.register();
 
@@ -502,6 +542,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler2 as never,
       conn2 as never,
       backup as never,
+      vecStatus as never,
     );
     handler2.register();
 
@@ -528,6 +569,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -558,6 +600,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -585,6 +628,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 
@@ -607,6 +651,7 @@ describe('PersistenceRpcHandlers', () => {
       rpcHandler as never,
       conn as never,
       backup as never,
+      vecStatus as never,
     );
     handler.register();
 

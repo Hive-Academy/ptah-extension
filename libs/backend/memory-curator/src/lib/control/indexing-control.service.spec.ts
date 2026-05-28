@@ -182,12 +182,31 @@ function buildService(
   const fs = makeFakeFs(fsOptions);
   const logger = makeLogger();
   const webviewManager = makeWebviewManager();
+  const vecDiagnostic = {
+    ok: false,
+    reason: 'binary-missing' as const,
+    electronVersion: '40.0.0',
+    processArch: 'x64' as NodeJS.Architecture,
+    processPlatform: 'linux' as NodeJS.Platform,
+  };
+  const vecStatus = {
+    available: false,
+    reason: vecDiagnostic.reason,
+    diagnostic: vecDiagnostic,
+    getStatus: () => ({
+      available: false,
+      reason: vecDiagnostic.reason,
+      diagnostic: vecDiagnostic,
+    }),
+    on: () => ({ dispose: () => undefined }),
+    refresh: () => undefined,
+  };
 
-  // We use a child container per test to avoid pollution
   const child = container.createChildContainer();
   child.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
     useValue: sqliteConn,
   });
+  child.register(PERSISTENCE_TOKENS.VEC_STATUS, { useValue: vecStatus });
   child.register(MEMORY_TOKENS.MEMORY_CURATOR, { useValue: memoryCurator });
   child.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: fs });
   child.register(TOKENS.LOGGER, { useValue: logger });

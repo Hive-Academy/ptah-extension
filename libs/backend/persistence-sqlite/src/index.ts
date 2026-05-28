@@ -28,6 +28,13 @@ export {
 export type { IBackupService, BackupKind } from './lib/backup.service';
 export { SqliteBackupService } from './lib/backup.service';
 
+export { VecStatusService } from './lib/vec-status.service';
+export type {
+  VecStatusSnapshot,
+  VecStatusChangeListener,
+  Disposable as VecStatusDisposable,
+} from './lib/vec-status.service';
+
 export { SqliteMigrationRunner } from './lib/migration-runner';
 export type { MigrationRunResult } from './lib/migration-runner';
 

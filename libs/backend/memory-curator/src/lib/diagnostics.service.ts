@@ -5,6 +5,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
+  VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryCuratorService } from './memory-curator.service';
@@ -32,6 +33,8 @@ export class MemoryDiagnosticsService {
     private readonly decay: MemoryDecayJob,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
   ) {}
 
   async getSnapshot(
@@ -57,7 +60,7 @@ export class MemoryDiagnosticsService {
   }
 
   private readDbHealth(): MemoryDbHealth {
-    const vecLoaded = this.sqlite.vecExtensionLoaded;
+    const vecLoaded = this.vecStatus.available;
     let memories = 0;
     let memory_chunks = 0;
     let memory_chunks_vec = 0;

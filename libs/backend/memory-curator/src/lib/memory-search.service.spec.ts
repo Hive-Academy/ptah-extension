@@ -10,7 +10,10 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { ITracer } from '@ptah-extension/platform-core';
-import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
+import type {
+  IEmbedder,
+  VecStatusService,
+} from '@ptah-extension/persistence-sqlite';
 import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import type { MemoryStore } from './memory.store';
 import { MemorySearchService } from './memory-search.service';
@@ -35,6 +38,28 @@ function makeRecordingTracer(): RecordingTracer {
     },
     addBreadcrumb: () => undefined,
   };
+}
+
+function makeVecStatus(available = false): VecStatusService {
+  const diagnostic = {
+    ok: available,
+    reason: available ? ('ok' as const) : ('binary-missing' as const),
+    electronVersion: '40.0.0',
+    processArch: 'x64' as NodeJS.Architecture,
+    processPlatform: 'linux' as NodeJS.Platform,
+  };
+  return {
+    available,
+    reason: diagnostic.reason,
+    diagnostic,
+    getStatus: () => ({
+      available,
+      reason: diagnostic.reason,
+      diagnostic,
+    }),
+    on: () => ({ dispose: () => undefined }),
+    refresh: () => undefined,
+  } as unknown as VecStatusService;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +142,7 @@ function makeService(): MemorySearchService {
     makeEmbedder(),
     makeStore(),
     makeObservationQueue(),
+    makeVecStatus(false),
   );
 }
 
@@ -163,6 +189,7 @@ function makeServiceWithReranker(options: {
     workerClient,
     store,
     makeObservationQueue(),
+    makeVecStatus(false),
   );
   return { service, rerankMock, logger };
 }
@@ -526,6 +553,7 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
       embedder,
       store,
       makeObservationQueue(),
+      makeVecStatus(false),
     );
 
     // Should resolve without error (workerClient is null, reranker skipped).
@@ -588,6 +616,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       makeEmbedder(),
       store,
       makeObservationQueue(),
+      makeVecStatus(false),
     );
     return { service, prepareMock, allMock, counterRef };
   }
@@ -624,6 +653,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       makeEmbedder(),
       store,
       makeObservationQueue(),
+      makeVecStatus(false),
     );
 
     await service.searchRich('hello world', 10);
@@ -655,6 +685,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       makeEmbedder(),
       store,
       makeObservationQueue(),
+      makeVecStatus(false),
     );
 
     await service.searchRich('my query', 10);
@@ -690,6 +721,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       makeEmbedder(),
       store,
       makeObservationQueue(),
+      makeVecStatus(false),
     );
 
     const resultA = await service.searchRich(
@@ -907,6 +939,7 @@ describe('MemorySearchService — workspaceRoot filtering', () => {
       makeEmbedder(),
       store,
       makeObservationQueue(),
+      makeVecStatus(opts.vecLoaded ?? false),
     );
     return { service, allMock, prepareMock };
   }

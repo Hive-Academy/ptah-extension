@@ -9,6 +9,7 @@ import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
+  VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { WebviewManager } from '@ptah-extension/vscode-core';
 import { MEMORY_TOKENS } from '../di/tokens';
@@ -41,6 +42,18 @@ export interface IndexingStatus {
   disclosureAcknowledgedAt: number | null;
   lastDismissedStaleSha: string | null;
   errorMessage: string | null;
+  codeSymbolCount: number;
+  memoryChunkCount: number;
+  vec: {
+    ok: boolean;
+    reason?: string;
+    attemptedPath?: string;
+  };
+  embedder: {
+    ready: boolean;
+    downloading?: boolean;
+    progress?: { loaded: number; total: number; percent: number };
+  };
 }
 
 /** Callable dependencies injected at start() call time (avoids workspace-intelligence import cycle). */
@@ -115,6 +128,8 @@ export class IndexingControlService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
   ) {}
 
   /** Synchronous status read — derive state from stored row + current git HEAD. */
@@ -122,6 +137,14 @@ export class IndexingControlService {
     const { fp } = await deriveWorkspaceFingerprint(workspaceRoot, this.fs);
     const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
     const row = this.readRow(fp);
+    const counts = this.readRowCounts();
+    const vecSnapshot = this.vecStatus.getStatus();
+    const vec = {
+      ok: vecSnapshot.available,
+      reason: vecSnapshot.reason,
+      attemptedPath: vecSnapshot.diagnostic.attemptedPath,
+    };
+    const embedder = { ready: true } as const;
 
     if (!row) {
       return {
@@ -136,6 +159,10 @@ export class IndexingControlService {
         disclosureAcknowledgedAt: null,
         lastDismissedStaleSha: null,
         errorMessage: null,
+        codeSymbolCount: counts.codeSymbolCount,
+        memoryChunkCount: counts.memoryChunkCount,
+        vec,
+        embedder,
       };
     }
 
@@ -161,7 +188,40 @@ export class IndexingControlService {
       disclosureAcknowledgedAt: row.disclosure_acknowledged_at,
       lastDismissedStaleSha: row.last_dismissed_stale_sha,
       errorMessage: row.last_error,
+      codeSymbolCount: counts.codeSymbolCount,
+      memoryChunkCount: counts.memoryChunkCount,
+      vec,
+      embedder,
     };
+  }
+
+  private readRowCounts(): {
+    codeSymbolCount: number;
+    memoryChunkCount: number;
+  } {
+    let codeSymbolCount = 0;
+    let memoryChunkCount = 0;
+    try {
+      const csRow = this.sqlite.db
+        .prepare('SELECT COUNT(*) AS n FROM code_symbols')
+        .get() as { n: number } | undefined;
+      codeSymbolCount = csRow?.n ?? 0;
+    } catch (error: unknown) {
+      this.logger.debug('[indexing-control] code_symbols count read failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    try {
+      const mcRow = this.sqlite.db
+        .prepare('SELECT COUNT(*) AS n FROM memory_chunks')
+        .get() as { n: number } | undefined;
+      memoryChunkCount = mcRow?.n ?? 0;
+    } catch (error: unknown) {
+      this.logger.debug('[indexing-control] memory_chunks count read failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return { codeSymbolCount, memoryChunkCount };
   }
 
   /**

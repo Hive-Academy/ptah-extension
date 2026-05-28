@@ -4,6 +4,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
+  VecStatusService,
   type IEmbedder,
 } from '@ptah-extension/persistence-sqlite';
 
@@ -61,6 +62,8 @@ export class CodeSymbolStore {
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: SqliteConnectionService,
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
   ) {}
 
   deleteByFile(workspaceRoot: string, filePath: string): number {
@@ -75,7 +78,7 @@ export class CodeSymbolStore {
   async insertBatch(entries: readonly CodeSymbolInsert[]): Promise<void> {
     if (entries.length === 0) return;
     const now = Date.now();
-    const vecAvailable = this.connection.vecExtensionLoaded;
+    const vecAvailable = this.vecStatus.available;
     const embeddings: Float32Array[] = vecAvailable
       ? await this.embedderEmbed(entries.map((e) => e.text))
       : [];
