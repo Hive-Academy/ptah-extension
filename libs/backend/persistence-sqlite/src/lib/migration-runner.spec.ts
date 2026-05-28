@@ -401,6 +401,195 @@ describe('SqliteMigrationRunner', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Vec-optional migration split (Sentry NODE-NESTJS-46/47 hardening)
+//
+// Validates that base relational + FTS5 tables always exist regardless of
+// sqlite-vec availability, that vec0 tables are deferred + caught up, and that
+// later non-vec migrations (v8/v10/v11) succeed on a vec-less machine.
+// Uses the real MIGRATIONS array against FakeSqliteDatabase.
+// ---------------------------------------------------------------------------
+
+describe('SqliteMigrationRunner — vec-optional split', () => {
+  const BASE_TABLES = [
+    'memories',
+    'memory_chunks',
+    'memory_chunks_fts',
+    'skill_candidates',
+    'skill_invocations',
+    'code_symbols',
+    'code_symbols_fts',
+  ];
+  const VEC_TABLES = [
+    'memory_chunks_vec',
+    'skill_candidates_vec',
+    'code_symbols_vec',
+  ];
+
+  // Versions that own a vecSql split or are pure-vec (deferred when no vec).
+  const VEC_VERSIONS = [2, 3, 7, 13];
+
+  function loadMigrations(): readonly Migration[] {
+    const { MIGRATIONS } = require('./migrations') as {
+      MIGRATIONS: readonly Migration[];
+    };
+    return MIGRATIONS;
+  }
+
+  it('no-vec cold start: all base + FTS tables created, vec tables deferred', async () => {
+    const db = new FakeSqliteDatabase();
+    const runner = new SqliteMigrationRunner(db, createMockLogger());
+    const migrations = loadMigrations();
+
+    const result = await runner.applyAll(migrations, {
+      vecExtensionLoaded: false,
+    });
+
+    // All base + FTS tables exist.
+    for (const t of BASE_TABLES) {
+      expect(db.tables.has(t)).toBe(true);
+    }
+    // No vec0 tables created.
+    for (const t of VEC_TABLES) {
+      expect(db.tables.has(t)).toBe(false);
+    }
+
+    // v8/v10/v11 (depend on base tables) applied successfully.
+    const applied = runner.readAppliedVersions();
+    expect(applied.has(8)).toBe(true);
+    expect(applied.has(10)).toBe(true);
+    expect(applied.has(11)).toBe(true);
+
+    // Pure-vec migration 7 is NOT recorded applied; vecSql-carrying base
+    // migrations 2/3/13 ARE recorded applied (their base sql ran).
+    expect(applied.has(2)).toBe(true);
+    expect(applied.has(3)).toBe(true);
+    expect(applied.has(13)).toBe(true);
+    expect(applied.has(7)).toBe(false);
+
+    // All vec versions parked in the pending table.
+    expect(runner.readPendingVecVersions()).toEqual(VEC_VERSIONS);
+
+    // finalVersion is the highest applied base version (14), unaffected by
+    // the deferred pure-vec migration 7.
+    expect(result.finalVersion).toBe(migrations[migrations.length - 1].version);
+  });
+
+  it('no-vec then vec: deferred vecSql applied, pending cleared, vec tables exist', async () => {
+    const db = new FakeSqliteDatabase();
+    const migrations = loadMigrations();
+
+    // First boot — no vec.
+    const first = new SqliteMigrationRunner(db, createMockLogger());
+    await first.applyAll(migrations, { vecExtensionLoaded: false });
+    expect(first.readPendingVecVersions()).toEqual(VEC_VERSIONS);
+
+    // Second boot — vec now available (same DB).
+    const second = new SqliteMigrationRunner(db, createMockLogger());
+    await second.applyAll(migrations, { vecExtensionLoaded: true });
+
+    // Vec tables now exist.
+    for (const t of VEC_TABLES) {
+      expect(db.tables.has(t)).toBe(true);
+    }
+    // Pending table drained.
+    expect(second.readPendingVecVersions()).toEqual([]);
+    // Pure-vec migration 7 is now recorded applied.
+    expect(second.readAppliedVersions().has(7)).toBe(true);
+  });
+
+  it('vec cold start: all tables incl. vec, pending empty', async () => {
+    const db = new FakeSqliteDatabase();
+    const runner = new SqliteMigrationRunner(db, createMockLogger());
+    const migrations = loadMigrations();
+
+    await runner.applyAll(migrations, { vecExtensionLoaded: true });
+
+    for (const t of [...BASE_TABLES, ...VEC_TABLES]) {
+      expect(db.tables.has(t)).toBe(true);
+    }
+    expect(runner.readPendingVecVersions()).toEqual([]);
+    for (const v of VEC_VERSIONS) {
+      expect(runner.readAppliedVersions().has(v)).toBe(true);
+    }
+  });
+
+  it('broken-machine repair: partial schema_migrations + missing base tables', async () => {
+    const db = new FakeSqliteDatabase();
+    const migrations = loadMigrations();
+
+    // Simulate a vec-less machine that aborted mid-run: only {1,4,5,6}
+    // recorded, base memory/skill tables never created.
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)',
+    );
+    for (const v of [1, 4, 5, 6]) {
+      db.prepare(
+        'INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)',
+      ).run(v, Date.now());
+    }
+
+    // Boot WITHOUT vec — catch-up creates base tables, later migrations apply.
+    const noVec = new SqliteMigrationRunner(db, createMockLogger());
+    await noVec.applyAll(migrations, { vecExtensionLoaded: false });
+
+    for (const t of BASE_TABLES) {
+      expect(db.tables.has(t)).toBe(true);
+    }
+    for (const t of VEC_TABLES) {
+      expect(db.tables.has(t)).toBe(false);
+    }
+    const applied = noVec.readAppliedVersions();
+    for (const v of [8, 10, 11, 12, 13, 14]) {
+      expect(applied.has(v)).toBe(true);
+    }
+    expect(noVec.readPendingVecVersions()).toEqual(VEC_VERSIONS);
+
+    // Then boot WITH vec — vec tables created, pending drained.
+    const withVec = new SqliteMigrationRunner(db, createMockLogger());
+    await withVec.applyAll(migrations, { vecExtensionLoaded: true });
+    for (const t of VEC_TABLES) {
+      expect(db.tables.has(t)).toBe(true);
+    }
+    expect(withVec.readPendingVecVersions()).toEqual([]);
+  });
+
+  it('idempotency: repeated applyAll runs are no-ops', async () => {
+    const db = new FakeSqliteDatabase();
+    const migrations = loadMigrations();
+
+    const r1 = new SqliteMigrationRunner(db, createMockLogger());
+    await r1.applyAll(migrations, { vecExtensionLoaded: true });
+
+    const r2 = new SqliteMigrationRunner(db, createMockLogger());
+    const second = await r2.applyAll(migrations, { vecExtensionLoaded: true });
+    expect(second.appliedVersions).toEqual([]);
+    expect(r2.readPendingVecVersions()).toEqual([]);
+
+    const r3 = new SqliteMigrationRunner(db, createMockLogger());
+    const third = await r3.applyAll(migrations, { vecExtensionLoaded: true });
+    expect(third.appliedVersions).toEqual([]);
+  });
+
+  it('no-vec idempotency: repeated vec-less boots do not re-apply or duplicate pending', async () => {
+    const db = new FakeSqliteDatabase();
+    const migrations = loadMigrations();
+
+    const r1 = new SqliteMigrationRunner(db, createMockLogger());
+    await r1.applyAll(migrations, { vecExtensionLoaded: false });
+
+    const r2 = new SqliteMigrationRunner(db, createMockLogger());
+    const second = await r2.applyAll(migrations, {
+      vecExtensionLoaded: false,
+    });
+
+    // Base versions already applied → nothing new applied.
+    expect(second.appliedVersions).toEqual([]);
+    // Pending set unchanged (pure-vec 7 re-deferred via INSERT OR IGNORE).
+    expect(r2.readPendingVecVersions()).toEqual(VEC_VERSIONS);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SQL-M real better-sqlite3 migration invariants
 //
 // These tests use the real `better-sqlite3` native binding to validate the

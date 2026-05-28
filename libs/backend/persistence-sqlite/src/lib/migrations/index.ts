@@ -18,18 +18,27 @@
  * `libs/backend/persistence-sqlite/src/lib/migrations/**\/*.ts`.
  */
 import { sql as sql0001Init } from './0001_init';
-import { sql as sql0002Memory } from './0002_memory';
-import { sql as sql0003Skills } from './0003_skills';
+import {
+  sql as sql0002Memory,
+  vecSql as vecSql0002Memory,
+} from './0002_memory';
+import {
+  sql as sql0003Skills,
+  vecSql as vecSql0003Skills,
+} from './0003_skills';
 import { sql as sql0004Cron } from './0004_cron';
 import { sql as sql0005Gateway } from './0005_gateway';
 import { sql as sql0006GatewayPairingCode } from './0006_gateway_pairing_code';
-import { sql as sql0007FixVec0Rowid } from './0007_fix_vec0_rowid';
+import { vecSql as vecSql0007FixVec0Rowid } from './0007_fix_vec0_rowid';
 import { sql as sql0008SymbolIndex } from './0008_symbol_index';
 import { run as run0009AutoVacuum } from './0009_auto_vacuum';
 import { sql as sql0010Fts5Porter } from './0010_fts5_porter';
 import { sql as sql0011SkillsV2 } from './0011_skills_v2';
 import { sql as sql0012IndexingState } from './0012_indexing_state';
-import { sql as sql0013CodeSymbols } from './0013_code_symbols';
+import {
+  sql as sql0013CodeSymbols,
+  vecSql as vecSql0013CodeSymbols,
+} from './0013_code_symbols';
 import { sql as sql0014BootScanState } from './0014_boot_scan_state';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
@@ -54,10 +63,22 @@ export interface Migration {
    */
   readonly run?: (db: SqliteDatabase) => void;
   /**
-   * When true the migration creates `vec0` virtual tables that require the
-   * sqlite-vec extension. If the extension is not loaded the migration runner
-   * skips this migration with a warning instead of throwing, so non-vec
-   * migrations (cron, gateway) can still be applied.
+   * Optional `vec0` statements (CREATE VIRTUAL TABLE ... USING vec0, plus any
+   * vec-only DROP/recreate) that require the sqlite-vec extension. Split out
+   * from {@link sql} so the base relational + FTS5 schema always applies even
+   * when sqlite-vec is unavailable. When vec is loaded the runner applies
+   * `vecSql` in the same transaction as `sql`; when it is not, the runner
+   * applies only `sql`, records the version, and defers `vecSql` into
+   * `schema_migrations_vec_pending` for a later catch-up pass.
+   *
+   * Mutually exclusive with {@link run}.
+   */
+  readonly vecSql?: string;
+  /**
+   * When true the migration's ENTIRE body is vec0 (no base {@link sql}); it
+   * provides only {@link vecSql}. If sqlite-vec is not loaded the runner defers
+   * the whole migration into `schema_migrations_vec_pending` WITHOUT recording
+   * it as applied, then runs it in full once vec becomes available.
    */
   readonly requiresVec?: boolean;
 }
@@ -72,8 +93,18 @@ export interface Migration {
  */
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: '0001_init', sql: sql0001Init },
-  { version: 2, name: '0002_memory', sql: sql0002Memory, requiresVec: true },
-  { version: 3, name: '0003_skills', sql: sql0003Skills, requiresVec: true },
+  {
+    version: 2,
+    name: '0002_memory',
+    sql: sql0002Memory,
+    vecSql: vecSql0002Memory,
+  },
+  {
+    version: 3,
+    name: '0003_skills',
+    sql: sql0003Skills,
+    vecSql: vecSql0003Skills,
+  },
   { version: 4, name: '0004_cron', sql: sql0004Cron },
   { version: 5, name: '0005_gateway', sql: sql0005Gateway },
   {
@@ -84,7 +115,7 @@ export const MIGRATIONS: readonly Migration[] = [
   {
     version: 7,
     name: '0007_fix_vec0_rowid',
-    sql: sql0007FixVec0Rowid,
+    vecSql: vecSql0007FixVec0Rowid,
     requiresVec: true,
   },
   {
@@ -116,7 +147,7 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 13,
     name: '0013_code_symbols',
     sql: sql0013CodeSymbols,
-    requiresVec: true,
+    vecSql: vecSql0013CodeSymbols,
   },
   {
     version: 14,
