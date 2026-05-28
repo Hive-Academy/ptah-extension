@@ -33,8 +33,6 @@ import {
   PluginStatusWidgetComponent,
   PluginBrowserModalComponent,
   SetupStatusWidgetComponent,
-  SkillShBrowserComponent,
-  McpDirectoryBrowserComponent,
 } from '@ptah-extension/chat-ui';
 import {
   AppStateManager,
@@ -79,8 +77,6 @@ import { ChatStore } from '../services/chat.store';
     PluginStatusWidgetComponent,
     PluginBrowserModalComponent,
     SetupStatusWidgetComponent,
-    SkillShBrowserComponent,
-    McpDirectoryBrowserComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -118,8 +114,6 @@ export class SettingsComponent implements OnInit {
   /** Whether the plugin browser modal is open */
   readonly isPluginBrowserOpen = signal(false);
 
-  /** Counter incremented on plugin config save to trigger skill-sh-browser refresh */
-  readonly skillRefreshTrigger = signal(0);
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false,
   );
@@ -188,7 +182,6 @@ export class SettingsComponent implements OnInit {
   onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
     this.commandDiscovery.clearCache();
-    this.skillRefreshTrigger.update((n) => n + 1);
   }
 
   /**

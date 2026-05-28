@@ -109,6 +109,8 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
   'enhancedPrompts:', // Enhanced Prompts (Pro-only intelligent prompt generation)
   'ptahCli:', // Ptah CLI agent management (Pro-only)
+  'mcpDirectory:', // MCP marketplace (official + Smithery) — Pro-only (TASK_2026_131)
+  'skillsSh:', // Skills marketplace — Pro-only (TASK_2026_131)
 ] as const;
 
 /**
