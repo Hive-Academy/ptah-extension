@@ -204,6 +204,10 @@ import type {
   McpDirectoryListInstalledResult,
   McpDirectoryGetPopularParams,
   McpDirectoryGetPopularResult,
+  McpDirectorySetSmitheryApiKeyParams,
+  McpDirectorySetSmitheryApiKeyResult,
+  McpDirectoryGetSmitheryKeyStatusParams,
+  McpDirectoryGetSmitheryKeyStatusResult,
 } from './mcp-directory.types';
 
 import type {
@@ -864,6 +868,14 @@ export interface RpcMethodRegistry {
   'mcpDirectory:getPopular': {
     params: McpDirectoryGetPopularParams;
     result: McpDirectoryGetPopularResult;
+  };
+  'mcpDirectory:setSmitheryApiKey': {
+    params: McpDirectorySetSmitheryApiKeyParams;
+    result: McpDirectorySetSmitheryApiKeyResult;
+  };
+  'mcpDirectory:getSmitheryKeyStatus': {
+    params: McpDirectoryGetSmitheryKeyStatusParams;
+    result: McpDirectoryGetSmitheryKeyStatusResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1868,6 +1880,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:uninstall': true,
   'mcpDirectory:listInstalled': true,
   'mcpDirectory:getPopular': true,
+  'mcpDirectory:setSmitheryApiKey': true,
+  'mcpDirectory:getSmitheryKeyStatus': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,

@@ -5,6 +5,11 @@
  * installation to multiple CLI/IDE targets.
  */
 export { McpRegistryProvider } from './mcp-registry.provider';
+export { McpRegistrySourceRegistry } from './mcp-registry-source.registry';
+export type {
+  IMcpRegistrySource,
+  McpRegistrySourceId,
+} from './mcp-registry-source.interface';
 export { McpInstallService } from './mcp-install.service';
 export { McpInstallManifestTracker } from './mcp-install-manifest';
 export type { IMcpServerInstaller } from './mcp-installer.interface';

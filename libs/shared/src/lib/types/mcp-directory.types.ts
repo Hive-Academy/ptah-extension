@@ -274,3 +274,33 @@ export type McpDirectoryGetPopularParams = Record<string, never>;
 export interface McpDirectoryGetPopularResult {
   servers: McpRegistryEntry[];
 }
+
+/**
+ * Params for mcpDirectory:setSmitheryApiKey.
+ *
+ * SECURITY: the key travels webview → backend on write only. It is stored in
+ * encrypted secret storage and is NEVER returned to the renderer. An empty /
+ * whitespace-only value clears the stored key.
+ */
+export interface McpDirectorySetSmitheryApiKeyParams {
+  /** The Smithery API key to store, or '' to clear it. */
+  apiKey: string;
+}
+
+/** Result for mcpDirectory:setSmitheryApiKey */
+export interface McpDirectorySetSmitheryApiKeyResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Params for mcpDirectory:getSmitheryKeyStatus (no params needed) */
+export type McpDirectoryGetSmitheryKeyStatusParams = Record<string, never>;
+
+/**
+ * Result for mcpDirectory:getSmitheryKeyStatus.
+ *
+ * SECURITY: boolean presence only — the key value never crosses this boundary.
+ */
+export interface McpDirectoryGetSmitheryKeyStatusResult {
+  configured: boolean;
+}

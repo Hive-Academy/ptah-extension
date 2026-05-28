@@ -17,12 +17,18 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  TOKENS,
+  IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   McpRegistryProvider,
+  McpRegistrySourceRegistry,
   McpInstallService,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
@@ -38,8 +44,16 @@ import type {
   McpDirectoryListInstalledResult,
   McpDirectoryGetPopularParams,
   McpDirectoryGetPopularResult,
+  McpDirectorySetSmitheryApiKeyParams,
+  McpDirectorySetSmitheryApiKeyResult,
+  McpDirectoryGetSmitheryKeyStatusParams,
+  McpDirectoryGetSmitheryKeyStatusResult,
   RpcMethodName,
 } from '@ptah-extension/shared';
+import {
+  SetSmitheryApiKeySchema,
+  SMITHERY_API_KEY_SECRET_ID,
+} from './mcp-directory-rpc.schema';
 
 @injectable()
 export class McpDirectoryRpcHandlers {
@@ -50,9 +64,12 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:uninstall',
     'mcpDirectory:listInstalled',
     'mcpDirectory:getPopular',
+    'mcpDirectory:setSmitheryApiKey',
+    'mcpDirectory:getSmitheryKeyStatus',
   ] as const satisfies readonly RpcMethodName[];
 
   private readonly registryProvider: McpRegistryProvider;
+  private readonly sourceRegistry = new McpRegistrySourceRegistry();
   private readonly installService = new McpInstallService();
 
   constructor(
@@ -62,8 +79,11 @@ export class McpDirectoryRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecretsService: IAuthSecretsService,
   ) {
     this.registryProvider = new McpRegistryProvider(this.logger);
+    this.sourceRegistry.register(this.registryProvider);
   }
 
   /**
@@ -76,6 +96,8 @@ export class McpDirectoryRpcHandlers {
     this.registerUninstall();
     this.registerListInstalled();
     this.registerGetPopular();
+    this.registerSetSmitheryApiKey();
+    this.registerGetSmitheryKeyStatus();
 
     this.logger.debug('MCP Directory RPC handlers registered', {
       methods: [
@@ -85,6 +107,8 @@ export class McpDirectoryRpcHandlers {
         'mcpDirectory:uninstall',
         'mcpDirectory:listInstalled',
         'mcpDirectory:getPopular',
+        'mcpDirectory:setSmitheryApiKey',
+        'mcpDirectory:getSmitheryKeyStatus',
       ],
     });
   }
@@ -97,7 +121,9 @@ export class McpDirectoryRpcHandlers {
       try {
         this.logger.debug('RPC: mcpDirectory:search', { query: params.query });
 
-        const result = await this.registryProvider.listServers({
+        const source =
+          this.sourceRegistry.get('official') ?? this.registryProvider;
+        const result = await source.listServers({
           query: params.query,
           limit: params.limit,
           cursor: params.cursor,
@@ -130,9 +156,9 @@ export class McpDirectoryRpcHandlers {
           name: params.name,
         });
 
-        const server = await this.registryProvider.getServerDetails(
-          params.name,
-        );
+        const source =
+          this.sourceRegistry.get('official') ?? this.registryProvider;
+        const server = await source.getServerDetails(params.name);
 
         if (!server) {
           return { name: params.name };
@@ -294,6 +320,79 @@ export class McpDirectoryRpcHandlers {
           error instanceof Error ? error : new Error(String(error)),
         );
         return { servers: [] };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:setSmitheryApiKey — store (or clear) the Smithery API key in
+   * encrypted secret storage.
+   *
+   * SECURITY: the key is written through `IAuthSecretsService` (encrypted,
+   * backend-only). It is never echoed back to the renderer, never logged, and
+   * never written to disk config files. An empty / whitespace value clears it.
+   */
+  private registerSetSmitheryApiKey(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectorySetSmitheryApiKeyParams,
+      McpDirectorySetSmitheryApiKeyResult
+    >('mcpDirectory:setSmitheryApiKey', async (params) => {
+      try {
+        const { apiKey } = SetSmitheryApiKeySchema.parse(params);
+        const trimmed = apiKey.trim();
+
+        if (trimmed.length > 0) {
+          await this.authSecretsService.setProviderKey(
+            SMITHERY_API_KEY_SECRET_ID,
+            trimmed,
+          );
+          this.logger.info('RPC: mcpDirectory:setSmitheryApiKey stored key');
+        } else {
+          await this.authSecretsService.deleteProviderKey(
+            SMITHERY_API_KEY_SECRET_ID,
+          );
+          this.logger.info('RPC: mcpDirectory:setSmitheryApiKey cleared key');
+        }
+
+        return { success: true };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerSetSmitheryApiKey',
+        });
+        this.logger.error('RPC: mcpDirectory:setSmitheryApiKey failed', err);
+        return {
+          success: false,
+          error: err.message,
+        };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:getSmitheryKeyStatus — report whether a Smithery key is
+   * configured.
+   *
+   * SECURITY: returns a boolean only; the key value never crosses this
+   * boundary to the renderer.
+   */
+  private registerGetSmitheryKeyStatus(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryGetSmitheryKeyStatusParams,
+      McpDirectoryGetSmitheryKeyStatusResult
+    >('mcpDirectory:getSmitheryKeyStatus', async () => {
+      try {
+        const configured = await this.authSecretsService.hasProviderKey(
+          SMITHERY_API_KEY_SECRET_ID,
+        );
+        return { configured };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerGetSmitheryKeyStatus',
+        });
+        this.logger.error('RPC: mcpDirectory:getSmitheryKeyStatus failed', err);
+        return { configured: false };
       }
     });
   }
