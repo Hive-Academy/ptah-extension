@@ -112,7 +112,7 @@ interface TierChip {
           @switch (banner.kind) {
             @case ('never-indexed') {
               <div
-                class="alert alert-info shadow-sm"
+                class="alert alert-warning shadow-sm"
                 role="status"
                 data-testid="memory-banner-never-indexed"
               >
@@ -138,6 +138,26 @@ interface TierChip {
                   }
                   Index now
                 </button>
+              </div>
+            }
+            @case ('code-only-no-memory') {
+              <div
+                class="alert alert-info shadow-sm"
+                role="status"
+                data-testid="memory-banner-code-only"
+              >
+                <div class="flex flex-1 flex-col gap-1">
+                  <span class="text-sm font-semibold">
+                    Code index ready — chat to populate memory
+                  </span>
+                  <span class="text-xs">
+                    Your codebase is indexed for symbol search ({{
+                      banner.codeSymbolCount
+                    }}
+                    symbols). Memory entries will appear here after your next
+                    qualifying conversation (5+ turns).
+                  </span>
+                </div>
               </div>
             }
             @case ('indexing') {
