@@ -232,6 +232,94 @@ export interface McpInstallManifest {
   >;
 }
 
+/**
+ * A Smithery server installed by Ptah, persisted to
+ * `~/.ptah/smithery-installed.json`.
+ *
+ * SECURITY: this record holds ONLY non-secret metadata. The per-server `config`
+ * (which may contain credentials) is NEVER stored here — it lives in the
+ * encrypted secret store and is rebuilt into a session-time URL at query time.
+ * No secret-bearing connection URL is ever persisted to disk.
+ */
+export interface SmitheryInstalledRecord {
+  /** Always 'smithery' — discriminates from official disk installs. */
+  source: 'smithery';
+  /** Fully qualified Smithery server name (e.g., "@owner/server"). */
+  qualifiedName: string;
+  /** Stable key used in the session `mcpServersOverride` map. */
+  serverKey: string;
+  /** Optional saved Smithery profile id (non-secret). */
+  profile?: string;
+  /**
+   * Whether an encrypted per-server config blob exists in the secret store for
+   * this record. The config values themselves are NOT in this manifest.
+   */
+  hasEncryptedConfig: boolean;
+  /** ISO timestamp of installation. */
+  installedAt: string;
+}
+
+/**
+ * On-disk manifest of Smithery-installed servers
+ * (`~/.ptah/smithery-installed.json`). Contains no secrets.
+ */
+export interface SmitheryInstalledManifest {
+  /** Schema version for forward compat. */
+  version: 1;
+  /** Map of serverKey → install record. */
+  servers: Record<string, SmitheryInstalledRecord>;
+}
+
+/**
+ * Params for mcpDirectory:installSmithery.
+ *
+ * Records a Smithery install WITHOUT writing a secret-bearing URL to disk. The
+ * `config` is routed to the encrypted secret store; only non-secret metadata is
+ * persisted to the manifest.
+ */
+export interface McpDirectoryInstallSmitheryParams {
+  /** Fully qualified Smithery server name (e.g., "@owner/server"). */
+  qualifiedName: string;
+  /** Stable key for the session override map (defaults to a slug of the name). */
+  serverKey?: string;
+  /** Per-server config collected from the connection configSchema form. */
+  config: Record<string, unknown>;
+  /** Optional saved Smithery profile id. */
+  profile?: string;
+}
+
+/** Result for mcpDirectory:installSmithery. */
+export interface McpDirectoryInstallSmitheryResult {
+  success: boolean;
+  /** The serverKey the record was stored under (echoed for the caller). */
+  serverKey?: string;
+  error?: string;
+}
+
+/** Params for mcpDirectory:uninstallSmithery. */
+export interface McpDirectoryUninstallSmitheryParams {
+  /** The serverKey of the record to remove. */
+  serverKey: string;
+}
+
+/** Result for mcpDirectory:uninstallSmithery. */
+export interface McpDirectoryUninstallSmitheryResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Params for mcpDirectory:listSmitheryInstalled (no params needed). */
+export type McpDirectoryListSmitheryInstalledParams = Record<string, never>;
+
+/**
+ * Result for mcpDirectory:listSmitheryInstalled.
+ *
+ * SECURITY: returns non-secret metadata only (never the config or URL).
+ */
+export interface McpDirectoryListSmitheryInstalledResult {
+  servers: SmitheryInstalledRecord[];
+}
+
 /** Params for mcpDirectory:search */
 export interface McpDirectorySearchParams {
   /** Search query string */

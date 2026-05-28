@@ -33,6 +33,8 @@ import {
   SmitheryRegistrySource,
   SmitheryConnectionResolver,
   SmitheryKeyMissingError,
+  SmitheryInstalledManifestStore,
+  createSmitheryConfigSecretStore,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   McpDirectorySearchParams,
@@ -53,12 +55,21 @@ import type {
   McpDirectoryGetSmitheryKeyStatusResult,
   McpDirectoryResolveSmitheryParams,
   McpDirectoryResolveSmitheryResult,
+  McpDirectoryInstallSmitheryParams,
+  McpDirectoryInstallSmitheryResult,
+  McpDirectoryUninstallSmitheryParams,
+  McpDirectoryUninstallSmitheryResult,
+  McpDirectoryListSmitheryInstalledParams,
+  McpDirectoryListSmitheryInstalledResult,
   McpRegistrySourceKind,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
   SetSmitheryApiKeySchema,
   ResolveSmitherySchema,
+  InstallSmitherySchema,
+  UninstallSmitherySchema,
+  deriveSmitheryServerKey,
   SMITHERY_API_KEY_SECRET_ID,
 } from './mcp-directory-rpc.schema';
 
@@ -74,11 +85,15 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:setSmitheryApiKey',
     'mcpDirectory:getSmitheryKeyStatus',
     'mcpDirectory:resolveSmithery',
+    'mcpDirectory:installSmithery',
+    'mcpDirectory:uninstallSmithery',
+    'mcpDirectory:listSmitheryInstalled',
   ] as const satisfies readonly RpcMethodName[];
 
   private readonly registryProvider: McpRegistryProvider;
   private readonly smitherySource: SmitheryRegistrySource;
   private readonly smitheryResolver: SmitheryConnectionResolver;
+  private readonly smitheryManifest: SmitheryInstalledManifestStore;
   private readonly sourceRegistry = new McpRegistrySourceRegistry();
   private readonly installService = new McpInstallService();
 
@@ -110,6 +125,16 @@ export class McpDirectoryRpcHandlers {
       getSmitheryApiKey,
       this.smitherySource,
     );
+
+    this.smitheryManifest = new SmitheryInstalledManifestStore(
+      createSmitheryConfigSecretStore({
+        getProviderKey: (id) => this.authSecretsService.getProviderKey(id),
+        setProviderKey: (id, value) =>
+          this.authSecretsService.setProviderKey(id, value),
+        deleteProviderKey: (id) =>
+          this.authSecretsService.deleteProviderKey(id),
+      }),
+    );
   }
 
   /** Resolve the requested source, defaulting to the official registry. */
@@ -132,6 +157,9 @@ export class McpDirectoryRpcHandlers {
     this.registerSetSmitheryApiKey();
     this.registerGetSmitheryKeyStatus();
     this.registerResolveSmithery();
+    this.registerInstallSmithery();
+    this.registerUninstallSmithery();
+    this.registerListSmitheryInstalled();
 
     this.logger.debug('MCP Directory RPC handlers registered', {
       methods: [
@@ -144,6 +172,9 @@ export class McpDirectoryRpcHandlers {
         'mcpDirectory:setSmitheryApiKey',
         'mcpDirectory:getSmitheryKeyStatus',
         'mcpDirectory:resolveSmithery',
+        'mcpDirectory:installSmithery',
+        'mcpDirectory:uninstallSmithery',
+        'mcpDirectory:listSmitheryInstalled',
       ],
     });
   }
@@ -489,6 +520,104 @@ export class McpDirectoryRpcHandlers {
         });
         this.logger.error('RPC: mcpDirectory:resolveSmithery failed', err);
         return { error: err.message };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:installSmithery — record a Smithery install WITHOUT writing a
+   * secret-bearing URL to any of the 5 disk config files.
+   *
+   * SECURITY: the per-server `config` (which may carry credentials) is routed
+   * to the encrypted secret store via the manifest. Only non-secret metadata is
+   * persisted to `~/.ptah/smithery-installed.json`. The live, secret-bearing
+   * connection URL is rebuilt at chat query time into `mcpServersOverride`.
+   */
+  private registerInstallSmithery(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryInstallSmitheryParams,
+      McpDirectoryInstallSmitheryResult
+    >('mcpDirectory:installSmithery', async (params) => {
+      try {
+        const validated = InstallSmitherySchema.parse(params);
+        const serverKey =
+          validated.serverKey ??
+          deriveSmitheryServerKey(validated.qualifiedName);
+
+        this.logger.info('RPC: mcpDirectory:installSmithery', {
+          qualifiedName: validated.qualifiedName,
+          serverKey,
+          hasConfig: Object.keys(validated.config).length > 0,
+        });
+
+        await this.smitheryManifest.install({
+          qualifiedName: validated.qualifiedName,
+          serverKey,
+          config: validated.config,
+          profile: validated.profile,
+        });
+
+        return { success: true, serverKey };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerInstallSmithery',
+        });
+        this.logger.error('RPC: mcpDirectory:installSmithery failed', err);
+        return { success: false, error: err.message };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:uninstallSmithery — remove a Smithery install record and its
+   * encrypted config slot.
+   */
+  private registerUninstallSmithery(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryUninstallSmitheryParams,
+      McpDirectoryUninstallSmitheryResult
+    >('mcpDirectory:uninstallSmithery', async (params) => {
+      try {
+        const { serverKey } = UninstallSmitherySchema.parse(params);
+        this.logger.info('RPC: mcpDirectory:uninstallSmithery', { serverKey });
+
+        await this.smitheryManifest.uninstall(serverKey);
+        return { success: true };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerUninstallSmithery',
+        });
+        this.logger.error('RPC: mcpDirectory:uninstallSmithery failed', err);
+        return { success: false, error: err.message };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:listSmitheryInstalled — list Smithery install records.
+   *
+   * SECURITY: returns non-secret metadata only (never the config or URL).
+   */
+  private registerListSmitheryInstalled(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryListSmitheryInstalledParams,
+      McpDirectoryListSmitheryInstalledResult
+    >('mcpDirectory:listSmitheryInstalled', async () => {
+      try {
+        const servers = this.smitheryManifest.list();
+        return { servers };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerListSmitheryInstalled',
+        });
+        this.logger.error(
+          'RPC: mcpDirectory:listSmitheryInstalled failed',
+          err,
+        );
+        return { servers: [] };
       }
     });
   }

@@ -33,6 +33,20 @@ export type {
   BuildSmitheryUrlInput,
   BuiltSmitheryUrl,
 } from './smithery-wire.constants';
+export {
+  SmitheryInstalledManifestStore,
+  createSmitheryConfigSecretStore,
+  SMITHERY_CONFIG_SECRET_PREFIX,
+} from './smithery-installed-manifest';
+export type {
+  SmitheryConfigSecretStore,
+  SmitheryInstallInput,
+} from './smithery-installed-manifest';
+export { SmitheryOverrideResolver } from './smithery-override-resolver';
+export type {
+  SmitheryOverrideLogger,
+  SmitheryOverrideResolverDeps,
+} from './smithery-override-resolver';
 export { McpInstallService } from './mcp-install.service';
 export { McpInstallManifestTracker } from './mcp-install-manifest';
 export type { IMcpServerInstaller } from './mcp-installer.interface';

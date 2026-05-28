@@ -15,6 +15,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
+import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 import {
   AISessionConfig,
   AuthEnv,
@@ -585,6 +586,10 @@ export class SdkQueryOptionsBuilder {
       mcpEnabled: isPremium,
       hasEnhancedPrompts: !!enhancedPromptsContent,
       pluginCount: pluginPaths?.length ?? 0,
+      mcpOverrideKeys: mcpServersOverride
+        ? Object.keys(mcpServersOverride)
+        : [],
+      mcpOverrides: redactMcpOverrideMap(mcpServersOverride),
     });
 
     return {
@@ -934,7 +939,7 @@ export class SdkQueryOptionsBuilder {
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
       isPremium,
       mcpServerRunning,
-      mcpUrl: mcpConfig.ptah.url,
+      mcpUrl: redactMcpUrl(mcpConfig.ptah.url),
     });
     return mcpConfig;
   }

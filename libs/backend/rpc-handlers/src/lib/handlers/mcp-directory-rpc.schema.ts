@@ -35,6 +35,41 @@ export const ResolveSmitherySchema = z.object({
 export type ResolveSmitheryInput = z.infer<typeof ResolveSmitherySchema>;
 
 /**
+ * Validated shape for the `mcpDirectory:installSmithery` RPC method.
+ *
+ * Records a Smithery install. `config` may carry per-server secrets — it is
+ * routed to the encrypted secret store, never to the plaintext manifest.
+ */
+export const InstallSmitherySchema = z.object({
+  qualifiedName: z.string().min(1),
+  serverKey: z.string().min(1).optional(),
+  config: z.record(z.string(), z.unknown()),
+  profile: z.string().optional(),
+});
+
+export type InstallSmitheryInput = z.infer<typeof InstallSmitherySchema>;
+
+/** Validated shape for the `mcpDirectory:uninstallSmithery` RPC method. */
+export const UninstallSmitherySchema = z.object({
+  serverKey: z.string().min(1),
+});
+
+export type UninstallSmitheryInput = z.infer<typeof UninstallSmitherySchema>;
+
+/**
+ * Derive a stable, filesystem/URL-safe serverKey from a qualified name when the
+ * caller does not supply one (e.g. "@owner/server" → "smithery_owner_server").
+ */
+export function deriveSmitheryServerKey(qualifiedName: string): string {
+  const slug = qualifiedName
+    .replace(/^@/, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+  return `smithery_${slug || 'server'}`;
+}
+
+/**
  * Secret storage key for the Smithery API key. Kept in lockstep with the
  * `SMITHERY_API_KEY_DEF` descriptor in `@ptah-extension/settings-core`.
  * Routed through `IAuthSecretsService` provider-key slots (each id gets an

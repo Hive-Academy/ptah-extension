@@ -24,7 +24,16 @@ import {
   LicenseService,
   isPremiumTier,
   type SentryService,
+  type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import {
+  SmitheryRegistrySource,
+  SmitheryConnectionResolver,
+  SmitheryInstalledManifestStore,
+  SmitheryOverrideResolver,
+  createSmitheryConfigSecretStore,
+} from '@ptah-extension/cli-agent-runtime';
+import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -54,6 +63,7 @@ import type {
   ChatResumeParams,
   ChatResumeResult,
   CliSessionReference,
+  McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
@@ -107,7 +117,77 @@ export class ChatSessionService {
     private readonly slashCommandRouter: ChatSlashCommandRouterService,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecretsService: IAuthSecretsService,
   ) {}
+
+  /**
+   * Lazily-built resolver that rebuilds session-time Smithery MCP overrides
+   * from the encrypted install manifest. Built once and reused; reads the
+   * manifest on each `buildOverrides()` so installs/uninstalls take effect on
+   * the next session start without restarting.
+   */
+  private smitheryOverrideResolver?: SmitheryOverrideResolver;
+
+  private getSmitheryOverrideResolver(): SmitheryOverrideResolver {
+    if (!this.smitheryOverrideResolver) {
+      const getApiKey = async (): Promise<string | null> =>
+        (await this.authSecretsService.getProviderKey(
+          SMITHERY_API_KEY_SECRET_ID,
+        )) ?? null;
+
+      const registry = new SmitheryRegistrySource({
+        getApiKey,
+        logger: this.logger,
+      });
+      const connectionResolver = new SmitheryConnectionResolver(
+        getApiKey,
+        registry,
+      );
+      const manifest = new SmitheryInstalledManifestStore(
+        createSmitheryConfigSecretStore({
+          getProviderKey: (id) => this.authSecretsService.getProviderKey(id),
+          setProviderKey: (id, value) =>
+            this.authSecretsService.setProviderKey(id, value),
+          deleteProviderKey: (id) =>
+            this.authSecretsService.deleteProviderKey(id),
+        }),
+      );
+      this.smitheryOverrideResolver = new SmitheryOverrideResolver({
+        manifest,
+        resolver: connectionResolver,
+        logger: this.logger,
+      });
+    }
+    return this.smitheryOverrideResolver;
+  }
+
+  /**
+   * Merge manifest-resolved Smithery overrides UNDER any caller-supplied
+   * overrides (caller wins on key collision, matching the builder's
+   * `mergeMcpOverride` contract). Never throws — Smithery contributes nothing on
+   * empty manifest / missing key / resolution failure.
+   */
+  private async buildMcpServersOverride(
+    callerOverride: Record<string, McpHttpServerOverride> | undefined,
+  ): Promise<Record<string, McpHttpServerOverride> | undefined> {
+    let smithery: Record<string, McpHttpServerOverride> = {};
+    try {
+      smithery = await this.getSmitheryOverrideResolver().buildOverrides();
+    } catch (error: unknown) {
+      this.logger.warn('[RPC] chat:start - Smithery override build failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const hasSmithery = Object.keys(smithery).length > 0;
+    const hasCaller =
+      !!callerOverride && Object.keys(callerOverride).length > 0;
+    if (!hasSmithery && !hasCaller) {
+      return callerOverride;
+    }
+    return { ...smithery, ...(callerOverride ?? {}) };
+  }
 
   /**
    * chat:start - Start new SDK session. Uses tabId for frontend correlation;
@@ -240,6 +320,9 @@ export class ChatSessionService {
         });
       }
       const images = options?.images ?? [];
+      const mcpServersOverride = await this.buildMcpServersOverride(
+        params.mcpServersOverride,
+      );
       const stream = await this.sdkAdapter.startChatSession({
         tabId,
         workspaceId: workspacePath,
@@ -257,7 +340,7 @@ export class ChatSessionService {
         thinking: options?.thinking,
         effort: options?.effort,
         includePartialMessages: options?.includePartialMessages,
-        mcpServersOverride: params.mcpServersOverride,
+        mcpServersOverride,
       });
       this.streamBroadcaster.streamEventsToWebview(
         tabId as SessionId,
