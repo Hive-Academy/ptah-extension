@@ -47,7 +47,6 @@ import {
   EditorRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
-  SkillsShRpcHandlers,
 } from './handlers';
 
 /**
@@ -114,8 +113,6 @@ export class RpcMethodRegistrationService {
     @inject(CommandRpcHandlers)
     private readonly commandHandlers: CommandRpcHandlers,
     @inject(AgentRpcHandlers) private readonly agentHandlers: AgentRpcHandlers,
-    @inject(SkillsShRpcHandlers)
-    private readonly skillsShHandlers: SkillsShRpcHandlers,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly container: DependencyContainer,
   ) {
@@ -142,7 +139,6 @@ export class RpcMethodRegistrationService {
     this.editorHandlers.register();
     this.commandHandlers.register();
     this.agentHandlers.register();
-    this.skillsShHandlers.register();
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),

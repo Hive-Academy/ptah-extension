@@ -29,7 +29,6 @@ import {
   wireAgentEventListeners,
 } from '@ptah-extension/cli-agent-runtime';
 import { CliAgentRpcHandlers } from './rpc/handlers/cli-agent-rpc.handlers.js';
-import { SkillsShRpcHandlers } from './rpc/handlers/skills-sh-rpc.handlers.js';
 
 /**
  * RPC methods that have NO sensible CLI implementation — they all sit on top
@@ -142,8 +141,6 @@ export class CliRpcMethodRegistrationService {
         IndexingRpcHandlers,
       ],
     });
-    c.registerSingleton(SkillsShRpcHandlers);
-    c.resolve(SkillsShRpcHandlers).register();
     c.registerSingleton(CliAgentRpcHandlers);
     c.resolve(CliAgentRpcHandlers).register();
 

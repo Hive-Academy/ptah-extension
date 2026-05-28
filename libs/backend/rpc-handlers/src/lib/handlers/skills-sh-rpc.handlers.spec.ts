@@ -1,21 +1,16 @@
 /**
- * Parity test for the CLI Skills.sh RPC Handlers.
+ * Surface test for the shared Skills.sh RPC Handlers.
  *
- * Verifies the CLI re-registration of `SkillsShRpcHandlers` exposes the
- * same six RPC method names as the
- * Electron handler, in the same registration order. Drift between the two
- * apps would silently regress functionality (e.g. webview "Recommended
- * Skills" panel pointing at a method the CLI no longer registers), so this
- * spec is intentionally narrow but mandatory.
- *
- * The full behavior matrix of the handler is owned by the existing webview /
- * Electron specs; we only smoke-test the surface here.
+ * Verifies the consolidated `SkillsShRpcHandlers` (lifted from the per-app
+ * copies into `@ptah-extension/rpc-handlers`) exposes the same six RPC method
+ * names in the same registration order. This replaces the per-app parity
+ * spec that previously guarded VS Code / Electron / CLI drift — there is now a
+ * single source of truth, so the test guards the shared surface directly.
  */
 
 import 'reflect-metadata';
-import { container } from 'tsyringe';
 
-import { SkillsShRpcHandlers } from './skills-sh-rpc.handlers.js';
+import { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 
 interface RegisteredMethod {
   method: string;
@@ -41,11 +36,7 @@ class StubWorkspaceProvider {
   }
 }
 
-describe('CLI SkillsShRpcHandlers — parity surface', () => {
-  afterEach(() => {
-    container.clearInstances();
-  });
-
+describe('SkillsShRpcHandlers (shared) — surface', () => {
   it('exposes the six skillsSh:* method names in registration order', () => {
     expect([...SkillsShRpcHandlers.METHODS]).toEqual([
       'skillsSh:search',

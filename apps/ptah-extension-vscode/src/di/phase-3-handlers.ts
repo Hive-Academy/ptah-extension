@@ -88,7 +88,6 @@ export function registerPhase3Handlers(
         c.resolve(EditorRpcHandlers),
         c.resolve(CommandRpcHandlers),
         c.resolve(AgentRpcHandlers),
-        c.resolve(SkillsShRpcHandlers),
         c, // Pass container instance
       ),
   });

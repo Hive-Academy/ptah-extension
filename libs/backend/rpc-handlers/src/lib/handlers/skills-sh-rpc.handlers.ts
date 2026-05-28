@@ -1,7 +1,7 @@
 /**
- * Electron Skills.sh RPC Handlers
+ * Skills.sh RPC Handlers
  *
- * Electron-specific implementations for Skills.sh marketplace methods:
+ * Platform-agnostic implementations for Skills.sh marketplace methods:
  * - skillsSh:search - Search skills via CLI
  * - skillsSh:listInstalled - List installed skills from filesystem
  * - skillsSh:install - Install a skill
@@ -9,8 +9,12 @@
  * - skillsSh:getPopular - Get popular skills (cached)
  * - skillsSh:detectRecommended - Detect workspace technologies and recommend skills
  *
- * Mirrors the VS Code SkillsShRpcHandlers but uses IWorkspaceProvider
- * instead of vscode.workspace.workspaceFolders for workspace path resolution.
+ * Lifted from
+ * `apps/ptah-electron/src/services/rpc/handlers/skills-sh-rpc.handlers.ts` so
+ * all three apps (VS Code, Electron, CLI) consume a single copy via
+ * `registerAllRpcHandlers()`. The Electron copy was already platform-agnostic
+ * (`IWorkspaceProvider` via `PLATFORM_TOKENS.WORKSPACE_PROVIDER`, no `vscode`
+ * import), so this is a verbatim consolidation — no behavior change.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -27,7 +31,14 @@ import type {
   SkillShEntry,
   InstalledSkill,
   SkillDetectionResult,
+  RpcMethodName,
 } from '@ptah-extension/shared';
+import {
+  SAFE_SOURCE_PATTERN,
+  SAFE_SKILL_ID_PATTERN,
+  SAFE_SKILL_NAME_PATTERN,
+  sanitizeSearchQuery,
+} from './skills-sh-rpc.schema';
 
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
   {
@@ -115,10 +126,17 @@ const TECH_SKILL_KEYWORDS: Record<string, string[]> = {
   remotion: ['remotion-best-practices'],
 };
 
-const SAFE_SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
-
 @injectable()
 export class SkillsShRpcHandlers {
+  static readonly METHODS = [
+    'skillsSh:search',
+    'skillsSh:listInstalled',
+    'skillsSh:install',
+    'skillsSh:uninstall',
+    'skillsSh:getPopular',
+    'skillsSh:detectRecommended',
+  ] as const satisfies readonly RpcMethodName[];
+
   private popularCache: { data: SkillShEntry[]; timestamp: number } | null =
     null;
 
@@ -139,15 +157,8 @@ export class SkillsShRpcHandlers {
     this.registerGetPopular();
     this.registerDetectRecommended();
 
-    this.logger.debug('Electron Skills.sh RPC handlers registered', {
-      methods: [
-        'skillsSh:search',
-        'skillsSh:listInstalled',
-        'skillsSh:install',
-        'skillsSh:uninstall',
-        'skillsSh:getPopular',
-        'skillsSh:detectRecommended',
-      ],
+    this.logger.debug('Skills.sh RPC handlers registered', {
+      methods: SkillsShRpcHandlers.METHODS,
     });
   }
 
@@ -161,7 +172,7 @@ export class SkillsShRpcHandlers {
           query: params.query,
         });
 
-        const sanitizedQuery = params.query.replace(/[^a-zA-Z0-9\s\-._/]/g, '');
+        const sanitizedQuery = sanitizeSearchQuery(params.query);
         if (!sanitizedQuery.trim()) {
           return { skills: [], error: 'Invalid search query' };
         }
@@ -316,7 +327,7 @@ export class SkillsShRpcHandlers {
           };
         }
 
-        if (params.skillId && !/^[a-zA-Z0-9_.-]+$/.test(params.skillId)) {
+        if (params.skillId && !SAFE_SKILL_ID_PATTERN.test(params.skillId)) {
           return {
             success: false,
             error: `Invalid skillId format: "${params.skillId}".`,
@@ -385,7 +396,7 @@ export class SkillsShRpcHandlers {
           scope: params.scope,
         });
 
-        if (!/^[a-zA-Z0-9_.-]+$/.test(params.name)) {
+        if (!SAFE_SKILL_NAME_PATTERN.test(params.name)) {
           return {
             success: false,
             error: `Invalid skill name format: "${params.name}".`,
