@@ -6,7 +6,11 @@ import {
 } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS, bindLicenseReactivity } from '@ptah-extension/vscode-core';
-import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  WebviewManager,
+  SentryService,
+} from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { SDK_TOKENS, setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
@@ -23,6 +27,7 @@ import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
 import {
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
+  type VecLoadDiagnostic,
 } from '@ptah-extension/persistence-sqlite';
 import type { EmbedderWorkerClient } from '@ptah-extension/memory-curator';
 import {
@@ -205,6 +210,10 @@ export async function wireRuntime(
         console.log(
           '[Ptah Electron] SQLite connection opened + migrated successfully',
         );
+        emitVecLoadDiagnostic(
+          container,
+          refs.sqliteConnection.vecLoadDiagnostic,
+        );
       } else {
         console.warn(
           '[Ptah Electron] PERSISTENCE_TOKENS.SQLITE_CONNECTION not registered, skipping',
@@ -217,6 +226,12 @@ export async function wireRuntime(
         /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(
           errorMessage,
         );
+      if (refs.sqliteConnection) {
+        emitVecLoadDiagnostic(
+          container,
+          refs.sqliteConnection.vecLoadDiagnostic,
+        );
+      }
       console.error(
         '\n' +
           'â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—\n' +
@@ -806,4 +821,67 @@ export async function wireRuntime(
     scheduleWarmup,
     refs,
   };
+}
+
+let vecLoadDiagnosticEmitted = false;
+
+function emitVecLoadDiagnostic(
+  container: DependencyContainer,
+  diagnostic: VecLoadDiagnostic,
+): void {
+  if (vecLoadDiagnosticEmitted) return;
+  vecLoadDiagnosticEmitted = true;
+
+  const summary = {
+    ok: diagnostic.ok,
+    reason: diagnostic.reason,
+    attemptedPath: diagnostic.attemptedPath,
+    packageName: diagnostic.packageName,
+    fsExists: diagnostic.fsExists,
+    electronVersion: diagnostic.electronVersion,
+    processArch: diagnostic.processArch,
+    processPlatform: diagnostic.processPlatform,
+    error: diagnostic.error,
+    attempts: diagnostic.errorChain?.length ?? 0,
+    chain: diagnostic.errorChain,
+  };
+
+  if (diagnostic.ok) {
+    console.log('[persistence-sqlite] sqlite-vec diagnostic', summary);
+  } else {
+    console.warn(
+      '[persistence-sqlite] sqlite-vec diagnostic (offline)',
+      summary,
+    );
+  }
+
+  if (!diagnostic.ok) {
+    try {
+      const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+      if (sentry.isInitialized()) {
+        sentry.addBreadcrumb(
+          'persistence.sqlite-vec',
+          `sqlite-vec load ${diagnostic.reason}`,
+          {
+            reason: diagnostic.reason,
+            packageName: diagnostic.packageName,
+            fsExists: diagnostic.fsExists,
+            electronVersion: diagnostic.electronVersion,
+            processArch: diagnostic.processArch,
+            processPlatform: diagnostic.processPlatform,
+            errorCode: diagnostic.error?.code,
+            errorMessage: diagnostic.error?.message,
+            attempts: diagnostic.errorChain?.length ?? 0,
+          },
+        );
+      }
+    } catch (sentryError: unknown) {
+      console.warn(
+        '[Ptah Electron] failed to emit sentry breadcrumb for vec diagnostic',
+        sentryError instanceof Error
+          ? sentryError.message
+          : String(sentryError),
+      );
+    }
+  }
 }

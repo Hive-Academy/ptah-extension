@@ -27,7 +27,13 @@ import {
 import {
   registerPersistenceSqliteServices,
   PERSISTENCE_TOKENS,
+  resolveVecPackageName,
+  resolveVecBinaryName,
+  type SqliteConnectionService,
+  type SqliteVecPathResolver,
 } from '@ptah-extension/persistence-sqlite';
+import * as fs from 'node:fs';
+import { app } from 'electron';
 import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -94,6 +100,21 @@ export function registerPhase2Libraries(
     });
 
     registerPersistenceSqliteServices(container, logger);
+    try {
+      const sqliteConnection = container.resolve<SqliteConnectionService>(
+        PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+      );
+      const hostFallbackResolver =
+        createElectronVecPathFallbackResolver(logger);
+      sqliteConnection.configure({
+        vecPathFallbackResolver: hostFallbackResolver,
+      });
+    } catch (error) {
+      logger.warn(
+        '[Electron DI] Failed to wire electron vec fallback resolver (non-fatal)',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
     registerMemoryCuratorServices(container, logger);
     logger.info('[Electron DI] Memory curator services registered (Track 1)', {
       dbPath,
@@ -133,4 +154,70 @@ export function registerPhase2Libraries(
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
+}
+
+function createElectronVecPathFallbackResolver(
+  logger: Logger,
+): SqliteVecPathResolver {
+  return () => {
+    const packageName = resolveVecPackageName();
+    if (!packageName) {
+      throw new Error(
+        `[Electron DI] no sqlite-vec package mapping for ${process.platform}/${process.arch}`,
+      );
+    }
+    const binaryName = resolveVecBinaryName();
+    const candidates: string[] = [];
+    if (
+      typeof process.resourcesPath === 'string' &&
+      process.resourcesPath.length > 0
+    ) {
+      candidates.push(
+        path.join(
+          process.resourcesPath,
+          'app.asar.unpacked',
+          'node_modules',
+          packageName,
+          binaryName,
+        ),
+      );
+    }
+    let appPath: string | undefined;
+    try {
+      appPath = app.getAppPath();
+    } catch (error: unknown) {
+      logger.warn(
+        '[Electron DI] app.getAppPath() unavailable during vec fallback resolution',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+    if (appPath && appPath.endsWith('app.asar')) {
+      candidates.push(
+        path.join(
+          appPath + '.unpacked',
+          'node_modules',
+          packageName,
+          binaryName,
+        ),
+      );
+    }
+    if (appPath) {
+      candidates.push(
+        path.join(appPath, 'node_modules', packageName, binaryName),
+      );
+    }
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate)) return candidate;
+      } catch (error: unknown) {
+        logger.warn('[Electron DI] fs.existsSync threw for vec candidate', {
+          candidate,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    throw new Error(
+      `[Electron DI] no sqlite-vec binary found among electron-host candidates: ${candidates.join(' | ')}`,
+    );
+  };
 }
