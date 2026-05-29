@@ -57,6 +57,7 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  RpcResult,
 } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -967,7 +968,7 @@ export class ChatViewComponent {
     this._actionInFlight.set(new Set([...inFlight, messageId]));
 
     try {
-      await this.attemptRewind(sessionId, messageId);
+      await this.attemptRewindV2(sessionId, messageId);
     } finally {
       const next = new Set(this._actionInFlight());
       next.delete(messageId);
@@ -975,7 +976,7 @@ export class ChatViewComponent {
     }
   }
 
-  private async attemptRewind(
+  private async attemptRewindV2(
     sessionId: SessionId,
     messageId: string,
   ): Promise<void> {
@@ -1012,85 +1013,124 @@ export class ChatViewComponent {
           (files.length > 10 ? `\n…and ${files.length - 10} more` : '');
 
     const header = checkpointsLost
-      ? 'The conversation will be truncated to this message.'
-      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). The conversation will also be truncated to this message.`;
+      ? 'A new session will be forked from this message.'
+      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). A new session will be forked from this message.`;
 
-    const confirmed = await this._confirmDialog.confirm({
+    const dialogResult = await this._confirmDialog.confirmWithCheckboxes({
       title: 'Rewind to this message?',
       message: `${header}\n\n${fileList}`,
       confirmLabel: 'Rewind',
       cancelLabel: 'Cancel',
       confirmStyle: 'warning',
+      checkboxes: [
+        {
+          id: 'deleteOriginal',
+          label: 'Also delete original session',
+          defaultChecked: false,
+        },
+      ],
     });
 
-    if (!confirmed) return;
+    if (!dialogResult.confirmed) return;
+    const deleteOriginal = dialogResult.checkboxes['deleteOriginal'] === true;
 
+    let rollbackSuffix: string | null = null;
     const commit = await this._claudeRpc.rewindFiles(
       sessionId,
       messageId,
       false,
     );
-
     if (!commit.isSuccess()) {
-      this.showActionError(`Rewind failed: ${commit.error ?? 'Unknown error'}`);
-      return;
+      rollbackSuffix = `file rollback skipped: ${commit.error ?? 'unknown error'}`;
+    } else if (!commit.data.canRewind) {
+      rollbackSuffix = `file rollback skipped: ${commit.data.error ?? 'unknown reason'}`;
     }
-    if (!commit.data.canRewind) {
+
+    const forkResult = await this._claudeRpc.forkSession(
+      sessionId,
+      messageId,
+      undefined,
+      'rewind',
+    );
+
+    if (!forkResult.isSuccess()) {
+      if (this.isMessageIdNotFoundError(forkResult)) {
+        this.showActionError(
+          'Cannot rewind to this point — no assistant reply exists yet.',
+        );
+        return;
+      }
       this.showActionError(
-        commit.data.error ?? 'Rewind failed without an error message.',
+        `Rewind failed: ${forkResult.error ?? 'Unknown error'}`,
       );
       return;
     }
 
-    let editorRefreshFailed = false;
-    const filesChanged = commit.data.filesChanged ?? [];
-    if (filesChanged.length > 0) {
-      try {
-        const revert = await this._claudeRpc.call('editor:revertFiles', {
-          files: filesChanged,
-        });
-        if (!revert.isSuccess()) {
-          editorRefreshFailed = true;
-        }
-      } catch {
-        editorRefreshFailed = true;
-      }
-    }
-    const tabId = this.resolvedTabId();
-    const workspacePath = this.vscodeService.config().workspaceRoot;
-    let truncateFailed = false;
-    if (tabId) {
-      const truncated = await this._claudeRpc.call('chat:resume', {
-        sessionId,
-        tabId,
-        workspacePath,
-        activate: true,
-      });
-      if (!truncated.isSuccess() || truncated.data.success === false) {
-        truncateFailed = true;
-      } else {
-        try {
-          await this.chatStore.switchSession(sessionId);
-        } catch {
-          truncateFailed = true;
-        }
-      }
+    const newSessionId = forkResult.data.newSessionId;
+    let swapFailed = false;
+
+    if (this._appState.layoutMode() === 'grid') {
+      this._appState.requestCanvasSession(newSessionId, 'Rewind');
     } else {
-      truncateFailed = true;
+      this._tabManager.openSessionTab(newSessionId, 'Rewind');
+      try {
+        await this.chatStore.switchSession(newSessionId);
+      } catch (err) {
+        swapFailed = true;
+        this.showActionError(
+          `Rewind tab opened, but loading history failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
 
-    const changedCount = filesChanged.length;
-    const baseMsg =
-      changedCount === 0
-        ? 'Rewind complete — conversation truncated; no files changed.'
-        : `Rewind complete — ${changedCount} file(s) reverted, conversation truncated.`;
-    const suffix = [
-      editorRefreshFailed ? 'editor refresh failed' : null,
-      truncateFailed ? 'transcript truncation failed' : null,
-    ]
-      .filter((s): s is string => s !== null)
-      .join(', ');
-    this.showActionInfo(suffix ? `${baseMsg} (${suffix})` : baseMsg);
+    if (deleteOriginal && !swapFailed) {
+      await this.deleteOriginalSession(sessionId);
+    }
+
+    if (swapFailed) return;
+
+    const baseMsg = 'Rewind complete — switched to new session';
+    this.showActionInfo(
+      rollbackSuffix ? `${baseMsg} (${rollbackSuffix})` : baseMsg,
+    );
+  }
+
+  private isMessageIdNotFoundError<T>(result: RpcResult<T>): boolean {
+    if (result.errorCode === 'MESSAGE_ID_NOT_FOUND') return true;
+    const msg = result.error ?? '';
+    return msg.includes('not found in session history');
+  }
+
+  private async deleteOriginalSession(
+    originalId: SessionId,
+  ): Promise<void> {
+    try {
+      const tabs = this._tabManager.findTabsBySessionId(originalId);
+      for (const tab of tabs) {
+        try {
+          await this._tabManager.closeTab(tab.id);
+        } catch (err) {
+          console.warn(
+            '[chat-view] failed to close tab during delete-original',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+      const del = await this._claudeRpc.deleteSession(originalId);
+      if (!del.isSuccess()) {
+        console.warn(
+          '[chat-view] deleteSession failed during delete-original:',
+          del.error,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        '[chat-view] deleteOriginalSession failed:',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   /** Handle "New Session" request from context warning bar */
