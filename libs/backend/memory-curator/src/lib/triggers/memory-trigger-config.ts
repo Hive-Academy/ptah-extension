@@ -26,6 +26,7 @@ export const MEMORY_TRIGGER_KEYS = {
     enabled: 'memory.triggers.sessionEnd.enabled',
   },
   maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
+  maxObservationsPerCurate: 'memory.triggers.maxObservationsPerCurate',
 } as const;
 
 export const DEFAULT_CUE_LIST: readonly string[] = [
@@ -61,6 +62,7 @@ export const MEMORY_TRIGGER_DEFAULTS = {
     enabled: true,
   },
   maxCuratesPerHour: 12,
+  maxObservationsPerCurate: 500,
 } as const;
 
 export const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> =

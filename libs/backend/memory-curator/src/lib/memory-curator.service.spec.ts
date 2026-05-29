@@ -87,7 +87,10 @@ describe('MemoryCuratorService — event ring buffer', () => {
 
   it('curate() with no drafts records curator-run event + lastRun', async () => {
     const svc = buildService();
-    const stats = await svc.curate({ sessionId: 'abc' });
+    const stats = await svc.curate({
+      sessionId: 'abc',
+      transcript: 'real transcript content',
+    });
     expect(stats.extracted).toBe(0);
     const info = svc.lastRunInfo();
     expect(info.at).not.toBeNull();
@@ -145,8 +148,16 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM;
     const svc = buildService({ llm });
-    const p1 = svc.curate({ sessionId: 'sess-A', workspaceRoot: '/ws' });
-    const p2 = svc.curate({ sessionId: 'sess-A', workspaceRoot: '/ws' });
+    const p1 = svc.curate({
+      sessionId: 'sess-A',
+      workspaceRoot: '/ws',
+      transcript: 't',
+    });
+    const p2 = svc.curate({
+      sessionId: 'sess-A',
+      workspaceRoot: '/ws',
+      transcript: 't',
+    });
     expect(extract).toHaveBeenCalledTimes(1);
     resolvers[0]([]);
     const [r1, r2] = await Promise.all([p1, p2]);
@@ -161,8 +172,8 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
     } as unknown as ICuratorLLM;
     const svc = buildService({ llm });
     await Promise.all([
-      svc.curate({ sessionId: 'A', workspaceRoot: '/ws' }),
-      svc.curate({ sessionId: 'B', workspaceRoot: '/ws' }),
+      svc.curate({ sessionId: 'A', workspaceRoot: '/ws', transcript: 't' }),
+      svc.curate({ sessionId: 'B', workspaceRoot: '/ws', transcript: 't' }),
     ]);
     expect(extract).toHaveBeenCalledTimes(2);
   });
@@ -174,8 +185,149 @@ describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', ()
       resolve: jest.fn().mockResolvedValue([]),
     } as unknown as ICuratorLLM;
     const svc = buildService({ llm });
-    await svc.curate({ sessionId: 'A', workspaceRoot: '/ws' });
-    await svc.curate({ sessionId: 'A', workspaceRoot: '/ws' });
+    await svc.curate({ sessionId: 'A', workspaceRoot: '/ws', transcript: 't' });
+    await svc.curate({ sessionId: 'A', workspaceRoot: '/ws', transcript: 't' });
     expect(extract).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('MemoryCuratorService — placeholder skip event', () => {
+  it('curate() with empty transcript pushes curator-skipped-no-data and bypasses llm.extract', async () => {
+    const extract = jest.fn().mockResolvedValue([]);
+    const resolve = jest.fn().mockResolvedValue([]);
+    const llm = { extract, resolve } as unknown as ICuratorLLM;
+    const registry = {
+      register: jest.fn(() => () => undefined),
+    } as unknown as ICompactionCallbackRegistry;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+      updateSalience: jest.fn(),
+    } as unknown as MemoryStore;
+    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
+    const transcriptReader = {
+      read: jest.fn().mockResolvedValue(''),
+    } as unknown as ITranscriptReader;
+    const svc = new MemoryCuratorService(
+      makeLogger(),
+      registry,
+      store,
+      scorer,
+      transcriptReader,
+      llm,
+    );
+    const stats = await svc.curate({ sessionId: 'sess-skip' });
+    expect(stats).toEqual({ extracted: 0, merged: 0, created: 0, skipped: 0 });
+    expect(extract).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+    const events = svc.recentEvents(5);
+    const skip = events.find((e) => e.kind === 'curator-skipped-no-data');
+    expect(skip).toBeDefined();
+    expect(skip?.sessionId).toBe('sess-skip');
+  });
+
+  it('curate() with whitespace-only transcript still skips (treated as placeholder)', async () => {
+    const extract = jest.fn().mockResolvedValue([]);
+    const llm = {
+      extract,
+      resolve: jest.fn().mockResolvedValue([]),
+    } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+    const stats = await svc.curate({ sessionId: 's2', transcript: '   \n  ' });
+    expect(stats.extracted).toBe(0);
+    expect(extract).not.toHaveBeenCalled();
+    const skip = svc
+      .recentEvents(5)
+      .find((e) => e.kind === 'curator-skipped-no-data');
+    expect(skip).toBeDefined();
+  });
+});
+
+describe('MemoryCuratorService — real-fixture integration (Critical Verification Point 1)', () => {
+  it('drives a recorded JSONL transcript through doCurate with a fake ICuratorLLM and extracts a fully-populated 5-field memory draft', async () => {
+    const recordedTranscript = [
+      '{"type":"user","content":"please add structured concept tags to the curator output"}',
+      '{"type":"assistant","content":"investigating extract prompt + zod schema"}',
+      '{"type":"tool_result","content":"edited adapter prompt + schema; tests pass"}',
+      '{"type":"assistant","content":"committed change at HEAD"}',
+    ].join('\n');
+
+    const populatedDraft = {
+      kind: 'event' as const,
+      subject: 'curator output concept tags',
+      content:
+        'Added structured concept tags + 5-field summary plumb-through to the curator adapter.',
+      salienceHint: 0.6,
+      request: 'Add concept tags + 5-field summary fields to curator output',
+      investigated: 'curator-llm-adapter prompt + Zod schema',
+      learned:
+        'Adapter is the bridge; prompt + schema must both grow together for round-trip',
+      completed:
+        'Prompt extended; schema extended; spec coverage updated; tests green',
+      nextSteps: 'Audit downstream consumers for default-discovery fallback',
+      type: 'feature' as const,
+      concepts: ['curator', 'memory', 'schema', 'prompt'] as const,
+      files: [
+        'libs/backend/agent-sdk/src/lib/curator-llm-adapter/index.ts',
+      ] as const,
+    };
+    const extract = jest.fn().mockResolvedValue([populatedDraft]);
+    const resolve = jest
+      .fn()
+      .mockResolvedValue([{ ...populatedDraft, mergeTargetId: null }]);
+    const llm = { extract, resolve } as unknown as ICuratorLLM;
+
+    const registry = {
+      register: jest.fn(() => () => undefined),
+    } as unknown as ICompactionCallbackRegistry;
+    const insertMemoryWithChunks = jest.fn().mockResolvedValue(undefined);
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      insertMemoryWithChunks,
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+      updateSalience: jest.fn(),
+    } as unknown as MemoryStore;
+    const scorer = { score: jest.fn(() => 0.75) } as unknown as SalienceScorer;
+    const transcriptReader = {
+      read: jest.fn().mockResolvedValue(recordedTranscript),
+    } as unknown as ITranscriptReader;
+
+    const svc = new MemoryCuratorService(
+      makeLogger(),
+      registry,
+      store,
+      scorer,
+      transcriptReader,
+      llm,
+    );
+
+    const stats = await svc.curate({
+      sessionId: 'fixture-A',
+      workspaceRoot: '/ws',
+      transcript: recordedTranscript,
+    });
+
+    expect(stats.extracted).toBeGreaterThanOrEqual(1);
+    expect(stats.created).toBe(1);
+    expect(stats.merged).toBe(0);
+    expect(stats.skipped).toBe(0);
+
+    expect(extract).toHaveBeenCalledWith(recordedTranscript, undefined);
+    expect(insertMemoryWithChunks).toHaveBeenCalledTimes(1);
+
+    const insertedMemory = (insertMemoryWithChunks as jest.Mock).mock
+      .calls[0][0];
+    expect(insertedMemory.request).toBe(populatedDraft.request);
+    expect(insertedMemory.investigated).toBe(populatedDraft.investigated);
+    expect(insertedMemory.learned).toBe(populatedDraft.learned);
+    expect(insertedMemory.completed).toBe(populatedDraft.completed);
+    expect(insertedMemory.nextSteps).toBe(populatedDraft.nextSteps);
+    expect(insertedMemory.type).toBe('feature');
+    expect(insertedMemory.type).not.toBe('discovery');
+    expect(insertedMemory.concepts).toEqual(populatedDraft.concepts);
+    expect(insertedMemory.files).toEqual(populatedDraft.files);
   });
 });

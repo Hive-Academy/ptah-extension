@@ -5,6 +5,7 @@ import type {
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import type { ITranscriptReader } from '@ptah-extension/memory-contracts';
 import type {
   JsonlReaderService,
   PostToolUseCallback,
@@ -23,10 +24,19 @@ import type {
   ToolFailurePayload,
   SessionEndHookCallbackRegistry,
   SessionEndHookPayload,
+  PreToolUseCallbackRegistry,
+  PreToolUsePayload,
+  SessionStartCallbackRegistry,
+  SessionStartPayload,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { MemoryTriggerService } from './memory-trigger.service';
 import type { MemoryCuratorService } from '../memory-curator.service';
+import type {
+  ObservationQueueInsert,
+  ObservationQueueRow,
+  ObservationQueueStore,
+} from '../observation-queue.store';
 
 function makeLogger(): Logger {
   return {
@@ -185,6 +195,7 @@ function makeWorkspace(
     'memory.triggers.userPromptSubmit.minPromptLength': 20,
     'memory.triggers.postToolUse.enabled': true,
     'memory.triggers.maxCuratesPerHour': 12,
+    'memory.triggers.maxObservationsPerCurate': 500,
     ...overrides,
   };
   return {
@@ -234,10 +245,72 @@ function makeJsonl(): JsonlReaderService {
   } as unknown as JsonlReaderService;
 }
 
+interface FakeQueueStore {
+  store: ObservationQueueStore;
+  inserts: ObservationQueueInsert[];
+  rowsBySession: Map<string, ObservationQueueRow[]>;
+  markProcessed: jest.Mock;
+  nextId: { value: number };
+}
+
+function makeObservationQueue(): FakeQueueStore {
+  const inserts: ObservationQueueInsert[] = [];
+  const rowsBySession = new Map<string, ObservationQueueRow[]>();
+  const nextId = { value: 1 };
+  const markProcessed = jest.fn((ids: readonly number[]) => {
+    for (const [, rows] of rowsBySession) {
+      for (const r of rows) {
+        if (ids.includes(r.id)) {
+          (r as unknown as { processedAt: number }).processedAt = Date.now();
+        }
+      }
+    }
+  });
+  const store = {
+    insert: jest.fn((insert: ObservationQueueInsert) => {
+      inserts.push(insert);
+      const row: ObservationQueueRow = {
+        id: nextId.value++,
+        sessionId: insert.sessionId,
+        workspaceRoot: insert.workspaceRoot,
+        kind: insert.kind,
+        toolName: insert.toolName ?? null,
+        toolInputJson: insert.toolInputJson ?? null,
+        toolResponseText: insert.toolResponseText ?? null,
+        assistantMessage: insert.assistantMessage ?? null,
+        userPrompt: insert.userPrompt ?? null,
+        filePath: insert.filePath ?? null,
+        promptNumber: insert.promptNumber ?? null,
+        capturedAt: Date.now(),
+        processedAt: null,
+      };
+      const arr = rowsBySession.get(insert.sessionId) ?? [];
+      arr.push(row);
+      rowsBySession.set(insert.sessionId, arr);
+    }),
+    drainForSession: jest.fn((sessionId: string, limit = 500) => {
+      const arr = rowsBySession.get(sessionId) ?? [];
+      return arr.filter((r) => r.processedAt === null).slice(0, limit);
+    }),
+    markProcessed,
+    purgeOlderThan: jest.fn(() => 0),
+    countUnprocessed: jest.fn(() => 0),
+  } as unknown as ObservationQueueStore;
+  return { store, inserts, rowsBySession, markProcessed, nextId };
+}
+
+function makeTranscriptReader(text = ''): ITranscriptReader {
+  return {
+    read: jest.fn().mockResolvedValue(text),
+  } as unknown as ITranscriptReader;
+}
+
 function buildService(opts?: {
   workspace?: IWorkspaceProvider;
   curator?: MemoryCuratorService;
   rateLimiter?: CuratorRateLimitService;
+  transcriptText?: string;
+  observationQueue?: FakeQueueStore;
 }): {
   service: MemoryTriggerService;
   activity: ActivityHarness;
@@ -253,9 +326,16 @@ function buildService(opts?: {
     SessionEndHookPayload,
     SessionEndHookCallbackRegistry
   >;
+  preToolUse: SetRegistryHarness<PreToolUsePayload, PreToolUseCallbackRegistry>;
+  sessionStart: SetRegistryHarness<
+    SessionStartPayload,
+    SessionStartCallbackRegistry
+  >;
   curator: MemoryCuratorService;
   workspace: IWorkspaceProvider;
   rateLimiter: CuratorRateLimitService;
+  queue: FakeQueueStore;
+  transcriptReader: ITranscriptReader;
 } {
   const activity = makeActivityRegistry();
   const sessionEnd = makeSessionEndRegistry();
@@ -264,10 +344,14 @@ function buildService(opts?: {
   const stop = makeSetRegistry<StopPayload>();
   const toolFailure = makeSetRegistry<ToolFailurePayload>();
   const sessionEndHook = makeSetRegistry<SessionEndHookPayload>();
+  const preToolUse = makeSetRegistry<PreToolUsePayload>();
+  const sessionStart = makeSetRegistry<SessionStartPayload>();
   const curator = opts?.curator ?? makeCurator();
   const workspace = opts?.workspace ?? makeWorkspace();
   const rateLimiter =
     opts?.rateLimiter ?? new CuratorRateLimitService(makeLogger());
+  const queue = opts?.observationQueue ?? makeObservationQueue();
+  const transcriptReader = makeTranscriptReader(opts?.transcriptText ?? '');
   const service = new MemoryTriggerService(
     makeLogger(),
     curator,
@@ -283,6 +367,10 @@ function buildService(opts?: {
     toolFailure.registry as unknown as ToolFailureCallbackRegistry,
     sessionEndHook.registry as unknown as SessionEndHookCallbackRegistry,
     rateLimiter,
+    queue.store,
+    preToolUse.registry as unknown as PreToolUseCallbackRegistry,
+    sessionStart.registry as unknown as SessionStartCallbackRegistry,
+    transcriptReader,
   );
   return {
     service,
@@ -302,9 +390,19 @@ function buildService(opts?: {
       SessionEndHookPayload,
       SessionEndHookCallbackRegistry
     >,
+    preToolUse: preToolUse as unknown as SetRegistryHarness<
+      PreToolUsePayload,
+      PreToolUseCallbackRegistry
+    >,
+    sessionStart: sessionStart as unknown as SetRegistryHarness<
+      SessionStartPayload,
+      SessionStartCallbackRegistry
+    >,
     curator,
     workspace,
     rateLimiter,
+    queue,
+    transcriptReader,
   };
 }
 
@@ -612,12 +710,15 @@ describe('MemoryTriggerService — user-cue trigger', () => {
       }),
     );
     await Promise.resolve();
-    expect(curator.curate).toHaveBeenCalledWith({
-      sessionId: 's1',
-      workspaceRoot: '/ws',
-      transcript:
-        'please remember this important fact about the project layout',
-    });
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 's1',
+        workspaceRoot: '/ws',
+        transcript: expect.stringContaining(
+          'please remember this important fact about the project layout',
+        ),
+      }),
+    );
     expect(curator.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'user-cue-trigger',
@@ -747,7 +848,7 @@ describe('MemoryTriggerService — commit-detect trigger', () => {
       expect.objectContaining({
         sessionId: 's1',
         workspaceRoot: '/ws',
-        transcript: expect.stringContaining('Commits in this episode: 1'),
+        transcript: expect.stringContaining('commits=1'),
         salienceBoost: 0.1,
       }),
     );
@@ -963,7 +1064,7 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     expect(curator.curate).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 's1',
-        transcript: expect.stringContaining('Recovered after failure'),
+        transcript: expect.stringContaining('recovered=1'),
         salienceBoost: 0.2,
       }),
     );
@@ -1084,7 +1185,7 @@ describe('MemoryTriggerService — buffer preservation under rate-limit', () => 
     expect(curator.curate).toHaveBeenCalledTimes(2);
     expect(curator.curate).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        transcript: expect.stringContaining('Commits in this episode: 2'),
+        transcript: expect.stringContaining('commits=2'),
       }),
     );
   });
@@ -1256,7 +1357,7 @@ describe('MemoryTriggerService — turn recording independent of firing', () => 
     );
     expect(curator.curate).toHaveBeenCalledWith(
       expect.objectContaining({
-        transcript: expect.stringContaining('Recovered after failure'),
+        transcript: expect.stringContaining('recovered=1'),
         salienceBoost: 0.2,
       }),
     );
@@ -1278,8 +1379,10 @@ describe('MemoryTriggerService — salience boost threading', () => {
     await Promise.resolve();
     const call = (curator.curate as jest.Mock).mock.calls[0][0];
     expect(call.salienceBoost).toBeUndefined();
-    expect(call.transcript).toBe(
-      'please remember this important fact about the codebase',
+    expect(call.transcript).toEqual(
+      expect.stringContaining(
+        'please remember this important fact about the codebase',
+      ),
     );
   });
 
@@ -1321,5 +1424,254 @@ describe('MemoryTriggerService — salience boost threading', () => {
     expect(curator.curate).toHaveBeenCalledWith(
       expect.objectContaining({ salienceBoost: 0.2 }),
     );
+  });
+});
+
+describe('MemoryTriggerService — observation queue side effects', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('onUserPromptSubmit inserts a user-prompt row BEFORE the cue-match early-return (prompt always captured)', () => {
+    const { service, userPromptSubmit, queue } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.userPromptSubmit.cueList': ['will-not-match'],
+      }),
+    });
+    service.start();
+    userPromptSubmit.fire(
+      userPromptPayload({ prompt: 'a non-matching prompt about the project' }),
+    );
+    expect(queue.inserts).toContainEqual(
+      expect.objectContaining({
+        kind: 'user-prompt',
+        userPrompt: 'a non-matching prompt about the project',
+        sessionId: 's1',
+      }),
+    );
+  });
+
+  it('onUserPromptSubmit inserts a row even when the enabled gate is false', () => {
+    const { service, userPromptSubmit, queue } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.userPromptSubmit.enabled': false,
+      }),
+    });
+    service.start();
+    userPromptSubmit.fire(userPromptPayload());
+    expect(queue.inserts).toContainEqual(
+      expect.objectContaining({ kind: 'user-prompt' }),
+    );
+  });
+
+  it('onPostToolUse inserts a tool-use row BEFORE the commit-detect / episode branches', () => {
+    const { service, postToolUse, queue } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Edit',
+        toolInput: { file_path: '/ws/x.ts' },
+        toolOutput: 'ok',
+      }),
+    );
+    expect(queue.inserts).toContainEqual(
+      expect.objectContaining({
+        kind: 'tool-use',
+        toolName: 'Edit',
+        toolResponseText: 'ok',
+      }),
+    );
+  });
+
+  it('onStop inserts an assistant-turn row capturing the assistant message', () => {
+    const { service, stop, queue } = buildService();
+    service.start();
+    stop.fire(stopPayload({ lastAssistantMessage: 'turn body content' }));
+    expect(queue.inserts).toContainEqual(
+      expect.objectContaining({
+        kind: 'assistant-turn',
+        assistantMessage: 'turn body content',
+      }),
+    );
+  });
+
+  it('onToolFailure inserts a tool-failure row', () => {
+    const { service, toolFailure, queue } = buildService();
+    service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: 'TypeError: x is undefined',
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    expect(queue.inserts).toContainEqual(
+      expect.objectContaining({
+        kind: 'tool-failure',
+        toolName: 'Bash',
+        toolResponseText: 'TypeError: x is undefined',
+      }),
+    );
+  });
+
+  it('onPreToolUseRead inserts a file-read row only when toolName is Read', () => {
+    const { service, preToolUse, queue } = buildService();
+    service.start();
+    preToolUse.fire({
+      toolName: 'Read',
+      toolInput: { file_path: '/ws/src/index.ts' },
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 1,
+    });
+    expect(queue.inserts).toContainEqual(
+      expect.objectContaining({
+        kind: 'file-read',
+        filePath: '/ws/src/index.ts',
+      }),
+    );
+    queue.inserts.length = 0;
+    preToolUse.fire({
+      toolName: 'Edit',
+      toolInput: { file_path: '/ws/src/index.ts' },
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 2,
+    });
+    expect(queue.inserts).toHaveLength(0);
+  });
+
+  it('commit-detect path inserts a commit row in addition to the tool-use row', () => {
+    const { service, postToolUse, queue } = buildService();
+    service.start();
+    postToolUse.fire(postToolUsePayload());
+    const kinds = queue.inserts.map((i) => i.kind);
+    expect(kinds).toContain('tool-use');
+    expect(kinds).toContain('commit');
+  });
+});
+
+describe('MemoryTriggerService — invokeCurate transcript composition + queue lifecycle', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('invokeCurate composes JSONL excerpt + structured observation log + episode summary', async () => {
+    const queue = makeObservationQueue();
+    queue.rowsBySession.set('s1', [
+      {
+        id: 1,
+        sessionId: 's1',
+        workspaceRoot: '/ws',
+        kind: 'user-prompt',
+        toolName: null,
+        toolInputJson: null,
+        toolResponseText: null,
+        assistantMessage: null,
+        userPrompt: 'queued user prompt content',
+        filePath: null,
+        promptNumber: null,
+        capturedAt: 100,
+        processedAt: null,
+      },
+    ]);
+    const { service, stop, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+      transcriptText: '{"role":"user","content":"recorded jsonl line"}',
+      observationQueue: queue,
+    });
+    service.start();
+    stop.fire(stopPayload({ lastAssistantMessage: 'assistant body' }));
+    await Promise.resolve();
+    const lastCall = (curator.curate as jest.Mock).mock.calls.at(-1)[0];
+    expect(lastCall.transcript).toEqual(
+      expect.stringContaining('# Session JSONL excerpt'),
+    );
+    expect(lastCall.transcript).toEqual(
+      expect.stringContaining('recorded jsonl line'),
+    );
+    expect(lastCall.transcript).toEqual(
+      expect.stringContaining('# Structured observations from hooks'),
+    );
+    expect(lastCall.transcript).toEqual(
+      expect.stringContaining('queued user prompt content'),
+    );
+    expect(lastCall.transcript).toEqual(
+      expect.stringContaining('assistant body'),
+    );
+    expect(lastCall.transcript).toEqual(
+      expect.stringContaining('# Episode summary'),
+    );
+    expect(lastCall.transcript).toEqual(expect.stringContaining('turns=1'));
+  });
+
+  it('markProcessed is called with drained ids ONLY after curator.curate resolves', async () => {
+    const { service, stop, queue } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload({ lastAssistantMessage: 'a' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(queue.markProcessed).toHaveBeenCalledTimes(1);
+    const ids = (queue.markProcessed as jest.Mock).mock.calls[0][0];
+    expect(Array.isArray(ids)).toBe(true);
+    expect(ids.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('on curator failure, observation rows STAY unprocessed for retry on next trigger', async () => {
+    const failingCurator = {
+      curate: jest.fn().mockRejectedValue(new Error('curate boom')),
+      pushEvent: jest.fn(),
+      recentEvents: jest.fn(() => []),
+      lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+    } as unknown as MemoryCuratorService;
+    const { service, stop, queue } = buildService({
+      curator: failingCurator,
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload({ lastAssistantMessage: 'first attempt' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(queue.markProcessed).not.toHaveBeenCalled();
+    const unprocessed = (queue.rowsBySession.get('s1') ?? []).filter(
+      (r) => r.processedAt === null,
+    );
+    expect(unprocessed.length).toBeGreaterThan(0);
+  });
+
+  it('drain limit is honoured: large queue is capped by memory.triggers.maxObservationsPerCurate', async () => {
+    const queue = makeObservationQueue();
+    const drainSpy = queue.store.drainForSession as jest.Mock;
+    const { service, stop } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+        'memory.triggers.maxObservationsPerCurate': 7,
+      }),
+      observationQueue: queue,
+    });
+    service.start();
+    stop.fire(stopPayload());
+    await Promise.resolve();
+    expect(drainSpy).toHaveBeenCalledWith('s1', 7);
   });
 });

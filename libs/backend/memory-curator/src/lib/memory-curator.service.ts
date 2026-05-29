@@ -179,6 +179,24 @@ export class MemoryCuratorService {
     const transcript =
       (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER;
     const tier: MemoryTier = input.tier ?? 'recall';
+
+    if (transcript === TRANSCRIPT_PLACEHOLDER) {
+      const emptyStats: CuratorRunStats = {
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      };
+      this.lastRunAtMs = Date.now();
+      this.lastRunStatsCache = emptyStats;
+      this.pushEvent({
+        kind: 'curator-skipped-no-data',
+        timestamp: this.lastRunAtMs,
+        sessionId: input.sessionId,
+      });
+      return emptyStats;
+    }
+
     const drafts = await this.llm.extract(transcript, input.signal);
     if (drafts.length === 0) {
       const emptyStats: CuratorRunStats = {
@@ -261,6 +279,14 @@ export class MemoryCuratorService {
             subject: r.subject,
             content: r.content,
             salience: memorySalience,
+            request: r.request ?? null,
+            investigated: r.investigated ?? null,
+            learned: r.learned ?? null,
+            completed: r.completed ?? null,
+            nextSteps: r.nextSteps ?? null,
+            type: r.type,
+            concepts: r.concepts,
+            files: r.files,
           },
           [
             {

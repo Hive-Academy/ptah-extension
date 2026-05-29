@@ -6,11 +6,14 @@ import type {
 } from '@ptah-extension/platform-core';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import type { JsonlReaderService } from '@ptah-extension/agent-sdk';
+import type { ITranscriptReader } from '@ptah-extension/memory-contracts';
 import {
   CuratorRateLimitService,
   PostToolUseCallbackRegistry,
+  PreToolUseCallbackRegistry,
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
+  SessionStartCallbackRegistry,
   UserPromptSubmitCallbackRegistry,
   StopCallbackRegistry,
   ToolFailureCallbackRegistry,
@@ -18,6 +21,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { MemoryTriggerService } from './memory-trigger.service';
 import type { MemoryCuratorService } from '../memory-curator.service';
+import type { ObservationQueueStore } from '../observation-queue.store';
 
 function makeLogger(): Logger {
   return {
@@ -127,6 +131,18 @@ function buildHarness(opts?: {
   const sessionEndHookRegistry = new SessionEndHookCallbackRegistry(
     makeLogger(),
   );
+  const preToolUseRegistry = new PreToolUseCallbackRegistry(makeLogger());
+  const sessionStartRegistry = new SessionStartCallbackRegistry(makeLogger());
+  const observationQueue = {
+    insert: jest.fn(),
+    drainForSession: jest.fn(() => []),
+    markProcessed: jest.fn(),
+    purgeOlderThan: jest.fn(() => 0),
+    countUnprocessed: jest.fn(() => 0),
+  } as unknown as ObservationQueueStore;
+  const transcriptReader = {
+    read: jest.fn().mockResolvedValue(''),
+  } as unknown as ITranscriptReader;
   const service = new MemoryTriggerService(
     logger,
     curator,
@@ -142,6 +158,10 @@ function buildHarness(opts?: {
     toolFailureRegistry,
     sessionEndHookRegistry,
     rateLimiter,
+    observationQueue,
+    preToolUseRegistry,
+    sessionStartRegistry,
+    transcriptReader,
   );
   return {
     service,
@@ -179,11 +199,12 @@ describe('MemoryTriggerService integration — full event-loop', () => {
     await Promise.resolve();
 
     expect(curator.curate).toHaveBeenCalledTimes(1);
-    expect(curator.curate).toHaveBeenCalledWith({
-      sessionId: 's1',
-      workspaceRoot: '/ws',
-      transcript: 'please remember this important fact for me later',
-    });
+    expect(curator.curate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 's1',
+        workspaceRoot: '/ws',
+      }),
+    );
     expect(curator.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'user-cue-trigger',
