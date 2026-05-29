@@ -3,12 +3,14 @@ import {
   ChangeDetectionStrategy,
   input,
   computed,
+  inject,
 } from '@angular/core';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import {
   calculateSessionCostSummary,
-  formatModelDisplayName,
+  resolveModelDisplayName,
 } from '@ptah-extension/shared';
+import { ModelStateService } from '@ptah-extension/core';
 
 /**
  * CompactSessionStatsComponent - Inline stats badges for compact session card.
@@ -57,6 +59,8 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompactSessionStatsComponent {
+  private readonly modelState = inject(ModelStateService);
+
   readonly messages = input.required<readonly ExecutionChatMessage[]>();
   readonly preloadedStats = input<{
     totalCost: number | null;
@@ -95,7 +99,9 @@ export class CompactSessionStatsComponent {
 
   readonly modelName = computed(() => {
     const stats = this.liveModelStats();
-    return stats ? formatModelDisplayName(stats.model) : null;
+    return stats
+      ? resolveModelDisplayName(stats.model, this.modelState.availableModels())
+      : null;
   });
 
   readonly formattedTokens = computed(() => {

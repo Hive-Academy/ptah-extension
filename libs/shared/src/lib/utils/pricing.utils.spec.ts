@@ -1,16 +1,6 @@
 /**
  * Unit tests for pricing.utils.ts — dynamic model pricing lookup, cost
  * calculation, context window lookup, and display-name formatting.
- *
- * Covers branches for:
- *   - updatePricingMap / registerProviderPricing / getPricingMap
- *   - findModelPricing: empty input, synthetic tags, exact match, partial
- *     match (both directions), null return + warn-once suppression for unknown
- *   - calculateMessageCost: zero tokens, cache-inclusive, rounding, null for unknown
- *   - getModelContextWindow: empty, known, unknown (maxTokens undefined)
- *   - getModelPricingDescription: formatting to $/1M tokens
- *   - formatModelDisplayName: every Claude / GPT / Gemini / Kimi / GLM
- *     branch + date-suffix stripping + long-id truncation + empty input
  */
 
 import {
@@ -22,6 +12,7 @@ import {
   getModelPricingDescription,
   getPricingMap,
   registerProviderPricing,
+  resolveModelDisplayName,
   updatePricingMap,
 } from './pricing.utils';
 
@@ -252,100 +243,109 @@ describe('pricing.utils', () => {
     });
   });
 
-  describe('formatModelDisplayName', () => {
+  describe('formatModelDisplayName regex', () => {
     it('returns "Unknown" for empty input', () => {
       expect(formatModelDisplayName('')).toBe('Unknown');
     });
 
     it.each([
       ['claude-opus-4-7', 'Opus 4.7'],
-      ['claude-opus-4-6-20250623', 'Opus 4.6'],
-      ['claude-opus-4-5-20251101', 'Opus 4.5'],
-      ['claude-opus-4-20250514', 'Opus 4'],
-      ['claude-3-opus-20240229', 'Opus 3'],
-      ['some-opus-model-unmapped', 'Opus'],
-    ])('formats Claude Opus variant %s as %s', (id, expected) => {
+      ['claude-opus-4-6', 'Opus 4.6'],
+      ['claude-opus-4-5', 'Opus 4.5'],
+      ['claude-sonnet-4-6', 'Sonnet 4.6'],
+      ['claude-haiku-4-5', 'Haiku 4.5'],
+      ['claude-opus-4-8', 'Opus 4.8'],
+      ['claude-sonnet-5-0', 'Sonnet 5.0'],
+    ])('renders modern Claude %s as %s', (id, expected) => {
       expect(formatModelDisplayName(id)).toBe(expected);
     });
 
     it.each([
+      ['claude-opus-4-7-20250101', 'Opus 4.7'],
       ['claude-sonnet-4-6-20250514', 'Sonnet 4.6'],
-      ['claude-sonnet-4-5-20250929', 'Sonnet 4.5'],
-      ['claude-sonnet-4-20250219', 'Sonnet 4'],
-      ['claude-3-5-sonnet-20241022', 'Sonnet 3.5'],
-      ['plain-sonnet', 'Sonnet'],
-    ])('formats Claude Sonnet variant %s as %s', (id, expected) => {
-      expect(formatModelDisplayName(id)).toBe(expected);
-    });
-
-    it.each([
       ['claude-haiku-4-5-20251001', 'Haiku 4.5'],
-      ['claude-3-5-haiku-20241022', 'Haiku 3.5'],
-      ['claude-3-haiku-20240307', 'Haiku 3'],
-      ['plain-haiku', 'Haiku'],
-    ])('formats Claude Haiku variant %s as %s', (id, expected) => {
+    ])('strips 8-digit date suffix from %s -> %s', (id, expected) => {
       expect(formatModelDisplayName(id)).toBe(expected);
     });
 
     it.each([
-      ['gpt-4o-mini', 'GPT-4o Mini'],
-      ['gpt-4o-2024-08-06', 'GPT-4o'],
-      ['gpt-4-turbo', 'GPT-4 Turbo'],
-      ['gpt-4', 'GPT-4'],
-      ['gpt-3.5-turbo', 'GPT-3.5'],
-    ])('formats OpenAI %s as %s', (id, expected) => {
+      ['claude-opus-4-7-2025-01-01', 'Opus 4.7'],
+      ['claude-sonnet-4-6-2025-05-14', 'Sonnet 4.6'],
+    ])('strips ISO date suffix from %s -> %s', (id, expected) => {
       expect(formatModelDisplayName(id)).toBe(expected);
     });
 
     it.each([
-      ['gemini-2.5-pro', 'Gemini 2.5 Pro'],
-      ['gemini-2.5-flash', 'Gemini 2.5 Flash'],
-      ['gemini-2.0-pro', 'Gemini 2.0 Pro'],
-      ['gemini-2.0-flash', 'Gemini 2.0 Flash'],
-      ['gemini-2', 'Gemini 2'],
-      ['gemini-1.5-pro', 'Gemini 1.5 Pro'],
-      ['gemini-1.5-flash', 'Gemini 1.5 Flash'],
-      ['gemini-nano', 'Gemini'],
-    ])('formats Google Gemini %s as %s', (id, expected) => {
+      ['claude-3-5-sonnet', 'Sonnet 3.5'],
+      ['claude-3-5-haiku', 'Haiku 3.5'],
+      ['claude-3-opus', 'Opus 3'],
+      ['claude-3-haiku', 'Haiku 3'],
+      ['claude-3-5-sonnet-20241022', 'Sonnet 3.5'],
+      ['claude-3-opus-20240229', 'Opus 3'],
+    ])('renders legacy Claude %s as %s', (id, expected) => {
       expect(formatModelDisplayName(id)).toBe(expected);
     });
 
     it.each([
-      ['kimi-k2.6-chat', 'Kimi K2.6'],
-      ['kimi-k2.5-preview', 'Kimi K2.5'],
-      ['kimi-k2-thinking', 'Kimi K2 Thinking'],
-      ['kimi-k2', 'Kimi K2'],
-    ])('formats Moonshot Kimi %s as %s', (id, expected) => {
+      ['anthropic/claude-opus-4-7', 'Opus 4.7'],
+      ['openrouter/claude-sonnet-4-6', 'Sonnet 4.6'],
+      ['google/claude-haiku-4-5', 'Haiku 4.5'],
+      ['moonshot/claude-opus-4-7', 'Opus 4.7'],
+      ['zai/claude-sonnet-4-6', 'Sonnet 4.6'],
+    ])('strips provider prefix from %s -> %s', (id, expected) => {
       expect(formatModelDisplayName(id)).toBe(expected);
     });
 
-    it.each([
-      ['glm-5.1', 'GLM-5.1'],
-      ['glm-5-turbo', 'GLM-5 Turbo'],
-      ['glm-5-code', 'GLM-5 Code'],
-      ['glm-5', 'GLM-5'],
-      ['glm-4.7-flash', 'GLM-4.7 Flash'],
-      ['glm-4.7-flashx', 'GLM-4.7 FlashX'],
-      ['glm-4.7', 'GLM-4.7'],
-      ['glm-4.6', 'GLM-4.6'],
-      ['glm-4.5-x', 'GLM-4.5-X'],
-      ['glm-4.5-airx', 'GLM-4.5 AirX'],
-      ['glm-4.5-air', 'GLM-4.5 Air'],
-      ['glm-4.5-flash', 'GLM-4.5 Flash'],
-      ['glm-4.5', 'GLM-4.5'],
-    ])('formats Z.AI GLM %s as %s', (id, expected) => {
-      expect(formatModelDisplayName(id)).toBe(expected);
+    it('renders suffix as parenthetical for experimental builds', () => {
+      expect(formatModelDisplayName('claude-opus-4-7-experimental')).toBe(
+        'Opus 4.7 (experimental)',
+      );
     });
 
     it('truncates unknown long ids to 30 chars + ellipsis', () => {
       const longId = 'some-very-long-unknown-model-id-that-exceeds-thirty';
-      expect(formatModelDisplayName(longId)).toBe(
-        longId.substring(0, 30) + '...',
+      expect(formatModelDisplayName(longId)).toBe(longId.slice(0, 30) + '...');
+    });
+
+    it('returns short unknown non-Claude ids untouched', () => {
+      expect(formatModelDisplayName('mystery-42')).toBe('mystery-42');
+    });
+
+    it('strips provider prefix for non-Claude unknowns', () => {
+      expect(formatModelDisplayName('openai/gpt-5.1-codex-max')).toBe(
+        'gpt-5.1-codex-max',
+      );
+    });
+  });
+
+  describe('resolveModelDisplayName lookup', () => {
+    it('returns "Unknown" for empty input', () => {
+      expect(resolveModelDisplayName('')).toBe('Unknown');
+    });
+
+    it('returns the live catalog name when the id matches', () => {
+      const catalog = [
+        { id: 'claude-opus-4-7', name: 'Claude Opus 4.7 (anthropic)' },
+        { id: 'anthropic/claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+      ];
+      expect(resolveModelDisplayName('claude-opus-4-7', catalog)).toBe(
+        'Claude Opus 4.7 (anthropic)',
       );
     });
 
-    it('returns short unknown ids untouched', () => {
-      expect(formatModelDisplayName('mystery-42')).toBe('mystery-42');
+    it('falls back to the regex when the catalog has no match', () => {
+      const catalog = [{ id: 'claude-opus-4-7', name: 'Claude Opus 4.7' }];
+      expect(resolveModelDisplayName('claude-sonnet-4-6', catalog)).toBe(
+        'Sonnet 4.6',
+      );
+    });
+
+    it('falls back to the regex when the catalog is undefined', () => {
+      expect(resolveModelDisplayName('claude-opus-4-8')).toBe('Opus 4.8');
+    });
+
+    it('falls back to the regex when the catalog is an empty array', () => {
+      expect(resolveModelDisplayName('claude-haiku-4-5', [])).toBe('Haiku 4.5');
     });
   });
 });

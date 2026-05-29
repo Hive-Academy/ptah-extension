@@ -5,12 +5,14 @@ import {
   computed,
   signal,
   output,
+  inject,
 } from '@angular/core';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import {
   calculateSessionCostSummary,
-  formatModelDisplayName,
+  resolveModelDisplayName,
 } from '@ptah-extension/shared';
+import { ModelStateService } from '@ptah-extension/core';
 
 /**
  * Live model stats from current session
@@ -640,6 +642,8 @@ export interface ModelUsageEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SessionStatsSummaryComponent {
+  private readonly modelState = inject(ModelStateService);
+
   /** All messages in the session */
   readonly messages = input.required<readonly ExecutionChatMessage[]>();
 
@@ -842,12 +846,7 @@ export class SessionStatsSummaryComponent {
     return `${minutes}m ${remainingSeconds}s`;
   }
 
-  /**
-   * Format model name for display
-   * Delegates to shared utility for consistent model name formatting across the application.
-   * Extracts readable name from full model ID (e.g., "claude-sonnet-4-20250514" -> "Sonnet 4")
-   */
   protected formatModelName(modelId: string): string {
-    return formatModelDisplayName(modelId);
+    return resolveModelDisplayName(modelId, this.modelState.availableModels());
   }
 }

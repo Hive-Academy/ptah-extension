@@ -42,7 +42,8 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
-import { formatModelDisplayName } from '@ptah-extension/shared';
+import { resolveModelDisplayName } from '@ptah-extension/shared';
+import { ModelStateService } from '@ptah-extension/core';
 import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 
 /**
@@ -560,6 +561,7 @@ export class InlineAgentBubbleComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly modelState = inject(ModelStateService);
 
   /**
    * MutationObserver for auto-scroll behavior.
@@ -803,7 +805,7 @@ export class InlineAgentBubbleComponent {
   readonly modelDisplayName = computed(() => {
     const model = this.rawModelId();
     if (!model) return null;
-    return formatModelDisplayName(model);
+    return resolveModelDisplayName(model, this.modelState.availableModels());
   });
 
   /**

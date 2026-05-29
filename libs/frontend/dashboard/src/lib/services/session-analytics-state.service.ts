@@ -1,8 +1,12 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ClaudeRpcService, AppStateManager } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  AppStateManager,
+  ModelStateService,
+} from '@ptah-extension/core';
 import {
   SessionStatsEntry,
-  formatModelDisplayName,
+  resolveModelDisplayName,
 } from '@ptah-extension/shared';
 
 /**
@@ -75,6 +79,7 @@ export interface AggregateTotals {
 export class SessionAnalyticsStateService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly appState = inject(AppStateManager);
+  private readonly modelState = inject(ModelStateService);
   private readonly _allSessions = signal<DashboardSessionEntry[]>([]);
   private readonly _displayCount = signal<5 | 10>(5);
   private readonly _isLoading = signal(false);
@@ -209,7 +214,10 @@ export class SessionAnalyticsStateService {
           lastActivityAt: session.lastActivityAt,
           model: stats?.model ?? null,
           modelDisplayName: stats?.model
-            ? formatModelDisplayName(stats.model)
+            ? resolveModelDisplayName(
+                stats.model,
+                this.modelState.availableModels(),
+              )
             : 'Unknown',
           totalCost: stats?.totalCost ?? null,
           tokens: stats?.tokens ?? {
@@ -223,7 +231,10 @@ export class SessionAnalyticsStateService {
           cliAgents: stats?.cliAgents ?? [],
           modelUsageList: (stats?.modelUsageList ?? []).map((m) => ({
             model: m.model,
-            modelDisplayName: formatModelDisplayName(m.model),
+            modelDisplayName: resolveModelDisplayName(
+              m.model,
+              this.modelState.availableModels(),
+            ),
             inputTokens: m.inputTokens,
             outputTokens: m.outputTokens,
             costUSD: m.costUSD,
