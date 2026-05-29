@@ -42,7 +42,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { CanvasTileComponent } from './canvas-tile.component';
 import { TabManagerService } from '@ptah-extension/chat';
-import { EffortStateService } from '@ptah-extension/core';
+import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 
 describe('CanvasTileComponent freeze-at-creation effort', () => {
   const mockEffortState = {
@@ -51,15 +51,22 @@ describe('CanvasTileComponent freeze-at-creation effort', () => {
     setEffort: jest.fn().mockResolvedValue(undefined),
   };
 
+  const mockModelState = {
+    currentModel: signal<string>('claude-sonnet-4-20250514'),
+    isLoaded: signal(true),
+  };
+
   const mockTabManager = {
     tabs: signal<
       Array<{
         id: string;
         claudeSessionId: string | null;
         overrideEffort?: unknown;
+        overrideModel?: unknown;
       }>
     >([]),
     setOverrideEffort: jest.fn(),
+    setOverrideModel: jest.fn(),
     getTabViewMode: jest.fn().mockReturnValue('full'),
     toggleTabViewMode: jest.fn(),
     registerVisibleTab: jest.fn(),
@@ -72,6 +79,7 @@ describe('CanvasTileComponent freeze-at-creation effort', () => {
       imports: [CanvasTileComponent],
       providers: [
         { provide: EffortStateService, useValue: mockEffortState },
+        { provide: ModelStateService, useValue: mockModelState },
         { provide: TabManagerService, useValue: mockTabManager },
       ],
     });
@@ -88,6 +96,8 @@ describe('CanvasTileComponent freeze-at-creation effort', () => {
     jest.clearAllMocks();
     mockEffortState.currentEffort.set('high');
     mockEffortState.isLoaded.set(true);
+    mockModelState.currentModel.set('claude-sonnet-4-20250514');
+    mockModelState.isLoaded.set(true);
     mockTabManager.tabs.set([]);
   });
 
@@ -160,6 +170,137 @@ describe('CanvasTileComponent freeze-at-creation effort', () => {
     expect(mockTabManager.setOverrideEffort).toHaveBeenCalledWith(
       'tab-new',
       'xhigh',
+    );
+  });
+});
+
+describe('CanvasTileComponent freeze-at-creation model', () => {
+  const mockEffortState = {
+    currentEffort: signal<string | undefined>('high'),
+    isLoaded: signal(true),
+    setEffort: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockModelState = {
+    currentModel: signal<string>('claude-sonnet-4-20250514'),
+    isLoaded: signal(true),
+  };
+
+  const mockTabManager = {
+    tabs: signal<
+      Array<{
+        id: string;
+        claudeSessionId: string | null;
+        overrideEffort?: unknown;
+        overrideModel?: unknown;
+      }>
+    >([]),
+    setOverrideEffort: jest.fn(),
+    setOverrideModel: jest.fn(),
+    getTabViewMode: jest.fn().mockReturnValue('full'),
+    toggleTabViewMode: jest.fn(),
+  };
+
+  function mountTile(tabId: string) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [CanvasTileComponent],
+      providers: [
+        { provide: EffortStateService, useValue: mockEffortState },
+        { provide: ModelStateService, useValue: mockModelState },
+        { provide: TabManagerService, useValue: mockTabManager },
+      ],
+    });
+    TestBed.overrideComponent(CanvasTileComponent, {
+      set: { template: '', imports: [] },
+    });
+    const fixture = TestBed.createComponent(CanvasTileComponent);
+    fixture.componentRef.setInput('tabId', tabId);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockEffortState.currentEffort.set('high');
+    mockEffortState.isLoaded.set(true);
+    mockModelState.currentModel.set('claude-sonnet-4-20250514');
+    mockModelState.isLoaded.set(true);
+    mockTabManager.tabs.set([]);
+  });
+
+  it('snapshots the global model into the tab override when none is set', () => {
+    mockModelState.currentModel.set('claude-opus-4-20250514');
+    mockTabManager.tabs.set([
+      {
+        id: 'tab-1',
+        claudeSessionId: 'sess-1',
+        overrideEffort: 'high',
+        overrideModel: undefined,
+      },
+    ]);
+
+    mountTile('tab-1');
+
+    expect(mockTabManager.setOverrideModel).toHaveBeenCalledWith(
+      'tab-1',
+      'claude-opus-4-20250514',
+    );
+  });
+
+  it('does NOT overwrite an existing model override', () => {
+    mockTabManager.tabs.set([
+      {
+        id: 'tab-1',
+        claudeSessionId: 'sess-1',
+        overrideEffort: 'high',
+        overrideModel: 'claude-opus-4-20250514',
+      },
+    ]);
+
+    mountTile('tab-1');
+
+    expect(mockTabManager.setOverrideModel).not.toHaveBeenCalled();
+  });
+
+  it('does NOT snapshot when the global currentModel is empty (still loading)', () => {
+    mockModelState.currentModel.set('');
+    mockTabManager.tabs.set([
+      {
+        id: 'tab-1',
+        claudeSessionId: 'sess-1',
+        overrideEffort: 'high',
+        overrideModel: undefined,
+      },
+    ]);
+
+    mountTile('tab-1');
+
+    expect(mockTabManager.setOverrideModel).not.toHaveBeenCalled();
+  });
+
+  it('waits for modelState.isLoaded() before snapshotting', () => {
+    mockModelState.isLoaded.set(false);
+    mockModelState.currentModel.set('claude-sonnet-4-20250514');
+    mockTabManager.tabs.set([
+      {
+        id: 'tab-1',
+        claudeSessionId: 'sess-1',
+        overrideEffort: 'high',
+        overrideModel: undefined,
+      },
+    ]);
+
+    const fixture = mountTile('tab-1');
+
+    expect(mockTabManager.setOverrideModel).not.toHaveBeenCalled();
+
+    mockModelState.isLoaded.set(true);
+    fixture.detectChanges();
+
+    expect(mockTabManager.setOverrideModel).toHaveBeenCalledWith(
+      'tab-1',
+      'claude-sonnet-4-20250514',
     );
   });
 });
