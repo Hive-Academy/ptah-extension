@@ -150,11 +150,11 @@ let __streamingCapWarned = false;
  *   key in the Map's insertion order) is deleted before insert.
  * - First eviction emits a one-shot console.warn so we know the cap was hit
  *   in production; subsequent evictions are silent to avoid log spam.
- *
- * Note: This intentionally does NOT cascade-clean dependent collections
- * (eventsByMessage, toolCallMap, textAccumulators). Those are bounded by
- * the cap transitively (their entries reference event ids that get evicted)
- * and finalize/compaction flows already reset them.
+ * - On eviction, dependent collections are cascade-cleaned so the evicted
+ *   eventId never lingers in `eventsByMessage`, `toolCallMap`,
+ *   `textAccumulators`, or `agentContentBlocksMap`. Empty parent keys are
+ *   dropped. O(1) amortized: every cleanup operation indexes into a Map by
+ *   the known relation key, no full scans.
  */
 export function setStreamingEventCapped(
   state: StreamingState,
@@ -167,7 +167,11 @@ export function setStreamingEventCapped(
   if (state.events.size >= STREAMING_EVENT_CAP) {
     const oldestKey = state.events.keys().next().value;
     if (oldestKey !== undefined) {
+      const evicted = state.events.get(oldestKey);
       state.events.delete(oldestKey);
+      if (evicted) {
+        cascadeCleanForEvictedEvent(state, evicted);
+      }
       if (!__streamingCapWarned) {
         __streamingCapWarned = true;
         console.warn(
@@ -177,6 +181,53 @@ export function setStreamingEventCapped(
     }
   }
   state.events.set(event.id, event);
+}
+
+function cascadeCleanForEvictedEvent(
+  state: StreamingState,
+  evicted: FlatStreamEventUnion,
+): void {
+  const messageId = evicted.messageId;
+  if (messageId) {
+    const bucket = state.eventsByMessage.get(messageId);
+    if (bucket) {
+      const filtered = bucket.filter((e) => e.id !== evicted.id);
+      if (filtered.length === 0) {
+        state.eventsByMessage.delete(messageId);
+        const blockPrefix = `${messageId}-block-`;
+        const thinkPrefix = `${messageId}-thinking-`;
+        for (const key of state.textAccumulators.keys()) {
+          if (key.startsWith(blockPrefix) || key.startsWith(thinkPrefix)) {
+            state.textAccumulators.delete(key);
+          }
+        }
+      } else {
+        state.eventsByMessage.set(messageId, filtered);
+      }
+    }
+  }
+
+  const toolCallId = (evicted as { toolCallId?: string }).toolCallId;
+  if (toolCallId) {
+    const ids = state.toolCallMap.get(toolCallId);
+    if (ids) {
+      const remaining = ids.filter((id) => id !== evicted.id);
+      if (remaining.length === 0) {
+        state.toolCallMap.delete(toolCallId);
+        state.toolInputAccumulators.delete(`${toolCallId}-input`);
+      } else {
+        state.toolCallMap.set(toolCallId, remaining);
+      }
+    }
+  }
+
+  if (evicted.eventType === 'agent_start') {
+    const agentId = (evicted as { agentId?: string }).agentId;
+    if (agentId) {
+      state.agentContentBlocksMap.delete(agentId);
+      state.agentSummaryAccumulators.delete(agentId);
+    }
+  }
 }
 
 /**
