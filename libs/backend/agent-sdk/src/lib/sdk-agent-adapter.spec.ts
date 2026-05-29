@@ -173,6 +173,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'executeQuery'
     | 'executeSlashCommandQuery'
     | 'disposeAllSessions'
+    | 'dispose'
     | 'endSession'
     | 'find'
     | 'bindRealSessionId'
@@ -186,6 +187,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     executeQuery: jest.fn(),
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
+    dispose: jest.fn(),
     endSession: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockReturnValue(undefined),
     bindRealSessionId: jest.fn(),
@@ -670,6 +672,7 @@ describe('SdkAgentAdapter', () => {
         messageQueue: [],
         resolveNext: null,
         currentModel: 'claude-sonnet-4-20250514',
+        lastActivityAt: 0,
       });
 
       await h.adapter.resumeSession(

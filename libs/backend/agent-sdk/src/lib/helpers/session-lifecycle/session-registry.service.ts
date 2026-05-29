@@ -48,7 +48,11 @@ export interface SessionRecord {
   resolveNext: (() => void) | null;
   /** Current model ID (may differ from config.model after setModel calls). */
   currentModel: string;
+  lastActivityAt: number;
 }
+
+export const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+export const DEFAULT_SWEEP_TTL_MS = 30 * 60 * 1000;
 
 export class SessionRegistry {
   /**
@@ -72,6 +76,10 @@ export class SessionRegistry {
    * agents to the correct session in multi-session scenarios.
    */
   private _lastActiveTabId: string | null = null;
+
+  private _sweepTimer: ReturnType<typeof setInterval> | null = null;
+  private _sweepTtlMs = DEFAULT_SWEEP_TTL_MS;
+  private _now: () => number = () => Date.now();
 
   constructor(private readonly logger: Logger) {}
 
@@ -99,6 +107,7 @@ export class SessionRegistry {
       messageQueue: [],
       resolveNext: null,
       currentModel: config.model || '',
+      lastActivityAt: this._now(),
     };
     this.byTabId.set(tabId, rec);
     if (realSessionId && realSessionId !== tabId) {
@@ -147,6 +156,7 @@ export class SessionRegistry {
       return;
     }
     rec.realSessionId = realSessionId;
+    rec.lastActivityAt = this._now();
     this.bySessionId.set(realSessionId, rec);
     this.logger.info(
       `[SessionRegistry] Bound real session ID: ${tabId} -> ${realSessionId}`,
@@ -190,6 +200,7 @@ export class SessionRegistry {
     }
 
     rec.query = query;
+    rec.lastActivityAt = this._now();
     this.logger.debug(`[SessionLifecycle] Set query for session: ${sessionId}`);
   }
 
@@ -248,6 +259,10 @@ export class SessionRegistry {
    */
   markActive(tabId: string): void {
     this._lastActiveTabId = tabId;
+    const rec = this.byTabId.get(tabId);
+    if (rec) {
+      rec.lastActivityAt = this._now();
+    }
   }
 
   /**
@@ -264,6 +279,58 @@ export class SessionRegistry {
     this.byTabId.clear();
     this.bySessionId.clear();
     this._lastActiveTabId = null;
+  }
+
+  startEvictionSweep(
+    intervalMs: number = DEFAULT_SWEEP_INTERVAL_MS,
+    ttlMs: number = DEFAULT_SWEEP_TTL_MS,
+  ): void {
+    this.stopEvictionSweep();
+    this._sweepTtlMs = ttlMs;
+    const timer = setInterval(() => {
+      try {
+        this.evictStale(this._now(), this._sweepTtlMs);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `[SessionRegistry] eviction sweep threw: ${message}`,
+        );
+      }
+    }, intervalMs);
+    if (typeof (timer as { unref?: () => void }).unref === 'function') {
+      (timer as { unref: () => void }).unref();
+    }
+    this._sweepTimer = timer;
+  }
+
+  stopEvictionSweep(): void {
+    if (this._sweepTimer !== null) {
+      clearInterval(this._sweepTimer);
+      this._sweepTimer = null;
+    }
+  }
+
+  evictStale(now: number, ttlMs: number): number {
+    let evicted = 0;
+    for (const rec of Array.from(this.byTabId.values())) {
+      if (rec.query !== null) continue;
+      if (now - rec.lastActivityAt < ttlMs) continue;
+      this.byTabId.delete(rec.tabId);
+      if (rec.realSessionId !== null) {
+        this.bySessionId.delete(rec.realSessionId);
+      }
+      this.recomputeLastActiveOnRemoval(rec.tabId);
+      evicted += 1;
+      this.logger.warn(
+        `[SessionRegistry] Evicted stale session record: ${rec.tabId} ` +
+          `(idleMs=${now - rec.lastActivityAt}, realSessionId=${rec.realSessionId ?? 'null'})`,
+      );
+    }
+    return evicted;
+  }
+
+  setClockForTesting(now: () => number): void {
+    this._now = now;
   }
 
   /**

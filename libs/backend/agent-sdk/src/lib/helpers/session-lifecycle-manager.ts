@@ -329,6 +329,11 @@ export class SessionLifecycleManager {
       this.modelResolver,
       this.sessionEndRegistry,
     );
+    this._registry.startEvictionSweep();
+  }
+
+  dispose(): void {
+    this._registry.stopEvictionSweep();
   }
 
   /**

@@ -412,6 +412,7 @@ describe('SessionForkService', () => {
             messageQueue: [],
             resolveNext: null,
             currentModel: 'claude-sonnet-4-20250514',
+            lastActivityAt: 0,
           };
         }
         return undefined;
