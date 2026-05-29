@@ -393,6 +393,34 @@ export class SqliteConnectionService {
     return this.vecDiagnostic;
   }
 
+  /**
+   * Re-run the sqlite-vec loader against the current open connection.
+   *
+   * Intended for user-triggered recovery via the Thoth DB Health "Retry
+   * vec" button — after the user installs a missing VC++ redistributable,
+   * removes AV quarantine on the binary, or replaces a corrupted DLL,
+   * they can attempt to enable vec without restarting the app.
+   *
+   * Safe to call when the connection is unavailable — emits a no-op
+   * `'not-attempted'` diagnostic in that case so the renderer can still
+   * read a coherent shape.
+   */
+  reloadVecExtension(): VecLoadDiagnostic {
+    if (this.unavailable !== null) {
+      this.vecLoaded = false;
+      this.vecDiagnostic = buildBaseDiagnostic({
+        ok: false,
+        reason: 'not-attempted',
+        error: {
+          message: this.buildUnavailableMessage(),
+        },
+      });
+      return this.vecDiagnostic;
+    }
+    this.loadVecExtension(this.database as SqliteDatabase);
+    return this.vecDiagnostic;
+  }
+
   /** True iff the underlying connection is open. */
   get isOpen(): boolean {
     return Boolean(this.database?.open);

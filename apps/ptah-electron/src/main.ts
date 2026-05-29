@@ -45,6 +45,8 @@ if (!gotLock) {
   let messagingGateway: { stop: () => Promise<void> } | null = null;
   let symbolWatcher: { close: () => void } | null = null;
   let licenseReactivityDisposable: { dispose: () => void } | null = null;
+  let statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null =
+    null;
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
@@ -107,6 +109,7 @@ if (!gotLock) {
     cronScheduler = wired.refs.cronScheduler;
     symbolWatcher = wired.refs.symbolWatcher;
     licenseReactivityDisposable = wired.refs.licenseReactivityDisposable;
+    statusBridgeDisposables = wired.refs.statusBridgeDisposables;
     boot.gitWatcherRef.current = gitWatcher;
 
     const post = await registerPostWindow({
@@ -179,6 +182,14 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] License reactivity binder dispose failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      statusBridgeDisposables?.forEach((d) => d.dispose());
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Status bridge dispose failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }

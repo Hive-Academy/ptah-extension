@@ -26,10 +26,14 @@ import { syncCliSkillsOnActivation } from './cli-skill-sync';
 import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
 import {
   PERSISTENCE_TOKENS,
+  VecStatusService,
   type SqliteConnectionService,
   type VecLoadDiagnostic,
 } from '@ptah-extension/persistence-sqlite';
-import type { EmbedderWorkerClient } from '@ptah-extension/memory-curator';
+import type {
+  EmbedderWorkerClient,
+  EmbedderStatusService,
+} from '@ptah-extension/memory-curator';
 import {
   CODE_SYMBOL_INDEXER,
   type CodeSymbolIndexer,
@@ -133,6 +137,12 @@ export interface WireRuntimeResult {
      * license:expired listeners. Must be disposed in will-quit LIFO chain.
      */
     licenseReactivityDisposable: { dispose: () => void } | null;
+    /**
+     * Disposables for vec + embedder status push-event bridges. Null when
+     * SQLite/memory-curator failed to register so the bridge could not
+     * be wired. Must be disposed in will-quit LIFO chain.
+     */
+    statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null;
   };
 }
 
@@ -153,6 +163,7 @@ export async function wireRuntime(
     messagingGateway: null,
     symbolWatcher: null,
     licenseReactivityDisposable: null,
+    statusBridgeDisposables: null,
   };
 
   let resolvedStateStorage: IStateStorage | undefined;
@@ -358,6 +369,54 @@ export async function wireRuntime(
     } catch (error) {
       console.warn(
         '[Ptah Electron] Memory push-event bridges skipped (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      const bridgeDisposables: { dispose: () => void }[] = [];
+      const webviewManager = container.resolve<WebviewManager>(
+        TOKENS.WEBVIEW_MANAGER,
+      );
+      if (container.isRegistered(PERSISTENCE_TOKENS.VEC_STATUS)) {
+        const vecStatus = container.resolve<VecStatusService>(
+          PERSISTENCE_TOKENS.VEC_STATUS,
+        );
+        bridgeDisposables.push(
+          vecStatus.on('change', (snapshot) => {
+            void webviewManager.broadcastMessage(
+              MESSAGE_TYPES.VEC_STATUS_CHANGED,
+              {
+                ok: snapshot.available,
+                diagnostic: serializeVecDiagnosticForBridge(
+                  snapshot.diagnostic,
+                ),
+              },
+            );
+          }),
+        );
+      }
+      if (container.isRegistered(MEMORY_TOKENS.EMBEDDER_STATUS)) {
+        const embedderStatus = container.resolve<EmbedderStatusService>(
+          MEMORY_TOKENS.EMBEDDER_STATUS,
+        );
+        bridgeDisposables.push(
+          embedderStatus.on('change', (snapshot) => {
+            void webviewManager.broadcastMessage(
+              MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED,
+              { status: serializeEmbedderSnapshotForBridge(snapshot) },
+            );
+          }),
+        );
+      }
+      refs.statusBridgeDisposables = bridgeDisposables;
+      if (bridgeDisposables.length > 0) {
+        console.log(
+          `[Ptah Electron] Vec/embedder status bridges wired (${bridgeDisposables.length} subscriber(s))`,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Vec/embedder status bridge wiring skipped (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -821,6 +880,69 @@ export async function wireRuntime(
     scheduleWarmup,
     refs,
   };
+}
+
+function serializeVecDiagnosticForBridge(diagnostic: VecLoadDiagnostic): {
+  ok: boolean;
+  reason: VecLoadDiagnostic['reason'];
+  electronVersion: string;
+  processArch: string;
+  processPlatform: string;
+  attemptedPath?: string;
+  packageName?: string;
+  fsExists?: boolean;
+  error?: { code?: string; message: string };
+  errorChain?: ReadonlyArray<{
+    strategy: string;
+    code?: string;
+    message: string;
+  }>;
+} {
+  return {
+    ok: diagnostic.ok,
+    reason: diagnostic.reason,
+    electronVersion: diagnostic.electronVersion,
+    processArch: diagnostic.processArch,
+    processPlatform: diagnostic.processPlatform,
+    attemptedPath: diagnostic.attemptedPath,
+    packageName: diagnostic.packageName,
+    fsExists: diagnostic.fsExists,
+    error: diagnostic.error
+      ? { code: diagnostic.error.code, message: diagnostic.error.message }
+      : undefined,
+    errorChain: diagnostic.errorChain?.map((e) => ({
+      strategy: e.strategy,
+      code: e.code,
+      message: e.message,
+    })),
+  };
+}
+
+function serializeEmbedderSnapshotForBridge(
+  snapshot: import('@ptah-extension/memory-curator').EmbedderStatusSnapshot,
+): {
+  ready: boolean;
+  downloading: boolean;
+  progress?: number;
+  error?: { code?: string; message: string };
+} {
+  const base = {
+    ready: snapshot.ready,
+    downloading: snapshot.downloading,
+  };
+  const withProgress =
+    snapshot.progress !== undefined
+      ? { ...base, progress: snapshot.progress }
+      : base;
+  return snapshot.error
+    ? {
+        ...withProgress,
+        error: {
+          code: snapshot.error.code,
+          message: snapshot.error.message,
+        },
+      }
+    : withProgress;
 }
 
 let vecLoadDiagnosticEmitted = false;

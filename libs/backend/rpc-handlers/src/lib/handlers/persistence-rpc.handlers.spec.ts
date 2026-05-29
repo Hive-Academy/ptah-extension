@@ -119,11 +119,22 @@ function makeConnection(opts: {
     }),
   };
 
+  const vecLoadDiagnostic = {
+    ok: vecExtensionLoaded,
+    reason: vecExtensionLoaded ? ('ok' as const) : ('load-failed' as const),
+    electronVersion: '40.0.0',
+    processArch: 'x64' as NodeJS.Architecture,
+    processPlatform: 'linux' as NodeJS.Platform,
+    attemptedPath: '/tmp/vec0.dll',
+  };
+
   const conn = {
     isOpen,
     vecExtensionLoaded,
     lastMigrationVersion,
     dbPath,
+    vecLoadDiagnostic,
+    reloadVecExtension: jest.fn(() => vecLoadDiagnostic),
     unavailable: isOpen ? null : { reason: 'closed' as const, detail: null },
     get db() {
       if (!isOpen) throw new RpcUserError('Offline', 'PERSISTENCE_UNAVAILABLE');
@@ -140,17 +151,25 @@ function makeConnection(opts: {
 
 // ---- Test suite ------------------------------------------------------------
 
+function makeUserInteraction() {
+  return {
+    openExternal: jest.fn().mockResolvedValue(true),
+  };
+}
+
 describe('PersistenceRpcHandlers', () => {
   let logger: ReturnType<typeof makeLogger>;
   let rpcHandler: ReturnType<typeof makeRpcHandler>;
   let backup: ReturnType<typeof makeBackupService>;
   let vecStatus: ReturnType<typeof makeVecStatus>;
+  let userInteraction: ReturnType<typeof makeUserInteraction>;
 
   beforeEach(() => {
     logger = makeLogger();
     rpcHandler = makeRpcHandler();
     backup = makeBackupService();
     vecStatus = makeVecStatus(true);
+    userInteraction = makeUserInteraction();
     jest.clearAllMocks();
     // Default: no WAL file present
     mockStatSync.mockImplementation(() => {
@@ -173,6 +192,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -198,6 +218,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -225,6 +246,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -248,6 +270,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -276,6 +299,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -295,6 +319,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -313,6 +338,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -333,6 +359,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -360,6 +387,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -379,6 +407,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -398,6 +427,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -419,6 +449,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -451,6 +482,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -481,6 +513,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -504,6 +537,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -523,6 +557,7 @@ describe('PersistenceRpcHandlers', () => {
       conn1 as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler1.register();
 
@@ -543,6 +578,7 @@ describe('PersistenceRpcHandlers', () => {
       conn2 as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler2.register();
 
@@ -570,6 +606,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -601,6 +638,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -629,6 +667,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -652,6 +691,7 @@ describe('PersistenceRpcHandlers', () => {
       conn as never,
       backup as never,
       vecStatus as never,
+      userInteraction as never,
     );
     handler.register();
 
@@ -667,8 +707,114 @@ describe('PersistenceRpcHandlers', () => {
 
   // ---- METHODS constant ----
 
-  it('has METHODS constant with both method names', () => {
+  it('has METHODS constant with all four method names', () => {
     expect(PersistenceRpcHandlers.METHODS).toContain('db:health');
     expect(PersistenceRpcHandlers.METHODS).toContain('db:reset');
+    expect(PersistenceRpcHandlers.METHODS).toContain('db:reloadVec');
+    expect(PersistenceRpcHandlers.METHODS).toContain('db:openBindingFolder');
+  });
+
+  // ---- db:reloadVec ----
+
+  it('db:reloadVec returns ok=true with renderer-safe diagnostic on success', async () => {
+    const { conn } = makeConnection({ isOpen: true, vecExtensionLoaded: true });
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+      vecStatus as never,
+      userInteraction as never,
+    );
+    handler.register();
+
+    const result = (await rpcHandler._call('db:reloadVec', {})) as {
+      ok: boolean;
+      message: string;
+    };
+
+    expect(conn.reloadVecExtension).toHaveBeenCalledTimes(1);
+    expect(vecStatus.refresh).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('loaded');
+  });
+
+  it('db:reloadVec returns ok=false with the failure reason when still offline', async () => {
+    const { conn } = makeConnection({
+      isOpen: true,
+      vecExtensionLoaded: false,
+    });
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+      vecStatus as never,
+      userInteraction as never,
+    );
+    handler.register();
+
+    const result = (await rpcHandler._call('db:reloadVec', {})) as {
+      ok: boolean;
+      message: string;
+    };
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('load-failed');
+  });
+
+  // ---- db:openBindingFolder ----
+
+  it('db:openBindingFolder delegates to userInteraction.openExternal with a file:// URL', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+      vecStatus as never,
+      userInteraction as never,
+    );
+    handler.register();
+
+    const result = (await rpcHandler._call('db:openBindingFolder', {})) as {
+      opened: boolean;
+      folder: string | null;
+    };
+
+    expect(userInteraction.openExternal).toHaveBeenCalledTimes(1);
+    const calledWith = userInteraction.openExternal.mock.calls[0][0] as string;
+    expect(calledWith.startsWith('file:')).toBe(true);
+    expect(result.opened).toBe(true);
+    expect(result.folder).toBe('tmp');
+  });
+
+  it('db:openBindingFolder returns opened=false with explanation when no attempted path is known', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+    conn.vecLoadDiagnostic.attemptedPath = undefined as unknown as string;
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+      vecStatus as never,
+      userInteraction as never,
+    );
+    handler.register();
+
+    const result = (await rpcHandler._call('db:openBindingFolder', {})) as {
+      opened: boolean;
+      folder: string | null;
+      message: string;
+    };
+
+    expect(userInteraction.openExternal).not.toHaveBeenCalled();
+    expect(result.opened).toBe(false);
+    expect(result.folder).toBeNull();
+    expect(result.message).toContain('Retry vec');
   });
 });

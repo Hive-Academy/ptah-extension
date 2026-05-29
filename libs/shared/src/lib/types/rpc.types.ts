@@ -402,6 +402,12 @@ import type {
 import type {
   DbHealthResult,
   DbResetResult,
+  DbReloadVecResult,
+  DbOpenBindingFolderResult,
+  EmbedderStatusParams,
+  EmbedderStatusResult,
+  EmbedderRetryParams,
+  EmbedderRetryResult,
 } from './rpc/rpc-persistence.types';
 
 import type {
@@ -1437,6 +1443,22 @@ export interface RpcMethodRegistry {
     params: { confirm: string };
     result: DbResetResult;
   };
+  'db:reloadVec': {
+    params: Record<string, never>;
+    result: DbReloadVecResult;
+  };
+  'db:openBindingFolder': {
+    params: Record<string, never>;
+    result: DbOpenBindingFolderResult;
+  };
+  'embedder:status': {
+    params: EmbedderStatusParams;
+    result: EmbedderStatusResult;
+  };
+  'embedder:retry': {
+    params: EmbedderRetryParams;
+    result: EmbedderRetryResult;
+  };
   'indexing:getStatus': {
     params: IndexingGetStatusParams;
     result: IndexingGetStatusResult;
@@ -2135,6 +2157,11 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
 
   'db:health': true,
   'db:reset': true,
+  'db:reloadVec': true,
+  'db:openBindingFolder': true,
+
+  'embedder:status': true,
+  'embedder:retry': true,
 
   'indexing:getStatus': true,
   'indexing:start': true,
