@@ -302,6 +302,74 @@ describe('SessionStatsAggregatorService', () => {
     expect(setPreloadedStatsMock).not.toHaveBeenCalled();
   });
 
+  describe('preloadedStats null-cost carry-over', () => {
+    function setupTab(prevCost: number | null): void {
+      tabs = [
+        makeTab({
+          preloadedStats: {
+            totalCost: prevCost,
+            tokens: {
+              input: 1000,
+              output: 500,
+              cacheRead: 100,
+              cacheCreation: 50,
+            },
+            messageCount: 5,
+          },
+        }),
+      ];
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+    }
+
+    it('keeps prevCost unchanged when this turn has null cost', () => {
+      setupTab(1.25);
+      service.handleSessionStats({
+        ...baseStats,
+        cost: null as unknown as number,
+      });
+      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+        string,
+        NonNullable<TabState['preloadedStats']>,
+      ];
+      expect(stats.totalCost).toBe(1.25);
+    });
+
+    it('uses turn cost as new total when prev was null', () => {
+      setupTab(null);
+      service.handleSessionStats({ ...baseStats, cost: 0.5 });
+      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+        string,
+        NonNullable<TabState['preloadedStats']>,
+      ];
+      expect(stats.totalCost).toBeCloseTo(0.5);
+    });
+
+    it('keeps null total when both prev and turn are null', () => {
+      setupTab(null);
+      service.handleSessionStats({
+        ...baseStats,
+        cost: null as unknown as number,
+      });
+      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+        string,
+        NonNullable<TabState['preloadedStats']>,
+      ];
+      expect(stats.totalCost).toBeNull();
+    });
+
+    it('sums numeric prev and numeric turn', () => {
+      setupTab(1.0);
+      service.handleSessionStats({ ...baseStats, cost: 0.25 });
+      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+        string,
+        NonNullable<TabState['preloadedStats']>,
+      ];
+      expect(stats.totalCost).toBeCloseTo(1.25);
+    });
+  });
+
   it('triggers auto-send via MessageDispatchService when queuedContent returned', () => {
     streamHandleStatsMock.mockReturnValue({
       tabId: 'tab-1',

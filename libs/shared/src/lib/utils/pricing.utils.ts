@@ -345,7 +345,7 @@ export function getModelPricingDescription(modelId: string): string {
   return `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
 }
 
-export function formatModelDisplayName(modelId: string): string {
+export function formatClaudeModelDisplayName(modelId: string): string {
   if (!modelId) return 'Unknown';
   const stripped = modelId.replace(
     /^(?:anthropic|openrouter|google|openai|moonshot|zai)\//i,
@@ -381,5 +381,5 @@ export function resolveModelDisplayName(
     const match = availableModels.find((m) => m.id === modelId);
     if (match) return match.name;
   }
-  return formatModelDisplayName(modelId);
+  return formatClaudeModelDisplayName(modelId);
 }

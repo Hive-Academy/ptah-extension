@@ -709,7 +709,7 @@ export class SessionRpcHandlers {
                 return {
                   sessionId,
                   model: null,
-                  totalCost: 0,
+                  totalCost: null,
                   tokens: {
                     input: 0,
                     output: 0,
@@ -736,7 +736,7 @@ export class SessionRpcHandlers {
                       model: string;
                       inputTokens: number;
                       outputTokens: number;
-                      costUSD: number;
+                      costUSD: number | null;
                     }>
                   | undefined,
                 cliAgents,
@@ -750,7 +750,7 @@ export class SessionRpcHandlers {
               return {
                 sessionId,
                 model: null,
-                totalCost: 0,
+                totalCost: null,
                 tokens: {
                   input: 0,
                   output: 0,
@@ -772,7 +772,7 @@ export class SessionRpcHandlers {
               : {
                   sessionId: batch[j],
                   model: null,
-                  totalCost: 0,
+                  totalCost: null,
                   tokens: {
                     input: 0,
                     output: 0,

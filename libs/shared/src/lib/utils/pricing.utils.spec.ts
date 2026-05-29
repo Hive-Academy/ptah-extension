@@ -7,7 +7,7 @@ import {
   calculateMessageCost,
   DEFAULT_MODEL_PRICING,
   findModelPricing,
-  formatModelDisplayName,
+  formatClaudeModelDisplayName,
   getModelContextWindow,
   getModelPricingDescription,
   getPricingMap,
@@ -274,9 +274,9 @@ describe('pricing.utils', () => {
     });
   });
 
-  describe('formatModelDisplayName regex', () => {
+  describe('formatClaudeModelDisplayName regex', () => {
     it('returns "Unknown" for empty input', () => {
-      expect(formatModelDisplayName('')).toBe('Unknown');
+      expect(formatClaudeModelDisplayName('')).toBe('Unknown');
     });
 
     it.each([
@@ -288,7 +288,7 @@ describe('pricing.utils', () => {
       ['claude-opus-4-8', 'Opus 4.8'],
       ['claude-sonnet-5-0', 'Sonnet 5.0'],
     ])('renders modern Claude %s as %s', (id, expected) => {
-      expect(formatModelDisplayName(id)).toBe(expected);
+      expect(formatClaudeModelDisplayName(id)).toBe(expected);
     });
 
     it.each([
@@ -296,14 +296,14 @@ describe('pricing.utils', () => {
       ['claude-sonnet-4-6-20250514', 'Sonnet 4.6'],
       ['claude-haiku-4-5-20251001', 'Haiku 4.5'],
     ])('strips 8-digit date suffix from %s -> %s', (id, expected) => {
-      expect(formatModelDisplayName(id)).toBe(expected);
+      expect(formatClaudeModelDisplayName(id)).toBe(expected);
     });
 
     it.each([
       ['claude-opus-4-7-2025-01-01', 'Opus 4.7'],
       ['claude-sonnet-4-6-2025-05-14', 'Sonnet 4.6'],
     ])('strips ISO date suffix from %s -> %s', (id, expected) => {
-      expect(formatModelDisplayName(id)).toBe(expected);
+      expect(formatClaudeModelDisplayName(id)).toBe(expected);
     });
 
     it.each([
@@ -314,7 +314,7 @@ describe('pricing.utils', () => {
       ['claude-3-5-sonnet-20241022', 'Sonnet 3.5'],
       ['claude-3-opus-20240229', 'Opus 3'],
     ])('renders legacy Claude %s as %s', (id, expected) => {
-      expect(formatModelDisplayName(id)).toBe(expected);
+      expect(formatClaudeModelDisplayName(id)).toBe(expected);
     });
 
     it.each([
@@ -324,26 +324,28 @@ describe('pricing.utils', () => {
       ['moonshot/claude-opus-4-7', 'Opus 4.7'],
       ['zai/claude-sonnet-4-6', 'Sonnet 4.6'],
     ])('strips provider prefix from %s -> %s', (id, expected) => {
-      expect(formatModelDisplayName(id)).toBe(expected);
+      expect(formatClaudeModelDisplayName(id)).toBe(expected);
     });
 
     it('renders suffix as parenthetical for experimental builds', () => {
-      expect(formatModelDisplayName('claude-opus-4-7-experimental')).toBe(
+      expect(formatClaudeModelDisplayName('claude-opus-4-7-experimental')).toBe(
         'Opus 4.7 (experimental)',
       );
     });
 
     it('truncates unknown long ids to 30 chars + ellipsis', () => {
       const longId = 'some-very-long-unknown-model-id-that-exceeds-thirty';
-      expect(formatModelDisplayName(longId)).toBe(longId.slice(0, 30) + '...');
+      expect(formatClaudeModelDisplayName(longId)).toBe(
+        longId.slice(0, 30) + '...',
+      );
     });
 
     it('returns short unknown non-Claude ids untouched', () => {
-      expect(formatModelDisplayName('mystery-42')).toBe('mystery-42');
+      expect(formatClaudeModelDisplayName('mystery-42')).toBe('mystery-42');
     });
 
     it('strips provider prefix for non-Claude unknowns', () => {
-      expect(formatModelDisplayName('openai/gpt-5.1-codex-max')).toBe(
+      expect(formatClaudeModelDisplayName('openai/gpt-5.1-codex-max')).toBe(
         'gpt-5.1-codex-max',
       );
     });

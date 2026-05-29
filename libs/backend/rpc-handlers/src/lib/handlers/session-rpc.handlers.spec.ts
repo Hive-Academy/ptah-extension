@@ -845,7 +845,7 @@ describe('SessionRpcHandlers', () => {
         sessionStats: Array<{
           sessionId: string;
           status: 'ok' | 'empty' | 'error';
-          totalCost: number;
+          totalCost: number | null;
           messageCount: number;
           cliAgents?: string[];
         }>;
@@ -879,7 +879,7 @@ describe('SessionRpcHandlers', () => {
         sessionStats: Array<{
           sessionId: string;
           status: 'ok' | 'empty' | 'error';
-          totalCost: number;
+          totalCost: number | null;
           messageCount: number;
           cliAgents?: string[];
         }>;
@@ -889,7 +889,7 @@ describe('SessionRpcHandlers', () => {
       });
 
       expect(result.sessionStats[0].status).toBe('empty');
-      expect(result.sessionStats[0].totalCost).toBe(0);
+      expect(result.sessionStats[0].totalCost).toBeNull();
       expect(result.sessionStats[0].messageCount).toBe(0);
       expect(result.sessionStats[0].cliAgents).toEqual([]);
     });

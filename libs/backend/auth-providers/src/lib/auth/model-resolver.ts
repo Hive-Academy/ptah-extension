@@ -46,6 +46,7 @@ export class ModelResolver {
 
     const lower = model.toLowerCase();
     if (lower === 'default') {
+      if (isDirectAnthropic(env)) return lower;
       return this.resolve('opus', env);
     }
     if (this.isEnvMappedTier(lower)) {

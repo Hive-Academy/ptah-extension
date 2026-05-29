@@ -107,7 +107,7 @@ export class SessionHistoryReaderService {
   ): Promise<{
     events: FlatStreamEventUnion[];
     stats: {
-      totalCost: number;
+      totalCost: number | null;
       tokens: {
         input: number;
         output: number;
@@ -123,7 +123,7 @@ export class SessionHistoryReaderService {
         model: string;
         inputTokens: number;
         outputTokens: number;
-        costUSD: number;
+        costUSD: number | null;
       }>;
     } | null;
   }> {
@@ -448,7 +448,7 @@ export class SessionHistoryReaderService {
     mainMessages: SessionHistoryMessage[],
     agentSessions: AgentSessionData[],
   ): {
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -462,7 +462,7 @@ export class SessionHistoryReaderService {
       model: string;
       inputTokens: number;
       outputTokens: number;
-      costUSD: number;
+      costUSD: number | null;
     }>;
   } | null {
     let totalInput = 0;
@@ -474,13 +474,14 @@ export class SessionHistoryReaderService {
     let detectedModel: string | undefined;
     const perModelUsage = new Map<
       string,
-      { input: number; output: number; cost: number }
+      {
+        input: number;
+        output: number;
+        cost: number;
+        hasCostContribution: boolean;
+      }
     >();
 
-    /**
-     * Accumulate token usage into the per-model map.
-     * Resolves model name for pricing before using as key.
-     */
     const accumulatePerModel = (
       rawModel: string,
       input: number,
@@ -494,19 +495,20 @@ export class SessionHistoryReaderService {
         input: 0,
         output: 0,
         cost: 0,
+        hasCostContribution: false,
       };
       existing.input += input;
       existing.output += output;
-      // null pricing → contribute 0 to the running total. Live OpenRouter
-      // hydration covers most models; only genuinely-unknown ones (or a
-      // pre-hydration cold start) hit this path.
-      existing.cost +=
-        calculateMessageCost(resolvedModel, {
-          input,
-          output,
-          cacheHit: cacheRead,
-          cacheCreation,
-        }) ?? 0;
+      const contribution = calculateMessageCost(resolvedModel, {
+        input,
+        output,
+        cacheHit: cacheRead,
+        cacheCreation,
+      });
+      if (contribution !== null) {
+        existing.cost += contribution;
+        existing.hasCostContribution = true;
+      }
       perModelUsage.set(modelKey, existing);
     };
     let statsStartIndex = 0;
@@ -591,32 +593,43 @@ export class SessionHistoryReaderService {
     if (!hasAnyUsage) {
       return null;
     }
-    const modelUsageList = Array.from(perModelUsage.entries())
+    const modelUsageList: Array<{
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      costUSD: number | null;
+    }> = Array.from(perModelUsage.entries())
       .map(([model, usage]) => ({
         model,
         inputTokens: usage.input,
         outputTokens: usage.output,
-        costUSD: usage.cost,
+        costUSD: usage.hasCostContribution ? usage.cost : null,
       }))
-      .sort((a, b) => b.costUSD - a.costUSD);
+      .sort((a, b) => (b.costUSD ?? -1) - (a.costUSD ?? -1));
     const primaryModelEntries: ModelUsageEntry[] = modelUsageList.map((m) => ({
       model: m.model,
-      totalCost: m.costUSD,
+      totalCost: m.costUSD ?? 0,
       tokens: { input: m.inputTokens, output: m.outputTokens },
     }));
     const primaryModel = pickPrimaryModel(primaryModelEntries) ?? detectedModel;
-    const totalCost =
-      modelUsageList.length > 0
-        ? modelUsageList.reduce((sum, entry) => sum + entry.costUSD, 0)
-        : (calculateMessageCost(
-            this.modelResolver.resolveForPricing(detectedModel || ''),
-            {
-              input: totalInput,
-              output: totalOutput,
-              cacheHit: totalCacheRead,
-              cacheCreation: totalCacheCreation,
-            },
-          ) ?? 0);
+    let totalCost: number | null;
+    if (modelUsageList.length > 0) {
+      const contributors = modelUsageList.filter((m) => m.costUSD !== null);
+      totalCost =
+        contributors.length > 0
+          ? contributors.reduce((sum, entry) => sum + (entry.costUSD ?? 0), 0)
+          : null;
+    } else {
+      totalCost = calculateMessageCost(
+        this.modelResolver.resolveForPricing(detectedModel || ''),
+        {
+          input: totalInput,
+          output: totalOutput,
+          cacheHit: totalCacheRead,
+          cacheCreation: totalCacheCreation,
+        },
+      );
+    }
 
     return {
       totalCost,
