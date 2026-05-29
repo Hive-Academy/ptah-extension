@@ -872,6 +872,12 @@ export class SdkQueryOptionsBuilder {
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
     });
+    let sessionStartBlock = '';
+    if (isPremium && cwd) {
+      sessionStartBlock =
+        await this.memoryPromptInjector.buildSessionStartBlock(cwd);
+    }
+    const corpusPrimeBlock = '';
     let memoryBlock = '';
     if (isPremium && initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
@@ -879,9 +885,16 @@ export class SdkQueryOptionsBuilder {
         cwd,
       );
     }
-    const finalContent = memoryBlock
-      ? memoryBlock + (result.content ? '\n\n' + result.content : '')
-      : result.content;
+    const finalContentJoined = [
+      sessionStartBlock,
+      corpusPrimeBlock,
+      memoryBlock,
+      result.content ?? '',
+    ]
+      .filter((p) => p.length > 0)
+      .join('\n\n');
+    const finalContent =
+      finalContentJoined.length > 0 ? finalContentJoined : undefined;
 
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
       isPremium,
@@ -892,6 +905,8 @@ export class SdkQueryOptionsBuilder {
       hasPtahCorePrompt: isPremium,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
+      hasSessionStartBlock: !!sessionStartBlock,
+      sessionStartBlockLength: sessionStartBlock.length,
       hasMemoryBlock: !!memoryBlock,
       memoryBlockLength: memoryBlock.length,
       totalAppendLength: finalContent?.length ?? 0,

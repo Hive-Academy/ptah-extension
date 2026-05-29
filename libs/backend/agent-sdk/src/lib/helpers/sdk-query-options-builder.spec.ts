@@ -206,6 +206,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
+      buildSessionStartBlock: jest.fn().mockResolvedValue(''),
     };
 
     const postToolUseHookHandler = {
@@ -292,6 +293,145 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 });
 
 // ---------------------------------------------------------------------------
+// build() — system prompt prepend order: sessionStart → corpusPrime → memoryRecall → preset
+// ---------------------------------------------------------------------------
+//
+// Verifies the chokepoint composition rule from TASK_2026_136 Batch D.
+// The corpus slot is intentionally empty in Batch D — it is wired by Batch C1.
+
+describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
+  interface InjectorStub {
+    buildBlock: jest.Mock<Promise<string>, [string, string?]>;
+    buildSessionStartBlock: jest.Mock<Promise<string>, [string?]>;
+  }
+
+  function makeBuilderForPrepend(
+    injector: InjectorStub,
+  ): SdkQueryOptionsBuilder {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as const;
+    const permissionHandler = {
+      createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })),
+    };
+    const subagentHookHandler = {
+      createHooks: jest.fn().mockReturnValue({}),
+    };
+    const compactionConfigProvider = {
+      getConfig: jest.fn().mockReturnValue({
+        enabled: false,
+        contextTokenThreshold: 200_000,
+      }),
+    };
+    const compactionHookHandler = {
+      createHooks: jest.fn().mockReturnValue({}),
+    };
+    const worktreeHookHandler = {
+      createHooks: jest.fn().mockReturnValue({}),
+    };
+    const authEnv: AuthEnv = {} as AuthEnv;
+    const modelService = {
+      resolveModelId: jest
+        .fn()
+        .mockImplementation((m: string) => m || 'claude-sonnet-4'),
+    };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(
+      logger,
+      permissionHandler,
+      subagentHookHandler,
+      compactionConfigProvider,
+      compactionHookHandler,
+      worktreeHookHandler,
+      authEnv,
+      modelService,
+      injector,
+      { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
+    );
+  }
+
+  async function buildPremiumWith(
+    injector: InjectorStub,
+    initialQuery: string,
+  ) {
+    const builder = makeBuilderForPrepend(injector);
+    const sessionConfig: AISessionConfig = {
+      model: 'claude-sonnet-4',
+      projectPath: 'D:/tmp/ws',
+    } as AISessionConfig;
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    const cfg = await builder.build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig,
+      isPremium: true,
+      initialUserQuery: initialQuery,
+    });
+    return cfg.options.systemPrompt;
+  }
+
+  it('places sessionStart before memoryRecall before preset content', async () => {
+    const injector: InjectorStub = {
+      buildSessionStartBlock: jest
+        .fn()
+        .mockResolvedValue('SESSION_START_TOKEN'),
+      buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
+    };
+    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    expect(sp).toBeDefined();
+    const append = (sp as { append?: string }).append ?? '';
+    const startIdx = append.indexOf('SESSION_START_TOKEN');
+    const recallIdx = append.indexOf('MEMORY_RECALL_TOKEN');
+    expect(startIdx).toBeGreaterThanOrEqual(0);
+    expect(recallIdx).toBeGreaterThan(startIdx);
+  });
+
+  it('leaves the corpus slot empty in Batch D (wired by Batch C1)', async () => {
+    const injector: InjectorStub = {
+      buildSessionStartBlock: jest
+        .fn()
+        .mockResolvedValue('SESSION_START_TOKEN'),
+      buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
+    };
+    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const append = (sp as { append?: string }).append ?? '';
+    expect(append).not.toContain('CORPUS');
+  });
+
+  it('omits sessionStart block entirely when injector returns empty', async () => {
+    const injector: InjectorStub = {
+      buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
+    };
+    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const append = (sp as { append?: string }).append ?? '';
+    expect(append).toContain('MEMORY_RECALL_TOKEN');
+  });
+
+  it('passes cwd as workspaceRoot to buildSessionStartBlock', async () => {
+    const injector: InjectorStub = {
+      buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildBlock: jest.fn().mockResolvedValue(''),
+    };
+    await buildPremiumWith(injector, 'a long enough query string');
+    expect(injector.buildSessionStartBlock).toHaveBeenCalledWith('D:/tmp/ws');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SdkQueryOptionsBuilder.validateModelAvailability (Fix: NODE-NESTJS-3B/2W)
 //
 // Pre-flight model existence check executed inside build() for third-party
@@ -347,6 +487,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
 
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
+      buildSessionStartBlock: jest.fn().mockResolvedValue(''),
     };
     const postToolUseHookHandler = {
       createHooks: jest
@@ -512,6 +653,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     };
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
+      buildSessionStartBlock: jest.fn().mockResolvedValue(''),
     };
     const postToolUseHookHandler = {
       createHooks: jest.fn().mockReturnValue({}),
@@ -631,6 +773,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     };
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
+      buildSessionStartBlock: jest.fn().mockResolvedValue(''),
     };
     const postToolUseHookHandler = {
       createHooks: jest
@@ -809,6 +952,7 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     };
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
+      buildSessionStartBlock: jest.fn().mockResolvedValue(''),
     };
     const postToolUseHookHandler = {
       createHooks: jest.fn().mockReturnValue({
