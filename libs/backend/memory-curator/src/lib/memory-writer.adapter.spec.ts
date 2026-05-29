@@ -7,10 +7,10 @@ import {
   sha256Hex,
 } from './memory-writer.adapter';
 import type { MemoryStore } from './memory.store';
-import { memoryId, type Memory, type MemoryListResponse } from './memory.types';
+import { memoryId, type Memory } from './memory.types';
 
 interface StoreMock {
-  list: jest.Mock;
+  findBySubjectAndTier: jest.Mock;
   forget: jest.Mock;
   insertMemoryWithChunks: jest.Mock;
 }
@@ -25,11 +25,9 @@ interface LoggerMock {
 function makeStore(initial: readonly Memory[] = []): StoreMock {
   const memories = [...initial];
   return {
-    list: jest.fn(
-      (): MemoryListResponse => ({
-        memories: [...memories],
-        total: memories.length,
-      }),
+    findBySubjectAndTier: jest.fn(
+      (subject: string, tier: string): readonly Memory[] =>
+        memories.filter((m) => m.subject === subject && m.tier === tier),
     ),
     forget: jest.fn(),
     insertMemoryWithChunks: jest.fn(
@@ -101,7 +99,10 @@ describe('MemoryWriterAdapter.upsert', () => {
 
     const result = await adapter.upsert(baseReq);
 
-    expect(store.list).toHaveBeenCalledWith({ tier: 'core', limit: 500 });
+    expect(store.findBySubjectAndTier).toHaveBeenCalledWith(
+      'project-profile',
+      'core',
+    );
     expect(store.forget).not.toHaveBeenCalled();
     expect(store.insertMemoryWithChunks).toHaveBeenCalledTimes(1);
     const [insert, chunks] = store.insertMemoryWithChunks.mock.calls[0] as [

@@ -145,6 +145,7 @@ export const MESSAGE_TYPES = {
   INDEXING_PROGRESS: 'indexing:progress',
   /** Backend → Frontend: workspace indexing run finished successfully. */
   INDEXING_COMPLETE: 'indexing:complete',
+  BATCH: 'batch',
 } as const;
 
 /**

@@ -31,6 +31,7 @@ import { sql as sql0011SkillsV2 } from './0011_skills_v2';
 import { sql as sql0012IndexingState } from './0012_indexing_state';
 import { sql as sql0013CodeSymbols } from './0013_code_symbols';
 import { sql as sql0014BootScanState } from './0014_boot_scan_state';
+import { sql as sql0015MemoriesSubjectTierIdx } from './0015_memories_subject_tier_idx';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -122,5 +123,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 14,
     name: '0014_boot_scan_state',
     sql: sql0014BootScanState,
+  },
+  {
+    version: 15,
+    name: '0015_memories_subject_tier_idx',
+    sql: sql0015MemoriesSubjectTierIdx,
   },
 ];

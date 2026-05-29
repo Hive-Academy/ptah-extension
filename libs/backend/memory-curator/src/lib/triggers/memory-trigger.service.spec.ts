@@ -467,9 +467,12 @@ describe('MemoryTriggerService', () => {
       }),
     });
     service.start();
-    for (let i = 0; i < 4; i++) {
-      stop.fire(stopPayload({ timestamp: i }));
-    }
+    stop.fire(stopPayload({ timestamp: 0 }));
+    stop.fire(stopPayload({ timestamp: 1 }));
+    await Promise.resolve();
+    jest.advanceTimersByTime(5001);
+    stop.fire(stopPayload({ timestamp: 2 }));
+    stop.fire(stopPayload({ timestamp: 3 }));
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
   });
@@ -586,12 +589,52 @@ describe('MemoryTriggerService', () => {
     expect(curator.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'idle-trigger' }),
     );
+    jest.advanceTimersByTime(5001);
     stop.fire(stopPayload({ timestamp: 2 }));
     stop.fire(stopPayload({ timestamp: 3 }));
     await Promise.resolve();
     expect(curator.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'turn-complete-trigger' }),
     );
+  });
+
+  it('coalesces overlapping triggers within 5s into a single curate', async () => {
+    const { service, stop, sessionEndHook, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload({ timestamp: 1 }));
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 2,
+    });
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesce window allows a new curate after the 5s cooldown elapses', async () => {
+    const { service, stop, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload({ timestamp: 1 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    stop.fire(stopPayload({ timestamp: 2 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(5001);
+    stop.fire(stopPayload({ timestamp: 3 }));
+    await Promise.resolve();
+    expect(curator.curate).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -783,6 +826,8 @@ describe('MemoryTriggerService — commit-detect trigger', () => {
     });
     service.start();
     postToolUse.fire(postToolUsePayload());
+    await Promise.resolve();
+    jest.advanceTimersByTime(5001);
     postToolUse.fire(postToolUsePayload());
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
@@ -803,6 +848,8 @@ describe('MemoryTriggerService — commit-detect trigger', () => {
     service.start();
     for (let i = 0; i < 50; i++) {
       postToolUse.fire(postToolUsePayload({ timestamp: i }));
+      await Promise.resolve();
+      jest.advanceTimersByTime(5001);
     }
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(50);
@@ -1068,7 +1115,8 @@ describe('MemoryTriggerService — buffer preservation under rate-limit', () => 
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
 
-    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 100 }));
+    jest.setSystemTime(new Date(t0 + 5001));
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 5001 }));
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
     expect(curator.pushEvent).toHaveBeenCalledWith(
@@ -1109,12 +1157,13 @@ describe('MemoryTriggerService — buffer preservation under rate-limit', () => 
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
 
-    stop.fire(stopPayload({ timestamp: t0 + 50 }));
+    jest.setSystemTime(new Date(t0 + 5001));
+    stop.fire(stopPayload({ timestamp: t0 + 5001 }));
     sessionEndHook.fire({
       sessionId: 's1',
       workspaceRoot: '/ws',
       reason: 'clear',
-      timestamp: t0 + 100,
+      timestamp: t0 + 5100,
     });
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
@@ -1155,8 +1204,9 @@ describe('MemoryTriggerService — buffer preservation under rate-limit', () => 
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
 
-    stop.fire(stopPayload({ timestamp: t0 + 50 }));
-    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 100 }));
+    jest.setSystemTime(new Date(t0 + 5001));
+    stop.fire(stopPayload({ timestamp: t0 + 5001 }));
+    postToolUse.fire(postToolUsePayload({ timestamp: t0 + 5100 }));
     await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(1);
 
