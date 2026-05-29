@@ -4,7 +4,6 @@ import {
   signal,
   computed,
   viewChild,
-  ElementRef,
   ChangeDetectionStrategy,
   afterNextRender,
   effect,
@@ -21,6 +20,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-angular';
+import { ScrollingModule, CdkVirtualScrollViewport } from '@angular/cdk/scrolling';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
@@ -35,7 +35,6 @@ import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-s
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
-import { AutoAnimateDirective } from '../../directives/auto-animate.directive';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
@@ -65,8 +64,6 @@ import {
 } from '@ptah-extension/shared';
 import type { SubagentRecord } from '@ptah-extension/shared';
 
-/** Shared empty Set instance to keep `streamingMessageIds()` referentially
- *  stable when no message is streaming (avoids unnecessary template re-evals). */
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 
 /**
@@ -134,7 +131,7 @@ function filterCompactionNoise(
     CompactionNotificationComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
-    AutoAnimateDirective,
+    ScrollingModule,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -314,8 +311,12 @@ export class ChatViewComponent {
    * Signal-based viewChild (Angular 20+ pattern)
    * Replaces @ViewChild decorator for better reactivity
    */
-  private readonly messageContainerRef =
-    viewChild<ElementRef<HTMLElement>>('messageContainer');
+  private readonly virtualViewport = viewChild(CdkVirtualScrollViewport);
+
+  private getScrollContainerEl(): HTMLElement | null {
+    const vp = this.virtualViewport();
+    return vp ? (vp.elementRef.nativeElement as HTMLElement) : null;
+  }
 
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
   private readonly chatInputRef = viewChild(ChatInputComponent);
@@ -631,6 +632,20 @@ export class ChatViewComponent {
    * DEDUPLICATION: Finalized messages use tree.id (event id) NOT messageId,
    * so we can properly match and filter out already-finalized trees.
    */
+  private readonly finalizedMessageIds = computed((): ReadonlySet<string> => {
+    const msgs = this.resolvedMessages();
+    if (msgs.length === 0) return EMPTY_STRING_SET;
+    const ids = new Set<string>();
+    for (const m of msgs) ids.add(m.id);
+    return ids;
+  });
+
+  protected readonly finalizedFiltered = computed(
+    (): readonly ExecutionChatMessage[] => {
+      return filterCompactionNoise(this.resolvedMessages());
+    },
+  );
+
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
     const trees = this.resolvedExecutionTrees();
     if (trees.length === 0) return [];
@@ -638,11 +653,9 @@ export class ChatViewComponent {
     const streamingState = this.resolvedStreamingState();
     const pendingStats = streamingState?.pendingStats;
 
-    const finalizedMessageIds = new Set(
-      this.resolvedMessages().map((msg) => msg.id),
-    );
+    const finalizedIds = this.finalizedMessageIds();
     const nonFinalizedTrees = trees.filter(
-      (tree) => !finalizedMessageIds.has(tree.id),
+      (tree) => !finalizedIds.has(tree.id),
     );
     if (nonFinalizedTrees.length === 0) return [];
 
@@ -679,24 +692,39 @@ export class ChatViewComponent {
    * `resolvedIsStreaming()` AND identity (only the live trees are streaming;
    * historical messages are not).
    */
-  readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
-    const finalized = this.resolvedMessages();
-    const streaming = this.streamingMessages();
-    const combined =
-      streaming.length === 0 ? finalized : [...finalized, ...streaming];
-    return filterCompactionNoise(combined);
+  readonly totalMessageCount = computed((): number => {
+    return this.finalizedFiltered().length + this.streamingMessages().length;
   });
 
-  /**
-   * Set of message ids that are currently being streamed (live trees, not yet
-   * finalized). Used by the template to flip `isStreaming` per-bubble inside
-   * the unified `@for` loop.
-   */
-  readonly streamingMessageIds = computed((): ReadonlySet<string> => {
+  private _allMessagesCache: readonly ExecutionChatMessage[] = [];
+  private _allMessagesFinalizedRef: readonly ExecutionChatMessage[] | null =
+    null;
+  private _allMessagesStreamingRef: readonly ExecutionChatMessage[] | null =
+    null;
+
+  readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
+    const finalized = this.finalizedFiltered();
     const streaming = this.streamingMessages();
-    if (streaming.length === 0) return EMPTY_STRING_SET;
-    return new Set(streaming.map((m) => m.id));
+    if (
+      finalized === this._allMessagesFinalizedRef &&
+      streaming === this._allMessagesStreamingRef
+    ) {
+      return this._allMessagesCache;
+    }
+    const next =
+      streaming.length === 0 ? finalized : [...finalized, ...streaming];
+    this._allMessagesFinalizedRef = finalized;
+    this._allMessagesStreamingRef = streaming;
+    this._allMessagesCache = next;
+    return next;
   });
+
+  protected trackByMessageId(
+    _index: number,
+    msg: ExecutionChatMessage,
+  ): string {
+    return msg.id;
+  }
 
   constructor() {
     effect(() => {
@@ -743,9 +771,9 @@ export class ChatViewComponent {
         const savedPosition = this.scrollPositionCache.get(currentTabId)!;
         this.isRestoringScroll = true;
         setTimeout(() => {
-          const container = this.messageContainerRef()?.nativeElement;
-          if (container) {
-            container.scrollTo({ top: savedPosition, behavior: 'instant' });
+          const viewport = this.virtualViewport();
+          if (viewport) {
+            viewport.scrollTo({ top: savedPosition, behavior: 'instant' });
           }
           setTimeout(() => {
             this.isRestoringScroll = false;
@@ -797,18 +825,26 @@ export class ChatViewComponent {
   onScroll(event: Event): void {
     if (this.isProgrammaticScrolling || this.isFinalizingTransition()) return;
 
-    const container = event.target as HTMLElement;
-    if (!container) return;
+    const viewport = this.virtualViewport();
+    let scrollTop: number;
+    let distanceFromBottom: number;
+    if (viewport) {
+      scrollTop = viewport.measureScrollOffset('top');
+      distanceFromBottom = viewport.measureScrollOffset('bottom');
+    } else {
+      const container = event.target as HTMLElement;
+      if (!container) return;
+      scrollTop = container.scrollTop;
+      distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+    }
 
-    const isNearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
-      100;
-
+    const isNearBottom = distanceFromBottom < 100;
     this.userScrolledUp.set(!isNearBottom);
 
     const tabId = this.resolvedTabId();
     if (tabId) {
-      this.scrollPositionCache.set(tabId, container.scrollTop);
+      this.scrollPositionCache.set(tabId, scrollTop);
     }
   }
 
@@ -1108,41 +1144,32 @@ export class ChatViewComponent {
   }
 
   private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {
-    const containerRef = this.messageContainerRef();
-    if (!containerRef) return;
-
-    const container = containerRef.nativeElement;
-    this.isProgrammaticScrolling = true;
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior,
-    });
-
-    if (behavior === 'instant') {
-      requestAnimationFrame(() => {
-        this.isProgrammaticScrolling = false;
-      });
-    } else {
-      setTimeout(() => {
-        this.isProgrammaticScrolling = false;
-      }, 400);
+    const viewport = this.virtualViewport();
+    if (viewport) {
+      this.isProgrammaticScrolling = true;
+      viewport.scrollTo({ bottom: 0, behavior });
+      if (behavior === 'instant') {
+        requestAnimationFrame(() => {
+          this.isProgrammaticScrolling = false;
+        });
+      } else {
+        setTimeout(() => {
+          this.isProgrammaticScrolling = false;
+        }, 400);
+      }
     }
   }
 
-  /**
-   * Setup MutationObserver to watch for DOM changes in message container.
-   * This ensures scroll happens after recursive ExecutionNode tree completes rendering.
-   */
   private setupMutationObserver(): void {
-    const container = this.messageContainerRef()?.nativeElement;
+    const container = this.getScrollContainerEl();
     if (!container || this.observer) return;
 
     this.observer = new MutationObserver(() => {
       this.scheduleScroll();
     });
     this.observer.observe(container, {
-      childList: true, // New nodes added/removed
-      subtree: true, // Watch entire subtree (recursive components)
+      childList: true,
+      subtree: true,
     });
   }
 
