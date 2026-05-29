@@ -877,7 +877,12 @@ export class SdkQueryOptionsBuilder {
       sessionStartBlock =
         await this.memoryPromptInjector.buildSessionStartBlock(cwd);
     }
-    const corpusPrimeBlock = '';
+    let corpusPrimeBlock = '';
+    const corpusName = sessionConfig?.corpusName?.trim();
+    if (isPremium && corpusName) {
+      corpusPrimeBlock =
+        await this.memoryPromptInjector.buildCorpusBlock(corpusName);
+    }
     let memoryBlock = '';
     if (isPremium && initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
@@ -907,6 +912,8 @@ export class SdkQueryOptionsBuilder {
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
       hasSessionStartBlock: !!sessionStartBlock,
       sessionStartBlockLength: sessionStartBlock.length,
+      hasCorpusPrimeBlock: !!corpusPrimeBlock,
+      corpusPrimeBlockLength: corpusPrimeBlock.length,
       hasMemoryBlock: !!memoryBlock,
       memoryBlockLength: memoryBlock.length,
       totalAppendLength: finalContent?.length ?? 0,

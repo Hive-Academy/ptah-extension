@@ -18,12 +18,21 @@ import {
   type ICompactionCallbackRegistry,
   type ITranscriptReader,
 } from '@ptah-extension/memory-contracts';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import { memoryId, type MemoryTier } from './memory.types';
 import type { MemoryCuratorEvent } from './diagnostics.types';
+import type { CorpusStore } from './knowledge-agents/corpus.store';
+import type { KnowledgeAgentService } from './knowledge-agents/knowledge-agent.service';
+
+const AUTO_REBUILD_SECTION = 'ptah';
+const AUTO_REBUILD_KEY = 'memory.corpus.autoRebuildOnExtraction';
 
 const TRANSCRIPT_PLACEHOLDER =
   '[Compaction transcript window unavailable; curator running on session metadata only.]';
@@ -55,6 +64,12 @@ export class MemoryCuratorService {
     @inject(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER)
     private readonly transcriptReader: ITranscriptReader,
     @inject(MEMORY_TOKENS.CURATOR_LLM) private readonly llm: ICuratorLLM,
+    @inject(MEMORY_TOKENS.CORPUS_STORE, { isOptional: true })
+    private readonly corpusStore: CorpusStore | null = null,
+    @inject(MEMORY_TOKENS.KNOWLEDGE_AGENT_SERVICE, { isOptional: true })
+    private readonly knowledgeAgent: KnowledgeAgentService | null = null,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace: IWorkspaceProvider | null = null,
   ) {}
 
   /** Begin listening for PreCompact events. Idempotent. */
@@ -325,7 +340,47 @@ export class MemoryCuratorService {
         skipped: stats.skipped,
       },
     });
+    this.triggerCorpusAutoRebuild(stats.created, input.workspaceRoot ?? null);
     return stats;
+  }
+
+  /**
+   * Fire-and-forget post-curate hook: rebuilds every workspace-scoped corpus
+   * so they re-include the freshly-created memories.
+   *
+   * Must NOT block `running` — failures are logged and swallowed.
+   */
+  private triggerCorpusAutoRebuild(
+    created: number,
+    workspaceRoot: string | null,
+  ): void {
+    if (created <= 0) return;
+    if (!workspaceRoot) return;
+    if (!this.knowledgeAgent || !this.corpusStore) return;
+    const enabled =
+      this.workspace?.getConfiguration<boolean>(
+        AUTO_REBUILD_SECTION,
+        AUTO_REBUILD_KEY,
+        true,
+      ) ?? true;
+    if (!enabled) return;
+    let corpora: readonly { readonly name: string }[];
+    try {
+      corpora = this.corpusStore.list({ workspaceRoot });
+    } catch (err: unknown) {
+      this.logger.warn('[memory-curator] auto-rebuild corpus listing failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    for (const c of corpora) {
+      this.knowledgeAgent.rebuildCorpus(c.name).catch((err: unknown) => {
+        this.logger.warn('[memory-curator] auto-rebuild failed for corpus', {
+          name: c.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   }
 
   /**

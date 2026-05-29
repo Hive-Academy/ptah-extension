@@ -50,6 +50,7 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export { SessionLifecycleManager } from './lib/helpers';
 export {
   CallbackRegistryBase,
   type CallbackRegistryCallback,

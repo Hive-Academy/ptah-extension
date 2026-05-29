@@ -101,6 +101,20 @@ export type {
   FingerprintSource,
 } from './lib/workspace-fingerprint';
 export { IndexingControlService } from './lib/control/indexing-control.service';
+export { KnowledgeAgentService } from './lib/knowledge-agents/knowledge-agent.service';
+export type {
+  PrimeCorpusResult,
+  QueryCorpusResult,
+  RebuildCorpusResult,
+  DeleteCorpusResult,
+} from './lib/knowledge-agents/knowledge-agent.service';
+export { CorpusStore } from './lib/knowledge-agents/corpus.store';
+export type {
+  BuildCorpusParams,
+  CorpusRef,
+  CorpusListEntry,
+  CorpusRecord,
+} from './lib/knowledge-agents/corpus.types';
 export type {
   IndexingStatus,
   SymbolsCursor,

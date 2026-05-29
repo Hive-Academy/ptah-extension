@@ -207,6 +207,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
       buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildCorpusBlock: jest.fn().mockResolvedValue(''),
     };
 
     const postToolUseHookHandler = {
@@ -303,6 +304,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
   interface InjectorStub {
     buildBlock: jest.Mock<Promise<string>, [string, string?]>;
     buildSessionStartBlock: jest.Mock<Promise<string>, [string?]>;
+    buildCorpusBlock: jest.Mock<Promise<string>, [string, number?]>;
   }
 
   function makeBuilderForPrepend(
@@ -364,11 +366,13 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
   async function buildPremiumWith(
     injector: InjectorStub,
     initialQuery: string,
+    extra: { corpusName?: string } = {},
   ) {
     const builder = makeBuilderForPrepend(injector);
     const sessionConfig: AISessionConfig = {
       model: 'claude-sonnet-4',
       projectPath: 'D:/tmp/ws',
+      ...(extra.corpusName ? { corpusName: extra.corpusName } : {}),
     } as AISessionConfig;
     const userMessageStream = (async function* () {
       // Intentionally empty.
@@ -383,37 +387,45 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
     return cfg.options.systemPrompt;
   }
 
-  it('places sessionStart before memoryRecall before preset content', async () => {
+  it('places sessionStart before corpusPrime before memoryRecall before preset content', async () => {
     const injector: InjectorStub = {
       buildSessionStartBlock: jest
         .fn()
         .mockResolvedValue('SESSION_START_TOKEN'),
+      buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const sp = await buildPremiumWith(injector, 'a long enough query string', {
+      corpusName: 'corpus-A',
+    });
     expect(sp).toBeDefined();
     const append = (sp as { append?: string }).append ?? '';
     const startIdx = append.indexOf('SESSION_START_TOKEN');
+    const corpusIdx = append.indexOf('CORPUS_PRIME_TOKEN');
     const recallIdx = append.indexOf('MEMORY_RECALL_TOKEN');
     expect(startIdx).toBeGreaterThanOrEqual(0);
-    expect(recallIdx).toBeGreaterThan(startIdx);
+    expect(corpusIdx).toBeGreaterThan(startIdx);
+    expect(recallIdx).toBeGreaterThan(corpusIdx);
   });
 
-  it('leaves the corpus slot empty in Batch D (wired by Batch C1)', async () => {
+  it('leaves the corpus slot empty when sessionConfig.corpusName is not set', async () => {
     const injector: InjectorStub = {
       buildSessionStartBlock: jest
         .fn()
         .mockResolvedValue('SESSION_START_TOKEN'),
+      buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
     const sp = await buildPremiumWith(injector, 'a long enough query string');
     const append = (sp as { append?: string }).append ?? '';
-    expect(append).not.toContain('CORPUS');
+    expect(append).not.toContain('CORPUS_PRIME_TOKEN');
+    expect(injector.buildCorpusBlock).not.toHaveBeenCalled();
   });
 
   it('omits sessionStart block entirely when injector returns empty', async () => {
     const injector: InjectorStub = {
       buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildCorpusBlock: jest.fn().mockResolvedValue(''),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
     const sp = await buildPremiumWith(injector, 'a long enough query string');
@@ -424,10 +436,23 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
   it('passes cwd as workspaceRoot to buildSessionStartBlock', async () => {
     const injector: InjectorStub = {
       buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildCorpusBlock: jest.fn().mockResolvedValue(''),
       buildBlock: jest.fn().mockResolvedValue(''),
     };
     await buildPremiumWith(injector, 'a long enough query string');
     expect(injector.buildSessionStartBlock).toHaveBeenCalledWith('D:/tmp/ws');
+  });
+
+  it('forwards corpusName to buildCorpusBlock when set on sessionConfig', async () => {
+    const injector: InjectorStub = {
+      buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
+      buildBlock: jest.fn().mockResolvedValue(''),
+    };
+    await buildPremiumWith(injector, 'a long enough query string', {
+      corpusName: 'corpus-XYZ',
+    });
+    expect(injector.buildCorpusBlock).toHaveBeenCalledWith('corpus-XYZ');
   });
 });
 
@@ -488,6 +513,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
       buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildCorpusBlock: jest.fn().mockResolvedValue(''),
     };
     const postToolUseHookHandler = {
       createHooks: jest
@@ -654,6 +680,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
       buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildCorpusBlock: jest.fn().mockResolvedValue(''),
     };
     const postToolUseHookHandler = {
       createHooks: jest.fn().mockReturnValue({}),
@@ -774,6 +801,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
       buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildCorpusBlock: jest.fn().mockResolvedValue(''),
     };
     const postToolUseHookHandler = {
       createHooks: jest
@@ -953,6 +981,7 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     const memoryPromptInjector = {
       buildBlock: jest.fn().mockResolvedValue(''),
       buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+      buildCorpusBlock: jest.fn().mockResolvedValue(''),
     };
     const postToolUseHookHandler = {
       createHooks: jest.fn().mockReturnValue({

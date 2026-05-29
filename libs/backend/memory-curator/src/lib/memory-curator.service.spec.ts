@@ -331,3 +331,133 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
     expect(insertedMemory.files).toEqual(populatedDraft.files);
   });
 });
+
+describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () => {
+  function makeWithCorpusDeps(opts: {
+    workspaceRoot: string | null;
+    corpora: Array<{ name: string }>;
+    enabled?: boolean;
+    rebuildImpl?: jest.Mock;
+  }) {
+    const draft = {
+      kind: 'event' as const,
+      subject: 'auto-rebuild test',
+      content: 'content',
+      salienceHint: 0.5,
+      type: 'feature' as const,
+      concepts: ['c'] as const,
+      files: [] as const,
+    };
+    const llm = {
+      extract: jest.fn().mockResolvedValue([draft]),
+      resolve: jest.fn().mockResolvedValue([{ ...draft, mergeTargetId: null }]),
+    } as unknown as ICuratorLLM;
+    const registry = {
+      register: jest.fn(() => () => undefined),
+    } as unknown as ICompactionCallbackRegistry;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+      updateSalience: jest.fn(),
+    } as unknown as MemoryStore;
+    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
+    const transcriptReader = {
+      read: jest.fn().mockResolvedValue(''),
+    } as unknown as ITranscriptReader;
+    const corpusStore = {
+      list: jest.fn(() => opts.corpora),
+    } as unknown as import('./knowledge-agents/corpus.store').CorpusStore;
+    const rebuildCorpus =
+      opts.rebuildImpl ?? jest.fn().mockResolvedValue({ added: 0, removed: 0 });
+    const knowledgeAgent = {
+      rebuildCorpus,
+    } as unknown as import('./knowledge-agents/knowledge-agent.service').KnowledgeAgentService;
+    const workspace = {
+      getConfiguration: jest.fn(
+        <T>(_s: string, k: string, fallback?: T): T | undefined => {
+          if (k === 'memory.corpus.autoRebuildOnExtraction') {
+            return (opts.enabled ?? true) as unknown as T;
+          }
+          return fallback;
+        },
+      ),
+    } as unknown as import('@ptah-extension/platform-core').IWorkspaceProvider;
+    const svc = new MemoryCuratorService(
+      makeLogger(),
+      registry,
+      store,
+      scorer,
+      transcriptReader,
+      llm,
+      corpusStore,
+      knowledgeAgent,
+      workspace,
+    );
+    return { svc, rebuildCorpus, corpusStore, knowledgeAgent };
+  }
+
+  it('fires rebuildCorpus for each workspace corpus when created > 0', async () => {
+    const { svc, rebuildCorpus, corpusStore } = makeWithCorpusDeps({
+      workspaceRoot: '/ws/X',
+      corpora: [{ name: 'a' }, { name: 'b' }],
+    });
+    await svc.curate({
+      sessionId: 's',
+      workspaceRoot: '/ws/X',
+      transcript: 'real transcript content',
+    });
+    expect((corpusStore.list as jest.Mock).mock.calls[0][0]).toEqual({
+      workspaceRoot: '/ws/X',
+    });
+    expect(rebuildCorpus).toHaveBeenCalledTimes(2);
+    expect(rebuildCorpus).toHaveBeenCalledWith('a');
+    expect(rebuildCorpus).toHaveBeenCalledWith('b');
+  });
+
+  it('does NOT fire rebuildCorpus when workspaceRoot is null', async () => {
+    const { svc, rebuildCorpus } = makeWithCorpusDeps({
+      workspaceRoot: null,
+      corpora: [{ name: 'a' }],
+    });
+    await svc.curate({
+      sessionId: 's',
+      workspaceRoot: null,
+      transcript: 'real transcript content',
+    });
+    expect(rebuildCorpus).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire rebuildCorpus when autoRebuildOnExtraction is disabled', async () => {
+    const { svc, rebuildCorpus } = makeWithCorpusDeps({
+      workspaceRoot: '/ws/X',
+      corpora: [{ name: 'a' }],
+      enabled: false,
+    });
+    await svc.curate({
+      sessionId: 's',
+      workspaceRoot: '/ws/X',
+      transcript: 'real transcript content',
+    });
+    expect(rebuildCorpus).not.toHaveBeenCalled();
+  });
+
+  it('rebuildCorpus rejection does NOT propagate to curate()', async () => {
+    const rebuildImpl = jest.fn().mockRejectedValue(new Error('boom'));
+    const { svc } = makeWithCorpusDeps({
+      workspaceRoot: '/ws/X',
+      corpora: [{ name: 'a' }],
+      rebuildImpl,
+    });
+    await expect(
+      svc.curate({
+        sessionId: 's',
+        workspaceRoot: '/ws/X',
+        transcript: 'real transcript content',
+      }),
+    ).resolves.toEqual(expect.objectContaining({ created: 1 }));
+    await new Promise((r) => setImmediate(r));
+    expect(rebuildImpl).toHaveBeenCalled();
+  });
+});
