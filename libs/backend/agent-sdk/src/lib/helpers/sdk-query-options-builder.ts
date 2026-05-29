@@ -336,11 +336,6 @@ export interface QueryOptionsInput {
    */
   forkSession?: boolean;
   /**
-   * When resuming, only replay messages up to (and including) the message with
-   * this UUID. Maps directly to SDK Options.resumeSessionAt.
-   */
-  resumeSessionAt?: string;
-  /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
    * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
@@ -483,7 +478,6 @@ export class SdkQueryOptionsBuilder {
       pathToClaudeCodeExecutable,
       onProviderError,
       forkSession,
-      resumeSessionAt,
       enableFileCheckpointing,
       includePartialMessages,
       mcpServersOverride,
@@ -656,13 +650,12 @@ export class SdkQueryOptionsBuilder {
           : {}),
         agentProgressSummaries: true,
         forkSession: resumeSessionId ? forkSession : undefined,
-        resumeSessionAt: resumeSessionId ? resumeSessionAt : undefined,
       },
     };
   }
 
   /**
-   * Emit a structured warning when fork/resume-at are requested without a
+   * Emit a structured warning when forkSession is requested without a
    * resumeSessionId. Behavior is intentionally preserved (silent drop into
    * `undefined`) â€” but observability is added so misconfigured callers
    * surface in logs instead of silently producing fresh sessions.
@@ -671,19 +664,15 @@ export class SdkQueryOptionsBuilder {
    * `build()` flow uncluttered.
    */
   private warnIfForkOptionsDroppedSilently(input: QueryOptionsInput): void {
-    const { resumeSessionId, forkSession, resumeSessionAt, sessionId } = input;
+    const { resumeSessionId, forkSession, sessionId } = input;
     if (resumeSessionId) return;
-    if (forkSession === undefined && resumeSessionAt === undefined) return;
+    if (forkSession === undefined) return;
     this.logger.warn(
-      '[SdkQueryOptionsBuilder] forkSession/resumeSessionAt were set without a resumeSessionId â€” both options will be dropped because they only apply to resumed sessions.',
+      '[SdkQueryOptionsBuilder] forkSession was set without a resumeSessionId â€” the option will be dropped because it only applies to resumed sessions.',
       {
         sessionId: sessionId ? `${sessionId.slice(0, 8)}...` : undefined,
         hasForkSession: forkSession !== undefined,
-        hasResumeSessionAt: resumeSessionAt !== undefined,
         forkSession,
-        resumeSessionAt: resumeSessionAt
-          ? `${resumeSessionAt.slice(0, 8)}...`
-          : undefined,
       },
     );
   }

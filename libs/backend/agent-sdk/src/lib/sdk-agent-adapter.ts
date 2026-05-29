@@ -494,7 +494,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       pluginPaths?: string[];
       tabId?: string;
       includePartialMessages?: boolean;
-      resumeSessionAt?: string;
       providerProfile?: ProviderProfile;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
@@ -504,28 +503,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
     const existingSession = this.sessionLifecycle.find(sessionId as string);
     if (existingSession && existingSession.query) {
-      if (config?.resumeSessionAt) {
-        this.logger.info(
-          `[SdkAgentAdapter] Ending active session ${sessionId} to restart with resumeSessionAt`,
-          { resumeSessionAt: config.resumeSessionAt },
-        );
-        await this.sessionLifecycle.endSession(sessionId);
-      } else {
-        this.logger.info(
-          `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
-        );
-        return this.streamTransformer.transform({
-          sdkQuery: existingSession.query,
+      this.logger.info(
+        `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
+      );
+      return this.streamTransformer.transform({
+        sdkQuery: existingSession.query,
+        sessionId,
+        initialModel: existingSession.currentModel,
+        onSessionIdResolved: this.callbacks.getSessionIdResolved(),
+        onResultStats: this.wrapResultStatsForActivity(
           sessionId,
-          initialModel: existingSession.currentModel,
-          onSessionIdResolved: this.callbacks.getSessionIdResolved(),
-          onResultStats: this.wrapResultStatsForActivity(
-            sessionId,
-            this.callbacks.getResultStats(),
-          ),
-          tabId: config?.tabId,
-        });
-      }
+          this.callbacks.getResultStats(),
+        ),
+        tabId: config?.tabId,
+      });
     }
 
     const isPremium = config?.isPremium ?? false;
@@ -552,7 +543,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         sessionConfig: sessionConfigWithProfileModel,
         resumeSessionId: sessionId as string,
-        resumeSessionAt: config?.resumeSessionAt,
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
@@ -713,11 +703,17 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     upToMessageId?: string,
     title?: string,
+    kind?: 'rewind' | 'branch',
   ): Promise<ForkSessionResult> {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
-    return this.forkService.forkSession({ sessionId, upToMessageId, title });
+    return this.forkService.forkSession({
+      sessionId,
+      upToMessageId,
+      title,
+      kind,
+    });
   }
 
   async rewindFiles(

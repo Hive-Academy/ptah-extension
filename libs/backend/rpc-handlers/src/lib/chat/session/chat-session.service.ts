@@ -486,9 +486,8 @@ export class ChatSessionService {
         cliSessionCount: cliSessions?.length ?? 0,
       });
       let activated = false;
-      const wantsTruncation = typeof params.resumeSessionAt === 'string';
       if (params.activate === true && params.tabId) {
-        if (wantsTruncation || !this.sdkAdapter.isSessionActive(sessionId)) {
+        if (!this.sdkAdapter.isSessionActive(sessionId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,
@@ -499,7 +498,6 @@ export class ChatSessionService {
               tabId: params.tabId,
               workspacePath: resolvedWorkspacePath,
             } as ChatContinueParams,
-            params.resumeSessionAt,
           );
           if ('justResumed' in activateResult) {
             activated =
@@ -688,9 +686,8 @@ export class ChatSessionService {
     workspacePath: string,
     prompt: string,
     params: ChatContinueParams,
-    resumeSessionAt?: string,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
-    if (!resumeSessionAt && this.sdkAdapter.isSessionActive(sessionId)) {
+    if (this.sdkAdapter.isSessionActive(sessionId)) {
       return { justResumed: false };
     }
 
@@ -738,7 +735,6 @@ export class ChatSessionService {
         thinking: params.thinking,
         effort: params.effort,
         prompt,
-        resumeSessionAt,
       });
       this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);

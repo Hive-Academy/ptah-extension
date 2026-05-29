@@ -131,7 +131,6 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   prompt?: string;
   /** See {@link AgentSessionStartConfig.includePartialMessages}. */
   includePartialMessages?: boolean;
-  resumeSessionAt?: string;
 }
 
 /**
