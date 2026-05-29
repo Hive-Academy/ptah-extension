@@ -54,4 +54,76 @@ describe('ConfirmationDialogService', () => {
     expect(opts?.cancelLabel).toBe('No');
     expect(opts?.confirmStyle).toBe('error');
   });
+
+  describe('confirmWithCheckboxes', () => {
+    it('resolves with { confirmed: true, checkboxes } reflecting user-toggled state', async () => {
+      const promise = svc.confirmWithCheckboxes({
+        title: 'Rewind',
+        message: 'Continue?',
+        checkboxes: [
+          { id: 'deleteOriginal', label: 'Also delete original session' },
+          { id: 'notifyMe', label: 'Notify me when complete' },
+        ],
+      });
+      expect(svc.isOpen()).toBe(true);
+      expect(svc.options()?.checkboxes?.length).toBe(2);
+
+      svc.handleConfirmWithState({ deleteOriginal: true, notifyMe: false });
+
+      const result = await promise;
+      expect(result).toEqual({
+        confirmed: true,
+        checkboxes: { deleteOriginal: true, notifyMe: false },
+      });
+      expect(svc.isOpen()).toBe(false);
+      expect(svc.options()).toBeNull();
+    });
+
+    it('resolves with { confirmed: false } on cancel, ignoring checkbox state', async () => {
+      const promise = svc.confirmWithCheckboxes({
+        title: 'Rewind',
+        message: 'Continue?',
+        checkboxes: [
+          {
+            id: 'deleteOriginal',
+            label: 'Also delete original session',
+            defaultChecked: true,
+          },
+        ],
+      });
+
+      svc.handleCancel();
+
+      const result = await promise;
+      expect(result).toEqual({ confirmed: false });
+      expect((result as { checkboxes?: unknown }).checkboxes).toBeUndefined();
+      expect(svc.isOpen()).toBe(false);
+    });
+
+    it('exposes defaultChecked metadata in the options snapshot for renderer initialization', () => {
+      void svc.confirmWithCheckboxes({
+        title: 'Rewind',
+        message: 'Continue?',
+        checkboxes: [
+          {
+            id: 'deleteOriginal',
+            label: 'Also delete original session',
+            defaultChecked: true,
+          },
+          { id: 'plain', label: 'Plain', defaultChecked: false },
+          { id: 'unset', label: 'Unset' },
+        ],
+      });
+
+      const checkboxes = svc.options()?.checkboxes;
+      expect(checkboxes).toBeDefined();
+      expect(checkboxes?.[0]).toEqual({
+        id: 'deleteOriginal',
+        label: 'Also delete original session',
+        defaultChecked: true,
+      });
+      expect(checkboxes?.[1].defaultChecked).toBe(false);
+      expect(checkboxes?.[2].defaultChecked).toBeUndefined();
+    });
+  });
 });

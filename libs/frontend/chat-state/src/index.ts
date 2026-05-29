@@ -20,6 +20,8 @@ export {
 export {
   ConfirmationDialogService,
   type ConfirmationDialogOptions,
+  type ConfirmationDialogCheckbox,
+  type ConfirmationDialogResult,
 } from './lib/confirmation-dialog.service';
 export {
   MODEL_REFRESH_CONTROL,
