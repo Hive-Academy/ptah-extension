@@ -254,4 +254,81 @@ describe('ObservationQueueStore (native-gated)', () => {
       }
     },
   );
+
+  maybe(
+    'onCapture fires for every successful insert and dispose detaches',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const events: Array<{
+          sessionId: string;
+          workspaceRoot: string | null;
+          kind: string;
+          timestamp: number;
+        }> = [];
+        const sub = store.onCapture((evt) => {
+          events.push({
+            sessionId: evt.sessionId,
+            workspaceRoot: evt.workspaceRoot,
+            kind: evt.kind,
+            timestamp: evt.timestamp,
+          });
+        });
+        const before = Date.now();
+        store.insert({
+          sessionId: 'session-η',
+          workspaceRoot: '/ws/H',
+          kind: 'file-read',
+          toolName: 'Read',
+        });
+        store.insert({
+          sessionId: 'session-η',
+          workspaceRoot: '/ws/H',
+          kind: 'tool-use',
+          toolName: 'Bash',
+        });
+        expect(events.length).toBe(2);
+        expect(events[0]).toMatchObject({
+          sessionId: 'session-η',
+          workspaceRoot: '/ws/H',
+          kind: 'file-read',
+        });
+        expect(events[1].kind).toBe('tool-use');
+        expect(events[0].timestamp).toBeGreaterThanOrEqual(before);
+        sub.dispose();
+        store.insert({
+          sessionId: 'session-η',
+          workspaceRoot: '/ws/H',
+          kind: 'user-prompt',
+        });
+        expect(events.length).toBe(2);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'onCapture listener errors are isolated; other listeners still fire',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const seen: string[] = [];
+        store.onCapture(() => {
+          throw new Error('listener-fail');
+        });
+        store.onCapture((evt) => {
+          seen.push(evt.kind);
+        });
+        store.insert({
+          sessionId: 'session-θ',
+          workspaceRoot: null,
+          kind: 'commit',
+        });
+        expect(seen).toEqual(['commit']);
+      } finally {
+        service.close();
+      }
+    },
+  );
 });

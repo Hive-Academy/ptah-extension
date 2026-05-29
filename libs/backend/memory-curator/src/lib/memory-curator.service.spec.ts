@@ -132,6 +132,35 @@ describe('MemoryCuratorService — event ring buffer', () => {
       expired: 0,
     });
   });
+
+  it('onEvent fans out every pushEvent to subscribers and dispose detaches', () => {
+    const svc = buildService();
+    const received: MemoryCuratorEvent[] = [];
+    const sub = svc.onEvent((ev) => {
+      received.push(ev);
+    });
+    svc.pushEvent({ kind: 'idle-trigger', timestamp: 1, sessionId: 's1' });
+    svc.pushEvent({ kind: 'curator-run', timestamp: 2, sessionId: 's1' });
+    expect(received.length).toBe(2);
+    expect(received[0].kind).toBe('idle-trigger');
+    expect(received[1].kind).toBe('curator-run');
+    sub.dispose();
+    svc.pushEvent({ kind: 'decay-run', timestamp: 3 });
+    expect(received.length).toBe(2);
+  });
+
+  it('onEvent listener errors are caught and logged, do not break fan-out', () => {
+    const svc = buildService();
+    const calls: number[] = [];
+    svc.onEvent(() => {
+      throw new Error('boom');
+    });
+    svc.onEvent((ev) => {
+      calls.push(ev.timestamp);
+    });
+    svc.pushEvent({ kind: 'idle-trigger', timestamp: 42 });
+    expect(calls).toEqual([42]);
+  });
 });
 
 describe('MemoryCuratorService — in-flight dedupe (Moderate-3, Failure-7)', () => {

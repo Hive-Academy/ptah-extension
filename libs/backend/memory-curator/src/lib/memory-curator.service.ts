@@ -44,6 +44,8 @@ export interface CuratorRunStats {
   readonly skipped: number;
 }
 
+export type MemoryCuratorEventListener = (event: MemoryCuratorEvent) => void;
+
 @injectable()
 export class MemoryCuratorService {
   private static readonly RING_CAPACITY = 200;
@@ -53,6 +55,7 @@ export class MemoryCuratorService {
   private lastRunAtMs: number | null = null;
   private lastRunStatsCache: CuratorRunStats | null = null;
   private readonly inFlight = new Map<string, Promise<CuratorRunStats>>();
+  private readonly eventListeners = new Set<MemoryCuratorEventListener>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -124,6 +127,25 @@ export class MemoryCuratorService {
     if (this.events.length > MemoryCuratorService.RING_CAPACITY) {
       this.events.shift();
     }
+    for (const listener of this.eventListeners) {
+      try {
+        listener(ev);
+      } catch (err: unknown) {
+        this.logger.warn('[memory-curator] event listener threw', {
+          kind: ev.kind,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  onEvent(listener: MemoryCuratorEventListener): { dispose: () => void } {
+    this.eventListeners.add(listener);
+    return {
+      dispose: () => {
+        this.eventListeners.delete(listener);
+      },
+    };
   }
 
   recentEvents(limit = 10): readonly MemoryCuratorEvent[] {

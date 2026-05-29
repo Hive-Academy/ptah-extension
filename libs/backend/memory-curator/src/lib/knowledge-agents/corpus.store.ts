@@ -20,6 +20,21 @@ import type {
   CorpusRef,
 } from './corpus.types';
 
+/**
+ * Mutation event published when a corpus is created, rebuilt, primed, or
+ * deleted. Shape matches `MemoryCorpusChangedPayload` from
+ * `@ptah-extension/shared` so wire-runtime can forward without remapping.
+ */
+export interface CorpusChangeEvent {
+  readonly action: 'built' | 'rebuilt' | 'primed' | 'deleted';
+  readonly corpusId: string;
+  readonly name: string;
+  readonly count: number;
+  readonly timestamp: number;
+}
+
+export type CorpusChangeListener = (event: CorpusChangeEvent) => void;
+
 interface CorpusRow {
   id: string;
   name: string;
@@ -56,6 +71,8 @@ function rowToRef(row: CorpusRow, count: number): CorpusRef {
 
 @injectable()
 export class CorpusStore {
+  private readonly changeListeners = new Set<CorpusChangeListener>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -73,6 +90,13 @@ export class CorpusStore {
          VALUES (?, ?, ?, ?, ?, NULL, '[]')`,
       )
       .run(id, params.name, params.workspaceRoot ?? null, queryJson, builtAt);
+    this.emitChange({
+      action: 'built',
+      corpusId: id,
+      name: params.name,
+      count: 0,
+      timestamp: builtAt,
+    });
     return {
       id,
       name: params.name,
@@ -112,10 +136,23 @@ export class CorpusStore {
   }
 
   delete(id: string): boolean {
+    const row = this.connection.db
+      .prepare(`SELECT name FROM corpora WHERE id = ?`)
+      .get(id) as { name: string } | undefined;
     const result = this.connection.db
       .prepare(`DELETE FROM corpora WHERE id = ?`)
       .run(id);
-    return result.changes > 0;
+    const deleted = result.changes > 0;
+    if (deleted && row) {
+      this.emitChange({
+        action: 'deleted',
+        corpusId: id,
+        name: row.name,
+        count: 0,
+        timestamp: Date.now(),
+      });
+    }
+    return deleted;
   }
 
   setMemberIds(corpusId: string, memoryIds: readonly string[]): void {
@@ -143,15 +180,64 @@ export class CorpusStore {
   }
 
   updateRebuiltAt(corpusId: string): void {
+    const now = Date.now();
     this.connection.db
       .prepare(`UPDATE corpora SET rebuilt_at = ? WHERE id = ?`)
-      .run(Date.now(), corpusId);
+      .run(now, corpusId);
+    const row = this.connection.db
+      .prepare(`SELECT name FROM corpora WHERE id = ?`)
+      .get(corpusId) as { name: string } | undefined;
+    if (row) {
+      this.emitChange({
+        action: 'rebuilt',
+        corpusId,
+        name: row.name,
+        count: this.countMembers(corpusId),
+        timestamp: now,
+      });
+    }
   }
 
   setPrimedSessionIds(corpusId: string, sessionIds: readonly string[]): void {
     this.connection.db
       .prepare(`UPDATE corpora SET primed_session_ids_json = ? WHERE id = ?`)
       .run(JSON.stringify([...sessionIds]), corpusId);
+    if (sessionIds.length === 0) return;
+    const row = this.connection.db
+      .prepare(`SELECT name FROM corpora WHERE id = ?`)
+      .get(corpusId) as { name: string } | undefined;
+    if (row) {
+      this.emitChange({
+        action: 'primed',
+        corpusId,
+        name: row.name,
+        count: this.countMembers(corpusId),
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  onChange(listener: CorpusChangeListener): { dispose: () => void } {
+    this.changeListeners.add(listener);
+    return {
+      dispose: () => {
+        this.changeListeners.delete(listener);
+      },
+    };
+  }
+
+  private emitChange(event: CorpusChangeEvent): void {
+    for (const listener of this.changeListeners) {
+      try {
+        listener(event);
+      } catch (err: unknown) {
+        this.logger.warn('[memory-curator] corpus change listener threw', {
+          action: event.action,
+          name: event.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   /**

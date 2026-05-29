@@ -43,6 +43,23 @@ export interface ObservationQueueRow extends ObservationQueueInsert {
 /** Maximum byte length of `tool_response_text` retained at insert time. */
 export const OBSERVATION_TOOL_RESPONSE_MAX_BYTES = 16 * 1024;
 
+/**
+ * Capture event published when a new row is successfully inserted. Designed
+ * to be broadcast as `MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED` without any
+ * further mapping — matches `MemoryObservationCapturedPayload` from
+ * `@ptah-extension/shared`.
+ */
+export interface ObservationCaptureEvent {
+  readonly sessionId: string;
+  readonly workspaceRoot: string | null;
+  readonly kind: ObservationKind;
+  readonly timestamp: number;
+}
+
+export type ObservationCaptureListener = (
+  event: ObservationCaptureEvent,
+) => void;
+
 interface ObservationRow {
   id: number;
   session_id: string;
@@ -91,6 +108,8 @@ function truncateUtf8(
 
 @injectable()
 export class ObservationQueueStore {
+  private readonly captureListeners = new Set<ObservationCaptureListener>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -108,6 +127,7 @@ export class ObservationQueueStore {
                @tool_input_json, @tool_response_text, @assistant_message, @user_prompt,
                @file_path, @captured_at, NULL)`,
     );
+    const capturedAt = Date.now();
     try {
       stmt.run({
         session_id: row.sessionId,
@@ -123,7 +143,7 @@ export class ObservationQueueStore {
         assistant_message: row.assistantMessage ?? null,
         user_prompt: row.userPrompt ?? null,
         file_path: row.filePath ?? null,
-        captured_at: Date.now(),
+        captured_at: capturedAt,
       });
     } catch (error: unknown) {
       this.logger.warn('[memory-curator] observation-queue insert failed', {
@@ -131,6 +151,38 @@ export class ObservationQueueStore {
         sessionId: row.sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
+      return;
+    }
+    this.emitCapture({
+      sessionId: row.sessionId,
+      workspaceRoot: row.workspaceRoot,
+      kind: row.kind,
+      timestamp: capturedAt,
+    });
+  }
+
+  onCapture(listener: ObservationCaptureListener): { dispose: () => void } {
+    this.captureListeners.add(listener);
+    return {
+      dispose: () => {
+        this.captureListeners.delete(listener);
+      },
+    };
+  }
+
+  private emitCapture(event: ObservationCaptureEvent): void {
+    for (const listener of this.captureListeners) {
+      try {
+        listener(event);
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[memory-curator] observation capture listener threw',
+          {
+            kind: event.kind,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
     }
   }
 

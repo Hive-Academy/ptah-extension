@@ -45,6 +45,8 @@ export type {
   ObservationKind,
   ObservationQueueInsert,
   ObservationQueueRow,
+  ObservationCaptureEvent,
+  ObservationCaptureListener,
 } from './lib/observation-queue.store';
 export { SalienceScorer } from './lib/salience-scorer';
 export type { ScoreInputs } from './lib/salience-scorer';
@@ -76,7 +78,10 @@ export type {
   MemoryDiagnosticsSnapshot,
 } from './lib/diagnostics.types';
 export { MemoryCuratorService } from './lib/memory-curator.service';
-export type { CuratorRunStats } from './lib/memory-curator.service';
+export type {
+  CuratorRunStats,
+  MemoryCuratorEventListener,
+} from './lib/memory-curator.service';
 export type {
   ICuratorLLM,
   ExtractedMemoryDraft,
@@ -109,6 +114,10 @@ export type {
   DeleteCorpusResult,
 } from './lib/knowledge-agents/knowledge-agent.service';
 export { CorpusStore } from './lib/knowledge-agents/corpus.store';
+export type {
+  CorpusChangeEvent,
+  CorpusChangeListener,
+} from './lib/knowledge-agents/corpus.store';
 export type {
   BuildCorpusParams,
   CorpusRef,

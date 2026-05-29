@@ -222,4 +222,74 @@ describe('CorpusStore (native-gated)', () => {
       }
     },
   );
+
+  maybe(
+    'onChange emits built on create, rebuilt on updateRebuiltAt, primed on setPrimedSessionIds, deleted on delete',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const events: Array<{ action: string; name: string; count: number }> =
+          [];
+        const sub = store.onChange((evt) => {
+          events.push({
+            action: evt.action,
+            name: evt.name,
+            count: evt.count,
+          });
+        });
+        const ref = store.create(baseParams);
+        seedMemory(service, 'mem-1', '/ws/A');
+        store.setMemberIds(ref.id, ['mem-1']);
+        store.updateRebuiltAt(ref.id);
+        store.setPrimedSessionIds(ref.id, ['sess-1']);
+        const deleted = store.delete(ref.id);
+        expect(deleted).toBe(true);
+        sub.dispose();
+        const actions = events.map((e) => e.action);
+        expect(actions).toEqual(['built', 'rebuilt', 'primed', 'deleted']);
+        const built = events[0];
+        expect(built.name).toBe('corpus-A');
+        expect(built.count).toBe(0);
+        const rebuilt = events[1];
+        expect(rebuilt.count).toBe(1);
+        const primed = events[2];
+        expect(primed.count).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'onChange does not emit primed when sessionIds list is cleared',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const ref = store.create(baseParams);
+        const events: string[] = [];
+        store.onChange((evt) => {
+          events.push(evt.action);
+        });
+        store.setPrimedSessionIds(ref.id, []);
+        expect(events.includes('primed')).toBe(false);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe('onChange dispose detaches listener', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      const events: string[] = [];
+      const sub = store.onChange((evt) => {
+        events.push(evt.action);
+      });
+      sub.dispose();
+      store.create({ ...baseParams, name: 'corpus-after-dispose' });
+      expect(events).toEqual([]);
+    } finally {
+      service.close();
+    }
+  });
 });
