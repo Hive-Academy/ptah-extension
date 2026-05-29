@@ -323,12 +323,17 @@ export class SdkAgentAdapter implements IAgentAdapter {
   dispose(): void {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
     this.events.emitDisposed({ timestamp: Date.now() });
-    this.sessionLifecycle.disposeAllSessions().catch((err) => {
-      this.logger.warn(
-        '[SdkAgentAdapter] Error during session disposal',
-        err instanceof Error ? err : new Error(String(err)),
-      );
-    });
+    this.sessionLifecycle
+      .disposeAllSessions()
+      .catch((err) => {
+        this.logger.warn(
+          '[SdkAgentAdapter] Error during session disposal',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      })
+      .finally(() => {
+        this.sessionLifecycle.dispose();
+      });
     this.authManager.clearAuthentication();
     this.modelService.clearCache();
     this.warmQueryManager.dispose();

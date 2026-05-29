@@ -359,4 +359,19 @@ export class BackgroundAgentStore implements OnDestroy {
     });
     this.syncTick();
   }
+
+  clearSession(sessionId: string): void {
+    this._agents.update((map) => {
+      let removed = 0;
+      const next = new Map(map);
+      for (const [id, agent] of next) {
+        if ((agent.sessionId as unknown as string) === sessionId) {
+          next.delete(id);
+          removed++;
+        }
+      }
+      return removed > 0 ? next : map;
+    });
+    this.syncTick();
+  }
 }

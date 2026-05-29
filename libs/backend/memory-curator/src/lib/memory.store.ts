@@ -248,6 +248,15 @@ export class MemoryStore implements IMemoryLister {
     return row ? rowToMemory(row) : null;
   }
 
+  findBySubjectAndTier(subject: string, tier: MemoryTier): readonly Memory[] {
+    const rows = this.connection.db
+      .prepare(
+        `SELECT * FROM memories WHERE subject = ? AND tier = ? ORDER BY created_at ASC`,
+      )
+      .all(subject, tier) as MemoryRow[];
+    return rows.map(rowToMemory);
+  }
+
   list(
     filter: {
       workspaceRoot?: string | null;

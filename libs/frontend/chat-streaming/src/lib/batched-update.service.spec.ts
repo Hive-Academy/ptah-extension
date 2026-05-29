@@ -8,11 +8,15 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { BatchedUpdateService } from './batched-update.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
 
-type TabManagerSlice = Pick<TabManagerService, 'setStreamingState'>;
+type TabManagerSlice = Pick<
+  TabManagerService,
+  'setStreamingState' | 'activeTabId'
+>;
 
 function makeEmptyStreamingState(): StreamingState {
   return {
@@ -55,9 +59,11 @@ describe('BatchedUpdateService', () => {
       }
     }) as typeof cancelAnimationFrame;
 
+    const activeTabSignal = signal<string | null>(null);
     tabManager = {
       setStreamingState: jest.fn(),
-    } as jest.Mocked<TabManagerSlice>;
+      activeTabId: activeTabSignal.asReadonly(),
+    } as unknown as jest.Mocked<TabManagerSlice>;
 
     TestBed.configureTestingModule({
       providers: [

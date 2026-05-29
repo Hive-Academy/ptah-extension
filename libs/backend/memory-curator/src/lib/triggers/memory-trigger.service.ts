@@ -40,6 +40,7 @@ import {
 const COMMIT_PATTERN = /^\s*git\s+commit(?:\s|$)/;
 const RATE_LIMIT_KEY = 'memory.curate';
 const MAX_CUE_PATTERN_LENGTH = 200;
+const COALESCE_WINDOW_MS = 5000;
 
 type CurateSource =
   | 'idle'
@@ -69,6 +70,8 @@ export class MemoryTriggerService {
   private sessionEndHookDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private readonly episodes = new EpisodeTracker();
+  private readonly inFlightCurates = new Set<string>();
+  private readonly lastCurateAt = new Map<string, number>();
   private bootScanController: AbortController | null = null;
   private cueCache: {
     source: readonly string[];
@@ -164,6 +167,8 @@ export class MemoryTriggerService {
     }
     this.sessions.clear();
     this.episodes.clear();
+    this.inFlightCurates.clear();
+    this.lastCurateAt.clear();
     this.bootScanController?.abort();
     this.bootScanController = null;
     this.started = false;
@@ -420,6 +425,14 @@ export class MemoryTriggerService {
       | 'commit-detect'
       | 'session-end-trigger',
   ): void {
+    if (this.shouldCoalesce(sessionId)) {
+      this.logger.debug(
+        '[memory-curator] curate trigger coalesced (in-flight or recent)',
+        { sessionId, source },
+      );
+      return;
+    }
+
     const snap = this.episodes.snapshot(sessionId);
     if (snap.isEmpty) {
       this.episodes.reset(sessionId);
@@ -460,6 +473,8 @@ export class MemoryTriggerService {
       },
     });
     this.episodes.reset(sessionId);
+    this.inFlightCurates.add(sessionId);
+    this.lastCurateAt.set(sessionId, Date.now());
     void this.invokeCurate(
       sessionId,
       workspaceRoot,
@@ -467,6 +482,13 @@ export class MemoryTriggerService {
       transcript,
       salienceBoost,
     );
+  }
+
+  private shouldCoalesce(sessionId: string): boolean {
+    if (this.inFlightCurates.has(sessionId)) return true;
+    const last = this.lastCurateAt.get(sessionId);
+    if (last === undefined) return false;
+    return Date.now() - last < COALESCE_WINDOW_MS;
   }
 
   private async invokeCurate(
@@ -496,6 +518,8 @@ export class MemoryTriggerService {
         sessionId,
         error: message,
       });
+    } finally {
+      this.inFlightCurates.delete(sessionId);
     }
   }
 
