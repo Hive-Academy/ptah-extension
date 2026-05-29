@@ -51,6 +51,7 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export { SessionLifecycleManager } from './lib/helpers';
 export {
   CallbackRegistryBase,
   type CallbackRegistryCallback,
@@ -69,6 +70,15 @@ export {
   type PostToolUseCallback,
   type PostToolUsePayload,
   PostToolUseHookHandler,
+  PreToolUseCallbackRegistry,
+  type PreToolUseCallback,
+  type PreToolUsePayload,
+  PreToolUseHookHandler,
+  SessionStartCallbackRegistry,
+  type SessionStartCallback,
+  type SessionStartPayload,
+  type SessionStartSource,
+  SessionStartHookHandler,
   UserPromptSubmitCallbackRegistry,
   type UserPromptSubmitCallback,
   type UserPromptSubmitPayload,
@@ -104,7 +114,12 @@ export {
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
-export { TIER_ENV_VAR_MAP, buildTierEnvDefaults } from './lib/helpers';
+export {
+  TIER_ENV_VAR_MAP,
+  buildTierEnvDefaults,
+  SdkModelService,
+  MemoryPromptInjector,
+} from './lib/helpers';
 export type { ModelTier, EnvMappedTier } from './lib/helpers';
 export {
   ANTHROPIC_PROVIDERS,

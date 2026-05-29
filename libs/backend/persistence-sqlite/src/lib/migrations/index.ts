@@ -32,6 +32,9 @@ import { sql as sql0012IndexingState } from './0012_indexing_state';
 import { sql as sql0013CodeSymbols } from './0013_code_symbols';
 import { sql as sql0014BootScanState } from './0014_boot_scan_state';
 import { sql as sql0015MemoriesSubjectTierIdx } from './0015_memories_subject_tier_idx';
+import { sql as sql0016ObservationQueue } from './0016_observation_queue';
+import { sql as sql0017MemorySchemaV2 } from './0017_memory_schema_v2';
+import { sql as sql0018Corpora } from './0018_corpora';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -128,5 +131,20 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 15,
     name: '0015_memories_subject_tier_idx',
     sql: sql0015MemoriesSubjectTierIdx,
+  },
+  {
+    version: 16,
+    name: '0016_observation_queue',
+    sql: sql0016ObservationQueue,
+  },
+  {
+    version: 17,
+    name: '0017_memory_schema_v2',
+    sql: sql0017MemorySchemaV2,
+  },
+  {
+    version: 18,
+    name: '0018_corpora',
+    sql: sql0018Corpora,
   },
 ];

@@ -23,10 +23,14 @@ import type {
   ToolFailurePayload,
   SessionEndHookCallbackRegistry,
   SessionEndHookPayload,
+  PreToolUseCallbackRegistry,
+  SessionStartCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
+import type { ITranscriptReader } from '@ptah-extension/memory-contracts';
 import { MemoryTriggerService } from './memory-trigger.service';
 import type { MemoryCuratorService } from '../memory-curator.service';
+import type { ObservationQueueStore } from '../observation-queue.store';
 
 function makeLogger(): {
   logger: Logger;
@@ -173,6 +177,41 @@ function makeNoopToolFailure(): ToolFailureCallbackRegistry {
   } as unknown as ToolFailureCallbackRegistry;
 }
 
+function makeNoopObservationQueue(): ObservationQueueStore {
+  return {
+    insert: jest.fn(),
+    drainForSession: jest.fn(() => []),
+    markProcessed: jest.fn(),
+    peekForSession: jest.fn(() => []),
+  } as unknown as ObservationQueueStore;
+}
+
+function makeNoopPreToolUse(): PreToolUseCallbackRegistry {
+  return {
+    register: jest.fn(() => () => undefined),
+    notifyAll: jest.fn(),
+    get size() {
+      return 0;
+    },
+  } as unknown as PreToolUseCallbackRegistry;
+}
+
+function makeNoopSessionStart(): SessionStartCallbackRegistry {
+  return {
+    register: jest.fn(() => () => undefined),
+    notifyAll: jest.fn(),
+    get size() {
+      return 0;
+    },
+  } as unknown as SessionStartCallbackRegistry;
+}
+
+function makeNoopTranscriptReader(): ITranscriptReader {
+  return {
+    read: jest.fn().mockResolvedValue(''),
+  } as unknown as ITranscriptReader;
+}
+
 function makeFs(): IFileSystemProvider {
   return {} as unknown as IFileSystemProvider;
 }
@@ -236,6 +275,10 @@ function buildService(opts?: {
     makeNoopToolFailure(),
     sessionEndHook.registry,
     rateLimiter,
+    makeNoopObservationQueue(),
+    makeNoopPreToolUse(),
+    makeNoopSessionStart(),
+    makeNoopTranscriptReader(),
   );
   return { service, stop, sessionEndHook, curator, debug };
 }
@@ -289,10 +332,10 @@ describe('MemoryTriggerService — coalescing / in-flight (Batch D)', () => {
     service.start();
 
     stop.fire(stopPayload({ timestamp: 1 }));
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     jest.advanceTimersByTime(10_000);
     stop.fire(stopPayload({ timestamp: 2 }));
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
 
     expect(curator.curate).toHaveBeenCalledTimes(1);
     expect(curator.pushEvent).toHaveBeenCalledWith(

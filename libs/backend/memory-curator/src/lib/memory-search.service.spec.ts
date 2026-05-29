@@ -14,6 +14,7 @@ import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import type { MemoryStore } from './memory.store';
 import { MemorySearchService } from './memory-search.service';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
+import type { ObservationQueueStore } from './observation-queue.store';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -70,6 +71,17 @@ function makeStore(writeCounter = 0): MemoryStore {
   } as unknown as MemoryStore;
 }
 
+function makeObservationQueue(): ObservationQueueStore {
+  return {
+    insert: jest.fn(),
+    drainForSession: jest.fn(() => []),
+    peekForSession: jest.fn(() => []),
+    markProcessed: jest.fn(),
+    countUnprocessed: jest.fn(() => 0),
+    purgeOlderThan: jest.fn(() => 0),
+  } as unknown as ObservationQueueStore;
+}
+
 /** Unwrap the private `escapeFtsQuery` method for white-box assertion. */
 function escape(service: MemorySearchService, q: string): string {
   return (
@@ -83,6 +95,7 @@ function makeService(): MemorySearchService {
     makeConnection(),
     makeEmbedder(),
     makeStore(),
+    makeObservationQueue(),
   );
 }
 
@@ -128,6 +141,7 @@ function makeServiceWithReranker(options: {
     connection,
     workerClient,
     store,
+    makeObservationQueue(),
   );
   return { service, rerankMock, logger };
 }
@@ -490,6 +504,7 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
       connection,
       embedder,
       store,
+      makeObservationQueue(),
     );
 
     // Should resolve without error (workerClient is null, reranker skipped).
@@ -551,6 +566,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       connection,
       makeEmbedder(),
       store,
+      makeObservationQueue(),
     );
     return { service, prepareMock, allMock, counterRef };
   }
@@ -586,6 +602,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       connection,
       makeEmbedder(),
       store,
+      makeObservationQueue(),
     );
 
     await service.searchRich('hello world', 10);
@@ -616,6 +633,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       connection,
       makeEmbedder(),
       store,
+      makeObservationQueue(),
     );
 
     await service.searchRich('my query', 10);
@@ -650,6 +668,7 @@ describe('MemorySearchService.searchRich — LRU cache (R3)', () => {
       connection,
       makeEmbedder(),
       store,
+      makeObservationQueue(),
     );
 
     const resultA = await service.searchRich(
@@ -866,6 +885,7 @@ describe('MemorySearchService — workspaceRoot filtering', () => {
       connection,
       makeEmbedder(),
       store,
+      makeObservationQueue(),
     );
     return { service, allMock, prepareMock };
   }
@@ -1002,4 +1022,348 @@ describe('MemorySearchService — Porter stemming integration (skipped without n
       db.close();
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// mem:searchIndex — pure-filter (empty query) listing
+// ---------------------------------------------------------------------------
+
+describe('MemorySearchService.searchIndex — empty query (pure-filter)', () => {
+  function makeServiceForFilter(rows: Array<Record<string, unknown>>) {
+    const allMock = jest.fn(() => rows);
+    const connection: SqliteConnectionService = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn(() => ({ all: allMock })),
+      },
+    } as unknown as SqliteConnectionService;
+    const service = new MemorySearchService(
+      makeLogger(),
+      connection,
+      makeEmbedder(),
+      makeStore(),
+      makeObservationQueue(),
+    );
+    return { service, allMock };
+  }
+
+  it('returns compact rows with NO content field and bm25Only=true', async () => {
+    const { service } = makeServiceForFilter([
+      {
+        id: 'mem-1',
+        workspace_root: '/ws',
+        subject: 'subj',
+        type: 'discovery',
+        concepts_json: '["a","b"]',
+        files_json: '["x.ts"]',
+        created_at: 123,
+      },
+    ]);
+    const r = await service.searchIndex({ workspaceRoot: '/ws' });
+    expect(r.bm25Only).toBe(true);
+    expect(r.rows.length).toBe(1);
+    expect(r.rows[0]).not.toHaveProperty('content');
+    expect(r.rows[0].id).toBe('mem-1');
+    expect(r.rows[0].concepts).toEqual(['a', 'b']);
+    expect(r.rows[0].files).toEqual(['x.ts']);
+    expect(r.rows[0].type).toBe('discovery');
+  });
+
+  it('parses malformed concepts_json defensively to empty array', async () => {
+    const { service } = makeServiceForFilter([
+      {
+        id: 'mem-2',
+        workspace_root: null,
+        subject: null,
+        type: null,
+        concepts_json: 'not-json',
+        files_json: null,
+        created_at: 9,
+      },
+    ]);
+    const r = await service.searchIndex({});
+    expect(r.rows[0].concepts).toEqual([]);
+    expect(r.rows[0].files).toEqual([]);
+    expect(r.rows[0].type).toBe('discovery');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mem:timeline — anchor + before/after composition
+// ---------------------------------------------------------------------------
+
+describe('MemorySearchService.timeline', () => {
+  function makeTimelineService(opts: {
+    anchor: Record<string, unknown> | undefined;
+    before: Array<Record<string, unknown>>;
+    after: Array<Record<string, unknown>>;
+  }) {
+    let prepareCallCount = 0;
+    const connection: SqliteConnectionService = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn(() => {
+          const idx = prepareCallCount++;
+          return {
+            get: jest.fn(() => opts.anchor),
+            all: jest.fn(() => (idx === 1 ? opts.before : opts.after)),
+          };
+        }),
+      },
+    } as unknown as SqliteConnectionService;
+    return new MemorySearchService(
+      makeLogger(),
+      connection,
+      makeEmbedder(),
+      makeStore(),
+      makeObservationQueue(),
+    );
+  }
+
+  it('returns empty rows when anchor missing', () => {
+    const service = makeTimelineService({
+      anchor: undefined,
+      before: [],
+      after: [],
+    });
+    const r = service.timeline({ anchorId: 'no-such-id' });
+    expect(r.rows).toEqual([]);
+    expect(r.anchorIndex).toBe(0);
+  });
+
+  it('composes [...before.reverse(), anchor, ...after] with correct anchorIndex', () => {
+    const anchor = {
+      id: 'anchor',
+      workspace_root: '/ws',
+      subject: 'a',
+      type: 'discovery',
+      concepts_json: '[]',
+      files_json: '[]',
+      created_at: 100,
+    };
+    const before = [
+      {
+        id: 'b3',
+        workspace_root: '/ws',
+        subject: null,
+        type: 'discovery',
+        concepts_json: '[]',
+        files_json: '[]',
+        created_at: 90,
+      },
+      {
+        id: 'b2',
+        workspace_root: '/ws',
+        subject: null,
+        type: 'discovery',
+        concepts_json: '[]',
+        files_json: '[]',
+        created_at: 80,
+      },
+    ];
+    const after = [
+      {
+        id: 'a1',
+        workspace_root: '/ws',
+        subject: null,
+        type: 'discovery',
+        concepts_json: '[]',
+        files_json: '[]',
+        created_at: 110,
+      },
+    ];
+    const service = makeTimelineService({ anchor, before, after });
+    const r = service.timeline({ anchorId: 'anchor', before: 2, after: 1 });
+    expect(r.rows.map((x) => x.id)).toEqual(['b2', 'b3', 'anchor', 'a1']);
+    expect(r.anchorIndex).toBe(2);
+  });
+
+  it('workspace-top edge: empty before, anchor first, after follows', () => {
+    const anchor = {
+      id: 'anchor',
+      workspace_root: '/ws',
+      subject: null,
+      type: 'discovery',
+      concepts_json: '[]',
+      files_json: '[]',
+      created_at: 5,
+    };
+    const after = [
+      {
+        id: 'a1',
+        workspace_root: '/ws',
+        subject: null,
+        type: 'discovery',
+        concepts_json: '[]',
+        files_json: '[]',
+        created_at: 7,
+      },
+    ];
+    const service = makeTimelineService({ anchor, before: [], after });
+    const r = service.timeline({ anchorId: 'anchor' });
+    expect(r.anchorIndex).toBe(0);
+    expect(r.rows.map((x) => x.id)).toEqual(['anchor', 'a1']);
+  });
+
+  it('workspace-bottom edge: before reversed, anchor last', () => {
+    const anchor = {
+      id: 'anchor',
+      workspace_root: '/ws',
+      subject: null,
+      type: 'discovery',
+      concepts_json: '[]',
+      files_json: '[]',
+      created_at: 9999,
+    };
+    const before = [
+      {
+        id: 'b1',
+        workspace_root: '/ws',
+        subject: null,
+        type: 'discovery',
+        concepts_json: '[]',
+        files_json: '[]',
+        created_at: 100,
+      },
+    ];
+    const service = makeTimelineService({ anchor, before, after: [] });
+    const r = service.timeline({ anchorId: 'anchor' });
+    expect(r.rows.map((x) => x.id)).toEqual(['b1', 'anchor']);
+    expect(r.anchorIndex).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mem:getObservations — full payload + read-only queue rows
+// ---------------------------------------------------------------------------
+
+describe('MemorySearchService.getObservations', () => {
+  it('returns empty result when no ids supplied', () => {
+    const connection: SqliteConnectionService = {
+      vecExtensionLoaded: false,
+      db: { prepare: jest.fn() },
+    } as unknown as SqliteConnectionService;
+    const queue = makeObservationQueue();
+    const service = new MemorySearchService(
+      makeLogger(),
+      connection,
+      makeEmbedder(),
+      makeStore(),
+      queue,
+    );
+    const r = service.getObservations({ ids: [] });
+    expect(r.memories).toEqual([]);
+    expect(r.observationsBySession).toEqual({});
+    expect(queue.peekForSession).not.toHaveBeenCalled();
+  });
+
+  it('peeks queue rows per unique session and never calls markProcessed', () => {
+    const memoryRows = [
+      {
+        id: 'mem-1',
+        session_id: 'sess-1',
+        workspace_root: '/ws',
+        subject: 's',
+        content: 'c',
+        type: 'bugfix',
+        request: 'r',
+        investigated: 'i',
+        learned: 'l',
+        completed: 'co',
+        next_steps: 'n',
+        concepts_json: '["k"]',
+        files_json: '[]',
+        created_at: 1,
+      },
+      {
+        id: 'mem-2',
+        session_id: 'sess-1',
+        workspace_root: '/ws',
+        subject: null,
+        content: 'c2',
+        type: 'discovery',
+        request: null,
+        investigated: null,
+        learned: null,
+        completed: null,
+        next_steps: null,
+        concepts_json: '[]',
+        files_json: '[]',
+        created_at: 2,
+      },
+    ];
+    const connection: SqliteConnectionService = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn(() => ({ all: jest.fn(() => memoryRows) })),
+      },
+    } as unknown as SqliteConnectionService;
+    const queue = makeObservationQueue();
+    (queue.peekForSession as jest.Mock).mockReturnValue([
+      {
+        id: 7,
+        sessionId: 'sess-1',
+        workspaceRoot: '/ws',
+        kind: 'tool-use',
+        toolName: 'Read',
+        filePath: 'a.ts',
+        capturedAt: 10,
+        processedAt: null,
+      },
+    ]);
+    const service = new MemorySearchService(
+      makeLogger(),
+      connection,
+      makeEmbedder(),
+      makeStore(),
+      queue,
+    );
+    const r = service.getObservations({ ids: ['mem-1', 'mem-2'] });
+    expect(r.memories.length).toBe(2);
+    expect(r.memories[0].nextSteps).toBe('n');
+    expect(r.memories[0].request).toBe('r');
+    expect(r.observationsBySession['sess-1']).toBeDefined();
+    expect(r.observationsBySession['sess-1'][0].toolName).toBe('Read');
+    expect(queue.peekForSession).toHaveBeenCalledTimes(1);
+    expect(queue.markProcessed).not.toHaveBeenCalled();
+  });
+
+  it('skips queue rows when includeQueueRows=false', () => {
+    const memoryRows = [
+      {
+        id: 'mem-1',
+        session_id: 'sess-1',
+        workspace_root: null,
+        subject: null,
+        content: '',
+        type: 'discovery',
+        request: null,
+        investigated: null,
+        learned: null,
+        completed: null,
+        next_steps: null,
+        concepts_json: '[]',
+        files_json: '[]',
+        created_at: 1,
+      },
+    ];
+    const connection: SqliteConnectionService = {
+      vecExtensionLoaded: false,
+      db: { prepare: jest.fn(() => ({ all: jest.fn(() => memoryRows) })) },
+    } as unknown as SqliteConnectionService;
+    const queue = makeObservationQueue();
+    const service = new MemorySearchService(
+      makeLogger(),
+      connection,
+      makeEmbedder(),
+      makeStore(),
+      queue,
+    );
+    const r = service.getObservations({
+      ids: ['mem-1'],
+      includeQueueRows: false,
+    });
+    expect(r.observationsBySession).toEqual({});
+    expect(queue.peekForSession).not.toHaveBeenCalled();
+  });
 });

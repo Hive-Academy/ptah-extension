@@ -146,6 +146,14 @@ export const MESSAGE_TYPES = {
   /** Backend → Frontend: workspace indexing run finished successfully. */
   INDEXING_COMPLETE: 'indexing:complete',
   BATCH: 'batch',
+  /** Backend → Frontend: observation queue row captured by a hook. */
+  MEMORY_OBSERVATION_CAPTURED: 'memory:observationCaptured',
+  /** Backend → Frontend: corpus built / rebuilt / primed / deleted. */
+  MEMORY_CORPUS_CHANGED: 'memory:corpusChanged',
+  /** Backend → Frontend: a curator run produced extracted memories. */
+  MEMORY_EXTRACTED: 'memory:extracted',
+  /** Backend → Frontend: session-start injection block emitted (for UI badge). */
+  MEMORY_SESSION_START_INJECTED: 'memory:sessionStartInjected',
 } as const;
 
 /**

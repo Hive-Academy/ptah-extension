@@ -84,6 +84,14 @@ function makeMemory(overrides: Partial<Memory> = {}): Memory {
     updatedAt: now,
     lastUsedAt: now,
     expiresAt: null,
+    type: 'discovery',
+    concepts: [],
+    files: [],
+    request: null,
+    investigated: null,
+    learned: null,
+    completed: null,
+    nextSteps: null,
     ...overrides,
   };
 }
@@ -195,7 +203,9 @@ describe.each(scenarios)('MemoryWriterAdapter dedup parity — $name', (s) => {
     const r2 = await a2.upsert(s.request);
 
     expect(r1.status).toBe(r2.status);
-    expect(indexed.forget.mock.calls.length).toBe(listed.forget.mock.calls.length);
+    expect(indexed.forget.mock.calls.length).toBe(
+      listed.forget.mock.calls.length,
+    );
     expect(indexed.insertMemoryWithChunks.mock.calls.length).toBe(
       listed.insertMemoryWithChunks.mock.calls.length,
     );

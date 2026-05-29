@@ -38,6 +38,8 @@ import {
   type WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
+import { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
+import { SessionStartHookHandler } from './session-start-hook-handler';
 import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import { StopHookHandler } from './stop-hook-handler';
 import { SessionEndHookHandler } from './session-end-hook-handler';
@@ -440,6 +442,10 @@ export class SdkQueryOptionsBuilder {
     private readonly sessionEndHookHandler: SessionEndHookHandler,
     @inject(SDK_TOKENS.SDK_TOOL_FAILURE_HOOK_HANDLER)
     private readonly toolFailureHookHandler: ToolFailureHookHandler,
+    @inject(SDK_TOKENS.SDK_PRE_TOOL_USE_HOOK_HANDLER)
+    private readonly preToolUseHookHandler: PreToolUseHookHandler,
+    @inject(SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER)
+    private readonly sessionStartHookHandler: SessionStartHookHandler,
   ) {}
 
   /**
@@ -855,6 +861,17 @@ export class SdkQueryOptionsBuilder {
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
     });
+    let sessionStartBlock = '';
+    if (isPremium && cwd) {
+      sessionStartBlock =
+        await this.memoryPromptInjector.buildSessionStartBlock(cwd);
+    }
+    let corpusPrimeBlock = '';
+    const corpusName = sessionConfig?.corpusName?.trim();
+    if (isPremium && corpusName) {
+      corpusPrimeBlock =
+        await this.memoryPromptInjector.buildCorpusBlock(corpusName);
+    }
     let memoryBlock = '';
     if (isPremium && initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
@@ -862,9 +879,16 @@ export class SdkQueryOptionsBuilder {
         cwd,
       );
     }
-    const finalContent = memoryBlock
-      ? memoryBlock + (result.content ? '\n\n' + result.content : '')
-      : result.content;
+    const finalContentJoined = [
+      sessionStartBlock,
+      corpusPrimeBlock,
+      memoryBlock,
+      result.content ?? '',
+    ]
+      .filter((p) => p.length > 0)
+      .join('\n\n');
+    const finalContent =
+      finalContentJoined.length > 0 ? finalContentJoined : undefined;
 
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
       isPremium,
@@ -875,6 +899,10 @@ export class SdkQueryOptionsBuilder {
       hasPtahCorePrompt: isPremium,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
+      hasSessionStartBlock: !!sessionStartBlock,
+      sessionStartBlockLength: sessionStartBlock.length,
+      hasCorpusPrimeBlock: !!corpusPrimeBlock,
+      corpusPrimeBlockLength: corpusPrimeBlock.length,
       hasMemoryBlock: !!memoryBlock,
       memoryBlockLength: memoryBlock.length,
       totalAppendLength: finalContent?.length ?? 0,
@@ -1003,6 +1031,14 @@ export class SdkQueryOptionsBuilder {
       sessionId ?? '',
       cwd,
     );
+    const preToolUseHooks = this.preToolUseHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
+    const sessionStartHooks = this.sessionStartHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
       subagentHooks,
@@ -1013,6 +1049,8 @@ export class SdkQueryOptionsBuilder {
       stopHooks,
       sessionEndHooks,
       toolFailureHooks,
+      preToolUseHooks,
+      sessionStartHooks,
     ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;

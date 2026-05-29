@@ -30,6 +30,8 @@ export {
   WorkspaceRpcHandlers,
   SettingsRpcHandlers,
   MemoryRpcHandlers,
+  MemRpcHandlers,
+  CorpusRpcHandlers,
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
   GatewayRpcHandlers,

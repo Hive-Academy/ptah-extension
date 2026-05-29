@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
 import type {
   CodeSymbolListItem,
+  MemoryIndexRow,
   MemoryStatsResult,
   MemoryTierWire,
   MemoryWire,
@@ -61,6 +62,9 @@ export class MemoryStateService {
   private readonly _symbolError = signal<string | null>(null);
   private readonly _symbolOffset = signal<number>(0);
   private readonly _symbolLimit = signal<number>(50);
+  private readonly _indexRows = signal<readonly MemoryIndexRow[]>([]);
+  private readonly _timelineRows = signal<readonly MemoryIndexRow[]>([]);
+  private readonly _anchorId = signal<string | null>(null);
   public readonly entries = this._entries.asReadonly();
   public readonly query = this._query.asReadonly();
   public readonly tierFilter = this._tierFilter.asReadonly();
@@ -75,6 +79,9 @@ export class MemoryStateService {
   public readonly symbolError = this._symbolError.asReadonly();
   public readonly symbolOffset = this._symbolOffset.asReadonly();
   public readonly symbolLimit = this._symbolLimit.asReadonly();
+  public readonly indexRows = this._indexRows.asReadonly();
+  public readonly timelineRows = this._timelineRows.asReadonly();
+  public readonly anchorId = this._anchorId.asReadonly();
 
   /** Entries filtered by the active tier filter (search results bypass this). */
   public readonly filteredEntries = computed<readonly MemoryWire[]>(() => {
@@ -276,6 +283,18 @@ export class MemoryStateService {
 
   public setSymbolPage(offset: number): void {
     this._symbolOffset.set(offset < 0 ? 0 : offset);
+  }
+
+  public setIndexRows(rows: readonly MemoryIndexRow[]): void {
+    this._indexRows.set(rows);
+  }
+
+  public setTimelineRows(rows: readonly MemoryIndexRow[]): void {
+    this._timelineRows.set(rows);
+  }
+
+  public setAnchorId(id: string | null): void {
+    this._anchorId.set(id);
   }
 
   public async loadSymbols(): Promise<void> {

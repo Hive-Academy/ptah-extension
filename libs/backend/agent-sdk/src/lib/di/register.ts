@@ -48,6 +48,10 @@ import {
   SubagentStopCallbackRegistry,
   PostToolUseCallbackRegistry,
   PostToolUseHookHandler,
+  PreToolUseCallbackRegistry,
+  PreToolUseHookHandler,
+  SessionStartCallbackRegistry,
+  SessionStartHookHandler,
   UserPromptSubmitCallbackRegistry,
   UserPromptSubmitHookHandler,
   StopCallbackRegistry,
@@ -191,6 +195,30 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER,
     { useClass: PostToolUseHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY,
+    { useClass: PreToolUseCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PRE_TOOL_USE_HOOK_HANDLER,
+    { useClass: PreToolUseHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY,
+    { useClass: SessionStartCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER,
+    { useClass: SessionStartHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 

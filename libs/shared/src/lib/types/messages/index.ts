@@ -12,3 +12,4 @@ export * from './workspace';
 export * from './gateway';
 export * from './update';
 export * from './git-status';
+export * from './memory';

@@ -158,6 +158,17 @@ export interface AISessionConfig {
    * When undefined, SDK defaults to 'high'.
    */
   readonly effort?: EffortLevel;
+  /**
+   * KnowledgeAgent corpus priming flag — when set, `SdkQueryOptionsBuilder`
+   * resolves the named corpus via `MemoryPromptInjector.buildCorpusBlock` and
+   * prepends its contents into the system prompt. Owned by `KnowledgeAgentService`.
+   */
+  readonly corpusName?: string;
+  /**
+   * Marks this session as the dedicated priming session for a corpus. Used to
+   * track which sessions are kept alive for follow-up `corpus:query` calls.
+   */
+  readonly isCorpusPrimingSession?: boolean;
 }
 
 /**

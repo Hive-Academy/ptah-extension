@@ -34,6 +34,8 @@ import {
   McpDirectoryRpcHandlers,
   GitRpcHandlers,
   MemoryRpcHandlers,
+  MemRpcHandlers,
+  CorpusRpcHandlers,
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
   GatewayRpcHandlers,
@@ -101,6 +103,8 @@ export function registerPhase4Handlers(
   });
   container.registerSingleton(GitRpcHandlers);
   container.registerSingleton(MemoryRpcHandlers);
+  container.registerSingleton(MemRpcHandlers);
+  container.registerSingleton(CorpusRpcHandlers);
   container.registerSingleton(SkillsSynthesisRpcHandlers);
   container.registerSingleton(CronRpcHandlers);
   container.registerSingleton(GatewayRpcHandlers);

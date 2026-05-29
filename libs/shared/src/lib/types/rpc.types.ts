@@ -20,6 +20,8 @@ export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-terminal.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
+export * from './rpc/rpc-mem.types';
+export * from './rpc/rpc-corpus.types';
 
 export * from './rpc/rpc-indexing.types';
 
@@ -273,6 +275,34 @@ import type {
   MemorySearchSymbolsParams,
   MemorySearchSymbolsResult,
 } from './rpc/rpc-memory.types';
+
+import type {
+  MemSearchIndexParams,
+  MemSearchIndexResult,
+  MemTimelineParams,
+  MemTimelineResult,
+  MemGetObservationsParams,
+  MemGetObservationsResult,
+} from './rpc/rpc-mem.types';
+
+import type {
+  CorpusListParams,
+  CorpusListResult,
+  CorpusGetParams,
+  CorpusGetResult,
+  CorpusBuildParams,
+  CorpusBuildResult,
+  CorpusPrimeParams,
+  CorpusPrimeResult,
+  CorpusQueryParams,
+  CorpusQueryResult,
+  CorpusReprimeParams,
+  CorpusReprimeResult,
+  CorpusRebuildParams,
+  CorpusRebuildResult,
+  CorpusDeleteParams,
+  CorpusDeleteResult,
+} from './rpc/rpc-corpus.types';
 
 import type {
   IndexingGetStatusParams,
@@ -1201,6 +1231,50 @@ export interface RpcMethodRegistry {
     params: MemoryGetTriggersParams;
     result: MemoryGetTriggersResult;
   };
+  'mem:searchIndex': {
+    params: MemSearchIndexParams;
+    result: MemSearchIndexResult;
+  };
+  'mem:timeline': {
+    params: MemTimelineParams;
+    result: MemTimelineResult;
+  };
+  'mem:getObservations': {
+    params: MemGetObservationsParams;
+    result: MemGetObservationsResult;
+  };
+  'corpus:list': {
+    params: CorpusListParams;
+    result: CorpusListResult;
+  };
+  'corpus:get': {
+    params: CorpusGetParams;
+    result: CorpusGetResult;
+  };
+  'corpus:build': {
+    params: CorpusBuildParams;
+    result: CorpusBuildResult;
+  };
+  'corpus:prime': {
+    params: CorpusPrimeParams;
+    result: CorpusPrimeResult;
+  };
+  'corpus:query': {
+    params: CorpusQueryParams;
+    result: CorpusQueryResult;
+  };
+  'corpus:reprime': {
+    params: CorpusReprimeParams;
+    result: CorpusReprimeResult;
+  };
+  'corpus:rebuild': {
+    params: CorpusRebuildParams;
+    result: CorpusRebuildResult;
+  };
+  'corpus:delete': {
+    params: CorpusDeleteParams;
+    result: CorpusDeleteResult;
+  };
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
     result: SkillSynthesisListCandidatesResult;
@@ -1952,6 +2026,19 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:runNow': true,
   'memory:setTriggers': true,
   'memory:getTriggers': true,
+
+  'mem:searchIndex': true,
+  'mem:timeline': true,
+  'mem:getObservations': true,
+
+  'corpus:list': true,
+  'corpus:get': true,
+  'corpus:build': true,
+  'corpus:prime': true,
+  'corpus:query': true,
+  'corpus:reprime': true,
+  'corpus:rebuild': true,
+  'corpus:delete': true,
 
   'skillSynthesis:listCandidates': true,
   'skillSynthesis:getCandidate': true,
