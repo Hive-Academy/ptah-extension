@@ -28,6 +28,40 @@ The package is published with [npm provenance](https://docs.npmjs.com/generating
 npm view @hive-academy/ptah-cli --json | jq '.dist.attestations'
 ```
 
+## First-time setup
+
+A fresh `ptah` install needs three things to run agent turns: a license, an authenticated provider, and an active auth strategy. Pick one of the two paths below.
+
+`ptah doctor` is the source of truth on whether the CLI is ready. When `effective.ready` is `false` it emits a `hints` array of the exact commands needed to get green — read it after every setup step.
+
+### Bootstrapping a new machine from scratch
+
+```bash
+ptah license set --key ptah_lic_...               # paste your license key
+ptah auth login github-copilot                    # or claude (claude-cli) / openai-codex
+ptah auth use github-copilot                      # switch active strategy
+ptah doctor                                       # confirm effective.ready: true
+```
+
+### Copying setup from a machine where Ptah is already configured
+
+```bash
+# On the source machine:
+ptah settings export --out ptah-bundle.json       # written with mode 0o600
+
+# Transfer ptah-bundle.json over a secure channel.
+
+# On the new machine:
+ptah settings import --in ptah-bundle.json
+ptah doctor
+```
+
+The bundle ships the license key, the Anthropic API key, the OpenRouter / Moonshot / Z.AI API keys, and 40+ config entries (active auth method, tier mappings, agent-orchestration prefs). GitHub Copilot and OpenAI Codex OAuth tokens are **not** included — rerun `ptah auth login` for those after import.
+
+### CLI ↔ desktop app on the same machine
+
+The CLI and the Electron desktop app share `~/.ptah/settings.json` for configuration (tier mappings, active auth method, orchestration prefs) but **store secrets separately** — Electron uses the OS-native keychain via `safeStorage`, the CLI uses an encrypted file under `~/.ptah/`. License keys and OAuth tokens do not currently roundtrip between the two; run `ptah settings export` from one and `ptah settings import` into the other if you need parity on the same box.
+
 ## Quick start
 
 ```bash
