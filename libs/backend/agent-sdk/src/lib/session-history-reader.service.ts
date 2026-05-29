@@ -21,19 +21,23 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import type { FlatStreamEventUnion, AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import {
   calculateMessageCost,
   pickPrimaryModel,
+  isDirectAnthropic,
+  registerProviderPricing,
+  findModelPricing,
   type ModelUsageEntry,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from './errors';
 import type { IModelResolver } from './auth-env.port';
+import type { IPricingProvider } from './pricing.port';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -70,6 +74,10 @@ export class SessionHistoryReaderService {
     private readonly eventFactory: HistoryEventFactory,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.PRICING_PROVIDER)
+    private readonly pricingProvider: IPricingProvider,
   ) {}
 
   /**
@@ -146,6 +154,9 @@ export class SessionHistoryReaderService {
         mainMessages,
         agentSessions,
       );
+      if (isDirectAnthropic(this.authEnv)) {
+        await this.hydrateMissingPricing(mainMessages, agentSessions);
+      }
       const stats = this.aggregateUsageStats(mainMessages, agentSessions);
 
       this.logger.info('[SessionHistoryReader] Loaded session with stats', {
@@ -355,6 +366,74 @@ export class SessionHistoryReaderService {
         `but no native SDK UUID exists at or before that position in session '${sessionId}'. ` +
         'Fork is not supported at this checkpoint.',
     );
+  }
+
+  private async hydrateMissingPricing(
+    mainMessages: SessionHistoryMessage[],
+    agentSessions: AgentSessionData[],
+  ): Promise<void> {
+    const models = new Set<string>();
+    let detectedModel: string | undefined;
+    for (const msg of mainMessages) {
+      if (
+        !detectedModel &&
+        msg.type === 'system' &&
+        msg.subtype === 'init' &&
+        msg.model
+      ) {
+        detectedModel = String(msg.model);
+      }
+      if (msg.type === 'assistant' && msg.message?.model) {
+        models.add(String(msg.message.model));
+      }
+    }
+    for (const agent of agentSessions) {
+      for (const msg of agent.messages) {
+        if (msg.type === 'assistant' && msg.message?.model) {
+          models.add(String(msg.message.model));
+        }
+      }
+    }
+    if (detectedModel) {
+      models.add(detectedModel);
+    }
+    const missing: string[] = [];
+    for (const rawModel of models) {
+      const resolved = this.modelResolver.resolveForPricing(rawModel);
+      if (!findModelPricing(resolved)) {
+        missing.push(resolved);
+      }
+    }
+    if (missing.length === 0) {
+      return;
+    }
+    const results = await Promise.all(
+      missing.map(async (modelId) => {
+        try {
+          const pricing = await this.pricingProvider.getPricing(modelId);
+          return pricing ? ([modelId, pricing] as const) : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const hydrated: Record<string, ReturnType<typeof findModelPricing>> = {};
+    let hits = 0;
+    for (const entry of results) {
+      if (entry) {
+        hydrated[entry[0]] = entry[1];
+        hits++;
+      }
+    }
+    if (hits > 0) {
+      registerProviderPricing(
+        hydrated as Parameters<typeof registerProviderPricing>[0],
+      );
+      this.logger.info(
+        '[SessionHistoryReader] Hydrated historical pricing via IPricingProvider',
+        { hydratedCount: hits, missingCount: missing.length },
+      );
+    }
   }
 
   /**

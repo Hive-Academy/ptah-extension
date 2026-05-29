@@ -28,6 +28,8 @@ import type { SessionReplayService } from './helpers/history/session-replay.serv
 import { HistoryEventFactory } from './helpers/history/history-event-factory';
 import type { SessionHistoryMessage } from './helpers/history/history.types';
 import type { IModelResolver } from './auth-env.port';
+import type { IPricingProvider } from './pricing.port';
+import type { AuthEnv } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -53,6 +55,8 @@ interface Stubs {
     Pick<SessionReplayService, 'replayToStreamEvents'>
   >;
   modelResolver: jest.Mocked<Pick<IModelResolver, 'resolveForPricing'>>;
+  pricingProvider: jest.Mocked<IPricingProvider>;
+  authEnv: AuthEnv;
   logger: MockLogger;
 }
 
@@ -69,6 +73,10 @@ function makeStubs(): Stubs {
     modelResolver: {
       resolveForPricing: jest.fn((m: string) => m || 'unknown'),
     },
+    pricingProvider: {
+      getPricing: jest.fn().mockResolvedValue(null),
+    },
+    authEnv: {} as AuthEnv,
     logger: createMockLogger(),
   };
 }
@@ -81,6 +89,8 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
     stubs.replayService as unknown as SessionReplayService,
     factory,
     stubs.modelResolver as unknown as IModelResolver,
+    stubs.authEnv,
+    stubs.pricingProvider,
   );
 }
 

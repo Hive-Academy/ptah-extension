@@ -25,9 +25,10 @@
 import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { AuthEnv, SessionId } from '@ptah-extension/shared';
+import type { AuthEnv, ModelPricing, SessionId } from '@ptah-extension/shared';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
+import type { IPricingProvider } from '../pricing.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
 import { StreamTransformer, ResultModelUsage } from './stream-transformer';
@@ -61,10 +62,16 @@ function makeModelResolver(): jest.Mocked<
   };
 }
 
+function makePricingProvider(): jest.Mocked<IPricingProvider> {
+  return {
+    getPricing: jest.fn().mockResolvedValue(null),
+  };
+}
+
 const MODEL = 'claude-sonnet-4-20250514';
 
-function makeAuthEnv(): AuthEnv {
-  return {} as AuthEnv;
+function makeAuthEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
+  return overrides as AuthEnv;
 }
 
 function asAsyncIterable(messages: SDKMessage[]): AsyncIterable<SDKMessage> {
@@ -78,21 +85,23 @@ function asAsyncIterable(messages: SDKMessage[]): AsyncIterable<SDKMessage> {
 interface Harness {
   transformer: StreamTransformer;
   messageTransformer: ReturnType<typeof makeMessageTransformer>;
+  pricingProvider: jest.Mocked<IPricingProvider>;
   logger: jest.Mocked<Logger>;
 }
 
-function makeHarness(): Harness {
+function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
   const logger = makeLogger();
   const messageTransformer = makeMessageTransformer();
   const modelResolver = makeModelResolver();
-  const authEnv = makeAuthEnv();
+  const pricingProvider = makePricingProvider();
   const transformer = new StreamTransformer(
     logger,
     messageTransformer as unknown as SdkMessageTransformer,
     authEnv,
     modelResolver as unknown as IModelResolver,
+    pricingProvider,
   );
-  return { transformer, messageTransformer, logger };
+  return { transformer, messageTransformer, pricingProvider, logger };
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +178,54 @@ function resultMessage(
         costUSD: 0,
       },
     },
+  } as unknown as SDKMessage;
+}
+
+interface ResultModelUsageFixture {
+  inputTokens: number;
+  outputTokens: number;
+  costUSD: number;
+}
+
+function resultMessageMulti(opts: {
+  totalCostUsd: number;
+  modelUsage: Record<string, ResultModelUsageFixture>;
+}): SDKMessage {
+  const aggInput = Object.values(opts.modelUsage).reduce(
+    (s, u) => s + u.inputTokens,
+    0,
+  );
+  const aggOutput = Object.values(opts.modelUsage).reduce(
+    (s, u) => s + u.outputTokens,
+    0,
+  );
+  const modelUsage: Record<string, unknown> = {};
+  for (const [model, u] of Object.entries(opts.modelUsage)) {
+    modelUsage[model] = {
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      contextWindow: 200000,
+      costUSD: u.costUSD,
+    };
+  }
+  return {
+    type: 'result',
+    subtype: 'success',
+    session_id: 'sess-1',
+    duration_ms: 100,
+    duration_api_ms: 90,
+    is_error: false,
+    num_turns: 1,
+    total_cost_usd: opts.totalCostUsd,
+    usage: {
+      input_tokens: aggInput,
+      output_tokens: aggOutput,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    },
+    modelUsage,
   } as unknown as SDKMessage;
 }
 
@@ -284,5 +341,206 @@ describe('StreamTransformer â€” lastTurnContextTokens (TASK_2026_109_FOLLOW
     // Only the second message_start's tokens count: 100 + 50 = 150.
     // If the map leaked / accumulated, we'd see 1500 (1000+500) or 1650.
     expect(captured[0][0].lastTurnContextTokens).toBe(150);
+  });
+});
+
+describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', () => {
+  interface StatsCapture {
+    cost: number | null;
+    modelUsage?: ResultModelUsage[];
+  }
+
+  function captureStats(): {
+    captured: StatsCapture[];
+    onResultStats: (stats: {
+      cost: number | null;
+      modelUsage?: ResultModelUsage[];
+    }) => void;
+  } {
+    const captured: StatsCapture[] = [];
+    return {
+      captured,
+      onResultStats: (stats) => {
+        captured.push({ cost: stats.cost, modelUsage: stats.modelUsage });
+      },
+    };
+  }
+
+  it('direct Anthropic: passes SDK total_cost_usd and per-model costUSD through verbatim without invoking pricingProvider', async () => {
+    const { transformer, pricingProvider } = makeHarness(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }),
+    );
+    const { captured, onResultStats } = captureStats();
+    const messages: SDKMessage[] = [
+      resultMessageMulti({
+        totalCostUsd: 0.42,
+        modelUsage: {
+          'claude-opus-4-7': {
+            inputTokens: 1000,
+            outputTokens: 500,
+            costUSD: 0.3,
+          },
+          'claude-sonnet-4-6': {
+            inputTokens: 800,
+            outputTokens: 400,
+            costUSD: 0.12,
+          },
+        },
+      }),
+    ];
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable(messages),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: 'claude-opus-4-7',
+      onResultStats,
+    });
+    await drain(iter);
+
+    expect(pricingProvider.getPricing).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(1);
+    expect(captured[0].cost).toBe(0.42);
+    const byModel = new Map(
+      (captured[0].modelUsage ?? []).map((m) => [m.model, m.costUSD]),
+    );
+    expect(byModel.get('claude-opus-4-7')).toBe(0.3);
+    expect(byModel.get('claude-sonnet-4-6')).toBe(0.12);
+  });
+
+  it('third-party + pricing hit: computes costUSD via calculateMessageCost from pricing provider data', async () => {
+    const authEnv = makeAuthEnv({
+      ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+    });
+    const { transformer, pricingProvider } = makeHarness(authEnv);
+    const pricing: ModelPricing = {
+      inputCostPerToken: 15e-6,
+      outputCostPerToken: 75e-6,
+      cacheReadCostPerToken: 0,
+      cacheCreationCostPerToken: 0,
+      maxTokens: 200000,
+    };
+    pricingProvider.getPricing.mockResolvedValue(pricing);
+
+    const { captured, onResultStats } = captureStats();
+    const inputTokens = 1000;
+    const outputTokens = 500;
+    const messages: SDKMessage[] = [
+      resultMessageMulti({
+        totalCostUsd: 999.0,
+        modelUsage: {
+          'anthropic/claude-opus-4-7': {
+            inputTokens,
+            outputTokens,
+            costUSD: 0,
+          },
+        },
+      }),
+    ];
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable(messages),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: 'anthropic/claude-opus-4-7',
+      onResultStats,
+    });
+    await drain(iter);
+
+    expect(pricingProvider.getPricing).toHaveBeenCalledWith(
+      'anthropic/claude-opus-4-7',
+    );
+    expect(captured).toHaveLength(1);
+    const row = captured[0].modelUsage?.[0];
+    expect(row).toBeDefined();
+    expect(row?.costUSD).toBeGreaterThan(0);
+    expect(captured[0].cost).toBe(row?.costUSD);
+    expect(captured[0].cost).not.toBe(999.0);
+  });
+
+  it('third-party + pricing miss: costUSD is null per row and total cost is null', async () => {
+    const authEnv = makeAuthEnv({
+      ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+    });
+    const { transformer, pricingProvider } = makeHarness(authEnv);
+    pricingProvider.getPricing.mockResolvedValue(null);
+
+    const { captured, onResultStats } = captureStats();
+    const messages: SDKMessage[] = [
+      resultMessageMulti({
+        totalCostUsd: 0,
+        modelUsage: {
+          'mystery-model-x': {
+            inputTokens: 100,
+            outputTokens: 50,
+            costUSD: 0,
+          },
+        },
+      }),
+    ];
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable(messages),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: 'mystery-model-x',
+      onResultStats,
+    });
+    await drain(iter);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].cost).toBeNull();
+    expect(captured[0].modelUsage?.[0].costUSD).toBeNull();
+  });
+
+  it('third-party + mixed hit/miss: hit row has numeric cost, miss row null, total is sum of hits only', async () => {
+    const authEnv = makeAuthEnv({
+      ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+    });
+    const { transformer, pricingProvider } = makeHarness(authEnv);
+    const hitPricing: ModelPricing = {
+      inputCostPerToken: 10e-6,
+      outputCostPerToken: 50e-6,
+      cacheReadCostPerToken: 0,
+      cacheCreationCostPerToken: 0,
+      maxTokens: 200000,
+    };
+    pricingProvider.getPricing.mockImplementation(async (modelId: string) =>
+      modelId === 'anthropic/claude-opus-4-7' ? hitPricing : null,
+    );
+
+    const { captured, onResultStats } = captureStats();
+    const messages: SDKMessage[] = [
+      resultMessageMulti({
+        totalCostUsd: 0,
+        modelUsage: {
+          'anthropic/claude-opus-4-7': {
+            inputTokens: 1000,
+            outputTokens: 500,
+            costUSD: 0,
+          },
+          'mystery-model-y': {
+            inputTokens: 200,
+            outputTokens: 100,
+            costUSD: 0,
+          },
+        },
+      }),
+    ];
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable(messages),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: 'anthropic/claude-opus-4-7',
+      onResultStats,
+    });
+    await drain(iter);
+
+    expect(captured).toHaveLength(1);
+    const byModel = new Map(
+      (captured[0].modelUsage ?? []).map((m) => [m.model, m.costUSD]),
+    );
+    const hitCost = byModel.get('anthropic/claude-opus-4-7');
+    expect(typeof hitCost).toBe('number');
+    expect(hitCost as number).toBeGreaterThan(0);
+    expect(byModel.get('mystery-model-y')).toBeNull();
+    expect(captured[0].cost).toBe(hitCost);
   });
 });
