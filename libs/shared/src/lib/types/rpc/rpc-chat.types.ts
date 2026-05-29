@@ -250,6 +250,20 @@ export interface ChatResumeResult {
    * Only populated when the request included `activate: true`.
    */
   activated?: boolean;
+  /**
+   * Human-readable activation failure message, populated when the request
+   * included `activate: true` AND the backend `autoResumeIfInactive` helper
+   * returned `{ error }`. The outer `success` field stays `true` because the
+   * history load succeeded; callers branch on `activated === false &&
+   * activationError` to surface the resume-and-retry failure without losing
+   * the loaded transcript.
+   */
+  activationError?: string;
+  /**
+   * Structured activation failure code mirroring `errorCode`, populated under
+   * the same conditions as `activationError`.
+   */
+  activationErrorCode?: RpcUserErrorCode;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
   errorCode?: RpcUserErrorCode;

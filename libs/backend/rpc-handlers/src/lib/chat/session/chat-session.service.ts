@@ -68,6 +68,26 @@ import type { ChatSlashCommandRouterService } from './chat-slash-command-router.
 import { hasStopIntent } from './chat-stop-intent';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 
+/**
+ * Minimal shape consumed by {@link ChatSessionService.autoResumeIfInactive}.
+ *
+ * `chat:continue` passes the full {@link ChatContinueParams}; the rewind and
+ * `chat:resume activate:true` callsites synthesize a literal with only the
+ * fields the resume body actually reads (`model`, `thinking`, `effort` are all
+ * optional pass-throughs to `sdkAdapter.resumeSession`). Replacing the prior
+ * `as ChatContinueParams` cast with this honest internal type keeps the
+ * compiler honest if a future change reads `params.prompt` (the auto-resume
+ * path uses the separate `prompt` positional arg, not this field).
+ */
+interface AutoResumePreflight {
+  sessionId: SessionId;
+  tabId: string;
+  workspacePath?: string;
+  model?: ChatContinueParams['model'];
+  thinking?: ChatContinueParams['thinking'];
+  effort?: ChatContinueParams['effort'];
+}
+
 @injectable()
 export class ChatSessionService {
   constructor(
@@ -486,6 +506,8 @@ export class ChatSessionService {
         cliSessionCount: cliSessions?.length ?? 0,
       });
       let activated = false;
+      let activationError: string | undefined;
+      let activationErrorCode: ChatResumeResult['activationErrorCode'];
       if (params.activate === true && params.tabId) {
         if (!this.sdkAdapter.isSessionActive(sessionId)) {
           const activateResult = await this.autoResumeIfInactive(
@@ -494,15 +516,28 @@ export class ChatSessionService {
             resolvedWorkspacePath,
             '',
             {
-              sessionId: sessionId as string,
+              sessionId,
               tabId: params.tabId,
               workspacePath: resolvedWorkspacePath,
-            } as ChatContinueParams,
+            },
           );
           if ('justResumed' in activateResult) {
             activated =
               activateResult.justResumed ||
               this.sdkAdapter.isSessionActive(sessionId);
+          } else {
+            activationError =
+              activateResult.error.error ?? 'Auto-resume failed';
+            activationErrorCode = activateResult.error.errorCode;
+            this.logger.warn(
+              '[RPC] chat:resume activate:true — auto-resume failed',
+              {
+                sessionId,
+                tabId: params.tabId,
+                activationError,
+                activationErrorCode,
+              },
+            );
           }
         } else {
           activated = true;
@@ -517,6 +552,8 @@ export class ChatSessionService {
         resumableSubagents,
         cliSessions,
         activated,
+        ...(activationError ? { activationError } : {}),
+        ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
       this.logger.error(
@@ -657,8 +694,7 @@ export class ChatSessionService {
         sessionId,
         tabId,
         workspacePath,
-        prompt: '',
-      } as ChatContinueParams,
+      },
     );
 
     if ('error' in outcome) {
@@ -685,7 +721,7 @@ export class ChatSessionService {
     tabId: string,
     workspacePath: string,
     prompt: string,
-    params: ChatContinueParams,
+    params: AutoResumePreflight,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
     if (this.sdkAdapter.isSessionActive(sessionId)) {
       return { justResumed: false };
