@@ -317,6 +317,196 @@ describe('SessionLoaderService', () => {
     });
   });
 
+  describe('EH-001 — switchSession failure paths throw', () => {
+    function makeRichService(): SessionLoaderService {
+      const openSessionTabMock = jest.fn().mockReturnValue('tab-fresh');
+      const applyResumingSessionMock = jest.fn();
+      const applyResumeFailureMock = jest.fn();
+      const setPreloadedStatsMock = jest.fn();
+      const setLiveModelStatsMock = jest.fn();
+      const setModelUsageListMock = jest.fn();
+      const applyLoadedSessionStatsMock = jest.fn();
+
+      const tabManagerMock = {
+        pendingSessionLoad: computed(() => null),
+        clearPendingSessionLoad: jest.fn(),
+        activeTabSessionId: computed(() => null),
+        activeTabStatus: computed(() => null),
+        activeTabId: computed(() => null),
+        openSessionTab: openSessionTabMock,
+        applyResumingSession: applyResumingSessionMock,
+        applyResumeFailure: applyResumeFailureMock,
+        applyResumedHistory: jest.fn(),
+        applyLoadedSessionStats: applyLoadedSessionStatsMock,
+        setLiveModelStats: setLiveModelStatsMock,
+        setModelUsageList: setModelUsageListMock,
+        setPreloadedStats: setPreloadedStatsMock,
+      } as unknown as TabManagerService;
+
+      const sessionManagerMock = {
+        setStatus: jest.fn(),
+        setSessionId: jest.fn(),
+        setNodeMaps: jest.fn(),
+      } as unknown as SessionManager;
+
+      const streamingHandlerMock = {
+        cleanupSessionDeduplication: jest.fn(),
+        processStreamEvent: jest.fn(),
+        finalizeSessionHistory: jest.fn(),
+      } as unknown as StreamingHandlerService;
+
+      const agentMonitorStoreMock = {
+        loadCliSessions: jest.fn(),
+      } as unknown as AgentMonitorStore;
+
+      const vscodeMock = {
+        config: jest.fn(() => ({ workspaceRoot: 'D:/repo' })),
+      } as unknown as VSCodeService;
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          SessionLoaderService,
+          { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+          { provide: VSCodeService, useValue: vscodeMock },
+          { provide: TabManagerService, useValue: tabManagerMock },
+          { provide: SessionManager, useValue: sessionManagerMock },
+          { provide: StreamingHandlerService, useValue: streamingHandlerMock },
+          { provide: AgentMonitorStore, useValue: agentMonitorStoreMock },
+        ],
+      });
+      return TestBed.inject(SessionLoaderService);
+    }
+
+    it('throws when workspacePath is missing', async () => {
+      const localService = makeRichService();
+      (localService as unknown as {
+        vscodeService: { config: () => { workspaceRoot: string | null } };
+      }).vscodeService = {
+        config: () => ({ workspaceRoot: null }),
+      };
+
+      await expect(
+        localService.switchSession('sess-noworkspace' as SessionId),
+      ).rejects.toThrow(/workspace path/i);
+    });
+
+    it('throws when session:load returns success=false', async () => {
+      const localService = makeRichService();
+      rpcCall.mockImplementation((method: string) => {
+        if (method === 'session:load') {
+          return Promise.resolve({ success: false, error: 'not found' });
+        }
+        return Promise.resolve({ success: true, data: {} });
+      });
+
+      await expect(
+        localService.switchSession('sess-missing' as SessionId),
+      ).rejects.toThrow(/session:load failed/i);
+    });
+
+    it('throws when chat:resume has no events and no messages', async () => {
+      const localService = makeRichService();
+      rpcCall.mockImplementation((method: string) => {
+        if (method === 'session:load') {
+          return Promise.resolve({ success: true, data: {} });
+        }
+        if (method === 'chat:resume') {
+          return Promise.resolve({
+            success: true,
+            data: { events: [], messages: [], stats: null },
+          });
+        }
+        return Promise.resolve({ success: true, data: {} });
+      });
+
+      await expect(
+        localService.switchSession('sess-empty' as SessionId),
+      ).rejects.toThrow(/chat:resume failed/i);
+    });
+  });
+
+  describe('UICS-010 — stats clearing when chat:resume omits stats', () => {
+    it('clears preloadedStats, liveModelStats, and modelUsageList when stats is null', async () => {
+      const setPreloadedStatsMock = jest.fn();
+      const setLiveModelStatsMock = jest.fn();
+      const setModelUsageListMock = jest.fn();
+      const openSessionTabMock = jest.fn().mockReturnValue('tab-x');
+
+      const tabManagerMock = {
+        pendingSessionLoad: computed(() => null),
+        clearPendingSessionLoad: jest.fn(),
+        activeTabSessionId: computed(() => null),
+        activeTabStatus: computed(() => null),
+        activeTabId: computed(() => null),
+        openSessionTab: openSessionTabMock,
+        applyResumingSession: jest.fn(),
+        applyResumeFailure: jest.fn(),
+        applyResumedHistory: jest.fn(),
+        applyLoadedSessionStats: jest.fn(),
+        setLiveModelStats: setLiveModelStatsMock,
+        setModelUsageList: setModelUsageListMock,
+        setPreloadedStats: setPreloadedStatsMock,
+      } as unknown as TabManagerService;
+
+      const sessionManagerMock = {
+        setStatus: jest.fn(),
+        setSessionId: jest.fn(),
+        setNodeMaps: jest.fn(),
+      } as unknown as SessionManager;
+
+      const streamingHandlerMock = {
+        cleanupSessionDeduplication: jest.fn(),
+        processStreamEvent: jest.fn(),
+        finalizeSessionHistory: jest.fn(),
+      } as unknown as StreamingHandlerService;
+
+      const agentMonitorStoreMock = {
+        loadCliSessions: jest.fn(),
+      } as unknown as AgentMonitorStore;
+
+      const vscodeMock = {
+        config: jest.fn(() => ({ workspaceRoot: 'D:/repo' })),
+      } as unknown as VSCodeService;
+
+      rpcCall.mockImplementation((method: string) => {
+        if (method === 'session:load') {
+          return Promise.resolve({ success: true, data: {} });
+        }
+        if (method === 'chat:resume') {
+          return Promise.resolve({
+            success: true,
+            data: {
+              events: [{ type: 'noop' }],
+              stats: null,
+            },
+          });
+        }
+        return Promise.resolve({ success: true, data: {} });
+      });
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          SessionLoaderService,
+          { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+          { provide: VSCodeService, useValue: vscodeMock },
+          { provide: TabManagerService, useValue: tabManagerMock },
+          { provide: SessionManager, useValue: sessionManagerMock },
+          { provide: StreamingHandlerService, useValue: streamingHandlerMock },
+          { provide: AgentMonitorStore, useValue: agentMonitorStoreMock },
+        ],
+      });
+      const localService = TestBed.inject(SessionLoaderService);
+
+      await localService.switchSession('sess-null-stats' as SessionId);
+
+      expect(setPreloadedStatsMock).toHaveBeenCalledWith('tab-x', null);
+      expect(setLiveModelStatsMock).toHaveBeenCalledWith('tab-x', null);
+      expect(setModelUsageListMock).toHaveBeenCalledWith('tab-x', []);
+    });
+  });
+
   describe('loadSessions debouncing', () => {
     it.skip('coalesces rapid calls into a single RPC', async () => {
       rpcCall.mockClear();

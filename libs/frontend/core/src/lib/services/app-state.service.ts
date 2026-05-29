@@ -51,6 +51,15 @@ export const LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY =
 export interface CanvasSessionRequest {
   sessionId: string;
   name?: string;
+  /**
+   * Internal: resolver wired up by {@link AppStateManager.requestCanvasSession}
+   * so the caller can `await` the canvas adoption outcome. The canvas effect
+   * in `OrchestraCanvasComponent` resolves this with `true` when a tile is
+   * (re-)bound to the requested session, or `false` when the tile cap is hit
+   * / the canvas is not mounted. Kept optional so legacy callers / tests that
+   * fabricate the request shape still type-check.
+   */
+  resolve?: (success: boolean) => void;
 }
 
 export interface AppState {
@@ -389,12 +398,48 @@ export class AppStateManager implements MessageHandler {
     this.setLayoutMode(next);
   }
 
-  /** Request that the canvas opens/focuses a tile for the given session */
-  requestCanvasSession(sessionId: string, name?: string): void {
-    this._canvasSessionRequest.set({ sessionId, name });
+  /**
+   * Request that the canvas opens/focuses a tile for the given session.
+   *
+   * Returns a Promise that resolves to `true` when the canvas effect adopts
+   * the request and a tile is bound, or `false` when the request is dropped
+   * (tile cap reached, canvas not mounted, etc.). Callers that need to gate
+   * downstream destructive actions on a successful swap (e.g. "delete the
+   * original session after switching to the new one") should `await` this.
+   * Legacy fire-and-forget callers can ignore the returned promise.
+   *
+   * If the canvas never resolves (it was unmounted before the effect ran),
+   * the promise still settles via a 5s safety timeout to `false` so awaiters
+   * are never wedged.
+   */
+  requestCanvasSession(
+    sessionId: string,
+    name?: string,
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const settle = (success: boolean): void => {
+        if (settled) return;
+        settled = true;
+        resolve(success);
+      };
+      const timer = setTimeout(() => settle(false), 5000);
+      this._canvasSessionRequest.set({
+        sessionId,
+        name,
+        resolve: (success: boolean) => {
+          clearTimeout(timer);
+          settle(success);
+        },
+      });
+    });
   }
 
-  /** Clear the canvas session request after the canvas has processed it */
+  /**
+   * Clear the canvas session request after the canvas has processed it.
+   * Callers should invoke `request.resolve(success)` BEFORE calling this so
+   * any awaiter unblocks; clearing alone does not settle the promise.
+   */
   clearCanvasSessionRequest(): void {
     this._canvasSessionRequest.set(null);
   }

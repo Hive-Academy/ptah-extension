@@ -203,6 +203,7 @@ export class ChatViewComponent {
   private readonly actionBanner = inject(ActionBannerService);
   readonly actionError = this.actionBanner.error;
   readonly actionInfo = this.actionBanner.info;
+  readonly actionWarning = this.actionBanner.warning;
 
   private showActionError(message: string): void {
     this.actionBanner.showError(message);
@@ -210,6 +211,10 @@ export class ChatViewComponent {
 
   private showActionInfo(message: string): void {
     this.actionBanner.showInfo(message);
+  }
+
+  private showActionWarning(message: string): void {
+    this.actionBanner.showWarning(message);
   }
 
   /**
@@ -422,17 +427,6 @@ export class ChatViewComponent {
     return this.chatStore.isStreaming();
   });
 
-  /**
-   * Resolved "session is active in the SDK this run" — tile-scoped when
-   * SESSION_CONTEXT is provided, otherwise reads from the active tab.
-   *
-   * Sticky-true once the tab has streamed/resumed at least once. Used to
-   * gate the rewind action: rewind requires a live `Query` handle on the
-   * backend (`SessionLifecycleManager.getActiveSession`), which sessions
-   * loaded purely from disk via `session:load` do NOT have. Without this
-   * guard the user can click rewind on a historical session and the SDK
-   * throws `SessionNotActiveError` (Sentry NODE-NESTJS-2Y / 2N / 2X).
-   */
   readonly resolvedSessionIsActive = computed(() => {
     const ctx = this._sessionContext;
     if (ctx) {
@@ -943,24 +937,10 @@ export class ChatViewComponent {
     }
   }
 
-  /**
-   * "Rewind to here" — revert tracked file changes back to the checkpoint
-   * captured at the given user message. Performs a dry-run preview first,
-   * confirms with the user, then commits. The backend auto-resumes inactive
-   * sessions transparently (see `SessionRpcHandlers.registerRewindFiles`);
-   * the frontend no longer needs a manual resume-and-retry dance — any
-   * remaining `session-not-active:*` error is surfaced as a hard failure.
-   */
   async onRewindRequested(messageId: string): Promise<void> {
     const sessionId = this.resolvedSessionId();
     if (!sessionId) {
       this.showActionError('No active session to rewind.');
-      return;
-    }
-    if (!this.resolvedSessionIsActive()) {
-      this.showActionError(
-        'Rewind is only available during an active conversation. Send a message or resume the session first.',
-      );
       return;
     }
     const inFlight = this._actionInFlight();
@@ -992,18 +972,19 @@ export class ChatViewComponent {
     }
 
     const dryData = dryRun.data;
-    if (!dryData.canRewind) {
-      this.showActionError(dryData.error ?? 'Cannot rewind to this message.');
-      return;
-    }
-
+    const cannotRewind = !dryData.canRewind;
     const files = dryData.filesChanged ?? [];
     const ins = dryData.insertions ?? 0;
     const del = dryData.deletions ?? 0;
-    const checkpointsLost = files.length === 0 && ins === 0 && del === 0;
+    const checkpointsLost =
+      cannotRewind || (files.length === 0 && ins === 0 && del === 0);
 
     const fileList = checkpointsLost
-      ? 'No file changes can be reverted — checkpoints were lost when the session was previously closed. The conversation will still be truncated to this point.'
+      ? cannotRewind
+        ? `No file changes can be reverted (${
+            dryData.error ?? 'no checkpoints available'
+          }). The conversation will still be truncated to this point.`
+        : 'No file changes can be reverted — checkpoints were lost when the session was previously closed. The conversation will still be truncated to this point.'
       : files.length === 0
         ? 'No files will be modified.'
         : files
@@ -1035,15 +1016,28 @@ export class ChatViewComponent {
     const deleteOriginal = dialogResult.checkboxes['deleteOriginal'] === true;
 
     let rollbackSuffix: string | null = null;
-    const commit = await this._claudeRpc.rewindFiles(
-      sessionId,
-      messageId,
-      false,
-    );
-    if (!commit.isSuccess()) {
-      rollbackSuffix = `file rollback skipped: ${commit.error ?? 'unknown error'}`;
-    } else if (!commit.data.canRewind) {
-      rollbackSuffix = `file rollback skipped: ${commit.data.error ?? 'unknown reason'}`;
+    if (checkpointsLost) {
+      rollbackSuffix = cannotRewind
+        ? `file rollback skipped: ${dryData.error ?? 'no checkpoints'}`
+        : null;
+    } else {
+      const commit = await this._claudeRpc.rewindFiles(
+        sessionId,
+        messageId,
+        false,
+      );
+      if (!commit.isSuccess()) {
+        const errMsg = commit.error ?? 'unknown error';
+        if (this.isHardRewindFailure(errMsg)) {
+          this.showActionError(`Rewind failed: ${errMsg}`);
+          return;
+        }
+        rollbackSuffix = `file rollback skipped: ${errMsg}`;
+      } else if (!commit.data.canRewind) {
+        rollbackSuffix = `file rollback skipped: ${
+          commit.data.error ?? 'unknown reason'
+        }`;
+      }
     }
 
     const forkResult = await this._claudeRpc.forkSession(
@@ -1070,12 +1064,21 @@ export class ChatViewComponent {
     let swapFailed = false;
 
     if (this._appState.layoutMode() === 'grid') {
-      this._appState.requestCanvasSession(newSessionId, 'Rewind');
+      const adopted = await this._appState.requestCanvasSession(
+        newSessionId,
+        'Rewind',
+      );
+      if (!adopted) {
+        swapFailed = true;
+        this.showActionError(
+          'Rewind canvas tile could not be opened (tile cap reached or canvas not mounted).',
+        );
+      }
     } else {
       this._tabManager.openSessionTab(newSessionId, 'Rewind');
       try {
         await this.chatStore.switchSession(newSessionId);
-      } catch (err) {
+      } catch (err: unknown) {
         swapFailed = true;
         this.showActionError(
           `Rewind tab opened, but loading history failed: ${
@@ -1085,51 +1088,88 @@ export class ChatViewComponent {
       }
     }
 
+    let deleteSuffix: string | null = null;
     if (deleteOriginal && !swapFailed) {
-      await this.deleteOriginalSession(sessionId);
+      const result = await this.deleteOriginalSession(sessionId);
+      if (!result.allTabsClosed) {
+        deleteSuffix =
+          'original session left in place — close the streaming tab first';
+      } else if (!result.deletedOk) {
+        deleteSuffix = `original session delete failed: ${
+          result.deleteError ?? 'unknown error'
+        }`;
+      }
     }
 
     if (swapFailed) return;
 
     const baseMsg = 'Rewind complete — switched to new session';
-    this.showActionInfo(
-      rollbackSuffix ? `${baseMsg} (${rollbackSuffix})` : baseMsg,
+    const suffixes = [rollbackSuffix, deleteSuffix].filter(
+      (s): s is string => s !== null,
+    );
+
+    if (suffixes.length > 0) {
+      this.showActionWarning(`${baseMsg} (${suffixes.join('; ')})`);
+    } else {
+      this.showActionInfo(baseMsg);
+    }
+  }
+
+  private static readonly MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE =
+    'not found in session history';
+
+  private isHardRewindFailure(errMsg: string): boolean {
+    return (
+      errMsg.startsWith('session-not-active:') ||
+      errMsg.startsWith('unauthorized-path-rewrite:')
     );
   }
 
   private isMessageIdNotFoundError<T>(result: RpcResult<T>): boolean {
     if (result.errorCode === 'MESSAGE_ID_NOT_FOUND') return true;
     const msg = result.error ?? '';
-    return msg.includes('not found in session history');
+    return msg.includes(
+      ChatViewComponent.MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE,
+    );
   }
 
-  private async deleteOriginalSession(
-    originalId: SessionId,
-  ): Promise<void> {
-    try {
-      const tabs = this._tabManager.findTabsBySessionId(originalId);
-      for (const tab of tabs) {
-        try {
-          await this._tabManager.closeTab(tab.id);
-        } catch (err) {
-          console.warn(
-            '[chat-view] failed to close tab during delete-original',
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-      }
-      const del = await this._claudeRpc.deleteSession(originalId);
-      if (!del.isSuccess()) {
+  private async deleteOriginalSession(originalId: SessionId): Promise<{
+    allTabsClosed: boolean;
+    deletedOk: boolean;
+    deleteError?: string;
+  }> {
+    const tabs = this._tabManager.findTabsBySessionId(originalId);
+    for (const tab of tabs) {
+      try {
+        await this._tabManager.closeTab(tab.id);
+      } catch (err: unknown) {
         console.warn(
-          '[chat-view] deleteSession failed during delete-original:',
-          del.error,
+          '[chat-view] failed to close tab during delete-original',
+          err instanceof Error ? err.message : String(err),
         );
       }
-    } catch (err) {
-      console.warn(
-        '[chat-view] deleteOriginalSession failed:',
-        err instanceof Error ? err.message : String(err),
-      );
+    }
+    const survivors = this._tabManager.findTabsBySessionId(originalId);
+    if (survivors.length > 0) {
+      return { allTabsClosed: false, deletedOk: false };
+    }
+
+    try {
+      const del = await this._claudeRpc.deleteSession(originalId);
+      if (!del.isSuccess()) {
+        return {
+          allTabsClosed: true,
+          deletedOk: false,
+          deleteError: del.error ?? undefined,
+        };
+      }
+      return { allTabsClosed: true, deletedOk: true };
+    } catch (err: unknown) {
+      return {
+        allTabsClosed: true,
+        deletedOk: false,
+        deleteError: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 

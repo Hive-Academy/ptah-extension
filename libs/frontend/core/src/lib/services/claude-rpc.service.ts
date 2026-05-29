@@ -408,8 +408,13 @@ export class ClaudeRpcService implements MessageHandler {
   /**
    * Rewind on-disk file state to the checkpoint captured at a given user
    * message. Pass `dryRun: true` to preview affected files without modifying
-   * anything. The 15s timeout matches forkSession — both touch disk and may
-   * involve git checkpoint resolution.
+   * anything.
+   *
+   * Differential timeouts:
+   *   - dryRun=true  → 15s (cheap read-only checkpoint scan)
+   *   - dryRun=false → 60s (commit can touch many files; a 15s ceiling on
+   *     100+ file sessions caused client-side timeouts that left the disk
+   *     half-rewound while the UI still showed "file rollback skipped").
    *
    * Surfacing tip: when the backend returns an error code beginning with
    * `'session-not-active:*'`, the session must be resumed before rewind can
@@ -425,10 +430,11 @@ export class ClaudeRpcService implements MessageHandler {
     userMessageId: string,
     dryRun?: boolean,
   ): Promise<RpcResult<SessionRewindResult>> {
+    const timeout = dryRun === true ? 15000 : 60000;
     return this.call(
       'session:rewindFiles',
       { sessionId, userMessageId, dryRun },
-      { timeout: 15000 },
+      { timeout },
     );
   }
 

@@ -1184,7 +1184,10 @@ export class TabManagerService {
   // ----- Stats and model bookkeeping -----
 
   /** Set the live model stats summary for the tab. */
-  setLiveModelStats(tabId: string, stats: LiveModelStatsPayload): void {
+  setLiveModelStats(
+    tabId: string,
+    stats: LiveModelStatsPayload | null,
+  ): void {
     this.updateTabInternal(tabId, { liveModelStats: stats });
   }
 

@@ -297,7 +297,12 @@ export class OrchestraCanvasComponent implements OnDestroy {
         const tabId = this.canvasStore.addTileFromSession(sessionId, req.name);
         this.appState.clearCanvasSessionRequest();
         if (tabId) {
-          this.chatStore.switchSession(sessionId);
+          this.chatStore
+            .switchSession(sessionId)
+            .then(() => req.resolve?.(true))
+            .catch(() => req.resolve?.(false));
+        } else {
+          req.resolve?.(false);
         }
       }
     });
