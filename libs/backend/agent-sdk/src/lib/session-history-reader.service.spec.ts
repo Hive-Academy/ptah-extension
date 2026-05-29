@@ -29,7 +29,7 @@ import { HistoryEventFactory } from './helpers/history/history-event-factory';
 import type { SessionHistoryMessage } from './helpers/history/history.types';
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -560,6 +560,134 @@ describe('SessionHistoryReaderService', () => {
       ).rejects.toMatchObject({
         message: expect.stringContaining('session file not found'),
       });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // hydrateMissingPricing (CP 1.5c) — historical JSONL cost backfill
+  // -------------------------------------------------------------------------
+
+  describe('hydrateMissingPricing (CP 1.5c)', () => {
+    function buildAssistantMessage(
+      uuid: string,
+      model: string,
+      input: number,
+      output: number,
+    ): SessionHistoryMessage {
+      return {
+        type: 'assistant',
+        uuid,
+        message: {
+          role: 'assistant',
+          model,
+          content: [{ type: 'text', text: 'reply' }],
+          usage: {
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+        },
+        usage: {
+          input_tokens: input,
+          output_tokens: output,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      } as SessionHistoryMessage;
+    }
+
+    beforeEach(() => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('hydrates missing pricing for direct Anthropic when session JSONL has unknown model IDs', async () => {
+      const unknownModel = 'claude-opus-4-91-hydrate-direct';
+      const stubs = makeStubs();
+      stubs.authEnv = { ANTHROPIC_BASE_URL: '' } as AuthEnv;
+      const hydrated: ModelPricing = {
+        inputCostPerToken: 10e-6,
+        outputCostPerToken: 50e-6,
+        provider: 'anthropic',
+      };
+      stubs.pricingProvider.getPricing = jest.fn(async (modelId: string) =>
+        modelId === unknownModel ? hydrated : null,
+      );
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        buildAssistantMessage('a1', unknownModel, 1000, 500),
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stubs.pricingProvider.getPricing).toHaveBeenCalledWith(
+        unknownModel,
+      );
+      expect(stats).not.toBeNull();
+      // 1000 * 10e-6 + 500 * 50e-6 = 0.01 + 0.025 = 0.035
+      expect(stats?.totalCost).toBeCloseTo(0.035, 6);
+    });
+
+    it('skips backfill for third-party (OpenRouter) historical sessions', async () => {
+      const unknownModel = 'claude-opus-4-92-skip-thirdparty';
+      const stubs = makeStubs();
+      stubs.authEnv = {
+        ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+      } as AuthEnv;
+      stubs.pricingProvider.getPricing = jest.fn();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        buildAssistantMessage('a1', unknownModel, 1000, 500),
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stubs.pricingProvider.getPricing).not.toHaveBeenCalled();
+      expect(stats).not.toBeNull();
+      expect(stats?.totalCost).toBeNull();
+    });
+
+    it('does not call pricing provider for already-known models', async () => {
+      const stubs = makeStubs();
+      stubs.authEnv = { ANTHROPIC_BASE_URL: '' } as AuthEnv;
+      stubs.pricingProvider.getPricing = jest.fn();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      // gpt-4o is a known entry in DEFAULT_MODEL_PRICING — no hydration needed.
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        buildAssistantMessage('a1', 'gpt-4o', 1000, 500),
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stubs.pricingProvider.getPricing).not.toHaveBeenCalled();
+      expect(stats).not.toBeNull();
+      // 1000 * 2.5e-6 + 500 * 10e-6 = 0.0025 + 0.005 = 0.0075
+      expect(stats?.totalCost).toBeCloseTo(0.0075, 6);
     });
   });
 });

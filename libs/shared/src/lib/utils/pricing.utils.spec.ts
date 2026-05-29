@@ -351,6 +351,16 @@ describe('pricing.utils', () => {
     });
   });
 
+  describe('Anti-regression contracts (TASK_2026_134)', () => {
+    it('DEFAULT_MODEL_PRICING contains no anthropic-provider entries', () => {
+      const entries = Object.entries(DEFAULT_MODEL_PRICING);
+      const anthropic = entries.filter(
+        ([, pricing]) => pricing.provider === 'anthropic',
+      );
+      expect(anthropic).toEqual([]);
+    });
+  });
+
   describe('resolveModelDisplayName lookup', () => {
     it('returns "Unknown" for empty input', () => {
       expect(resolveModelDisplayName('')).toBe('Unknown');
