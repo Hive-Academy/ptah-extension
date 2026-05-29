@@ -279,9 +279,7 @@ describe('MemoryRpcService', () => {
     });
 
     it('queryCorpus() calls corpus:query with name + question', async () => {
-      rpcCall.mockResolvedValue(
-        okResult({ sessionId: 's-1', answer: 'because of x' }),
-      );
+      rpcCall.mockResolvedValue(okResult({ sessionId: 's-1' }));
 
       const result = await service.queryCorpus('auth', 'why?');
 
@@ -290,7 +288,7 @@ describe('MemoryRpcService', () => {
         { name: 'auth', question: 'why?' },
         expect.any(Object),
       );
-      expect(result.answer).toBe('because of x');
+      expect(result.sessionId).toBe('s-1');
     });
 
     it('reprimeCorpus() calls corpus:reprime', async () => {

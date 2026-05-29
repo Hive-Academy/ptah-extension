@@ -243,7 +243,7 @@ export class CorpusRpcHandlers {
             validated.name,
             validated.question,
           );
-          return { sessionId: r.sessionId, answer: r.answer };
+          return { sessionId: r.sessionId };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           this.logger.error('[corpus] query failed', { error: message });

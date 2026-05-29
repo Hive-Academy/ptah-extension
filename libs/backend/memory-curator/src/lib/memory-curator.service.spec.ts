@@ -489,4 +489,24 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
     await new Promise((r) => setImmediate(r));
     expect(rebuildImpl).toHaveBeenCalled();
   });
+
+  it('per-corpus throttle: rapid-fire curates rebuild each corpus at most once per window', async () => {
+    const { svc, rebuildCorpus } = makeWithCorpusDeps({
+      workspaceRoot: '/ws/X',
+      corpora: [{ name: 'a' }, { name: 'b' }],
+    });
+    for (let i = 0; i < 5; i++) {
+      await svc.curate({
+        sessionId: `s-${i}`,
+        workspaceRoot: '/ws/X',
+        transcript: `real transcript content ${i}`,
+      });
+    }
+    await new Promise((r) => setImmediate(r));
+    const callsByName = (rebuildCorpus as jest.Mock).mock.calls.map(
+      (c) => c[0],
+    );
+    expect(callsByName.filter((n) => n === 'a').length).toBe(1);
+    expect(callsByName.filter((n) => n === 'b').length).toBe(1);
+  });
 });

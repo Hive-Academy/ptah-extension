@@ -36,7 +36,7 @@ import type {
  * - SHORT_MS:   pin / unpin / forget / corpus:delete — single-row writes.
  * - REBUILD_MS: rebuildIndex / corpus:build / corpus:rebuild — full index rewrite.
  * - PRIME_MS:   corpus:prime / corpus:reprime — session lifecycle round-trip.
- * - QUERY_MS:   corpus:query — LLM-bound answer round-trip.
+ * - QUERY_MS:   corpus:query — primed session sendMessage round-trip.
  */
 const MEMORY_RPC_TIMEOUTS = {
   LIST_MS: 10_000,

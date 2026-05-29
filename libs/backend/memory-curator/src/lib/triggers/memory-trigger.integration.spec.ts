@@ -233,7 +233,7 @@ describe('MemoryTriggerService integration — full event-loop', () => {
         timestamp: t0 + i,
       });
     }
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
 
     expect(curator.curate).toHaveBeenCalledTimes(2);
     expect(curator.pushEvent).toHaveBeenCalledWith(
@@ -250,7 +250,7 @@ describe('MemoryTriggerService integration — full event-loop', () => {
       workspaceRoot: '/ws',
       timestamp: t0 + 3_600_001,
     });
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
 
     expect(curator.curate).toHaveBeenCalledTimes(3);
 

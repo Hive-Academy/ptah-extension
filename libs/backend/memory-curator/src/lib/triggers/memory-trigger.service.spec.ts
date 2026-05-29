@@ -568,7 +568,7 @@ describe('MemoryTriggerService', () => {
     for (let i = 0; i < 4; i++) {
       stop.fire(stopPayload({ timestamp: i }));
     }
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
   });
 
@@ -753,7 +753,7 @@ describe('MemoryTriggerService — user-cue trigger', () => {
     userPromptSubmit.fire(userPromptPayload());
     userPromptSubmit.fire(userPromptPayload());
     userPromptSubmit.fire(userPromptPayload());
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
     expect(curator.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -905,7 +905,7 @@ describe('MemoryTriggerService — commit-detect trigger', () => {
     for (let i = 0; i < 50; i++) {
       postToolUse.fire(postToolUsePayload({ timestamp: i }));
     }
-    await Promise.resolve();
+    for (let i = 0; i < 400; i++) await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(50);
     expect(curator.pushEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'rate-limited' }),
@@ -995,7 +995,7 @@ describe('MemoryTriggerService — lifecycle and rate-limit windows', () => {
     expect(curator.curate).toHaveBeenCalledTimes(1);
     jest.setSystemTime(new Date(t0 + 3_600_001));
     postToolUse.fire(postToolUsePayload({ timestamp: t0 + 3_600_001 }));
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
   });
 });
@@ -1181,7 +1181,7 @@ describe('MemoryTriggerService — buffer preservation under rate-limit', () => 
 
     jest.setSystemTime(new Date(t0 + 3_600_001));
     postToolUse.fire(postToolUsePayload({ timestamp: t0 + 3_600_001 }));
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
     expect(curator.curate).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -1263,7 +1263,7 @@ describe('MemoryTriggerService — buffer preservation under rate-limit', () => 
 
     jest.setSystemTime(new Date(t0 + 3_600_001));
     postToolUse.fire(postToolUsePayload({ timestamp: t0 + 3_600_001 }));
-    await Promise.resolve();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
     expect(curator.curate).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -1673,5 +1673,43 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
     stop.fire(stopPayload());
     await Promise.resolve();
     expect(drainSpy).toHaveBeenCalledWith('s1', 7);
+  });
+
+  it('concurrent invokeCurate for the same (workspace, session) serializes: second drain waits for first curate to settle', async () => {
+    const queue = makeObservationQueue();
+    const drainSpy = queue.store.drainForSession as jest.Mock;
+    const gateResolvers: Array<() => void> = [];
+    const blockingCurator = {
+      curate: jest.fn().mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            gateResolvers.push(() => resolve());
+          }),
+      ),
+      pushEvent: jest.fn(),
+      recentEvents: jest.fn(() => []),
+      lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+    } as unknown as MemoryCuratorService;
+    const { service, stop } = buildService({
+      curator: blockingCurator,
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+      observationQueue: queue,
+    });
+    service.start();
+    stop.fire(stopPayload({ timestamp: 1 }));
+    stop.fire(stopPayload({ timestamp: 2 }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(drainSpy).toHaveBeenCalledTimes(1);
+    expect(blockingCurator.curate).toHaveBeenCalledTimes(1);
+    gateResolvers[0]?.();
+    for (let i = 0; i < 50; i++) await Promise.resolve();
+    expect(drainSpy).toHaveBeenCalledTimes(2);
+    expect(blockingCurator.curate).toHaveBeenCalledTimes(2);
+    gateResolvers[1]?.();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
   });
 });

@@ -7,11 +7,29 @@
  */
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { SessionLifecycleManager } from '@ptah-extension/agent-sdk';
+import type {
+  SdkModelService,
+  SessionLifecycleManager,
+} from '@ptah-extension/agent-sdk';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { KnowledgeAgentService } from './knowledge-agent.service';
 import type { CorpusStore } from './corpus.store';
 import type { MemorySearchService } from '../memory-search.service';
 import type { CorpusRecord, CorpusRef } from './corpus.types';
+
+function makeModelService(modelId = 'claude-sonnet-4'): SdkModelService {
+  return {
+    getDefaultModel: jest.fn().mockResolvedValue(modelId),
+    resolveModelId: jest.fn((id: string) => id),
+  } as unknown as SdkModelService;
+}
+
+function makeWorkspace(root: string | null = null): IWorkspaceProvider {
+  return {
+    getWorkspaceRoot: jest.fn(() => root ?? undefined),
+    getWorkspaceFolders: jest.fn(() => (root ? [root] : [])),
+  } as unknown as IWorkspaceProvider;
+}
 
 function makeLogger(): Logger {
   return {
@@ -159,22 +177,31 @@ function makeSessions(): {
   return { mgr, alive, sentMessages, registered, ended };
 }
 
-function makeService(opts?: { searchRows?: Array<{ id: string }> }): {
+function makeService(opts?: {
+  searchRows?: Array<{ id: string }>;
+  modelId?: string;
+  workspace?: IWorkspaceProvider | null;
+}): {
   svc: KnowledgeAgentService;
   store: CorpusStore;
   state: Map<string, FakeCorpusState>;
   sessions: ReturnType<typeof makeSessions>;
+  modelService: SdkModelService;
 } {
   const { store, state } = makeCorpusStore();
   const sessions = makeSessions();
   const search = makeSearch(opts?.searchRows ?? []);
+  const modelService = makeModelService(opts?.modelId);
+  const workspace = opts?.workspace === undefined ? null : opts.workspace;
   const svc = new KnowledgeAgentService(
     makeLogger(),
     store,
     search,
     sessions.mgr,
+    modelService,
+    workspace,
   );
-  return { svc, store, state, sessions };
+  return { svc, store, state, sessions, modelService };
 }
 
 describe('KnowledgeAgentService.buildCorpus', () => {
@@ -234,6 +261,7 @@ describe('KnowledgeAgentService — round-trip (acceptance criterion #3)', () =>
   it('queryCorpus auto-primes when no alive primed session exists', async () => {
     const { svc, sessions } = makeService({
       searchRows: [{ id: 'mem-1' }],
+      workspace: makeWorkspace('/ws/fallback'),
     });
     await svc.buildCorpus({
       name: 'corpus-AP',
@@ -243,12 +271,80 @@ describe('KnowledgeAgentService — round-trip (acceptance criterion #3)', () =>
     expect((sessions.mgr.register as jest.Mock).mock.calls.length).toBe(1);
     expect(reply.sessionId).toBeTruthy();
   });
+
+  it('primeCorpus assembles a session config with model + projectPath that round-trip through SessionLifecycleManager', async () => {
+    const { svc, sessions, modelService } = makeService({
+      searchRows: [{ id: 'mem-1' }],
+      modelId: 'claude-opus-4-7',
+    });
+    await svc.buildCorpus({
+      name: 'corpus-RT',
+      workspaceRoot: '/ws/round-trip',
+    });
+    const primed = await svc.primeCorpus('corpus-RT');
+    expect(modelService.getDefaultModel).toHaveBeenCalled();
+    const registerCall = (sessions.mgr.register as jest.Mock).mock.calls[0];
+    const config = registerCall[1] as {
+      model?: string;
+      projectPath?: string;
+      corpusName?: string;
+    };
+    expect(config.model).toBe('claude-opus-4-7');
+    expect(config.projectPath).toBe('/ws/round-trip');
+    expect(config.corpusName).toBe('corpus-RT');
+    const executeCall = (sessions.mgr.executeQuery as jest.Mock).mock.calls[0];
+    const executeConfig = executeCall[0].sessionConfig as {
+      model?: string;
+      projectPath?: string;
+    };
+    expect(executeConfig.model).toBe('claude-opus-4-7');
+    expect(executeConfig.projectPath).toBe('/ws/round-trip');
+    expect(primed.sessionId).toBeTruthy();
+  });
+
+  it('primeCorpus falls back to IWorkspaceProvider.getWorkspaceRoot() when corpus row has no workspace_root', async () => {
+    const { svc, sessions } = makeService({
+      searchRows: [{ id: 'mem-1' }],
+      workspace: makeWorkspace('/ws/fallback-root'),
+    });
+    await svc.buildCorpus({ name: 'corpus-NW', workspaceRoot: null });
+    await svc.primeCorpus('corpus-NW');
+    const config = (sessions.mgr.register as jest.Mock).mock.calls[0][1] as {
+      projectPath?: string;
+    };
+    expect(config.projectPath).toBe('/ws/fallback-root');
+  });
+
+  it('primeCorpus throws PRIMING_REQUIRES_WORKSPACE when no workspaceRoot can be resolved', async () => {
+    const { svc } = makeService({
+      searchRows: [{ id: 'mem-1' }],
+      workspace: makeWorkspace(null),
+    });
+    await svc.buildCorpus({ name: 'corpus-NoWs', workspaceRoot: null });
+    await expect(svc.primeCorpus('corpus-NoWs')).rejects.toMatchObject({
+      errorCode: 'WORKSPACE_NOT_OPEN',
+    });
+  });
+
+  it('queryCorpus returns only { sessionId } — no answer field on the wire', async () => {
+    const { svc } = makeService({
+      searchRows: [{ id: 'mem-1' }],
+      workspace: makeWorkspace('/ws/q'),
+    });
+    await svc.buildCorpus({ name: 'corpus-Q', workspaceRoot: null });
+    const reply = await svc.queryCorpus('corpus-Q', 'hi');
+    expect(reply).toEqual({ sessionId: expect.any(String) });
+    expect(
+      (reply as unknown as Record<string, unknown>)['answer'],
+    ).toBeUndefined();
+  });
 });
 
 describe('KnowledgeAgentService.reprimeCorpus', () => {
   it('ends existing primed sessions, clears the list, then primes anew', async () => {
     const { svc, sessions } = makeService({
       searchRows: [{ id: 'mem-1' }],
+      workspace: makeWorkspace('/ws/reprime'),
     });
     await svc.buildCorpus({ name: 'corpus-R', workspaceRoot: null });
     const first = await svc.primeCorpus('corpus-R');

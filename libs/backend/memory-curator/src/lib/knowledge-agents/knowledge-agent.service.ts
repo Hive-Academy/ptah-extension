@@ -18,12 +18,20 @@
  */
 import { inject, injectable } from 'tsyringe';
 import { randomUUID } from 'node:crypto';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, SessionLifecycleManager } from '@ptah-extension/agent-sdk';
-import { SessionId } from '@ptah-extension/shared';
+import { TOKENS, RpcUserError, type Logger } from '@ptah-extension/vscode-core';
+import {
+  SDK_TOKENS,
+  SessionLifecycleManager,
+  SdkModelService,
+} from '@ptah-extension/agent-sdk';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { MEMORY_TOKENS } from '../di/tokens';
 import { CorpusStore } from './corpus.store';
 import { MemorySearchService } from '../memory-search.service';
+import { toSessionId } from './corpus-session-id';
 import type {
   BuildCorpusParams,
   CorpusListEntry,
@@ -36,7 +44,6 @@ export interface PrimeCorpusResult {
 
 export interface QueryCorpusResult {
   readonly sessionId: string;
-  readonly answer: string;
 }
 
 export interface RebuildCorpusResult {
@@ -58,6 +65,10 @@ export class KnowledgeAgentService {
     private readonly search: MemorySearchService,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly sessions: SessionLifecycleManager,
+    @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
+    private readonly modelService: SdkModelService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace: IWorkspaceProvider | null = null,
   ) {}
 
   async buildCorpus(params: BuildCorpusParams): Promise<CorpusRef> {
@@ -81,28 +92,30 @@ export class KnowledgeAgentService {
     if (!rec) {
       throw new Error(`Corpus '${name}' not found`);
     }
+    const projectPath =
+      rec.workspaceRoot ?? this.workspace?.getWorkspaceRoot() ?? null;
+    if (!projectPath) {
+      throw new RpcUserError(
+        'cannot prime corpus outside a workspace',
+        'WORKSPACE_NOT_OPEN',
+      );
+    }
+    const model = await this.modelService.getDefaultModel();
     const tabId = `corpus-${randomUUID()}`;
-    const sessionId = tabId as unknown as SessionId;
+    const sessionId = toSessionId(tabId);
     const abortController = new AbortController();
-    this.sessions.register(
+    const sessionConfig = {
+      projectPath,
       tabId,
-      {
-        projectPath: rec.workspaceRoot ?? undefined,
-        tabId,
-        corpusName: name,
-        isCorpusPrimingSession: true,
-      },
-      abortController,
-    );
+      model,
+      corpusName: name,
+      isCorpusPrimingSession: true,
+    };
+    this.sessions.register(tabId, sessionConfig, abortController);
     try {
       await this.sessions.executeQuery({
         sessionId,
-        sessionConfig: {
-          projectPath: rec.workspaceRoot ?? undefined,
-          tabId,
-          corpusName: name,
-          isCorpusPrimingSession: true,
-        },
+        sessionConfig,
         initialPrompt: {
           content: `[corpus-prime] Loaded knowledge corpus '${name}'.`,
         },
@@ -135,11 +148,8 @@ export class KnowledgeAgentService {
       const primed = await this.primeCorpus(name);
       sessionId = primed.sessionId;
     }
-    await this.sessions.sendMessage(
-      sessionId as unknown as SessionId,
-      question,
-    );
-    return { sessionId, answer: '' };
+    await this.sessions.sendMessage(toSessionId(sessionId), question);
+    return { sessionId };
   }
 
   async reprimeCorpus(name: string): Promise<PrimeCorpusResult> {
@@ -149,7 +159,7 @@ export class KnowledgeAgentService {
     }
     for (const sid of rec.primedSessionIds) {
       try {
-        await this.sessions.endSession(sid as unknown as SessionId);
+        await this.sessions.endSession(toSessionId(sid));
       } catch (err: unknown) {
         this.logger.warn('[knowledge-agent] reprime endSession failed', {
           sessionId: sid,

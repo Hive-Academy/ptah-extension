@@ -70,6 +70,9 @@ searches:
    pre-loaded into the system prompt.
 3. `corpus:query { name, question }` — ask questions against the primed
    session. Reuses the alive session when possible; auto-primes otherwise.
+   Returns only `{ sessionId }` — the answer streams through the normal SDK
+   session path on `sessionId`; subscribe to that stream instead of reading
+   the RPC result for the response text.
 
 Corpora auto-rebuild after every curator run that creates new workspace
 memories (gated by `memory.corpus.autoRebuildOnExtraction`, default true),

@@ -118,6 +118,8 @@ export {
   TIER_ENV_VAR_MAP,
   DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
+  SdkModelService,
+  MemoryPromptInjector,
 } from './lib/helpers';
 export type { ModelTier, EnvMappedTier } from './lib/helpers';
 export {

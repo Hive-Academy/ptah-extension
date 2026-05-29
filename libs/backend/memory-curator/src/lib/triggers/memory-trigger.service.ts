@@ -83,6 +83,7 @@ export class MemoryTriggerService {
   private sessionStartDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private readonly episodes = new EpisodeTracker();
+  private readonly invokeCurateInFlight = new Map<string, Promise<void>>();
   private bootScanController: AbortController | null = null;
   private cueCache: {
     source: readonly string[];
@@ -557,7 +558,36 @@ export class MemoryTriggerService {
     );
   }
 
-  private async invokeCurate(
+  private invokeCurate(
+    sessionId: string,
+    workspaceRoot: string,
+    source: CurateSource,
+    salienceBoost?: number,
+    episodeSnap?: EpisodeSummaryInput,
+  ): Promise<void> {
+    const key = `${workspaceRoot}::${sessionId}`;
+    const prior = this.invokeCurateInFlight.get(key);
+    const run = (): Promise<void> =>
+      this.doInvokeCurate(
+        sessionId,
+        workspaceRoot,
+        source,
+        salienceBoost,
+        episodeSnap,
+      );
+    const chained: Promise<void> = prior
+      ? prior.catch(() => undefined).then(run)
+      : run();
+    const tracked = chained.finally(() => {
+      if (this.invokeCurateInFlight.get(key) === tracked) {
+        this.invokeCurateInFlight.delete(key);
+      }
+    });
+    this.invokeCurateInFlight.set(key, tracked);
+    return tracked;
+  }
+
+  private async doInvokeCurate(
     sessionId: string,
     workspaceRoot: string,
     source: CurateSource,

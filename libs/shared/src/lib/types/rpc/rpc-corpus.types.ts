@@ -78,7 +78,6 @@ export interface CorpusQueryParams {
 
 export interface CorpusQueryResult {
   readonly sessionId: string;
-  readonly answer: string;
 }
 
 export interface CorpusReprimeParams {

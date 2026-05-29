@@ -53,13 +53,14 @@ The store fires `memory:corpusChanged` with `action: 'primed'`.
 ## Query
 
 ```ts
-corpus:query { name, question } → { sessionId, answer: '' }
+corpus:query { name, question } → { sessionId }
 ```
 
 Reuses the most recent alive primed session for the corpus. If none is
-alive, auto-primes a fresh one. The `answer` field is empty in the
-response — the actual answer streams through the existing chat surface
-keyed by `sessionId`.
+alive, auto-primes a fresh one. The RPC result carries only the
+`sessionId` — the actual answer streams through the existing chat
+surface keyed by `sessionId`. Subscribe to that stream to read the
+response.
 
 ## Reprime + Rebuild
 

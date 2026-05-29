@@ -33,6 +33,7 @@ import type { KnowledgeAgentService } from './knowledge-agents/knowledge-agent.s
 
 const AUTO_REBUILD_SECTION = 'ptah';
 const AUTO_REBUILD_KEY = 'memory.corpus.autoRebuildOnExtraction';
+const AUTO_REBUILD_THROTTLE_MS = 30_000;
 
 const TRANSCRIPT_PLACEHOLDER =
   '[Compaction transcript window unavailable; curator running on session metadata only.]';
@@ -56,6 +57,10 @@ export class MemoryCuratorService {
   private lastRunStatsCache: CuratorRunStats | null = null;
   private readonly inFlight = new Map<string, Promise<CuratorRunStats>>();
   private readonly eventListeners = new Set<MemoryCuratorEventListener>();
+  private readonly autoRebuildState = new Map<
+    string,
+    { lastRebuildAt: number }
+  >();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -395,7 +400,14 @@ export class MemoryCuratorService {
       });
       return;
     }
+    const now = Date.now();
     for (const c of corpora) {
+      const key = `${workspaceRoot}::${c.name}`;
+      const state = this.autoRebuildState.get(key);
+      if (state && now - state.lastRebuildAt < AUTO_REBUILD_THROTTLE_MS) {
+        continue;
+      }
+      this.autoRebuildState.set(key, { lastRebuildAt: now });
       this.knowledgeAgent.rebuildCorpus(c.name).catch((err: unknown) => {
         this.logger.warn('[memory-curator] auto-rebuild failed for corpus', {
           name: c.name,

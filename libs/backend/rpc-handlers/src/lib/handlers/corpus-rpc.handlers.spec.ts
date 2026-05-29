@@ -53,9 +53,7 @@ function makeKnowledgeAgent() {
       workspaceRoot: '/ws',
     }),
     primeCorpus: jest.fn().mockResolvedValue({ sessionId: 'sess-1' }),
-    queryCorpus: jest
-      .fn()
-      .mockResolvedValue({ sessionId: 'sess-1', answer: '' }),
+    queryCorpus: jest.fn().mockResolvedValue({ sessionId: 'sess-1' }),
     reprimeCorpus: jest.fn().mockResolvedValue({ sessionId: 'sess-2' }),
     rebuildCorpus: jest.fn().mockResolvedValue({ added: 0, removed: 0 }),
     deleteCorpus: jest.fn().mockResolvedValue({ deleted: true }),
@@ -291,22 +289,23 @@ describe('CorpusRpcHandlers — corpus:prime', () => {
 });
 
 describe('CorpusRpcHandlers — corpus:query', () => {
-  it('forwards name + question and returns sessionId + answer', async () => {
+  it('forwards name + question and returns sessionId (stream subscription path)', async () => {
     const { rpcHandler, knowledgeAgent } = buildHandlers();
     knowledgeAgent.queryCorpus.mockResolvedValue({
       sessionId: 'sess-7',
-      answer: '',
     });
     const result = (await rpcHandler.call('corpus:query', {
       name: 'react',
       question: 'how do hooks compose?',
-    })) as { sessionId: string; answer: string };
+    })) as { sessionId: string };
     expect(knowledgeAgent.queryCorpus).toHaveBeenCalledWith(
       'react',
       'how do hooks compose?',
     );
     expect(result.sessionId).toBe('sess-7');
-    expect(result.answer).toBe('');
+    expect(
+      (result as unknown as Record<string, unknown>)['answer'],
+    ).toBeUndefined();
   });
 
   it('rejects empty question with INVALID_PARAMS', async () => {
