@@ -103,6 +103,15 @@ export const SDK_TOKENS = {
   ),
   SDK_TOOL_FAILURE_HOOK_HANDLER: Symbol.for('SdkToolFailureHookHandler'),
   SDK_CURATOR_RATE_LIMIT: Symbol.for('SdkCuratorRateLimit'),
+
+  SDK_PRE_TOOL_USE_CALLBACK_REGISTRY: Symbol.for(
+    'SdkPreToolUseCallbackRegistry',
+  ),
+  SDK_PRE_TOOL_USE_HOOK_HANDLER: Symbol.for('SdkPreToolUseHookHandler'),
+  SDK_SESSION_START_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSessionStartCallbackRegistry',
+  ),
+  SDK_SESSION_START_HOOK_HANDLER: Symbol.for('SdkSessionStartHookHandler'),
 } as const;
 
 /**
