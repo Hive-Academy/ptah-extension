@@ -206,6 +206,18 @@ import type {
   McpDirectoryListInstalledResult,
   McpDirectoryGetPopularParams,
   McpDirectoryGetPopularResult,
+  McpDirectorySetSmitheryApiKeyParams,
+  McpDirectorySetSmitheryApiKeyResult,
+  McpDirectoryGetSmitheryKeyStatusParams,
+  McpDirectoryGetSmitheryKeyStatusResult,
+  McpDirectoryResolveSmitheryParams,
+  McpDirectoryResolveSmitheryResult,
+  McpDirectoryInstallSmitheryParams,
+  McpDirectoryInstallSmitheryResult,
+  McpDirectoryUninstallSmitheryParams,
+  McpDirectoryUninstallSmitheryResult,
+  McpDirectoryListSmitheryInstalledParams,
+  McpDirectoryListSmitheryInstalledResult,
 } from './mcp-directory.types';
 
 import type {
@@ -894,6 +906,30 @@ export interface RpcMethodRegistry {
   'mcpDirectory:getPopular': {
     params: McpDirectoryGetPopularParams;
     result: McpDirectoryGetPopularResult;
+  };
+  'mcpDirectory:setSmitheryApiKey': {
+    params: McpDirectorySetSmitheryApiKeyParams;
+    result: McpDirectorySetSmitheryApiKeyResult;
+  };
+  'mcpDirectory:getSmitheryKeyStatus': {
+    params: McpDirectoryGetSmitheryKeyStatusParams;
+    result: McpDirectoryGetSmitheryKeyStatusResult;
+  };
+  'mcpDirectory:resolveSmithery': {
+    params: McpDirectoryResolveSmitheryParams;
+    result: McpDirectoryResolveSmitheryResult;
+  };
+  'mcpDirectory:installSmithery': {
+    params: McpDirectoryInstallSmitheryParams;
+    result: McpDirectoryInstallSmitheryResult;
+  };
+  'mcpDirectory:uninstallSmithery': {
+    params: McpDirectoryUninstallSmitheryParams;
+    result: McpDirectoryUninstallSmitheryResult;
+  };
+  'mcpDirectory:listSmitheryInstalled': {
+    params: McpDirectoryListSmitheryInstalledParams;
+    result: McpDirectoryListSmitheryInstalledResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1942,6 +1978,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:uninstall': true,
   'mcpDirectory:listInstalled': true,
   'mcpDirectory:getPopular': true,
+  'mcpDirectory:setSmitheryApiKey': true,
+  'mcpDirectory:getSmitheryKeyStatus': true,
+  'mcpDirectory:resolveSmithery': true,
+  'mcpDirectory:installSmithery': true,
+  'mcpDirectory:uninstallSmithery': true,
+  'mcpDirectory:listSmitheryInstalled': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,

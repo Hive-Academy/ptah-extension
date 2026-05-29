@@ -21,6 +21,7 @@ import {
   ChangeDetectionStrategy,
   inject,
   signal,
+  computed,
   effect,
   untracked,
   Type,
@@ -37,6 +38,7 @@ import {
   MessageSquare,
   LayoutGrid,
   Wrench,
+  Store,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -246,6 +248,19 @@ import {
               <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5" />
               Setup
             </button>
+            @if (isPremium()) {
+              <button
+                role="tab"
+                class="tab gap-1.5 no-drag"
+                [class.tab-active]="appState.currentView() === 'marketplace'"
+                [attr.aria-selected]="appState.currentView() === 'marketplace'"
+                title="Marketplace"
+                (click)="openMarketplace()"
+              >
+                <lucide-angular [img]="StoreIcon" class="w-3.5 h-3.5" />
+                Marketplace
+              </button>
+            }
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
@@ -519,6 +534,11 @@ export class ElectronShellComponent {
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
 
+  /** Whether the user has Pro — gates the Marketplace navbar tab (TASK_2026_131). */
+  protected readonly isPremium = computed(
+    () => this.chatStore.licenseStatus()?.isPremium ?? false,
+  );
+
   /** Lazily loaded EditorPanelComponent — keeps xterm/monaco out of the initial bundle. */
   readonly editorComponent = signal<Type<unknown> | null>(null);
 
@@ -543,6 +563,7 @@ export class ElectronShellComponent {
   readonly MessageSquareIcon = MessageSquare;
   readonly LayoutGridIcon = LayoutGrid;
   readonly WrenchIcon = Wrench;
+  readonly StoreIcon = Store;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
@@ -566,5 +587,9 @@ export class ElectronShellComponent {
 
   openSetupHub(): void {
     this.appState.setCurrentView('setup-hub');
+  }
+
+  openMarketplace(): void {
+    this.appState.setCurrentView('marketplace');
   }
 }

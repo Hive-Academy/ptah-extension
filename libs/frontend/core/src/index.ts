@@ -16,4 +16,5 @@ export {
   ORCHESTRA_CANVAS_COMPONENT,
   HARNESS_BUILDER_COMPONENT,
   SETUP_HUB_COMPONENT,
+  MARKETPLACE_COMPONENT,
 } from './lib/tokens/lazy-view-components.token';

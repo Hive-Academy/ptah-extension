@@ -114,6 +114,7 @@ export {
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
+export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
   TIER_ENV_VAR_MAP,
   buildTierEnvDefaults,

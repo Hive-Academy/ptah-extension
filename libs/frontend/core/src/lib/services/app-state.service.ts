@@ -19,7 +19,8 @@ export type ViewType =
   | 'orchestra-canvas'
   | 'harness-builder'
   | 'setup-hub'
-  | 'thoth';
+  | 'thoth'
+  | 'marketplace';
 
 /**
  * Active tab id within the Thoth hub. Mirrors the union exported from
@@ -95,6 +96,7 @@ export class AppStateManager implements MessageHandler {
       'harness-builder',
       'setup-hub',
       'thoth',
+      'marketplace',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);
@@ -126,6 +128,13 @@ export class AppStateManager implements MessageHandler {
    * the `'thoth'` view restores the user's last tab.
    */
   private readonly _thothActiveTab = signal<ThothActiveTabId>('memory');
+  /**
+   * Currently selected marketplace provider id (e.g. 'official-mcp',
+   * 'skills-sh'), or null when no provider is selected. Persisted in-memory
+   * via setter so re-entering the `'marketplace'` view restores the user's
+   * last provider — mirrors {@link _thothActiveTab}.
+   */
+  private readonly _marketplaceActiveProvider = signal<string | null>(null);
   /**
    * Whether the user has dismissed the Thoth first-run hint.
    * Persisted to `localStorage` under {@link THOTH_FIRST_RUN_DISMISSED_KEY}
@@ -169,6 +178,9 @@ export class AppStateManager implements MessageHandler {
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
   /** Active tab id inside the Thoth hub (memory / skills / cron / gateway). */
   readonly thothActiveTab = this._thothActiveTab.asReadonly();
+  /** Selected marketplace provider id (null when none selected). */
+  readonly marketplaceActiveProvider =
+    this._marketplaceActiveProvider.asReadonly();
   /** Whether the Thoth first-run hint has been dismissed. */
   readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
   readonly canSwitchViews = computed(() => {
@@ -360,6 +372,11 @@ export class AppStateManager implements MessageHandler {
   /** Update the active Thoth hub tab. */
   setThothActiveTab(tab: ThothActiveTabId): void {
     this._thothActiveTab.set(tab);
+  }
+
+  /** Update the selected marketplace provider id (null to clear selection). */
+  setMarketplaceActiveProvider(id: string | null): void {
+    this._marketplaceActiveProvider.set(id);
   }
 
   /**
