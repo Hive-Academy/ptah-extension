@@ -150,6 +150,27 @@ export class ObservationQueueStore {
     return rows.map(rowToObservation);
   }
 
+  /**
+   * Read-only accessor returning the most recent observation rows for a
+   * session, regardless of `processed_at`. Used by `mem:getObservations`
+   * to surface trailing context to the renderer without side-effects.
+   */
+  peekForSession(
+    sessionId: string,
+    limit = 50,
+  ): readonly ObservationQueueRow[] {
+    const clamped = Math.max(1, Math.min(500, limit));
+    const rows = this.connection.db
+      .prepare(
+        `SELECT * FROM observation_queue
+         WHERE session_id = ?
+         ORDER BY captured_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(sessionId, clamped) as ObservationRow[];
+    return rows.map(rowToObservation);
+  }
+
   markProcessed(ids: readonly number[]): void {
     if (ids.length === 0) return;
     const now = Date.now();

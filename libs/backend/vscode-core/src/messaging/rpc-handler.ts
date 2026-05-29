@@ -76,6 +76,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'cron:', // Scheduled cron jobs (list, get, create, update, delete, toggle, runNow, runs, nextFire)
   'gateway:', // MCP gateway status, bindings, and messages
   'memory:', // Memory curator (list, search, get, pin, unpin, forget, rebuildIndex, stats)
+  'mem:', // Progressive disclosure memory search (searchIndex, timeline, getObservations)
   'skillSynthesis:', // Skills synthesis pipeline (listCandidates, getCandidate, promote, reject, invocations, stats)
   'db:', // DB health + reset — maintenance commands
   'subagent:', // Bidirectional subagent messaging (send-message, stop, interrupt)

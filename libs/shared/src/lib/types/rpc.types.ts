@@ -20,6 +20,7 @@ export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-terminal.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
+export * from './rpc/rpc-mem.types';
 
 export * from './rpc/rpc-indexing.types';
 
@@ -273,6 +274,15 @@ import type {
   MemorySearchSymbolsParams,
   MemorySearchSymbolsResult,
 } from './rpc/rpc-memory.types';
+
+import type {
+  MemSearchIndexParams,
+  MemSearchIndexResult,
+  MemTimelineParams,
+  MemTimelineResult,
+  MemGetObservationsParams,
+  MemGetObservationsResult,
+} from './rpc/rpc-mem.types';
 
 import type {
   IndexingGetStatusParams,
@@ -1201,6 +1211,18 @@ export interface RpcMethodRegistry {
     params: MemoryGetTriggersParams;
     result: MemoryGetTriggersResult;
   };
+  'mem:searchIndex': {
+    params: MemSearchIndexParams;
+    result: MemSearchIndexResult;
+  };
+  'mem:timeline': {
+    params: MemTimelineParams;
+    result: MemTimelineResult;
+  };
+  'mem:getObservations': {
+    params: MemGetObservationsParams;
+    result: MemGetObservationsResult;
+  };
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
     result: SkillSynthesisListCandidatesResult;
@@ -1952,6 +1974,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:runNow': true,
   'memory:setTriggers': true,
   'memory:getTriggers': true,
+
+  'mem:searchIndex': true,
+  'mem:timeline': true,
+  'mem:getObservations': true,
 
   'skillSynthesis:listCandidates': true,
   'skillSynthesis:getCandidate': true,

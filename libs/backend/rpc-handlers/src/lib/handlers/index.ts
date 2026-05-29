@@ -31,6 +31,7 @@ export { GitRpcHandlers } from './git-rpc.handlers';
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 export { SettingsRpcHandlers } from './settings-rpc.handlers';
 export { MemoryRpcHandlers } from './memory-rpc.handlers';
+export { MemRpcHandlers } from './mem-rpc.handlers';
 export { IndexingRpcHandlers } from './indexing-rpc.handlers';
 export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 export { CronRpcHandlers } from './cron-rpc.handlers';

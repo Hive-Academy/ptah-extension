@@ -177,6 +177,59 @@ describe('ObservationQueueStore (native-gated)', () => {
   );
 
   maybe(
+    'peekForSession returns most-recent rows regardless of processed_at and does NOT mark processed',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        store.insert({
+          sessionId: 'session-peek',
+          workspaceRoot: '/ws',
+          kind: 'tool-use',
+          toolName: 'Read',
+        });
+        store.insert({
+          sessionId: 'session-peek',
+          workspaceRoot: '/ws',
+          kind: 'assistant-turn',
+        });
+        const drained = store.drainForSession('session-peek');
+        store.markProcessed(drained.map((r) => r.id));
+
+        const peeked = store.peekForSession('session-peek', 10);
+        expect(peeked.length).toBe(2);
+        expect(peeked[0].capturedAt).toBeGreaterThanOrEqual(
+          peeked[peeked.length - 1].capturedAt,
+        );
+
+        const stillUnprocessed = store.countUnprocessed('session-peek');
+        expect(stillUnprocessed).toBe(0);
+
+        const reDrained = store.drainForSession('session-peek');
+        expect(reDrained.length).toBe(0);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe('peekForSession clamps limit between 1 and 500', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      for (let i = 0; i < 3; i++) {
+        store.insert({
+          sessionId: 'session-clamp',
+          workspaceRoot: null,
+          kind: 'tool-use',
+        });
+      }
+      expect(store.peekForSession('session-clamp', 0).length).toBe(1);
+      expect(store.peekForSession('session-clamp', 2).length).toBe(2);
+    } finally {
+      service.close();
+    }
+  });
+
+  maybe(
     'purgeOlderThan only deletes processed rows older than the threshold',
     async () => {
       const { service, store } = await bootstrap();

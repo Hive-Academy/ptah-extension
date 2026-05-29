@@ -29,6 +29,23 @@ export type {
   CodeSymbolListEntry,
 } from './lib/code-symbol.store';
 export { MemorySearchService } from './lib/memory-search.service';
+export type {
+  MemSearchIndexFilter,
+  MemSearchIndexResponse,
+  MemTimelineRequest,
+  MemTimelineResponse,
+  MemGetObservationsRequest,
+  MemGetObservationsResponse,
+  MemoryIndexRowOut,
+  MemMemoryFullOut,
+  MemObservationRowOut,
+} from './lib/memory-search.service';
+export { ObservationQueueStore } from './lib/observation-queue.store';
+export type {
+  ObservationKind,
+  ObservationQueueInsert,
+  ObservationQueueRow,
+} from './lib/observation-queue.store';
 export { SalienceScorer } from './lib/salience-scorer';
 export type { ScoreInputs } from './lib/salience-scorer';
 export { MemoryDecayJob } from './lib/memory-decay.job';
