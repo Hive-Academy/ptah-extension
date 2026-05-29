@@ -154,6 +154,18 @@ export interface SessionForkParams {
   upToMessageId?: string;
   /** Optional title for the new fork (defaults to "<original> (fork)") */
   title?: string;
+  /**
+   * Optional semantic hint for the kind of fork being requested.
+   *
+   * When set to `'rewind'`, the backend derives the new session title as
+   * `"<original> (rewind)"` instead of the default `"<original> (fork)"`.
+   * When set to `'branch'` or left `undefined`, the existing "(fork)"
+   * naming is preserved. This is cosmetic only — the underlying SDK
+   * `forkSession` call is identical in both cases.
+   *
+   * An explicit `title` always wins over the `kind`-derived default.
+   */
+  kind?: 'rewind' | 'branch';
 }
 
 /** Response from session:forkSession RPC method */

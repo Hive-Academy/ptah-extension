@@ -981,6 +981,7 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         VALID_USER_MESSAGE_ID,
         'Branch A',
+        undefined,
       );
       expect(result.newSessionId).toBe('forked-uuid');
     });
@@ -1002,6 +1003,7 @@ describe('SessionRpcHandlers', () => {
 
       expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
         VALID_SESSION_ID,
+        undefined,
         undefined,
         undefined,
       );
@@ -1089,6 +1091,34 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         undefined,
         'badnamewithillegalchars',
+        undefined,
+      );
+    });
+
+    it('forwards kind: "rewind" as 4th positional arg to adapter', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.forkSession.mockResolvedValue({
+        sessionId: 'forked-uuid',
+      } as never);
+      h.handlers.register();
+
+      await call(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+        upToMessageId: VALID_USER_MESSAGE_ID,
+        kind: 'rewind',
+      });
+
+      expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        VALID_USER_MESSAGE_ID,
+        undefined,
+        'rewind',
       );
     });
 

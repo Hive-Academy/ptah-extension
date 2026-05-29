@@ -819,18 +819,24 @@ export class SessionRpcHandlers {
               ? this.validateUserMessageId(params.upToMessageId)
               : undefined;
           const title = this.sanitizeForkTitle(params.title);
+          const kind =
+            params.kind === 'rewind' || params.kind === 'branch'
+              ? params.kind
+              : undefined;
           await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:forkSession called', {
             sessionId,
             upToMessageId,
             title,
+            kind,
           });
 
           const result = await this.sdkAdapter.forkSession(
             sessionId as SessionId,
             upToMessageId,
             title,
+            kind,
           );
           return { newSessionId: result.sessionId as SessionId };
         } catch (error) {

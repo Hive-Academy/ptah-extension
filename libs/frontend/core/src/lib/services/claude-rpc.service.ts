@@ -388,16 +388,19 @@ export class ClaudeRpcService implements MessageHandler {
    * @param sessionId - Source session UUID to fork from
    * @param upToMessageId - Optional message UUID to slice transcript at (inclusive)
    * @param title - Optional title for the fork (defaults to "<original> (fork)")
+   * @param kind - Optional semantic hint: `'rewind'` derives a `"(rewind)"`
+   *   title suffix instead of the default `"(fork)"`. Cosmetic only.
    * @returns RpcResult containing the new session's UUID
    */
   async forkSession(
     sessionId: SessionId,
     upToMessageId?: string,
     title?: string,
+    kind?: 'rewind' | 'branch',
   ): Promise<RpcResult<SessionForkResult>> {
     return this.call(
       'session:forkSession',
-      { sessionId, upToMessageId, title },
+      { sessionId, upToMessageId, title, kind },
       { timeout: 15000 },
     );
   }
