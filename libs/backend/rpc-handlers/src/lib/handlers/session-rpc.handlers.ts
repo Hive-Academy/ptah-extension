@@ -44,6 +44,7 @@ import {
   SessionForkResult,
   SessionRewindParams,
   SessionRewindResult,
+  UUID_REGEX,
 } from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -137,7 +138,7 @@ export class SessionRpcHandlers {
    * branch on a stable code instead of message wording.
    */
   private validateSessionId(sessionId: unknown): string {
-    if (typeof sessionId !== 'string' || !/^[0-9a-f-]{36}$/i.test(sessionId)) {
+    if (typeof sessionId !== 'string' || !UUID_REGEX.test(sessionId)) {
       throw new Error('invalid-session-id: sessionId must be a 36-char UUID');
     }
     return sessionId;
@@ -323,7 +324,8 @@ export class SessionRpcHandlers {
       'session:load',
       async (params: SessionLoadParams) => {
         try {
-          const { sessionId } = params;
+          const sessionId = this.validateSessionId(params.sessionId);
+          await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:load called (metadata validation)', {
             sessionId,
@@ -388,7 +390,8 @@ export class SessionRpcHandlers {
       { success: boolean; error?: string }
     >('session:delete', async (params: { sessionId: SessionId }) => {
       try {
-        const { sessionId } = params;
+        const sessionId = this.validateSessionId(params.sessionId);
+        await this.authorizeSessionAccess(sessionId);
 
         this.logger.info('RPC: session:delete called', { sessionId });
         const metadata = await this.metadataStore.get(sessionId);
@@ -431,7 +434,9 @@ export class SessionRpcHandlers {
       'session:rename',
       async (params: SessionRenameParams) => {
         try {
-          const { sessionId, name } = params;
+          const sessionId = this.validateSessionId(params.sessionId);
+          await this.authorizeSessionAccess(sessionId);
+          const { name } = params;
           const trimmedName = name.trim();
 
           if (!trimmedName || trimmedName.length > 200) {
@@ -445,10 +450,6 @@ export class SessionRpcHandlers {
             sessionId,
             name: trimmedName,
           });
-          const metadata = await this.metadataStore.get(sessionId);
-          if (!metadata) {
-            return { success: false, error: 'Session not found' };
-          }
 
           await this.metadataStore.rename(sessionId, trimmedName);
 
@@ -500,6 +501,16 @@ export class SessionRpcHandlers {
     }
 
     const sessionsDir = path.dirname(sessionFilePath);
+    const resolvedSessionFile = path.resolve(sessionFilePath);
+    const resolvedSessionsDir = path.resolve(sessionsDir);
+    if (
+      !resolvedSessionFile.startsWith(resolvedSessionsDir + path.sep) &&
+      resolvedSessionFile !== resolvedSessionsDir
+    ) {
+      throw new Error(
+        `unauthorized-path-rewrite: deleteSessionFiles refused to operate on ${sessionFilePath} (outside ${sessionsDir})`,
+      );
+    }
     try {
       await fs.unlink(sessionFilePath);
       this.logger.info('RPC: session:delete - deleted JSONL file', {
@@ -648,7 +659,8 @@ export class SessionRpcHandlers {
       { cliSessions: CliSessionReference[] }
     >('session:cli-sessions', async (params: { sessionId: string }) => {
       try {
-        const { sessionId } = params;
+        const sessionId = this.validateSessionId(params.sessionId);
+        await this.authorizeSessionAccess(sessionId);
         const metadata = await this.metadataStore.get(sessionId);
         const raw = metadata?.cliSessions ?? [];
         const cliSessions = raw.filter(
@@ -688,6 +700,13 @@ export class SessionRpcHandlers {
         sessionCount: sessionIds.length,
         workspacePath,
       });
+      if (!this.isAuthorizedWorkspace(workspacePath)) {
+        this.logger.warn(
+          'RPC: session:stats-batch rejected — workspacePath outside active workspace',
+          { workspacePath },
+        );
+        throw new Error('workspace-not-authorized');
+      }
       const CONCURRENCY_LIMIT = 5;
       const sessionStats: SessionStatsEntry[] = [];
 
@@ -925,13 +944,17 @@ export class SessionRpcHandlers {
             dryRun,
           );
           if (
-            dryRun === false &&
+            dryRun !== true &&
             Array.isArray(result.filesChanged) &&
             result.filesChanged.length > 0
           ) {
             const roots = this.getAuthorizedWorkspaceRoots();
             const escapingPaths: string[] = [];
             for (const p of result.filesChanged) {
+              if (!path.isAbsolute(p)) {
+                escapingPaths.push(p);
+                continue;
+              }
               const resolved = path
                 .resolve(p)
                 .replace(/\\/g, '/')
@@ -972,9 +995,6 @@ export class SessionRpcHandlers {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
           this.logger.error('RPC: session:rewindFiles failed', errorObj);
-          this.sentryService.captureException(errorObj, {
-            errorSource: 'SessionRpcHandlers.registerRewindFiles',
-          });
           if (error instanceof SessionNotActiveError) {
             throw new Error(`session-not-active: ${errorObj.message}`);
           }
@@ -984,11 +1004,14 @@ export class SessionRpcHandlers {
             throw new Error(`session-not-active: ${errorObj.message}`);
           }
           if (errorObj.message.startsWith('session-not-active:')) {
-            // Already-tagged error from the auto-resume preflight — surface
-            // unchanged so the frontend's `session-not-active` branch (and
-            // any callers grepping by prefix) still match.
             throw errorObj;
           }
+          if (errorObj.message.startsWith('unauthorized-path-rewrite:')) {
+            throw errorObj;
+          }
+          this.sentryService.captureException(errorObj, {
+            errorSource: 'SessionRpcHandlers.registerRewindFiles',
+          });
           throw new Error(`Failed to rewind files: ${errorObj.message}`);
         }
       },
