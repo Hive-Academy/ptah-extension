@@ -76,6 +76,14 @@ function makeMemory(overrides: Partial<Memory> = {}): Memory {
     updatedAt: now,
     lastUsedAt: now,
     expiresAt: null,
+    request: null,
+    investigated: null,
+    learned: null,
+    completed: null,
+    nextSteps: null,
+    type: 'discovery',
+    concepts: [],
+    files: [],
     ...overrides,
   };
 }

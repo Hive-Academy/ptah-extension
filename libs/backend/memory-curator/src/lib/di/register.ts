@@ -35,6 +35,7 @@ import { CodeSymbolStore } from '../code-symbol.store';
 import { IndexingControlService } from '../control/indexing-control.service';
 import { MemoryTriggerService } from '../triggers/memory-trigger.service';
 import { MemoryDiagnosticsService } from '../diagnostics.service';
+import { ObservationQueueStore } from '../observation-queue.store';
 
 export function registerMemoryCuratorServices(
   container: DependencyContainer,
@@ -56,6 +57,12 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.MEMORY_STORE,
     { useClass: MemoryStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    MEMORY_TOKENS.OBSERVATION_QUEUE_STORE,
+    { useClass: ObservationQueueStore },
     { lifecycle: Lifecycle.Singleton },
   );
 
