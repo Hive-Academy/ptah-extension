@@ -1,6 +1,20 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
+  CorpusBuildParams,
+  CorpusBuildResult,
+  CorpusDeleteResult,
+  CorpusListResult,
+  CorpusPrimeResult,
+  CorpusQueryResult,
+  CorpusRebuildResult,
+  CorpusReprimeResult,
+  MemGetObservationsParams,
+  MemGetObservationsResult,
+  MemSearchIndexParams,
+  MemSearchIndexResult,
+  MemTimelineParams,
+  MemTimelineResult,
   MemoryForgetResult,
   MemoryGetResult,
   MemoryListResult,
@@ -16,16 +30,20 @@ import type {
 } from '@ptah-extension/shared';
 
 /**
- * Per-method timeout budget for memory.* RPC calls.
+ * Per-method timeout budget for memory.* / mem.* / corpus.* RPC calls.
  *
- * - LIST_MS:    list / search / get / stats — bounded SQLite reads.
- * - SHORT_MS:   pin / unpin / forget — single-row writes.
- * - REBUILD_MS: rebuildIndex — full FTS5 + vec rebuild over the corpus.
+ * - LIST_MS:    list / search / get / stats / mem:* reads — bounded SQLite.
+ * - SHORT_MS:   pin / unpin / forget / corpus:delete — single-row writes.
+ * - REBUILD_MS: rebuildIndex / corpus:build / corpus:rebuild — full index rewrite.
+ * - PRIME_MS:   corpus:prime / corpus:reprime — session lifecycle round-trip.
+ * - QUERY_MS:   corpus:query — LLM-bound answer round-trip.
  */
 const MEMORY_RPC_TIMEOUTS = {
   LIST_MS: 10_000,
   SHORT_MS: 8_000,
   REBUILD_MS: 120_000,
+  PRIME_MS: 60_000,
+  QUERY_MS: 90_000,
 } as const;
 
 /**
@@ -36,16 +54,13 @@ const MEMORY_RPC_TIMEOUTS = {
  * pattern: each method returns the typed `result.data` on success and throws
  * with the RPC error string on failure.
  *
- * Supported RPC methods (9):
- * - memory:list
- * - memory:search
- * - memory:get
- * - memory:pin
- * - memory:unpin
- * - memory:forget
- * - memory:rebuildIndex
- * - memory:stats
- * - memory:purgeBySubjectPattern
+ * Three namespaces covered:
+ *   - `memory:*` — legacy tier-CRUD surface (list/search/get/pin/unpin/forget/
+ *     rebuildIndex/stats/purgeBySubjectPattern/purgeJunk/searchSymbols).
+ *   - `mem:*`    — progressive-disclosure search (searchIndex/timeline/
+ *     getObservations).
+ *   - `corpus:*` — knowledge-corpus lifecycle (listCorpora/buildCorpus/
+ *     primeCorpus/queryCorpus/reprimeCorpus/rebuildCorpus/deleteCorpus).
  */
 @Injectable({ providedIn: 'root' })
 export class MemoryRpcService {
@@ -229,5 +244,136 @@ export class MemoryRpcService {
       return result.data;
     }
     throw new Error(result.error || 'memory:purgeJunk failed');
+  }
+
+  public async searchIndex(
+    params: MemSearchIndexParams,
+  ): Promise<MemSearchIndexResult> {
+    const result = await this.rpc.call('mem:searchIndex', params, {
+      timeout: MEMORY_RPC_TIMEOUTS.LIST_MS,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'mem:searchIndex failed');
+  }
+
+  public async timeline(params: MemTimelineParams): Promise<MemTimelineResult> {
+    const result = await this.rpc.call('mem:timeline', params, {
+      timeout: MEMORY_RPC_TIMEOUTS.LIST_MS,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'mem:timeline failed');
+  }
+
+  public async getObservations(
+    params: MemGetObservationsParams,
+  ): Promise<MemGetObservationsResult> {
+    const result = await this.rpc.call('mem:getObservations', params, {
+      timeout: MEMORY_RPC_TIMEOUTS.LIST_MS,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'mem:getObservations failed');
+  }
+
+  public async listCorpora(workspaceRoot?: string): Promise<CorpusListResult> {
+    const result = await this.rpc.call(
+      'corpus:list',
+      workspaceRoot !== undefined ? { workspaceRoot } : {},
+      { timeout: MEMORY_RPC_TIMEOUTS.LIST_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'corpus:list failed');
+  }
+
+  public async buildCorpus(
+    params: CorpusBuildParams,
+  ): Promise<CorpusBuildResult> {
+    const result = await this.rpc.call('corpus:build', params, {
+      timeout: MEMORY_RPC_TIMEOUTS.REBUILD_MS,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'corpus:build failed');
+  }
+
+  public async primeCorpus(name: string): Promise<CorpusPrimeResult> {
+    const result = await this.rpc.call(
+      'corpus:prime',
+      { name },
+      { timeout: MEMORY_RPC_TIMEOUTS.PRIME_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'corpus:prime failed');
+  }
+
+  public async queryCorpus(
+    name: string,
+    question: string,
+  ): Promise<CorpusQueryResult> {
+    const result = await this.rpc.call(
+      'corpus:query',
+      { name, question },
+      { timeout: MEMORY_RPC_TIMEOUTS.QUERY_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'corpus:query failed');
+  }
+
+  public async reprimeCorpus(name: string): Promise<CorpusReprimeResult> {
+    const result = await this.rpc.call(
+      'corpus:reprime',
+      { name },
+      { timeout: MEMORY_RPC_TIMEOUTS.PRIME_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'corpus:reprime failed');
+  }
+
+  public async rebuildCorpus(name: string): Promise<CorpusRebuildResult> {
+    const result = await this.rpc.call(
+      'corpus:rebuild',
+      { name },
+      { timeout: MEMORY_RPC_TIMEOUTS.REBUILD_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'corpus:rebuild failed');
+  }
+
+  public async deleteCorpus(name: string): Promise<CorpusDeleteResult> {
+    const result = await this.rpc.call(
+      'corpus:delete',
+      { name },
+      { timeout: MEMORY_RPC_TIMEOUTS.SHORT_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'corpus:delete failed');
   }
 }

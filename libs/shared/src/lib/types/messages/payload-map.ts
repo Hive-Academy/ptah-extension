@@ -96,6 +96,12 @@ import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
 } from '../rpc/rpc-indexing.types';
+import type {
+  MemoryObservationCapturedPayload,
+  MemoryCorpusChangedPayload,
+  MemoryExtractedPayload,
+  MemorySessionStartInjectedPayload,
+} from './memory';
 
 /**
  * Type mapping for message payloads - eliminates 'any' types
@@ -192,6 +198,10 @@ export interface MessagePayloadMap {
   'update:statusChanged': UpdateStatusChangedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
+  'memory:observationCaptured': MemoryObservationCapturedPayload;
+  'memory:corpusChanged': MemoryCorpusChangedPayload;
+  'memory:extracted': MemoryExtractedPayload;
+  'memory:sessionStartInjected': MemorySessionStartInjectedPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

@@ -147,4 +147,194 @@ describe('MemoryRpcService', () => {
     expect(params).toEqual({ pattern: 'foo', mode: 'substring' });
     expect('workspaceRoot' in params).toBe(false);
   });
+
+  describe('mem: progressive disclosure', () => {
+    it('searchIndex() calls mem:searchIndex with the supplied params and returns data', async () => {
+      const payload = { rows: [], bm25Only: true };
+      rpcCall.mockResolvedValue(okResult(payload));
+
+      const params = {
+        query: 'auth',
+        topK: 25,
+        workspaceRoot: '/ws',
+        type: ['bugfix'] as const,
+      };
+      const result = await service.searchIndex(params);
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'mem:searchIndex',
+        params,
+        expect.objectContaining({ timeout: expect.any(Number) }),
+      );
+      expect(result).toEqual(payload);
+    });
+
+    it('searchIndex() throws with the RPC error string on failure', async () => {
+      rpcCall.mockResolvedValue(errResult('search exploded'));
+
+      await expect(service.searchIndex({ query: 'x' })).rejects.toThrow(
+        'search exploded',
+      );
+    });
+
+    it('timeline() calls mem:timeline with anchor + neighbour counts', async () => {
+      const payload = { rows: [], anchorIndex: 3 };
+      rpcCall.mockResolvedValue(okResult(payload));
+
+      const result = await service.timeline({
+        anchorId: 'mem-abc',
+        before: 5,
+        after: 5,
+      });
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'mem:timeline',
+        { anchorId: 'mem-abc', before: 5, after: 5 },
+        expect.any(Object),
+      );
+      expect(result).toEqual(payload);
+    });
+
+    it('getObservations() forwards the id list to mem:getObservations', async () => {
+      const payload = { memories: [], observationsBySession: {} };
+      rpcCall.mockResolvedValue(okResult(payload));
+
+      await service.getObservations({
+        ids: ['mem-1', 'mem-2'],
+        includeQueueRows: true,
+      });
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'mem:getObservations',
+        { ids: ['mem-1', 'mem-2'], includeQueueRows: true },
+        expect.any(Object),
+      );
+    });
+  });
+
+  describe('corpus: knowledge corpus lifecycle', () => {
+    it('listCorpora() calls corpus:list with empty params when workspaceRoot omitted', async () => {
+      const payload = { corpora: [] };
+      rpcCall.mockResolvedValue(okResult(payload));
+
+      const result = await service.listCorpora();
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:list',
+        {},
+        expect.any(Object),
+      );
+      expect(result).toEqual(payload);
+    });
+
+    it('listCorpora() forwards workspaceRoot when provided', async () => {
+      rpcCall.mockResolvedValue(okResult({ corpora: [] }));
+
+      await service.listCorpora('/ws');
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:list',
+        { workspaceRoot: '/ws' },
+        expect.any(Object),
+      );
+    });
+
+    it('buildCorpus() calls corpus:build and returns data', async () => {
+      const payload = {
+        corpus: {
+          id: 'c-1',
+          name: 'auth',
+          count: 12,
+          builtAt: 1,
+          rebuiltAt: null,
+          workspaceRoot: '/ws',
+        },
+      };
+      rpcCall.mockResolvedValue(okResult(payload));
+
+      const result = await service.buildCorpus({
+        name: 'auth',
+        type: ['bugfix'],
+      });
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:build',
+        { name: 'auth', type: ['bugfix'] },
+        expect.any(Object),
+      );
+      expect(result).toEqual(payload);
+    });
+
+    it('primeCorpus() calls corpus:prime with name and returns sessionId', async () => {
+      rpcCall.mockResolvedValue(okResult({ sessionId: 's-1' }));
+
+      const result = await service.primeCorpus('auth');
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:prime',
+        { name: 'auth' },
+        expect.any(Object),
+      );
+      expect(result).toEqual({ sessionId: 's-1' });
+    });
+
+    it('queryCorpus() calls corpus:query with name + question', async () => {
+      rpcCall.mockResolvedValue(
+        okResult({ sessionId: 's-1', answer: 'because of x' }),
+      );
+
+      const result = await service.queryCorpus('auth', 'why?');
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:query',
+        { name: 'auth', question: 'why?' },
+        expect.any(Object),
+      );
+      expect(result.answer).toBe('because of x');
+    });
+
+    it('reprimeCorpus() calls corpus:reprime', async () => {
+      rpcCall.mockResolvedValue(okResult({ sessionId: 's-2' }));
+
+      await service.reprimeCorpus('auth');
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:reprime',
+        { name: 'auth' },
+        expect.any(Object),
+      );
+    });
+
+    it('rebuildCorpus() calls corpus:rebuild and returns counts', async () => {
+      rpcCall.mockResolvedValue(okResult({ added: 2, removed: 1 }));
+
+      const result = await service.rebuildCorpus('auth');
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:rebuild',
+        { name: 'auth' },
+        expect.any(Object),
+      );
+      expect(result).toEqual({ added: 2, removed: 1 });
+    });
+
+    it('deleteCorpus() calls corpus:delete and returns deleted flag', async () => {
+      rpcCall.mockResolvedValue(okResult({ deleted: true }));
+
+      const result = await service.deleteCorpus('auth');
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:delete',
+        { name: 'auth' },
+        expect.any(Object),
+      );
+      expect(result.deleted).toBe(true);
+    });
+
+    it('deleteCorpus() throws on RPC error', async () => {
+      rpcCall.mockResolvedValue(errResult('store gone'));
+
+      await expect(service.deleteCorpus('auth')).rejects.toThrow('store gone');
+    });
+  });
 });
