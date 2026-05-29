@@ -280,16 +280,17 @@ export function findModelPricing(modelId: string): ModelPricing | null {
 export function calculateMessageCost(
   modelId: string,
   tokens: TokenBreakdown,
+  pricing?: ModelPricing | null,
 ): number | null {
-  const pricing = findModelPricing(modelId);
-  if (!pricing) return null;
+  const resolved = pricing !== undefined ? pricing : findModelPricing(modelId);
+  if (!resolved) return null;
 
-  const inputCost = tokens.input * pricing.inputCostPerToken;
-  const outputCost = tokens.output * pricing.outputCostPerToken;
+  const inputCost = tokens.input * resolved.inputCostPerToken;
+  const outputCost = tokens.output * resolved.outputCostPerToken;
   const cacheReadCost =
-    (tokens.cacheHit ?? 0) * (pricing.cacheReadCostPerToken ?? 0);
+    (tokens.cacheHit ?? 0) * (resolved.cacheReadCostPerToken ?? 0);
   const cacheCreationCost =
-    (tokens.cacheCreation ?? 0) * (pricing.cacheCreationCostPerToken ?? 0);
+    (tokens.cacheCreation ?? 0) * (resolved.cacheCreationCostPerToken ?? 0);
 
   const totalCost = inputCost + outputCost + cacheReadCost + cacheCreationCost;
   return Math.round(totalCost * 1000000) / 1000000;

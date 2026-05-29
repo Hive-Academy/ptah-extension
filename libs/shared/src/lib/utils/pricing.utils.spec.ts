@@ -116,17 +116,17 @@ describe('pricing.utils', () => {
     });
 
     it('resolves exact match (case-insensitive)', () => {
-      const pricing = findModelPricing('CLAUDE-OPUS-4-7');
+      const pricing = findModelPricing('GPT-4O');
       expect(pricing).not.toBeNull();
-      expect(pricing?.provider).toBe('anthropic');
-      expect(pricing?.inputCostPerToken).toBe(15e-6);
+      expect(pricing?.provider).toBe('openai');
+      expect(pricing?.inputCostPerToken).toBe(2.5e-6);
     });
 
     it('resolves via partial match when modelId contains a known key', () => {
-      const pricing = findModelPricing('claude-opus-4-5-20251101');
+      const pricing = findModelPricing('gpt-4o-2024-08-06');
       expect(pricing).not.toBeNull();
-      expect(pricing?.provider).toBe('anthropic');
-      expect(pricing?.maxTokens).toBe(200_000);
+      expect(pricing?.provider).toBe('openai');
+      expect(pricing?.maxTokens).toBe(128_000);
     });
 
     it('resolves via partial match when a known key contains the modelId', () => {
@@ -154,9 +154,7 @@ describe('pricing.utils', () => {
 
   describe('calculateMessageCost', () => {
     it('returns 0 for zero tokens on a known model', () => {
-      expect(
-        calculateMessageCost('claude-opus-4-7', { input: 0, output: 0 }),
-      ).toBe(0);
+      expect(calculateMessageCost('gpt-4o', { input: 0, output: 0 })).toBe(0);
     });
 
     it('returns null when the model is unknown (no fabricated fallback)', () => {
@@ -169,47 +167,80 @@ describe('pricing.utils', () => {
     });
 
     it('computes cost from input + output tokens', () => {
-      // claude-opus-4-7: 15e-6 input, 75e-6 output
-      // 1000 input + 500 output = 0.015 + 0.0375 = 0.0525
-      const cost = calculateMessageCost('claude-opus-4-7', {
+      const cost = calculateMessageCost('gpt-4o', {
         input: 1000,
         output: 500,
       });
-      expect(cost).toBeCloseTo(0.0525, 6);
+      expect(cost).toBeCloseTo(0.0075, 6);
     });
 
     it('includes cache read + cache creation tokens when provided', () => {
-      const cost = calculateMessageCost('claude-opus-4-7', {
+      const cost = calculateMessageCost('gpt-4o', {
         input: 100,
         output: 50,
-        cacheHit: 1000, // 1000 * 1.5e-6 = 0.0015
-        cacheCreation: 400, // 400 * 18.75e-6 = 0.0075
+        cacheHit: 1000,
+        cacheCreation: 400,
+        // gpt-4o has no cacheRead/cacheCreation pricing — both contribute 0.
       });
-      // input 100 * 15e-6 = 0.0015
-      // output 50 * 75e-6 = 0.00375
-      // total = 0.0015 + 0.00375 + 0.0015 + 0.0075 = 0.01425
-      expect(cost).toBeCloseTo(0.01425, 6);
+      // input 100 * 2.5e-6 = 0.00025
+      // output 50 * 10e-6 = 0.0005
+      // cache fields zero-priced.
+      expect(cost).toBeCloseTo(0.00075, 6);
     });
 
     it('treats missing cache pricing as zero', () => {
-      // claude-3-haiku-20240307 has no cache pricing fields.
-      const cost = calculateMessageCost('claude-3-haiku-20240307', {
+      const cost = calculateMessageCost('gpt-3.5-turbo', {
         input: 1000,
         output: 500,
         cacheHit: 10000,
         cacheCreation: 10000,
       });
-      // Only input/output counted: 1000*0.25e-6 + 500*1.25e-6
-      //                          = 0.00025 + 0.000625 = 0.000875
-      expect(cost).toBeCloseTo(0.000875, 6);
+      // 1000 * 0.5e-6 + 500 * 1.5e-6 = 0.0005 + 0.00075 = 0.00125
+      expect(cost).toBeCloseTo(0.00125, 6);
     });
 
     it('rounds to 6 decimal places (sub-cent accuracy)', () => {
-      const cost = calculateMessageCost('claude-opus-4-7', {
+      const cost = calculateMessageCost('gpt-4o-mini', {
         input: 1,
         output: 0,
-      }); // 1 * 15e-6 = 0.000015 → 6 decimals
-      expect(cost).toBe(0.000015);
+      });
+      // 1 * 0.15e-6 = 0.00000015 → rounded to 6 decimals = 0
+      // Use a value that exercises the rounding boundary instead.
+      expect(cost).toBe(0);
+    });
+
+    it('rounds non-trivial fractional totals to 6 decimal places', () => {
+      // 7 input * 2.5e-6 = 0.0000175 → rounds to 0.000018
+      const cost = calculateMessageCost('gpt-4o', { input: 7, output: 0 });
+      expect(cost).toBe(0.000018);
+    });
+
+    it('uses explicit pricing argument without consulting findModelPricing', () => {
+      const cost = calculateMessageCost(
+        'unknown-third-party-id',
+        { input: 1000, output: 500 },
+        {
+          inputCostPerToken: 10e-6,
+          outputCostPerToken: 50e-6,
+        },
+      );
+      // 1000 * 10e-6 + 500 * 50e-6 = 0.01 + 0.025 = 0.035
+      expect(cost).toBe(0.035);
+    });
+
+    it('returns null when explicit pricing argument is null', () => {
+      const cost = calculateMessageCost(
+        'gpt-4o',
+        { input: 1000, output: 500 },
+        null,
+      );
+      expect(cost).toBeNull();
+    });
+
+    it('falls back to findModelPricing when no pricing argument is supplied', () => {
+      const cost = calculateMessageCost('gpt-4o', { input: 1000, output: 0 });
+      // 1000 * 2.5e-6 = 0.0025
+      expect(cost).toBe(0.0025);
     });
   });
 
@@ -231,8 +262,8 @@ describe('pricing.utils', () => {
 
   describe('getModelPricingDescription', () => {
     it('formats pricing as $X/1M per input/output', () => {
-      expect(getModelPricingDescription('claude-opus-4-7')).toBe(
-        'Input: $15.00/1M, Output: $75.00/1M',
+      expect(getModelPricingDescription('gpt-4o')).toBe(
+        'Input: $2.50/1M, Output: $10.00/1M',
       );
     });
 

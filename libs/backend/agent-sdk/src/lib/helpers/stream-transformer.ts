@@ -351,12 +351,17 @@ export class StreamTransformer {
                       const pricing =
                         await pricingProvider.getPricing(resolvedModel);
                       costUSD = pricing
-                        ? calculateMessageCost(resolvedModel, {
-                            input: usage.inputTokens,
-                            output: usage.outputTokens,
-                            cacheHit: usage.cacheReadInputTokens ?? 0,
-                            cacheCreation: usage.cacheCreationInputTokens ?? 0,
-                          })
+                        ? calculateMessageCost(
+                            resolvedModel,
+                            {
+                              input: usage.inputTokens,
+                              output: usage.outputTokens,
+                              cacheHit: usage.cacheReadInputTokens ?? 0,
+                              cacheCreation:
+                                usage.cacheCreationInputTokens ?? 0,
+                            },
+                            pricing,
+                          )
                         : null;
                     }
                     const knownContextWindow =
