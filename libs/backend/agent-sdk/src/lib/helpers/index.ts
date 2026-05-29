@@ -164,6 +164,7 @@ export {
   type CallbackRegistryCallback,
 } from './callback-registry.base';
 
+export type { IPricingProvider } from '../pricing.port';
 export { SdkRuntimeStateService } from './sdk-runtime-state.service';
 export {
   SdkAdapterEvents,

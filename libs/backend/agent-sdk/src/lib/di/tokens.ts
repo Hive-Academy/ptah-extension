@@ -103,6 +103,7 @@ export const SDK_TOKENS = {
   ),
   SDK_TOOL_FAILURE_HOOK_HANDLER: Symbol.for('SdkToolFailureHookHandler'),
   SDK_CURATOR_RATE_LIMIT: Symbol.for('SdkCuratorRateLimit'),
+  PRICING_PROVIDER: Symbol.for('SDK_PRICING_PROVIDER'),
 } as const;
 
 /**
