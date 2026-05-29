@@ -531,7 +531,7 @@ export class CliDIContainer {
 
     phaseEnd('3.5', phase3_5Start);
     try {
-      registerCliSettings(container);
+      registerCliSettings(container, userDataPath);
       logger.info(
         '[CLI DI] Settings repositories registered (SETTINGS_TOKENS)',
       );
