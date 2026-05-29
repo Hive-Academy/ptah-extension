@@ -229,7 +229,7 @@ export interface ChatResumeResult {
    * Extracted from JSONL message.usage fields for old session cost display
    */
   stats?: {
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -245,7 +245,7 @@ export interface ChatResumeResult {
       model: string;
       inputTokens: number;
       outputTokens: number;
-      costUSD: number;
+      costUSD: number | null;
     }>;
   } | null;
   /**

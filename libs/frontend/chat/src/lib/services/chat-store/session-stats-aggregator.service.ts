@@ -164,9 +164,15 @@ export class SessionStatsAggregatorService {
     }
     for (const t of targetTabs) {
       if (!t.preloadedStats) continue;
+      const prevCost = t.preloadedStats.totalCost;
+      const turnCost = stats.cost;
+      const nextCost =
+        prevCost === null && turnCost === null
+          ? null
+          : (prevCost ?? 0) + (turnCost ?? 0);
       this.tabManager.setPreloadedStats(t.id, {
         ...t.preloadedStats,
-        totalCost: t.preloadedStats.totalCost + stats.cost,
+        totalCost: nextCost,
         tokens: {
           input: t.preloadedStats.tokens.input + stats.tokens.input,
           output: t.preloadedStats.tokens.output + stats.tokens.output,

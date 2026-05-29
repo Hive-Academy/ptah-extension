@@ -59,7 +59,7 @@ import {
 export class CompactSessionStatsComponent {
   readonly messages = input.required<readonly ExecutionChatMessage[]>();
   readonly preloadedStats = input<{
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -106,6 +106,7 @@ export class CompactSessionStatsComponent {
 
   readonly formattedCost = computed(() => {
     const cost = this.summary().totalCost;
+    if (cost === null) return '—';
     return cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
   });
 

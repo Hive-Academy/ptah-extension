@@ -458,8 +458,8 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
           @if (agentTokenUsage()) {
             <ptah-token-badge [tokens]="agentTokenUsage()!" />
           }
-          @if (agentCost() > 0) {
-            <ptah-cost-badge [cost]="agentCost()" />
+          @if (agentCost() !== null && agentCost()! > 0) {
+            <ptah-cost-badge [cost]="agentCost()!" />
           }
           @if (agentDuration()) {
             <ptah-duration-badge [durationMs]="agentDuration()!" />
@@ -777,7 +777,7 @@ export class InlineAgentBubbleComponent {
     }
     return '';
   });
-  readonly agentCost = computed(() => this.node().cost ?? 0);
+  readonly agentCost = computed(() => this.node().cost ?? null);
 
   /**
    * Computed signal: whether agent has children (tool calls)
@@ -827,7 +827,7 @@ export class InlineAgentBubbleComponent {
     return !!(
       this.modelDisplayName() ||
       this.agentTokenUsage() ||
-      this.agentCost() > 0 ||
+      (this.agentCost() !== null && this.agentCost()! > 0) ||
       this.agentDuration() !== null
     );
   });

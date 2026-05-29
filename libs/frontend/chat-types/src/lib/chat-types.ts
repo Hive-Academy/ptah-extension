@@ -282,7 +282,7 @@ export interface TabState {
    * Used to display cost/tokens for historical sessions without recalculation.
    */
   preloadedStats?: {
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -372,7 +372,7 @@ export interface TabState {
     model: string;
     inputTokens: number;
     outputTokens: number;
-    costUSD: number;
+    costUSD: number | null;
     contextWindow: number;
     cacheReadInputTokens?: number;
   }> | null;

@@ -18,7 +18,7 @@ export interface DashboardSessionEntry {
   readonly lastActivityAt: number;
   readonly model: string | null;
   readonly modelDisplayName: string;
-  readonly totalCost: number;
+  readonly totalCost: number | null;
   readonly tokens: {
     readonly input: number;
     readonly output: number;
@@ -36,7 +36,7 @@ export interface DashboardSessionEntry {
     readonly modelDisplayName: string;
     readonly inputTokens: number;
     readonly outputTokens: number;
-    readonly costUSD: number;
+    readonly costUSD: number | null;
   }>;
   /** Whether stats were successfully read from JSONL ('ok' | 'error' | 'empty'). */
   readonly status: 'ok' | 'error' | 'empty';
@@ -47,7 +47,7 @@ export interface DashboardSessionEntry {
  * Single-pass computation for efficiency.
  */
 export interface AggregateTotals {
-  readonly totalCost: number;
+  readonly totalCost: number | null;
   readonly totalTokens: number;
   readonly totalInput: number;
   readonly totalOutput: number;
@@ -56,7 +56,7 @@ export interface AggregateTotals {
   readonly totalMessages: number;
   readonly sessionCount: number;
   readonly totalSubagents: number;
-  readonly avgCostPerSession: number;
+  readonly avgCostPerSession: number | null;
 }
 
 /**
@@ -111,9 +111,13 @@ export class SessionAnalyticsStateService {
       totalCacheCreation = 0,
       totalMessages = 0,
       totalSubagents = 0;
+    let costContributorCount = 0;
 
     for (const s of sessions) {
-      totalCost += s.totalCost;
+      if (s.totalCost !== null) {
+        totalCost += s.totalCost;
+        costContributorCount++;
+      }
       totalInput += s.tokens.input;
       totalOutput += s.tokens.output;
       totalCacheRead += s.tokens.cacheRead;
@@ -123,7 +127,7 @@ export class SessionAnalyticsStateService {
     }
 
     return {
-      totalCost,
+      totalCost: costContributorCount > 0 ? totalCost : null,
       totalTokens:
         totalInput + totalOutput + totalCacheRead + totalCacheCreation,
       totalInput,
@@ -133,7 +137,8 @@ export class SessionAnalyticsStateService {
       totalMessages,
       sessionCount: sessions.length,
       totalSubagents,
-      avgCostPerSession: sessions.length > 0 ? totalCost / sessions.length : 0,
+      avgCostPerSession:
+        costContributorCount > 0 ? totalCost / costContributorCount : null,
     };
   });
 
@@ -206,7 +211,7 @@ export class SessionAnalyticsStateService {
           modelDisplayName: stats?.model
             ? formatModelDisplayName(stats.model)
             : 'Unknown',
-          totalCost: stats?.totalCost ?? 0,
+          totalCost: stats?.totalCost ?? null,
           tokens: stats?.tokens ?? {
             input: 0,
             output: 0,

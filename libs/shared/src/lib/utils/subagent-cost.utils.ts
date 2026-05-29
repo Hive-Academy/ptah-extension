@@ -37,7 +37,7 @@ export interface AgentCostBreakdown {
  */
 export interface SessionCostSummary {
   /** Total cost in USD for all messages */
-  readonly totalCost: number;
+  readonly totalCost: number | null;
   /** Total token usage across all messages */
   readonly totalTokens: MessageTokenUsage;
   /** Total duration in milliseconds */
@@ -156,6 +156,7 @@ export function calculateSessionCostSummary(
   messages: ExecutionChatMessage[],
 ): SessionCostSummary {
   let totalCost = 0;
+  let hasCostContribution = false;
   let totalDuration = 0;
   let messageCount = 0;
   let agentCount = 0;
@@ -175,8 +176,9 @@ export function calculateSessionCostSummary(
       tokensCacheRead += message.tokens.cacheRead ?? 0;
       tokensCacheCreation += message.tokens.cacheCreation ?? 0;
     }
-    if (message.cost) {
+    if (message.cost !== null && message.cost !== undefined) {
       totalCost += message.cost;
+      hasCostContribution = true;
     }
     if (message.duration) {
       totalDuration += message.duration;
@@ -189,7 +191,7 @@ export function calculateSessionCostSummary(
   }
 
   return {
-    totalCost,
+    totalCost: hasCostContribution ? totalCost : null,
     totalTokens: {
       input: tokensInput,
       output: tokensOutput,

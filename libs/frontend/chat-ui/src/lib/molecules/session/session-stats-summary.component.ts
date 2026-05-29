@@ -34,7 +34,7 @@ export interface ModelUsageEntry {
   model: string;
   inputTokens: number;
   outputTokens: number;
-  costUSD: number;
+  costUSD: number | null;
   contextWindow: number;
   cacheReadInputTokens?: number;
 }
@@ -648,7 +648,7 @@ export class SessionStatsSummaryComponent {
    * When provided, these are used instead of calculating from messages.
    */
   readonly preloadedStats = input<{
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -741,7 +741,7 @@ export class SessionStatsSummaryComponent {
   readonly totalModelCost = computed(() => {
     const list = this.modelUsageList();
     if (!list) return 0;
-    return list.reduce((sum, m) => sum + m.costUSD, 0);
+    return list.reduce((sum, m) => sum + (m.costUSD ?? 0), 0);
   });
 
   /** Computed session summary using utility functions or preloaded stats */
@@ -762,7 +762,7 @@ export class SessionStatsSummaryComponent {
   readonly hasStats = computed(() => {
     const s = this.summary();
     return (
-      s.totalCost > 0 ||
+      (s.totalCost !== null && s.totalCost > 0) ||
       s.totalDuration > 0 ||
       this.totalTokenCount() > 0 ||
       this.liveModelStats() !== null
@@ -807,7 +807,10 @@ export class SessionStatsSummaryComponent {
   });
 
   /** Format cost for display */
-  protected formatCost(cost: number): string {
+  protected formatCost(cost: number | null): string {
+    if (cost === null) {
+      return '—';
+    }
     if (cost < 0.01) {
       return `$${cost.toFixed(4)}`;
     }

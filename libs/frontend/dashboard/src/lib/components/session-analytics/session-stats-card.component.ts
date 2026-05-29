@@ -49,7 +49,8 @@ export class SessionStatsCardComponent {
 
   readonly costPerMessage = computed(() => {
     const s = this.session();
-    return s.messageCount > 0 ? s.totalCost / s.messageCount : 0;
+    if (s.totalCost === null || s.messageCount <= 0) return null;
+    return s.totalCost / s.messageCount;
   });
 
   readonly totalTokens = computed(() => {

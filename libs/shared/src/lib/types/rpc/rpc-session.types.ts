@@ -107,7 +107,7 @@ export interface SessionStatsEntry {
   /** Detected model from JSONL init message */
   readonly model: string | null;
   /** Total cost in USD (calculated with model-aware pricing) */
-  readonly totalCost: number;
+  readonly totalCost: number | null;
   /** Token breakdown */
   readonly tokens: {
     readonly input: number;
@@ -126,7 +126,7 @@ export interface SessionStatsEntry {
     readonly model: string;
     readonly inputTokens: number;
     readonly outputTokens: number;
-    readonly costUSD: number;
+    readonly costUSD: number | null;
   }>;
   /** Whether stats were successfully read from JSONL */
   readonly status: 'ok' | 'error' | 'empty';
