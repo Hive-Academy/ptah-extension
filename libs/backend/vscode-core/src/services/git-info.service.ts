@@ -453,7 +453,7 @@ export class GitInfoService {
         current = symRefOut.trim();
       }
       const fmt =
-        '%(refname:short)%09%(objectname:short)%09%(upstream:short)%09%(ahead-behind:upstream)%09%(creatordate:unix)';
+        '%(refname:short)%09%(objectname:short)%09%(upstream:short)%09%09%(creatordate:unix)';
 
       const localArgs = ['for-each-ref', `--format=${fmt}`, 'refs/heads/'];
       const { stdout: localOut, exitCode: localExit } = await this.execGit(

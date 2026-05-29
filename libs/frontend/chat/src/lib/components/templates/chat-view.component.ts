@@ -1065,7 +1065,6 @@ export class ChatViewComponent {
         tabId,
         workspacePath,
         activate: true,
-        resumeSessionAt: messageId,
       });
       if (!truncated.isSuccess() || truncated.data.success === false) {
         truncateFailed = true;

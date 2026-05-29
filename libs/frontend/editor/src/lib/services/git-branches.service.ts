@@ -9,11 +9,13 @@ import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import type {
   BranchRef,
   GitBranchesResult,
+  GitChangeKind,
   GitCheckoutParams,
   GitCheckoutResult,
   GitLastCommitResult,
   GitRemotesResult,
   GitStashListResult,
+  GitStatusUpdatePayload,
   GitTagsResult,
   RemoteInfo,
   TagRef,
@@ -118,10 +120,57 @@ export class GitBranchesService {
     this._messageHandler = (event: MessageEvent): void => {
       const data = event.data;
       if (data?.type === 'git:status-update') {
-        void this.refreshBranches();
+        const payload = data.payload as GitStatusUpdatePayload | undefined;
+        void this.refreshForCauses(payload?.causes);
       }
     };
     window.addEventListener('message', this._messageHandler);
+  }
+
+  /**
+   * Refresh only the slices whose triggers fired during the watcher debounce
+   * window. Three independent slices map to three independent backend RPCs:
+   *
+   *   branches    ← 'head', 'refs', 'initial'
+   *   stash       ← 'refs', 'refs-stash', 'initial'
+   *   lastCommit  ← 'head', 'initial'
+   *
+   * Pure 'workspace' / 'index' events (working-tree edits, staging) bypass
+   * every slice — those don't move branches, stashes, or HEAD. An undefined
+   * `causes` list is treated as 'initial' so older backends that don't yet
+   * emit causes keep the prior "refresh everything" behavior.
+   */
+  async refreshForCauses(causes?: readonly GitChangeKind[]): Promise<void> {
+    const effective: readonly GitChangeKind[] =
+      causes && causes.length > 0 ? causes : ['initial'];
+
+    const wantsBranches = effective.some(
+      (c) => c === 'head' || c === 'refs' || c === 'initial',
+    );
+    const wantsStash = effective.some(
+      (c) => c === 'refs' || c === 'refs-stash' || c === 'initial',
+    );
+    const wantsLastCommit = effective.some(
+      (c) => c === 'head' || c === 'initial',
+    );
+
+    if (!wantsBranches && !wantsStash && !wantsLastCommit) {
+      return;
+    }
+
+    if (this._isRefreshing) return;
+    this._isRefreshing = true;
+    try {
+      this._isLoading.set(true);
+      const tasks: Promise<unknown>[] = [];
+      if (wantsBranches) tasks.push(this.refreshBranchList());
+      if (wantsStash) tasks.push(this.refreshStashCount());
+      if (wantsLastCommit) tasks.push(this.refreshLastCommit());
+      await Promise.all(tasks);
+      this._isLoading.set(false);
+    } finally {
+      this._isRefreshing = false;
+    }
   }
 
   /**
@@ -138,32 +187,36 @@ export class GitBranchesService {
 
   /**
    * Fetch branches + stash count + last commit in parallel and update
-   * the corresponding signals. Each RPC is wrapped in its own try/catch
-   * so a single failure does not poison the others.
+   * the corresponding signals. Used for the initial bootstrap (component
+   * constructor) and any caller that explicitly wants a full refresh.
+   * Per-event refreshes go through {@link refreshForCauses} instead,
+   * which skips slices whose triggers never fired.
    */
   async refreshBranches(): Promise<void> {
-    if (this._isRefreshing) return;
-    this._isRefreshing = true;
-    try {
-      this._isLoading.set(true);
-      const [branchesResult, stashResult, lastCommitResult] = await Promise.all(
-        [
-          this.safeRpc<GitBranchesResult>('git:branches', {
-            includeRemote: true,
-          }),
-          this.safeRpc<GitStashListResult>('git:stashList', {}),
-          this.safeRpc<GitLastCommitResult>('git:lastCommit', {}),
-        ],
-      );
+    await this.refreshForCauses(['initial']);
+  }
 
-      if (branchesResult) this._branches.set(branchesResult);
-      if (stashResult) this._stashCount.set(stashResult.count);
-      if (lastCommitResult) this._lastCommit.set(lastCommitResult);
+  /** Refresh the local + remote branch list signal. */
+  private async refreshBranchList(): Promise<void> {
+    const result = await this.safeRpc<GitBranchesResult>('git:branches', {
+      includeRemote: true,
+    });
+    if (result) this._branches.set(result);
+  }
 
-      this._isLoading.set(false);
-    } finally {
-      this._isRefreshing = false;
-    }
+  /** Refresh the stash count badge signal. */
+  private async refreshStashCount(): Promise<void> {
+    const result = await this.safeRpc<GitStashListResult>('git:stashList', {});
+    if (result) this._stashCount.set(result.count);
+  }
+
+  /** Refresh the last-commit-on-HEAD signal. */
+  private async refreshLastCommit(): Promise<void> {
+    const result = await this.safeRpc<GitLastCommitResult>(
+      'git:lastCommit',
+      {},
+    );
+    if (result) this._lastCommit.set(result);
   }
 
   /** Lazy fetch of recent tags — call when the branch details popover opens. */
