@@ -33,7 +33,6 @@ import {
   SessionMetadataStore,
   SDK_TOKENS,
   SlashCommandInterceptor,
-  DEFAULT_FALLBACK_MODEL_ID,
   AuthRequiredError,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -228,9 +227,7 @@ export class ChatSessionService {
       });
 
       const currentModel =
-        options?.model ||
-        this.modelSettings.selectedModel.get() ||
-        DEFAULT_FALLBACK_MODEL_ID;
+        options?.model || this.modelSettings.selectedModel.get() || 'default';
       const files = options?.files ?? [];
       if (files.length > 0) {
         this.logger.debug('RPC: chat:start received files', {
@@ -727,9 +724,7 @@ export class ChatSessionService {
     });
 
     const currentModel =
-      params.model ||
-      this.modelSettings.selectedModel.get() ||
-      DEFAULT_FALLBACK_MODEL_ID;
+      params.model || this.modelSettings.selectedModel.get() || 'default';
 
     try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {

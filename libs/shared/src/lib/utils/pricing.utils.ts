@@ -55,98 +55,6 @@ export interface TokenBreakdown {
  * @see https://openrouter.ai/api/v1/models
  */
 export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
-  'claude-opus-4-7': {
-    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
-    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
-    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
-    maxTokens: 1_000_000,
-    provider: 'anthropic',
-  },
-  'claude-opus-4-6-20250623': {
-    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
-    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
-    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
-    maxTokens: 1_000_000,
-    provider: 'anthropic',
-  },
-  'claude-opus-4-6': {
-    inputCostPerToken: 15e-6,
-    outputCostPerToken: 75e-6,
-    cacheReadCostPerToken: 1.5e-6,
-    cacheCreationCostPerToken: 18.75e-6,
-    maxTokens: 1_000_000,
-    provider: 'anthropic',
-  },
-  'claude-opus-4-5-20251101': {
-    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
-    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
-    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-sonnet-4-6-20250514': {
-    inputCostPerToken: 3e-6, // $3.00 per 1M tokens
-    outputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    cacheReadCostPerToken: 3e-7, // $0.30 per 1M tokens
-    cacheCreationCostPerToken: 3.75e-6, // $3.75 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-sonnet-4-6': {
-    inputCostPerToken: 3e-6,
-    outputCostPerToken: 15e-6,
-    cacheReadCostPerToken: 3e-7,
-    cacheCreationCostPerToken: 3.75e-6,
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-sonnet-4-5-20250929': {
-    inputCostPerToken: 3e-6, // $3.00 per 1M tokens
-    outputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    cacheReadCostPerToken: 3e-7, // $0.30 per 1M tokens
-    cacheCreationCostPerToken: 3.75e-6, // $3.75 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-3-5-sonnet-20241022': {
-    inputCostPerToken: 3e-6,
-    outputCostPerToken: 15e-6,
-    cacheReadCostPerToken: 3e-7,
-    cacheCreationCostPerToken: 3.75e-6,
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-3-opus-20240229': {
-    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-3-5-haiku-20241022': {
-    inputCostPerToken: 0.8e-6, // $0.80 per 1M tokens
-    outputCostPerToken: 4e-6, // $4.00 per 1M tokens
-    cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
-    cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-haiku-4-5-20251001': {
-    inputCostPerToken: 0.8e-6, // $0.80 per 1M tokens
-    outputCostPerToken: 4e-6, // $4.00 per 1M tokens
-    cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
-    cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-3-haiku-20240307': {
-    inputCostPerToken: 0.25e-6, // $0.25 per 1M tokens
-    outputCostPerToken: 1.25e-6, // $1.25 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
   'claude-sonnet-4.6': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
@@ -182,14 +90,6 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 0,
     maxTokens: 200_000,
     provider: 'github-copilot',
-  },
-  'anthropic/claude-haiku-4.5': {
-    inputCostPerToken: 0.8e-6, // Same as claude-3-5-haiku-20241022
-    outputCostPerToken: 4e-6,
-    cacheReadCostPerToken: 0.08e-6,
-    cacheCreationCostPerToken: 1e-6,
-    maxTokens: 200_000,
-    provider: 'anthropic',
   },
   'gpt-4o': {
     inputCostPerToken: 2.5e-6, // $2.50 per 1M tokens
@@ -395,19 +295,31 @@ export function calculateMessageCost(
   return Math.round(totalCost * 1000000) / 1000000;
 }
 
-/**
- * Get the context window size for a model.
- *
- * Uses the `maxTokens` field from the pricing map as context window.
- * Returns 0 if unknown (the model isn't in the pricing map or has no maxTokens).
- *
- * @param modelId - Model identifier (e.g., "claude-sonnet-4-6-20250514")
- * @returns Context window size in tokens, or 0 if unknown
- */
 export function getModelContextWindow(modelId: string): number {
   if (!modelId) return 0;
   const pricing = findModelPricing(modelId);
-  return pricing?.maxTokens ?? 0;
+  if (pricing?.maxTokens) return pricing.maxTokens;
+
+  const stripped = modelId
+    .replace(/^(?:anthropic|openrouter|google|openai|moonshot|zai)\//i, '')
+    .toLowerCase();
+
+  const claudeModern = stripped.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)[-.](\d+)/,
+  );
+  if (claudeModern) {
+    const family = claudeModern[1];
+    const major = Number.parseInt(claudeModern[2], 10);
+    const minor = Number.parseInt(claudeModern[3], 10);
+    if (family === 'opus' && (major > 4 || (major === 4 && minor >= 6))) {
+      return 1_000_000;
+    }
+    return 200_000;
+  }
+
+  if (/^claude-3/.test(stripped)) return 200_000;
+
+  return 0;
 }
 
 /**

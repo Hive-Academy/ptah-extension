@@ -104,12 +104,7 @@ export {
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
-export {
-  TIER_TO_MODEL_ID,
-  TIER_ENV_VAR_MAP,
-  DEFAULT_FALLBACK_MODEL_ID,
-  buildTierEnvDefaults,
-} from './lib/helpers';
+export { TIER_ENV_VAR_MAP, buildTierEnvDefaults } from './lib/helpers';
 export type { ModelTier, EnvMappedTier } from './lib/helpers';
 export {
   ANTHROPIC_PROVIDERS,

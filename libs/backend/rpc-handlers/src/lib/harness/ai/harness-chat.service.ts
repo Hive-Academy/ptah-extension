@@ -17,7 +17,6 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import { DEFAULT_FALLBACK_MODEL_ID } from '@ptah-extension/agent-sdk';
 import type {
   HarnessChatAction,
   HarnessChatResponse,
@@ -136,8 +135,7 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
       timeoutMs: 30_000,
       execute: {
         cwd: workspaceRoot,
-        model:
-          this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID,
+        model: this.modelSettings.selectedModel.get() || 'default',
         prompt,
         systemPromptAppend:
           "You are a harness architect. Be specific, practical, and collaborative. Always suggest concrete next steps. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend relevant skills and MCP servers beyond what the user explicitly asked for. After using tools, return valid JSON matching the schema.",
@@ -406,8 +404,7 @@ If this is the first message, analyze the user's intent and propose a complete i
         timeoutMs: 300_000,
         execute: {
           cwd: workspaceRoot,
-          model:
-            this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID,
+          model: this.modelSettings.selectedModel.get() || 'default',
           prompt,
           systemPromptAppend:
             "You are a harness architect. Be conversational, specific, and proactive. Propose complete configurations when you have enough context. Ask clarifying questions when you need more information. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace, createSkill(name, description, content, allowedTools?) to create custom skills. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",

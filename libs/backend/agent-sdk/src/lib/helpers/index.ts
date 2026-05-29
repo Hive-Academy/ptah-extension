@@ -125,9 +125,7 @@ export { MemoryPromptInjector } from './memory-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
 export {
   SdkModelService,
-  TIER_TO_MODEL_ID,
   TIER_ENV_VAR_MAP,
-  DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
   type ModelTier,
   type EnvMappedTier,
