@@ -30,6 +30,14 @@ import {
  * WORKSPACE_PROVIDER, SENTRY_SERVICE, PLATFORM_COMMANDS,
  * SDK_ENHANCED_PROMPTS_SERVICE, LICENSE_SERVICE, SAVE_DIALOG_PROVIDER,
  * and PLATFORM_TOKENS.DI_CONTAINER) have been registered.
+ *
+ * Note: this does NOT eagerly resolve {@link SessionLifecycleNotifier}.
+ * The notifier requires `TOKENS.WEBVIEW_MANAGER`, which is registered at
+ * different points in each host (vscode-core's phase-2 in the extension,
+ * bootstrap.ts after `ElectronDIContainer.setup` in Electron, container
+ * construction in the CLI). Each host must call
+ * {@link activateSessionLifecycleNotifier} once WEBVIEW_MANAGER is wired —
+ * otherwise the notifier never subscribes to SdkAdapterEvents.
  */
 export function registerSharedRpcHandlers(
   container: DependencyContainer,
@@ -39,5 +47,16 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(EnhancedPromptsRpcHandlers);
   container.registerSingleton(LlmRpcHandlers);
   container.registerSingleton(SessionLifecycleNotifier);
+}
+
+/**
+ * Eagerly resolve {@link SessionLifecycleNotifier} so its constructor
+ * subscribes to {@link SdkAdapterEvents} immediately. Call exactly once
+ * per container, after both {@link registerSharedRpcHandlers} and the
+ * host's `TOKENS.WEBVIEW_MANAGER` registration have run.
+ */
+export function activateSessionLifecycleNotifier(
+  container: DependencyContainer,
+): void {
   container.resolve(SessionLifecycleNotifier);
 }

@@ -19,6 +19,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
+  activateSessionLifecycleNotifier,
   registerChatServices,
   registerHarnessServices,
   registerSharedRpcHandlers,
@@ -77,6 +78,7 @@ export function registerPhase3Handlers(
   container.registerSingleton(McpDirectoryRpcHandlers);
   container.registerSingleton(HarnessRpcHandlers);
   registerSharedRpcHandlers(container);
+  activateSessionLifecycleNotifier(container);
   container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
     useFactory: (c) =>
       new RpcMethodRegistrationService(

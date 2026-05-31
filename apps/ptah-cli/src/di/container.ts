@@ -96,6 +96,7 @@ import {
   ProviderRpcHandlers,
   WebSearchRpcHandlers,
   WorkspaceRpcHandlers,
+  activateSessionLifecycleNotifier,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { CliOutputManagerAdapter, CliLoggerAdapter } from './cli-adapters';
@@ -580,6 +581,7 @@ export class CliDIContainer {
       container.registerSingleton(WebSearchRpcHandlers);
       container.registerSingleton(WorkspaceRpcHandlers);
       registerSharedRpcHandlers(container);
+      activateSessionLifecycleNotifier(container);
 
       logger.info('[CLI DI] Shared RPC handler classes registered (18)');
 
