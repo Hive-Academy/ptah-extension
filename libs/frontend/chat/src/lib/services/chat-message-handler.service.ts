@@ -25,6 +25,8 @@ import {
   MESSAGE_TYPES,
   PermissionRequestSchema,
   SdkCompactionCompletePayloadSchema,
+  SdkTurnEndedPayloadSchema,
+  SdkTurnFailedPayloadSchema,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { MessageSenderService } from './message-sender.service';
@@ -72,6 +74,8 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.SESSION_METADATA_CHANGED,
     MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT,
     MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE,
+    MESSAGE_TYPES.SESSION_TURN_ENDED,
+    MESSAGE_TYPES.SESSION_TURN_FAILED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -115,7 +119,49 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE:
         this.handleSessionCompactionComplete(message.payload);
         break;
+      case MESSAGE_TYPES.SESSION_TURN_ENDED:
+        this.handleSessionTurnEnded(message.payload);
+        break;
+      case MESSAGE_TYPES.SESSION_TURN_FAILED:
+        this.handleSessionTurnFailed(message.payload);
+        break;
     }
+  }
+
+  private handleSessionTurnEnded(payload: unknown): void {
+    if (!payload) {
+      console.warn(
+        '[ChatMessageHandler] session:turnEnded received but payload is undefined!',
+      );
+      return;
+    }
+    const parsed = SdkTurnEndedPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid SdkTurnEndedPayload — dropped',
+        parsed.error,
+      );
+      return;
+    }
+    this.chatStore.handleTurnEndedNotification(parsed.data);
+  }
+
+  private handleSessionTurnFailed(payload: unknown): void {
+    if (!payload) {
+      console.warn(
+        '[ChatMessageHandler] session:turnFailed received but payload is undefined!',
+      );
+      return;
+    }
+    const parsed = SdkTurnFailedPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid SdkTurnFailedPayload — dropped',
+        parsed.error,
+      );
+      return;
+    }
+    this.chatStore.handleTurnFailedNotification(parsed.data);
   }
 
   private handleSessionCompactionComplete(payload: unknown): void {

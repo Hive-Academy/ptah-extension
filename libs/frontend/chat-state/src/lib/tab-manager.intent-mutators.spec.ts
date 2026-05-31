@@ -289,6 +289,53 @@ describe('TabManagerService — intent-named mutators', () => {
     });
   });
 
+  describe('turn-end snapshot', () => {
+    it('setTurnEndedFields persists background tasks, session crons, and terminal reason', () => {
+      const id = service.createTab('turn-end');
+      service.setTurnEndedFields(id, {
+        pendingBackgroundTasks: [
+          {
+            id: 'bg-1',
+            type: 'subagent',
+            status: 'running',
+            description: 'still going',
+          },
+        ],
+        pendingSessionCrons: [
+          {
+            id: 'cron-1',
+            schedule: '*/5 * * * *',
+            recurring: true,
+            prompt: 'ping',
+          },
+        ],
+        lastTerminalReason: 'completed',
+      });
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.pendingBackgroundTasks).toHaveLength(1);
+      expect(tab?.pendingBackgroundTasks?.[0].id).toBe('bg-1');
+      expect(tab?.pendingSessionCrons).toHaveLength(1);
+      expect(tab?.pendingSessionCrons?.[0].id).toBe('cron-1');
+      expect(tab?.lastTerminalReason).toBe('completed');
+    });
+
+    it('setLastTerminalReason stamps the terminal reason only', () => {
+      const id = service.createTab('turn-failed');
+      service.setLastTerminalReason(id, 'aborted_streaming');
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.lastTerminalReason).toBe('aborted_streaming');
+      expect(tab?.pendingBackgroundTasks).toBeUndefined();
+      expect(tab?.pendingSessionCrons).toBeUndefined();
+    });
+
+    it('setLastTerminalReason accepts null without throwing', () => {
+      const id = service.createTab('turn-null');
+      service.setLastTerminalReason(id, null);
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.lastTerminalReason).toBeNull();
+    });
+  });
+
   describe('stats and model bookkeeping', () => {
     it('setLiveModelStats updates the live stats payload', () => {
       const id = service.createTab('lms');

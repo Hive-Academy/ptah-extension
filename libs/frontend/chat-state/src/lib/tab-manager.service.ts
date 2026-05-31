@@ -11,6 +11,9 @@ import {
   EffortLevel,
   getModelContextWindow,
   SessionId,
+  SdkBackgroundTaskSummary,
+  SdkSessionCronSummary,
+  SdkTerminalReason,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -1189,6 +1192,38 @@ export class TabManagerService {
       queuedOptions: null,
       liveModelStats: null,
       modelUsageList: [],
+    });
+  }
+
+  /**
+   * Persist the SDK `Stop` hook snapshot onto the tab. Captures background
+   * tasks + session crons in-flight at turn-end (Phase 3 will surface these
+   * on the tab bar) and stamps `lastTerminalReason` so the streaming-handler
+   * safety-net can detect "Stop already observed" on later SESSION_STATS
+   * arrivals.
+   */
+  setTurnEndedFields(
+    tabId: string,
+    payload: {
+      pendingBackgroundTasks: readonly SdkBackgroundTaskSummary[];
+      pendingSessionCrons: readonly SdkSessionCronSummary[];
+      lastTerminalReason: SdkTerminalReason | null;
+    },
+  ): void {
+    this.updateTabInternal(tabId, {
+      pendingBackgroundTasks: payload.pendingBackgroundTasks,
+      pendingSessionCrons: payload.pendingSessionCrons,
+      lastTerminalReason: payload.lastTerminalReason,
+    });
+  }
+
+  /**
+   * Stamp `lastTerminalReason` only. Used by the `StopFailure` path, which
+   * does not carry background-task / cron snapshots on the failure payload.
+   */
+  setLastTerminalReason(tabId: string, reason: SdkTerminalReason | null): void {
+    this.updateTabInternal(tabId, {
+      lastTerminalReason: reason,
     });
   }
 

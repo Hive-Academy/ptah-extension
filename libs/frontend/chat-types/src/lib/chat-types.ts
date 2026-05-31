@@ -6,6 +6,9 @@ import {
   EffortLevel,
   TabId,
   SessionId,
+  SdkBackgroundTaskSummary,
+  SdkSessionCronSummary,
+  SdkTerminalReason,
 } from '@ptah-extension/shared';
 
 /**
@@ -414,6 +417,28 @@ export interface TabState {
    * turn but arrive after the post-compaction reset.
    */
   lastCompactionAt?: number | null;
+
+  /**
+   * Snapshot of SDK in-flight background tasks captured from the most recent
+   * `Stop` hook payload (`session:turnEnded` push). Cleared/overwritten on
+   * the next turn-end event. Phase 2 stores this for Phase 3 UI surfacing.
+   */
+  pendingBackgroundTasks?: readonly SdkBackgroundTaskSummary[];
+
+  /**
+   * Snapshot of SDK session-scoped cron entries captured from the most recent
+   * `Stop` hook payload (`session:turnEnded` push). Cleared/overwritten on
+   * the next turn-end event.
+   */
+  pendingSessionCrons?: readonly SdkSessionCronSummary[];
+
+  /**
+   * Terminal reason emitted by the SDK with the most recent `Stop` /
+   * `StopFailure` hook (`session:turnEnded` / `session:turnFailed`).
+   * Null when the SDK did not report one. Phase 2 uses this only as a
+   * read-side flag (Phase 4 batch will gate stats safety-net on it).
+   */
+  lastTerminalReason?: SdkTerminalReason | null;
 
   /**
    * Full per-model usage breakdown for collapsible display.

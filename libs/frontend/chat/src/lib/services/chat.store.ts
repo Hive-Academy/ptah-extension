@@ -12,6 +12,8 @@ import type {
   AskUserQuestionRequest,
   AskUserQuestionResponse,
   SdkCompactionCompletePayload,
+  SdkTurnEndedPayload,
+  SdkTurnFailedPayload,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -27,6 +29,7 @@ import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.se
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import { SessionStatsAggregatorService } from './chat-store/session-stats-aggregator.service';
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
+import { TurnEndHandlerService } from './chat-store/turn-end-handler.service';
 import { MessageSenderService } from './message-sender.service';
 import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
@@ -64,6 +67,7 @@ export class ChatStore {
   private readonly messageDispatch = inject(MessageDispatchService);
   private readonly statsAggregator = inject(SessionStatsAggregatorService);
   private readonly lifecycle = inject(ChatLifecycleService);
+  private readonly turnEndHandler = inject(TurnEndHandlerService);
   private readonly streamRouter = inject(StreamRouter);
 
   private readonly _servicesReady = signal(false);
@@ -234,6 +238,24 @@ export class ChatStore {
     payload: SdkCompactionCompletePayload,
   ): void {
     this.compaction.handleCompactionCompleteNotification(payload);
+  }
+
+  /**
+   * Handle the `session:turnEnded` push notification from the backend `Stop`
+   * SDK hook. Delegates to `TurnEndHandlerService` so the snapshot,
+   * finalization, and tab-idle pivot land on every bound tab.
+   */
+  handleTurnEndedNotification(payload: SdkTurnEndedPayload): void {
+    this.turnEndHandler.handleTurnEnded(payload);
+  }
+
+  /**
+   * Handle the `session:turnFailed` push notification from the backend
+   * `StopFailure` SDK hook. Delegates to `TurnEndHandlerService` so the
+   * aborted-finalization and existing error-rendering path fire.
+   */
+  handleTurnFailedNotification(payload: SdkTurnFailedPayload): void {
+    this.turnEndHandler.handleTurnFailed(payload);
   }
 
   /**
