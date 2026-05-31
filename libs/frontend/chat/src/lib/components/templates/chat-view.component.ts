@@ -20,7 +20,11 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-angular';
-import { ScrollingModule, CdkVirtualScrollViewport } from '@angular/cdk/scrolling';
+import {
+  ScrollingModule,
+  CdkVirtualScrollViewport,
+} from '@angular/cdk/scrolling';
+import { ScrollingModule as ExperimentalScrollingModule } from '@angular/cdk-experimental/scrolling';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
@@ -133,6 +137,7 @@ function filterCompactionNoise(
     SidebarTabComponent,
     CompactSessionCardComponent,
     ScrollingModule,
+    ExperimentalScrollingModule,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -1164,9 +1169,7 @@ export class ChatViewComponent {
   private isMessageIdNotFoundError<T>(result: RpcResult<T>): boolean {
     if (result.errorCode === 'MESSAGE_ID_NOT_FOUND') return true;
     const msg = result.error ?? '';
-    return msg.includes(
-      ChatViewComponent.MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE,
-    );
+    return msg.includes(ChatViewComponent.MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE);
   }
 
   private async deleteOriginalSession(originalId: SessionId): Promise<{
