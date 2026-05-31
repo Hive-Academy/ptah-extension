@@ -173,6 +173,7 @@ import type {
   UserPromptSubmitHookInput,
   WorktreeCreateHookInput,
   WorktreeRemoveHookInput,
+  TerminalReason,
   NonNullableUsage,
   ModelUsage,
   Options,
@@ -576,6 +577,20 @@ export function isWorktreeRemoveHook(
   input: HookInput,
 ): input is WorktreeRemoveHookInput {
   return input.hook_event_name === 'WorktreeRemove';
+}
+
+/**
+ * Extracts `terminal_reason` from a hook input via structural narrowing.
+ *
+ * SDK 0.3.150 does not expose `terminal_reason` on the typed hook input
+ * interfaces today; this helper extracts it via an intersection cast typed
+ * against `TerminalReason`. Drop the cast when the SDK exposes the field on
+ * `BaseHookInput` (forward-compat consolidation per code-style review §6).
+ */
+export function narrowTerminalReason(input: HookInput): TerminalReason | null {
+  const candidate = (input as { terminal_reason?: TerminalReason })
+    .terminal_reason;
+  return candidate ?? null;
 }
 
 export type FlatStreamEventType =

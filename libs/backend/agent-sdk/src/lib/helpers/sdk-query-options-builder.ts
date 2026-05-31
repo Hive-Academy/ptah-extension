@@ -44,6 +44,7 @@ import { SessionStartHookHandler } from './session-start-hook-handler';
 import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import { StopHookHandler } from './stop-hook-handler';
 import { StopFailureHookHandler } from './stop-failure-hook-handler';
+import { SubagentStopHookHandler } from './subagent-stop-hook-handler';
 import { SessionEndHookHandler } from './session-end-hook-handler';
 import { ToolFailureHookHandler } from './tool-failure-hook-handler';
 import {
@@ -450,6 +451,8 @@ export class SdkQueryOptionsBuilder {
     private readonly preToolUseHookHandler: PreToolUseHookHandler,
     @inject(SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER)
     private readonly sessionStartHookHandler: SessionStartHookHandler,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
+    private readonly subagentStopHookHandler: SubagentStopHookHandler,
   ) {}
 
   /**
@@ -1051,6 +1054,10 @@ export class SdkQueryOptionsBuilder {
       sessionId ?? '',
       cwd,
     );
+    const subagentStopHooks = this.subagentStopHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
       subagentHooks,
@@ -1064,6 +1071,7 @@ export class SdkQueryOptionsBuilder {
       toolFailureHooks,
       preToolUseHooks,
       sessionStartHooks,
+      subagentStopHooks,
     ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;

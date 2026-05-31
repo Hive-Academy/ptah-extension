@@ -91,7 +91,12 @@ export {
 } from './stop-callback-registry';
 export { StopHookHandler } from './stop-hook-handler';
 export { StopFailureHookHandler } from './stop-failure-hook-handler';
-export { isStopFailureHook } from '../types/sdk-types/claude-sdk.types';
+export { SubagentStopHookHandler } from './subagent-stop-hook-handler';
+export {
+  isStopFailureHook,
+  isSubagentStopHook,
+  narrowTerminalReason,
+} from '../types/sdk-types/claude-sdk.types';
 export {
   SessionEndHookCallbackRegistry,
   type SessionEndHookCallback,
@@ -191,4 +196,5 @@ export {
   type SdkAdapterCompactionCompleteEvent,
   type SdkAdapterTurnEndedEvent,
   type SdkAdapterTurnFailedEvent,
+  type SdkAdapterSubagentEndedEvent,
 } from './sdk-adapter-events.service';

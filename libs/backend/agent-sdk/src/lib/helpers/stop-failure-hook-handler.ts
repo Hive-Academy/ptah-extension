@@ -6,9 +6,11 @@ import type {
   HookEvent,
   HookJSONOutput,
   HookInput,
-  TerminalReason,
 } from '../types/sdk-types/claude-sdk.types';
-import { isStopFailureHook } from '../types/sdk-types/claude-sdk.types';
+import {
+  isStopFailureHook,
+  narrowTerminalReason,
+} from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 
@@ -55,11 +57,7 @@ export class StopFailureHookHandler {
                   typeof input.cwd === 'string' && input.cwd.length > 0
                     ? input.cwd
                     : cwd;
-                const inputWithTerminal = input as typeof input & {
-                  terminal_reason?: TerminalReason;
-                };
-                const terminalReason: TerminalReason | null =
-                  inputWithTerminal.terminal_reason ?? null;
+                const terminalReason = narrowTerminalReason(input);
 
                 if (!resolvedSessionId || !resolvedCwd) {
                   this.logger.warn(

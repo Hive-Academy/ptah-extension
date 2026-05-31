@@ -88,7 +88,10 @@ export {
   type StopPayload,
   StopHookHandler,
   StopFailureHookHandler,
+  SubagentStopHookHandler,
   isStopFailureHook,
+  isSubagentStopHook,
+  narrowTerminalReason,
   SessionEndHookCallbackRegistry,
   type SessionEndHookCallback,
   type SessionEndHookPayload,
@@ -117,6 +120,7 @@ export {
   type SdkAdapterCompactionCompleteEvent,
   type SdkAdapterTurnEndedEvent,
   type SdkAdapterTurnFailedEvent,
+  type SdkAdapterSubagentEndedEvent,
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';

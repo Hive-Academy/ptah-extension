@@ -56,6 +56,16 @@ export interface SdkAdapterTurnFailedEvent {
   readonly timestamp: number;
 }
 
+export interface SdkAdapterSubagentEndedEvent {
+  readonly sessionId: string;
+  readonly cwd: string;
+  readonly agentId: string;
+  readonly agentType: string;
+  readonly lastAssistantMessage: string | null;
+  readonly backgroundTasks: readonly BackgroundTaskSummary[];
+  readonly timestamp: number;
+}
+
 interface SdkAdapterEventMap {
   initialized: (event: SdkAdapterInitializedEvent) => void;
   disposed: (event: SdkAdapterDisposedEvent) => void;
@@ -64,6 +74,7 @@ interface SdkAdapterEventMap {
   compactionComplete: (event: SdkAdapterCompactionCompleteEvent) => void;
   turnEnded: (event: SdkAdapterTurnEndedEvent) => void;
   turnFailed: (event: SdkAdapterTurnFailedEvent) => void;
+  subagentEnded: (event: SdkAdapterSubagentEndedEvent) => void;
 }
 
 export type SdkAdapterEventName = keyof SdkAdapterEventMap;
@@ -100,6 +111,10 @@ export class SdkAdapterEvents {
 
   emitTurnFailed(event: SdkAdapterTurnFailedEvent): void {
     this.safeEmit('turnFailed', event);
+  }
+
+  emitSubagentEnded(event: SdkAdapterSubagentEndedEvent): void {
+    this.safeEmit('subagentEnded', event);
   }
 
   onInitialized(
@@ -147,6 +162,13 @@ export class SdkAdapterEvents {
     return () => this.emitter.off('turnFailed', listener);
   }
 
+  onSubagentEnded(
+    listener: (event: SdkAdapterSubagentEndedEvent) => void,
+  ): () => void {
+    this.emitter.on('subagentEnded', listener);
+    return () => this.emitter.off('subagentEnded', listener);
+  }
+
   removeAllListeners(): void {
     this.emitter.removeAllListeners();
   }
@@ -168,7 +190,8 @@ export class SdkAdapterEvents {
           SdkAdapterAuthFileChangedEvent &
           SdkAdapterCompactionCompleteEvent &
           SdkAdapterTurnEndedEvent &
-          SdkAdapterTurnFailedEvent,
+          SdkAdapterTurnFailedEvent &
+          SdkAdapterSubagentEndedEvent,
       );
     } catch (err) {
       this.logger.warn(

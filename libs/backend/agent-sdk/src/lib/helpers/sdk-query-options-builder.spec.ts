@@ -555,6 +555,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
@@ -710,6 +711,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
 
     const sessionConfig = {
@@ -837,6 +839,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       memoryPromptInjector,
       postToolUseHookHandler,
       userPromptSubmitHookHandler,
+      { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
@@ -1015,6 +1018,7 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
       memoryPromptInjector,
       postToolUseHookHandler,
       userPromptSubmitHookHandler,
+      { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
