@@ -115,6 +115,8 @@ export const MESSAGE_TYPES = {
   SESSION_STATS: 'session:stats',
   /** Push notification: session metadata changed (created/updated/deleted/forked). */
   SESSION_METADATA_CHANGED: 'session:metadataChanged',
+  /** Backend → Frontend: SDK PostCompact hook fired (edge-triggered stamp). */
+  SESSION_COMPACTION_COMPLETE: 'session:compactionComplete',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */

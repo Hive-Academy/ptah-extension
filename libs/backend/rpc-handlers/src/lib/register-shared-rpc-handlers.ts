@@ -17,6 +17,7 @@ import {
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
+  SessionLifecycleNotifier,
 } from './handlers';
 
 /**
@@ -37,4 +38,6 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(WizardGenerationRpcHandlers);
   container.registerSingleton(EnhancedPromptsRpcHandlers);
   container.registerSingleton(LlmRpcHandlers);
+  container.registerSingleton(SessionLifecycleNotifier);
+  container.resolve(SessionLifecycleNotifier);
 }

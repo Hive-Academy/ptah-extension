@@ -7,6 +7,17 @@
 
 import type { SessionId } from '../branded.types';
 import type { ChatSessionSummary } from '../execution';
+import type { SdkCompactionCompletePayload } from '../sdk-hook.types';
+
+/**
+ * Notification params for `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE`
+ * (`'session:compactionComplete'`).
+ *
+ * Backend → webview push, not an inbound RPC method — alias kept here so
+ * frontend session-lifecycle consumers import a single named type instead
+ * of reaching into `sdk-hook.types.ts` directly.
+ */
+export type SessionCompactionCompleteParams = SdkCompactionCompletePayload;
 
 /** Parameters for session:list RPC method */
 export interface SessionListParams {

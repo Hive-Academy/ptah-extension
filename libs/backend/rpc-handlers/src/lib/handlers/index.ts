@@ -43,6 +43,10 @@ export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,
 } from './persistence-rpc.handlers';
+export {
+  SessionLifecycleNotifier,
+  type WebviewBroadcaster as SessionLifecycleWebviewBroadcaster,
+} from './session-lifecycle-notifier';
 export type {
   DbHealthResult,
   DbHealthParams,

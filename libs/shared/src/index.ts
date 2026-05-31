@@ -13,6 +13,7 @@ export * from './lib/types/permission.types';
 export * from './lib/types/quality-assessment.types';
 export * from './lib/types/reliable-workflow.types';
 export * from './lib/types/rpc.types';
+export * from './lib/types/sdk-hook.types';
 export * from './lib/types/subagent-registry.types';
 export * from './lib/types/webview-ui.types';
 export * from './lib/types/model-autopilot.types';
