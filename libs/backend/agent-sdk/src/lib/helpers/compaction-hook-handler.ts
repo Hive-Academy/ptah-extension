@@ -281,13 +281,26 @@ export class CompactionHookHandler {
                 }
 
                 if (sdkAdapterEvents) {
-                  sdkAdapterEvents.emitCompactionComplete({
-                    sessionId: input.session_id ?? sessionId,
-                    cwd: input.cwd ?? cwd ?? '',
-                    trigger,
-                    compactSummary: input.compact_summary,
-                    timestamp: Date.now(),
-                  });
+                  const resolvedSessionId = input.session_id ?? sessionId;
+                  const resolvedCwd = input.cwd ?? cwd;
+                  if (!resolvedSessionId || !resolvedCwd) {
+                    this.logger.warn(
+                      '[CompactionHookHandler] PostCompact missing sessionId or cwd, skipping emit',
+                      {
+                        hasSessionId: Boolean(resolvedSessionId),
+                        hasCwd: Boolean(resolvedCwd),
+                        trigger,
+                      },
+                    );
+                  } else {
+                    sdkAdapterEvents.emitCompactionComplete({
+                      sessionId: resolvedSessionId,
+                      cwd: resolvedCwd,
+                      trigger,
+                      compactSummary: input.compact_summary,
+                      timestamp: Date.now(),
+                    });
+                  }
                 }
 
                 this.logger.debug(

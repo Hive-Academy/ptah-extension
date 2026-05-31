@@ -264,4 +264,72 @@ describe('CompactionHookHandler — PostCompact hook (TASK_2026_137 Phase 1)', (
     expect(emitted).toHaveLength(0);
     expect(logger.warn).toHaveBeenCalled();
   });
+
+  it('skips emit when resolved sessionId is empty (would silently drop at Zod boundary)', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(0);
+    const { stub, emitted } = makeAdapterEventsStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+    );
+
+    const hooks = handler.createHooks('', '/repo');
+    const fn = hooks.PostCompact?.[0]?.hooks?.[0];
+
+    const hookInput: HookInput = {
+      hook_event_name: 'PostCompact',
+      cwd: '/repo',
+      trigger: 'manual',
+      compact_summary: 's',
+      transcript_path: '/tmp/tx',
+    } as unknown as HookInput;
+
+    const result = await fn?.(hookInput, undefined, {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(emitted).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('missing sessionId or cwd'),
+      expect.objectContaining({ hasSessionId: false, hasCwd: true }),
+    );
+  });
+
+  it('skips emit when resolved cwd is empty (would silently drop at Zod boundary)', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(0);
+    const { stub, emitted } = makeAdapterEventsStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+    );
+
+    const hooks = handler.createHooks('sess-pc-6', '');
+    const fn = hooks.PostCompact?.[0]?.hooks?.[0];
+
+    const hookInput: HookInput = {
+      hook_event_name: 'PostCompact',
+      session_id: 'sess-pc-6',
+      trigger: 'manual',
+      compact_summary: 's',
+      transcript_path: '/tmp/tx',
+    } as unknown as HookInput;
+
+    const result = await fn?.(hookInput, undefined, {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(emitted).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('missing sessionId or cwd'),
+      expect.objectContaining({ hasSessionId: true, hasCwd: false }),
+    );
+  });
 });
