@@ -92,7 +92,11 @@ import type {
 import type { WorkspaceChangedPayload } from './workspace';
 import type { GatewayStatusChangedPayload } from './gateway';
 import type { UpdateStatusChangedPayload } from './update';
-import type { SdkCompactionCompletePayload } from '../sdk-hook.types';
+import type {
+  SdkCompactionCompletePayload,
+  SdkTurnEndedPayload,
+  SdkTurnFailedPayload,
+} from '../sdk-hook.types';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
@@ -198,6 +202,8 @@ export interface MessagePayloadMap {
   'gateway:statusChanged': GatewayStatusChangedPayload;
   'update:statusChanged': UpdateStatusChangedPayload;
   'session:compactionComplete': SdkCompactionCompletePayload;
+  'session:turnEnded': SdkTurnEndedPayload;
+  'session:turnFailed': SdkTurnFailedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'memory:observationCaptured': MemoryObservationCapturedPayload;

@@ -2,14 +2,13 @@
  * SessionLifecycleNotifier.
  *
  * Bridges {@link SdkAdapterEvents} session-lifecycle events to the webview as
- * `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE` push notifications. Subscribes
- * to the bus in its constructor and broadcasts the validated payload through
+ * `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE`, `MESSAGE_TYPES.SESSION_TURN_ENDED`,
+ * and `MESSAGE_TYPES.SESSION_TURN_FAILED` push notifications. Subscribes to
+ * the bus in its constructor and broadcasts the validated payload through
  * the platform {@link WebviewBroadcaster}.
  *
- * Phase 1 wires the PostCompact path. Phases 2 and 3 will extend this class
- * with Stop/StopFailure/SubagentStop forwarding on the same bus, so the
- * notifier remains the single fan-out site for SDK hook events into the
- * webview wire.
+ * Single fan-out site for SDK hook events (PostCompact, Stop, StopFailure)
+ * into the webview wire.
  */
 
 import { inject, injectable } from 'tsyringe';
@@ -18,11 +17,17 @@ import {
   SDK_TOKENS,
   SdkAdapterEvents,
   type SdkAdapterCompactionCompleteEvent,
+  type SdkAdapterTurnEndedEvent,
+  type SdkAdapterTurnFailedEvent,
 } from '@ptah-extension/agent-sdk';
 import {
   MESSAGE_TYPES,
   SdkCompactionCompletePayloadSchema,
+  SdkTurnEndedPayloadSchema,
+  SdkTurnFailedPayloadSchema,
   type SdkCompactionCompletePayload,
+  type SdkTurnEndedPayload,
+  type SdkTurnFailedPayload,
 } from '@ptah-extension/shared';
 
 /**
@@ -50,6 +55,14 @@ export class SessionLifecycleNotifier {
         this.handleCompactionComplete(event),
       ),
     );
+    this.subscriptions.push(
+      this.sdkAdapterEvents.onTurnEnded((event) => this.handleTurnEnded(event)),
+    );
+    this.subscriptions.push(
+      this.sdkAdapterEvents.onTurnFailed((event) =>
+        this.handleTurnFailed(event),
+      ),
+    );
   }
 
   /** Detach all bus subscriptions. Idempotent. */
@@ -68,7 +81,9 @@ export class SessionLifecycleNotifier {
     const parsed = SdkCompactionCompletePayloadSchema.safeParse(event);
     if (!parsed.success) {
       this.logger.warn(
-        '[SessionLifecycleNotifier] dropping malformed compactionComplete payload',
+        `[SessionLifecycleNotifier] dropping malformed compactionComplete payload (sessionId=${String(
+          event?.sessionId,
+        )}, trigger=${String(event?.trigger)})`,
         new Error(parsed.error.message),
       );
       return;
@@ -76,6 +91,58 @@ export class SessionLifecycleNotifier {
     const payload: SdkCompactionCompletePayload = parsed.data;
     this.webviewManager
       .broadcastMessage(MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE, payload)
+      .catch((err: unknown) => {
+        this.logger.warn(
+          '[SessionLifecycleNotifier] webview broadcast failed',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      });
+  }
+
+  private handleTurnEnded(event: SdkAdapterTurnEndedEvent): void {
+    const parsed = SdkTurnEndedPayloadSchema.safeParse(event);
+    if (!parsed.success) {
+      const hasBackgroundTasks = Array.isArray(event?.backgroundTasks)
+        ? event.backgroundTasks.length > 0
+        : false;
+      this.logger.warn(
+        `[SessionLifecycleNotifier] dropping malformed turnEnded payload (sessionId=${String(
+          event?.sessionId,
+        )}, hasBackgroundTasks=${String(
+          hasBackgroundTasks,
+        )}, terminalReason=${String(event?.terminalReason)})`,
+        new Error(parsed.error.message),
+      );
+      return;
+    }
+    const payload: SdkTurnEndedPayload = parsed.data;
+    this.webviewManager
+      .broadcastMessage(MESSAGE_TYPES.SESSION_TURN_ENDED, payload)
+      .catch((err: unknown) => {
+        this.logger.warn(
+          '[SessionLifecycleNotifier] webview broadcast failed',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      });
+  }
+
+  private handleTurnFailed(event: SdkAdapterTurnFailedEvent): void {
+    const parsed = SdkTurnFailedPayloadSchema.safeParse(event);
+    if (!parsed.success) {
+      const hasErrorDetails = typeof event?.errorDetails === 'string';
+      this.logger.warn(
+        `[SessionLifecycleNotifier] dropping malformed turnFailed payload (sessionId=${String(
+          event?.sessionId,
+        )}, error=${String(
+          event?.error,
+        )}, hasErrorDetails=${String(hasErrorDetails)})`,
+        new Error(parsed.error.message),
+      );
+      return;
+    }
+    const payload: SdkTurnFailedPayload = parsed.data;
+    this.webviewManager
+      .broadcastMessage(MESSAGE_TYPES.SESSION_TURN_FAILED, payload)
       .catch((err: unknown) => {
         this.logger.warn(
           '[SessionLifecycleNotifier] webview broadcast failed',

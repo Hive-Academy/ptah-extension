@@ -117,6 +117,10 @@ export const MESSAGE_TYPES = {
   SESSION_METADATA_CHANGED: 'session:metadataChanged',
   /** Backend → Frontend: SDK PostCompact hook fired (edge-triggered stamp). */
   SESSION_COMPACTION_COMPLETE: 'session:compactionComplete',
+  /** Backend → Frontend: SDK Stop hook fired — turn ended, status pivot. */
+  SESSION_TURN_ENDED: 'session:turnEnded',
+  /** Backend → Frontend: SDK StopFailure hook fired — turn failed with error. */
+  SESSION_TURN_FAILED: 'session:turnFailed',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */
