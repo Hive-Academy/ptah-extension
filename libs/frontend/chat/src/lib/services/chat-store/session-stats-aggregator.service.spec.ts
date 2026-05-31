@@ -17,11 +17,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { SessionStatsAggregatorService } from './session-stats-aggregator.service';
-import {
-  ConversationRegistry,
-  TabManagerService,
-  TabSessionBinding,
-} from '@ptah-extension/chat-state';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
@@ -106,17 +102,6 @@ describe('SessionStatsAggregatorService', () => {
     const dispatchMock = {
       sendQueuedMessage: sendQueuedMock,
     } as unknown as MessageDispatchService;
-    // `isLateAfterCompaction` reads from
-    // ConversationRegistry / TabSessionBinding. Tests in this file create
-    // tabs with no conversation binding so the fallback (per-tab
-    // `lastCompactionAt`) drives the grace-window check; the registry is
-    // never consulted because `conversationFor` returns null.
-    const conversationRegistryMock = {
-      compactionStateFor: jest.fn(() => null),
-    } as unknown as ConversationRegistry;
-    const tabSessionBindingMock = {
-      conversationFor: jest.fn(() => null),
-    } as unknown as TabSessionBinding;
 
     TestBed.configureTestingModule({
       providers: [
@@ -126,8 +111,6 @@ describe('SessionStatsAggregatorService', () => {
         { provide: SessionLoaderService, useValue: sessionLoaderMock },
         { provide: CompactionLifecycleService, useValue: compactionMock },
         { provide: MessageDispatchService, useValue: dispatchMock },
-        { provide: ConversationRegistry, useValue: conversationRegistryMock },
-        { provide: TabSessionBinding, useValue: tabSessionBindingMock },
       ],
     });
     service = TestBed.inject(SessionStatsAggregatorService);
@@ -384,15 +367,10 @@ describe('SessionStatsAggregatorService', () => {
     expect(loadSessionsMock).toHaveBeenCalled();
   });
 
-  // ------------------------------------------------------------------
-  // Late-event grace window + primary-model determinism.
-  // ------------------------------------------------------------------
-
-  describe('B3 — late SESSION_STATS dropped within grace window', () => {
-    it('drops the event without clearing compaction state or mutating preloadedStats when lastCompactionAt is fresh', () => {
+  describe('SESSION_STATS arriving INSIDE the deleted 2s grace window now finalizes', () => {
+    it('merges stats and finalizes via streamingHandler even when lastCompactionAt is fresh (would have been dropped pre-fix)', () => {
       tabs = [
         makeTab({
-          // Very recent compaction completion → inside the 2s grace window.
           lastCompactionAt: Date.now() - 100,
           preloadedStats: {
             totalCost: 1.0,
@@ -406,21 +384,18 @@ describe('SessionStatsAggregatorService', () => {
           },
         }),
       ];
-      // Re-bind the lookup mock against the new tabs array.
       findTabsBySessionIdMock.mockImplementation((sid: string) =>
         tabs.filter((t) => t.claudeSessionId === sid),
       );
 
       service.handleSessionStats(baseStats);
 
-      // Late event must NOT prematurely dismiss the banner …
-      expect(clearCompactionStateMock).not.toHaveBeenCalled();
-      // … and must NOT poison the just-reset preloadedStats.
-      expect(setPreloadedStatsMock).not.toHaveBeenCalled();
-      // The aggregator logs a warning to make the drop observable.
-      expect(warn).toHaveBeenCalledWith(
+      expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
+      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
+      expect(warn).not.toHaveBeenCalledWith(
         '[ChatStore] handleSessionStats: dropped late event after compaction',
-        expect.objectContaining({ sessionId: SESS_1 }),
+        expect.anything(),
       );
     });
   });
