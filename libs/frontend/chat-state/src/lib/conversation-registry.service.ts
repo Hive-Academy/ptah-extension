@@ -166,11 +166,19 @@ export class ConversationRegistry {
     this.patch(convId, (r) => ({ ...r, compactionInFlight: true }));
   }
 
-  markCompactionComplete(convId: ConversationId): void {
+  /**
+   * Mark the conversation's compaction as complete. The optional `timestamp`
+   * argument lets edge-triggered callers (the `PostCompact` RPC notification
+   * path) stamp the exact backend hook firing time; omitting it falls back
+   * to `Date.now()` for legacy in-stream `compaction_complete` callers.
+   * Throws on unknown conversation id (preserves the legacy contract).
+   */
+  markCompactionComplete(convId: ConversationId, timestamp?: number): void {
+    const stamp = timestamp ?? Date.now();
     this.patch(convId, (r) => ({
       ...r,
       compactionInFlight: false,
-      lastCompactionAt: Date.now(),
+      lastCompactionAt: stamp,
     }));
   }
 

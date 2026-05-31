@@ -11,6 +11,7 @@ import {
 import type {
   AskUserQuestionRequest,
   AskUserQuestionResponse,
+  SdkCompactionCompletePayload,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -222,6 +223,17 @@ export class ChatStore {
   /** Handle compaction start. Delegates to CompactionLifecycleService. */
   handleCompactionStart(sessionId: string): void {
     this.compaction.handleCompactionStart(sessionId);
+  }
+
+  /**
+   * Handle the `session:compactionComplete` push notification from the
+   * backend `PostCompact` hook. Delegates to `CompactionLifecycleService`
+   * so the conversation registry edge-stamp lands on every bound tab.
+   */
+  handleCompactionCompleteNotification(
+    payload: SdkCompactionCompletePayload,
+  ): void {
+    this.compaction.handleCompactionCompleteNotification(payload);
   }
 
   /**
