@@ -918,14 +918,14 @@ describe('MemoryStore A1 — 5-field summary + concepts FTS round-trip (native-g
 
         const ftsHits = service.db
           .prepare(
-            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'observation-queue'`,
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"observation-queue"'`,
           )
           .all() as Array<{ memory_id: string }>;
         expect(ftsHits.map((h) => h.memory_id)).toEqual([id]);
 
         const stemHits = service.db
           .prepare(
-            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'curator-worker'`,
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"curator-worker"'`,
           )
           .all() as Array<{ memory_id: string }>;
         expect(stemHits.map((h) => h.memory_id)).toEqual([id]);

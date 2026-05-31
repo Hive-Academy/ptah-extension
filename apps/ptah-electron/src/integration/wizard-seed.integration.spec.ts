@@ -106,8 +106,28 @@ CREATE TABLE IF NOT EXISTS memories (
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL,
   last_used_at    INTEGER NOT NULL,
-  expires_at      INTEGER
+  expires_at      INTEGER,
+  request         TEXT,
+  investigated    TEXT,
+  learned         TEXT,
+  completed       TEXT,
+  next_steps      TEXT,
+  type            TEXT NOT NULL DEFAULT 'discovery',
+  concepts_json   TEXT NOT NULL DEFAULT '[]',
+  files_json      TEXT NOT NULL DEFAULT '[]'
 );
+CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_concepts_fts USING fts5(
+  memory_id UNINDEXED,
+  concept,
+  content='',
+  tokenize='unicode61'
+);
+CREATE TRIGGER IF NOT EXISTS memories_concepts_ad AFTER DELETE ON memories BEGIN
+  INSERT INTO memory_concepts_fts(memory_concepts_fts, memory_id, concept)
+  SELECT 'delete', old.id, json_each.value
+  FROM json_each(old.concepts_json);
+END;
 
 CREATE INDEX IF NOT EXISTS idx_memories_session   ON memories(session_id);
 CREATE INDEX IF NOT EXISTS idx_memories_workspace ON memories(workspace_root);

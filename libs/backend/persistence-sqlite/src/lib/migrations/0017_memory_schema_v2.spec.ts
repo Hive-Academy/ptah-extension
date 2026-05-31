@@ -184,19 +184,19 @@ describe('migration 0017_memory_schema_v2 — schema shape (skipped without nati
 
         db.exec(
           `INSERT INTO memory_concepts_fts(memory_id, concept)
-           SELECT id, json_each.value FROM memories, json_each(memories.concepts_json)`,
+           SELECT memories.id, json_each.value FROM memories, json_each(memories.concepts_json)`,
         );
 
         const alphaHits = db
           .prepare(
-            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'concept-alpha'`,
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"concept-alpha"'`,
           )
           .all() as Array<{ memory_id: string }>;
         expect(alphaHits.map((h) => h.memory_id)).toEqual(['mem-α']);
 
         const sharedHits = db
           .prepare(
-            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'shared-tag' ORDER BY memory_id`,
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"shared-tag"' ORDER BY memory_id`,
           )
           .all() as Array<{ memory_id: string }>;
         expect(sharedHits.map((h) => h.memory_id).sort()).toEqual([
@@ -229,12 +229,12 @@ describe('migration 0017_memory_schema_v2 — schema shape (skipped without nati
 
         db.exec(
           `INSERT INTO memory_concepts_fts(memory_id, concept)
-           SELECT id, json_each.value FROM memories, json_each(memories.concepts_json) WHERE memories.id = 'mem-γ'`,
+           SELECT memories.id, json_each.value FROM memories, json_each(memories.concepts_json) WHERE memories.id = 'mem-γ'`,
         );
 
         const before = db
           .prepare(
-            `SELECT COUNT(*) AS n FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'gamma-concept'`,
+            `SELECT COUNT(*) AS n FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"gamma-concept"'`,
           )
           .get() as { n: number };
         expect(before.n).toBe(1);
@@ -243,7 +243,7 @@ describe('migration 0017_memory_schema_v2 — schema shape (skipped without nati
 
         const after = db
           .prepare(
-            `SELECT COUNT(*) AS n FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'gamma-concept'`,
+            `SELECT COUNT(*) AS n FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"gamma-concept"'`,
           )
           .get() as { n: number };
         expect(after.n).toBe(0);
@@ -275,13 +275,13 @@ describe('migration 0017_memory_schema_v2 — schema shape (skipped without nati
           db.exec(
             `INSERT INTO memory_concepts_fts(memory_concepts_fts) VALUES('delete-all');
              INSERT INTO memory_concepts_fts(memory_id, concept)
-               SELECT id, json_each.value FROM memories, json_each(memories.concepts_json);`,
+               SELECT memories.id, json_each.value FROM memories, json_each(memories.concepts_json);`,
           ),
         ).not.toThrow();
 
         const hits = db
           .prepare(
-            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'delta-concept'`,
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"delta-concept"'`,
           )
           .all() as Array<{ memory_id: string }>;
         expect(hits.map((h) => h.memory_id)).toEqual(['mem-δ']);

@@ -648,7 +648,7 @@ export class MemoryStore implements IMemoryLister {
     db.exec(
       `INSERT INTO memory_concepts_fts(memory_concepts_fts) VALUES('delete-all');
        INSERT INTO memory_concepts_fts(memory_id, concept)
-         SELECT id, json_each.value FROM memories, json_each(memories.concepts_json);`,
+         SELECT memories.id, json_each.value FROM memories, json_each(memories.concepts_json);`,
     );
     return { rebuilt: true };
   }
