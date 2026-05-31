@@ -9,15 +9,13 @@
  * Pattern: namespace-builders/agent-namespace.builder.ts
  */
 
-import crossSpawn from 'cross-spawn';
 import * as path from 'path';
 import type { GitNamespace } from '../types';
+import { execGit, WORKTREE_GIT_TIMEOUT_MS } from '@ptah-extension/vscode-core';
 import {
   parseWorktreeList,
   type GitWorktreeInfo,
 } from '@ptah-extension/shared';
-
-const GIT_TIMEOUT_MS = 10_000;
 
 /**
  * Callback for worktree change notifications.
@@ -44,27 +42,16 @@ export interface GitNamespaceDependencies {
 /**
  * Build the git namespace with worktree operations.
  *
- * All git commands are executed via cross-spawn with a 10-second timeout.
- * cross-spawn handles Windows .cmd wrappers automatically, preventing
- * EINVAL/ENOENT errors without needing shell: true.
- *
- * @param deps - Dependencies containing the workspace root path
- * @returns GitNamespace with worktreeList, worktreeAdd, worktreeRemove methods
+ * Delegates subprocess execution to the shared `execGit` helper in vscode-core,
+ * with a worktree-sized timeout (`WORKTREE_GIT_TIMEOUT_MS`) and cross-platform
+ * process-tree kill on timeout.
  */
 export function buildGitNamespace(
   deps: GitNamespaceDependencies,
 ): GitNamespace {
   const { getWorkspaceRoot, onWorktreeChanged } = deps;
 
-  /**
-   * Execute a git command and return stdout/stderr/exitCode.
-   * Uses cross-spawn which handles Windows .cmd wrappers automatically,
-   * preventing EINVAL errors while keeping command injection safety
-   * (no shell: true needed).
-   *
-   * @see apps/ptah-electron/src/services/git-info.service.ts for the same pattern
-   */
-  function execGit(
+  function runGit(
     args: string[],
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const cwd = getWorkspaceRoot();
@@ -75,50 +62,7 @@ export function buildGitNamespace(
         ),
       );
     }
-    return new Promise((resolve, reject) => {
-      const child = crossSpawn('git', args, {
-        cwd,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      let stdout = '';
-      let stderr = '';
-      let settled = false;
-
-      const timeout = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          child.kill('SIGTERM');
-          reject(
-            new Error(`git ${args[0]} timed out after ${GIT_TIMEOUT_MS}ms`),
-          );
-        }
-      }, GIT_TIMEOUT_MS);
-
-      child.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      child.stderr?.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      child.on('close', (code: number | null) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timeout);
-          resolve({ stdout, stderr, exitCode: code ?? 1 });
-        }
-      });
-
-      child.on('error', (error: Error) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timeout);
-          reject(error);
-        }
-      });
-    });
+    return execGit(args, cwd, { timeoutMs: WORKTREE_GIT_TIMEOUT_MS });
   }
 
   return {
@@ -127,7 +71,7 @@ export function buildGitNamespace(
       error?: string;
     }> {
       try {
-        const { stdout, stderr, exitCode } = await execGit([
+        const { stdout, stderr, exitCode } = await runGit([
           'worktree',
           'list',
           '--porcelain',
@@ -163,7 +107,7 @@ export function buildGitNamespace(
           args.push(worktreePath, params.branch);
         }
 
-        const { exitCode, stderr } = await execGit(args);
+        const { exitCode, stderr } = await runGit(args);
 
         if (exitCode !== 0) {
           return {
@@ -197,7 +141,7 @@ export function buildGitNamespace(
         }
         args.push(params.path);
 
-        const { exitCode, stderr } = await execGit(args);
+        const { exitCode, stderr } = await runGit(args);
 
         if (exitCode !== 0) {
           return {

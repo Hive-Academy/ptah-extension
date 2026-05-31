@@ -5,9 +5,14 @@
  * Uses cross-spawn for Windows compatibility. Zero new dependencies.
  */
 
-import crossSpawn from 'cross-spawn';
 import * as path from 'path';
 import type { Logger } from '../logging';
+import {
+  execGit,
+  WORKTREE_GIT_TIMEOUT_MS,
+  type ExecGitOptions,
+  type ExecGitResult,
+} from '../utils/exec-git';
 import {
   parseWorktreeList,
   type GitBranchInfo,
@@ -30,8 +35,6 @@ import {
   type GitRemotesResult,
   type GitLastCommitResult,
 } from '@ptah-extension/shared';
-
-const GIT_TIMEOUT_MS = 10_000;
 
 export class GitInfoService {
   constructor(private readonly logger: Logger) {}
@@ -86,6 +89,7 @@ export class GitInfoService {
       const { stdout, exitCode } = await this.execGit(
         ['worktree', 'list', '--porcelain'],
         workspacePath,
+        { timeoutMs: WORKTREE_GIT_TIMEOUT_MS },
       );
 
       if (exitCode !== 0) {
@@ -117,7 +121,9 @@ export class GitInfoService {
         args.push(worktreePath, params.branch);
       }
 
-      const { exitCode, stderr } = await this.execGit(args, workspacePath);
+      const { exitCode, stderr } = await this.execGit(args, workspacePath, {
+        timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
+      });
 
       if (exitCode !== 0) {
         return {
@@ -150,7 +156,9 @@ export class GitInfoService {
       }
       args.push(worktreePath);
 
-      const { exitCode, stderr } = await this.execGit(args, workspacePath);
+      const { exitCode, stderr } = await this.execGit(args, workspacePath, {
+        timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
+      });
 
       if (exitCode !== 0) {
         return {
@@ -867,51 +875,9 @@ export class GitInfoService {
   private execGit(
     args: string[],
     cwd: string,
-  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    return new Promise((resolve, reject) => {
-      const child = crossSpawn('git', args, {
-        cwd,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      let stdout = '';
-      let stderr = '';
-      let settled = false;
-
-      const timeout = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          child.kill('SIGTERM');
-          reject(
-            new Error(`git ${args[0]} timed out after ${GIT_TIMEOUT_MS}ms`),
-          );
-        }
-      }, GIT_TIMEOUT_MS);
-
-      child.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      child.stderr?.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      child.on('close', (code: number | null) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timeout);
-          resolve({ stdout, stderr, exitCode: code ?? 1 });
-        }
-      });
-
-      child.on('error', (error: Error) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timeout);
-          reject(error);
-        }
-      });
-    });
+    options?: ExecGitOptions,
+  ): Promise<ExecGitResult> {
+    return execGit(args, cwd, options);
   }
 
   /**
