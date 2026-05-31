@@ -40,6 +40,7 @@ export {
   CompactionHookHandler,
   type CompactionStartCallback,
   isPreCompactHook,
+  isPostCompactHook,
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
 export { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
@@ -185,4 +186,5 @@ export {
   type SdkAdapterDisposedEvent,
   type SdkAdapterConfigChangedEvent,
   type SdkAdapterAuthFileChangedEvent,
+  type SdkAdapterCompactionCompleteEvent,
 } from './sdk-adapter-events.service';

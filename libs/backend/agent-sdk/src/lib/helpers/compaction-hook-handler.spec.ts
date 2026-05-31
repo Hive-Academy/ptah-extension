@@ -20,6 +20,10 @@ import type { LiveUsageTracker } from './live-usage-tracker';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 
 import { CompactionHookHandler } from './compaction-hook-handler';
+import type {
+  SdkAdapterEvents,
+  SdkAdapterCompactionCompleteEvent,
+} from './sdk-adapter-events.service';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -87,5 +91,177 @@ describe('CompactionHookHandler — PreCompact callback (TASK_2026_109 A2)', () 
       }),
     );
     expect(typeof received[0].timestamp).toBe('number');
+  });
+});
+
+describe('CompactionHookHandler — PostCompact hook (TASK_2026_137 Phase 1)', () => {
+  function makeAdapterEventsStub(): {
+    stub: SdkAdapterEvents;
+    emitted: SdkAdapterCompactionCompleteEvent[];
+  } {
+    const emitted: SdkAdapterCompactionCompleteEvent[] = [];
+    const stub = {
+      emitCompactionComplete: jest.fn(
+        (event: SdkAdapterCompactionCompleteEvent) => {
+          emitted.push(event);
+        },
+      ),
+    } as unknown as SdkAdapterEvents;
+    return { stub, emitted };
+  }
+
+  it('emits compactionComplete via SdkAdapterEvents bus with manual trigger', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(0);
+    const { stub, emitted } = makeAdapterEventsStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+    );
+
+    const hooks = handler.createHooks('sess-pc-1', '/repo');
+    const fn = hooks.PostCompact?.[0]?.hooks?.[0];
+    expect(typeof fn).toBe('function');
+
+    const hookInput: HookInput = {
+      hook_event_name: 'PostCompact',
+      session_id: 'sess-pc-1',
+      cwd: '/repo',
+      trigger: 'manual',
+      compact_summary: 'first-compaction-summary',
+      transcript_path: '/tmp/tx',
+    } as unknown as HookInput;
+
+    const result = await fn?.(hookInput, undefined, {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toEqual(
+      expect.objectContaining({
+        sessionId: 'sess-pc-1',
+        cwd: '/repo',
+        trigger: 'manual',
+        compactSummary: 'first-compaction-summary',
+      }),
+    );
+    expect(typeof emitted[0].timestamp).toBe('number');
+  });
+
+  it('emits compactionComplete via SdkAdapterEvents bus with auto trigger', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(0);
+    const { stub, emitted } = makeAdapterEventsStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+    );
+
+    const hooks = handler.createHooks('sess-pc-2', '/repo');
+    const fn = hooks.PostCompact?.[0]?.hooks?.[0];
+
+    const hookInput: HookInput = {
+      hook_event_name: 'PostCompact',
+      session_id: 'sess-pc-2',
+      cwd: '/repo',
+      trigger: 'auto',
+      compact_summary: 'auto-summary',
+      transcript_path: '/tmp/tx',
+    } as unknown as HookInput;
+
+    const result = await fn?.(hookInput, undefined, {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toEqual(
+      expect.objectContaining({
+        sessionId: 'sess-pc-2',
+        cwd: '/repo',
+        trigger: 'auto',
+        compactSummary: 'auto-summary',
+      }),
+    );
+  });
+
+  it('registers PostCompact entry in createHooks returned record', () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(0);
+    const { stub } = makeAdapterEventsStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+    );
+
+    const hooks = handler.createHooks('sess-pc-3', '/repo');
+    expect(hooks.PostCompact).toBeDefined();
+    expect(Array.isArray(hooks.PostCompact)).toBe(true);
+    expect(hooks.PostCompact?.[0]?.hooks?.[0]).toEqual(expect.any(Function));
+  });
+
+  it('does not throw when sdkAdapterEvents dependency is absent', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(0);
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+    );
+
+    const hooks = handler.createHooks('sess-pc-4', '/repo');
+    const fn = hooks.PostCompact?.[0]?.hooks?.[0];
+
+    const hookInput: HookInput = {
+      hook_event_name: 'PostCompact',
+      session_id: 'sess-pc-4',
+      cwd: '/repo',
+      trigger: 'manual',
+      compact_summary: 'summary',
+      transcript_path: '/tmp/tx',
+    } as unknown as HookInput;
+
+    const result = await fn?.(hookInput, undefined, {
+      signal: new AbortController().signal,
+    });
+    expect(result).toEqual({ continue: true });
+  });
+
+  it('skips emit when trigger value is invalid', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(0);
+    const { stub, emitted } = makeAdapterEventsStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+    );
+
+    const hooks = handler.createHooks('sess-pc-5', '/repo');
+    const fn = hooks.PostCompact?.[0]?.hooks?.[0];
+
+    const hookInput: HookInput = {
+      hook_event_name: 'PostCompact',
+      session_id: 'sess-pc-5',
+      cwd: '/repo',
+      trigger: 'bogus',
+      compact_summary: 's',
+      transcript_path: '/tmp/tx',
+    } as unknown as HookInput;
+
+    const result = await fn?.(hookInput, undefined, {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(emitted).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalled();
   });
 });

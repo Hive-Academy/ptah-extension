@@ -102,6 +102,7 @@ export {
 export {
   CompactionHookHandler,
   type CompactionStartCallback,
+  isPostCompactHook,
 } from './lib/helpers';
 export { CompactionConfigProvider } from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
@@ -111,6 +112,7 @@ export {
   type SdkAdapterDisposedEvent,
   type SdkAdapterConfigChangedEvent,
   type SdkAdapterAuthFileChangedEvent,
+  type SdkAdapterCompactionCompleteEvent,
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';

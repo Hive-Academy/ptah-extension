@@ -116,6 +116,117 @@ describe('SdkAdapterEvents', () => {
       ).not.toThrow();
       expect(logger.warn).toHaveBeenCalled();
     });
+
+    it('swallows compactionComplete listener throws and logs', () => {
+      const { events, logger } = make();
+      const throwing = jest.fn(() => {
+        throw new Error('listener boom');
+      });
+      events.onCompactionComplete(throwing);
+
+      expect(() =>
+        events.emitCompactionComplete({
+          sessionId: 'sess-1',
+          cwd: '/repo',
+          trigger: 'auto',
+          compactSummary: 'summary',
+          timestamp: 1,
+        }),
+      ).not.toThrow();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('compactionComplete', () => {
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onCompactionComplete(listener);
+
+      const payload = {
+        sessionId: 'sess-7',
+        cwd: '/repo',
+        trigger: 'manual' as const,
+        compactSummary: 'summary text',
+        timestamp: 1700,
+      };
+      events.emitCompactionComplete(payload);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(payload);
+    });
+
+    it('supports auto trigger and multiple subscribers', () => {
+      const { events } = make();
+      const a = jest.fn();
+      const b = jest.fn();
+      events.onCompactionComplete(a);
+      events.onCompactionComplete(b);
+
+      events.emitCompactionComplete({
+        sessionId: 'sess-9',
+        cwd: '/repo',
+        trigger: 'auto',
+        compactSummary: 's',
+        timestamp: 2,
+      });
+
+      expect(a).toHaveBeenCalledTimes(1);
+      expect(b).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns an unsubscribe function that stops further delivery', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      const off = events.onCompactionComplete(listener);
+
+      events.emitCompactionComplete({
+        sessionId: 'sess-1',
+        cwd: '/repo',
+        trigger: 'manual',
+        compactSummary: 's',
+        timestamp: 1,
+      });
+      off();
+      events.emitCompactionComplete({
+        sessionId: 'sess-1',
+        cwd: '/repo',
+        trigger: 'manual',
+        compactSummary: 's',
+        timestamp: 2,
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cross-deliver between compactionComplete and other channels', () => {
+      const { events } = make();
+      const compactionListener = jest.fn();
+      const initListener = jest.fn();
+      events.onCompactionComplete(compactionListener);
+      events.onInitialized(initListener);
+
+      events.emitCompactionComplete({
+        sessionId: 'sess-1',
+        cwd: '/repo',
+        trigger: 'manual',
+        compactSummary: 's',
+        timestamp: 1,
+      });
+
+      expect(compactionListener).toHaveBeenCalledTimes(1);
+      expect(initListener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('root-barrel reachability smoke', () => {
+    it('exposes SdkAdapterCompactionCompleteEvent type via root barrel', async () => {
+      const rootBarrel = await import('../../index');
+      const helpersBarrel = await import('./index');
+      expect(rootBarrel.SdkAdapterEvents).toBeDefined();
+      expect(helpersBarrel.SdkAdapterEvents).toBeDefined();
+      expect(helpersBarrel.isPostCompactHook).toBeDefined();
+    });
   });
 
   describe('removeAllListeners', () => {

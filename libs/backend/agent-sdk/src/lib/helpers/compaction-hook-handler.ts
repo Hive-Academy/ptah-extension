@@ -25,6 +25,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   PreCompactHookInput,
+  PostCompactHookInput,
   HookCallbackMatcher,
   HookEvent,
   HookJSONOutput,
@@ -33,6 +34,7 @@ import type {
 import { SDK_TOKENS } from '../di/tokens';
 import type { LiveUsageTracker } from './live-usage-tracker';
 import type { CompactionCallbackRegistry } from './compaction-callback-registry';
+import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 
 /**
  * Callback type for notifying when compaction starts
@@ -66,6 +68,15 @@ export function isPreCompactHook(
 }
 
 /**
+ * Type guard narrowing a hook input to PostCompactHookInput.
+ */
+export function isPostCompactHook(
+  input: HookInput,
+): input is PostCompactHookInput {
+  return input.hook_event_name === 'PostCompact';
+}
+
+/**
  * CompactionHookHandler Service
  *
  * Creates SDK hook callbacks that notify the UI when compaction starts.
@@ -91,6 +102,8 @@ export class CompactionHookHandler {
     private readonly usageTracker: LiveUsageTracker,
     @inject(SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY)
     private readonly callbackRegistry?: CompactionCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS)
+    private readonly sdkAdapterEvents?: SdkAdapterEvents,
   ) {}
 
   /**
@@ -120,6 +133,7 @@ export class CompactionHookHandler {
       hasCallback: !!capturedCallback,
     });
 
+    const sdkAdapterEvents = this.sdkAdapterEvents;
     return {
       PreCompact: [
         {
@@ -219,6 +233,70 @@ export class CompactionHookHandler {
               } catch (error) {
                 this.logger.error(
                   '[CompactionHookHandler] Error in PreCompact hook',
+                  error instanceof Error ? error : new Error(String(error)),
+                );
+              }
+              return { continue: true };
+            },
+          ],
+        },
+      ],
+      PostCompact: [
+        {
+          hooks: [
+            async (
+              input: HookInput,
+              _toolUseId: string | undefined,
+              _options: { signal: AbortSignal },
+            ): Promise<HookJSONOutput> => {
+              this.logger.info(
+                '[CompactionHookHandler] PostCompact hook invoked',
+                {
+                  hookEventName: input.hook_event_name,
+                  sessionId,
+                },
+              );
+
+              try {
+                if (!isPostCompactHook(input)) {
+                  this.logger.warn(
+                    '[CompactionHookHandler] Unexpected hook input type for PostCompact',
+                    {
+                      expected: 'PostCompact',
+                      received: input.hook_event_name,
+                    },
+                  );
+                  return { continue: true };
+                }
+                const trigger = input.trigger;
+                if (trigger !== 'manual' && trigger !== 'auto') {
+                  this.logger.warn(
+                    '[CompactionHookHandler] Invalid trigger value, skipping emit',
+                    {
+                      trigger,
+                      sessionId,
+                    },
+                  );
+                  return { continue: true };
+                }
+
+                if (sdkAdapterEvents) {
+                  sdkAdapterEvents.emitCompactionComplete({
+                    sessionId: input.session_id ?? sessionId,
+                    cwd: input.cwd ?? cwd ?? '',
+                    trigger,
+                    compactSummary: input.compact_summary,
+                    timestamp: Date.now(),
+                  });
+                }
+
+                this.logger.debug(
+                  '[CompactionHookHandler] PostCompact processed successfully',
+                  { sessionId },
+                );
+              } catch (error: unknown) {
+                this.logger.error(
+                  '[CompactionHookHandler] Error in PostCompact hook',
                   error instanceof Error ? error : new Error(String(error)),
                 );
               }

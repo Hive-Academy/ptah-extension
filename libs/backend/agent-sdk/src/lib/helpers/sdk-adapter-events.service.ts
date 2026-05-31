@@ -22,11 +22,20 @@ export interface SdkAdapterAuthFileChangedEvent {
   readonly timestamp: number;
 }
 
+export interface SdkAdapterCompactionCompleteEvent {
+  readonly sessionId: string;
+  readonly cwd: string;
+  readonly trigger: 'manual' | 'auto';
+  readonly compactSummary: string;
+  readonly timestamp: number;
+}
+
 interface SdkAdapterEventMap {
   initialized: (event: SdkAdapterInitializedEvent) => void;
   disposed: (event: SdkAdapterDisposedEvent) => void;
   configChanged: (event: SdkAdapterConfigChangedEvent) => void;
   authFileChanged: (event: SdkAdapterAuthFileChangedEvent) => void;
+  compactionComplete: (event: SdkAdapterCompactionCompleteEvent) => void;
 }
 
 export type SdkAdapterEventName = keyof SdkAdapterEventMap;
@@ -51,6 +60,10 @@ export class SdkAdapterEvents {
 
   emitAuthFileChanged(event: SdkAdapterAuthFileChangedEvent): void {
     this.safeEmit('authFileChanged', event);
+  }
+
+  emitCompactionComplete(event: SdkAdapterCompactionCompleteEvent): void {
+    this.safeEmit('compactionComplete', event);
   }
 
   onInitialized(
@@ -79,6 +92,13 @@ export class SdkAdapterEvents {
     return () => this.emitter.off('authFileChanged', listener);
   }
 
+  onCompactionComplete(
+    listener: (event: SdkAdapterCompactionCompleteEvent) => void,
+  ): () => void {
+    this.emitter.on('compactionComplete', listener);
+    return () => this.emitter.off('compactionComplete', listener);
+  }
+
   removeAllListeners(): void {
     this.emitter.removeAllListeners();
   }
@@ -97,7 +117,8 @@ export class SdkAdapterEvents {
         payload as unknown as SdkAdapterInitializedEvent &
           SdkAdapterDisposedEvent &
           SdkAdapterConfigChangedEvent &
-          SdkAdapterAuthFileChangedEvent,
+          SdkAdapterAuthFileChangedEvent &
+          SdkAdapterCompactionCompleteEvent,
       );
     } catch (err) {
       this.logger.warn(
