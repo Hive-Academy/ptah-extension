@@ -104,6 +104,12 @@ function makeService(
     } as never,
     stub as never,
     workspaceProvider,
+    {
+      type: 'cli',
+      extensionPath: '/tmp/ptah-app',
+      globalStoragePath: '/tmp/ptah-storage',
+      workspaceStoragePath: '/tmp/ptah-workspace-storage',
+    } as never,
     stub as never,
     {
       handleStart: jest.fn().mockResolvedValue({ result: { success: false } }),

@@ -12,6 +12,39 @@
 
 import 'reflect-metadata';
 
+// `ChatSessionService` now imports `@ptah-extension/cli-agent-runtime` (for the
+// session-time Smithery override resolver), whose barrel transitively pulls
+// `@ptah-extension/workspace-intelligence`. That lib's TreeSitter module
+// evaluates `import.meta.url` at top level — a construct ts-jest's CJS
+// transform cannot parse. Stub it (mirrors `chat-session-auth.spec`).
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: {},
+  Framework: {},
+  MonorepoType: {},
+  FileType: {},
+  TreeSitterParserService: class TreeSitterParserServiceStub {},
+  AstAnalysisService: class AstAnalysisServiceStub {},
+  DependencyGraphService: class DependencyGraphServiceStub {},
+  WorkspaceAnalyzerService: class WorkspaceAnalyzerServiceStub {},
+  ContextService: class ContextServiceStub {},
+  ContextOrchestrationService: class ContextOrchestrationServiceStub {},
+  WorkspaceService: class WorkspaceServiceStub {},
+  TokenCounterService: class TokenCounterServiceStub {},
+  FileSystemService: class FileSystemServiceStub {},
+  FileSystemError: class FileSystemErrorStub extends Error {},
+  ProjectDetectorService: class ProjectDetectorServiceStub {},
+  FrameworkDetectorService: class FrameworkDetectorServiceStub {},
+  DependencyAnalyzerService: class DependencyAnalyzerServiceStub {},
+  MonorepoDetectorService: class MonorepoDetectorServiceStub {},
+  PatternMatcherService: class PatternMatcherServiceStub {},
+  IgnorePatternResolverService: class IgnorePatternResolverServiceStub {},
+  WorkspaceIndexerService: class WorkspaceIndexerServiceStub {},
+  FileTypeClassifierService: class FileTypeClassifierServiceStub {},
+  FileRelevanceScorerService: class FileRelevanceScorerServiceStub {},
+  ContextSizeOptimizerService: class ContextSizeOptimizerServiceStub {},
+  ContextEnrichmentService: class ContextEnrichmentServiceStub {},
+}));
+
 import type {
   Logger,
   ConfigManager,
@@ -71,9 +104,7 @@ function makeService(params: {
     get: jest.fn().mockResolvedValue(null),
   };
   const licenseService = {
-    verifyLicense: jest
-      .fn()
-      .mockResolvedValue({ valid: false, tier: 'free' }),
+    verifyLicense: jest.fn().mockResolvedValue({ valid: false, tier: 'free' }),
   } as unknown as LicenseService;
   const premiumContext = {
     isMcpServerRunning: jest.fn().mockReturnValue(false),
@@ -105,6 +136,12 @@ function makeService(params: {
     } as never,
     sessionMetadataStore as never,
     provider as unknown as IWorkspaceProvider,
+    {
+      type: 'cli',
+      extensionPath: '/tmp/ptah-app',
+      globalStoragePath: '/tmp/ptah-storage',
+      workspaceStoragePath: '/tmp/ptah-workspace-storage',
+    } as never,
     premiumContext as never,
     {
       handleStart: jest.fn().mockResolvedValue({ result: { success: false } }),
@@ -114,6 +151,11 @@ function makeService(params: {
     stub as never,
     stub as never,
     createMockModelSettings() as unknown as ModelSettings,
+    {
+      getProviderKey: jest.fn().mockResolvedValue(null),
+      setProviderKey: jest.fn().mockResolvedValue(undefined),
+      deleteProviderKey: jest.fn().mockResolvedValue(undefined),
+    } as never,
   );
 }
 
