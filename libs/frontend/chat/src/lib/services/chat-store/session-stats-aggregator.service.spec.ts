@@ -535,6 +535,73 @@ describe('SessionStatsAggregatorService', () => {
     });
   });
 
+  // Phase 2 Batch 4 — SESSION_STATS demotion. Stop / StopFailure (via
+  // TurnEndHandlerService) is now the primary turn-end pivot. The aggregator
+  // never mutated tab.status directly; this suite locks that invariant in
+  // and proves both post-Stop and pre-Stop SESSION_STATS still reach the
+  // streamingHandler safety-net / merge entry point.
+  //
+  // The status-flip vs no-flip behavior itself is enforced by the
+  // Stop-observed guard inside StreamingHandlerService.handleSessionStats
+  // (see streaming-handler.service.spec.ts → "Stop-observed guard"
+  // describe block).
+  describe('Phase 2 Batch 4 — SESSION_STATS demotion', () => {
+    it('SESSION_STATS arriving AFTER Stop merges stats and delegates to streamingHandler (no aggregator-side status mutation)', () => {
+      tabs = [
+        makeTab({
+          status: 'loaded',
+          lastTerminalReason: 'completed',
+          preloadedStats: {
+            totalCost: 1.0,
+            tokens: {
+              input: 1000,
+              output: 500,
+              cacheRead: 100,
+              cacheCreation: 50,
+            },
+            messageCount: 5,
+          },
+        } as Partial<TabState>),
+      ];
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+
+      service.handleSessionStats(baseStats);
+
+      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
+      expect(tabs[0].status).toBe('loaded');
+    });
+
+    it('SESSION_STATS arriving WITHOUT Stop still merges stats and delegates safety-net finalize via streamingHandler', () => {
+      tabs = [
+        makeTab({
+          status: 'streaming',
+          lastTerminalReason: null,
+          preloadedStats: {
+            totalCost: 1.0,
+            tokens: {
+              input: 1000,
+              output: 500,
+              cacheRead: 100,
+              cacheCreation: 50,
+            },
+            messageCount: 5,
+          },
+        } as Partial<TabState>),
+      ];
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+
+      service.handleSessionStats(baseStats);
+
+      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
+    });
+  });
+
   describe('C3 — primary-model selection delegated to shared pickPrimaryModel', () => {
     it('returns the same model name on tied costs across runs (deterministic ordering)', () => {
       const tiedUsage = [
