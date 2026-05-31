@@ -91,6 +91,16 @@ describe('TabManagerService — intent-named mutators', () => {
       service.setStatus(id, 'switching');
       expect(service.tabs().find((t) => t.id === id)?.status).toBe('switching');
     });
+
+    it('markTabAwaitingBackground flips status to awaiting-background on microtask', async () => {
+      const id = service.createTab('awaiting');
+      service.markStreaming(id);
+      service.markTabAwaitingBackground(id);
+      await Promise.resolve();
+      expect(service.tabs().find((t) => t.id === id)?.status).toBe(
+        'awaiting-background',
+      );
+    });
   });
 
   describe('session id attach', () => {
@@ -333,6 +343,27 @@ describe('TabManagerService — intent-named mutators', () => {
       service.setLastTerminalReason(id, null);
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.lastTerminalReason).toBeNull();
+    });
+
+    it('setPendingBackgroundTasks replaces the snapshot without touching other fields', () => {
+      const id = service.createTab('bg-snapshot');
+      service.setTurnEndedFields(id, {
+        pendingBackgroundTasks: [
+          { id: 'bg-1', type: 'subagent', status: 'running', description: 'a' },
+          { id: 'bg-2', type: 'subagent', status: 'running', description: 'b' },
+        ],
+        pendingSessionCrons: [],
+        lastTerminalReason: 'completed',
+      });
+
+      service.setPendingBackgroundTasks(id, [
+        { id: 'bg-2', type: 'subagent', status: 'running', description: 'b' },
+      ]);
+
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.pendingBackgroundTasks).toHaveLength(1);
+      expect(tab?.pendingBackgroundTasks?.[0].id).toBe('bg-2');
+      expect(tab?.lastTerminalReason).toBe('completed');
     });
   });
 

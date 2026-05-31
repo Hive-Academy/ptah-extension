@@ -12,6 +12,7 @@ import type {
   AskUserQuestionRequest,
   AskUserQuestionResponse,
   SdkCompactionCompletePayload,
+  SdkSubagentEndedPayload,
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
 } from '@ptah-extension/shared';
@@ -256,6 +257,16 @@ export class ChatStore {
    */
   handleTurnFailedNotification(payload: SdkTurnFailedPayload): void {
     this.turnEndHandler.handleTurnFailed(payload);
+  }
+
+  /**
+   * Handle the `session:subagentEnded` push notification from the backend
+   * `SubagentStop` SDK hook. Delegates to `TurnEndHandlerService` so the
+   * background-task snapshot reconciliation and `awaiting-background →
+   * loaded` pivot land on every bound tab.
+   */
+  handleSubagentEndedNotification(payload: SdkSubagentEndedPayload): void {
+    this.turnEndHandler.handleSubagentEnded(payload);
   }
 
   /**

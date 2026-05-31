@@ -1,15 +1,38 @@
 import { Injectable, inject } from '@angular/core';
 import {
   SessionId,
+  type SdkAssistantMessageError,
+  type SdkSubagentEndedPayload,
   type SdkTurnEndedPayload,
   type SdkTurnFailedPayload,
 } from '@ptah-extension/shared';
-import { TabManagerService } from '@ptah-extension/chat-state';
-import { MessageFinalizationService } from '@ptah-extension/chat-streaming';
+import {
+  TabManagerService,
+  type BackgroundAgentId,
+} from '@ptah-extension/chat-state';
+import {
+  BackgroundAgentStore,
+  MessageFinalizationService,
+} from '@ptah-extension/chat-streaming';
 import { ChatLifecycleService } from './chat-lifecycle.service';
 
+const SDK_ERROR_MESSAGES: Readonly<Record<SdkAssistantMessageError, string>> = {
+  authentication_failed:
+    'Authentication failed. Check your API key in Settings.',
+  rate_limit: 'Rate limited by Anthropic. Wait a moment and try again.',
+  oauth_org_not_allowed:
+    "This organization is not allowed to access Anthropic's API.",
+  billing_error: 'Billing error. Check your Anthropic account.',
+  invalid_request: 'Invalid request to Anthropic API.',
+  model_not_found: 'Model not found. Check your model selection in Settings.',
+  server_error: 'Anthropic server error. Try again shortly.',
+  max_output_tokens: 'Maximum output tokens reached.',
+  unknown: 'An unknown error occurred.',
+};
+
 /**
- * TurnEndHandlerService - Owns the SDK `Stop` / `StopFailure` turn-end pivot.
+ * TurnEndHandlerService - Owns the SDK `Stop` / `StopFailure` / `SubagentStop`
+ * turn-end pivot.
  *
  * Responsibilities:
  * - Resolve tabs bound to the payload's sessionId and fan out turn-end
@@ -19,20 +42,24 @@ import { ChatLifecycleService } from './chat-lifecycle.service';
  *   streaming-handler safety-net) can read them.
  * - Finalize the in-flight assistant message via
  *   `MessageFinalizationService.finalizeCurrentMessage(tabId, isAborted)`.
- * - Flip the tab to idle via `TabManagerService.markTabIdle(tabId)`.
- *
- * Phase 2 always settles the tab to its existing idle status; the
- * `awaiting-background` distinction lives in Phase 3.
+ * - Pivot the tab status: `'awaiting-background'` when the Stop snapshot
+ *   reports in-flight background tasks, else `'loaded'` via the visual
+ *   `markTabIdle` path (Phase 2 behavior preserved when no background work).
+ * - Reconcile `BackgroundAgentStore` + per-tab `pendingBackgroundTasks` on
+ *   each SubagentStop and flip `'awaiting-background' → 'loaded'` when the
+ *   SDK reports zero remaining background tasks.
  *
  * StopFailure path reuses `ChatLifecycleService.handleChatError` for the
  * user-facing error surface so the existing 3-tier tab routing + state reset
- * remains the single error-rendering channel.
+ * remains the single error-rendering channel. The raw SDK error code is
+ * mapped to a user-readable string via `formatTurnFailedError`.
  */
 @Injectable({ providedIn: 'root' })
 export class TurnEndHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly finalization = inject(MessageFinalizationService);
   private readonly lifecycle = inject(ChatLifecycleService);
+  private readonly backgroundAgents = inject(BackgroundAgentStore);
 
   /**
    * Handle the `session:turnEnded` push (backend `Stop` SDK hook). Fans out to
@@ -55,6 +82,7 @@ export class TurnEndHandlerService {
     }
     const isAborted =
       payload.terminalReason !== 'completed' && payload.terminalReason !== null;
+    const hasBackgroundWork = payload.backgroundTasks.length > 0;
     for (const tab of tabs) {
       this.tabManager.setTurnEndedFields(tab.id, {
         pendingBackgroundTasks: payload.backgroundTasks,
@@ -63,6 +91,56 @@ export class TurnEndHandlerService {
       });
       this.finalization.finalizeCurrentMessage(tab.id, isAborted);
       this.tabManager.markTabIdle(tab.id);
+      if (hasBackgroundWork) {
+        this.tabManager.markTabAwaitingBackground(tab.id);
+      }
+    }
+  }
+
+  /**
+   * Handle the `session:subagentEnded` push (backend `SubagentStop` SDK hook).
+   * Reconciles `BackgroundAgentStore` with the stopped agent and applies the
+   * SDK's authoritative `backgroundTasks` snapshot onto every bound tab.
+   *
+   * Status-transition matrix (`tab.status` before → after):
+   *   `awaiting-background` + remaining === 0 → `loaded`
+   *   `awaiting-background` + remaining > 0   → `awaiting-background` (snapshot only)
+   *   `loaded`                                → `loaded` (idempotent snapshot)
+   *   `streaming`                             → `streaming` (race: Stop pending)
+   *   `resuming` / `fresh` / `draft`          → unchanged (snapshot only)
+   */
+  handleSubagentEnded(payload: SdkSubagentEndedPayload): void {
+    const sessionId = SessionId.from(payload.sessionId);
+    const tabs = this.tabManager.findTabsBySessionId(sessionId);
+    if (tabs.length === 0) {
+      console.warn(
+        '[ChatStore] handleSubagentEnded: no tab bound to sessionId',
+        { sessionId: payload.sessionId, agentId: payload.agentId },
+      );
+      return;
+    }
+    const agentKey = payload.agentId as BackgroundAgentId;
+    const knownEntry = this.backgroundAgents.findByAgentId(agentKey);
+    const resolvedToolCallId = knownEntry?.toolCallId ?? '';
+    this.backgroundAgents.onStopped({
+      id: `subagent-stopped-${payload.agentId}-${payload.timestamp}`,
+      eventType: 'background_agent_stopped',
+      timestamp: payload.timestamp,
+      sessionId: payload.sessionId,
+      messageId: '',
+      toolCallId: resolvedToolCallId,
+      agentId: payload.agentId,
+      agentType: payload.agentType,
+    });
+    const remaining = payload.backgroundTasks.length;
+    for (const tab of tabs) {
+      this.tabManager.setPendingBackgroundTasks(
+        tab.id,
+        payload.backgroundTasks,
+      );
+      if (tab.status === 'awaiting-background' && remaining === 0) {
+        this.tabManager.markLoaded(tab.id);
+      }
     }
   }
 
@@ -89,18 +167,25 @@ export class TurnEndHandlerService {
       this.finalization.finalizeCurrentMessage(tab.id, true);
       this.tabManager.markTabIdle(tab.id);
     }
-    const errorMessage = this.formatError(payload);
+    const errorMessage = this.formatTurnFailedError(payload);
     this.lifecycle.handleChatError({
       sessionId: payload.sessionId,
       error: errorMessage,
     });
   }
 
-  private formatError(payload: SdkTurnFailedPayload): string {
-    const base = payload.error ?? 'unknown';
+  /**
+   * Map an SDK `StopFailure` payload to a user-readable error string.
+   * Falls back to the `'unknown'` mapping for any code not present in the
+   * `SDK_ERROR_MESSAGES` table; appends `errorDetails` in parentheses when
+   * the SDK provides additional context.
+   */
+  private formatTurnFailedError(payload: SdkTurnFailedPayload): string {
+    const friendly =
+      SDK_ERROR_MESSAGES[payload.error] ?? SDK_ERROR_MESSAGES.unknown;
     if (payload.errorDetails) {
-      return `${base}: ${payload.errorDetails}`;
+      return `${friendly} (${payload.errorDetails})`;
     }
-    return base;
+    return friendly;
   }
 }

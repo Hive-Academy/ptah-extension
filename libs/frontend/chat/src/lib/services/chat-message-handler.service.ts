@@ -25,6 +25,7 @@ import {
   MESSAGE_TYPES,
   PermissionRequestSchema,
   SdkCompactionCompletePayloadSchema,
+  SdkSubagentEndedPayloadSchema,
   SdkTurnEndedPayloadSchema,
   SdkTurnFailedPayloadSchema,
 } from '@ptah-extension/shared';
@@ -76,6 +77,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE,
     MESSAGE_TYPES.SESSION_TURN_ENDED,
     MESSAGE_TYPES.SESSION_TURN_FAILED,
+    MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -125,7 +127,28 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.SESSION_TURN_FAILED:
         this.handleSessionTurnFailed(message.payload);
         break;
+      case MESSAGE_TYPES.SESSION_SUBAGENT_ENDED:
+        this.handleSessionSubagentEnded(message.payload);
+        break;
     }
+  }
+
+  private handleSessionSubagentEnded(payload: unknown): void {
+    if (!payload) {
+      console.warn(
+        '[ChatMessageHandler] session:subagentEnded received but payload is undefined!',
+      );
+      return;
+    }
+    const parsed = SdkSubagentEndedPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid SdkSubagentEndedPayload — dropped',
+        parsed.error,
+      );
+      return;
+    }
+    this.chatStore.handleSubagentEndedNotification(parsed.data);
   }
 
   private handleSessionTurnEnded(payload: unknown): void {

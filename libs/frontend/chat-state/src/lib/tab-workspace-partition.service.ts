@@ -428,7 +428,10 @@ export class TabWorkspacePartitionService {
       const sanitizedTabs = state.tabs.map((tab: TabState) => ({
         ...tab,
         streamingState: null,
-        status: tab.status === 'streaming' ? 'loaded' : tab.status,
+        status:
+          tab.status === 'streaming' || tab.status === 'awaiting-background'
+            ? 'loaded'
+            : tab.status,
       }));
 
       return {

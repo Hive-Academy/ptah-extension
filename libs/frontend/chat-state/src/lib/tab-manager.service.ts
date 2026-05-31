@@ -876,6 +876,37 @@ export class TabManagerService {
   }
 
   /**
+   * Transition the tab into the `awaiting-background` status. Used by the
+   * Phase 3 turn-end pivot when the SDK `Stop` hook reports in-flight
+   * background tasks (subagents / shells / monitors / workflows). The agent
+   * itself is idle, but the tab should not render as `loaded` while
+   * background work continues.
+   *
+   * Scheduled on a microtask so this transition lands AFTER the
+   * `applyFinalizedTurn` microtask that flips status to `'loaded'` — the
+   * final assistant message is rendered as completed/aborted first, then
+   * the status pill flips to the awaiting-background indicator.
+   */
+  markTabAwaitingBackground(tabId: string): void {
+    queueMicrotask(() => {
+      this.updateTabInternal(tabId, { status: 'awaiting-background' });
+    });
+  }
+
+  /**
+   * Replace the SDK background-task snapshot on a tab without touching
+   * status or other turn-end fields. Used by the Phase 3 `SubagentStop`
+   * consumer (`handleSubagentEnded`) to apply the SDK's authoritative
+   * "who is still running" snapshot after each subagent reports in.
+   */
+  setPendingBackgroundTasks(
+    tabId: string,
+    tasks: readonly SdkBackgroundTaskSummary[],
+  ): void {
+    this.updateTabInternal(tabId, { pendingBackgroundTasks: tasks });
+  }
+
+  /**
    * Initialize a tab for a brand-new conversation: apply the auto-derived
    * name/title, mark it `draft`, clear dirty flag, and explicitly null the
    * claudeSessionId so the SDK can assign a real UUID.
@@ -1590,7 +1621,8 @@ export class TabManagerService {
           status:
             tab.status === 'streaming' ||
             tab.status === 'resuming' ||
-            tab.status === 'switching'
+            tab.status === 'switching' ||
+            tab.status === 'awaiting-background'
               ? 'loaded'
               : tab.status,
           queuedContent: null,

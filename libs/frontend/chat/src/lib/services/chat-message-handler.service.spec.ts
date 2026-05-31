@@ -51,6 +51,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     handleQuestionRequest: jest.Mock;
     handleTurnEndedNotification: jest.Mock;
     handleTurnFailedNotification: jest.Mock;
+    handleSubagentEndedNotification: jest.Mock;
   };
   let streamRouter: {
     routePermissionPrompt: jest.Mock;
@@ -66,6 +67,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       handleQuestionRequest: jest.fn(),
       handleTurnEndedNotification: jest.fn(),
       handleTurnFailedNotification: jest.fn(),
+      handleSubagentEndedNotification: jest.fn(),
     };
     streamRouter = {
       routePermissionPrompt: jest.fn(),
@@ -249,6 +251,64 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Invalid SdkTurnFailedPayload'),
       expect.anything(),
+    );
+  });
+
+  // ----- SESSION_SUBAGENT_ENDED (Phase 3 Batch 4) ---------------------------
+
+  it('handleSessionSubagentEnded forwards a well-formed payload to ChatStore', () => {
+    const payload = {
+      sessionId: SESS_VALID,
+      cwd: '/workspace',
+      agentId: 'agent-a',
+      agentType: 'subagent',
+      lastAssistantMessage: 'sub done',
+      backgroundTasks: [],
+      timestamp: 1_700_000_000_000,
+    };
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
+      payload,
+    });
+
+    expect(chatStore.handleSubagentEndedNotification).toHaveBeenCalledTimes(1);
+    expect(chatStore.handleSubagentEndedNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: SESS_VALID,
+        agentId: 'agent-a',
+      }),
+    );
+  });
+
+  it('handleSessionSubagentEnded drops malformed payload with a single warn', () => {
+    const malformed = { sessionId: '', agentId: '' };
+
+    expect(() =>
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
+        payload: malformed,
+      }),
+    ).not.toThrow();
+
+    expect(chatStore.handleSubagentEndedNotification).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid SdkSubagentEndedPayload'),
+      expect.anything(),
+    );
+  });
+
+  it('handleSessionSubagentEnded warns and no-ops on undefined payload', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
+      payload: undefined,
+    });
+
+    expect(chatStore.handleSubagentEndedNotification).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'session:subagentEnded received but payload is undefined',
+      ),
     );
   });
 });

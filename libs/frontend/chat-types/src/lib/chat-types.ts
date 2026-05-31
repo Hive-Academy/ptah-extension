@@ -243,6 +243,17 @@ export type TabViewMode = 'full' | 'compact';
 /**
  * Session lifecycle status values.
  * Tracks the current state of session operations.
+ *
+ * Variants:
+ * - `fresh` — newly created tab, no input yet
+ * - `draft` — tab has input but no SDK session bound
+ * - `loaded` — agent is idle, no pending work
+ * - `streaming` — agent is actively producing tokens
+ * - `resuming` — session-resume RPC in flight, fresh SDK Query attaching
+ * - `switching` — tab is being switched away from
+ * - `awaiting-background` — agent stopped but background tasks
+ *   (subagents / shells / monitors / workflows) are still in flight; user
+ *   input remains enabled, agent itself is idle.
  */
 export type SessionStatus =
   | 'fresh'
@@ -250,7 +261,8 @@ export type SessionStatus =
   | 'loaded'
   | 'streaming'
   | 'resuming'
-  | 'switching';
+  | 'switching'
+  | 'awaiting-background';
 
 /**
  * Session state information.
