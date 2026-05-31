@@ -324,9 +324,7 @@ export class StreamingHandlerService {
     }
 
     const targetTabId = primaryTab.id;
-    const stopAlreadyObserved =
-      primaryTab.lastTerminalReason !== null &&
-      primaryTab.lastTerminalReason !== undefined;
+    const stopAlreadyObserved = primaryTab.lastTerminalReason !== undefined;
     if (
       !stopAlreadyObserved &&
       primaryTab.streamingState &&

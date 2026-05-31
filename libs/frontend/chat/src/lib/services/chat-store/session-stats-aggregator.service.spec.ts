@@ -578,7 +578,7 @@ describe('SessionStatsAggregatorService', () => {
       tabs = [
         makeTab({
           status: 'streaming',
-          lastTerminalReason: null,
+          lastTerminalReason: undefined,
           preloadedStats: {
             totalCost: 1.0,
             tokens: {

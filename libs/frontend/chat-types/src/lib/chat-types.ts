@@ -435,8 +435,18 @@ export interface TabState {
   /**
    * Terminal reason emitted by the SDK with the most recent `Stop` /
    * `StopFailure` hook (`session:turnEnded` / `session:turnFailed`).
-   * Null when the SDK did not report one. Phase 2 uses this only as a
-   * read-side flag (Phase 4 batch will gate stats safety-net on it).
+   *
+   * Tristate semantics:
+   * - `undefined` — Stop hook not yet observed for this turn. The SESSION_STATS
+   *   safety-net path runs (legacy finalize behavior preserved for resume /
+   *   headless flows where no Stop fires).
+   * - `null` — Stop hook observed but the SDK omitted `terminal_reason`
+   *   (current SDK 0.3.150 behavior — the field is not yet populated on
+   *   `StopHookInput`). The safety-net is SKIPPED because Stop already
+   *   pivoted the turn.
+   * - string literal (`SdkTerminalReason`) — Stop hook observed with an
+   *   explicit terminal reason (forward-compat for future SDK versions).
+   *   The safety-net is SKIPPED.
    */
   lastTerminalReason?: SdkTerminalReason | null;
 

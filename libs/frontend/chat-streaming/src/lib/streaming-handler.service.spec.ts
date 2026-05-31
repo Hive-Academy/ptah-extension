@@ -672,13 +672,13 @@ describe('StreamingHandlerService', () => {
       duration: 0,
     };
 
-    it('finalizes via safety-net when lastTerminalReason is null', () => {
+    it('finalizes via safety-net when lastTerminalReason is undefined (no Stop observed)', () => {
       const tab = makeTab({
         id: TAB_ID,
         claudeSessionId: SESSION_ID,
         streamingState: createEmptyStreamingState(),
         status: 'streaming',
-        lastTerminalReason: null,
+        lastTerminalReason: undefined,
         messages: [assistantMsg],
       } as Partial<TabState>);
       tabsSignal.set([tab]);
@@ -693,6 +693,45 @@ describe('StreamingHandlerService', () => {
 
       expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith(TAB_ID);
       expect(tabManager.markTabIdle).toHaveBeenCalledWith(TAB_ID);
+    });
+
+    it('skips finalization when lastTerminalReason is null (Stop fired without reason)', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'loaded',
+        lastTerminalReason: null,
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.5,
+        tokens: { input: 11, output: 13 },
+        duration: 250,
+      });
+
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(finalization.markLastAgentAsInterrupted).not.toHaveBeenCalled();
+      expect(
+        finalization.markAgentsAsInterruptedByToolCallIds,
+      ).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+      expect(tabManager.setMessages).toHaveBeenCalledWith(
+        TAB_ID,
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'asst-msg-1',
+            role: 'assistant',
+            tokens: { input: 11, output: 13 },
+            cost: 0.5,
+            duration: 250,
+          }),
+        ]),
+      );
     });
 
     it('skips finalization when lastTerminalReason is set (Stop already pivoted)', () => {
