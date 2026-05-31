@@ -167,7 +167,13 @@ import { GitBranchesService } from '../services/git-branches.service';
                 [img]="localExpanded() ? ChevronDownIcon : ChevronRightIcon"
                 class="w-3 h-3 flex-shrink-0"
               />
-              <span>Local ({{ filteredLocal().length }})</span>
+              <span>
+                Local ({{ filteredLocal().length }}@if (
+                  !searchQuery() && totalLocal() > filteredLocal().length
+                ) {
+                  <span> of {{ totalLocal() }}</span>
+                })
+              </span>
             </button>
             @if (localExpanded()) {
               @for (b of filteredLocal(); track b.name) {
@@ -209,6 +215,13 @@ import { GitBranchesService } from '../services/git-branches.service';
                 <div class="px-3 py-1.5 text-[10px] opacity-40 text-center">
                   No matching local branches
                 </div>
+              } @else if (
+                !searchQuery() && totalLocal() > filteredLocal().length
+              ) {
+                <div class="px-3 py-1 text-[10px] opacity-40 text-center">
+                  {{ totalLocal() - filteredLocal().length }} more — type to
+                  find
+                </div>
               }
             }
           </div>
@@ -228,7 +241,13 @@ import { GitBranchesService } from '../services/git-branches.service';
                 [img]="remoteExpanded() ? ChevronDownIcon : ChevronRightIcon"
                 class="w-3 h-3 flex-shrink-0"
               />
-              <span>Remote ({{ filteredRemote().length }})</span>
+              <span>
+                Remote ({{ filteredRemote().length }}@if (
+                  !searchQuery() && totalRemote() > filteredRemote().length
+                ) {
+                  <span> of {{ totalRemote() }}</span>
+                })
+              </span>
             </button>
             @if (remoteExpanded()) {
               @for (group of remoteGroups(); track group.remote) {
@@ -257,6 +276,13 @@ import { GitBranchesService } from '../services/git-branches.service';
               @if (filteredRemote().length === 0) {
                 <div class="px-3 py-1.5 text-[10px] opacity-40 text-center">
                   No matching remote branches
+                </div>
+              } @else if (
+                !searchQuery() && totalRemote() > filteredRemote().length
+              ) {
+                <div class="px-3 py-1 text-[10px] opacity-40 text-center">
+                  {{ totalRemote() - filteredRemote().length }} more — type to
+                  find
                 </div>
               }
             }
@@ -350,18 +376,56 @@ export class BranchPickerDropdownComponent {
     this.searchQuery().trim().toLowerCase(),
   );
 
+  /**
+   * How many local/remote branches to render when no search is active.
+   * Repos with many branches drown the picker; the user can still surface
+   * any branch by typing into the search input (search is unbounded).
+   */
+  private static readonly MAX_VISIBLE_BRANCHES = 10;
+
+  /** Total local branch count (independent of the visible-cap). */
+  protected readonly totalLocal = computed(
+    () => this.gitBranches.localBranches().length,
+  );
+
+  /** Total remote branch count (independent of the visible-cap). */
+  protected readonly totalRemote = computed(
+    () => this.gitBranches.remoteBranches().length,
+  );
+
+  /**
+   * Sort branches by tip-commit time descending; refs with no timestamp
+   * sink to the bottom. Stable enough for the picker — the source list
+   * is not mutated.
+   */
+  private static sortByRecency(list: readonly BranchRef[]): BranchRef[] {
+    return [...list].sort(
+      (a, b) => (b.lastCommitTime ?? 0) - (a.lastCommitTime ?? 0),
+    );
+  }
+
   protected readonly filteredLocal = computed<BranchRef[]>(() => {
     const q = this.searchLc();
     const list = this.gitBranches.localBranches();
-    if (!q) return list;
-    return list.filter((b) => b.name.toLowerCase().includes(q));
+    if (q) {
+      return list.filter((b) => b.name.toLowerCase().includes(q));
+    }
+    return BranchPickerDropdownComponent.sortByRecency(list).slice(
+      0,
+      BranchPickerDropdownComponent.MAX_VISIBLE_BRANCHES,
+    );
   });
 
   protected readonly filteredRemote = computed<BranchRef[]>(() => {
     const q = this.searchLc();
     const list = this.gitBranches.remoteBranches();
-    if (!q) return list;
-    return list.filter((b) => b.name.toLowerCase().includes(q));
+    if (q) {
+      return list.filter((b) => b.name.toLowerCase().includes(q));
+    }
+    return BranchPickerDropdownComponent.sortByRecency(list).slice(
+      0,
+      BranchPickerDropdownComponent.MAX_VISIBLE_BRANCHES,
+    );
   });
 
   protected readonly filteredRecent = computed<string[]>(() => {

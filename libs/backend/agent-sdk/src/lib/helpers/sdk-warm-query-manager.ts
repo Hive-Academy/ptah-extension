@@ -1,6 +1,12 @@
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  isUnsafeWorkspacePath,
+  type IPlatformInfo,
+} from '@ptah-extension/platform-core';
+import * as path from 'path';
 
 export interface WarmQueryHandle {
   close: () => void;
@@ -12,6 +18,12 @@ export interface WarmPrewarmFingerprint {
   mcpServers: Record<string, unknown> | null;
   baseUrl?: string | null;
   authEnvHash?: string | null;
+  /**
+   * The `cwd` baked into the warm subprocess at `startup()` time. Compared
+   * against the cwd required by the consumer; a mismatch discards the warm
+   * handle because `WarmQuery.query(prompt)` cannot rebind cwd after spawn.
+   */
+  cwd: string | null;
 }
 
 @injectable()
@@ -23,15 +35,43 @@ export class SdkWarmQueryManager {
   private _warmQueryFingerprint: WarmPrewarmFingerprint | null = null;
   private _warmQueryCreatedAt = 0;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo,
+  ) {}
 
+  /**
+   * Pre-spawn an SDK subprocess bound to `cwd`. Returns early without
+   * spawning if `cwd` is missing or fails the install-dir/root safety guard,
+   * because `WarmQuery.query(prompt)` cannot rebind cwd after spawn — a
+   * mis-rooted warm handle would silently leak the wrong cwd into the next
+   * new session.
+   */
   async prewarm(
     cliJsPath: string | null,
+    cwd: string | null | undefined,
     activeMcpServers?: Record<string, unknown>,
   ): Promise<void> {
     if (this._prewarmed) {
       return;
     }
+
+    if (!cwd) {
+      this.logger.info(
+        '[SdkWarmQueryManager] Skipping prewarm: no workspace cwd available',
+      );
+      return;
+    }
+    const safety = isUnsafeWorkspacePath(cwd, this.platformInfo);
+    if (!safety.ok) {
+      this.logger.warn(
+        `[SdkWarmQueryManager] Skipping prewarm: unsafe cwd — ${safety.reason}`,
+      );
+      return;
+    }
+
+    const resolvedCwd = path.resolve(cwd);
 
     const startTime = performance.now();
     try {
@@ -50,17 +90,14 @@ export class SdkWarmQueryManager {
         return;
       }
 
-      const startupOptions: Record<string, unknown> = {};
+      const startupOptions: Record<string, unknown> = { cwd: resolvedCwd };
       if (cliJsPath) {
         startupOptions['pathToClaudeCodeExecutable'] = cliJsPath;
       }
       if (activeMcpServers && Object.keys(activeMcpServers).length > 0) {
         startupOptions['mcpServers'] = activeMcpServers;
       }
-      const warm = await startupFn({
-        options:
-          Object.keys(startupOptions).length > 0 ? startupOptions : undefined,
-      });
+      const warm = await startupFn({ options: startupOptions });
 
       if (this._warmQuery) {
         this._warmQuery.close();
@@ -75,6 +112,7 @@ export class SdkWarmQueryManager {
             : null,
         baseUrl: null,
         authEnvHash: null,
+        cwd: resolvedCwd,
       };
 
       const elapsed = (performance.now() - startTime).toFixed(2);
@@ -180,6 +218,21 @@ export class SdkWarmQueryManager {
     const requiredHash = required.authEnvHash ?? null;
     if (bakedHash !== requiredHash) {
       return 'authEnv fingerprint differs';
+    }
+    const bakedCwd = baked.cwd ? path.resolve(baked.cwd) : null;
+    const requiredCwd = required.cwd ? path.resolve(required.cwd) : null;
+    if (bakedCwd !== requiredCwd) {
+      const normBaked =
+        bakedCwd && process.platform === 'win32'
+          ? bakedCwd.toLowerCase()
+          : bakedCwd;
+      const normRequired =
+        requiredCwd && process.platform === 'win32'
+          ? requiredCwd.toLowerCase()
+          : requiredCwd;
+      if (normBaked !== normRequired) {
+        return `cwd differs (warm=${bakedCwd ?? 'null'}, required=${requiredCwd ?? 'null'})`;
+      }
     }
     return null;
   }

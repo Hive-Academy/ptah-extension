@@ -32,7 +32,11 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import type { TabState } from '@ptah-extension/chat-types';
-import { SessionId, TabId as SharedTabId } from '@ptah-extension/shared';
+import {
+  SessionId,
+  TabId as SharedTabId,
+  type SdkCompactionCompletePayload,
+} from '@ptah-extension/shared';
 
 // Production `CompactionLifecycleService` calls `SessionId.from()` on every
 // inbound session id (handleCompactionStart, handleCompactionComplete via
@@ -76,6 +80,7 @@ describe('CompactionLifecycleService', () => {
   let clearCacheMock: jest.Mock;
   let switchSessionMock: jest.Mock;
   let setCompactionStateMock: jest.Mock;
+  let markCompactionCompleteMock: jest.Mock;
   let conversationsMock: jest.Mock;
   let conversationForMock: jest.Mock;
   let warn: jest.SpyInstance;
@@ -102,6 +107,7 @@ describe('CompactionLifecycleService', () => {
     clearCacheMock = jest.fn();
     switchSessionMock = jest.fn().mockResolvedValue(undefined);
     setCompactionStateMock = jest.fn();
+    markCompactionCompleteMock = jest.fn();
     conversationsMock = jest.fn(() => []);
     conversationForMock = jest.fn(
       (tabId: TabId) => tabToConv[tabId as unknown as string] ?? null,
@@ -129,6 +135,7 @@ describe('CompactionLifecycleService', () => {
 
     const conversationRegistryMock = {
       setCompactionState: setCompactionStateMock,
+      markCompactionComplete: markCompactionCompleteMock,
       conversations: conversationsMock,
     } as unknown as ConversationRegistry;
 
@@ -461,6 +468,97 @@ describe('CompactionLifecycleService', () => {
 
       expect(switchSessionMock).toHaveBeenCalledTimes(1);
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED);
+    });
+  });
+
+  describe('handleCompactionCompleteNotification (PostCompact RPC path)', () => {
+    function makePayload(
+      overrides: Partial<SdkCompactionCompletePayload> = {},
+    ): SdkCompactionCompletePayload {
+      return {
+        sessionId: SESS_1,
+        cwd: '/workspace',
+        trigger: 'auto',
+        compactSummary: 'summary',
+        timestamp: 1_700_000_000_123,
+        ...overrides,
+      };
+    }
+
+    it('stamps the registry per conversation when tabs are bound to the session', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(makePayload());
+
+      expect(markCompactionCompleteMock).toHaveBeenCalledTimes(1);
+      expect(markCompactionCompleteMock).toHaveBeenCalledWith(
+        tabToConv['tab-1'],
+        1_700_000_000_123,
+      );
+    });
+
+    it('fans out across multiple tabs sharing the session, deduping by conversation id', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: SESS_SHARED }),
+        makeTab({ id: 'tab-2', claudeSessionId: SESS_SHARED }),
+      ];
+
+      service.handleCompactionCompleteNotification(
+        makePayload({ sessionId: SESS_SHARED }),
+      );
+
+      const stampedConvIds = markCompactionCompleteMock.mock.calls.map(
+        (c) => c[0],
+      );
+      expect(stampedConvIds).toEqual(
+        expect.arrayContaining([tabToConv['tab-1'], tabToConv['tab-2']]),
+      );
+      expect(markCompactionCompleteMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('warns and no-ops when no tab is bound to the session id', () => {
+      tabs = [];
+
+      service.handleCompactionCompleteNotification(
+        makePayload({ sessionId: SESS_UNKNOWN }),
+      );
+
+      expect(markCompactionCompleteMock).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] handleCompactionCompleteNotification: no tab bound to sessionId',
+        { sessionId: SESS_UNKNOWN },
+      );
+    });
+
+    it('warns and no-ops when tabs exist but none resolves to a conversation id', () => {
+      tabs = [makeTab({ id: 'tab-orphan', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(makePayload());
+
+      expect(markCompactionCompleteMock).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] handleCompactionCompleteNotification: no conversation bound to tabs',
+        { sessionId: SESS_1 },
+      );
+    });
+
+    it('does not throw when the registry throws on a stale conversation id', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+      markCompactionCompleteMock.mockImplementation(() => {
+        throw new Error('unknown conversation');
+      });
+
+      expect(() =>
+        service.handleCompactionCompleteNotification(makePayload()),
+      ).not.toThrow();
+
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] handleCompactionCompleteNotification: registry stamp failed',
+        expect.objectContaining({
+          convId: tabToConv['tab-1'],
+          error: 'unknown conversation',
+        }),
+      );
     });
   });
 

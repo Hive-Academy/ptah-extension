@@ -6,7 +6,15 @@ a JSON object of the form:
     { "kind": "fact" | "preference" | "event" | "entity",
       "subject": string | null,
       "content": string,
-      "salienceHint": number /* 0..1 */
+      "salienceHint": number, /* 0..1 */
+      "request": string | null,        /* what the user asked for */
+      "investigated": string | null,   /* what was explored / read / searched */
+      "learned": string | null,        /* findings / insights / root causes */
+      "completed": string | null,      /* what was actually done / changed */
+      "nextSteps": string | null,      /* follow-ups, open questions, TODOs */
+      "type": "bugfix" | "feature" | "decision" | "discovery" | "refactor" | "change",
+      "concepts": string[],            /* up to 5 short tags (lowercase, kebab-case) */
+      "files": string[]                /* repo-relative file paths referenced */
     }
   ]
 }
@@ -17,6 +25,11 @@ a JSON object of the form:
 - "subject": a normalized lowercase key (e.g., "auth-service", "ptah") or null.
 - "content": one or two short sentences, self-contained.
 - "salienceHint": your subjective importance in [0,1].
+- "type": pick the single best fit; default to "discovery" if uncertain.
+- "concepts": max 5; omit duplicates; use short lowercase tags.
+- "files": only include paths the transcript itself names; do not invent paths.
+- Any of request/investigated/learned/completed/nextSteps may be null when not
+  applicable to the memory.
 Skip transient chit-chat, code that is already in the repo, and anything
 private to a single message.`;
 

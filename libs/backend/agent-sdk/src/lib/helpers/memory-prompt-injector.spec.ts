@@ -17,12 +17,20 @@ import 'reflect-metadata';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type {
   IMemoryReader,
+  IMemoryLister,
   MemoryHit,
   MemoryHitPage,
+  MemoryListPage,
+  MemoryRecord,
 } from '@ptah-extension/memory-contracts';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import { MemoryPromptInjector } from './memory-prompt-injector';
+import {
+  MemoryPromptInjector,
+  type CorpusMemberView,
+  type CorpusReader,
+} from './memory-prompt-injector';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,9 +52,84 @@ function makeReader(page: MemoryHitPage): IMemoryReader {
   return { search: jest.fn().mockResolvedValue(page) };
 }
 
-function makeInjector(reader: IMemoryReader): MemoryPromptInjector {
+function makeLister(
+  page: MemoryListPage = { memories: [], total: 0 },
+): IMemoryLister {
+  return { listAll: jest.fn().mockReturnValue(page) };
+}
+
+interface WorkspaceProviderStubOptions {
+  readonly injectionEnabled?: boolean;
+  readonly observationCount?: number;
+  readonly corpusCount?: number;
+}
+
+function makeWorkspace(
+  opts: WorkspaceProviderStubOptions = {},
+): IWorkspaceProvider {
+  const map = new Map<string, unknown>([
+    [
+      'memory.triggers.sessionStart.injectionEnabled',
+      opts.injectionEnabled ?? true,
+    ],
+  ]);
+  if (opts.observationCount !== undefined) {
+    map.set(
+      'memory.triggers.sessionStart.observationCount',
+      opts.observationCount,
+    );
+  }
+  if (opts.corpusCount !== undefined) {
+    map.set('memory.triggers.sessionStart.corpusCount', opts.corpusCount);
+  }
+  return {
+    getConfiguration: jest.fn(
+      <T>(_section: string, key: string, fallback?: T): T | undefined => {
+        if (map.has(key)) return map.get(key) as T;
+        return fallback;
+      },
+    ),
+  } as unknown as IWorkspaceProvider;
+}
+
+function makeInjector(
+  reader: IMemoryReader,
+  lister: IMemoryLister = makeLister(),
+  workspace: IWorkspaceProvider = makeWorkspace(),
+  corpus: CorpusReader | null = null,
+): MemoryPromptInjector {
   const logger = createMockLogger() as unknown as Logger;
-  return new MemoryPromptInjector(logger, reader);
+  return new MemoryPromptInjector(logger, reader, lister, workspace, corpus);
+}
+
+function makeCorpus(
+  overrides: Partial<{
+    record: { readonly id: string; readonly name: string } | null;
+    members: readonly CorpusMemberView[];
+  }> = {},
+): CorpusReader {
+  const record =
+    overrides.record !== undefined
+      ? overrides.record
+      : { id: 'c-1', name: 'corpus-A' };
+  const members = overrides.members ?? [];
+  return {
+    getByName: jest.fn(() => record),
+    getCorpusMemoriesForPriming: jest.fn(() => members),
+  };
+}
+
+function makeRecord(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
+  return {
+    id: 'm-1',
+    subject: 'recall pattern',
+    content: 'content',
+    tier: 'core',
+    kind: 'fact',
+    salience: 0.8,
+    createdAt: Date.now(),
+    ...overrides,
+  };
 }
 
 const LONG_QUERY = 'a long enough query string';
@@ -251,5 +334,457 @@ describe('MemoryPromptInjector.buildBlock — error resilience', () => {
     const injector = makeInjector(reader);
 
     await expect(injector.buildBlock(LONG_QUERY)).resolves.not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSessionStartBlock
+// ---------------------------------------------------------------------------
+
+describe('MemoryPromptInjector.buildSessionStartBlock — guard conditions', () => {
+  it('returns empty string when workspaceRoot is undefined', async () => {
+    const lister = makeLister({
+      memories: [makeRecord()],
+      total: 1,
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    const result = await injector.buildSessionStartBlock(undefined);
+
+    expect(result).toBe('');
+    expect(lister.listAll).not.toHaveBeenCalled();
+  });
+
+  it('returns empty string when injectionEnabled config is false', async () => {
+    const lister = makeLister({ memories: [makeRecord()], total: 1 });
+    const workspace = makeWorkspace({ injectionEnabled: false });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+      workspace,
+    );
+
+    const result = await injector.buildSessionStartBlock('D:/ws');
+
+    expect(result).toBe('');
+    expect(lister.listAll).not.toHaveBeenCalled();
+  });
+
+  it('returns empty string when listAll yields no memories and no corpora', async () => {
+    const lister = makeLister({ memories: [], total: 0 });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    const result = await injector.buildSessionStartBlock('D:/ws');
+
+    expect(result).toBe('');
+  });
+
+  it('returns empty string when listAll throws', async () => {
+    const lister: IMemoryLister = {
+      listAll: jest.fn().mockImplementation(() => {
+        throw new Error('db locked');
+      }),
+    };
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    const result = await injector.buildSessionStartBlock('D:/ws');
+
+    expect(result).toBe('');
+  });
+
+  it('does not rethrow when listAll throws', async () => {
+    const lister: IMemoryLister = {
+      listAll: jest.fn().mockImplementation(() => {
+        throw new Error('boom');
+      }),
+    };
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    await expect(
+      injector.buildSessionStartBlock('D:/ws'),
+    ).resolves.not.toThrow();
+  });
+});
+
+describe('MemoryPromptInjector.buildSessionStartBlock — populated case', () => {
+  it('returns block with workspace memory snapshot heading and subjects', async () => {
+    const lister = makeLister({
+      memories: [
+        makeRecord({ subject: 'first subject' }),
+        makeRecord({ id: 'm-2', subject: 'second subject' }),
+      ],
+      total: 2,
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    const result = await injector.buildSessionStartBlock('D:/ws');
+
+    expect(result).toMatch(/^## Workspace Memory Snapshot/);
+    expect(result).toContain('1. first subject');
+    expect(result).toContain('2. second subject');
+    expect(result.trimEnd().endsWith('---')).toBe(true);
+  });
+
+  it('forwards workspaceRoot to listAll for workspace scoping', async () => {
+    const lister = makeLister({
+      memories: [makeRecord()],
+      total: 1,
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    await injector.buildSessionStartBlock('D:/myproject');
+
+    expect(lister.listAll).toHaveBeenCalledWith(
+      'D:/myproject',
+      undefined,
+      expect.any(Number),
+      0,
+    );
+  });
+
+  it('uses observationCount param to bound listAll limit', async () => {
+    const lister = makeLister({
+      memories: [makeRecord()],
+      total: 1,
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    await injector.buildSessionStartBlock('D:/ws', 3);
+
+    expect(lister.listAll).toHaveBeenCalledWith('D:/ws', undefined, 3, 0);
+  });
+
+  it('falls back to config observationCount when param omitted', async () => {
+    const lister = makeLister({
+      memories: [makeRecord()],
+      total: 1,
+    });
+    const workspace = makeWorkspace({ observationCount: 7 });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+      workspace,
+    );
+
+    await injector.buildSessionStartBlock('D:/ws');
+
+    expect(lister.listAll).toHaveBeenCalledWith('D:/ws', undefined, 7, 0);
+  });
+
+  it('skips memories whose subject is null or empty', async () => {
+    const lister = makeLister({
+      memories: [
+        makeRecord({ subject: null }),
+        makeRecord({ id: 'm-2', subject: '   ' }),
+        makeRecord({ id: 'm-3', subject: 'kept' }),
+      ],
+      total: 3,
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    const result = await injector.buildSessionStartBlock('D:/ws');
+
+    expect(result).toContain('1. kept');
+    expect(result).not.toContain('null');
+  });
+
+  it('renders corpora when supplied alongside memories', async () => {
+    const lister = makeLister({
+      memories: [makeRecord({ subject: 'mem-subj' })],
+      total: 1,
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    const result = await injector.buildSessionStartBlock('D:/ws', 10, 5, [
+      { name: 'corpus-a', count: 12 },
+    ]);
+
+    expect(result).toContain('Available knowledge corpora');
+    expect(result).toContain('1. corpus-a (12)');
+  });
+
+  it('renders only the corpora section when memories list is empty', async () => {
+    const lister = makeLister({ memories: [], total: 0 });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    const result = await injector.buildSessionStartBlock('D:/ws', 10, 5, [
+      { name: 'solo-corpus', count: 3 },
+    ]);
+
+    expect(result).toMatch(/^## Workspace Memory Snapshot/);
+    expect(result).toContain('Available knowledge corpora');
+    expect(result).toContain('1. solo-corpus (3)');
+    expect(result).not.toContain('Recent observations');
+  });
+});
+
+describe('MemoryPromptInjector.buildSessionStartBlock — privacy invariant', () => {
+  it('does not surface memory content/chunk fields in the rendered block', async () => {
+    const secret = 'SECRET-PAYLOAD-DO-NOT-LEAK';
+    const lister = makeLister({
+      memories: [
+        makeRecord({
+          subject: 'safe subject',
+          content: secret,
+        }),
+      ],
+      total: 1,
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    const result = await injector.buildSessionStartBlock('D:/ws');
+
+    expect(result).toContain('safe subject');
+    expect(result).not.toContain(secret);
+  });
+
+  it('passes workspaceRoot to listAll (no cross-workspace surfacing)', async () => {
+    const lister = makeLister({ memories: [makeRecord()], total: 1 });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      lister,
+    );
+
+    await injector.buildSessionStartBlock('D:/ws-A');
+
+    const call = (lister.listAll as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('D:/ws-A');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCorpusBlock
+// ---------------------------------------------------------------------------
+
+function makeMember(
+  overrides: Partial<CorpusMemberView> = {},
+): CorpusMemberView {
+  return {
+    id: overrides.id ?? 'mem-1',
+    subject: overrides.subject ?? 'subj',
+    type: overrides.type ?? 'feature',
+    request: overrides.request ?? null,
+    investigated: overrides.investigated ?? null,
+    learned: overrides.learned ?? null,
+    completed: overrides.completed ?? null,
+    nextSteps: overrides.nextSteps ?? null,
+  };
+}
+
+describe('MemoryPromptInjector.buildCorpusBlock — guard conditions', () => {
+  it('returns empty string when no corpus reader is wired', async () => {
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      null,
+    );
+    expect(await injector.buildCorpusBlock('corpus-A')).toBe('');
+  });
+
+  it('returns empty string when corpusName is empty/whitespace', async () => {
+    const corpus = makeCorpus();
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      corpus,
+    );
+    expect(await injector.buildCorpusBlock('')).toBe('');
+    expect(await injector.buildCorpusBlock('   ')).toBe('');
+    expect(corpus.getByName).not.toHaveBeenCalled();
+  });
+
+  it('returns empty string when corpus does not exist', async () => {
+    const corpus = makeCorpus({ record: null });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      corpus,
+    );
+    expect(await injector.buildCorpusBlock('nope')).toBe('');
+  });
+
+  it('returns empty string when corpus has no members', async () => {
+    const corpus = makeCorpus({ members: [] });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      corpus,
+    );
+    expect(await injector.buildCorpusBlock('corpus-A')).toBe('');
+  });
+
+  it('returns empty string when corpus reader throws', async () => {
+    const corpus: CorpusReader = {
+      getByName: jest.fn(() => {
+        throw new Error('db locked');
+      }),
+      getCorpusMemoriesForPriming: jest.fn(() => []),
+    };
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      corpus,
+    );
+    expect(await injector.buildCorpusBlock('corpus-A')).toBe('');
+  });
+});
+
+describe('MemoryPromptInjector.buildCorpusBlock — populated case', () => {
+  it('emits the documented markdown framing with grouped types', async () => {
+    const corpus = makeCorpus({
+      members: [
+        makeMember({
+          id: 'm-1',
+          subject: 'feature subject',
+          type: 'feature',
+          learned: 'feature insight',
+        }),
+        makeMember({
+          id: 'm-2',
+          subject: 'bug subject',
+          type: 'bugfix',
+          completed: 'fix landed',
+        }),
+      ],
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      corpus,
+    );
+    const result = await injector.buildCorpusBlock('corpus-A');
+    expect(result).toMatch(/^## Knowledge corpus: corpus-A/);
+    expect(result).toContain('### feature');
+    expect(result).toContain('### bugfix');
+    expect(result).toContain('feature subject');
+    expect(result).toContain('bug subject');
+    expect(result.trimEnd().endsWith('---')).toBe(true);
+  });
+
+  it('enforces the 0.9 × budget token ceiling', async () => {
+    const longRequest = 'x'.repeat(800);
+    const corpus = makeCorpus({
+      members: [
+        makeMember({
+          id: 'm-1',
+          subject: 'first',
+          request: longRequest,
+        }),
+        makeMember({
+          id: 'm-2',
+          subject: 'second',
+          request: longRequest,
+        }),
+        makeMember({
+          id: 'm-3',
+          subject: 'third',
+          request: longRequest,
+        }),
+      ],
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      corpus,
+    );
+    const result = await injector.buildCorpusBlock('corpus-A', 400);
+    expect(result).toContain('first');
+    expect(result).not.toContain('third');
+    expect(result).toContain('(corpus truncated to fit token budget)');
+  });
+
+  it('reads the default 50000 budget from workspace configuration when budget omitted', async () => {
+    const corpus = makeCorpus({
+      members: [makeMember({ id: 'm-1', subject: 'tiny', request: 'short' })],
+    });
+    const workspace = {
+      getConfiguration: jest.fn(
+        <T>(_section: string, key: string, fallback?: T): T | undefined => {
+          if (key === 'memory.corpus.primingTokenBudget') {
+            return 50_000 as unknown as T;
+          }
+          return fallback;
+        },
+      ),
+    } as unknown as IWorkspaceProvider;
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      workspace,
+      corpus,
+    );
+    const result = await injector.buildCorpusBlock('corpus-A');
+    expect(result).toContain('tiny');
+    expect(workspace.getConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'memory.corpus.primingTokenBudget',
+      50_000,
+    );
+  });
+});
+
+describe('MemoryPromptInjector.buildCorpusBlock — privacy invariant', () => {
+  it('does not surface raw memory content beyond the 5-field summary', async () => {
+    const secret = 'SECRET-RAW-CONTENT-DO-NOT-LEAK';
+    const corpus = makeCorpus({
+      members: [
+        makeMember({
+          id: 'm-1',
+          subject: 'safe subject',
+          learned: secret,
+        }),
+      ],
+    });
+    const injector = makeInjector(
+      makeReader({ hits: [], bm25Only: true }),
+      makeLister(),
+      makeWorkspace(),
+      corpus,
+    );
+    const result = await injector.buildCorpusBlock('corpus-A');
+    expect(result).toContain('safe subject');
+    expect(result).toContain(secret);
+    expect(result).not.toContain('tool_response_text');
+    expect(result).not.toContain('source_message_ids');
   });
 });

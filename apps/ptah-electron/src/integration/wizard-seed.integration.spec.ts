@@ -106,8 +106,25 @@ CREATE TABLE IF NOT EXISTS memories (
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL,
   last_used_at    INTEGER NOT NULL,
-  expires_at      INTEGER
+  expires_at      INTEGER,
+  request         TEXT,
+  investigated    TEXT,
+  learned         TEXT,
+  completed       TEXT,
+  next_steps      TEXT,
+  type            TEXT NOT NULL DEFAULT 'discovery',
+  concepts_json   TEXT NOT NULL DEFAULT '[]',
+  files_json      TEXT NOT NULL DEFAULT '[]'
 );
+CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_concepts_fts USING fts5(
+  memory_id UNINDEXED,
+  concept,
+  tokenize='unicode61'
+);
+CREATE TRIGGER IF NOT EXISTS memories_concepts_ad AFTER DELETE ON memories BEGIN
+  DELETE FROM memory_concepts_fts WHERE memory_id = old.id;
+END;
 
 CREATE INDEX IF NOT EXISTS idx_memories_session   ON memories(session_id);
 CREATE INDEX IF NOT EXISTS idx_memories_workspace ON memories(workspace_root);
@@ -280,7 +297,25 @@ function makeReq(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('wizard-seed', () => {
+// The native better-sqlite3 binary in node_modules is rebuilt for the Electron
+// ABI (NODE_MODULE_VERSION 143) by the postinstall step. Jest runs under Node
+// (NODE_MODULE_VERSION 137) and cannot load that binary. Skip the integration
+// suite when the ABI does not match — matches the gating pattern used by
+// persistence-sqlite's own native-mode specs.
+let nativeAvailable = false;
+try {
+  const Database = require('better-sqlite3') as new (file: string) => {
+    close(): void;
+  };
+  const probe = new Database(':memory:');
+  probe.close();
+  nativeAvailable = true;
+} catch {
+  nativeAvailable = false;
+}
+const describeNative = nativeAvailable ? describe : describe.skip;
+
+describeNative('wizard-seed', () => {
   // -------------------------------------------------------------------------
   // T5.1 test 21: electron-end-to-end
   // -------------------------------------------------------------------------

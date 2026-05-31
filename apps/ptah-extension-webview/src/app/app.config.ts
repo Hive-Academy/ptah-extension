@@ -20,6 +20,7 @@ import {
   ORCHESTRA_CANVAS_COMPONENT,
   HARNESS_BUILDER_COMPONENT,
   SETUP_HUB_COMPONENT,
+  MARKETPLACE_COMPONENT,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -44,6 +45,7 @@ import {
   HarnessBuilderViewComponent,
   SetupHubComponent,
 } from '@ptah-extension/harness-builder';
+import { MarketplaceHubComponent } from '@ptah-extension/marketplace';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 class WebviewErrorHandler implements ErrorHandler {
   public handleError(error: unknown): void {
@@ -106,6 +108,7 @@ export const appConfig: ApplicationConfig = {
       useValue: HarnessBuilderViewComponent,
     },
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
+    { provide: MARKETPLACE_COMPONENT, useValue: MarketplaceHubComponent },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
     ...provideEditorInternalState(),

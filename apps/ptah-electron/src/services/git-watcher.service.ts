@@ -33,7 +33,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
-import type { GitInfoResult } from '@ptah-extension/shared';
+import type {
+  GitChangeKind,
+  GitInfoResult,
+  GitStatusUpdatePayload,
+} from '@ptah-extension/shared';
 
 /** Message type used for pushing git status to the renderer. */
 const GIT_STATUS_UPDATE = 'git:status-update';
@@ -64,6 +68,15 @@ export class GitWatcherService {
   private workspacePath: string | null = null;
   private broadcastFn: ((type: string, payload: unknown) => void) | null = null;
   private isDisposed = false;
+
+  /**
+   * Distinct change kinds accumulated across the current debounce window(s).
+   * Drained on every `fetchAndPush` so the broadcast carries a precise
+   * `causes` list and downstream consumers can skip RPCs whose triggers
+   * never fired. Shared across the git-ops and workspace schedulers because
+   * a single user action (e.g. `git pull`) commonly fires both.
+   */
+  private readonly pendingCauses = new Set<GitChangeKind>();
 
   /** Debounce interval for file content change notifications (ms). */
   private static readonly CONTENT_CHANGE_DEBOUNCE_MS = 500;
@@ -112,18 +125,31 @@ export class GitWatcherService {
       return;
     }
 
-    const onGitOps = (): void => this.scheduleGitOpsRefresh();
-    this.watchFile(path.join(gitDir, 'HEAD'), onGitOps);
-    this.watchFile(path.join(gitDir, 'index'), onGitOps);
+    this.watchFile(path.join(gitDir, 'HEAD'), () =>
+      this.scheduleGitOpsRefresh('head'),
+    );
+    this.watchFile(path.join(gitDir, 'index'), () =>
+      this.scheduleGitOpsRefresh('index'),
+    );
 
     const refsDir = path.join(gitDir, 'refs');
     if (fs.existsSync(refsDir)) {
-      this.watchDirectory(refsDir, onGitOps);
+      this.watchDirectory(refsDir, (filename) =>
+        this.scheduleGitOpsRefresh(
+          filename === 'stash' ? 'refs-stash' : 'refs',
+        ),
+      );
     }
-    this.watchFile(path.join(gitDir, 'packed-refs'), onGitOps);
-    this.watchFile(path.join(gitDir, 'ORIG_HEAD'), onGitOps);
-    this.watchFile(path.join(gitDir, 'FETCH_HEAD'), onGitOps);
-    this.fetchAndPush();
+    this.watchFile(path.join(gitDir, 'packed-refs'), () =>
+      this.scheduleGitOpsRefresh('refs'),
+    );
+    this.watchFile(path.join(gitDir, 'ORIG_HEAD'), () =>
+      this.scheduleGitOpsRefresh('head'),
+    );
+    this.watchFile(path.join(gitDir, 'FETCH_HEAD'), () =>
+      this.scheduleGitOpsRefresh('refs'),
+    );
+    void this.fetchAndPush();
   }
 
   /**
@@ -200,6 +226,8 @@ export class GitWatcherService {
       watcher.close();
     }
     this.watchers = [];
+
+    this.pendingCauses.clear();
   }
 
   /**
@@ -233,13 +261,22 @@ export class GitWatcherService {
 
   /**
    * Watch a directory (non-recursive) for changes. Caller supplies the
-   * scheduler callback.
+   * scheduler callback. The callback receives the changed entry's filename
+   * (or null when the platform doesn't surface it) so the caller can refine
+   * the broadcast kind — e.g. distinguishing `refs/stash` from other refs.
    */
-  private watchDirectory(dirPath: string, onChange: () => void): void {
+  private watchDirectory(
+    dirPath: string,
+    onChange: (filename: string | null) => void,
+  ): void {
     try {
-      const watcher = fs.watch(dirPath, { recursive: false }, () => {
-        onChange();
-      });
+      const watcher = fs.watch(
+        dirPath,
+        { recursive: false },
+        (_event, filename) => {
+          onChange(typeof filename === 'string' ? filename : null);
+        },
+      );
 
       watcher.on('error', (err) => {
         this.logger.warn('[GitWatcher] Directory watcher error', {
@@ -291,7 +328,10 @@ export class GitWatcherService {
               return;
             }
           }
-          this.scheduleUpdate(GitWatcherService.WORKSPACE_DEBOUNCE_MS);
+          this.scheduleUpdate(
+            GitWatcherService.WORKSPACE_DEBOUNCE_MS,
+            'workspace',
+          );
           if (eventType === 'rename') {
             this.scheduleTreeRefresh();
           }
@@ -369,9 +409,13 @@ export class GitWatcherService {
    *
    * Coalesces a flurry of .git/* events (a single git command can write
    * HEAD, index, and refs in rapid succession) into one broadcast pair.
+   * The originating `kind` is added to `pendingCauses` so consumers can
+   * skip RPCs whose triggers never fired during the window.
    */
-  private scheduleGitOpsRefresh(): void {
+  private scheduleGitOpsRefresh(kind: GitChangeKind): void {
     if (this.isDisposed) return;
+
+    this.pendingCauses.add(kind);
 
     if (this.gitOpsDebounceTimer) {
       clearTimeout(this.gitOpsDebounceTimer);
@@ -389,8 +433,10 @@ export class GitWatcherService {
    * Schedule a debounced git status fetch + push.
    * Resets the timer on each call so rapid events coalesce.
    */
-  private scheduleUpdate(debounceMs: number): void {
+  private scheduleUpdate(debounceMs: number, kind: GitChangeKind): void {
     if (this.isDisposed) return;
+
+    this.pendingCauses.add(kind);
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -398,21 +444,38 @@ export class GitWatcherService {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      this.fetchAndPush();
+      void this.fetchAndPush();
     }, debounceMs);
   }
 
   /**
-   * Fetch git info and push to renderer.
+   * Drain the accumulated cause set. Returns `['initial']` when empty so
+   * the bootstrap push (and any defensive call paths) carry a non-empty
+   * causes list — consumers treat 'initial' as "refresh everything".
+   */
+  private drainCauses(): readonly GitChangeKind[] {
+    if (this.pendingCauses.size === 0) {
+      return ['initial'];
+    }
+    const list = Array.from(this.pendingCauses);
+    this.pendingCauses.clear();
+    return list;
+  }
+
+  /**
+   * Fetch git info and push to renderer with the drained causes set.
    */
   private async fetchAndPush(): Promise<void> {
     if (this.isDisposed || !this.workspacePath || !this.broadcastFn) return;
+
+    const causes = this.drainCauses();
 
     try {
       const result: GitInfoResult = await this.gitInfo.getGitInfo(
         this.workspacePath,
       );
-      this.broadcastFn(GIT_STATUS_UPDATE, result);
+      const payload: GitStatusUpdatePayload = { ...result, causes };
+      this.broadcastFn(GIT_STATUS_UPDATE, payload);
     } catch (err) {
       this.logger.warn('[GitWatcher] Failed to fetch git info', {
         error: err instanceof Error ? err.message : String(err),

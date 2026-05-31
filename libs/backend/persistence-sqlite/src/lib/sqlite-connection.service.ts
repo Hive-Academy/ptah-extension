@@ -152,9 +152,13 @@ export class SqliteConnectionService {
    * any pending migrations. Idempotent: a second call with an already-open
    * connection is a no-op.
    *
-   * Migrations marked `requiresVec: true` are skipped gracefully when
-   * sqlite-vec is unavailable, so cron / gateway / basic memory operations
-   * still work even without vector search support.
+   * When sqlite-vec is unavailable the migration runner still creates all base
+   * relational + FTS5 tables and defers only the `vec0` virtual tables into
+   * `schema_migrations_vec_pending`; a vec deferral is NOT a failure, so this
+   * method completes successfully with `vecExtensionLoaded=false`. The deferred
+   * vec indexes are created automatically on a later boot once sqlite-vec
+   * loads. Only genuine open failures (ABI mismatch, missing binary, disk
+   * full) mark the connection unavailable.
    */
   async openAndMigrate(): Promise<void> {
     if (this.database?.open) {

@@ -20,6 +20,36 @@ import { EventEmitter } from 'events';
 // Must mock before importing the SUT.
 jest.mock('cross-spawn', () => jest.fn());
 
+// Replace the vscode-core boundary so we don't load its api-wrappers (which
+// import `vscode`). The mock exposes a tiny execGit that forwards to the
+// cross-spawn mock above so existing `queueFakeChild` plumbing keeps working.
+jest.mock('@ptah-extension/vscode-core', () => {
+  const crossSpawn = require('cross-spawn');
+  return {
+    WORKTREE_GIT_TIMEOUT_MS: 300_000,
+    DEFAULT_GIT_TIMEOUT_MS: 10_000,
+    execGit: (args: string[], cwd: string) =>
+      new Promise((resolve, reject) => {
+        const child = crossSpawn('git', args, {
+          cwd,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', (d: Buffer) => {
+          stdout += d.toString();
+        });
+        child.stderr?.on('data', (d: Buffer) => {
+          stderr += d.toString();
+        });
+        child.on('close', (code: number | null) =>
+          resolve({ stdout, stderr, exitCode: code ?? 1 }),
+        );
+        child.on('error', (err: Error) => reject(err));
+      }),
+  };
+});
+
 const crossSpawnMock = require('cross-spawn') as jest.Mock;
 
 import {

@@ -23,8 +23,6 @@ import {
   SdkAgentAdapter,
   SdkPermissionHandler,
   SDK_TOKENS,
-  DEFAULT_FALLBACK_MODEL_ID,
-  TIER_TO_MODEL_ID,
 } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
@@ -235,28 +233,13 @@ export class ConfigRpcHandlers {
           if (stored && !stored.startsWith('claude-')) {
             const resolved = this.modelResolver.resolve(stored);
             this.logger.info(
-              `RPC: config:model-get migrating legacy value '${stored}' â†’ '${resolved}'`,
+              `RPC: config:model-get migrating legacy value '${stored}' → '${resolved}'`,
             );
             await this.modelSettings.selectedModel.set(resolved);
             return { model: resolved };
           }
-          if (stored) {
-            const tier = this.modelResolver.detectTier(stored);
-            if (tier) {
-              const currentLatest =
-                TIER_TO_MODEL_ID[tier as keyof typeof TIER_TO_MODEL_ID];
-              const hasDateSuffix = /-\d{8}$/.test(stored);
-              if (!hasDateSuffix && stored !== currentLatest) {
-                this.logger.info(
-                  `RPC: config:model-get migrating stale model '${stored}' â†’ '${currentLatest}'`,
-                );
-                await this.modelSettings.selectedModel.set(currentLatest);
-                return { model: currentLatest };
-              }
-            }
-          }
 
-          return { model: stored || DEFAULT_FALLBACK_MODEL_ID };
+          return { model: stored || 'default' };
         } catch (error) {
           this.logger.error(
             'RPC: config:model-get failed',
@@ -416,7 +399,7 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:models-list called');
           const savedModel =
-            this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID;
+            this.modelSettings.selectedModel.get() || 'default';
           const resolvedSavedModel = this.modelResolver.resolve(savedModel);
           const sdkModels = await this.sdkAdapter.getSupportedModels();
           const apiModels = await this.sdkAdapter.getApiModels();

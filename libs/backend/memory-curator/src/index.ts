@@ -29,6 +29,25 @@ export type {
   CodeSymbolListEntry,
 } from './lib/code-symbol.store';
 export { MemorySearchService } from './lib/memory-search.service';
+export type {
+  MemSearchIndexFilter,
+  MemSearchIndexResponse,
+  MemTimelineRequest,
+  MemTimelineResponse,
+  MemGetObservationsRequest,
+  MemGetObservationsResponse,
+  MemoryIndexRowOut,
+  MemMemoryFullOut,
+  MemObservationRowOut,
+} from './lib/memory-search.service';
+export { ObservationQueueStore } from './lib/observation-queue.store';
+export type {
+  ObservationKind,
+  ObservationQueueInsert,
+  ObservationQueueRow,
+  ObservationCaptureEvent,
+  ObservationCaptureListener,
+} from './lib/observation-queue.store';
 export { SalienceScorer } from './lib/salience-scorer';
 export type { ScoreInputs } from './lib/salience-scorer';
 export { MemoryDecayJob } from './lib/memory-decay.job';
@@ -59,7 +78,10 @@ export type {
   MemoryDiagnosticsSnapshot,
 } from './lib/diagnostics.types';
 export { MemoryCuratorService } from './lib/memory-curator.service';
-export type { CuratorRunStats } from './lib/memory-curator.service';
+export type {
+  CuratorRunStats,
+  MemoryCuratorEventListener,
+} from './lib/memory-curator.service';
 export type {
   ICuratorLLM,
   ExtractedMemoryDraft,
@@ -84,6 +106,24 @@ export type {
   FingerprintSource,
 } from './lib/workspace-fingerprint';
 export { IndexingControlService } from './lib/control/indexing-control.service';
+export { KnowledgeAgentService } from './lib/knowledge-agents/knowledge-agent.service';
+export type {
+  PrimeCorpusResult,
+  QueryCorpusResult,
+  RebuildCorpusResult,
+  DeleteCorpusResult,
+} from './lib/knowledge-agents/knowledge-agent.service';
+export { CorpusStore } from './lib/knowledge-agents/corpus.store';
+export type {
+  CorpusChangeEvent,
+  CorpusChangeListener,
+} from './lib/knowledge-agents/corpus.store';
+export type {
+  BuildCorpusParams,
+  CorpusRef,
+  CorpusListEntry,
+  CorpusRecord,
+} from './lib/knowledge-agents/corpus.types';
 export type {
   IndexingStatus,
   SymbolsCursor,

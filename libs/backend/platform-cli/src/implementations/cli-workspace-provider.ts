@@ -49,6 +49,7 @@ export class CliWorkspaceProvider
   constructor(globalStoragePath: string, workspacePath?: string) {
     this.fileSettings = new PtahFileSettingsManager(
       FILE_BASED_SETTINGS_DEFAULTS,
+      globalStoragePath,
     );
 
     const [configEvent, fireConfig] = createEvent<ConfigurationChangeEvent>();

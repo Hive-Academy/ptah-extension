@@ -24,6 +24,16 @@ import {
 import { MemoryRpcService } from '../services/memory-rpc.service';
 
 import { MemoryDiagnosticsAccordionComponent } from './diagnostics/memory-diagnostics-accordion.component';
+import { TimelineViewComponent } from './timeline-view.component';
+import { CorpusListComponent } from './corpus-list.component';
+
+/** Sub-view selector inside the Memory tab. */
+export type MemoryTabView = 'list' | 'timeline' | 'corpus';
+
+interface ViewChip {
+  readonly id: MemoryTabView;
+  readonly label: string;
+}
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -55,6 +65,8 @@ interface TierChip {
     CommonModule,
     WorkspaceIndexingComponent,
     MemoryDiagnosticsAccordionComponent,
+    TimelineViewComponent,
+    CorpusListComponent,
   ],
   template: `
     @if (!isElectron()) {
@@ -72,587 +84,618 @@ interface TierChip {
       </div>
     } @else {
       <div class="flex h-full w-full flex-col gap-4">
-        @let banner = indexingUiState();
-        @switch (banner.kind) {
-          @case ('never-indexed') {
-            <div
-              class="alert alert-info shadow-sm"
-              role="status"
-              data-testid="memory-banner-never-indexed"
-            >
-              <div class="flex flex-1 flex-col gap-1">
-                <span class="text-sm font-semibold">
-                  Your workspace isn't indexed yet
-                </span>
-                <span class="text-xs">
-                  Memory search and code navigation need a local index. Click
-                  <strong>Index now</strong> to build one. Files are read on
-                  your machine; nothing is uploaded.
-                </span>
-              </div>
-              <button
-                type="button"
-                class="btn btn-sm btn-primary"
-                [disabled]="!hasWorkspace() || indexingBusy()"
-                (click)="onIndexNow()"
-                aria-label="Index workspace now"
-              >
-                @if (indexingBusy()) {
-                  <span class="loading loading-spinner loading-xs"></span>
-                }
-                Index now
-              </button>
-            </div>
-          }
-          @case ('indexing') {
-            <div
-              class="alert shadow-sm"
-              role="status"
-              data-testid="memory-banner-indexing"
-            >
-              <div class="flex flex-1 flex-col gap-1">
-                <span class="text-sm font-semibold">
-                  Indexing workspace… {{ banner.percent }}%
-                </span>
-                @if (banner.totalKnown) {
-                  <progress
-                    class="progress progress-primary w-full h-1.5"
-                    [value]="banner.percent"
-                    max="100"
-                  ></progress>
-                } @else {
-                  <progress
-                    class="progress progress-primary w-full h-1.5"
-                  ></progress>
-                }
-              </div>
-              <button
-                type="button"
-                class="btn btn-sm btn-ghost"
-                (click)="onCancelIndex()"
-                aria-label="Cancel indexing"
-              >
-                Cancel
-              </button>
-            </div>
-          }
-          @case ('paused') {
-            <div
-              class="alert alert-warning shadow-sm"
-              role="status"
-              data-testid="memory-banner-paused"
-            >
-              <span class="text-sm flex-1">
-                Indexing paused at {{ banner.percent }}%.
-              </span>
-              <button
-                type="button"
-                class="btn btn-sm btn-primary"
-                (click)="onResumeIndex()"
-              >
-                Resume
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-ghost"
-                (click)="onCancelIndex()"
-              >
-                Cancel
-              </button>
-            </div>
-          }
-          @case ('stale') {
-            <div
-              class="alert alert-warning shadow-sm"
-              role="status"
-              data-testid="memory-banner-stale"
-            >
-              <span class="text-sm flex-1">
-                Workspace changed since last index — re-index to keep memory
-                search accurate.
-              </span>
-              <button
-                type="button"
-                class="btn btn-sm btn-primary"
-                (click)="onIndexNow()"
-              >
-                Re-index
-              </button>
-            </div>
-          }
-          @case ('error') {
-            <div
-              class="alert alert-error shadow-sm"
-              role="status"
-              data-testid="memory-banner-error"
-            >
-              <span class="text-sm flex-1">
-                Indexing failed: {{ banner.message }}
-              </span>
-              <button
-                type="button"
-                class="btn btn-sm btn-primary"
-                (click)="onIndexNow()"
-              >
-                Try again
-              </button>
-            </div>
-          }
-        }
-
-        <!-- Workspace scope toggle -->
-        <div
-          class="join mb-2"
+        <nav
           role="tablist"
-          aria-label="Memory workspace scope"
+          aria-label="Memory tab view"
+          class="join self-start"
         >
-          <button
-            type="button"
-            role="tab"
-            class="join-item btn btn-sm"
-            [class.btn-primary]="scopeFilter() === 'workspace'"
-            [attr.aria-selected]="scopeFilter() === 'workspace'"
-            (click)="onScopeFilterChange('workspace')"
-          >
-            This workspace
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class="join-item btn btn-sm"
-            [class.btn-primary]="scopeFilter() === 'all'"
-            [attr.aria-selected]="scopeFilter() === 'all'"
-            (click)="onScopeFilterChange('all')"
-          >
-            All workspaces
-          </button>
-        </div>
-
-        <!-- Search + tier filter -->
-        <div class="flex flex-col gap-2 md:flex-row md:items-center">
-          <input
-            type="search"
-            class="input input-sm input-bordered w-full md:max-w-md"
-            placeholder="Search memory (BM25 + vector hybrid)..."
-            [value]="searchInput()"
-            (input)="onSearchInput($event)"
-            aria-label="Search memory entries"
-          />
-          <div
-            role="tablist"
-            aria-label="Memory tier filter"
-            class="flex flex-wrap gap-1"
-          >
-            @for (chip of tierChips; track chip.id) {
-              <button
-                type="button"
-                role="tab"
-                class="btn btn-xs"
-                [class.btn-primary]="tierFilter() === chip.id"
-                [class.btn-ghost]="tierFilter() !== chip.id"
-                [attr.aria-selected]="tierFilter() === chip.id"
-                (click)="onTierChipClick(chip.id)"
-              >
-                {{ chip.label }}
-              </button>
-            }
-          </div>
-          <div class="flex gap-1 ml-auto">
+          @for (chip of viewChips; track chip.id) {
             <button
               type="button"
-              class="btn btn-sm btn-outline"
-              [disabled]="purgingJunk() || !hasWorkspace()"
-              [attr.title]="
-                !hasWorkspace()
-                  ? 'Open a workspace to clean its code-index junk.'
-                  : 'Remove indexed code symbols from build artifacts (.angular, node_modules, dist, etc.)'
-              "
-              (click)="onPurgeJunk()"
-              aria-label="Clean code-index junk"
+              role="tab"
+              class="join-item btn btn-sm"
+              [class.btn-primary]="view() === chip.id"
+              [attr.aria-selected]="view() === chip.id"
+              (click)="onViewChange(chip.id)"
             >
-              @if (purgingJunk()) {
-                <span class="loading loading-spinner loading-xs"></span>
-              }
-              Clean junk
+              {{ chip.label }}
             </button>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline"
-              [disabled]="loading()"
-              (click)="onRebuildIndex()"
-            >
-              @if (loading()) {
-                <span class="loading loading-spinner loading-xs"></span>
-              }
-              Rebuild index
-            </button>
-          </div>
-        </div>
-
-        @if (error()) {
-          <div role="alert" class="alert alert-error">
-            <span class="text-sm">{{ error() }}</span>
-          </div>
-        }
-
-        <!-- Purge by pattern toolbar -->
-        <section
-          class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200/40 p-3 md:flex-row md:items-center"
-          aria-label="Purge memory entries by subject pattern"
-        >
-          <div class="flex flex-1 flex-col gap-1">
-            <label
-              for="memory-purge-pattern"
-              class="text-xs uppercase text-base-content/60"
-            >
-              Purge by subject pattern
-            </label>
-            <input
-              id="memory-purge-pattern"
-              type="text"
-              class="input input-sm input-bordered w-full"
-              placeholder="e.g. preferences  (substring)  or  alice@%  (like)"
-              [value]="purgePattern()"
-              (input)="onPurgePatternInput($event)"
-              [disabled]="purging()"
-              aria-label="Pattern to match against memory subject"
-            />
-          </div>
-          <div class="flex flex-col gap-1">
-            <label
-              for="memory-purge-mode"
-              class="text-xs uppercase text-base-content/60"
-            >
-              Mode
-            </label>
-            <select
-              id="memory-purge-mode"
-              class="select select-sm select-bordered"
-              [value]="purgeMode()"
-              (change)="onPurgeModeChange($event)"
-              [disabled]="purging()"
-              aria-label="Pattern match mode"
-            >
-              <option value="substring">substring</option>
-              <option value="like">like</option>
-            </select>
-          </div>
-          <button
-            type="button"
-            class="btn btn-sm btn-error md:self-end"
-            [disabled]="purgeDisabled()"
-            [attr.title]="
-              !hasWorkspace() ? 'Open a workspace to purge memory.' : null
-            "
-            (click)="onPurge()"
-          >
-            @if (purging()) {
-              <span class="loading loading-spinner loading-xs"></span>
-            }
-            Purge
-          </button>
-        </section>
-
-        @if (!hasWorkspace()) {
-          <p class="text-xs text-base-content/60">
-            Open a workspace to purge memory.
-          </p>
-        }
-        @if (scopeFilter() === 'all') {
-          <p class="text-xs text-warning mt-1">
-            Switch to 'This workspace' to purge.
-            <button
-              type="button"
-              class="btn btn-xs btn-link p-0"
-              (click)="onScopeFilterChange('workspace')"
-            >
-              Switch
-            </button>
-          </p>
-        }
-
-        @if (purgeError()) {
-          <div role="alert" class="alert alert-error">
-            <span class="text-sm">{{ purgeError() }}</span>
-          </div>
-        }
-        @if (purgeInfo()) {
-          <div role="status" class="alert alert-success">
-            <span class="text-sm">{{ purgeInfo() }}</span>
-          </div>
-        }
-
-        <!-- Stats panel -->
-        <section
-          class="grid grid-cols-2 gap-2 md:grid-cols-5"
-          aria-label="Memory tier statistics"
-        >
-          <div class="rounded-lg bg-base-200 p-3">
-            <div class="text-xs uppercase text-base-content/60">Core</div>
-            <div class="text-2xl font-semibold text-base-content">
-              {{ statCounts().core }}
-            </div>
-          </div>
-          <div class="rounded-lg bg-base-200 p-3">
-            <div class="text-xs uppercase text-base-content/60">Recall</div>
-            <div class="text-2xl font-semibold text-base-content">
-              {{ statCounts().recall }}
-            </div>
-          </div>
-          <div class="rounded-lg bg-base-200 p-3">
-            <div class="text-xs uppercase text-base-content/60">Archival</div>
-            <div class="text-2xl font-semibold text-base-content">
-              {{ statCounts().archival }}
-            </div>
-          </div>
-          <div
-            class="rounded-lg bg-base-200 p-3"
-            title="Indexed code symbols (functions, classes, methods) — shown separately from curated memory"
-          >
-            <div class="text-xs uppercase text-base-content/60">Code index</div>
-            <div class="text-2xl font-semibold text-base-content">
-              {{ statCounts().codeIndex }}
-            </div>
-          </div>
-          <div class="rounded-lg bg-base-200 p-3">
-            <div class="text-xs uppercase text-base-content/60">
-              Last curated
-            </div>
-            <div class="text-sm font-medium text-base-content">
-              {{ lastCuratedAtLabel() }}
-            </div>
-          </div>
-        </section>
-
-        <!-- Entry list -->
-        <section class="flex-1 overflow-auto" aria-label="Memory entries">
-          @if (loading() && filteredEntries().length === 0) {
-            <div class="flex items-center justify-center py-8">
-              <span class="loading loading-spinner loading-md"></span>
-            </div>
-          } @else if (filteredEntries().length === 0) {
-            <div
-              class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
-            >
-              No memory entries match the current filter.
-            </div>
-          } @else {
-            <ul class="flex flex-col gap-2">
-              @for (entry of filteredEntries(); track entry.id) {
-                <li
-                  class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-3 md:flex-row md:items-start"
-                >
-                  <div class="flex-1">
-                    <div class="flex flex-wrap items-center gap-2">
-                      <span
-                        class="badge badge-sm"
-                        [class]="tierBadgeClass(entry.tier)"
-                      >
-                        {{ entry.tier }}
-                      </span>
-                      <span class="badge badge-sm badge-ghost">
-                        {{ entry.kind }}
-                      </span>
-                      @if (entry.pinned) {
-                        <span class="badge badge-sm badge-warning">pinned</span>
-                      }
-                      <span class="text-xs text-base-content/60">
-                        score {{ entry.salience.toFixed(2) }}
-                      </span>
-                    </div>
-                    @if (entry.subject) {
-                      <div class="mt-1 text-sm font-medium text-base-content">
-                        {{ entry.subject }}
-                      </div>
-                    }
-                    <div class="mt-1 line-clamp-3 text-sm text-base-content/80">
-                      {{ entry.content }}
-                    </div>
-                  </div>
-                  <div class="flex shrink-0 gap-1">
-                    @if (entry.pinned) {
-                      <button
-                        type="button"
-                        class="btn btn-xs btn-ghost"
-                        (click)="onUnpin(entry.id)"
-                        [attr.aria-label]="'Unpin entry ' + entry.id"
-                      >
-                        Unpin
-                      </button>
-                    } @else {
-                      <button
-                        type="button"
-                        class="btn btn-xs btn-ghost"
-                        (click)="onPin(entry.id)"
-                        [attr.aria-label]="'Pin entry ' + entry.id"
-                      >
-                        Pin
-                      </button>
-                    }
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-ghost text-error"
-                      (click)="onForget(entry.id)"
-                      [attr.aria-label]="'Forget entry ' + entry.id"
-                    >
-                      Forget
-                    </button>
-                  </div>
-                </li>
-              }
-            </ul>
           }
-        </section>
+        </nav>
 
-        <details
-          class="rounded-md border border-base-300 bg-base-100"
-          [open]="diagnosticsOpen()"
-          (toggle)="onDiagnosticsToggle($event)"
-          data-testid="memory-diagnostics-details"
-        >
-          <summary
-            class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
-          >
-            Diagnostics
-          </summary>
-          <div class="border-t border-base-300">
-            @if (diagnosticsOpen()) {
-              <ptah-memory-diagnostics-accordion />
-            }
-          </div>
-        </details>
-
-        <details
-          class="rounded-md border border-base-300 bg-base-100"
-          [open]="advancedIndexingOpen()"
-          (toggle)="onAdvancedToggle($event)"
-        >
-          <summary
-            class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
-          >
-            Advanced indexing settings
-          </summary>
-          <div class="border-t border-base-300 p-2">
-            <ptah-workspace-indexing />
-          </div>
-        </details>
-
-        <details
-          class="rounded-md border border-base-300 bg-base-100"
-          [open]="indexedCodeOpen()"
-          (toggle)="onIndexedCodeToggle($event)"
-          data-testid="memory-indexed-code-details"
-        >
-          <summary
-            class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
-          >
-            Indexed code
-          </summary>
-          <div class="border-t border-base-300 p-3 flex flex-col gap-2">
-            <div class="flex flex-col gap-2 md:flex-row md:items-center">
-              <input
-                type="search"
-                class="input input-sm input-bordered w-full md:max-w-md"
-                placeholder="Search indexed symbols..."
-                [value]="symbolInput()"
-                (input)="onSymbolSearchInput($event)"
-                aria-label="Search indexed code symbols"
-              />
+        @if (view() === 'timeline') {
+          <ptah-timeline-view />
+        } @else if (view() === 'corpus') {
+          <ptah-corpus-list />
+        } @else {
+          @let banner = indexingUiState();
+          @switch (banner.kind) {
+            @case ('never-indexed') {
               <div
-                class="flex items-center gap-2 ml-auto text-xs text-base-content/70"
+                class="alert alert-info shadow-sm"
+                role="status"
+                data-testid="memory-banner-never-indexed"
               >
-                <span data-testid="symbol-total"
-                  >{{ state.symbolTotal() }} symbols</span
-                >
+                <div class="flex flex-1 flex-col gap-1">
+                  <span class="text-sm font-semibold">
+                    Your workspace isn't indexed yet
+                  </span>
+                  <span class="text-xs">
+                    Memory search and code navigation need a local index. Click
+                    <strong>Index now</strong> to build one. Files are read on
+                    your machine; nothing is uploaded.
+                  </span>
+                </div>
                 <button
                   type="button"
-                  class="btn btn-xs btn-ghost"
-                  [disabled]="state.symbolLoading()"
-                  (click)="onSymbolReload()"
-                  aria-label="Reload symbol list"
+                  class="btn btn-sm btn-primary"
+                  [disabled]="!hasWorkspace() || indexingBusy()"
+                  (click)="onIndexNow()"
+                  aria-label="Index workspace now"
                 >
-                  @if (state.symbolLoading()) {
+                  @if (indexingBusy()) {
                     <span class="loading loading-spinner loading-xs"></span>
                   }
-                  Re-load
+                  Index now
                 </button>
               </div>
-            </div>
-
-            @if (state.symbolError()) {
-              <div role="alert" class="alert alert-error">
-                <span class="text-sm">{{ state.symbolError() }}</span>
+            }
+            @case ('indexing') {
+              <div
+                class="alert shadow-sm"
+                role="status"
+                data-testid="memory-banner-indexing"
+              >
+                <div class="flex flex-1 flex-col gap-1">
+                  <span class="text-sm font-semibold">
+                    Indexing workspace… {{ banner.percent }}%
+                  </span>
+                  @if (banner.totalKnown) {
+                    <progress
+                      class="progress progress-primary w-full h-1.5"
+                      [value]="banner.percent"
+                      max="100"
+                    ></progress>
+                  } @else {
+                    <progress
+                      class="progress progress-primary w-full h-1.5"
+                    ></progress>
+                  }
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  (click)="onCancelIndex()"
+                  aria-label="Cancel indexing"
+                >
+                  Cancel
+                </button>
               </div>
             }
+            @case ('paused') {
+              <div
+                class="alert alert-warning shadow-sm"
+                role="status"
+                data-testid="memory-banner-paused"
+              >
+                <span class="text-sm flex-1">
+                  Indexing paused at {{ banner.percent }}%.
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  (click)="onResumeIndex()"
+                >
+                  Resume
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  (click)="onCancelIndex()"
+                >
+                  Cancel
+                </button>
+              </div>
+            }
+            @case ('stale') {
+              <div
+                class="alert alert-warning shadow-sm"
+                role="status"
+                data-testid="memory-banner-stale"
+              >
+                <span class="text-sm flex-1">
+                  Workspace changed since last index — re-index to keep memory
+                  search accurate.
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  (click)="onIndexNow()"
+                >
+                  Re-index
+                </button>
+              </div>
+            }
+            @case ('error') {
+              <div
+                class="alert alert-error shadow-sm"
+                role="status"
+                data-testid="memory-banner-error"
+              >
+                <span class="text-sm flex-1">
+                  Indexing failed: {{ banner.message }}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  (click)="onIndexNow()"
+                >
+                  Try again
+                </button>
+              </div>
+            }
+          }
 
-            @if (state.symbolLoading() && state.symbolItems().length === 0) {
-              <div class="flex items-center justify-center py-6">
+          <!-- Workspace scope toggle -->
+          <div
+            class="join mb-2"
+            role="tablist"
+            aria-label="Memory workspace scope"
+          >
+            <button
+              type="button"
+              role="tab"
+              class="join-item btn btn-sm"
+              [class.btn-primary]="scopeFilter() === 'workspace'"
+              [attr.aria-selected]="scopeFilter() === 'workspace'"
+              (click)="onScopeFilterChange('workspace')"
+            >
+              This workspace
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="join-item btn btn-sm"
+              [class.btn-primary]="scopeFilter() === 'all'"
+              [attr.aria-selected]="scopeFilter() === 'all'"
+              (click)="onScopeFilterChange('all')"
+            >
+              All workspaces
+            </button>
+          </div>
+
+          <!-- Search + tier filter -->
+          <div class="flex flex-col gap-2 md:flex-row md:items-center">
+            <input
+              type="search"
+              class="input input-sm input-bordered w-full md:max-w-md"
+              placeholder="Search memory (BM25 + vector hybrid)..."
+              [value]="searchInput()"
+              (input)="onSearchInput($event)"
+              aria-label="Search memory entries"
+            />
+            <div
+              role="tablist"
+              aria-label="Memory tier filter"
+              class="flex flex-wrap gap-1"
+            >
+              @for (chip of tierChips; track chip.id) {
+                <button
+                  type="button"
+                  role="tab"
+                  class="btn btn-xs"
+                  [class.btn-primary]="tierFilter() === chip.id"
+                  [class.btn-ghost]="tierFilter() !== chip.id"
+                  [attr.aria-selected]="tierFilter() === chip.id"
+                  (click)="onTierChipClick(chip.id)"
+                >
+                  {{ chip.label }}
+                </button>
+              }
+            </div>
+            <div class="flex gap-1 ml-auto">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline"
+                [disabled]="purgingJunk() || !hasWorkspace()"
+                [attr.title]="
+                  !hasWorkspace()
+                    ? 'Open a workspace to clean its code-index junk.'
+                    : 'Remove indexed code symbols from build artifacts (.angular, node_modules, dist, etc.)'
+                "
+                (click)="onPurgeJunk()"
+                aria-label="Clean code-index junk"
+              >
+                @if (purgingJunk()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                }
+                Clean junk
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline"
+                [disabled]="loading()"
+                (click)="onRebuildIndex()"
+              >
+                @if (loading()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                }
+                Rebuild index
+              </button>
+            </div>
+          </div>
+
+          @if (error()) {
+            <div role="alert" class="alert alert-error">
+              <span class="text-sm">{{ error() }}</span>
+            </div>
+          }
+
+          <!-- Purge by pattern toolbar -->
+          <section
+            class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200/40 p-3 md:flex-row md:items-center"
+            aria-label="Purge memory entries by subject pattern"
+          >
+            <div class="flex flex-1 flex-col gap-1">
+              <label
+                for="memory-purge-pattern"
+                class="text-xs uppercase text-base-content/60"
+              >
+                Purge by subject pattern
+              </label>
+              <input
+                id="memory-purge-pattern"
+                type="text"
+                class="input input-sm input-bordered w-full"
+                placeholder="e.g. preferences  (substring)  or  alice@%  (like)"
+                [value]="purgePattern()"
+                (input)="onPurgePatternInput($event)"
+                [disabled]="purging()"
+                aria-label="Pattern to match against memory subject"
+              />
+            </div>
+            <div class="flex flex-col gap-1">
+              <label
+                for="memory-purge-mode"
+                class="text-xs uppercase text-base-content/60"
+              >
+                Mode
+              </label>
+              <select
+                id="memory-purge-mode"
+                class="select select-sm select-bordered"
+                [value]="purgeMode()"
+                (change)="onPurgeModeChange($event)"
+                [disabled]="purging()"
+                aria-label="Pattern match mode"
+              >
+                <option value="substring">substring</option>
+                <option value="like">like</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              class="btn btn-sm btn-error md:self-end"
+              [disabled]="purgeDisabled()"
+              [attr.title]="
+                !hasWorkspace() ? 'Open a workspace to purge memory.' : null
+              "
+              (click)="onPurge()"
+            >
+              @if (purging()) {
+                <span class="loading loading-spinner loading-xs"></span>
+              }
+              Purge
+            </button>
+          </section>
+
+          @if (!hasWorkspace()) {
+            <p class="text-xs text-base-content/60">
+              Open a workspace to purge memory.
+            </p>
+          }
+          @if (scopeFilter() === 'all') {
+            <p class="text-xs text-warning mt-1">
+              Switch to 'This workspace' to purge.
+              <button
+                type="button"
+                class="btn btn-xs btn-link p-0"
+                (click)="onScopeFilterChange('workspace')"
+              >
+                Switch
+              </button>
+            </p>
+          }
+
+          @if (purgeError()) {
+            <div role="alert" class="alert alert-error">
+              <span class="text-sm">{{ purgeError() }}</span>
+            </div>
+          }
+          @if (purgeInfo()) {
+            <div role="status" class="alert alert-success">
+              <span class="text-sm">{{ purgeInfo() }}</span>
+            </div>
+          }
+
+          <!-- Stats panel -->
+          <section
+            class="grid grid-cols-2 gap-2 md:grid-cols-5"
+            aria-label="Memory tier statistics"
+          >
+            <div class="rounded-lg bg-base-200 p-3">
+              <div class="text-xs uppercase text-base-content/60">Core</div>
+              <div class="text-2xl font-semibold text-base-content">
+                {{ statCounts().core }}
+              </div>
+            </div>
+            <div class="rounded-lg bg-base-200 p-3">
+              <div class="text-xs uppercase text-base-content/60">Recall</div>
+              <div class="text-2xl font-semibold text-base-content">
+                {{ statCounts().recall }}
+              </div>
+            </div>
+            <div class="rounded-lg bg-base-200 p-3">
+              <div class="text-xs uppercase text-base-content/60">Archival</div>
+              <div class="text-2xl font-semibold text-base-content">
+                {{ statCounts().archival }}
+              </div>
+            </div>
+            <div
+              class="rounded-lg bg-base-200 p-3"
+              title="Indexed code symbols (functions, classes, methods) — shown separately from curated memory"
+            >
+              <div class="text-xs uppercase text-base-content/60">
+                Code index
+              </div>
+              <div class="text-2xl font-semibold text-base-content">
+                {{ statCounts().codeIndex }}
+              </div>
+            </div>
+            <div class="rounded-lg bg-base-200 p-3">
+              <div class="text-xs uppercase text-base-content/60">
+                Last curated
+              </div>
+              <div class="text-sm font-medium text-base-content">
+                {{ lastCuratedAtLabel() }}
+              </div>
+            </div>
+          </section>
+
+          <!-- Entry list -->
+          <section class="flex-1 overflow-auto" aria-label="Memory entries">
+            @if (loading() && filteredEntries().length === 0) {
+              <div class="flex items-center justify-center py-8">
                 <span class="loading loading-spinner loading-md"></span>
               </div>
-            } @else if (state.symbolItems().length === 0) {
+            } @else if (filteredEntries().length === 0) {
               <div
                 class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
               >
-                No indexed code symbols match the current search.
+                No memory entries match the current filter.
               </div>
             } @else {
-              <ul class="flex flex-col gap-1">
-                @for (sym of state.symbolItems(); track sym.id) {
+              <ul class="flex flex-col gap-2">
+                @for (entry of filteredEntries(); track entry.id) {
                   <li
-                    class="flex flex-col gap-1 rounded-md border border-base-300 bg-base-100 p-2 md:flex-row md:items-center md:gap-3"
+                    class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-3 md:flex-row md:items-start"
                   >
-                    <span class="font-mono text-sm text-base-content">
-                      {{ sym.symbolName }}
-                    </span>
-                    <span class="badge badge-sm badge-ghost">{{
-                      sym.kind
-                    }}</span>
-                    <span
-                      class="flex-1 truncate text-xs text-base-content/60"
-                      [attr.title]="sym.filePath"
-                    >
-                      {{ symbolRelativePath(sym.filePath) }}
-                    </span>
-                    <span class="badge badge-sm badge-outline">
-                      {{ sym.tokenCount }} tok
-                    </span>
+                    <div class="flex-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span
+                          class="badge badge-sm"
+                          [class]="tierBadgeClass(entry.tier)"
+                        >
+                          {{ entry.tier }}
+                        </span>
+                        <span class="badge badge-sm badge-ghost">
+                          {{ entry.kind }}
+                        </span>
+                        @if (entry.pinned) {
+                          <span class="badge badge-sm badge-warning"
+                            >pinned</span
+                          >
+                        }
+                        <span class="text-xs text-base-content/60">
+                          score {{ entry.salience.toFixed(2) }}
+                        </span>
+                      </div>
+                      @if (entry.subject) {
+                        <div class="mt-1 text-sm font-medium text-base-content">
+                          {{ entry.subject }}
+                        </div>
+                      }
+                      <div
+                        class="mt-1 line-clamp-3 text-sm text-base-content/80"
+                      >
+                        {{ entry.content }}
+                      </div>
+                    </div>
+                    <div class="flex shrink-0 gap-1">
+                      @if (entry.pinned) {
+                        <button
+                          type="button"
+                          class="btn btn-xs btn-ghost"
+                          (click)="onUnpin(entry.id)"
+                          [attr.aria-label]="'Unpin entry ' + entry.id"
+                        >
+                          Unpin
+                        </button>
+                      } @else {
+                        <button
+                          type="button"
+                          class="btn btn-xs btn-ghost"
+                          (click)="onPin(entry.id)"
+                          [attr.aria-label]="'Pin entry ' + entry.id"
+                        >
+                          Pin
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="btn btn-xs btn-ghost text-error"
+                        (click)="onForget(entry.id)"
+                        [attr.aria-label]="'Forget entry ' + entry.id"
+                      >
+                        Forget
+                      </button>
+                    </div>
                   </li>
                 }
               </ul>
             }
+          </section>
 
-            <div
-              class="flex items-center justify-between pt-1 text-xs text-base-content/70"
+          <details
+            class="rounded-md border border-base-300 bg-base-100"
+            [open]="diagnosticsOpen()"
+            (toggle)="onDiagnosticsToggle($event)"
+            data-testid="memory-diagnostics-details"
+          >
+            <summary
+              class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
             >
-              <span>
-                {{ state.symbolOffset() + 1 }}–{{
-                  state.symbolOffset() + state.symbolItems().length
-                }}
-                of {{ state.symbolTotal() }}
-              </span>
-              <div class="flex gap-1">
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost"
-                  [disabled]="symbolPrevDisabled() || state.symbolLoading()"
-                  (click)="onSymbolPrev()"
-                  aria-label="Previous symbol page"
+              Diagnostics
+            </summary>
+            <div class="border-t border-base-300">
+              @if (diagnosticsOpen()) {
+                <ptah-memory-diagnostics-accordion />
+              }
+            </div>
+          </details>
+
+          <details
+            class="rounded-md border border-base-300 bg-base-100"
+            [open]="advancedIndexingOpen()"
+            (toggle)="onAdvancedToggle($event)"
+          >
+            <summary
+              class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
+            >
+              Advanced indexing settings
+            </summary>
+            <div class="border-t border-base-300 p-2">
+              <ptah-workspace-indexing />
+            </div>
+          </details>
+
+          <details
+            class="rounded-md border border-base-300 bg-base-100"
+            [open]="indexedCodeOpen()"
+            (toggle)="onIndexedCodeToggle($event)"
+            data-testid="memory-indexed-code-details"
+          >
+            <summary
+              class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
+            >
+              Indexed code
+            </summary>
+            <div class="border-t border-base-300 p-3 flex flex-col gap-2">
+              <div class="flex flex-col gap-2 md:flex-row md:items-center">
+                <input
+                  type="search"
+                  class="input input-sm input-bordered w-full md:max-w-md"
+                  placeholder="Search indexed symbols..."
+                  [value]="symbolInput()"
+                  (input)="onSymbolSearchInput($event)"
+                  aria-label="Search indexed code symbols"
+                />
+                <div
+                  class="flex items-center gap-2 ml-auto text-xs text-base-content/70"
                 >
-                  Prev
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost"
-                  [disabled]="symbolNextDisabled() || state.symbolLoading()"
-                  (click)="onSymbolNext()"
-                  aria-label="Next symbol page"
+                  <span data-testid="symbol-total"
+                    >{{ state.symbolTotal() }} symbols</span
+                  >
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost"
+                    [disabled]="state.symbolLoading()"
+                    (click)="onSymbolReload()"
+                    aria-label="Reload symbol list"
+                  >
+                    @if (state.symbolLoading()) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    }
+                    Re-load
+                  </button>
+                </div>
+              </div>
+
+              @if (state.symbolError()) {
+                <div role="alert" class="alert alert-error">
+                  <span class="text-sm">{{ state.symbolError() }}</span>
+                </div>
+              }
+
+              @if (state.symbolLoading() && state.symbolItems().length === 0) {
+                <div class="flex items-center justify-center py-6">
+                  <span class="loading loading-spinner loading-md"></span>
+                </div>
+              } @else if (state.symbolItems().length === 0) {
+                <div
+                  class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
                 >
-                  Next
-                </button>
+                  No indexed code symbols match the current search.
+                </div>
+              } @else {
+                <ul class="flex flex-col gap-1">
+                  @for (sym of state.symbolItems(); track sym.id) {
+                    <li
+                      class="flex flex-col gap-1 rounded-md border border-base-300 bg-base-100 p-2 md:flex-row md:items-center md:gap-3"
+                    >
+                      <span class="font-mono text-sm text-base-content">
+                        {{ sym.symbolName }}
+                      </span>
+                      <span class="badge badge-sm badge-ghost">{{
+                        sym.kind
+                      }}</span>
+                      <span
+                        class="flex-1 truncate text-xs text-base-content/60"
+                        [attr.title]="sym.filePath"
+                      >
+                        {{ symbolRelativePath(sym.filePath) }}
+                      </span>
+                      <span class="badge badge-sm badge-outline">
+                        {{ sym.tokenCount }} tok
+                      </span>
+                    </li>
+                  }
+                </ul>
+              }
+
+              <div
+                class="flex items-center justify-between pt-1 text-xs text-base-content/70"
+              >
+                <span>
+                  {{ state.symbolOffset() + 1 }}–{{
+                    state.symbolOffset() + state.symbolItems().length
+                  }}
+                  of {{ state.symbolTotal() }}
+                </span>
+                <div class="flex gap-1">
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost"
+                    [disabled]="symbolPrevDisabled() || state.symbolLoading()"
+                    (click)="onSymbolPrev()"
+                    aria-label="Previous symbol page"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost"
+                    [disabled]="symbolNextDisabled() || state.symbolLoading()"
+                    (click)="onSymbolNext()"
+                    aria-label="Next symbol page"
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        </details>
+          </details>
+        }
       </div>
     }
   `,
@@ -687,6 +730,15 @@ export class MemoryCuratorTabComponent implements OnInit {
     { id: 'recall', label: 'Recall' },
     { id: 'archival', label: 'Archival' },
   ];
+
+  protected readonly viewChips: readonly ViewChip[] = [
+    { id: 'list', label: 'List' },
+    { id: 'timeline', label: 'Timeline' },
+    { id: 'corpus', label: 'Corpus' },
+  ];
+
+  private readonly _view = signal<MemoryTabView>('list');
+  public readonly view = this._view.asReadonly();
 
   /** Local mirror of the search input — debounced into `state.search()`. */
   protected readonly searchInput = signal<string>('');
@@ -882,6 +934,10 @@ export class MemoryCuratorTabComponent implements OnInit {
 
   protected onScopeFilterChange(scope: MemoryScopeFilter): void {
     this.state.setScopeFilter(scope);
+  }
+
+  protected onViewChange(view: MemoryTabView): void {
+    this._view.set(view);
   }
 
   protected onPin(id: string): void {

@@ -88,6 +88,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     }
   }
 
+  /** Removes workspace state; canvas listens via tabManager.removedWorkspace$. */
   async removeWorkspaceState(workspacePath: string): Promise<void> {
     this.tabManager.removeWorkspaceState(workspacePath);
     this.sessionLoader.removeWorkspaceCache(workspacePath);

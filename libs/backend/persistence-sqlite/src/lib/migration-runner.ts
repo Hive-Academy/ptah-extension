@@ -51,10 +51,13 @@ export class SqliteMigrationRunner {
    * order regardless of input order.
    *
    * @param migrations - List of migrations to apply.
-   * @param options.vecExtensionLoaded - When `false`, migrations marked
-   *   `requiresVec: true` are skipped with a warning instead of throwing.
-   *   This allows cron / gateway / core migrations to succeed even when
-   *   the sqlite-vec native extension is unavailable.
+   * @param options.vecExtensionLoaded - When `false`, each migration's base
+   *   `sql` still applies; any `vecSql` is deferred into
+   *   `schema_migrations_vec_pending`, and pure-vec migrations
+   *   (`requiresVec: true` with no base `sql`) are skipped + deferred without
+   *   being recorded as applied. When `true`, deferred vec statements are
+   *   caught up at the end of the run. This keeps base relational + FTS5
+   *   tables available even when the sqlite-vec native extension is missing.
    *
    * @throws Error if the DB reports a version higher than the bundled max
    *         (forward-only invariant per architecture §8.5).
@@ -99,21 +102,35 @@ export class SqliteMigrationRunner {
 
     const appliedNow: number[] = [];
     const skippedNow: number[] = [];
+    const vecPendingSet = vecLoaded
+      ? new Set(this.readPendingVecVersions())
+      : new Set<number>();
 
     for (const migration of sorted) {
       if (applied.has(migration.version)) {
         skippedNow.push(migration.version);
         continue;
       }
-      if (migration.requiresVec && !vecLoaded) {
+      if (vecPendingSet.has(migration.version)) {
+        skippedNow.push(migration.version);
+        continue;
+      }
+      const isPureVec =
+        migration.requiresVec === true && migration.sql === undefined;
+      if (isPureVec && !vecLoaded) {
+        this.deferVecMigration(migration.version);
         this.logger.warn(
-          `[persistence-sqlite] skipping migration ${migration.version} (${migration.name}) — requires sqlite-vec which is not loaded`,
+          `[persistence-sqlite] deferring vec-only migration ${migration.version} (${migration.name}) — sqlite-vec not loaded; will run when vec becomes available`,
         );
         skippedNow.push(migration.version);
         continue;
       }
-      this.applyOne(migration);
+      this.applyOne(migration, vecLoaded);
       appliedNow.push(migration.version);
+    }
+
+    if (vecLoaded) {
+      this.runVecCatchUp(sorted, appliedNow);
     }
 
     const finalVersion = Math.max(dbMaxVersion, ...appliedNow, 0);
@@ -156,20 +173,38 @@ export class SqliteMigrationRunner {
    *   transaction, then records bookkeeping in a separate post-run transaction.
    *   If `run()` throws, the bookkeeping transaction is NOT attempted.
    *
-   * A migration providing both `sql` and `run` is a configuration error — this
-   * method throws immediately so the misconfiguration surfaces at apply-time.
+   * A migration's `vecSql` (vec0 tables) is applied in the same transaction
+   * when `vecLoaded`; otherwise the base `sql` is recorded applied and the
+   * version is queued in `schema_migrations_vec_pending` for later catch-up.
+   *
+   * A migration providing more than one of `sql`+`run`, `run`+`vecSql`, or
+   * `requiresVec`+`sql` is a configuration error — this method throws
+   * immediately so the misconfiguration surfaces at apply-time.
    *
    * `PRAGMA user_version = N` is written inside the bookkeeping transaction
    * so it rolls back atomically with the INSERT if something goes wrong.
    */
-  private applyOne(migration: Migration): void {
+  private applyOne(migration: Migration, vecLoaded: boolean): void {
     const hasSql = migration.sql !== undefined;
     const hasRun = migration.run !== undefined;
+    const hasVecSql = migration.vecSql !== undefined;
 
     if (hasSql && hasRun) {
       throw new Error(
         `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) ` +
           'defines both sql and run — a migration must provide exactly one.',
+      );
+    }
+    if (hasRun && hasVecSql) {
+      throw new Error(
+        `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) ` +
+          'defines both run and vecSql — a migration must provide exactly one.',
+      );
+    }
+    if (migration.requiresVec === true && hasSql) {
+      throw new Error(
+        `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) ` +
+          'sets requiresVec but also defines sql — requiresVec means the entire body is vec0 (use vecSql, no base sql).',
       );
     }
 
@@ -202,14 +237,26 @@ export class SqliteMigrationRunner {
       return;
     }
     const sql = migration.sql ?? '';
+    const applyVecNow = hasVecSql && vecLoaded;
+    const deferVec = hasVecSql && !vecLoaded;
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.exec(sql);
+      if (sql.length > 0) this.db.exec(sql);
+      if (applyVecNow && migration.vecSql !== undefined) {
+        this.db.exec(migration.vecSql);
+      }
       this.db
         .prepare(
           'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
         )
         .run(migration.version, Date.now());
+      if (deferVec) {
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO schema_migrations_vec_pending(version) VALUES (?)',
+          )
+          .run(migration.version);
+      }
       this.db.exec(`PRAGMA user_version = ${migration.version}`);
       this.db.exec('COMMIT');
     } catch (err: unknown) {
@@ -217,6 +264,11 @@ export class SqliteMigrationRunner {
       throw new Error(
         `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) failed: ` +
           stringifyError(err),
+      );
+    }
+    if (deferVec) {
+      this.logger.warn(
+        `[persistence-sqlite] migration ${migration.version} (${migration.name}) applied base schema only — sqlite-vec not loaded; vec index deferred`,
       );
     }
   }
@@ -229,6 +281,95 @@ export class SqliteMigrationRunner {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)',
     );
+    this.db.exec(
+      'CREATE TABLE IF NOT EXISTS schema_migrations_vec_pending (version INTEGER PRIMARY KEY)',
+    );
+  }
+
+  /** Record a version whose `vecSql` (or pure-vec body) still needs vec to run. */
+  private deferVecMigration(version: number): void {
+    this.ensureBookkeepingTable();
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO schema_migrations_vec_pending(version) VALUES (?)',
+      )
+      .run(version);
+  }
+
+  /** Versions awaiting their deferred vec statements, ascending. */
+  readPendingVecVersions(): number[] {
+    this.ensureBookkeepingTable();
+    const rows = this.db
+      .prepare('SELECT version FROM schema_migrations_vec_pending')
+      .all() as Array<{ version: number }>;
+    return rows.map((r) => Number(r.version)).sort((a, b) => a - b);
+  }
+
+  /**
+   * Apply deferred vec statements once sqlite-vec is available. Idempotent and
+   * safe to run on every boot: for each version in
+   * `schema_migrations_vec_pending`, apply the migration's `vecSql` (and, for
+   * a pure-vec migration that was never recorded, record it applied), then
+   * clear the pending row. Versions whose migration is no longer bundled are
+   * dropped from the pending table.
+   */
+  private runVecCatchUp(
+    sorted: readonly Migration[],
+    appliedNow: number[],
+  ): void {
+    const pending = this.readPendingVecVersions();
+    if (pending.length === 0) return;
+    const byVersion = new Map(sorted.map((m) => [m.version, m]));
+    const recordedApplied = this.readAppliedVersions();
+    for (const version of pending) {
+      const migration = byVersion.get(version);
+      if (migration === undefined || migration.vecSql === undefined) {
+        this.clearVecPending(version);
+        continue;
+      }
+      const isPureVec =
+        migration.requiresVec === true && migration.sql === undefined;
+      const needsApplyRecord = isPureVec && !recordedApplied.has(version);
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec(migration.vecSql);
+        if (needsApplyRecord) {
+          this.db
+            .prepare(
+              'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
+            )
+            .run(version, Date.now());
+        }
+        this.db
+          .prepare(
+            'DELETE FROM schema_migrations_vec_pending WHERE version = ?',
+          )
+          .run(version);
+        this.db.exec('COMMIT');
+      } catch (err: unknown) {
+        this.db.exec('ROLLBACK');
+        this.logger.warn(
+          `[persistence-sqlite] vec catch-up for migration ${version} (${migration.name}) failed; left deferred, vector search stays disabled until next boot: ` +
+            stringifyError(err),
+        );
+        continue;
+      }
+      if (needsApplyRecord && !appliedNow.includes(version)) {
+        appliedNow.push(version);
+      }
+      this.logger.info(
+        `[persistence-sqlite] applied deferred vec index for migration ${version} (${migration.name})`,
+      );
+    }
+    const finalApplied = this.readAppliedVersions();
+    const maxApplied = finalApplied.size === 0 ? 0 : Math.max(...finalApplied);
+    this.db.exec(`PRAGMA user_version = ${maxApplied}`);
+  }
+
+  private clearVecPending(version: number): void {
+    this.db
+      .prepare('DELETE FROM schema_migrations_vec_pending WHERE version = ?')
+      .run(version);
   }
 }
 

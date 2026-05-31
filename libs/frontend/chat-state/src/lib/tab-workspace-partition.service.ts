@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { TabState } from '@ptah-extension/chat-types';
 
 /**
@@ -62,7 +62,16 @@ export class TabWorkspacePartitionService {
    * Currently active workspace path. Null when no workspace is active
    * (e.g., app just started, no workspace opened yet).
    */
-  private _activeWorkspacePath: string | null = null;
+  private readonly _activeWorkspacePath = signal<string | null>(null);
+
+  /**
+   * Consume-and-clear signal that emits the workspace path just removed
+   * via removeWorkspaceState(); paired with clearRemovedWorkspace().
+   */
+  private readonly _removedWorkspace = signal<string | null>(null);
+
+  readonly activeWorkspacePath$ = this._activeWorkspacePath.asReadonly();
+  readonly removedWorkspace$ = this._removedWorkspace.asReadonly();
 
   /**
    * Reverse index from sessionId to workspacePath for O(1) lookup.
@@ -99,7 +108,12 @@ export class TabWorkspacePartitionService {
    * Get the currently active workspace path.
    */
   get activeWorkspacePath(): string | null {
-    return this._activeWorkspacePath;
+    return this._activeWorkspacePath();
+  }
+
+  /** Acknowledge the removedWorkspace$ signal after consumption. */
+  clearRemovedWorkspace(): void {
+    this._removedWorkspace.set(null);
   }
 
   /**
@@ -124,14 +138,15 @@ export class TabWorkspacePartitionService {
     currentTabs: TabState[],
     currentActiveTabId: string | null,
   ): { tabs: TabState[]; activeTabId: string | null } | null {
-    if (this._activeWorkspacePath === workspacePath) return null;
-    if (this._activeWorkspacePath) {
-      this._workspaceTabSets.set(this._activeWorkspacePath, {
+    const current = this._activeWorkspacePath();
+    if (current === workspacePath) return null;
+    if (current) {
+      this._workspaceTabSets.set(current, {
         tabs: currentTabs,
         activeTabId: currentActiveTabId,
       });
     }
-    this._activeWorkspacePath = workspacePath;
+    this._activeWorkspacePath.set(workspacePath);
     const targetTabSet = this._workspaceTabSets.get(workspacePath);
 
     if (targetTabSet) {
@@ -165,7 +180,7 @@ export class TabWorkspacePartitionService {
    * @param activeTabs - Current active workspace tabs (from signal) for active workspace fast path
    */
   getWorkspaceTabs(workspacePath: string, activeTabs?: TabState[]): TabState[] {
-    if (workspacePath === this._activeWorkspacePath && activeTabs) {
+    if (workspacePath === this._activeWorkspacePath() && activeTabs) {
       return activeTabs;
     }
     return this._workspaceTabSets.get(workspacePath)?.tabs ?? [];
@@ -190,9 +205,10 @@ export class TabWorkspacePartitionService {
     sessionId: string,
     activeTabs?: TabState[],
   ): TabLookupResult | null {
+    const activePath = this._activeWorkspacePath();
     const indexedWsPath = this._sessionToWorkspace.get(sessionId);
     if (indexedWsPath) {
-      if (indexedWsPath === this._activeWorkspacePath && activeTabs) {
+      if (indexedWsPath === activePath && activeTabs) {
         const tab = activeTabs.find((t) => t.claudeSessionId === sessionId);
         if (tab) {
           return { tab, workspacePath: indexedWsPath };
@@ -208,20 +224,18 @@ export class TabWorkspacePartitionService {
       }
       this._sessionToWorkspace.delete(sessionId);
     }
-    if (this._activeWorkspacePath) {
+    if (activePath) {
       const tabs =
-        activeTabs ??
-        this._workspaceTabSets.get(this._activeWorkspacePath)?.tabs ??
-        [];
+        activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [];
       const activeTab = tabs.find((t) => t.claudeSessionId === sessionId);
       if (activeTab) {
-        this._sessionToWorkspace.set(sessionId, this._activeWorkspacePath);
-        return { tab: activeTab, workspacePath: this._activeWorkspacePath };
+        this._sessionToWorkspace.set(sessionId, activePath);
+        return { tab: activeTab, workspacePath: activePath };
       }
     }
 
     for (const [wsPath, tabSet] of this._workspaceTabSets) {
-      if (wsPath === this._activeWorkspacePath) continue;
+      if (wsPath === activePath) continue;
       const found = tabSet.tabs.find((t) => t.claudeSessionId === sessionId);
       if (found) {
         this._sessionToWorkspace.set(sessionId, wsPath);
@@ -241,8 +255,9 @@ export class TabWorkspacePartitionService {
    * @returns true if tab was found and updated, false otherwise
    */
   updateBackgroundTab(tabId: string, updates: Partial<TabState>): boolean {
+    const activePath = this._activeWorkspacePath();
     for (const [wsPath, tabSet] of this._workspaceTabSets) {
-      if (wsPath === this._activeWorkspacePath) continue;
+      if (wsPath === activePath) continue;
 
       const bgTabIndex = tabSet.tabs.findIndex((t) => t.id === tabId);
       if (bgTabIndex !== -1) {
@@ -302,10 +317,11 @@ export class TabWorkspacePartitionService {
     const storageKey = this._getWorkspaceStorageKey(workspacePath);
 
     localStorage.removeItem(storageKey);
-    const wasActive = this._activeWorkspacePath === workspacePath;
+    const wasActive = this._activeWorkspacePath() === workspacePath;
     if (wasActive) {
-      this._activeWorkspacePath = null;
+      this._activeWorkspacePath.set(null);
     }
+    this._removedWorkspace.set(workspacePath);
 
     return wasActive;
   }
@@ -354,8 +370,9 @@ export class TabWorkspacePartitionService {
    * @param activeTabId - Current active tab ID from _activeTabId signal
    */
   syncActiveWorkspaceState(tabs: TabState[], activeTabId: string | null): void {
-    if (this._activeWorkspacePath) {
-      this._workspaceTabSets.set(this._activeWorkspacePath, {
+    const activePath = this._activeWorkspacePath();
+    if (activePath) {
+      this._workspaceTabSets.set(activePath, {
         tabs,
         activeTabId,
       });
@@ -411,7 +428,10 @@ export class TabWorkspacePartitionService {
       const sanitizedTabs = state.tabs.map((tab: TabState) => ({
         ...tab,
         streamingState: null,
-        status: tab.status === 'streaming' ? 'loaded' : tab.status,
+        status:
+          tab.status === 'streaming' || tab.status === 'awaiting-background'
+            ? 'loaded'
+            : tab.status,
       }));
 
       return {

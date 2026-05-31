@@ -65,8 +65,8 @@ export class PtahFileSettingsManager {
   /** Whether a rename-triggered re-establish is already pending (prevents stacking). */
   private fileRenameReestablishPending = false;
 
-  constructor(defaults: FileSettingsDefaults) {
-    this.dirPath = path.join(homedir(), '.ptah');
+  constructor(defaults: FileSettingsDefaults, dirPathOverride?: string) {
+    this.dirPath = dirPathOverride ?? path.join(homedir(), '.ptah');
     this.filePath = path.join(this.dirPath, 'settings.json');
     this.defaults = defaults;
     this.loadSync();

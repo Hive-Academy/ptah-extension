@@ -21,7 +21,7 @@ export interface LiveModelStatsPayload {
  * or when previous turn totals must be carried across compaction.
  */
 export interface PreloadedStatsPayload {
-  totalCost: number;
+  totalCost: number | null;
   tokens: {
     input: number;
     output: number;

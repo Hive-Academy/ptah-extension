@@ -93,6 +93,22 @@ import { SessionId } from '@ptah-extension/shared';
         <div
           class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
         >
+          @if (
+            modelState.isPending() && effectiveAvailableModels().length === 0
+          ) {
+            <div
+              class="flex items-center gap-2 px-4 py-3 text-xs text-base-content/60"
+            >
+              <span class="loading loading-spinner loading-xs"></span>
+              Loading models...
+            </div>
+          } @else if (
+            modelState.isLoaded() && effectiveAvailableModels().length === 0
+          ) {
+            <div class="px-4 py-3 text-xs text-base-content/60">
+              No models available. Check your provider connection.
+            </div>
+          }
           @for (
             model of effectiveAvailableModels();
             track model.id;

@@ -1,12 +1,12 @@
 /**
  * Format a USD cost value for display.
- * - NaN / undefined: $--
+ * - null / NaN / undefined: $--
  * - Zero: $0.00
  * - Sub-cent (0 < cost < 0.01): $X.XXXX (4 decimals)
  * - Normal: $X.XX (2 decimals)
  */
-export function formatCost(cost: number): string {
-  if (isNaN(cost)) return '$--';
+export function formatCost(cost: number | null): string {
+  if (cost === null || isNaN(cost)) return '$--';
   if (cost === 0) return '$0.00';
   if (cost > 0 && cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;

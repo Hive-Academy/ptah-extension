@@ -5,12 +5,14 @@ import {
   computed,
   signal,
   output,
+  inject,
 } from '@angular/core';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import {
   calculateSessionCostSummary,
-  formatModelDisplayName,
+  resolveModelDisplayName,
 } from '@ptah-extension/shared';
+import { ModelStateService } from '@ptah-extension/core';
 
 /**
  * Live model stats from current session
@@ -34,7 +36,7 @@ export interface ModelUsageEntry {
   model: string;
   inputTokens: number;
   outputTokens: number;
-  costUSD: number;
+  costUSD: number | null;
   contextWindow: number;
   cacheReadInputTokens?: number;
 }
@@ -640,6 +642,8 @@ export interface ModelUsageEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SessionStatsSummaryComponent {
+  private readonly modelState = inject(ModelStateService);
+
   /** All messages in the session */
   readonly messages = input.required<readonly ExecutionChatMessage[]>();
 
@@ -648,7 +652,7 @@ export class SessionStatsSummaryComponent {
    * When provided, these are used instead of calculating from messages.
    */
   readonly preloadedStats = input<{
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -741,7 +745,7 @@ export class SessionStatsSummaryComponent {
   readonly totalModelCost = computed(() => {
     const list = this.modelUsageList();
     if (!list) return 0;
-    return list.reduce((sum, m) => sum + m.costUSD, 0);
+    return list.reduce((sum, m) => sum + (m.costUSD ?? 0), 0);
   });
 
   /** Computed session summary using utility functions or preloaded stats */
@@ -762,7 +766,7 @@ export class SessionStatsSummaryComponent {
   readonly hasStats = computed(() => {
     const s = this.summary();
     return (
-      s.totalCost > 0 ||
+      (s.totalCost !== null && s.totalCost > 0) ||
       s.totalDuration > 0 ||
       this.totalTokenCount() > 0 ||
       this.liveModelStats() !== null
@@ -807,7 +811,10 @@ export class SessionStatsSummaryComponent {
   });
 
   /** Format cost for display */
-  protected formatCost(cost: number): string {
+  protected formatCost(cost: number | null): string {
+    if (cost === null) {
+      return '—';
+    }
     if (cost < 0.01) {
       return `$${cost.toFixed(4)}`;
     }
@@ -839,12 +846,7 @@ export class SessionStatsSummaryComponent {
     return `${minutes}m ${remainingSeconds}s`;
   }
 
-  /**
-   * Format model name for display
-   * Delegates to shared utility for consistent model name formatting across the application.
-   * Extracts readable name from full model ID (e.g., "claude-sonnet-4-20250514" -> "Sonnet 4")
-   */
   protected formatModelName(modelId: string): string {
-    return formatModelDisplayName(modelId);
+    return resolveModelDisplayName(modelId, this.modelState.availableModels());
   }
 }

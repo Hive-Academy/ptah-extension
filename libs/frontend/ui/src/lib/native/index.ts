@@ -24,3 +24,4 @@ export * from './option';
 export * from './dropdown';
 export * from './popover';
 export * from './autocomplete';
+export * from './form';

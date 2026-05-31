@@ -62,10 +62,8 @@ asarUnpack:
   # nodejs-whisper: native bindings + downloaded model cache
   - 'node_modules/better-sqlite3/**'
   - 'node_modules/sqlite-vec/**'
-  - 'node_modules/sqlite-vec-darwin-arm64/**'
-  - 'node_modules/sqlite-vec-darwin-x64/**'
-  - 'node_modules/sqlite-vec-linux-x64/**'
-  - 'node_modules/sqlite-vec-windows-x86_64/**'
+  # Glob covers every sqlite-vec platform binary package (avoids name drift).
+  - 'node_modules/sqlite-vec-*/**'
   - 'node_modules/ffmpeg-static/**'
   - 'node_modules/nodejs-whisper/**'
 
