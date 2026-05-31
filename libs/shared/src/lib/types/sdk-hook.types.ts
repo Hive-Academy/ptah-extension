@@ -6,8 +6,8 @@
  * shared between the bus emitter side (`agent-sdk` lib) and the webview
  * consumer side, and are validated with Zod at the RPC boundary.
  *
- * Covers PostCompact (Phase 1) and Stop / StopFailure (Phase 2). Phase 3
- * will extend with SubagentStop.
+ * Covers PostCompact (Phase 1), Stop / StopFailure (Phase 2), and
+ * SubagentStop (Phase 3).
  */
 
 import { z } from 'zod';
@@ -199,5 +199,35 @@ export const SdkTurnFailedPayloadSchema = z.object({
   error: SdkAssistantMessageErrorSchema,
   errorDetails: z.string().nullable(),
   terminalReason: SdkTerminalReasonSchema.nullable(),
+  timestamp: z.number().int().nonnegative(),
+});
+
+/**
+ * Wire payload for `MESSAGE_TYPES.SESSION_SUBAGENT_ENDED`
+ * (`'session:subagentEnded'`).
+ *
+ * Emitted after the SDK's SubagentStop hook fires. Consumers reconcile the
+ * background-task list on the parent session so the UI can transition the
+ * tab out of `'awaiting-background'` once every in-flight subagent has
+ * reported in.
+ */
+export interface SdkSubagentEndedPayload {
+  readonly sessionId: string;
+  readonly cwd: string;
+  readonly agentId: string;
+  readonly agentType: string;
+  readonly lastAssistantMessage: string | null;
+  readonly backgroundTasks: readonly SdkBackgroundTaskSummary[];
+  readonly timestamp: number;
+}
+
+/** Zod schema for {@link SdkSubagentEndedPayload}. */
+export const SdkSubagentEndedPayloadSchema = z.object({
+  sessionId: z.string().min(1),
+  cwd: z.string().min(1),
+  agentId: z.string().min(1),
+  agentType: z.string().min(1),
+  lastAssistantMessage: z.string().nullable(),
+  backgroundTasks: z.array(SdkBackgroundTaskSummarySchema).readonly(),
   timestamp: z.number().int().nonnegative(),
 });

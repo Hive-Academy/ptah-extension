@@ -94,6 +94,7 @@ import type { GatewayStatusChangedPayload } from './gateway';
 import type { UpdateStatusChangedPayload } from './update';
 import type {
   SdkCompactionCompletePayload,
+  SdkSubagentEndedPayload,
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
 } from '../sdk-hook.types';
@@ -204,6 +205,7 @@ export interface MessagePayloadMap {
   'session:compactionComplete': SdkCompactionCompletePayload;
   'session:turnEnded': SdkTurnEndedPayload;
   'session:turnFailed': SdkTurnFailedPayload;
+  'session:subagentEnded': SdkSubagentEndedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'memory:observationCaptured': MemoryObservationCapturedPayload;

@@ -3,12 +3,12 @@
  *
  * Bridges {@link SdkAdapterEvents} session-lifecycle events to the webview as
  * `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE`, `MESSAGE_TYPES.SESSION_TURN_ENDED`,
- * and `MESSAGE_TYPES.SESSION_TURN_FAILED` push notifications. Subscribes to
- * the bus in its constructor and broadcasts the validated payload through
- * the platform {@link WebviewBroadcaster}.
+ * `MESSAGE_TYPES.SESSION_TURN_FAILED`, and `MESSAGE_TYPES.SESSION_SUBAGENT_ENDED`
+ * push notifications. Subscribes to the bus in its constructor and broadcasts
+ * the validated payload through the platform {@link WebviewBroadcaster}.
  *
- * Single fan-out site for SDK hook events (PostCompact, Stop, StopFailure)
- * into the webview wire.
+ * Single fan-out site for SDK hook events (PostCompact, Stop, StopFailure,
+ * SubagentStop) into the webview wire.
  */
 
 import { inject, injectable } from 'tsyringe';
@@ -17,15 +17,18 @@ import {
   SDK_TOKENS,
   SdkAdapterEvents,
   type SdkAdapterCompactionCompleteEvent,
+  type SdkAdapterSubagentEndedEvent,
   type SdkAdapterTurnEndedEvent,
   type SdkAdapterTurnFailedEvent,
 } from '@ptah-extension/agent-sdk';
 import {
   MESSAGE_TYPES,
   SdkCompactionCompletePayloadSchema,
+  SdkSubagentEndedPayloadSchema,
   SdkTurnEndedPayloadSchema,
   SdkTurnFailedPayloadSchema,
   type SdkCompactionCompletePayload,
+  type SdkSubagentEndedPayload,
   type SdkTurnEndedPayload,
   type SdkTurnFailedPayload,
 } from '@ptah-extension/shared';
@@ -61,6 +64,11 @@ export class SessionLifecycleNotifier {
     this.subscriptions.push(
       this.sdkAdapterEvents.onTurnFailed((event) =>
         this.handleTurnFailed(event),
+      ),
+    );
+    this.subscriptions.push(
+      this.sdkAdapterEvents.onSubagentEnded((event) =>
+        this.handleSubagentEnded(event),
       ),
     );
   }
@@ -143,6 +151,33 @@ export class SessionLifecycleNotifier {
     const payload: SdkTurnFailedPayload = parsed.data;
     this.webviewManager
       .broadcastMessage(MESSAGE_TYPES.SESSION_TURN_FAILED, payload)
+      .catch((err: unknown) => {
+        this.logger.warn(
+          '[SessionLifecycleNotifier] webview broadcast failed',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      });
+  }
+
+  private handleSubagentEnded(event: SdkAdapterSubagentEndedEvent): void {
+    const parsed = SdkSubagentEndedPayloadSchema.safeParse(event);
+    if (!parsed.success) {
+      const hasBackgroundTasks = Array.isArray(event?.backgroundTasks)
+        ? event.backgroundTasks.length > 0
+        : false;
+      this.logger.warn(
+        `[SessionLifecycleNotifier] dropping malformed subagentEnded payload (sessionId=${String(
+          event?.sessionId,
+        )}, agentId=${String(event?.agentId)}, agentType=${String(
+          event?.agentType,
+        )}, hasBackgroundTasks=${String(hasBackgroundTasks)})`,
+        new Error(parsed.error.message),
+      );
+      return;
+    }
+    const payload: SdkSubagentEndedPayload = parsed.data;
+    this.webviewManager
+      .broadcastMessage(MESSAGE_TYPES.SESSION_SUBAGENT_ENDED, payload)
       .catch((err: unknown) => {
         this.logger.warn(
           '[SessionLifecycleNotifier] webview broadcast failed',

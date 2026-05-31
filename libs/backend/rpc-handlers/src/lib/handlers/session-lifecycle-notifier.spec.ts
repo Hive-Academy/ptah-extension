@@ -1,10 +1,11 @@
 /**
  * Unit spec for {@link SessionLifecycleNotifier}.
  *
- * Asserts the Phase 1 + Phase 2 wire-crossing contract:
+ * Asserts the Phase 1 + Phase 2 + Phase 3 wire-crossing contract:
  *   - constructor subscribes to {@link SdkAdapterEvents.onCompactionComplete},
- *     {@link SdkAdapterEvents.onTurnEnded}, and
- *     {@link SdkAdapterEvents.onTurnFailed};
+ *     {@link SdkAdapterEvents.onTurnEnded},
+ *     {@link SdkAdapterEvents.onTurnFailed}, and
+ *     {@link SdkAdapterEvents.onSubagentEnded};
  *   - a bus emit fans out to `webviewManager.broadcastMessage(...)` keyed by
  *     the matching `MESSAGE_TYPES.SESSION_*` constant with the Zod-validated
  *     payload;
@@ -20,11 +21,13 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import {
   MESSAGE_TYPES,
   type SdkCompactionCompletePayload,
+  type SdkSubagentEndedPayload,
   type SdkTurnEndedPayload,
   type SdkTurnFailedPayload,
 } from '@ptah-extension/shared';
 import type {
   SdkAdapterCompactionCompleteEvent,
+  SdkAdapterSubagentEndedEvent,
   SdkAdapterTurnEndedEvent,
   SdkAdapterTurnFailedEvent,
 } from '@ptah-extension/agent-sdk';
@@ -100,6 +103,21 @@ function makeTurnFailedEvent(
   };
 }
 
+function makeSubagentEndedEvent(
+  overrides: Partial<SdkAdapterSubagentEndedEvent> = {},
+): SdkAdapterSubagentEndedEvent {
+  return {
+    sessionId: 'sess-sub',
+    cwd: '/repo',
+    agentId: 'agent-1',
+    agentType: 'research',
+    lastAssistantMessage: 'done',
+    backgroundTasks: [],
+    timestamp: 2000,
+    ...overrides,
+  };
+}
+
 describe('SessionLifecycleNotifier', () => {
   let logger: MockLogger;
   let bus: SdkAdapterEvents;
@@ -159,16 +177,19 @@ describe('SessionLifecycleNotifier', () => {
     expect(bus.listenerCount('compactionComplete')).toBe(1);
     expect(bus.listenerCount('turnEnded')).toBe(1);
     expect(bus.listenerCount('turnFailed')).toBe(1);
+    expect(bus.listenerCount('subagentEnded')).toBe(1);
 
     notifier.dispose();
 
     expect(bus.listenerCount('compactionComplete')).toBe(0);
     expect(bus.listenerCount('turnEnded')).toBe(0);
     expect(bus.listenerCount('turnFailed')).toBe(0);
+    expect(bus.listenerCount('subagentEnded')).toBe(0);
 
     bus.emitCompactionComplete(makeEvent());
     bus.emitTurnEnded(makeTurnEndedEvent());
     bus.emitTurnFailed(makeTurnFailedEvent());
+    bus.emitSubagentEnded(makeSubagentEndedEvent());
     expect(calls).toHaveLength(0);
   });
 
@@ -295,6 +316,60 @@ describe('SessionLifecycleNotifier', () => {
     });
   });
 
+  describe('subagentEnded path', () => {
+    it('subscribes to onSubagentEnded in the constructor', () => {
+      expect(bus.listenerCount('subagentEnded')).toBe(0);
+
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+
+      expect(bus.listenerCount('subagentEnded')).toBe(1);
+    });
+
+    it('forwards a bus emit to the webview as session:subagentEnded', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+      const event = makeSubagentEndedEvent({
+        agentId: 'agent-2',
+        agentType: 'reviewer',
+        backgroundTasks: [
+          {
+            id: 'bg-2',
+            type: 'subagent',
+            status: 'completed',
+            description: 'review changes',
+          },
+        ],
+      });
+
+      bus.emitSubagentEnded(event);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].type).toBe(MESSAGE_TYPES.SESSION_SUBAGENT_ENDED);
+      const payload = calls[0].payload as SdkSubagentEndedPayload;
+      expect(payload).toEqual(event);
+    });
+
+    it('drops a malformed subagentEnded payload and logs a warning with structural context', () => {
+      new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
+      const bad = {
+        sessionId: '',
+        cwd: '/repo',
+        agentId: '',
+        agentType: '',
+        lastAssistantMessage: null,
+        backgroundTasks: [],
+        timestamp: -1,
+      } as unknown as SdkAdapterSubagentEndedEvent;
+
+      bus.emitSubagentEnded(bad);
+
+      expect(calls).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalled();
+      const firstArg = logger.warn.mock.calls[0][0] as string;
+      expect(firstArg).toContain('subagentEnded');
+      expect(firstArg).toContain('hasBackgroundTasks=false');
+    });
+  });
+
   describe('RPC registration regression', () => {
     it('MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE equals "session:compactionComplete"', () => {
       expect(MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE).toBe(
@@ -310,16 +385,24 @@ describe('SessionLifecycleNotifier', () => {
       expect(MESSAGE_TYPES.SESSION_TURN_FAILED).toBe('session:turnFailed');
     });
 
+    it('MESSAGE_TYPES.SESSION_SUBAGENT_ENDED equals "session:subagentEnded"', () => {
+      expect(MESSAGE_TYPES.SESSION_SUBAGENT_ENDED).toBe(
+        'session:subagentEnded',
+      );
+    });
+
     it('uses the registered MESSAGE_TYPES constant on the wire', () => {
       new SessionLifecycleNotifier(asLogger(logger), bus, broadcaster);
 
       bus.emitCompactionComplete(makeEvent());
       bus.emitTurnEnded(makeTurnEndedEvent());
       bus.emitTurnFailed(makeTurnFailedEvent());
+      bus.emitSubagentEnded(makeSubagentEndedEvent());
 
       expect(calls[0].type).toBe(MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE);
       expect(calls[1].type).toBe(MESSAGE_TYPES.SESSION_TURN_ENDED);
       expect(calls[2].type).toBe(MESSAGE_TYPES.SESSION_TURN_FAILED);
+      expect(calls[3].type).toBe(MESSAGE_TYPES.SESSION_SUBAGENT_ENDED);
     });
   });
 });

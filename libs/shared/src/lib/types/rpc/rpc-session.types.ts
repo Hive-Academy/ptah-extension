@@ -9,6 +9,7 @@ import type { SessionId } from '../branded.types';
 import type { ChatSessionSummary } from '../execution';
 import type {
   SdkCompactionCompletePayload,
+  SdkSubagentEndedPayload,
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
 } from '../sdk-hook.types';
@@ -42,6 +43,16 @@ export type SessionTurnEndedParams = SdkTurnEndedPayload;
  * of reaching into `sdk-hook.types.ts` directly.
  */
 export type SessionTurnFailedParams = SdkTurnFailedPayload;
+
+/**
+ * Notification params for `MESSAGE_TYPES.SESSION_SUBAGENT_ENDED`
+ * (`'session:subagentEnded'`).
+ *
+ * Backend → webview push, not an inbound RPC method — alias kept here so
+ * frontend session-lifecycle consumers import a single named type instead
+ * of reaching into `sdk-hook.types.ts` directly.
+ */
+export type SessionSubagentEndedParams = SdkSubagentEndedPayload;
 
 /** Parameters for session:list RPC method */
 export interface SessionListParams {
