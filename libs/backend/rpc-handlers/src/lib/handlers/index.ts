@@ -28,6 +28,7 @@ export { WebSearchRpcHandlers } from './web-search-rpc.handlers';
 export { HarnessRpcHandlers } from './harness-rpc.handlers';
 export { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
+export { SkillsShApiClient, SkillsApiError } from './skills-sh-api-client';
 export { GitRpcHandlers } from './git-rpc.handlers';
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 export { SettingsRpcHandlers } from './settings-rpc.handlers';
