@@ -107,6 +107,7 @@ export interface DoctorReport {
   };
   providers: DoctorProviderEntry[];
   effective: EffectiveRouteResult;
+  hints: string[];
   timestamp: string;
 }
 export { resolveEffectiveAuthRoute } from '@ptah-extension/auth-providers';
@@ -227,6 +228,7 @@ export async function execute(
           auth,
           providers,
           effective,
+          hints: computeDoctorHints({ license, providers, effective }),
           timestamp: now().toISOString(),
         };
 
@@ -340,6 +342,62 @@ async function defaultProbeLocal(url: string): Promise<LocalProbeVerdict> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+export function computeDoctorHints(input: {
+  license: DoctorReport['license'];
+  providers: DoctorProviderEntry[];
+  effective: EffectiveRouteResult;
+}): string[] {
+  const { license, providers, effective } = input;
+  if (effective.ready) return [];
+
+  const hints: string[] = [];
+
+  if (license.valid === false) {
+    hints.push('Set your Ptah license: `ptah license set --key ptah_lic_...`');
+  }
+
+  const claudeCli = providers.find((p) => p.id === 'claude-cli');
+  if (
+    claudeCli?.status === 'missing' ||
+    claudeCli?.status === 'not-installed'
+  ) {
+    hints.push(
+      'Install the Claude CLI, then switch to it: `npm install -g @anthropic-ai/claude-code && ptah auth use claude-cli`',
+    );
+  }
+
+  const copilot = providers.find((p) => p.id === 'github-copilot');
+  if (copilot?.status === 'unauthenticated') {
+    hints.push(
+      'Sign in to GitHub Copilot, then switch to it: `ptah auth login github-copilot && ptah auth use github-copilot`',
+    );
+  }
+
+  const codex = providers.find((p) => p.id === 'openai-codex');
+  if (codex?.status === 'unauthenticated') {
+    hints.push(
+      'Sign in to OpenAI Codex, then switch to it: `codex login --device-auth && ptah auth use openai-codex`',
+    );
+  }
+
+  const anthropic = providers.find(
+    (p) => p.id === 'anthropic' && p.status === 'needs-key',
+  );
+  if (anthropic) {
+    hints.push(
+      'Set an Anthropic API key: `ptah provider set-key --provider anthropic --key sk-ant-...`',
+    );
+  }
+
+  if (effective.blockers.length >= 2 || hints.length >= 2) {
+    hints.push(
+      'If you already have Ptah set up on another machine, copy state with `ptah settings export --out bundle.json` on the source, then `ptah settings import --in bundle.json` here',
+    );
+  }
+
+  return hints;
 }
 
 async function safeCall<T>(

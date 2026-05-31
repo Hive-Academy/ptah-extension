@@ -656,4 +656,142 @@ describe('StreamingHandlerService', () => {
       );
     });
   });
+
+  // Stop-observed guard. Phase 2 Batch 4 — TurnEndHandlerService is now the
+  // primary turn-end pivot. SESSION_STATS only finalizes as a safety net
+  // when Stop did not fire; when Stop has stamped `lastTerminalReason`, the
+  // finalization block is skipped and only the last-assistant-message stats
+  // merge runs.
+  describe('Stop-observed guard (Phase 2 Batch 4)', () => {
+    const assistantMsg = {
+      id: 'asst-msg-1',
+      role: 'assistant' as const,
+      content: 'response text',
+      tokens: { input: 0, output: 0 },
+      cost: 0,
+      duration: 0,
+    };
+
+    it('finalizes via safety-net when lastTerminalReason is undefined (no Stop observed)', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'streaming',
+        lastTerminalReason: undefined,
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.25,
+        tokens: { input: 5, output: 5 },
+        duration: 200,
+      });
+
+      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith(TAB_ID);
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith(TAB_ID);
+    });
+
+    it('skips finalization when lastTerminalReason is null (Stop fired without reason)', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'loaded',
+        lastTerminalReason: null,
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.5,
+        tokens: { input: 11, output: 13 },
+        duration: 250,
+      });
+
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(finalization.markLastAgentAsInterrupted).not.toHaveBeenCalled();
+      expect(
+        finalization.markAgentsAsInterruptedByToolCallIds,
+      ).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+      expect(tabManager.setMessages).toHaveBeenCalledWith(
+        TAB_ID,
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'asst-msg-1',
+            role: 'assistant',
+            tokens: { input: 11, output: 13 },
+            cost: 0.5,
+            duration: 250,
+          }),
+        ]),
+      );
+    });
+
+    it('skips finalization when lastTerminalReason is set (Stop already pivoted)', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'loaded',
+        lastTerminalReason: 'completed',
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.25,
+        tokens: { input: 5, output: 5 },
+        duration: 200,
+      });
+
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(finalization.markLastAgentAsInterrupted).not.toHaveBeenCalled();
+      expect(
+        finalization.markAgentsAsInterruptedByToolCallIds,
+      ).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+    });
+
+    it('still patches last-assistant-message tokens/cost/duration when Stop has finalized', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'loaded',
+        lastTerminalReason: 'completed',
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.75,
+        tokens: { input: 42, output: 17 },
+        duration: 333,
+      });
+
+      expect(tabManager.setMessages).toHaveBeenCalledWith(
+        TAB_ID,
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'asst-msg-1',
+            role: 'assistant',
+            tokens: { input: 42, output: 17 },
+            cost: 0.75,
+            duration: 333,
+          }),
+        ]),
+      );
+    });
+  });
 });

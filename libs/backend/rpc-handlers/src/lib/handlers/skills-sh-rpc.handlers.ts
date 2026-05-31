@@ -1,7 +1,7 @@
 /**
- * Electron Skills.sh RPC Handlers
+ * Skills.sh RPC Handlers
  *
- * Electron-specific implementations for Skills.sh marketplace methods:
+ * Platform-agnostic implementations for Skills.sh marketplace methods:
  * - skillsSh:search - Search skills via CLI
  * - skillsSh:listInstalled - List installed skills from filesystem
  * - skillsSh:install - Install a skill
@@ -9,8 +9,12 @@
  * - skillsSh:getPopular - Get popular skills (cached)
  * - skillsSh:detectRecommended - Detect workspace technologies and recommend skills
  *
- * Mirrors the VS Code SkillsShRpcHandlers but uses IWorkspaceProvider
- * instead of vscode.workspace.workspaceFolders for workspace path resolution.
+ * Lifted from
+ * `apps/ptah-electron/src/services/rpc/handlers/skills-sh-rpc.handlers.ts` so
+ * all three apps (VS Code, Electron, CLI) consume a single copy via
+ * `registerAllRpcHandlers()`. The Electron copy was already platform-agnostic
+ * (`IWorkspaceProvider` via `PLATFORM_TOKENS.WORKSPACE_PROVIDER`, no `vscode`
+ * import), so this is a verbatim consolidation — no behavior change.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -22,12 +26,24 @@ import * as os from 'os';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  ISecretStorage,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type {
   SkillShEntry,
   InstalledSkill,
   SkillDetectionResult,
+  RpcMethodName,
 } from '@ptah-extension/shared';
+import {
+  SAFE_SOURCE_PATTERN,
+  SAFE_SKILL_ID_PATTERN,
+  SAFE_SKILL_NAME_PATTERN,
+  SECRET_KEY,
+  sanitizeSearchQuery,
+} from './skills-sh-rpc.schema';
+import { SkillsShApiClient } from './skills-sh-api-client';
 
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
   {
@@ -115,10 +131,20 @@ const TECH_SKILL_KEYWORDS: Record<string, string[]> = {
   remotion: ['remotion-best-practices'],
 };
 
-const SAFE_SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
-
 @injectable()
 export class SkillsShRpcHandlers {
+  static readonly METHODS = [
+    'skillsSh:search',
+    'skillsSh:listInstalled',
+    'skillsSh:install',
+    'skillsSh:uninstall',
+    'skillsSh:getPopular',
+    'skillsSh:detectRecommended',
+    'skillsSh:setApiKey',
+    'skillsSh:getApiKeyStatus',
+    'skillsSh:deleteApiKey',
+  ] as const satisfies readonly RpcMethodName[];
+
   private popularCache: { data: SkillShEntry[]; timestamp: number } | null =
     null;
 
@@ -129,6 +155,10 @@ export class SkillsShRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.SECRET_STORAGE)
+    private readonly secretStorage: ISecretStorage,
+    @inject(SkillsShApiClient)
+    private readonly apiClient: SkillsShApiClient,
   ) {}
 
   register(): void {
@@ -138,16 +168,12 @@ export class SkillsShRpcHandlers {
     this.registerUninstall();
     this.registerGetPopular();
     this.registerDetectRecommended();
+    this.registerSetApiKey();
+    this.registerGetApiKeyStatus();
+    this.registerDeleteApiKey();
 
-    this.logger.debug('Electron Skills.sh RPC handlers registered', {
-      methods: [
-        'skillsSh:search',
-        'skillsSh:listInstalled',
-        'skillsSh:install',
-        'skillsSh:uninstall',
-        'skillsSh:getPopular',
-        'skillsSh:detectRecommended',
-      ],
+    this.logger.debug('Skills.sh RPC handlers registered', {
+      methods: SkillsShRpcHandlers.METHODS,
     });
   }
 
@@ -161,9 +187,24 @@ export class SkillsShRpcHandlers {
           query: params.query,
         });
 
-        const sanitizedQuery = params.query.replace(/[^a-zA-Z0-9\s\-._/]/g, '');
+        const sanitizedQuery = sanitizeSearchQuery(params.query);
         if (!sanitizedQuery.trim()) {
           return { skills: [], error: 'Invalid search query' };
+        }
+
+        if (await this.apiClient.hasKey()) {
+          try {
+            const apiSkills = await this.apiClient.search(sanitizedQuery);
+            const enriched = await this.enrichWithInstallStatus(apiSkills);
+            return { skills: enriched };
+          } catch (error: unknown) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            this.logger.warn(
+              'RPC: skillsSh:search API failed, falling back to CLI',
+              { error: message },
+            );
+          }
         }
 
         const workspaceRoot = this.getWorkspaceRoot();
@@ -316,7 +357,7 @@ export class SkillsShRpcHandlers {
           };
         }
 
-        if (params.skillId && !/^[a-zA-Z0-9_.-]+$/.test(params.skillId)) {
+        if (params.skillId && !SAFE_SKILL_ID_PATTERN.test(params.skillId)) {
           return {
             success: false,
             error: `Invalid skillId format: "${params.skillId}".`,
@@ -356,6 +397,7 @@ export class SkillsShRpcHandlers {
         }
 
         this.popularCache = null;
+        this.apiClient.invalidateInstallCaches();
         this.logger.info('RPC: skillsSh:install success', {
           source: params.source,
           scope: params.scope,
@@ -385,7 +427,7 @@ export class SkillsShRpcHandlers {
           scope: params.scope,
         });
 
-        if (!/^[a-zA-Z0-9_.-]+$/.test(params.name)) {
+        if (!SAFE_SKILL_NAME_PATTERN.test(params.name)) {
           return {
             success: false,
             error: `Invalid skill name format: "${params.name}".`,
@@ -420,6 +462,7 @@ export class SkillsShRpcHandlers {
         }
 
         this.popularCache = null;
+        this.apiClient.invalidateInstallCaches();
         this.logger.info('RPC: skillsSh:uninstall success', {
           name: params.name,
           scope: params.scope,
@@ -455,21 +498,37 @@ export class SkillsShRpcHandlers {
         }
 
         let skills: SkillShEntry[] = [];
-        try {
-          const workspaceRoot = this.getWorkspaceRoot() || os.homedir();
-          const result = await this.runSkillsCli(
-            ['find', '""'],
-            workspaceRoot,
-            15000,
-          );
 
-          if (result.exitCode === 0 && result.stdout.trim().length > 0) {
-            skills = this.parseSkillsOutput(result.stdout);
+        if (await this.apiClient.hasKey()) {
+          try {
+            skills = await this.apiClient.getPopular('hot');
+          } catch (error: unknown) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            this.logger.warn(
+              'RPC: skillsSh:getPopular API failed, falling back to CLI',
+              { error: message },
+            );
           }
-        } catch {
-          this.logger.debug(
-            'RPC: skillsSh:getPopular CLI unavailable, using curated fallback',
-          );
+        }
+
+        if (skills.length === 0) {
+          try {
+            const workspaceRoot = this.getWorkspaceRoot() || os.homedir();
+            const result = await this.runSkillsCli(
+              ['find', '""'],
+              workspaceRoot,
+              15000,
+            );
+
+            if (result.exitCode === 0 && result.stdout.trim().length > 0) {
+              skills = this.parseSkillsOutput(result.stdout);
+            }
+          } catch {
+            this.logger.debug(
+              'RPC: skillsSh:getPopular CLI unavailable, using curated fallback',
+            );
+          }
         }
 
         if (skills.length === 0) {
@@ -510,7 +569,25 @@ export class SkillsShRpcHandlers {
           }
 
           const detected = await this.detectTechnologies(workspaceRoot);
-          const recommendedSkills = this.matchSkillsToTechnologies(detected);
+
+          let curatedPool: SkillShEntry[] | null = null;
+          if (await this.apiClient.hasKey()) {
+            try {
+              curatedPool = await this.apiClient.getCurated();
+            } catch (error: unknown) {
+              const message =
+                error instanceof Error ? error.message : String(error);
+              this.logger.warn(
+                'RPC: skillsSh:detectRecommended API curated failed, falling back to constant',
+                { error: message },
+              );
+            }
+          }
+
+          const recommendedSkills = this.matchSkillsToTechnologies(
+            detected,
+            curatedPool,
+          );
           const enriched =
             await this.enrichWithInstallStatus(recommendedSkills);
 
@@ -536,6 +613,69 @@ export class SkillsShRpcHandlers {
             },
             recommendedSkills: [],
           };
+        }
+      },
+    );
+  }
+
+  private registerGetApiKeyStatus(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      { configured: boolean }
+    >('skillsSh:getApiKeyStatus', async () => {
+      try {
+        const key = await this.secretStorage.get(SECRET_KEY);
+        return {
+          configured: typeof key === 'string' && key.trim().length > 0,
+        };
+      } catch (error: unknown) {
+        this.logger.error(
+          'RPC: skillsSh:getApiKeyStatus failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        throw error;
+      }
+    });
+  }
+
+  private registerSetApiKey(): void {
+    this.rpcHandler.registerMethod<{ apiKey: string }, { success: boolean }>(
+      'skillsSh:setApiKey',
+      async (params) => {
+        try {
+          if (!params.apiKey || params.apiKey.trim().length === 0) {
+            throw new Error('API key cannot be empty');
+          }
+          await this.secretStorage.store(SECRET_KEY, params.apiKey.trim());
+          this.apiClient.invalidateInstallCaches();
+          this.logger.info('Skills.sh API key stored');
+          return { success: true };
+        } catch (error: unknown) {
+          this.logger.error(
+            'RPC: skillsSh:setApiKey failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          throw error;
+        }
+      },
+    );
+  }
+
+  private registerDeleteApiKey(): void {
+    this.rpcHandler.registerMethod<Record<string, never>, { success: boolean }>(
+      'skillsSh:deleteApiKey',
+      async () => {
+        try {
+          await this.secretStorage.delete(SECRET_KEY);
+          this.apiClient.invalidateInstallCaches();
+          this.logger.info('Skills.sh API key deleted');
+          return { success: true };
+        } catch (error: unknown) {
+          this.logger.error(
+            'RPC: skillsSh:deleteApiKey failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          throw error;
         }
       },
     );
@@ -808,11 +948,14 @@ export class SkillsShRpcHandlers {
     }
   }
 
-  private matchSkillsToTechnologies(detected: {
-    frameworks: string[];
-    languages: string[];
-    tools: string[];
-  }): SkillShEntry[] {
+  private matchSkillsToTechnologies(
+    detected: {
+      frameworks: string[];
+      languages: string[];
+      tools: string[];
+    },
+    pool: SkillShEntry[] | null = null,
+  ): SkillShEntry[] {
     const allTechs = [
       ...detected.frameworks,
       ...detected.languages,
@@ -829,9 +972,10 @@ export class SkillsShRpcHandlers {
       }
     }
 
-    return CURATED_POPULAR_SKILLS.filter((skill) =>
-      matchedSkillIds.has(skill.skillId),
-    ).map((skill) => ({ ...skill }));
+    const source = pool ?? CURATED_POPULAR_SKILLS;
+    return source
+      .filter((skill) => matchedSkillIds.has(skill.skillId))
+      .map((skill) => ({ ...skill }));
   }
 
   private async enrichWithInstallStatus(

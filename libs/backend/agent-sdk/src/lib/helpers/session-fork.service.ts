@@ -18,6 +18,12 @@ export interface ForkSessionParams {
   sessionId: SessionId;
   upToMessageId?: string;
   title?: string;
+  /**
+   * Semantic hint that drives the auto-derived fork title when no explicit
+   * `title` is supplied. `'rewind'` → `"<original> (rewind)"`; anything else
+   * (including `undefined`) preserves the legacy `"<original> (fork)"`.
+   */
+  kind?: 'rewind' | 'branch';
 }
 
 export interface RewindFilesParams {
@@ -43,7 +49,7 @@ export class SessionForkService {
   ) {}
 
   async forkSession(params: ForkSessionParams): Promise<ForkSessionResult> {
-    const { sessionId, upToMessageId, title } = params;
+    const { sessionId, upToMessageId, title, kind } = params;
 
     this.logger.info(`[SessionForkService] Forking session: ${sessionId}`, {
       upToMessageId,
@@ -95,9 +101,12 @@ export class SessionForkService {
         title,
       });
 
+      const suffix = kind === 'rewind' ? '(rewind)' : '(fork)';
       const forkName =
         title ??
-        (sourceMetadata ? `${sourceMetadata.name} (fork)` : 'Forked session');
+        (sourceMetadata
+          ? `${sourceMetadata.name} ${suffix}`
+          : 'Forked session');
 
       const workspaceId =
         sourceMetadata?.workspaceId ??

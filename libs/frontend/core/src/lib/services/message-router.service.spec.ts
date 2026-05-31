@@ -120,6 +120,68 @@ describe('MessageRouterService (real implementation)', () => {
     expect(known.handleMessage).not.toHaveBeenCalled();
   });
 
+  it('unpacks a batch envelope into individual handler dispatches in order', () => {
+    const tokenHandler = makeHandler(['chat:messageChunk']);
+    const progressHandler = makeHandler(['indexing:progress']);
+
+    TestBed.configureTestingModule({
+      providers: [
+        MessageRouterService,
+        { provide: MESSAGE_HANDLERS, useValue: tokenHandler, multi: true },
+        { provide: MESSAGE_HANDLERS, useValue: progressHandler, multi: true },
+      ],
+    });
+    TestBed.inject(MessageRouterService);
+
+    fireWindowMessage({
+      type: 'batch',
+      payload: {
+        events: [
+          { type: 'chat:messageChunk', payload: { ord: 0 } },
+          { type: 'chat:messageChunk', payload: { ord: 1 } },
+          { type: 'indexing:progress', payload: { done: 5 } },
+        ],
+      },
+    });
+
+    expect(tokenHandler.handleMessage).toHaveBeenCalledTimes(2);
+    expect(tokenHandler.handleMessage).toHaveBeenNthCalledWith(1, {
+      type: 'chat:messageChunk',
+      payload: { ord: 0 },
+    });
+    expect(tokenHandler.handleMessage).toHaveBeenNthCalledWith(2, {
+      type: 'chat:messageChunk',
+      payload: { ord: 1 },
+    });
+    expect(progressHandler.handleMessage).toHaveBeenCalledWith({
+      type: 'indexing:progress',
+      payload: { done: 5 },
+    });
+  });
+
+  it('ignores a malformed batch envelope without throwing', () => {
+    const handler = makeHandler(['chat:messageChunk']);
+
+    TestBed.configureTestingModule({
+      providers: [
+        MessageRouterService,
+        { provide: MESSAGE_HANDLERS, useValue: handler, multi: true },
+      ],
+    });
+    TestBed.inject(MessageRouterService);
+
+    expect(() =>
+      fireWindowMessage({ type: 'batch', payload: null }),
+    ).not.toThrow();
+    expect(() =>
+      fireWindowMessage({ type: 'batch', payload: { events: 'nope' } }),
+    ).not.toThrow();
+    expect(() =>
+      fireWindowMessage({ type: 'batch', payload: { events: [null, 7] } }),
+    ).not.toThrow();
+    expect(handler.handleMessage).not.toHaveBeenCalled();
+  });
+
   it('ignores messages with no type or empty data payload', () => {
     const handler = makeHandler(['something']);
 

@@ -278,9 +278,12 @@ export class StreamingHandlerService {
   }
 
   /**
-   * Handle session stats update from backend
+   * Handle session stats update from backend.
    *
-   * SESSION_STATS is the authoritative signal that streaming has completed.
+   * Primary turn-end pivot moved to TurnEndHandlerService via Stop /
+   * StopFailure hooks. This method now serves as:
+   *   1. Safety-net finalization when Stop did not fire.
+   *   2. Post-finalize stats merge when Stop has already finalized.
    */
   handleSessionStats(stats: {
     sessionId: string;
@@ -321,7 +324,9 @@ export class StreamingHandlerService {
     }
 
     const targetTabId = primaryTab.id;
+    const stopAlreadyObserved = primaryTab.lastTerminalReason !== undefined;
     if (
+      !stopAlreadyObserved &&
       primaryTab.streamingState &&
       (primaryTab.status === 'streaming' || primaryTab.status === 'loaded')
     ) {

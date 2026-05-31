@@ -7,6 +7,52 @@
 
 import type { SessionId } from '../branded.types';
 import type { ChatSessionSummary } from '../execution';
+import type {
+  SdkCompactionCompletePayload,
+  SdkSubagentEndedPayload,
+  SdkTurnEndedPayload,
+  SdkTurnFailedPayload,
+} from '../sdk-hook.types';
+
+/**
+ * Notification params for `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE`
+ * (`'session:compactionComplete'`).
+ *
+ * Backend → webview push, not an inbound RPC method — alias kept here so
+ * frontend session-lifecycle consumers import a single named type instead
+ * of reaching into `sdk-hook.types.ts` directly.
+ */
+export type SessionCompactionCompleteParams = SdkCompactionCompletePayload;
+
+/**
+ * Notification params for `MESSAGE_TYPES.SESSION_TURN_ENDED`
+ * (`'session:turnEnded'`).
+ *
+ * Backend → webview push, not an inbound RPC method — alias kept here so
+ * frontend session-lifecycle consumers import a single named type instead
+ * of reaching into `sdk-hook.types.ts` directly.
+ */
+export type SessionTurnEndedParams = SdkTurnEndedPayload;
+
+/**
+ * Notification params for `MESSAGE_TYPES.SESSION_TURN_FAILED`
+ * (`'session:turnFailed'`).
+ *
+ * Backend → webview push, not an inbound RPC method — alias kept here so
+ * frontend session-lifecycle consumers import a single named type instead
+ * of reaching into `sdk-hook.types.ts` directly.
+ */
+export type SessionTurnFailedParams = SdkTurnFailedPayload;
+
+/**
+ * Notification params for `MESSAGE_TYPES.SESSION_SUBAGENT_ENDED`
+ * (`'session:subagentEnded'`).
+ *
+ * Backend → webview push, not an inbound RPC method — alias kept here so
+ * frontend session-lifecycle consumers import a single named type instead
+ * of reaching into `sdk-hook.types.ts` directly.
+ */
+export type SessionSubagentEndedParams = SdkSubagentEndedPayload;
 
 /** Parameters for session:list RPC method */
 export interface SessionListParams {
@@ -107,7 +153,7 @@ export interface SessionStatsEntry {
   /** Detected model from JSONL init message */
   readonly model: string | null;
   /** Total cost in USD (calculated with model-aware pricing) */
-  readonly totalCost: number;
+  readonly totalCost: number | null;
   /** Token breakdown */
   readonly tokens: {
     readonly input: number;
@@ -126,7 +172,7 @@ export interface SessionStatsEntry {
     readonly model: string;
     readonly inputTokens: number;
     readonly outputTokens: number;
-    readonly costUSD: number;
+    readonly costUSD: number | null;
   }>;
   /** Whether stats were successfully read from JSONL */
   readonly status: 'ok' | 'error' | 'empty';
@@ -154,6 +200,18 @@ export interface SessionForkParams {
   upToMessageId?: string;
   /** Optional title for the new fork (defaults to "<original> (fork)") */
   title?: string;
+  /**
+   * Optional semantic hint for the kind of fork being requested.
+   *
+   * When set to `'rewind'`, the backend derives the new session title as
+   * `"<original> (rewind)"` instead of the default `"<original> (fork)"`.
+   * When set to `'branch'` or left `undefined`, the existing "(fork)"
+   * naming is preserved. This is cosmetic only — the underlying SDK
+   * `forkSession` call is identical in both cases.
+   *
+   * An explicit `title` always wins over the `kind`-derived default.
+   */
+  kind?: 'rewind' | 'branch';
 }
 
 /** Response from session:forkSession RPC method */

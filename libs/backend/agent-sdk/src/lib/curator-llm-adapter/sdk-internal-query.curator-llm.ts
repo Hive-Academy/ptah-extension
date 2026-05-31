@@ -16,15 +16,11 @@ import {
   RESOLVE_SYSTEM_PROMPT,
   buildResolveUserPrompt,
 } from './resolve-prompt';
-
-type MemoryKind = 'fact' | 'preference' | 'event' | 'entity';
-
-const KIND_VALUES = new Set<MemoryKind>([
-  'fact',
-  'preference',
-  'event',
-  'entity',
-]);
+import {
+  ExtractedDraftSchema,
+  ExtractedResponseSchema,
+} from './extract.schema';
+import { ResolvedDraftSchema, ResolvedResponseSchema } from './resolve.schema';
 
 @injectable()
 export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
@@ -115,11 +111,13 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   private parseDrafts(text: string): readonly ExtractedMemoryDraft[] {
     const json = this.extractJsonObject(text);
     if (!json) return [];
-    const list = (json as { memories?: unknown }).memories;
-    if (!Array.isArray(list)) return [];
+    const env = ExtractedResponseSchema.safeParse(json);
+    if (!env.success) return [];
     const out: ExtractedMemoryDraft[] = [];
-    for (const item of list) {
-      const draft = this.coerceDraft(item);
+    for (const item of env.data.memories) {
+      const parsed = ExtractedDraftSchema.safeParse(item);
+      if (!parsed.success) continue;
+      const draft = parsed.data;
       if (draft) out.push(draft);
     }
     return out;
@@ -131,44 +129,19 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   ): readonly ResolvedMemoryDraft[] {
     const json = this.extractJsonObject(text);
     if (!json) return fallback.map((d) => ({ ...d, mergeTargetId: null }));
-    const list = (json as { memories?: unknown }).memories;
-    if (!Array.isArray(list))
+    const env = ResolvedResponseSchema.safeParse(json);
+    if (!env.success)
       return fallback.map((d) => ({ ...d, mergeTargetId: null }));
     const out: ResolvedMemoryDraft[] = [];
-    for (const item of list) {
-      const draft = this.coerceDraft(item);
-      if (!draft) continue;
-      const mergeTargetId =
-        typeof (item as { mergeTargetId?: unknown }).mergeTargetId === 'string'
-          ? (item as { mergeTargetId: string }).mergeTargetId
-          : null;
-      out.push({ ...draft, mergeTargetId });
+    for (const item of env.data.memories) {
+      const parsed = ResolvedDraftSchema.safeParse(item);
+      if (!parsed.success) continue;
+      const draft = parsed.data;
+      if (draft) out.push(draft);
     }
     return out.length > 0
       ? out
       : fallback.map((d) => ({ ...d, mergeTargetId: null }));
-  }
-
-  private coerceDraft(item: unknown): ExtractedMemoryDraft | null {
-    if (!item || typeof item !== 'object') return null;
-    const o = item as Record<string, unknown>;
-    const kindRaw = o['kind'];
-    if (typeof kindRaw !== 'string') return null;
-    const kind = kindRaw as MemoryKind;
-    if (!KIND_VALUES.has(kind)) return null;
-    const content =
-      typeof o['content'] === 'string' ? (o['content'] as string).trim() : '';
-    if (!content) return null;
-    const subject =
-      typeof o['subject'] === 'string' && (o['subject'] as string).trim()
-        ? (o['subject'] as string).trim().toLowerCase()
-        : null;
-    const sh =
-      typeof o['salienceHint'] === 'number'
-        ? (o['salienceHint'] as number)
-        : 0.3;
-    const salienceHint = Math.max(0, Math.min(1, sh));
-    return { kind, subject, content, salienceHint };
   }
 
   private extractJsonObject(text: string): unknown | null {

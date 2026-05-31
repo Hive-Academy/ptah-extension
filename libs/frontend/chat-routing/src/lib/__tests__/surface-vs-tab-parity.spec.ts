@@ -210,15 +210,17 @@ function messageComplete(sessionId: ClaudeSessionId): MessageCompleteEvent {
   } as MessageCompleteEvent;
 }
 
-/** Minimal TabManager mock — router only reads tabs() and closedTab(). */
 function makeTabManagerMock() {
   const tabsSignal = signal<{ id: string; claudeSessionId: string | null }[]>(
     [],
   );
   const closedTabSignal = signal<ClosedTabEvent | null>(null);
+  const activeTabIdSignal = signal<string | null>(null);
   return {
     tabs: tabsSignal.asReadonly(),
     closedTab: closedTabSignal.asReadonly(),
+    activeTabId: activeTabIdSignal.asReadonly(),
+    setStreamingState: jest.fn(),
   };
 }
 

@@ -74,7 +74,7 @@ async function runStatus(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'license:getStatus',
@@ -96,7 +96,7 @@ async function runSet(
     stderr.write('ptah license set: --key is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const key = Array.isArray(opts.key) ? opts.key[0] : opts.key;
     const result = await callRpc<{
       success?: boolean;
@@ -155,7 +155,7 @@ async function runClear(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<{ success?: boolean; error?: string }>(
       ctx.transport,
       'license:clearKey',

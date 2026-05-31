@@ -211,8 +211,7 @@ export class TerminalService {
    */
   async closeTab(id: string): Promise<void> {
     await this.killTerminal(id);
-    this._xtermWriters.delete(id);
-    this._pendingDataBuffers.delete(id);
+    this.terminalClosed(id);
 
     const currentTabs = this._tabs();
     const tabIndex = currentTabs.findIndex((t) => t.id === id);
@@ -298,8 +297,7 @@ export class TerminalService {
       this.killTerminal(tab.id).catch(() => {
         /* PTY may have already exited -- safe to ignore */
       });
-      this._xtermWriters.delete(tab.id);
-      this._pendingDataBuffers.delete(tab.id);
+      this.terminalClosed(tab.id);
     }
     this._workspaceTerminalState.delete(workspacePath);
     if (this._activeWorkspacePath === workspacePath) {
@@ -338,9 +336,15 @@ export class TerminalService {
             t.id === id ? { ...t, hasExited: true, exitCode } : t,
           ),
         );
+        this.terminalClosed(id);
         this.saveCurrentState();
       });
     });
+  }
+
+  private terminalClosed(terminalId: string): void {
+    this._xtermWriters.delete(terminalId);
+    this._pendingDataBuffers.delete(terminalId);
   }
 
   /**

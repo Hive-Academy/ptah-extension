@@ -49,9 +49,13 @@ import type { IUserInteraction } from '@ptah-extension/platform-core';
  * 6. MigrationRunner (v1 + v2 + v3, pointed at ~/.ptah/)
  *
  * @param container - tsyringe DI container (must already have WORKSPACE_PROVIDER registered)
+ * @param ptahDirOverride - optional override for the ~/.ptah directory
  */
-export function registerCliSettings(container: DependencyContainer): void {
-  const ptahDir = path.join(os.homedir(), '.ptah');
+export function registerCliSettings(
+  container: DependencyContainer,
+  ptahDirOverride?: string,
+): void {
+  const ptahDir = ptahDirOverride ?? path.join(os.homedir(), '.ptah');
   const workspaceProvider = container.resolve<CliWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );

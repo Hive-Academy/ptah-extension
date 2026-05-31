@@ -20,11 +20,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import {
-  SDK_TOKENS,
-  SlashCommandInterceptor,
-  DEFAULT_FALLBACK_MODEL_ID,
-} from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, SlashCommandInterceptor } from '@ptah-extension/agent-sdk';
 import type {
   IAgentAdapter,
   SessionId,
@@ -139,7 +135,7 @@ export class ChatSlashCommandRouterService {
               model:
                 params.model ||
                 this.modelSettings.selectedModel.get() ||
-                DEFAULT_FALLBACK_MODEL_ID,
+                'default',
               projectPath: workspacePath,
             } as AISessionConfig,
             isPremium,

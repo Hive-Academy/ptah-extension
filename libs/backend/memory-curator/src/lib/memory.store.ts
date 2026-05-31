@@ -29,6 +29,7 @@ import {
   type MemoryListResponse,
   type MemoryStatsResponse,
   type MemoryTier,
+  type MemoryType,
 } from './memory.types';
 
 interface MemoryRow {
@@ -48,6 +49,14 @@ interface MemoryRow {
   updated_at: number;
   last_used_at: number;
   expires_at: number | null;
+  request: string | null;
+  investigated: string | null;
+  learned: string | null;
+  completed: string | null;
+  next_steps: string | null;
+  type: MemoryType;
+  concepts_json: string;
+  files_json: string;
 }
 
 interface ChunkRow {
@@ -57,6 +66,20 @@ interface ChunkRow {
   text: string;
   token_count: number;
   created_at: number;
+}
+
+function parseStringArrayJson(
+  raw: string | null | undefined,
+): readonly string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed))
+      return parsed.filter((x): x is string => typeof x === 'string');
+  } catch {
+    return [];
+  }
+  return [];
 }
 
 function rowToMemory(row: MemoryRow): Memory {
@@ -83,6 +106,14 @@ function rowToMemory(row: MemoryRow): Memory {
     updatedAt: row.updated_at,
     lastUsedAt: row.last_used_at,
     expiresAt: row.expires_at,
+    request: row.request,
+    investigated: row.investigated,
+    learned: row.learned,
+    completed: row.completed,
+    nextSteps: row.next_steps,
+    type: row.type ?? 'discovery',
+    concepts: parseStringArrayJson(row.concepts_json),
+    files: parseStringArrayJson(row.files_json),
   };
 }
 
@@ -134,6 +165,8 @@ export class MemoryStore implements IMemoryLister {
     const now = Date.now();
     const id = memoryId(ulid());
     const sourceJson = JSON.stringify(insert.sourceMessageIds ?? []);
+    const conceptsArr = insert.concepts ?? [];
+    const filesArr = insert.files ?? [];
     const memoryParams = {
       id,
       session_id: insert.sessionId ?? null,
@@ -151,6 +184,14 @@ export class MemoryStore implements IMemoryLister {
       updated_at: now,
       last_used_at: now,
       expires_at: insert.expiresAt ?? null,
+      request: insert.request ?? null,
+      investigated: insert.investigated ?? null,
+      learned: insert.learned ?? null,
+      completed: insert.completed ?? null,
+      next_steps: insert.nextSteps ?? null,
+      type: insert.type ?? 'discovery',
+      concepts_json: JSON.stringify(conceptsArr),
+      files_json: JSON.stringify(filesArr),
     };
     const vecAvailable = this.connection.vecExtensionLoaded;
     const embeddings: Float32Array[] =
@@ -162,14 +203,21 @@ export class MemoryStore implements IMemoryLister {
     const insertMemoryStmt = db.prepare(
       `INSERT INTO memories (id, session_id, workspace_root, tier, kind, subject, content,
          source_message_ids, salience, decay_rate, hits, pinned,
-         created_at, updated_at, last_used_at, expires_at)
+         created_at, updated_at, last_used_at, expires_at,
+         request, investigated, learned, completed, next_steps,
+         type, concepts_json, files_json)
        VALUES (@id, @session_id, @workspace_root, @tier, @kind, @subject, @content,
          @source_message_ids, @salience, @decay_rate, @hits, @pinned,
-         @created_at, @updated_at, @last_used_at, @expires_at)`,
+         @created_at, @updated_at, @last_used_at, @expires_at,
+         @request, @investigated, @learned, @completed, @next_steps,
+         @type, @concepts_json, @files_json)`,
     );
     const insertChunkStmt = db.prepare(
       `INSERT INTO memory_chunks (id, memory_id, ord, text, token_count, created_at)
        VALUES (@id, @memory_id, @ord, @text, @token_count, @created_at)`,
+    );
+    const insertConceptStmt = db.prepare(
+      `INSERT INTO memory_concepts_fts(memory_id, concept) VALUES (?, ?)`,
     );
     const insertVecStmt = vecAvailable
       ? db.prepare(
@@ -182,6 +230,11 @@ export class MemoryStore implements IMemoryLister {
     type TxnFn = (m: typeof memoryParams) => MemoryId;
     const txnFn = ((m: typeof memoryParams): MemoryId => {
       insertMemoryStmt.run(m);
+      for (const concept of conceptsArr) {
+        if (typeof concept === 'string' && concept.length > 0) {
+          insertConceptStmt.run(id, concept);
+        }
+      }
       for (let i = 0; i < chunks.length; i++) {
         const c = chunks[i];
         const cid = chunkId(ulid());
@@ -246,6 +299,15 @@ export class MemoryStore implements IMemoryLister {
     );
     const row = stmt.get(id) as MemoryRow | undefined;
     return row ? rowToMemory(row) : null;
+  }
+
+  findBySubjectAndTier(subject: string, tier: MemoryTier): readonly Memory[] {
+    const rows = this.connection.db
+      .prepare(
+        `SELECT * FROM memories WHERE subject = ? AND tier = ? ORDER BY created_at ASC`,
+      )
+      .all(subject, tier) as MemoryRow[];
+    return rows.map(rowToMemory);
   }
 
   list(
@@ -573,6 +635,24 @@ export class MemoryStore implements IMemoryLister {
       .prepare(`SELECT * FROM memories`)
       .all() as MemoryRow[];
     return rows.map(rowToMemory);
+  }
+
+  /**
+   * Rebuild the `memory_concepts_fts` index from the canonical
+   * `memories.concepts_json` column. The table is a regular (non-contentless)
+   * FTS5 so a plain `DELETE FROM` clears the inverted index — the
+   * `('delete-all')` shadow command only applies to contentless / external-
+   * content tables. `INSERT FROM SELECT` then repopulates from JSON. Never
+   * uses `('rebuild')` per `[[project_fts5_external_content_column_mismatch]]`.
+   */
+  rebuildConceptsIndex(): { rebuilt: boolean } {
+    const db = this.connection.db;
+    db.exec(
+      `DELETE FROM memory_concepts_fts;
+       INSERT INTO memory_concepts_fts(memory_id, concept)
+         SELECT memories.id, json_each.value FROM memories, json_each(memories.concepts_json);`,
+    );
+    return { rebuilt: true };
   }
 
   /** Drop and rebuild FTS + vec indexes from the canonical chunk table. */

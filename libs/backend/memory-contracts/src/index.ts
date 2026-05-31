@@ -10,6 +10,7 @@ export type {
   ICuratorLLM,
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
+  MemoryType,
 } from './lib/curator-llm.port';
 export type { ICompactionCallbackRegistry } from './lib/compaction-callback.port';
 export type { ISymbolSink, SymbolChunkInsert } from './lib/symbol-sink.port';

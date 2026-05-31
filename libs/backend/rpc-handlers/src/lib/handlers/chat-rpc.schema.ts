@@ -64,19 +64,11 @@ export const ChatContinueParamsSchema = z
 
 /**
  * `chat:resume` params — both `tabId` and `sessionId` are required.
- *
- * `resumeSessionAt` is a **user-message UUID** (the message to truncate the
- * transcript at) — NOT an ISO-8601 timestamp. Despite the misleading name,
- * the value is consumed by `SdkAgentAdapter.resumeSession` for transcript
- * truncation. Validating with `.datetime()` here used to reject every real
- * call with a ZodError. Field name is preserved to avoid a cross-cutting
- * rename; see `ChatResumeParams.resumeSessionAt` JSDoc for details.
  */
 export const ChatResumeParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
-    resumeSessionAt: z.string().optional(),
   })
   .passthrough();
 

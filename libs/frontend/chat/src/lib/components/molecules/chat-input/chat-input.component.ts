@@ -386,6 +386,35 @@ export class ChatInputComponent implements OnInit {
   });
 
   /**
+   * Per-`SessionStatus` direct-send enablement matrix.
+   *
+   * - `fresh` — enabled
+   * - `draft` — enabled
+   * - `loaded` — enabled
+   * - `awaiting-background` — enabled
+   * - `streaming` — disabled
+   * - `resuming` — disabled
+   * - `switching` — disabled
+   */
+  readonly inputEnabled = computed<boolean>(() => {
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (!tabId) return true;
+    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+    if (!tab) return true;
+    switch (tab.status) {
+      case 'fresh':
+      case 'draft':
+      case 'loaded':
+      case 'awaiting-background':
+        return true;
+      case 'streaming':
+      case 'resuming':
+      case 'switching':
+        return false;
+    }
+  });
+
+  /**
    * Per-tab compaction state. In canvas mode, scoped to this tile's tab.
    * Prevents compaction overlay from showing on ALL tiles.
    */

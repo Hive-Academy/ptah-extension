@@ -82,6 +82,19 @@
       <ptah-thoth-shell />
     </div>
   }
+
+  <!-- Marketplace: Skills + MCP provider hub (injected via DI token to break circular dep) -->
+  @case ('marketplace') {
+    <div class="h-full w-full">
+      @if (marketplaceComponent) {
+        <ng-container *ngComponentOutlet="marketplaceComponent" />
+      } @else {
+        <div class="flex items-center justify-center h-full">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      }
+    </div>
+  }
 }
 
 <!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
@@ -431,6 +444,22 @@
             </div>
           }
         </div>
+
+        <!-- Marketplace nav button (VS Code only — Electron has it in global navbar).
+             Pro-gated (TASK_2026_131): hidden for non-premium users so the
+             view never mounts and no marketplace RPC is fired. -->
+        @if (isPremium()) {
+          <button
+            class="btn btn-ghost btn-xs gap-1"
+            [class.btn-active]="currentView() === 'marketplace'"
+            aria-label="Marketplace"
+            title="Marketplace — skills & MCP providers"
+            (click)="openMarketplace()"
+          >
+            <lucide-angular [img]="StoreIcon" class="w-4 h-4" />
+            <span class="icon-btn-label text-xs">Marketplace</span>
+          </button>
+        }
 
         <!-- Layout toggle button (replaces old Canvas navigation button) -->
         <button

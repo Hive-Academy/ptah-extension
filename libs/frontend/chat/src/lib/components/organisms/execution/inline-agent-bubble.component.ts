@@ -42,7 +42,8 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
-import { formatModelDisplayName } from '@ptah-extension/shared';
+import { resolveModelDisplayName } from '@ptah-extension/shared';
+import { ModelStateService } from '@ptah-extension/core';
 import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 
 /**
@@ -458,8 +459,8 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
           @if (agentTokenUsage()) {
             <ptah-token-badge [tokens]="agentTokenUsage()!" />
           }
-          @if (agentCost() > 0) {
-            <ptah-cost-badge [cost]="agentCost()" />
+          @if (agentCost() !== null && agentCost()! > 0) {
+            <ptah-cost-badge [cost]="agentCost()!" />
           }
           @if (agentDuration()) {
             <ptah-duration-badge [durationMs]="agentDuration()!" />
@@ -560,6 +561,7 @@ export class InlineAgentBubbleComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly modelState = inject(ModelStateService);
 
   /**
    * MutationObserver for auto-scroll behavior.
@@ -777,7 +779,7 @@ export class InlineAgentBubbleComponent {
     }
     return '';
   });
-  readonly agentCost = computed(() => this.node().cost ?? 0);
+  readonly agentCost = computed(() => this.node().cost ?? null);
 
   /**
    * Computed signal: whether agent has children (tool calls)
@@ -803,7 +805,7 @@ export class InlineAgentBubbleComponent {
   readonly modelDisplayName = computed(() => {
     const model = this.rawModelId();
     if (!model) return null;
-    return formatModelDisplayName(model);
+    return resolveModelDisplayName(model, this.modelState.availableModels());
   });
 
   /**
@@ -827,7 +829,7 @@ export class InlineAgentBubbleComponent {
     return !!(
       this.modelDisplayName() ||
       this.agentTokenUsage() ||
-      this.agentCost() > 0 ||
+      (this.agentCost() !== null && this.agentCost()! > 0) ||
       this.agentDuration() !== null
     );
   });

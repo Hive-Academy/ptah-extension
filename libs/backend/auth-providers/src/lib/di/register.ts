@@ -1,6 +1,11 @@
-import { Lifecycle, type DependencyContainer } from 'tsyringe';
+import {
+  Lifecycle,
+  instanceCachingFactory,
+  type DependencyContainer,
+} from 'tsyringe';
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import { AuthManager } from '../auth/auth-manager';
@@ -13,7 +18,7 @@ import {
   CliStrategy,
 } from '../auth/strategies';
 import { registerProviders } from '../providers/register-providers';
-import type { OpenRouterPricingService } from '../providers/openrouter';
+import { OpenRouterPricingService } from '../providers/openrouter';
 
 export function registerAuthProvidersServices(
   container: DependencyContainer,
@@ -65,6 +70,14 @@ export function registerAuthProvidersServices(
     { useClass: AuthManager },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  container.register(SDK_TOKENS.PRICING_PROVIDER, {
+    useFactory: instanceCachingFactory((c) =>
+      c.resolve<OpenRouterPricingService>(
+        AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PRICING,
+      ),
+    ),
+  });
 
   logger.info('[auth-providers] Services registered');
 

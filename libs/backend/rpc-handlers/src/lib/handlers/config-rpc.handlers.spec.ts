@@ -17,11 +17,9 @@
  *     optionally syncs it to an active SDK session. Sync failures are
  *     swallowed (warned, not thrown) so the config write still wins.
  *
- *   - `config:model-get`: Three migration branches — (a) legacy bare-tier
- *     values are resolved to full IDs and re-saved, (b) stale "latest"
- *     aliases (e.g. claude-opus-4-6) are migrated to the current
- *     `TIER_TO_MODEL_ID`, (c) specific dated IDs (-YYYYMMDD) are preserved
- *     as-is. `'default'` is a valid SDK tier and MUST NOT be migrated.
+ *   - `config:model-get`: legacy bare-tier values are resolved to full IDs
+ *     and re-saved; Claude IDs and `'default'` pass through unchanged
+ *     (SDK owns tier resolution).
  *
  *   - `config:autopilot-toggle`: YOLO requires a Pro subscription — non-Pro
  *     users hit a thrown error. Permission level persists to ConfigManager,
@@ -359,14 +357,13 @@ describe('ConfigRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('config:model-get', () => {
-    it('returns DEFAULT_FALLBACK_MODEL_ID when nothing is stored', async () => {
+    it('returns "default" tier when nothing is stored', async () => {
       const h = makeHarness();
       h.handlers.register();
 
       const result = await call<{ model: string }>(h, 'config:model-get');
 
-      expect(typeof result.model).toBe('string');
-      expect(result.model.length).toBeGreaterThan(0);
+      expect(result.model).toBe('default');
     });
 
     it('preserves "default" as-is (valid SDK tier meaning "let SDK choose")', async () => {
@@ -376,7 +373,6 @@ describe('ConfigRpcHandlers', () => {
       const result = await call<{ model: string }>(h, 'config:model-get');
 
       expect(result.model).toBe('default');
-      // No migration write should occur for 'default'
       expect(h.modelResolver.resolve).not.toHaveBeenCalled();
     });
 
@@ -394,35 +390,14 @@ describe('ConfigRpcHandlers', () => {
       );
     });
 
-    it('preserves a dated specific-version ID unchanged', async () => {
+    it('preserves a Claude ID unchanged (SDK owns tier resolution)', async () => {
       const h = makeHarness({ modelSelected: 'claude-opus-4-7-20251101' });
-      // detectTier returns the tier even for dated IDs, but the /-\d{8}$/ guard
-      // in the handler must prevent migration.
-      h.modelResolver.detectTier.mockReturnValue('opus');
       h.handlers.register();
 
       const result = await call<{ model: string }>(h, 'config:model-get');
 
       expect(result.model).toBe('claude-opus-4-7-20251101');
       expect(h.modelSettings.selectedModel.set).not.toHaveBeenCalled();
-    });
-
-    it('migrates a stale "latest" alias to the current TIER_TO_MODEL_ID value', async () => {
-      // Handler compares `stored` to TIER_TO_MODEL_ID[tier]. The only way to
-      // guarantee mismatch is to feed a stored value that clearly isn't the
-      // current latest for its tier.
-      const h = makeHarness({ modelSelected: 'claude-opus-4-6' });
-      h.modelResolver.detectTier.mockReturnValue('opus');
-      h.handlers.register();
-
-      const result = await call<{ model: string }>(h, 'config:model-get');
-
-      // We don't hardcode the current ID (it changes over time) — we just
-      // assert the handler migrated away from the stale value.
-      expect(result.model).not.toBe('claude-opus-4-6');
-      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
-        expect.any(String),
-      );
     });
   });
 

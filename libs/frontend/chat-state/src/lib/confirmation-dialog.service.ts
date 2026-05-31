@@ -1,51 +1,41 @@
 import { Injectable, signal } from '@angular/core';
 
-/**
- * Confirmation dialog options
- */
+export interface ConfirmationDialogCheckbox {
+  id: string;
+  label: string;
+  defaultChecked?: boolean;
+}
+
 export interface ConfirmationDialogOptions {
   title: string;
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
   confirmStyle?: 'primary' | 'error' | 'warning';
+  checkboxes?: ConfirmationDialogCheckbox[];
 }
 
-/**
- * ConfirmationDialogService - Manages confirmation dialogs in VS Code webview
- *
- * Purpose:
- * - Works around the VS Code webview sandbox blocking native `window.confirm()`
- * - Provides a signal-based, async confirmation dialog
- * - Uses DaisyUI modal styling
- *
- * Usage:
- * ```typescript
- * const confirmed = await confirmationDialog.confirm({
- *   title: 'Close Tab?',
- *   message: 'This session has unsaved changes. Are you sure?',
- *   confirmLabel: 'Close',
- *   confirmStyle: 'error'
- * });
- * if (confirmed) { ... }
- * ```
- */
+export type ConfirmationDialogResult =
+  | { confirmed: true; checkboxes: Record<string, boolean> }
+  | { confirmed: false };
+
+type BooleanResolver = (value: boolean) => void;
+type ResultResolver = (value: ConfirmationDialogResult) => void;
+
 @Injectable({ providedIn: 'root' })
 export class ConfirmationDialogService {
   private readonly _isOpen = signal(false);
   private readonly _options = signal<ConfirmationDialogOptions | null>(null);
   readonly isOpen = this._isOpen.asReadonly();
   readonly options = this._options.asReadonly();
-  private resolvePromise: ((value: boolean) => void) | null = null;
 
-  /**
-   * Show a confirmation dialog and wait for user response
-   * @param options - Dialog options
-   * @returns Promise that resolves to true if confirmed, false if cancelled
-   */
+  private resolveBoolean: BooleanResolver | null = null;
+  private resolveResult: ResultResolver | null = null;
+
   confirm(options: ConfirmationDialogOptions): Promise<boolean> {
     return new Promise((resolve) => {
-      this.resolvePromise = resolve;
+      this.resolveBoolean = resolve;
+      this.resolveResult = null;
       this._options.set({
         confirmLabel: 'Confirm',
         cancelLabel: 'Cancel',
@@ -56,27 +46,58 @@ export class ConfirmationDialogService {
     });
   }
 
-  /**
-   * Called when user clicks confirm button
-   */
+  confirmWithCheckboxes(
+    options: ConfirmationDialogOptions,
+  ): Promise<ConfirmationDialogResult> {
+    return new Promise((resolve) => {
+      this.resolveResult = resolve;
+      this.resolveBoolean = null;
+      this._options.set({
+        confirmLabel: 'Confirm',
+        cancelLabel: 'Cancel',
+        confirmStyle: 'primary',
+        ...options,
+      });
+      this._isOpen.set(true);
+    });
+  }
+
   handleConfirm(): void {
     this._isOpen.set(false);
     this._options.set(null);
-    if (this.resolvePromise) {
-      this.resolvePromise(true);
-      this.resolvePromise = null;
+    if (this.resolveBoolean) {
+      this.resolveBoolean(true);
+      this.resolveBoolean = null;
+    }
+    if (this.resolveResult) {
+      this.resolveResult({ confirmed: true, checkboxes: {} });
+      this.resolveResult = null;
     }
   }
 
-  /**
-   * Called when user clicks cancel button or closes dialog
-   */
+  handleConfirmWithState(checkboxes: Record<string, boolean>): void {
+    this._isOpen.set(false);
+    this._options.set(null);
+    if (this.resolveResult) {
+      this.resolveResult({ confirmed: true, checkboxes: { ...checkboxes } });
+      this.resolveResult = null;
+    }
+    if (this.resolveBoolean) {
+      this.resolveBoolean(true);
+      this.resolveBoolean = null;
+    }
+  }
+
   handleCancel(): void {
     this._isOpen.set(false);
     this._options.set(null);
-    if (this.resolvePromise) {
-      this.resolvePromise(false);
-      this.resolvePromise = null;
+    if (this.resolveBoolean) {
+      this.resolveBoolean(false);
+      this.resolveBoolean = null;
+    }
+    if (this.resolveResult) {
+      this.resolveResult({ confirmed: false });
+      this.resolveResult = null;
     }
   }
 }

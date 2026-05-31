@@ -39,7 +39,6 @@ import {
   ConfigExtendedRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
-  SkillsShRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
   UpdateRpcHandlers,
@@ -72,8 +71,6 @@ export class ElectronRpcMethodRegistrationService {
     private readonly commandHandlers: CommandRpcHandlers,
     @inject(AgentRpcHandlers)
     private readonly agentHandlers: AgentRpcHandlers,
-    @inject(SkillsShRpcHandlers)
-    private readonly skillsShHandlers: SkillsShRpcHandlers,
     @inject(LayoutRpcHandlers)
     private readonly layoutHandlers: LayoutRpcHandlers,
     @inject(TerminalRpcHandlers)
@@ -167,7 +164,6 @@ export class ElectronRpcMethodRegistrationService {
       },
       { name: 'CommandRpcHandlers', handler: this.commandHandlers },
       { name: 'AgentRpcHandlers', handler: this.agentHandlers },
-      { name: 'SkillsShRpcHandlers', handler: this.skillsShHandlers },
       { name: 'LayoutRpcHandlers', handler: this.layoutHandlers },
       { name: 'TerminalRpcHandlers', handler: this.terminalHandlers },
       { name: 'UpdateRpcHandlers', handler: this.updateHandlers },

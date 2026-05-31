@@ -29,6 +29,7 @@ import type {
   Logger,
   RpcHandler,
   GitInfoService,
+  WebviewManager,
 } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
@@ -93,12 +94,23 @@ function createMockGitInfo(): MockGitInfo {
 // ---------------------------------------------------------------------------
 // Test suite builder
 // ---------------------------------------------------------------------------
+interface MockWebviewManager {
+  broadcastMessage: jest.Mock;
+}
+
 interface Suite {
   handlers: GitRpcHandlers;
   rpc: MockRpcHandler;
   workspace: MockWorkspaceProvider;
   gitInfo: MockGitInfo;
   logger: MockLogger;
+  webviewManager: MockWebviewManager;
+}
+
+function createMockWebviewManager(): MockWebviewManager {
+  return {
+    broadcastMessage: jest.fn().mockResolvedValue(undefined),
+  };
 }
 
 function buildSuite(wsRoot: string | null = '/workspace'): Suite {
@@ -112,15 +124,17 @@ function buildSuite(wsRoot: string | null = '/workspace'): Suite {
     workspace.getWorkspaceRoot.mockReturnValue(undefined);
   }
   const gitInfo = createMockGitInfo();
+  const webviewManager = createMockWebviewManager();
 
   const handlers = new GitRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
     workspace as unknown as IWorkspaceProvider,
     gitInfo as unknown as GitInfoService,
+    webviewManager as unknown as WebviewManager,
   );
 
-  return { handlers, rpc, workspace, gitInfo, logger };
+  return { handlers, rpc, workspace, gitInfo, logger, webviewManager };
 }
 
 /** Retrieve a registered handler by method name for direct invocation. */
