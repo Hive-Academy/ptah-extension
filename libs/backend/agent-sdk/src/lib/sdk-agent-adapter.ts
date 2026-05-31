@@ -2,8 +2,14 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IPlatformInfo } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  isUnsafeWorkspacePath,
+} from '@ptah-extension/platform-core';
+import type {
+  IPlatformInfo,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   IAgentAdapter,
   ProviderId,
@@ -131,8 +137,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly events: SdkAdapterEvents,
     @inject(SDK_TOKENS.SDK_SESSION_ACTIVITY_REGISTRY)
     private readonly activityRegistry: SessionActivityRegistry,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
+    this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
+      this.handleWorkspaceChanged();
+    });
     this.events.onConfigChanged(async () => {
       this.logger.info(
         '[SdkAgentAdapter] Config change detected, re-initializing...',
@@ -185,8 +196,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
   public async prewarm(
     activeMcpServers?: Record<string, unknown>,
   ): Promise<void> {
+    const cwd = this.resolveSafeCwd();
     return this.warmQueryManager.prewarm(
       this.runtimeState.getCliJsPath(),
+      cwd,
       activeMcpServers,
     );
   }
@@ -195,6 +208,44 @@ export class SdkAgentAdapter implements IAgentAdapter {
     requirements?: WarmPrewarmFingerprint,
   ): WarmQueryHandle | null {
     return this.warmQueryManager.consumeWarmQuery(requirements);
+  }
+
+  /**
+   * Returns the active workspace root only when it passes the safety guard
+   * (not the install dir, not a filesystem root, not app storage). Used to
+   * decide whether prewarm is allowed at all.
+   */
+  private resolveSafeCwd(): string | null {
+    const root = this.workspaceProvider.getWorkspaceRoot();
+    if (!root) return null;
+    const safety = isUnsafeWorkspacePath(root, this.platformInfo);
+    if (!safety.ok) {
+      this.logger.warn(
+        `[SdkAgentAdapter] Active workspace root is unsafe — ${safety.reason}`,
+      );
+      return null;
+    }
+    return root;
+  }
+
+  /**
+   * On workspace switch the pre-warmed SDK subprocess (spawned with the
+   * previous cwd) is no longer valid — `WarmQuery.query(prompt)` cannot
+   * rebind cwd, so reusing it would leak the old workspace into the next
+   * new session. Discard the warm handle and respawn against the new cwd
+   * so the next `chat:start` still hits the fast path.
+   */
+  private handleWorkspaceChanged(): void {
+    this.warmQueryManager.discardWarmHandle();
+    if (!this.initialized) {
+      return;
+    }
+    this.prewarm().catch((err) => {
+      this.logger.warn(
+        '[SdkAgentAdapter] Re-prewarm after workspace change failed',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+    });
   }
 
   async initialize(): Promise<boolean> {
@@ -419,14 +470,18 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { isPremium, mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
+    const requestedCwd = config?.projectPath
+      ? path.resolve(config.projectPath)
+      : null;
     const warmHandle =
-      mcpServersOverride || providerProfile
+      mcpServersOverride || providerProfile || !requestedCwd
         ? null
         : this.warmQueryManager.consumeWarmQuery({
             pathToClaudeCodeExecutable: currentCliJsPath,
             mcpServers: null,
             baseUrl: null,
             authEnvHash: null,
+            cwd: requestedCwd,
           });
 
     const { sdkQuery, initialModel, abortController } =

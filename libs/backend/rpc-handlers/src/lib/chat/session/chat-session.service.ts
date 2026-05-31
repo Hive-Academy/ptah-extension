@@ -46,6 +46,8 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
+  isUnsafeWorkspacePath,
+  type IPlatformInfo,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type {
@@ -124,6 +126,8 @@ export class ChatSessionService {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo,
     @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
     private readonly premiumContext: ChatPremiumContextService,
     @inject(CHAT_TOKENS.PTAH_CLI)
@@ -230,6 +234,29 @@ export class ChatSessionService {
     return {};
   }
 
+  /**
+   * Refuse to spawn an SDK session when the resolved workspace path is
+   * unsafe (filesystem root, the Ptah install dir, app storage). This
+   * backstops the warm-query bug where a stale subprocess would otherwise
+   * run rooted at `process.cwd()` of the Electron main process (typically
+   * the install dir in production).
+   */
+  private rejectIfUnsafeWorkspace(
+    workspacePath: string,
+    rpcName: string,
+  ): { success: false; error: string } | null {
+    const safety = isUnsafeWorkspacePath(workspacePath, this.platformInfo);
+    if (safety.ok) return null;
+    this.logger.warn(
+      `[RPC] ${rpcName} - refused: resolved workspace path is unsafe — ${safety.reason}`,
+      { workspacePath },
+    );
+    return {
+      success: false,
+      error: `Cannot start a session in this folder: ${safety.reason}. Please open a real project folder.`,
+    };
+  }
+
   async startSession(params: ChatStartParams): Promise<ChatStartResult> {
     try {
       const { prompt, tabId, options, name } = params;
@@ -251,6 +278,11 @@ export class ChatSessionService {
           error: 'Access denied: workspace path is not an open folder.',
         };
       }
+      const unsafeStart = this.rejectIfUnsafeWorkspace(
+        workspacePath,
+        'chat:start',
+      );
+      if (unsafeStart) return unsafeStart;
       this.logger.debug('RPC: chat:start called', {
         tabId,
         workspacePath,
@@ -407,6 +439,11 @@ export class ChatSessionService {
           error: 'Access denied: workspace path is not an open folder.',
         };
       }
+      const unsafeContinue = this.rejectIfUnsafeWorkspace(
+        workspacePath,
+        'chat:continue',
+      );
+      if (unsafeContinue) return unsafeContinue;
       this.logger.debug('RPC: chat:continue called', {
         sessionId,
         tabId,
@@ -526,6 +563,11 @@ export class ChatSessionService {
           error: 'Access denied: workspace path is not an open folder.',
         };
       }
+      const unsafeResume = this.rejectIfUnsafeWorkspace(
+        resolvedWorkspacePath,
+        'chat:resume',
+      );
+      if (unsafeResume) return unsafeResume;
       this.logger.info('RPC: chat:resume called', {
         sessionId,
         workspacePath: params.workspacePath || '(empty)',
