@@ -5,6 +5,7 @@
  *   - Atoms: smallest reusable building blocks
  *   - Molecules: composed UI pieces
  */
+export { AwaitingBackgroundIndicatorComponent } from './lib/atoms/awaiting-background-indicator/awaiting-background-indicator.component';
 export { CopyButtonComponent } from './lib/atoms/copy-button.component';
 export { CostBadgeComponent } from './lib/atoms/cost-badge.component';
 export { DurationBadgeComponent } from './lib/atoms/duration-badge.component';
