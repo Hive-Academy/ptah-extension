@@ -24,15 +24,15 @@ if [ -n "$SKILL_FILES_CHANGED" ]; then
   echo "✅ Skill validation passed!"
 fi
 
-echo "🏗️  Verifying electron main bundle builds..."
+echo "🏗️  Verifying electron main bundle builds + native deps declared..."
 if [ "${PTAH_PRECOMMIT_PARANOID:-0}" = "1" ]; then
   npx nx affected -t build --base=HEAD~1
 else
-  npx nx run ptah-electron:build-main:development
+  npx nx run ptah-electron:validate-deps
 fi
 
 if [ $? -ne 0 ]; then
-  echo "❌ Build gate failed — electron main bundle (TASK_2026_123 cycle gate) failed to compile."
+  echo "❌ Build gate failed — electron main bundle failed to compile OR a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
   echo "   Set PTAH_PRECOMMIT_PARANOID=1 to run full affected build instead."
   exit 1
 fi
