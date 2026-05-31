@@ -15,6 +15,7 @@ export type {
   AgentMcpServerSpec,
   ApiKeySource,
   AsyncHookJSONOutput,
+  BackgroundTaskSummary,
   BaseHookInput,
   CanUseTool,
   ConfigChangeHookInput,
@@ -105,6 +106,7 @@ export type {
   SDKUserMessageReplay,
   SdkBeta,
   SdkPluginConfig,
+  SessionCronSummary,
   SessionEndHookInput,
   SessionStartHookInput,
   SessionStartHookSpecificOutput,
@@ -120,6 +122,7 @@ export type {
   SyncHookJSONOutput,
   TaskCompletedHookInput,
   TeammateIdleHookInput,
+  TerminalReason,
   ThinkingAdaptive,
   ThinkingConfig,
   ThinkingDisabled,
@@ -163,6 +166,7 @@ import type {
   PostToolUseHookInput,
   PostToolUseFailureHookInput,
   StopHookInput,
+  StopFailureHookInput,
   SessionStartHookInput,
   SessionEndHookInput,
   SetupHookInput,
@@ -532,6 +536,12 @@ export function isPostToolUseFailureHook(
 
 export function isStopHook(input: HookInput): input is StopHookInput {
   return input.hook_event_name === 'Stop';
+}
+
+export function isStopFailureHook(
+  input: HookInput,
+): input is StopFailureHookInput {
+  return input.hook_event_name === 'StopFailure';
 }
 
 export function isUserPromptSubmitHook(

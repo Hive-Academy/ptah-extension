@@ -56,6 +56,7 @@ import {
   UserPromptSubmitHookHandler,
   StopCallbackRegistry,
   StopHookHandler,
+  StopFailureHookHandler,
   SessionEndHookCallbackRegistry,
   SessionEndHookHandler,
   ToolFailureCallbackRegistry,
@@ -243,6 +244,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_STOP_HOOK_HANDLER,
     { useClass: StopHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_STOP_FAILURE_HOOK_HANDLER,
+    { useClass: StopFailureHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 

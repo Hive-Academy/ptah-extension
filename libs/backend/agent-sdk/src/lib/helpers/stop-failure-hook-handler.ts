@@ -8,17 +8,19 @@ import type {
   HookInput,
   TerminalReason,
 } from '../types/sdk-types/claude-sdk.types';
-import { isStopHook } from '../types/sdk-types/claude-sdk.types';
+import { isStopFailureHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
-import { StopCallbackRegistry } from './stop-callback-registry';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 
+/**
+ * StopFailureHookHandler — wires the SDK `StopFailure` hook into the
+ * SdkAdapterEvents bus as `turnFailed`. Producer-side empty-payload guard
+ * skips emit when resolved sessionId or cwd is empty.
+ */
 @injectable()
-export class StopHookHandler {
+export class StopFailureHookHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY)
-    private readonly callbackRegistry: StopCallbackRegistry,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS)
     private readonly sdkAdapterEvents?: SdkAdapterEvents,
   ) {}
@@ -29,7 +31,7 @@ export class StopHookHandler {
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const sdkAdapterEvents = this.sdkAdapterEvents;
     return {
-      Stop: [
+      StopFailure: [
         {
           hooks: [
             async (
@@ -38,7 +40,10 @@ export class StopHookHandler {
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
               try {
-                if (!isStopHook(input)) {
+                if (!isStopFailureHook(input)) {
+                  return { continue: true };
+                }
+                if (!sdkAdapterEvents) {
                   return { continue: true };
                 }
                 const resolvedSessionId =
@@ -50,52 +55,36 @@ export class StopHookHandler {
                   typeof input.cwd === 'string' && input.cwd.length > 0
                     ? input.cwd
                     : cwd;
-                const backgroundTasks = input.background_tasks ?? [];
-                const sessionCrons = input.session_crons ?? [];
                 const inputWithTerminal = input as typeof input & {
                   terminal_reason?: TerminalReason;
                 };
                 const terminalReason: TerminalReason | null =
                   inputWithTerminal.terminal_reason ?? null;
 
-                if (this.callbackRegistry.size > 0) {
-                  this.callbackRegistry.notifyAll({
-                    sessionId: resolvedSessionId,
-                    workspaceRoot: cwd,
-                    lastAssistantMessage: input.last_assistant_message ?? null,
-                    effortLevel: input.effort?.level ?? null,
-                    hasBackgroundWork: backgroundTasks.length > 0,
-                    timestamp: Date.now(),
-                  });
+                if (!resolvedSessionId || !resolvedCwd) {
+                  this.logger.warn(
+                    '[StopFailureHookHandler] StopFailure missing sessionId or cwd, skipping bus emit',
+                    {
+                      hasSessionId: Boolean(resolvedSessionId),
+                      hasCwd: Boolean(resolvedCwd),
+                      errorCode: input.error ?? 'unknown',
+                    },
+                  );
+                  return { continue: true };
                 }
 
-                if (sdkAdapterEvents) {
-                  if (!resolvedSessionId || !resolvedCwd) {
-                    this.logger.warn(
-                      '[StopHookHandler] Stop missing sessionId or cwd, skipping bus emit',
-                      {
-                        hasSessionId: Boolean(resolvedSessionId),
-                        hasCwd: Boolean(resolvedCwd),
-                        terminalReason,
-                        backgroundTaskCount: backgroundTasks.length,
-                      },
-                    );
-                  } else {
-                    sdkAdapterEvents.emitTurnEnded({
-                      sessionId: resolvedSessionId,
-                      cwd: resolvedCwd,
-                      lastAssistantMessage:
-                        input.last_assistant_message ?? null,
-                      backgroundTasks,
-                      sessionCrons,
-                      terminalReason,
-                      timestamp: Date.now(),
-                    });
-                  }
-                }
+                sdkAdapterEvents.emitTurnFailed({
+                  sessionId: resolvedSessionId,
+                  cwd: resolvedCwd,
+                  lastAssistantMessage: input.last_assistant_message ?? null,
+                  error: input.error,
+                  errorDetails: input.error_details ?? null,
+                  terminalReason,
+                  timestamp: Date.now(),
+                });
               } catch (error: unknown) {
                 this.logger.warn(
-                  '[StopHookHandler] hook fan-out threw, swallowing',
+                  '[StopFailureHookHandler] hook fan-out threw, swallowing',
                   {
                     error:
                       error instanceof Error ? error.message : String(error),

@@ -90,6 +90,8 @@ export {
   type StopPayload,
 } from './stop-callback-registry';
 export { StopHookHandler } from './stop-hook-handler';
+export { StopFailureHookHandler } from './stop-failure-hook-handler';
+export { isStopFailureHook } from '../types/sdk-types/claude-sdk.types';
 export {
   SessionEndHookCallbackRegistry,
   type SessionEndHookCallback,
@@ -187,4 +189,6 @@ export {
   type SdkAdapterConfigChangedEvent,
   type SdkAdapterAuthFileChangedEvent,
   type SdkAdapterCompactionCompleteEvent,
+  type SdkAdapterTurnEndedEvent,
+  type SdkAdapterTurnFailedEvent,
 } from './sdk-adapter-events.service';

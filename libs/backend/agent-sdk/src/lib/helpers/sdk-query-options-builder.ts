@@ -43,6 +43,7 @@ import { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
 import { SessionStartHookHandler } from './session-start-hook-handler';
 import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import { StopHookHandler } from './stop-hook-handler';
+import { StopFailureHookHandler } from './stop-failure-hook-handler';
 import { SessionEndHookHandler } from './session-end-hook-handler';
 import { ToolFailureHookHandler } from './tool-failure-hook-handler';
 import {
@@ -439,6 +440,8 @@ export class SdkQueryOptionsBuilder {
     private readonly userPromptSubmitHookHandler: UserPromptSubmitHookHandler,
     @inject(SDK_TOKENS.SDK_STOP_HOOK_HANDLER)
     private readonly stopHookHandler: StopHookHandler,
+    @inject(SDK_TOKENS.SDK_STOP_FAILURE_HOOK_HANDLER)
+    private readonly stopFailureHookHandler: StopFailureHookHandler,
     @inject(SDK_TOKENS.SDK_SESSION_END_HOOK_HANDLER)
     private readonly sessionEndHookHandler: SessionEndHookHandler,
     @inject(SDK_TOKENS.SDK_TOOL_FAILURE_HOOK_HANDLER)
@@ -1028,6 +1031,10 @@ export class SdkQueryOptionsBuilder {
       cwd,
     );
     const stopHooks = this.stopHookHandler.createHooks(sessionId ?? '', cwd);
+    const stopFailureHooks = this.stopFailureHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
     const sessionEndHooks = this.sessionEndHookHandler.createHooks(
       sessionId ?? '',
       cwd,
@@ -1052,6 +1059,7 @@ export class SdkQueryOptionsBuilder {
       postToolUseHooks,
       userPromptSubmitHooks,
       stopHooks,
+      stopFailureHooks,
       sessionEndHooks,
       toolFailureHooks,
       preToolUseHooks,

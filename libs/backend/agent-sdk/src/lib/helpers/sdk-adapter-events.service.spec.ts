@@ -227,6 +227,134 @@ describe('SdkAdapterEvents', () => {
       expect(helpersBarrel.SdkAdapterEvents).toBeDefined();
       expect(helpersBarrel.isPostCompactHook).toBeDefined();
     });
+
+    it('exposes StopFailureHookHandler + isStopFailureHook via both barrels', async () => {
+      const rootBarrel = await import('../../index');
+      const helpersBarrel = await import('./index');
+      expect(rootBarrel.StopFailureHookHandler).toBeDefined();
+      expect(helpersBarrel.StopFailureHookHandler).toBeDefined();
+      expect(rootBarrel.isStopFailureHook).toBeDefined();
+      expect(helpersBarrel.isStopFailureHook).toBeDefined();
+    });
+  });
+
+  describe('turnEnded', () => {
+    const baseEvent = {
+      sessionId: 'sess-1',
+      cwd: '/repo',
+      lastAssistantMessage: 'done',
+      backgroundTasks: [] as ReadonlyArray<never>,
+      sessionCrons: [] as ReadonlyArray<never>,
+      terminalReason: null,
+      timestamp: 100,
+    } as const;
+
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onTurnEnded(listener);
+
+      events.emitTurnEnded(baseEvent);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(baseEvent);
+    });
+
+    it('returns an unsubscribe function that stops further delivery', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      const off = events.onTurnEnded(listener);
+
+      events.emitTurnEnded(baseEvent);
+      off();
+      events.emitTurnEnded({ ...baseEvent, timestamp: 200 });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cross-deliver to other channels', () => {
+      const { events } = make();
+      const turnListener = jest.fn();
+      const turnFailedListener = jest.fn();
+      const compactionListener = jest.fn();
+      events.onTurnEnded(turnListener);
+      events.onTurnFailed(turnFailedListener);
+      events.onCompactionComplete(compactionListener);
+
+      events.emitTurnEnded(baseEvent);
+
+      expect(turnListener).toHaveBeenCalledTimes(1);
+      expect(turnFailedListener).not.toHaveBeenCalled();
+      expect(compactionListener).not.toHaveBeenCalled();
+    });
+
+    it('swallows listener throws and logs (safeEmit)', () => {
+      const { events, logger } = make();
+      events.onTurnEnded(() => {
+        throw new Error('boom turn');
+      });
+
+      expect(() => events.emitTurnEnded(baseEvent)).not.toThrow();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('turnFailed', () => {
+    const baseEvent = {
+      sessionId: 'sess-1',
+      cwd: '/repo',
+      lastAssistantMessage: null,
+      error: 'rate_limit' as const,
+      errorDetails: 'too many',
+      terminalReason: null,
+      timestamp: 100,
+    } as const;
+
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onTurnFailed(listener);
+
+      events.emitTurnFailed(baseEvent);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(baseEvent);
+    });
+
+    it('returns an unsubscribe function that stops further delivery', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      const off = events.onTurnFailed(listener);
+
+      events.emitTurnFailed(baseEvent);
+      off();
+      events.emitTurnFailed({ ...baseEvent, timestamp: 200 });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cross-deliver to turnEnded', () => {
+      const { events } = make();
+      const turnListener = jest.fn();
+      const turnFailedListener = jest.fn();
+      events.onTurnEnded(turnListener);
+      events.onTurnFailed(turnFailedListener);
+
+      events.emitTurnFailed(baseEvent);
+
+      expect(turnFailedListener).toHaveBeenCalledTimes(1);
+      expect(turnListener).not.toHaveBeenCalled();
+    });
+
+    it('swallows listener throws and logs (safeEmit)', () => {
+      const { events, logger } = make();
+      events.onTurnFailed(() => {
+        throw new Error('boom failed');
+      });
+
+      expect(() => events.emitTurnFailed(baseEvent)).not.toThrow();
+      expect(logger.warn).toHaveBeenCalled();
+    });
   });
 
   describe('removeAllListeners', () => {

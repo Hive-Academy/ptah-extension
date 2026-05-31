@@ -87,6 +87,8 @@ export {
   type StopCallback,
   type StopPayload,
   StopHookHandler,
+  StopFailureHookHandler,
+  isStopFailureHook,
   SessionEndHookCallbackRegistry,
   type SessionEndHookCallback,
   type SessionEndHookPayload,
@@ -113,6 +115,8 @@ export {
   type SdkAdapterConfigChangedEvent,
   type SdkAdapterAuthFileChangedEvent,
   type SdkAdapterCompactionCompleteEvent,
+  type SdkAdapterTurnEndedEvent,
+  type SdkAdapterTurnFailedEvent,
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
