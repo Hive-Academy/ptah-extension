@@ -10,6 +10,7 @@ import {
   providerSelectedModelDef,
   providerReasoningEffortDef,
 } from './provider-schema';
+import { SMITHERY_API_KEY_DEF } from './smithery-schema';
 
 /**
  * Master registry of all application setting definitions.
@@ -30,4 +31,5 @@ export const SETTINGS_SCHEMA: readonly any[] = Object.freeze([
   GATEWAY_TELEGRAM_TOKEN_DEF,
   GATEWAY_DISCORD_TOKEN_DEF,
   GATEWAY_SLACK_TOKEN_DEF,
+  SMITHERY_API_KEY_DEF,
 ]);

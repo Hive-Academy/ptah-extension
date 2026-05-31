@@ -20,6 +20,8 @@ export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-terminal.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
+export * from './rpc/rpc-mem.types';
+export * from './rpc/rpc-corpus.types';
 
 export * from './rpc/rpc-indexing.types';
 
@@ -204,6 +206,18 @@ import type {
   McpDirectoryListInstalledResult,
   McpDirectoryGetPopularParams,
   McpDirectoryGetPopularResult,
+  McpDirectorySetSmitheryApiKeyParams,
+  McpDirectorySetSmitheryApiKeyResult,
+  McpDirectoryGetSmitheryKeyStatusParams,
+  McpDirectoryGetSmitheryKeyStatusResult,
+  McpDirectoryResolveSmitheryParams,
+  McpDirectoryResolveSmitheryResult,
+  McpDirectoryInstallSmitheryParams,
+  McpDirectoryInstallSmitheryResult,
+  McpDirectoryUninstallSmitheryParams,
+  McpDirectoryUninstallSmitheryResult,
+  McpDirectoryListSmitheryInstalledParams,
+  McpDirectoryListSmitheryInstalledResult,
 } from './mcp-directory.types';
 
 import type {
@@ -273,6 +287,34 @@ import type {
   MemorySearchSymbolsParams,
   MemorySearchSymbolsResult,
 } from './rpc/rpc-memory.types';
+
+import type {
+  MemSearchIndexParams,
+  MemSearchIndexResult,
+  MemTimelineParams,
+  MemTimelineResult,
+  MemGetObservationsParams,
+  MemGetObservationsResult,
+} from './rpc/rpc-mem.types';
+
+import type {
+  CorpusListParams,
+  CorpusListResult,
+  CorpusGetParams,
+  CorpusGetResult,
+  CorpusBuildParams,
+  CorpusBuildResult,
+  CorpusPrimeParams,
+  CorpusPrimeResult,
+  CorpusQueryParams,
+  CorpusQueryResult,
+  CorpusReprimeParams,
+  CorpusReprimeResult,
+  CorpusRebuildParams,
+  CorpusRebuildResult,
+  CorpusDeleteParams,
+  CorpusDeleteResult,
+} from './rpc/rpc-corpus.types';
 
 import type {
   IndexingGetStatusParams,
@@ -841,6 +883,18 @@ export interface RpcMethodRegistry {
     params: Record<string, never>;
     result: SkillDetectionResult;
   };
+  'skillsSh:setApiKey': {
+    params: { apiKey: string };
+    result: { success: boolean };
+  };
+  'skillsSh:getApiKeyStatus': {
+    params: Record<string, never>;
+    result: { configured: boolean };
+  };
+  'skillsSh:deleteApiKey': {
+    params: Record<string, never>;
+    result: { success: boolean };
+  };
   'mcpDirectory:search': {
     params: McpDirectorySearchParams;
     result: McpDirectorySearchResult;
@@ -864,6 +918,30 @@ export interface RpcMethodRegistry {
   'mcpDirectory:getPopular': {
     params: McpDirectoryGetPopularParams;
     result: McpDirectoryGetPopularResult;
+  };
+  'mcpDirectory:setSmitheryApiKey': {
+    params: McpDirectorySetSmitheryApiKeyParams;
+    result: McpDirectorySetSmitheryApiKeyResult;
+  };
+  'mcpDirectory:getSmitheryKeyStatus': {
+    params: McpDirectoryGetSmitheryKeyStatusParams;
+    result: McpDirectoryGetSmitheryKeyStatusResult;
+  };
+  'mcpDirectory:resolveSmithery': {
+    params: McpDirectoryResolveSmitheryParams;
+    result: McpDirectoryResolveSmitheryResult;
+  };
+  'mcpDirectory:installSmithery': {
+    params: McpDirectoryInstallSmitheryParams;
+    result: McpDirectoryInstallSmitheryResult;
+  };
+  'mcpDirectory:uninstallSmithery': {
+    params: McpDirectoryUninstallSmitheryParams;
+    result: McpDirectoryUninstallSmitheryResult;
+  };
+  'mcpDirectory:listSmitheryInstalled': {
+    params: McpDirectoryListSmitheryInstalledParams;
+    result: McpDirectoryListSmitheryInstalledResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1200,6 +1278,50 @@ export interface RpcMethodRegistry {
   'memory:getTriggers': {
     params: MemoryGetTriggersParams;
     result: MemoryGetTriggersResult;
+  };
+  'mem:searchIndex': {
+    params: MemSearchIndexParams;
+    result: MemSearchIndexResult;
+  };
+  'mem:timeline': {
+    params: MemTimelineParams;
+    result: MemTimelineResult;
+  };
+  'mem:getObservations': {
+    params: MemGetObservationsParams;
+    result: MemGetObservationsResult;
+  };
+  'corpus:list': {
+    params: CorpusListParams;
+    result: CorpusListResult;
+  };
+  'corpus:get': {
+    params: CorpusGetParams;
+    result: CorpusGetResult;
+  };
+  'corpus:build': {
+    params: CorpusBuildParams;
+    result: CorpusBuildResult;
+  };
+  'corpus:prime': {
+    params: CorpusPrimeParams;
+    result: CorpusPrimeResult;
+  };
+  'corpus:query': {
+    params: CorpusQueryParams;
+    result: CorpusQueryResult;
+  };
+  'corpus:reprime': {
+    params: CorpusReprimeParams;
+    result: CorpusReprimeResult;
+  };
+  'corpus:rebuild': {
+    params: CorpusRebuildParams;
+    result: CorpusRebuildResult;
+  };
+  'corpus:delete': {
+    params: CorpusDeleteParams;
+    result: CorpusDeleteResult;
   };
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
@@ -1862,12 +1984,21 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillsSh:uninstall': true,
   'skillsSh:getPopular': true,
   'skillsSh:detectRecommended': true,
+  'skillsSh:setApiKey': true,
+  'skillsSh:getApiKeyStatus': true,
+  'skillsSh:deleteApiKey': true,
   'mcpDirectory:search': true,
   'mcpDirectory:getDetails': true,
   'mcpDirectory:install': true,
   'mcpDirectory:uninstall': true,
   'mcpDirectory:listInstalled': true,
   'mcpDirectory:getPopular': true,
+  'mcpDirectory:setSmitheryApiKey': true,
+  'mcpDirectory:getSmitheryKeyStatus': true,
+  'mcpDirectory:resolveSmithery': true,
+  'mcpDirectory:installSmithery': true,
+  'mcpDirectory:uninstallSmithery': true,
+  'mcpDirectory:listSmitheryInstalled': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,
@@ -1952,6 +2083,19 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:runNow': true,
   'memory:setTriggers': true,
   'memory:getTriggers': true,
+
+  'mem:searchIndex': true,
+  'mem:timeline': true,
+  'mem:getObservations': true,
+
+  'corpus:list': true,
+  'corpus:get': true,
+  'corpus:build': true,
+  'corpus:prime': true,
+  'corpus:query': true,
+  'corpus:reprime': true,
+  'corpus:rebuild': true,
+  'corpus:delete': true,
 
   'skillSynthesis:listCandidates': true,
   'skillSynthesis:getCandidate': true,

@@ -11,6 +11,9 @@ import {
   EffortLevel,
   getModelContextWindow,
   SessionId,
+  SdkBackgroundTaskSummary,
+  SdkSessionCronSummary,
+  SdkTerminalReason,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -513,6 +516,17 @@ export class TabManagerService {
     return this.workspacePartition.activeWorkspacePath;
   }
 
+  /** Reactive read of the active workspace path. */
+  readonly activeWorkspacePath$ = this.workspacePartition.activeWorkspacePath$;
+
+  /** Reactive signal of the most recently removed workspace path. */
+  readonly removedWorkspace$ = this.workspacePartition.removedWorkspace$;
+
+  /** Ack the removedWorkspace$ signal after consumption. */
+  clearRemovedWorkspace(): void {
+    this.workspacePartition.clearRemovedWorkspace();
+  }
+
   /**
    * Cache a backend-provided encoded path for a workspace.
    * Called when workspace:switch RPC response includes encodedPath.
@@ -862,6 +876,37 @@ export class TabManagerService {
   }
 
   /**
+   * Transition the tab into the `awaiting-background` status. Used by the
+   * Phase 3 turn-end pivot when the SDK `Stop` hook reports in-flight
+   * background tasks (subagents / shells / monitors / workflows). The agent
+   * itself is idle, but the tab should not render as `loaded` while
+   * background work continues.
+   *
+   * Scheduled on a microtask so this transition lands AFTER the
+   * `applyFinalizedTurn` microtask that flips status to `'loaded'` — the
+   * final assistant message is rendered as completed/aborted first, then
+   * the status pill flips to the awaiting-background indicator.
+   */
+  markTabAwaitingBackground(tabId: string): void {
+    queueMicrotask(() => {
+      this.updateTabInternal(tabId, { status: 'awaiting-background' });
+    });
+  }
+
+  /**
+   * Replace the SDK background-task snapshot on a tab without touching
+   * status or other turn-end fields. Used by the Phase 3 `SubagentStop`
+   * consumer (`handleSubagentEnded`) to apply the SDK's authoritative
+   * "who is still running" snapshot after each subagent reports in.
+   */
+  setPendingBackgroundTasks(
+    tabId: string,
+    tasks: readonly SdkBackgroundTaskSummary[],
+  ): void {
+    this.updateTabInternal(tabId, { pendingBackgroundTasks: tasks });
+  }
+
+  /**
    * Initialize a tab for a brand-new conversation: apply the auto-derived
    * name/title, mark it `draft`, clear dirty flag, and explicitly null the
    * claudeSessionId so the SDK can assign a real UUID.
@@ -1181,10 +1226,42 @@ export class TabManagerService {
     });
   }
 
+  /**
+   * Persist the SDK `Stop` hook snapshot onto the tab. Captures background
+   * tasks + session crons in-flight at turn-end (Phase 3 will surface these
+   * on the tab bar) and stamps `lastTerminalReason` so the streaming-handler
+   * safety-net can detect "Stop already observed" on later SESSION_STATS
+   * arrivals.
+   */
+  setTurnEndedFields(
+    tabId: string,
+    payload: {
+      pendingBackgroundTasks: readonly SdkBackgroundTaskSummary[];
+      pendingSessionCrons: readonly SdkSessionCronSummary[];
+      lastTerminalReason: SdkTerminalReason | null;
+    },
+  ): void {
+    this.updateTabInternal(tabId, {
+      pendingBackgroundTasks: payload.pendingBackgroundTasks,
+      pendingSessionCrons: payload.pendingSessionCrons,
+      lastTerminalReason: payload.lastTerminalReason,
+    });
+  }
+
+  /**
+   * Stamp `lastTerminalReason` only. Used by the `StopFailure` path, which
+   * does not carry background-task / cron snapshots on the failure payload.
+   */
+  setLastTerminalReason(tabId: string, reason: SdkTerminalReason | null): void {
+    this.updateTabInternal(tabId, {
+      lastTerminalReason: reason,
+    });
+  }
+
   // ----- Stats and model bookkeeping -----
 
   /** Set the live model stats summary for the tab. */
-  setLiveModelStats(tabId: string, stats: LiveModelStatsPayload): void {
+  setLiveModelStats(tabId: string, stats: LiveModelStatsPayload | null): void {
     this.updateTabInternal(tabId, { liveModelStats: stats });
   }
 
@@ -1544,7 +1621,8 @@ export class TabManagerService {
           status:
             tab.status === 'streaming' ||
             tab.status === 'resuming' ||
-            tab.status === 'switching'
+            tab.status === 'switching' ||
+            tab.status === 'awaiting-background'
               ? 'loaded'
               : tab.status,
           queuedContent: null,

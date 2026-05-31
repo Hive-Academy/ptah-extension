@@ -55,98 +55,6 @@ export interface TokenBreakdown {
  * @see https://openrouter.ai/api/v1/models
  */
 export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
-  'claude-opus-4-7': {
-    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
-    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
-    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
-    maxTokens: 1_000_000,
-    provider: 'anthropic',
-  },
-  'claude-opus-4-6-20250623': {
-    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
-    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
-    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
-    maxTokens: 1_000_000,
-    provider: 'anthropic',
-  },
-  'claude-opus-4-6': {
-    inputCostPerToken: 15e-6,
-    outputCostPerToken: 75e-6,
-    cacheReadCostPerToken: 1.5e-6,
-    cacheCreationCostPerToken: 18.75e-6,
-    maxTokens: 1_000_000,
-    provider: 'anthropic',
-  },
-  'claude-opus-4-5-20251101': {
-    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
-    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
-    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-sonnet-4-6-20250514': {
-    inputCostPerToken: 3e-6, // $3.00 per 1M tokens
-    outputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    cacheReadCostPerToken: 3e-7, // $0.30 per 1M tokens
-    cacheCreationCostPerToken: 3.75e-6, // $3.75 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-sonnet-4-6': {
-    inputCostPerToken: 3e-6,
-    outputCostPerToken: 15e-6,
-    cacheReadCostPerToken: 3e-7,
-    cacheCreationCostPerToken: 3.75e-6,
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-sonnet-4-5-20250929': {
-    inputCostPerToken: 3e-6, // $3.00 per 1M tokens
-    outputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    cacheReadCostPerToken: 3e-7, // $0.30 per 1M tokens
-    cacheCreationCostPerToken: 3.75e-6, // $3.75 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-3-5-sonnet-20241022': {
-    inputCostPerToken: 3e-6,
-    outputCostPerToken: 15e-6,
-    cacheReadCostPerToken: 3e-7,
-    cacheCreationCostPerToken: 3.75e-6,
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-3-opus-20240229': {
-    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
-    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-3-5-haiku-20241022': {
-    inputCostPerToken: 0.8e-6, // $0.80 per 1M tokens
-    outputCostPerToken: 4e-6, // $4.00 per 1M tokens
-    cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
-    cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-haiku-4-5-20251001': {
-    inputCostPerToken: 0.8e-6, // $0.80 per 1M tokens
-    outputCostPerToken: 4e-6, // $4.00 per 1M tokens
-    cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
-    cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
-  'claude-3-haiku-20240307': {
-    inputCostPerToken: 0.25e-6, // $0.25 per 1M tokens
-    outputCostPerToken: 1.25e-6, // $1.25 per 1M tokens
-    maxTokens: 200_000,
-    provider: 'anthropic',
-  },
   'claude-sonnet-4.6': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
@@ -182,14 +90,6 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 0,
     maxTokens: 200_000,
     provider: 'github-copilot',
-  },
-  'anthropic/claude-haiku-4.5': {
-    inputCostPerToken: 0.8e-6, // Same as claude-3-5-haiku-20241022
-    outputCostPerToken: 4e-6,
-    cacheReadCostPerToken: 0.08e-6,
-    cacheCreationCostPerToken: 1e-6,
-    maxTokens: 200_000,
-    provider: 'anthropic',
   },
   'gpt-4o': {
     inputCostPerToken: 2.5e-6, // $2.50 per 1M tokens
@@ -380,34 +280,47 @@ export function findModelPricing(modelId: string): ModelPricing | null {
 export function calculateMessageCost(
   modelId: string,
   tokens: TokenBreakdown,
+  pricing?: ModelPricing | null,
 ): number | null {
-  const pricing = findModelPricing(modelId);
-  if (!pricing) return null;
+  const resolved = pricing !== undefined ? pricing : findModelPricing(modelId);
+  if (!resolved) return null;
 
-  const inputCost = tokens.input * pricing.inputCostPerToken;
-  const outputCost = tokens.output * pricing.outputCostPerToken;
+  const inputCost = tokens.input * resolved.inputCostPerToken;
+  const outputCost = tokens.output * resolved.outputCostPerToken;
   const cacheReadCost =
-    (tokens.cacheHit ?? 0) * (pricing.cacheReadCostPerToken ?? 0);
+    (tokens.cacheHit ?? 0) * (resolved.cacheReadCostPerToken ?? 0);
   const cacheCreationCost =
-    (tokens.cacheCreation ?? 0) * (pricing.cacheCreationCostPerToken ?? 0);
+    (tokens.cacheCreation ?? 0) * (resolved.cacheCreationCostPerToken ?? 0);
 
   const totalCost = inputCost + outputCost + cacheReadCost + cacheCreationCost;
   return Math.round(totalCost * 1000000) / 1000000;
 }
 
-/**
- * Get the context window size for a model.
- *
- * Uses the `maxTokens` field from the pricing map as context window.
- * Returns 0 if unknown (the model isn't in the pricing map or has no maxTokens).
- *
- * @param modelId - Model identifier (e.g., "claude-sonnet-4-6-20250514")
- * @returns Context window size in tokens, or 0 if unknown
- */
 export function getModelContextWindow(modelId: string): number {
   if (!modelId) return 0;
   const pricing = findModelPricing(modelId);
-  return pricing?.maxTokens ?? 0;
+  if (pricing?.maxTokens) return pricing.maxTokens;
+
+  const stripped = modelId
+    .replace(/^(?:anthropic|openrouter|google|openai|moonshot|zai)\//i, '')
+    .toLowerCase();
+
+  const claudeModern = stripped.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)[-.](\d+)/,
+  );
+  if (claudeModern) {
+    const family = claudeModern[1];
+    const major = Number.parseInt(claudeModern[2], 10);
+    const minor = Number.parseInt(claudeModern[3], 10);
+    if (family === 'opus' && (major > 4 || (major === 4 && minor >= 6))) {
+      return 1_000_000;
+    }
+    return 200_000;
+  }
+
+  if (/^claude-3/.test(stripped)) return 200_000;
+
+  return 0;
 }
 
 /**
@@ -432,92 +345,41 @@ export function getModelPricingDescription(modelId: string): string {
   return `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
 }
 
-/**
- * Format a full model ID to a human-readable display name.
- *
- * Maps model identifiers from the API to short readable names:
- * - "claude-sonnet-4-20250514" -> "Sonnet 4"
- * - "claude-opus-4-5-20251101" -> "Opus 4.5"
- * - "claude-haiku-4-5-20251001" -> "Haiku 4.5"
- * - "gpt-4o-2024-08-06" -> "GPT-4o"
- * - Unknown models -> truncated ID
- *
- * @param modelId - Full model identifier from API
- * @returns Human-readable model name
- */
-export function formatModelDisplayName(modelId: string): string {
+export function formatClaudeModelDisplayName(modelId: string): string {
   if (!modelId) return 'Unknown';
+  const stripped = modelId.replace(
+    /^(?:anthropic|openrouter|google|openai|moonshot|zai)\//i,
+    '',
+  );
+  const noDate = stripped
+    .replace(/-\d{8}$/, '')
+    .replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  const modern = noDate.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-(.+))?$/i,
+  );
+  if (modern) {
+    const [, family, maj, min, suffix] = modern;
+    const cap = family[0].toUpperCase() + family.slice(1).toLowerCase();
+    return suffix ? `${cap} ${maj}.${min} (${suffix})` : `${cap} ${maj}.${min}`;
+  }
+  const legacy = noDate.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku)$/i);
+  if (legacy) {
+    const [, gen, sub, family] = legacy;
+    const cap = family[0].toUpperCase() + family.slice(1).toLowerCase();
+    return sub ? `${cap} ${gen}.${sub}` : `${cap} ${gen}`;
+  }
+  if (noDate.length > 30) return noDate.slice(0, 30) + '...';
+  return noDate;
+}
 
-  const lower = modelId.toLowerCase();
-  const withoutDate = lower.replace(/-\d{8}$/, '');
-  if (withoutDate.includes('opus')) {
-    if (withoutDate.includes('4.7') || withoutDate.includes('4-7'))
-      return 'Opus 4.7';
-    if (withoutDate.includes('4.6') || withoutDate.includes('4-6'))
-      return 'Opus 4.6';
-    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
-      return 'Opus 4.5';
-    if (withoutDate.includes('opus-4') || withoutDate.includes('opus 4'))
-      return 'Opus 4';
-    if (withoutDate.includes('3-opus') || withoutDate.includes('opus-3'))
-      return 'Opus 3';
-    return 'Opus';
+export function resolveModelDisplayName(
+  modelId: string,
+  availableModels?: ReadonlyArray<{ id: string; name: string }>,
+): string {
+  if (!modelId) return 'Unknown';
+  if (availableModels) {
+    const match = availableModels.find((m) => m.id === modelId);
+    if (match) return match.name;
   }
-
-  if (withoutDate.includes('sonnet')) {
-    if (withoutDate.includes('4.6') || withoutDate.includes('4-6'))
-      return 'Sonnet 4.6';
-    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
-      return 'Sonnet 4.5';
-    if (withoutDate.includes('sonnet-4') || withoutDate.includes('sonnet 4'))
-      return 'Sonnet 4';
-    if (withoutDate.includes('3.5') || withoutDate.includes('3-5'))
-      return 'Sonnet 3.5';
-    return 'Sonnet';
-  }
-
-  if (withoutDate.includes('haiku')) {
-    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
-      return 'Haiku 4.5';
-    if (withoutDate.includes('3.5') || withoutDate.includes('3-5'))
-      return 'Haiku 3.5';
-    if (withoutDate.includes('3-haiku') || withoutDate.includes('haiku-3'))
-      return 'Haiku 3';
-    return 'Haiku';
-  }
-  if (lower.includes('gpt-4o-mini')) return 'GPT-4o Mini';
-  if (lower.includes('gpt-4o')) return 'GPT-4o';
-  if (lower.includes('gpt-4-turbo')) return 'GPT-4 Turbo';
-  if (lower.includes('gpt-4')) return 'GPT-4';
-  if (lower.includes('gpt-3.5')) return 'GPT-3.5';
-  if (lower.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
-  if (lower.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
-  if (lower.includes('gemini-2.0-pro')) return 'Gemini 2.0 Pro';
-  if (lower.includes('gemini-2.0-flash')) return 'Gemini 2.0 Flash';
-  if (lower.includes('gemini-2')) return 'Gemini 2';
-  if (lower.includes('gemini-1.5-pro')) return 'Gemini 1.5 Pro';
-  if (lower.includes('gemini-1.5-flash')) return 'Gemini 1.5 Flash';
-  if (lower.includes('gemini')) return 'Gemini';
-  if (lower.includes('kimi-k2.6')) return 'Kimi K2.6';
-  if (lower.includes('kimi-k2.5')) return 'Kimi K2.5';
-  if (lower.includes('kimi-k2-thinking')) return 'Kimi K2 Thinking';
-  if (lower.includes('kimi-k2')) return 'Kimi K2';
-  if (lower.includes('glm-5.1')) return 'GLM-5.1';
-  if (lower.includes('glm-5-turbo')) return 'GLM-5 Turbo';
-  if (lower.includes('glm-5-code')) return 'GLM-5 Code';
-  if (lower.includes('glm-5')) return 'GLM-5';
-  if (lower.includes('glm-4.7-flash') && !lower.includes('flashx'))
-    return 'GLM-4.7 Flash';
-  if (lower.includes('glm-4.7-flashx')) return 'GLM-4.7 FlashX';
-  if (lower.includes('glm-4.7')) return 'GLM-4.7';
-  if (lower.includes('glm-4.6')) return 'GLM-4.6';
-  if (lower.includes('glm-4.5-x') && !lower.includes('air')) return 'GLM-4.5-X';
-  if (lower.includes('glm-4.5-airx')) return 'GLM-4.5 AirX';
-  if (lower.includes('glm-4.5-air')) return 'GLM-4.5 Air';
-  if (lower.includes('glm-4.5-flash')) return 'GLM-4.5 Flash';
-  if (lower.includes('glm-4.5')) return 'GLM-4.5';
-  if (modelId.length > 30) {
-    return modelId.substring(0, 30) + '...';
-  }
-  return modelId;
+  return formatClaudeModelDisplayName(modelId);
 }

@@ -18,20 +18,13 @@ import type {
   GitWorktreeChangedNotification,
 } from '@ptah-extension/shared';
 
-/**
- * WorktreeService - Manages git worktree operations and workspace folder registration.
- *
- * Complexity Level: 2 (Medium - signal-based state, RPC communication, layout integration)
- * Patterns: Injectable service, signal-based state, correlationId RPC
- *
- * Responsibilities:
- * - List worktrees via git:worktrees RPC
- * - Add new worktrees via git:addWorktree RPC and auto-register as workspace folders
- * - Remove worktrees via git:removeWorktree RPC and unregister workspace folders
- * - Listen for git:worktreeChanged push notifications from the backend
- *
- * Communication: Uses MESSAGE_TYPES.RPC_CALL / RPC_RESPONSE with correlationId matching.
- */
+const ASYNC_WORKTREE_TIMEOUT_MS = 5 * 60 * 1000;
+
+interface PendingOperation {
+  resolve: (value: { success: boolean; error?: string; path?: string }) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class WorktreeService {
   private readonly vscodeService = inject(VSCodeService);
@@ -40,23 +33,16 @@ export class WorktreeService {
 
   private readonly _worktrees = signal<GitWorktreeInfo[]>([]);
   private readonly _isLoading = signal(false);
+  private readonly pendingOps = new Map<string, PendingOperation>();
 
-  /** All worktrees for the current repository. */
   readonly worktrees = this._worktrees.asReadonly();
-
-  /** Whether a worktree RPC call is in flight. */
   readonly isLoading = this._isLoading.asReadonly();
-
-  /** Number of active worktrees. */
   readonly worktreeCount = computed(() => this._worktrees().length);
 
   constructor() {
     this.setupWorktreeChangeListener();
   }
 
-  /**
-   * Fetch the list of worktrees via git:worktrees RPC and update the signal.
-   */
   async loadWorktrees(): Promise<void> {
     this._isLoading.set(true);
 
@@ -74,13 +60,9 @@ export class WorktreeService {
   }
 
   /**
-   * Add a new worktree via git:addWorktree RPC.
-   * On success, auto-registers the new worktree directory as a workspace folder
-   * via ElectronLayoutService so the user can immediately work in it.
-   *
-   * @param branch - Branch name to checkout in the new worktree
-   * @param options - Optional path override and create-new-branch flag
-   * @returns Success/failure result with optional error message
+   * Add a worktree. Backend runs the git subprocess asynchronously and
+   * resolves this promise via a correlated git:worktreeChanged push, so the
+   * RPC channel cannot time out while a slow `git worktree add` is running.
    */
   async addWorktree(
     branch: string,
@@ -88,39 +70,60 @@ export class WorktreeService {
   ): Promise<{ success: boolean; error?: string }> {
     this._isLoading.set(true);
 
-    const result = await rpcCall<GitAddWorktreeResult>(
+    const operationId = this.generateOperationId();
+    const pendingPromise = this.registerPendingOperation(operationId);
+
+    const ack = await rpcCall<GitAddWorktreeResult>(
       this.vscodeService,
       'git:addWorktree',
       {
         branch,
         path: options?.path,
         createBranch: options?.createBranch,
+        operationId,
       },
     );
 
-    if (result.success && result.data?.success && result.data.worktreePath) {
-      await this.layoutService.addFolderByPath(result.data.worktreePath);
-      await this.loadWorktrees();
+    if (!ack.success || !ack.data) {
+      this.cancelPendingOperation(operationId);
       this._isLoading.set(false);
-
-      return { success: true };
+      return {
+        success: false,
+        error: ack.error || 'Failed to add worktree',
+      };
     }
 
-    const error =
-      result.data?.error || result.error || 'Failed to add worktree';
-    this._isLoading.set(false);
+    if (!ack.data.pending) {
+      this.cancelPendingOperation(operationId);
+      if (ack.data.success && ack.data.worktreePath) {
+        await this.layoutService.addFolderByPath(ack.data.worktreePath);
+        await this.loadWorktrees();
+        this._isLoading.set(false);
+        return { success: true };
+      }
+      this._isLoading.set(false);
+      return {
+        success: false,
+        error: ack.data.error || 'Failed to add worktree',
+      };
+    }
 
-    return { success: false, error };
+    const outcome = await pendingPromise;
+    if (outcome.success && outcome.path) {
+      await this.layoutService.addFolderByPath(outcome.path);
+      await this.loadWorktrees();
+      this._isLoading.set(false);
+      return { success: true };
+    }
+    this._isLoading.set(false);
+    return {
+      success: false,
+      error: outcome.error || 'Failed to add worktree',
+    };
   }
 
   /**
-   * Remove a worktree via git:removeWorktree RPC.
-   * On success, removes the worktree from the local list. The workspace folder
-   * removal is handled separately by the user or layout service.
-   *
-   * @param path - Absolute path of the worktree to remove
-   * @param force - Whether to force removal (--force flag)
-   * @returns Success/failure result with optional error message
+   * Remove a worktree. Async-pending semantics mirror addWorktree above.
    */
   async removeWorktree(
     path: string,
@@ -128,36 +131,88 @@ export class WorktreeService {
   ): Promise<{ success: boolean; error?: string }> {
     this._isLoading.set(true);
 
-    const result = await rpcCall<GitRemoveWorktreeResult>(
+    const operationId = this.generateOperationId();
+    const pendingPromise = this.registerPendingOperation(operationId);
+
+    const ack = await rpcCall<GitRemoveWorktreeResult>(
       this.vscodeService,
       'git:removeWorktree',
-      { path, force },
+      { path, force, operationId },
     );
 
-    if (result.success && result.data?.success) {
-      this._worktrees.update((worktrees) =>
-        worktrees.filter((w) => w.path !== path),
-      );
+    if (!ack.success || !ack.data) {
+      this.cancelPendingOperation(operationId);
       this._isLoading.set(false);
-
-      return { success: true };
+      return {
+        success: false,
+        error: ack.error || 'Failed to remove worktree',
+      };
     }
 
-    const error =
-      result.data?.error || result.error || 'Failed to remove worktree';
-    this._isLoading.set(false);
+    if (!ack.data.pending) {
+      this.cancelPendingOperation(operationId);
+      if (ack.data.success) {
+        this.removeWorktreeLocally(path);
+        this._isLoading.set(false);
+        return { success: true };
+      }
+      this._isLoading.set(false);
+      return {
+        success: false,
+        error: ack.data.error || 'Failed to remove worktree',
+      };
+    }
 
-    return { success: false, error };
+    const outcome = await pendingPromise;
+    if (outcome.success) {
+      this.removeWorktreeLocally(path);
+      this._isLoading.set(false);
+      return { success: true };
+    }
+    this._isLoading.set(false);
+    return {
+      success: false,
+      error: outcome.error || 'Failed to remove worktree',
+    };
   }
 
-  /**
-   * Listen for git:worktreeChanged push notifications from the backend.
-   * When the SDK creates or removes a worktree, the backend sends a push
-   * notification to the frontend so the worktree list can be refreshed.
-   *
-   * On 'created' + path: register the new folder via layoutService, then refresh.
-   * On 'removed': refresh the worktree list.
-   */
+  private removeWorktreeLocally(path: string): void {
+    this._worktrees.update((worktrees) =>
+      worktrees.filter((w) => w.path !== path),
+    );
+  }
+
+  private generateOperationId(): string {
+    const cryptoRef = globalThis.crypto as Crypto | undefined;
+    if (cryptoRef?.randomUUID) {
+      return cryptoRef.randomUUID();
+    }
+    return `wt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  private registerPendingOperation(
+    operationId: string,
+  ): Promise<{ success: boolean; error?: string; path?: string }> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.pendingOps.delete(operationId)) {
+          resolve({
+            success: false,
+            error: 'Timed out waiting for worktree operation to complete',
+          });
+        }
+      }, ASYNC_WORKTREE_TIMEOUT_MS);
+      this.pendingOps.set(operationId, { resolve, timer });
+    });
+  }
+
+  private cancelPendingOperation(operationId: string): void {
+    const pending = this.pendingOps.get(operationId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingOps.delete(operationId);
+  }
+
   private setupWorktreeChangeListener(): void {
     const handler = (event: MessageEvent) => {
       const data = event.data;
@@ -168,6 +223,20 @@ export class WorktreeService {
         | GitWorktreeChangedNotification
         | undefined;
       if (!payload || !payload.action) return;
+
+      if (payload.operationId) {
+        const pending = this.pendingOps.get(payload.operationId);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingOps.delete(payload.operationId);
+          pending.resolve({
+            success: payload.success !== false,
+            error: payload.error,
+            path: payload.path,
+          });
+        }
+        return;
+      }
 
       if (payload.action === 'created') {
         if (payload.path) {
@@ -182,6 +251,10 @@ export class WorktreeService {
     window.addEventListener('message', handler);
     this.destroyRef.onDestroy(() => {
       window.removeEventListener('message', handler);
+      for (const pending of this.pendingOps.values()) {
+        clearTimeout(pending.timer);
+      }
+      this.pendingOps.clear();
     });
   }
 }

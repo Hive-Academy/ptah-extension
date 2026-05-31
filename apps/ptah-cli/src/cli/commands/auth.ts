@@ -54,7 +54,7 @@ import {
   type HeadlessProcessLike,
 } from '../oauth/headless-flow.js';
 import { JsonRpcOAuthUrlOpener } from '../oauth/jsonrpc-oauth-url-opener.js';
-import { StderrOAuthUrlOpener } from '../oauth/stderr-oauth-url-opener.js';
+import { BrowserLaunchingOAuthUrlOpener } from '../oauth/browser-launching-oauth-url-opener.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { redact } from '../output/redactor.js';
 import { JsonRpcServer } from '../jsonrpc/server.js';
@@ -591,7 +591,7 @@ async function runCopilotLogin(
       : ctx.container.resolve<ICopilotAuthService>(
           AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
         ));
-    const opener = new StderrOAuthUrlOpener();
+    const opener = new BrowserLaunchingOAuthUrlOpener();
 
     const result = await headless({
       provider: 'copilot',

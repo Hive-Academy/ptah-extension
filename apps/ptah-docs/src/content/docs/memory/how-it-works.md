@@ -54,3 +54,16 @@ All memory state is in `~/.ptah/ptah.db`:
 - `memory_chunks` — text shards used for retrieval
 - `memory_chunks_fts` — FTS5 BM25 index
 - `memory_chunks_vec` — sqlite-vec embedding index
+
+## The code-symbol index
+
+Alongside curated memory, Ptah keeps a separate **code-symbol index** for the current workspace. This is distinct from the curator pipeline above:
+
+- **Memory chunks** are LLM-extracted, scored, and tiered — they capture _decisions and knowledge_ from your sessions.
+- **Code symbols** come straight from indexing your source tree — they capture _structure_ (functions, classes, methods) so the agent can navigate and recall where code lives.
+
+Indexing runs on your machine; nothing is uploaded. When the workspace changes, you can re-index from the **Memory** tab. Each indexed symbol records its name, `kind` (e.g. function, class, method), the file it lives in, and a token count.
+
+:::note
+The code-symbol index is workspace-scoped and lives in the same `~/.ptah/ptah.db`. It is part of the Electron desktop app's **Memory** tab and is not available in the VS Code extension or the CLI.
+:::

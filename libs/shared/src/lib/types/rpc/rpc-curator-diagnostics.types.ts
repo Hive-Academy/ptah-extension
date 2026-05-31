@@ -1,5 +1,6 @@
 export type MemoryCuratorEventKind =
   | 'curator-run'
+  | 'curator-skipped-no-data'
   | 'decay-run'
   | 'idle-trigger'
   | 'turn-trigger'

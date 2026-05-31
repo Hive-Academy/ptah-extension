@@ -1,3 +1,11 @@
+// VEC-OPTIONAL SPLIT (vec-hardening): `sql` holds the BASE relational + FTS5
+// schema and the legacy-row cleanup DML (no sqlite-vec dependency); `vecSql`
+// holds only the vec0 virtual table. Healthy machines already RECORDED version
+// 13 in schema_migrations and will NOT re-run `sql` (zero drift) — they pick up
+// `vecSql` via the runner's vec catch-up pass. Vec-less machines now get the
+// base tables they previously missed. Sanctioned exception to the append-only
+// rule: the original whole-migration `requiresVec` coupling was a defect
+// (Sentry NODE-NESTJS-46/47). Static SQL only — no `${}` interpolation.
 export const sql = `
 -- 0013_code_symbols.sql — Dedicated table for tree-sitter code symbol index.
 -- Separates code navigation from Letta-style curated memory (previously
@@ -36,13 +44,15 @@ CREATE TRIGGER code_symbols_au AFTER UPDATE ON code_symbols BEGIN
   INSERT INTO code_symbols_fts(rowid, text) VALUES (new.rowid, new.text);
 END;
 
-CREATE VIRTUAL TABLE code_symbols_vec USING vec0(
-  rowid INTEGER PRIMARY KEY,
-  embedding FLOAT[384]
-);
-
 -- Drop legacy code-symbol rows from the memories table; ON DELETE CASCADE
 -- on memory_chunks.memory_id removes their chunks. Orphan rows in
 -- memory_chunks_vec (no FK) are harmless until rebuildIndex runs.
 DELETE FROM memories WHERE subject LIKE 'code:%';
+`;
+
+export const vecSql = `
+CREATE VIRTUAL TABLE code_symbols_vec USING vec0(
+  rowid INTEGER PRIMARY KEY,
+  embedding FLOAT[384]
+);
 `;

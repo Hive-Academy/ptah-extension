@@ -169,6 +169,10 @@
       "options": {
         "commands": [
           {
+            "command": "node apps/ptah-electron/scripts/patch-sqlite3-tar.js",
+            "forwardAllArgs": false
+          },
+          {
             "command": "node scripts/copy-wasm.js dist/apps/ptah-electron",
             "forwardAllArgs": false
           }

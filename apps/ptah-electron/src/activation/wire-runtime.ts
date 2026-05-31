@@ -35,6 +35,8 @@ import {
   type MemoryTriggerService,
   type IndexingControlService,
   type IndexingRunDeps,
+  type ObservationQueueStore,
+  type CorpusStore,
 } from '@ptah-extension/memory-curator';
 import { IndexingRpcHandlers } from '@ptah-extension/rpc-handlers';
 import {
@@ -285,6 +287,64 @@ export async function wireRuntime(
         error instanceof Error ? error.message : String(error),
       );
       refs.memoryTrigger = null;
+    }
+    try {
+      if (refs.memoryCurator !== null) {
+        const webviewManager = container.resolve<WebviewManager>(
+          TOKENS.WEBVIEW_MANAGER,
+        );
+        refs.memoryCurator.onEvent((ev) => {
+          if (
+            ev.kind === 'curator-run' &&
+            ev.stats &&
+            typeof ev.stats['created'] === 'number' &&
+            (ev.stats['created'] as number) > 0
+          ) {
+            const extracted = Number(ev.stats['extracted'] ?? 0);
+            const created = Number(ev.stats['created'] ?? 0);
+            const merged = Number(ev.stats['merged'] ?? 0);
+            void webviewManager.broadcastMessage(
+              MESSAGE_TYPES.MEMORY_EXTRACTED,
+              {
+                sessionId: ev.sessionId ?? '',
+                workspaceRoot: null,
+                extracted,
+                created,
+                merged,
+                timestamp: ev.timestamp,
+              },
+            );
+          }
+        });
+        if (container.isRegistered(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)) {
+          const queueStore = container.resolve<ObservationQueueStore>(
+            MEMORY_TOKENS.OBSERVATION_QUEUE_STORE,
+          );
+          queueStore.onCapture((evt) => {
+            void webviewManager.broadcastMessage(
+              MESSAGE_TYPES.MEMORY_OBSERVATION_CAPTURED,
+              evt,
+            );
+          });
+        }
+        if (container.isRegistered(MEMORY_TOKENS.CORPUS_STORE)) {
+          const corpusStore = container.resolve<CorpusStore>(
+            MEMORY_TOKENS.CORPUS_STORE,
+          );
+          corpusStore.onChange((evt) => {
+            void webviewManager.broadcastMessage(
+              MESSAGE_TYPES.MEMORY_CORPUS_CHANGED,
+              evt,
+            );
+          });
+        }
+        console.log('[Ptah Electron] Memory push-event bridges wired');
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Memory push-event bridges skipped (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
     }
     try {
       refs.skillSynthesis = container.resolve<SkillSynthesisService>(

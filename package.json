@@ -82,6 +82,7 @@
   },
   "private": true,
   "dependencies": {
+    "@angular/cdk-experimental": "^21.2.4",
     "@angular/common": "21.2.6",
     "@angular/compiler": "21.2.6",
     "@angular/core": "21.2.6",

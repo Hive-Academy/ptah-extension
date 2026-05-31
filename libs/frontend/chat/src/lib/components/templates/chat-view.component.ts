@@ -4,7 +4,6 @@ import {
   signal,
   computed,
   viewChild,
-  ElementRef,
   ChangeDetectionStrategy,
   afterNextRender,
   effect,
@@ -21,6 +20,11 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-angular';
+import {
+  ScrollingModule,
+  CdkVirtualScrollViewport,
+} from '@angular/cdk/scrolling';
+import { ScrollingModule as ExperimentalScrollingModule } from '@angular/cdk-experimental/scrolling';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
@@ -35,7 +39,6 @@ import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-s
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
-import { AutoAnimateDirective } from '../../directives/auto-animate.directive';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
@@ -57,6 +60,7 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  RpcResult,
 } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -65,8 +69,6 @@ import {
 } from '@ptah-extension/shared';
 import type { SubagentRecord } from '@ptah-extension/shared';
 
-/** Shared empty Set instance to keep `streamingMessageIds()` referentially
- *  stable when no message is streaming (avoids unnecessary template re-evals). */
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 
 /**
@@ -134,7 +136,8 @@ function filterCompactionNoise(
     CompactionNotificationComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
-    AutoAnimateDirective,
+    ScrollingModule,
+    ExperimentalScrollingModule,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -202,6 +205,7 @@ export class ChatViewComponent {
   private readonly actionBanner = inject(ActionBannerService);
   readonly actionError = this.actionBanner.error;
   readonly actionInfo = this.actionBanner.info;
+  readonly actionWarning = this.actionBanner.warning;
 
   private showActionError(message: string): void {
     this.actionBanner.showError(message);
@@ -209,6 +213,10 @@ export class ChatViewComponent {
 
   private showActionInfo(message: string): void {
     this.actionBanner.showInfo(message);
+  }
+
+  private showActionWarning(message: string): void {
+    this.actionBanner.showWarning(message);
   }
 
   /**
@@ -314,8 +322,12 @@ export class ChatViewComponent {
    * Signal-based viewChild (Angular 20+ pattern)
    * Replaces @ViewChild decorator for better reactivity
    */
-  private readonly messageContainerRef =
-    viewChild<ElementRef<HTMLElement>>('messageContainer');
+  private readonly virtualViewport = viewChild(CdkVirtualScrollViewport);
+
+  private getScrollContainerEl(): HTMLElement | null {
+    const vp = this.virtualViewport();
+    return vp ? (vp.elementRef.nativeElement as HTMLElement) : null;
+  }
 
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
   private readonly chatInputRef = viewChild(ChatInputComponent);
@@ -421,17 +433,6 @@ export class ChatViewComponent {
     return this.chatStore.isStreaming();
   });
 
-  /**
-   * Resolved "session is active in the SDK this run" — tile-scoped when
-   * SESSION_CONTEXT is provided, otherwise reads from the active tab.
-   *
-   * Sticky-true once the tab has streamed/resumed at least once. Used to
-   * gate the rewind action: rewind requires a live `Query` handle on the
-   * backend (`SessionLifecycleManager.getActiveSession`), which sessions
-   * loaded purely from disk via `session:load` do NOT have. Without this
-   * guard the user can click rewind on a historical session and the SDK
-   * throws `SessionNotActiveError` (Sentry NODE-NESTJS-2Y / 2N / 2X).
-   */
   readonly resolvedSessionIsActive = computed(() => {
     const ctx = this._sessionContext;
     if (ctx) {
@@ -631,6 +632,20 @@ export class ChatViewComponent {
    * DEDUPLICATION: Finalized messages use tree.id (event id) NOT messageId,
    * so we can properly match and filter out already-finalized trees.
    */
+  private readonly finalizedMessageIds = computed((): ReadonlySet<string> => {
+    const msgs = this.resolvedMessages();
+    if (msgs.length === 0) return EMPTY_STRING_SET;
+    const ids = new Set<string>();
+    for (const m of msgs) ids.add(m.id);
+    return ids;
+  });
+
+  protected readonly finalizedFiltered = computed(
+    (): readonly ExecutionChatMessage[] => {
+      return filterCompactionNoise(this.resolvedMessages());
+    },
+  );
+
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
     const trees = this.resolvedExecutionTrees();
     if (trees.length === 0) return [];
@@ -638,11 +653,9 @@ export class ChatViewComponent {
     const streamingState = this.resolvedStreamingState();
     const pendingStats = streamingState?.pendingStats;
 
-    const finalizedMessageIds = new Set(
-      this.resolvedMessages().map((msg) => msg.id),
-    );
+    const finalizedIds = this.finalizedMessageIds();
     const nonFinalizedTrees = trees.filter(
-      (tree) => !finalizedMessageIds.has(tree.id),
+      (tree) => !finalizedIds.has(tree.id),
     );
     if (nonFinalizedTrees.length === 0) return [];
 
@@ -679,24 +692,39 @@ export class ChatViewComponent {
    * `resolvedIsStreaming()` AND identity (only the live trees are streaming;
    * historical messages are not).
    */
-  readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
-    const finalized = this.resolvedMessages();
-    const streaming = this.streamingMessages();
-    const combined =
-      streaming.length === 0 ? finalized : [...finalized, ...streaming];
-    return filterCompactionNoise(combined);
+  readonly totalMessageCount = computed((): number => {
+    return this.finalizedFiltered().length + this.streamingMessages().length;
   });
 
-  /**
-   * Set of message ids that are currently being streamed (live trees, not yet
-   * finalized). Used by the template to flip `isStreaming` per-bubble inside
-   * the unified `@for` loop.
-   */
-  readonly streamingMessageIds = computed((): ReadonlySet<string> => {
+  private _allMessagesCache: readonly ExecutionChatMessage[] = [];
+  private _allMessagesFinalizedRef: readonly ExecutionChatMessage[] | null =
+    null;
+  private _allMessagesStreamingRef: readonly ExecutionChatMessage[] | null =
+    null;
+
+  readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
+    const finalized = this.finalizedFiltered();
     const streaming = this.streamingMessages();
-    if (streaming.length === 0) return EMPTY_STRING_SET;
-    return new Set(streaming.map((m) => m.id));
+    if (
+      finalized === this._allMessagesFinalizedRef &&
+      streaming === this._allMessagesStreamingRef
+    ) {
+      return this._allMessagesCache;
+    }
+    const next =
+      streaming.length === 0 ? finalized : [...finalized, ...streaming];
+    this._allMessagesFinalizedRef = finalized;
+    this._allMessagesStreamingRef = streaming;
+    this._allMessagesCache = next;
+    return next;
   });
+
+  protected trackByMessageId(
+    _index: number,
+    msg: ExecutionChatMessage,
+  ): string {
+    return msg.id;
+  }
 
   constructor() {
     effect(() => {
@@ -743,9 +771,9 @@ export class ChatViewComponent {
         const savedPosition = this.scrollPositionCache.get(currentTabId)!;
         this.isRestoringScroll = true;
         setTimeout(() => {
-          const container = this.messageContainerRef()?.nativeElement;
-          if (container) {
-            container.scrollTo({ top: savedPosition, behavior: 'instant' });
+          const viewport = this.virtualViewport();
+          if (viewport) {
+            viewport.scrollTo({ top: savedPosition, behavior: 'instant' });
           }
           setTimeout(() => {
             this.isRestoringScroll = false;
@@ -797,18 +825,26 @@ export class ChatViewComponent {
   onScroll(event: Event): void {
     if (this.isProgrammaticScrolling || this.isFinalizingTransition()) return;
 
-    const container = event.target as HTMLElement;
-    if (!container) return;
+    const viewport = this.virtualViewport();
+    let scrollTop: number;
+    let distanceFromBottom: number;
+    if (viewport) {
+      scrollTop = viewport.measureScrollOffset('top');
+      distanceFromBottom = viewport.measureScrollOffset('bottom');
+    } else {
+      const container = event.target as HTMLElement;
+      if (!container) return;
+      scrollTop = container.scrollTop;
+      distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+    }
 
-    const isNearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
-      100;
-
+    const isNearBottom = distanceFromBottom < 100;
     this.userScrolledUp.set(!isNearBottom);
 
     const tabId = this.resolvedTabId();
     if (tabId) {
-      this.scrollPositionCache.set(tabId, container.scrollTop);
+      this.scrollPositionCache.set(tabId, scrollTop);
     }
   }
 
@@ -942,24 +978,10 @@ export class ChatViewComponent {
     }
   }
 
-  /**
-   * "Rewind to here" — revert tracked file changes back to the checkpoint
-   * captured at the given user message. Performs a dry-run preview first,
-   * confirms with the user, then commits. The backend auto-resumes inactive
-   * sessions transparently (see `SessionRpcHandlers.registerRewindFiles`);
-   * the frontend no longer needs a manual resume-and-retry dance — any
-   * remaining `session-not-active:*` error is surfaced as a hard failure.
-   */
   async onRewindRequested(messageId: string): Promise<void> {
     const sessionId = this.resolvedSessionId();
     if (!sessionId) {
       this.showActionError('No active session to rewind.');
-      return;
-    }
-    if (!this.resolvedSessionIsActive()) {
-      this.showActionError(
-        'Rewind is only available during an active conversation. Send a message or resume the session first.',
-      );
       return;
     }
     const inFlight = this._actionInFlight();
@@ -967,7 +989,7 @@ export class ChatViewComponent {
     this._actionInFlight.set(new Set([...inFlight, messageId]));
 
     try {
-      await this.attemptRewind(sessionId, messageId);
+      await this.attemptRewindV2(sessionId, messageId);
     } finally {
       const next = new Set(this._actionInFlight());
       next.delete(messageId);
@@ -975,7 +997,7 @@ export class ChatViewComponent {
     }
   }
 
-  private async attemptRewind(
+  private async attemptRewindV2(
     sessionId: SessionId,
     messageId: string,
   ): Promise<void> {
@@ -991,18 +1013,19 @@ export class ChatViewComponent {
     }
 
     const dryData = dryRun.data;
-    if (!dryData.canRewind) {
-      this.showActionError(dryData.error ?? 'Cannot rewind to this message.');
-      return;
-    }
-
+    const cannotRewind = !dryData.canRewind;
     const files = dryData.filesChanged ?? [];
     const ins = dryData.insertions ?? 0;
     const del = dryData.deletions ?? 0;
-    const checkpointsLost = files.length === 0 && ins === 0 && del === 0;
+    const checkpointsLost =
+      cannotRewind || (files.length === 0 && ins === 0 && del === 0);
 
     const fileList = checkpointsLost
-      ? 'No file changes can be reverted — checkpoints were lost when the session was previously closed. The conversation will still be truncated to this point.'
+      ? cannotRewind
+        ? `No file changes can be reverted (${
+            dryData.error ?? 'no checkpoints available'
+          }). The conversation will still be truncated to this point.`
+        : 'No file changes can be reverted — checkpoints were lost when the session was previously closed. The conversation will still be truncated to this point.'
       : files.length === 0
         ? 'No files will be modified.'
         : files
@@ -1012,86 +1035,181 @@ export class ChatViewComponent {
           (files.length > 10 ? `\n…and ${files.length - 10} more` : '');
 
     const header = checkpointsLost
-      ? 'The conversation will be truncated to this message.'
-      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). The conversation will also be truncated to this message.`;
+      ? 'A new session will be forked from this message.'
+      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). A new session will be forked from this message.`;
 
-    const confirmed = await this._confirmDialog.confirm({
+    const dialogResult = await this._confirmDialog.confirmWithCheckboxes({
       title: 'Rewind to this message?',
       message: `${header}\n\n${fileList}`,
       confirmLabel: 'Rewind',
       cancelLabel: 'Cancel',
       confirmStyle: 'warning',
+      checkboxes: [
+        {
+          id: 'deleteOriginal',
+          label: 'Also delete original session',
+          defaultChecked: false,
+        },
+      ],
     });
 
-    if (!confirmed) return;
+    if (!dialogResult.confirmed) return;
+    const deleteOriginal = dialogResult.checkboxes['deleteOriginal'] === true;
 
-    const commit = await this._claudeRpc.rewindFiles(
+    let rollbackSuffix: string | null = null;
+    if (checkpointsLost) {
+      rollbackSuffix = cannotRewind
+        ? `file rollback skipped: ${dryData.error ?? 'no checkpoints'}`
+        : null;
+    } else {
+      const commit = await this._claudeRpc.rewindFiles(
+        sessionId,
+        messageId,
+        false,
+      );
+      if (!commit.isSuccess()) {
+        const errMsg = commit.error ?? 'unknown error';
+        if (this.isHardRewindFailure(errMsg)) {
+          this.showActionError(`Rewind failed: ${errMsg}`);
+          return;
+        }
+        rollbackSuffix = `file rollback skipped: ${errMsg}`;
+      } else if (!commit.data.canRewind) {
+        rollbackSuffix = `file rollback skipped: ${
+          commit.data.error ?? 'unknown reason'
+        }`;
+      }
+    }
+
+    const forkResult = await this._claudeRpc.forkSession(
       sessionId,
       messageId,
-      false,
+      undefined,
+      'rewind',
     );
 
-    if (!commit.isSuccess()) {
-      this.showActionError(`Rewind failed: ${commit.error ?? 'Unknown error'}`);
-      return;
-    }
-    if (!commit.data.canRewind) {
+    if (!forkResult.isSuccess()) {
+      if (this.isMessageIdNotFoundError(forkResult)) {
+        this.showActionError(
+          'Cannot rewind to this point — no assistant reply exists yet.',
+        );
+        return;
+      }
       this.showActionError(
-        commit.data.error ?? 'Rewind failed without an error message.',
+        `Rewind failed: ${forkResult.error ?? 'Unknown error'}`,
       );
       return;
     }
 
-    let editorRefreshFailed = false;
-    const filesChanged = commit.data.filesChanged ?? [];
-    if (filesChanged.length > 0) {
-      try {
-        const revert = await this._claudeRpc.call('editor:revertFiles', {
-          files: filesChanged,
-        });
-        if (!revert.isSuccess()) {
-          editorRefreshFailed = true;
-        }
-      } catch {
-        editorRefreshFailed = true;
-      }
-    }
-    const tabId = this.resolvedTabId();
-    const workspacePath = this.vscodeService.config().workspaceRoot;
-    let truncateFailed = false;
-    if (tabId) {
-      const truncated = await this._claudeRpc.call('chat:resume', {
-        sessionId,
-        tabId,
-        workspacePath,
-        activate: true,
-        resumeSessionAt: messageId,
-      });
-      if (!truncated.isSuccess() || truncated.data.success === false) {
-        truncateFailed = true;
-      } else {
-        try {
-          await this.chatStore.switchSession(sessionId);
-        } catch {
-          truncateFailed = true;
-        }
+    const newSessionId = forkResult.data.newSessionId;
+    let swapFailed = false;
+
+    if (this._appState.layoutMode() === 'grid') {
+      const adopted = await this._appState.requestCanvasSession(
+        newSessionId,
+        'Rewind',
+      );
+      if (!adopted) {
+        swapFailed = true;
+        this.showActionError(
+          'Rewind canvas tile could not be opened (tile cap reached or canvas not mounted).',
+        );
       }
     } else {
-      truncateFailed = true;
+      this._tabManager.openSessionTab(newSessionId, 'Rewind');
+      try {
+        await this.chatStore.switchSession(newSessionId);
+      } catch (err: unknown) {
+        swapFailed = true;
+        this.showActionError(
+          `Rewind tab opened, but loading history failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
 
-    const changedCount = filesChanged.length;
-    const baseMsg =
-      changedCount === 0
-        ? 'Rewind complete — conversation truncated; no files changed.'
-        : `Rewind complete — ${changedCount} file(s) reverted, conversation truncated.`;
-    const suffix = [
-      editorRefreshFailed ? 'editor refresh failed' : null,
-      truncateFailed ? 'transcript truncation failed' : null,
-    ]
-      .filter((s): s is string => s !== null)
-      .join(', ');
-    this.showActionInfo(suffix ? `${baseMsg} (${suffix})` : baseMsg);
+    let deleteSuffix: string | null = null;
+    if (deleteOriginal && !swapFailed) {
+      const result = await this.deleteOriginalSession(sessionId);
+      if (!result.allTabsClosed) {
+        deleteSuffix =
+          'original session left in place — close the streaming tab first';
+      } else if (!result.deletedOk) {
+        deleteSuffix = `original session delete failed: ${
+          result.deleteError ?? 'unknown error'
+        }`;
+      }
+    }
+
+    if (swapFailed) return;
+
+    const baseMsg = 'Rewind complete — switched to new session';
+    const suffixes = [rollbackSuffix, deleteSuffix].filter(
+      (s): s is string => s !== null,
+    );
+
+    if (suffixes.length > 0) {
+      this.showActionWarning(`${baseMsg} (${suffixes.join('; ')})`);
+    } else {
+      this.showActionInfo(baseMsg);
+    }
+  }
+
+  private static readonly MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE =
+    'not found in session history';
+
+  private isHardRewindFailure(errMsg: string): boolean {
+    return (
+      errMsg.startsWith('session-not-active:') ||
+      errMsg.startsWith('unauthorized-path-rewrite:')
+    );
+  }
+
+  private isMessageIdNotFoundError<T>(result: RpcResult<T>): boolean {
+    if (result.errorCode === 'MESSAGE_ID_NOT_FOUND') return true;
+    const msg = result.error ?? '';
+    return msg.includes(ChatViewComponent.MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE);
+  }
+
+  private async deleteOriginalSession(originalId: SessionId): Promise<{
+    allTabsClosed: boolean;
+    deletedOk: boolean;
+    deleteError?: string;
+  }> {
+    const tabs = this._tabManager.findTabsBySessionId(originalId);
+    for (const tab of tabs) {
+      try {
+        await this._tabManager.closeTab(tab.id);
+      } catch (err: unknown) {
+        console.warn(
+          '[chat-view] failed to close tab during delete-original',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    const survivors = this._tabManager.findTabsBySessionId(originalId);
+    if (survivors.length > 0) {
+      return { allTabsClosed: false, deletedOk: false };
+    }
+
+    try {
+      const del = await this._claudeRpc.deleteSession(originalId);
+      if (!del.isSuccess()) {
+        return {
+          allTabsClosed: true,
+          deletedOk: false,
+          deleteError: del.error ?? undefined,
+        };
+      }
+      return { allTabsClosed: true, deletedOk: true };
+    } catch (err: unknown) {
+      return {
+        allTabsClosed: true,
+        deletedOk: false,
+        deleteError: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /** Handle "New Session" request from context warning bar */
@@ -1108,41 +1226,32 @@ export class ChatViewComponent {
   }
 
   private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {
-    const containerRef = this.messageContainerRef();
-    if (!containerRef) return;
-
-    const container = containerRef.nativeElement;
-    this.isProgrammaticScrolling = true;
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior,
-    });
-
-    if (behavior === 'instant') {
-      requestAnimationFrame(() => {
-        this.isProgrammaticScrolling = false;
-      });
-    } else {
-      setTimeout(() => {
-        this.isProgrammaticScrolling = false;
-      }, 400);
+    const viewport = this.virtualViewport();
+    if (viewport) {
+      this.isProgrammaticScrolling = true;
+      viewport.scrollTo({ bottom: 0, behavior });
+      if (behavior === 'instant') {
+        requestAnimationFrame(() => {
+          this.isProgrammaticScrolling = false;
+        });
+      } else {
+        setTimeout(() => {
+          this.isProgrammaticScrolling = false;
+        }, 400);
+      }
     }
   }
 
-  /**
-   * Setup MutationObserver to watch for DOM changes in message container.
-   * This ensures scroll happens after recursive ExecutionNode tree completes rendering.
-   */
   private setupMutationObserver(): void {
-    const container = this.messageContainerRef()?.nativeElement;
+    const container = this.getScrollContainerEl();
     if (!container || this.observer) return;
 
     this.observer = new MutationObserver(() => {
       this.scheduleScroll();
     });
     this.observer.observe(container, {
-      childList: true, // New nodes added/removed
-      subtree: true, // Watch entire subtree (recursive components)
+      childList: true,
+      subtree: true,
     });
   }
 

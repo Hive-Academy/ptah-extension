@@ -26,6 +26,12 @@ export const MEMORY_TRIGGER_KEYS = {
     enabled: 'memory.triggers.sessionEnd.enabled',
   },
   maxCuratesPerHour: 'memory.triggers.maxCuratesPerHour',
+  maxObservationsPerCurate: 'memory.triggers.maxObservationsPerCurate',
+  sessionStart: {
+    injectionEnabled: 'memory.triggers.sessionStart.injectionEnabled',
+    observationCount: 'memory.triggers.sessionStart.observationCount',
+    corpusCount: 'memory.triggers.sessionStart.corpusCount',
+  },
 } as const;
 
 export const DEFAULT_CUE_LIST: readonly string[] = [
@@ -61,6 +67,12 @@ export const MEMORY_TRIGGER_DEFAULTS = {
     enabled: true,
   },
   maxCuratesPerHour: 12,
+  maxObservationsPerCurate: 500,
+  sessionStart: {
+    injectionEnabled: true,
+    observationCount: 10,
+    corpusCount: 5,
+  },
 } as const;
 
 export const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> =
@@ -100,6 +112,11 @@ export interface PopulatedMemoryTriggers {
     readonly enabled: boolean;
   };
   readonly maxCuratesPerHour: number;
+  readonly sessionStart: {
+    readonly injectionEnabled: boolean;
+    readonly observationCount: number;
+    readonly corpusCount: number;
+  };
 }
 
 export function readMemoryTriggers(
@@ -179,6 +196,7 @@ export function readMemoryTriggers(
       MEMORY_TRIGGER_KEYS.maxCuratesPerHour,
       MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour,
     ) ?? MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour;
+  const sessionStart = readSessionStartConfig(ws);
   return {
     preCompact,
     idleMs,
@@ -202,6 +220,47 @@ export function readMemoryTriggers(
       enabled: sessionEndEnabled,
     },
     maxCuratesPerHour,
+    sessionStart,
+  };
+}
+
+export interface SessionStartInjectionConfig {
+  readonly injectionEnabled: boolean;
+  readonly observationCount: number;
+  readonly corpusCount: number;
+}
+
+export function readSessionStartConfig(
+  ws: IWorkspaceProvider,
+): SessionStartInjectionConfig {
+  const injectionEnabled =
+    ws.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.sessionStart.injectionEnabled,
+      MEMORY_TRIGGER_DEFAULTS.sessionStart.injectionEnabled,
+    ) ?? MEMORY_TRIGGER_DEFAULTS.sessionStart.injectionEnabled;
+  const observationCountRaw = ws.getConfiguration<number>(
+    MEMORY_TRIGGER_SECTION,
+    MEMORY_TRIGGER_KEYS.sessionStart.observationCount,
+    MEMORY_TRIGGER_DEFAULTS.sessionStart.observationCount,
+  );
+  const corpusCountRaw = ws.getConfiguration<number>(
+    MEMORY_TRIGGER_SECTION,
+    MEMORY_TRIGGER_KEYS.sessionStart.corpusCount,
+    MEMORY_TRIGGER_DEFAULTS.sessionStart.corpusCount,
+  );
+  const observationCount =
+    typeof observationCountRaw === 'number' && observationCountRaw >= 0
+      ? observationCountRaw
+      : MEMORY_TRIGGER_DEFAULTS.sessionStart.observationCount;
+  const corpusCount =
+    typeof corpusCountRaw === 'number' && corpusCountRaw >= 0
+      ? corpusCountRaw
+      : MEMORY_TRIGGER_DEFAULTS.sessionStart.corpusCount;
+  return {
+    injectionEnabled,
+    observationCount,
+    corpusCount,
   };
 }
 

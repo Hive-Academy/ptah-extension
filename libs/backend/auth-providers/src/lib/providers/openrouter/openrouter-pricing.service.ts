@@ -1,49 +1,19 @@
-/**
- * OpenRouter Pricing Service
- *
- * Single source of truth for per-token pricing across every model Ptah
- * surfaces in the stats panel — regardless of which provider the user
- * actually authed against (Anthropic direct, GitHub Copilot, Codex bridge,
- * Z.AI / Moonshot, Ollama Cloud, OpenRouter, …).
- *
- * Why OpenRouter as the catalog source:
- *   - Lists the same models that every Anthropic-compatible proxy serves
- *     (Anthropic, OpenAI, Google, Meta, Moonshot, Zhipu, DeepSeek, Qwen, …).
- *   - Public `/api/v1/models` endpoint — no auth required.
- *   - Per-token prices published as USD strings, refreshed by OpenRouter.
- *   - Cache-friendly: ~300 models in a single response.
- *
- * The "retail" price shown to a user on a free subscription (Copilot, Ollama
- * local, …) is not their actual bill — it's a "what would this cost on the
- * open market" signal. That's intentional: it lets users understand the value
- * of the subscription they're on.
- *
- * @see https://openrouter.ai/api/v1/models
- */
-
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { IPricingProvider } from '@ptah-extension/agent-sdk';
 import {
   registerProviderPricing,
   type ModelPricing,
 } from '@ptah-extension/shared';
 
-/** OpenRouter public model catalog endpoint (no auth required). */
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 
-/** In-memory cache TTL for the catalog (ms). */
-const CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
-/** Network timeout for catalog fetch (ms). */
 const REQUEST_TIMEOUT_MS = 10_000;
 
-/** Max chars of a failed response body we include in warn logs. */
 const ERROR_BODY_SNIPPET_LEN = 200;
 
-/**
- * OpenRouter `/api/v1/models` entry. Prices are USD-per-token strings
- * (e.g., `"0.0000015"` = $1.50 per 1M tokens). Parse with `parseFloat`.
- */
 export interface OpenRouterModel {
   readonly id: string;
   readonly name?: string;
@@ -62,23 +32,36 @@ interface OpenRouterResponse {
   data?: OpenRouterModel[];
 }
 
-interface CacheEntry<T> {
-  readonly value: T;
-  readonly fetchedAt: number;
+interface Catalog {
+  readonly models: OpenRouterModel[];
+  readonly pricingByKey: Map<string, ModelPricing>;
 }
 
 @injectable()
-export class OpenRouterPricingService {
-  private catalogCache: CacheEntry<OpenRouterModel[]> | null = null;
+export class OpenRouterPricingService implements IPricingProvider {
+  private cache: Catalog | null = null;
+  private cacheTime = 0;
+  private pending: Promise<Catalog> | null = null;
   private warmupPromise: Promise<OpenRouterModel[]> | null = null;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
-  /**
-   * Fire-and-forget bootstrap. Called once at app startup from
-   * registerAuthProvidersServices. Resolves silently on failure — pricing
-   * just remains unavailable until a manual refresh or the next process.
-   */
+  async getPricing(modelId: string): Promise<ModelPricing | null> {
+    if (typeof modelId !== 'string' || modelId.length === 0) return null;
+    const catalog = await this.ensureCatalog();
+    const map = catalog.pricingByKey;
+    const direct = map.get(modelId);
+    if (direct) return direct;
+    const lower = map.get(modelId.toLowerCase());
+    if (lower) return lower;
+    const stripped = this.stripPrefix(modelId);
+    if (stripped !== modelId) {
+      const strippedHit = map.get(stripped) ?? map.get(stripped.toLowerCase());
+      if (strippedHit) return strippedHit;
+    }
+    return null;
+  }
+
   warmup(): void {
     if (this.warmupPromise) return;
     this.warmupPromise = this.fetchAndRegister().catch((err) => {
@@ -91,39 +74,20 @@ export class OpenRouterPricingService {
     });
   }
 
-  /**
-   * Fetch the catalog and register every entry into the shared pricing map.
-   * Returns the parsed catalog so callers (Ollama Cloud matcher) can reuse it
-   * for their own slug-matching without re-hitting the network.
-   *
-   * Each model is registered under multiple keys so {@link findModelPricing}
-   * exact-matches whatever the runtime reports:
-   *   - Full OpenRouter ID:  `anthropic/claude-sonnet-4.6`
-   *   - Tail after slash:    `claude-sonnet-4.6`
-   *
-   * `registerProviderPricing` already adds lowercase variants automatically.
-   */
   async fetchAndRegister(): Promise<OpenRouterModel[]> {
-    const catalog = await this.fetchCatalog();
-    if (catalog.length === 0) return [];
+    const catalog = await this.ensureCatalog();
+    if (catalog.models.length === 0) return [];
 
     const entries: Record<string, ModelPricing> = {};
     let registered = 0;
-    let skipped = 0;
 
-    for (const m of catalog) {
-      const pricing = parseModelPricing(m);
-      if (!pricing) {
-        skipped++;
-        continue;
-      }
+    for (const m of catalog.models) {
+      const pricing = catalog.pricingByKey.get(m.id);
+      if (!pricing) continue;
       entries[m.id] = pricing;
-      const slash = m.id.lastIndexOf('/');
-      if (slash >= 0 && slash < m.id.length - 1) {
-        const tail = m.id.slice(slash + 1);
-        if (!entries[tail]) {
-          entries[tail] = pricing;
-        }
+      const tail = this.stripPrefix(m.id);
+      if (tail !== m.id && !entries[tail]) {
+        entries[tail] = pricing;
       }
       registered++;
     }
@@ -131,29 +95,42 @@ export class OpenRouterPricingService {
     registerProviderPricing(entries);
     this.logger.info(
       `[OpenRouterPricing] Registered ${registered} model(s) from OpenRouter ` +
-        `(${Object.keys(entries).length} key variants; ${skipped} entries skipped for missing/unparseable prices).`,
+        `(${Object.keys(entries).length} key variants).`,
     );
-    return catalog;
+    return catalog.models;
   }
 
-  /**
-   * Return the cached catalog or refetch if stale. Used by callers that need
-   * the raw catalog (e.g., Ollama Cloud's slug-matching for `:cloud` tags).
-   */
   async getCatalog(): Promise<OpenRouterModel[]> {
-    return this.fetchCatalog();
+    const catalog = await this.ensureCatalog();
+    return catalog.models;
   }
 
-  /** Drop the cache. The next `getCatalog()` / `fetchAndRegister()` refetches. */
   clearCache(): void {
-    this.catalogCache = null;
+    this.cache = null;
+    this.cacheTime = 0;
+    this.pending = null;
     this.warmupPromise = null;
   }
 
-  private async fetchCatalog(): Promise<OpenRouterModel[]> {
-    if (this.catalogCache && this.isFresh(this.catalogCache)) {
-      return this.catalogCache.value;
+  private async ensureCatalog(): Promise<Catalog> {
+    if (this.cache && Date.now() - this.cacheTime < CACHE_TTL_MS) {
+      return this.cache;
     }
+    if (this.pending) return this.pending;
+    this.pending = this.fetchCatalog()
+      .then((catalog) => {
+        this.cache = catalog;
+        this.cacheTime = Date.now();
+        return catalog;
+      })
+      .catch(() => emptyCatalog())
+      .finally(() => {
+        this.pending = null;
+      });
+    return this.pending;
+  }
+
+  private async fetchCatalog(): Promise<Catalog> {
     this.logger.info(
       `[OpenRouterPricing] Fetching catalog: GET ${OPENROUTER_MODELS_URL}`,
     );
@@ -164,36 +141,45 @@ export class OpenRouterPricingService {
       const raw = Array.isArray(data?.data) ? data.data : null;
       if (!raw) {
         this.logger.warn(
-          `[OpenRouterPricing] ${OPENROUTER_MODELS_URL} response missing "data" array. ` +
-            `Got keys: [${data ? Object.keys(data).join(', ') : 'null'}]. Pricing will be unavailable.`,
+          `[OpenRouterPricing] ${OPENROUTER_MODELS_URL} response missing "data" array.`,
         );
-        this.catalogCache = { value: [], fetchedAt: Date.now() };
-        return [];
+        return emptyCatalog();
       }
       const models: OpenRouterModel[] = [];
+      const pricingByKey = new Map<string, ModelPricing>();
       for (const m of raw) {
-        if (m && typeof m.id === 'string' && m.id.length > 0) {
-          models.push(m);
+        if (!m || typeof m.id !== 'string' || m.id.length === 0) continue;
+        models.push(m);
+        const pricing = parseModelPricing(m);
+        if (!pricing) continue;
+        pricingByKey.set(m.id, pricing);
+        const lower = m.id.toLowerCase();
+        if (!pricingByKey.has(lower)) pricingByKey.set(lower, pricing);
+        const tail = stripPrefix(m.id);
+        if (tail !== m.id) {
+          if (!pricingByKey.has(tail)) pricingByKey.set(tail, pricing);
+          const tailLower = tail.toLowerCase();
+          if (!pricingByKey.has(tailLower)) {
+            pricingByKey.set(tailLower, pricing);
+          }
         }
       }
-      this.catalogCache = { value: models, fetchedAt: Date.now() };
       this.logger.info(
-        `[OpenRouterPricing] Cached ${models.length} model entries.`,
+        `[OpenRouterPricing] Cached ${models.length} model entries, ${pricingByKey.size} pricing key variants.`,
       );
-      return models;
+      return { models, pricingByKey };
     } catch (error) {
       this.logger.warn(
         `[OpenRouterPricing] ${OPENROUTER_MODELS_URL} fetch failed — pricing will be unavailable. ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      this.catalogCache = { value: [], fetchedAt: Date.now() };
-      return [];
+      throw error;
     }
   }
 
-  private isFresh<T>(entry: CacheEntry<T>): boolean {
-    return Date.now() - entry.fetchedAt < CACHE_TTL_MS;
+  private stripPrefix(id: string): string {
+    return stripPrefix(id);
   }
 
   private async httpJson<T>(url: string): Promise<T> {
@@ -232,11 +218,18 @@ export class OpenRouterPricingService {
   }
 }
 
-/**
- * Parse an OpenRouter catalog entry into ModelPricing. Returns null when the
- * required prompt/completion prices are missing or unparseable — callers
- * should skip the entry rather than register a zero/fake price.
- */
+function emptyCatalog(): Catalog {
+  return { models: [], pricingByKey: new Map() };
+}
+
+function stripPrefix(id: string): string {
+  const slash = id.lastIndexOf('/');
+  if (slash >= 0 && slash < id.length - 1) {
+    return id.slice(slash + 1);
+  }
+  return id;
+}
+
 function parseModelPricing(m: OpenRouterModel): ModelPricing | null {
   const promptStr = m.pricing?.prompt;
   const completionStr = m.pricing?.completion;

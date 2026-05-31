@@ -9,8 +9,10 @@ rules:
   # with expressions.length>0). Either layer alone is sufficient; running
   # both makes regression-by-edit effectively impossible.
   - id: sql-injection-in-migration
-    pattern: |
-      export const sql = `...${...}...`
+    patterns:
+      - pattern-either:
+          - pattern: export const sql = `...${...}...`
+          - pattern: export const vecSql = `...${...}...`
     message: |
       SQL migrations must be static text. `${...}` interpolation in a
       migration template literal is a SQL injection sink — the runner

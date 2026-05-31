@@ -91,6 +91,16 @@ describe('TabManagerService — intent-named mutators', () => {
       service.setStatus(id, 'switching');
       expect(service.tabs().find((t) => t.id === id)?.status).toBe('switching');
     });
+
+    it('markTabAwaitingBackground flips status to awaiting-background on microtask', async () => {
+      const id = service.createTab('awaiting');
+      service.markStreaming(id);
+      service.markTabAwaitingBackground(id);
+      await Promise.resolve();
+      expect(service.tabs().find((t) => t.id === id)?.status).toBe(
+        'awaiting-background',
+      );
+    });
   });
 
   describe('session id attach', () => {
@@ -286,6 +296,74 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.messages).toEqual([]);
       expect(tab?.compactionCount).toBe(2);
       expect(tab?.preloadedStats?.totalCost).toBe(1);
+    });
+  });
+
+  describe('turn-end snapshot', () => {
+    it('setTurnEndedFields persists background tasks, session crons, and terminal reason', () => {
+      const id = service.createTab('turn-end');
+      service.setTurnEndedFields(id, {
+        pendingBackgroundTasks: [
+          {
+            id: 'bg-1',
+            type: 'subagent',
+            status: 'running',
+            description: 'still going',
+          },
+        ],
+        pendingSessionCrons: [
+          {
+            id: 'cron-1',
+            schedule: '*/5 * * * *',
+            recurring: true,
+            prompt: 'ping',
+          },
+        ],
+        lastTerminalReason: 'completed',
+      });
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.pendingBackgroundTasks).toHaveLength(1);
+      expect(tab?.pendingBackgroundTasks?.[0].id).toBe('bg-1');
+      expect(tab?.pendingSessionCrons).toHaveLength(1);
+      expect(tab?.pendingSessionCrons?.[0].id).toBe('cron-1');
+      expect(tab?.lastTerminalReason).toBe('completed');
+    });
+
+    it('setLastTerminalReason stamps the terminal reason only', () => {
+      const id = service.createTab('turn-failed');
+      service.setLastTerminalReason(id, 'aborted_streaming');
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.lastTerminalReason).toBe('aborted_streaming');
+      expect(tab?.pendingBackgroundTasks).toBeUndefined();
+      expect(tab?.pendingSessionCrons).toBeUndefined();
+    });
+
+    it('setLastTerminalReason accepts null without throwing', () => {
+      const id = service.createTab('turn-null');
+      service.setLastTerminalReason(id, null);
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.lastTerminalReason).toBeNull();
+    });
+
+    it('setPendingBackgroundTasks replaces the snapshot without touching other fields', () => {
+      const id = service.createTab('bg-snapshot');
+      service.setTurnEndedFields(id, {
+        pendingBackgroundTasks: [
+          { id: 'bg-1', type: 'subagent', status: 'running', description: 'a' },
+          { id: 'bg-2', type: 'subagent', status: 'running', description: 'b' },
+        ],
+        pendingSessionCrons: [],
+        lastTerminalReason: 'completed',
+      });
+
+      service.setPendingBackgroundTasks(id, [
+        { id: 'bg-2', type: 'subagent', status: 'running', description: 'b' },
+      ]);
+
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.pendingBackgroundTasks).toHaveLength(1);
+      expect(tab?.pendingBackgroundTasks?.[0].id).toBe('bg-2');
+      expect(tab?.lastTerminalReason).toBe('completed');
     });
   });
 

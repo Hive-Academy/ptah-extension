@@ -17,11 +17,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { SessionStatsAggregatorService } from './session-stats-aggregator.service';
-import {
-  ConversationRegistry,
-  TabManagerService,
-  TabSessionBinding,
-} from '@ptah-extension/chat-state';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
@@ -106,17 +102,6 @@ describe('SessionStatsAggregatorService', () => {
     const dispatchMock = {
       sendQueuedMessage: sendQueuedMock,
     } as unknown as MessageDispatchService;
-    // `isLateAfterCompaction` reads from
-    // ConversationRegistry / TabSessionBinding. Tests in this file create
-    // tabs with no conversation binding so the fallback (per-tab
-    // `lastCompactionAt`) drives the grace-window check; the registry is
-    // never consulted because `conversationFor` returns null.
-    const conversationRegistryMock = {
-      compactionStateFor: jest.fn(() => null),
-    } as unknown as ConversationRegistry;
-    const tabSessionBindingMock = {
-      conversationFor: jest.fn(() => null),
-    } as unknown as TabSessionBinding;
 
     TestBed.configureTestingModule({
       providers: [
@@ -126,8 +111,6 @@ describe('SessionStatsAggregatorService', () => {
         { provide: SessionLoaderService, useValue: sessionLoaderMock },
         { provide: CompactionLifecycleService, useValue: compactionMock },
         { provide: MessageDispatchService, useValue: dispatchMock },
-        { provide: ConversationRegistry, useValue: conversationRegistryMock },
-        { provide: TabSessionBinding, useValue: tabSessionBindingMock },
       ],
     });
     service = TestBed.inject(SessionStatsAggregatorService);
@@ -302,6 +285,74 @@ describe('SessionStatsAggregatorService', () => {
     expect(setPreloadedStatsMock).not.toHaveBeenCalled();
   });
 
+  describe('preloadedStats null-cost carry-over', () => {
+    function setupTab(prevCost: number | null): void {
+      tabs = [
+        makeTab({
+          preloadedStats: {
+            totalCost: prevCost,
+            tokens: {
+              input: 1000,
+              output: 500,
+              cacheRead: 100,
+              cacheCreation: 50,
+            },
+            messageCount: 5,
+          },
+        }),
+      ];
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+    }
+
+    it('keeps prevCost unchanged when this turn has null cost', () => {
+      setupTab(1.25);
+      service.handleSessionStats({
+        ...baseStats,
+        cost: null as unknown as number,
+      });
+      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+        string,
+        NonNullable<TabState['preloadedStats']>,
+      ];
+      expect(stats.totalCost).toBe(1.25);
+    });
+
+    it('uses turn cost as new total when prev was null', () => {
+      setupTab(null);
+      service.handleSessionStats({ ...baseStats, cost: 0.5 });
+      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+        string,
+        NonNullable<TabState['preloadedStats']>,
+      ];
+      expect(stats.totalCost).toBeCloseTo(0.5);
+    });
+
+    it('keeps null total when both prev and turn are null', () => {
+      setupTab(null);
+      service.handleSessionStats({
+        ...baseStats,
+        cost: null as unknown as number,
+      });
+      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+        string,
+        NonNullable<TabState['preloadedStats']>,
+      ];
+      expect(stats.totalCost).toBeNull();
+    });
+
+    it('sums numeric prev and numeric turn', () => {
+      setupTab(1.0);
+      service.handleSessionStats({ ...baseStats, cost: 0.25 });
+      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+        string,
+        NonNullable<TabState['preloadedStats']>,
+      ];
+      expect(stats.totalCost).toBeCloseTo(1.25);
+    });
+  });
+
   it('triggers auto-send via MessageDispatchService when queuedContent returned', () => {
     streamHandleStatsMock.mockReturnValue({
       tabId: 'tab-1',
@@ -316,15 +367,10 @@ describe('SessionStatsAggregatorService', () => {
     expect(loadSessionsMock).toHaveBeenCalled();
   });
 
-  // ------------------------------------------------------------------
-  // Late-event grace window + primary-model determinism.
-  // ------------------------------------------------------------------
-
-  describe('B3 — late SESSION_STATS dropped within grace window', () => {
-    it('drops the event without clearing compaction state or mutating preloadedStats when lastCompactionAt is fresh', () => {
+  describe('SESSION_STATS arriving INSIDE the deleted 2s grace window now finalizes', () => {
+    it('merges stats and finalizes via streamingHandler even when lastCompactionAt is fresh (would have been dropped pre-fix)', () => {
       tabs = [
         makeTab({
-          // Very recent compaction completion → inside the 2s grace window.
           lastCompactionAt: Date.now() - 100,
           preloadedStats: {
             totalCost: 1.0,
@@ -338,21 +384,18 @@ describe('SessionStatsAggregatorService', () => {
           },
         }),
       ];
-      // Re-bind the lookup mock against the new tabs array.
       findTabsBySessionIdMock.mockImplementation((sid: string) =>
         tabs.filter((t) => t.claudeSessionId === sid),
       );
 
       service.handleSessionStats(baseStats);
 
-      // Late event must NOT prematurely dismiss the banner …
-      expect(clearCompactionStateMock).not.toHaveBeenCalled();
-      // … and must NOT poison the just-reset preloadedStats.
-      expect(setPreloadedStatsMock).not.toHaveBeenCalled();
-      // The aggregator logs a warning to make the drop observable.
-      expect(warn).toHaveBeenCalledWith(
+      expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
+      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
+      expect(warn).not.toHaveBeenCalledWith(
         '[ChatStore] handleSessionStats: dropped late event after compaction',
-        expect.objectContaining({ sessionId: SESS_1 }),
+        expect.anything(),
       );
     });
   });
@@ -489,6 +532,73 @@ describe('SessionStatsAggregatorService', () => {
       // sessionModel ("claude-opus-4") is not in modelUsage, so the
       // cost-based heuristic wins (haiku has the highest costUSD).
       expect((liveStats as { model: string }).model).toBe('claude-haiku');
+    });
+  });
+
+  // Phase 2 Batch 4 — SESSION_STATS demotion. Stop / StopFailure (via
+  // TurnEndHandlerService) is now the primary turn-end pivot. The aggregator
+  // never mutated tab.status directly; this suite locks that invariant in
+  // and proves both post-Stop and pre-Stop SESSION_STATS still reach the
+  // streamingHandler safety-net / merge entry point.
+  //
+  // The status-flip vs no-flip behavior itself is enforced by the
+  // Stop-observed guard inside StreamingHandlerService.handleSessionStats
+  // (see streaming-handler.service.spec.ts → "Stop-observed guard"
+  // describe block).
+  describe('Phase 2 Batch 4 — SESSION_STATS demotion', () => {
+    it('SESSION_STATS arriving AFTER Stop merges stats and delegates to streamingHandler (no aggregator-side status mutation)', () => {
+      tabs = [
+        makeTab({
+          status: 'loaded',
+          lastTerminalReason: 'completed',
+          preloadedStats: {
+            totalCost: 1.0,
+            tokens: {
+              input: 1000,
+              output: 500,
+              cacheRead: 100,
+              cacheCreation: 50,
+            },
+            messageCount: 5,
+          },
+        } as Partial<TabState>),
+      ];
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+
+      service.handleSessionStats(baseStats);
+
+      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
+      expect(tabs[0].status).toBe('loaded');
+    });
+
+    it('SESSION_STATS arriving WITHOUT Stop still merges stats and delegates safety-net finalize via streamingHandler', () => {
+      tabs = [
+        makeTab({
+          status: 'streaming',
+          lastTerminalReason: undefined,
+          preloadedStats: {
+            totalCost: 1.0,
+            tokens: {
+              input: 1000,
+              output: 500,
+              cacheRead: 100,
+              cacheCreation: 50,
+            },
+            messageCount: 5,
+          },
+        } as Partial<TabState>),
+      ];
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+
+      service.handleSessionStats(baseStats);
+
+      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
     });
   });
 

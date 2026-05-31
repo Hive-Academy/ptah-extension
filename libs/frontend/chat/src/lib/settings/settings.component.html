@@ -95,7 +95,7 @@
       </div>
     </div>
 
-    <!-- Tab Bar (4 tabs: Providers, Ptah AI, Skills, Setup) -->
+    <!-- Tab Bar (4 tabs: Providers, Ptah AI, Plugins, Setup) -->
     <div class="tabs tabs-boxed bg-base-200/50 p-1 gap-1 flex-wrap">
       <button
         class="tab tab-sm flex-1 gap-1.5"
@@ -123,7 +123,7 @@
         } @else {
           <lucide-angular [img]="LockIcon" class="w-3 h-3" />
         }
-        <span class="text-xs">Skills</span>
+        <span class="text-xs">Plugins</span>
       </button>
       <button
         class="tab tab-sm flex-1 gap-1.5"
@@ -291,7 +291,7 @@
     }
 
     <!-- ============================================ -->
-    <!-- Tab 3: Ptah Skills (Plugins)                 -->
+    <!-- Tab 3: Plugins (Pro plugin configuration)    -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'ptah-skills') {
       @if (isPremium()) {
@@ -355,63 +355,6 @@
         </div>
       }
 
-      <!-- Section 2: Community Skills (skills.sh) - Available to ALL users -->
-      <div class="border border-secondary/30 rounded-md bg-secondary/5">
-        <div class="p-3">
-          <div class="flex items-center gap-1.5 mb-2">
-            <lucide-angular
-              [img]="DownloadIcon"
-              class="w-4 h-4 text-secondary"
-            />
-            <h2 class="text-xs font-medium uppercase tracking-wide">
-              Community Skills
-            </h2>
-            <span class="badge badge-secondary badge-xs ml-auto">Open</span>
-          </div>
-          <p class="text-xs text-base-content/70 mb-3">
-            Browse and install community skills from
-            <a
-              href="https://skills.sh"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="link link-hover link-secondary"
-              >skills.sh</a
-            >
-            — the open agent skills ecosystem.
-          </p>
-          <ptah-skill-sh-browser [refreshTrigger]="skillRefreshTrigger()" />
-        </div>
-      </div>
-
-      <!-- Section 3: MCP Server Directory - Available to ALL users -->
-      <div class="border border-secondary/30 rounded-md bg-secondary/5">
-        <div class="p-3">
-          <div class="flex items-center gap-1.5 mb-2">
-            <lucide-angular
-              [img]="DownloadIcon"
-              class="w-4 h-4 text-secondary"
-            />
-            <h2 class="text-xs font-medium uppercase tracking-wide">
-              MCP Servers
-            </h2>
-            <span class="badge badge-secondary badge-xs ml-auto">Open</span>
-          </div>
-          <p class="text-xs text-base-content/70 mb-3">
-            Browse and install MCP servers from the
-            <a
-              href="https://registry.modelcontextprotocol.io"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="link link-hover link-secondary"
-              >Official MCP Registry</a
-            >
-            to all your CLI agents at once.
-          </p>
-          <ptah-mcp-directory-browser
-            [refreshTrigger]="skillRefreshTrigger()"
-          />
-        </div>
-      </div>
     }
 
     <!-- ============================================ -->

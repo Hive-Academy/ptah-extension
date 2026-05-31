@@ -21,6 +21,16 @@ export interface SkillShEntry {
   installs: number;
   /** Whether this skill is currently installed locally */
   isInstalled: boolean;
+  /** Skills.sh canonical id (only set when fetched from API). */
+  id?: string;
+  /** Slug as exposed by the API. */
+  slug?: string;
+  /** Source type, e.g. "github" or "well-known" (API only). */
+  sourceType?: string;
+  /** Public marketing URL on skills.sh (API only). */
+  url?: string;
+  /** Direct install URL on skills.sh (API only, may be absent). */
+  installUrl?: string;
 }
 
 /** Supported agent targets for skills.sh installation */

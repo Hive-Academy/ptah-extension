@@ -29,7 +29,7 @@ Re-exports everything from `./lib/chat-types`. Notable exports:
 - `src/lib/chat-types.ts:55` — `StreamingState` interface. The flat event-based model that replaced the old `ExecutionNode` tree representation: events indexed by id (`Map<string, FlatStreamEventUnion>`), `messageEventIds[]` ordered list, `toolCallMap`, `textAccumulators`, `toolInputAccumulators`, `agentContentBlocksMap` (TASK_2025_102 — interleaved text/tool blocks from the agent file watcher), `eventsByMessage` (O(1) lookup), `pendingStats`.
 - `src/lib/chat-types.ts:111` — `createEmptyStreamingState()` — used by tab init and reset.
 - `src/lib/chat-types.ts:135` — `STREAMING_EVENT_CAP = 5000`. Long sessions can accumulate thousands of events; without a cap, signal-driven re-renders explode in cost.
-- `src/lib/chat-types.ts:157` — `setStreamingEventCapped`. FIFO-bounded write into `events`: updates existing ids in place; for new ids at the cap, evicts the oldest (Map insertion order). First eviction emits one `console.warn`; subsequent evictions are silent. **Does not cascade-clean dependent collections** (`eventsByMessage`, `toolCallMap`, `textAccumulators`) — they are bounded transitively and reset by finalize/compaction flows.
+- `src/lib/chat-types.ts:157` — `setStreamingEventCapped`. FIFO-bounded write into `events`: updates existing ids in place; for new ids at the cap, evicts the oldest (Map insertion order). First eviction emits one `console.warn`; subsequent evictions are silent. Cascade-cleans the evicted eventId from every dependent collection (`eventsByMessage`, `toolCallMap`, `textAccumulators`, `toolInputAccumulators`, `agentContentBlocksMap`, `agentSummaryAccumulators`); empty parent buckets are deleted. O(1) amortized.
 
 ## State Management Pattern
 
@@ -50,5 +50,5 @@ None — this lib is framework-agnostic TypeScript. No `@Injectable`, no signals
 1. **No Angular imports**. If you find yourself needing `@angular/core`, the symbol belongs in `chat-state` or higher.
 2. **No services or classes with behavior** beyond pure helpers.
 3. **All writes into `StreamingState.events` go through `setStreamingEventCapped`** — never call `state.events.set(...)` directly from consumer code. The cap exists for performance reasons.
-4. **Cascade-clean is not this lib's job**. `setStreamingEventCapped` only evicts from `events`; downstream maps reset during finalize/compaction.
+4. **Cascade-clean is handled by `setStreamingEventCapped`**. When extending `StreamingState` with a new collection keyed by `eventId`, update the cascade-clean block in `setStreamingEventCapped` to remove the evicted id from the new collection (and drop the parent key when the bucket empties).
 5. Keep the file flat. Adding sub-folders is allowed only when the file grows past ~500 lines.

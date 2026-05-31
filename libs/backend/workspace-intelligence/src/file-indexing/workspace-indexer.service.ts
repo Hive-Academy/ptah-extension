@@ -17,6 +17,7 @@ import { FileSystemService } from '../services/file-system.service';
 import { TokenCounterService } from '../services/token-counter.service';
 import { PatternMatcherService } from './pattern-matcher.service';
 import { IgnorePatternResolverService } from './ignore-pattern-resolver.service';
+import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileIndex, IndexedFile } from '../types/workspace.types';
 
@@ -309,31 +310,9 @@ export class WorkspaceIndexerService {
       ? `{${includePatterns.join(',')}}`
       : '**/*';
 
-    const defaultExcludes: string[] = [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/build/**',
-      '**/.git/**',
-      '**/out/**',
-      '**/target/**',
-      '**/.nx/**',
-      '**/.angular/**',
-      '**/.cache/**',
-      '**/.vite/**',
-      '**/.next/**',
-      '**/.turbo/**',
-      '**/.output/**',
-      '**/.vscode-test/**',
-      '**/coverage/**',
-      '**/tmp/**',
-      '**/*.min.js',
-      '**/*.min.css',
-      '**/*.map',
-    ];
-
     const files = await this.fsProvider.findFiles(
       pattern,
-      defaultExcludes,
+      [...DEFAULT_WORKSPACE_EXCLUDES],
       undefined,
       workspaceFolder,
     );

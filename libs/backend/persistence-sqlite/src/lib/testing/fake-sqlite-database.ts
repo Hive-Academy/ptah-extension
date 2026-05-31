@@ -36,6 +36,7 @@ export class FakeSqliteDatabase implements SqliteDatabase {
   /** Records every `wal_checkpoint(TRUNCATE)` call — asserted in tests. */
   readonly walCheckpointCalls: string[] = [];
   private migrationRows: MigrationRow[] = [];
+  private vecPendingVersions = new Set<number>();
   private isOpen = true;
   private inTxn = false;
   private loadExtensionBehavior: 'available' | 'unavailable' | 'throw' =
@@ -144,17 +145,28 @@ export class FakeSqliteDatabase implements SqliteDatabase {
       return;
     }
     const createMatch =
-      /^CREATE (?:VIRTUAL )?TABLE (?:IF NOT EXISTS )?([A-Za-z_][A-Za-z0-9_]*)/i.exec(
+      /^CREATE (?:VIRTUAL )?TABLE (IF NOT EXISTS )?([A-Za-z_][A-Za-z0-9_]*)/i.exec(
         normalised,
       );
     if (createMatch) {
-      this.tables.add(createMatch[1]);
+      const ifNotExists = createMatch[1] !== undefined;
+      const tableName = createMatch[2];
+      if (this.tables.has(tableName) && !ifNotExists) {
+        throw new Error(`table ${tableName} already exists`);
+      }
+      this.tables.add(tableName);
       return;
     }
     if (/^CREATE (UNIQUE )?INDEX/i.test(normalised)) {
       return;
     }
     if (/^CREATE TRIGGER/i.test(normalised)) {
+      return;
+    }
+    const dropTableMatch =
+      /^DROP TABLE (?:IF EXISTS )?([A-Za-z_][A-Za-z0-9_]*)/i.exec(normalised);
+    if (dropTableMatch) {
+      this.tables.delete(dropTableMatch[1]);
       return;
     }
     if (/^ALTER TABLE/i.test(normalised) || /^DROP /i.test(normalised)) {
@@ -256,6 +268,16 @@ export class FakeSqliteDatabase implements SqliteDatabase {
   selectMigrationRows(): MigrationRow[] {
     return [...this.migrationRows];
   }
+
+  addVecPending(version: number): void {
+    this.vecPendingVersions.add(Number(version));
+  }
+  deleteVecPending(version: number): void {
+    this.vecPendingVersions.delete(Number(version));
+  }
+  selectVecPendingVersions(): Array<{ version: number }> {
+    return [...this.vecPendingVersions].map((version) => ({ version }));
+  }
 }
 
 class FakeStatement implements SqliteStatement {
@@ -266,6 +288,18 @@ class FakeStatement implements SqliteStatement {
 
   run(...params: unknown[]): { changes: number; lastInsertRowid: number } {
     const upper = this.sql.toUpperCase();
+    if (
+      upper.startsWith('INSERT OR IGNORE INTO SCHEMA_MIGRATIONS_VEC_PENDING')
+    ) {
+      const [version] = params as [number];
+      this.db.addVecPending(Number(version));
+      return { changes: 1, lastInsertRowid: Number(version) };
+    }
+    if (upper.startsWith('DELETE FROM SCHEMA_MIGRATIONS_VEC_PENDING')) {
+      const [version] = params as [number];
+      this.db.deleteVecPending(Number(version));
+      return { changes: 1, lastInsertRowid: 0 };
+    }
     if (
       upper.startsWith('INSERT OR REPLACE INTO SCHEMA_MIGRATIONS') ||
       upper.startsWith('INSERT INTO SCHEMA_MIGRATIONS')
@@ -285,6 +319,9 @@ class FakeStatement implements SqliteStatement {
 
   all(..._params: unknown[]): unknown[] {
     const upper = this.sql.toUpperCase();
+    if (upper.startsWith('SELECT VERSION FROM SCHEMA_MIGRATIONS_VEC_PENDING')) {
+      return this.db.selectVecPendingVersions();
+    }
     if (upper.startsWith('SELECT VERSION FROM SCHEMA_MIGRATIONS')) {
       return this.db.selectMigrationRows().map((r) => ({ version: r.version }));
     }

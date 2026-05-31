@@ -27,6 +27,12 @@ export const MEMORY_TOKENS = {
   MEMORY_TRIGGER_SERVICE: Symbol.for('PtahMemoryTriggerService'),
   /** MemoryDiagnosticsService — read-only snapshot for the Diagnostics tab. */
   MEMORY_DIAGNOSTICS_SERVICE: Symbol.for('PtahMemoryDiagnosticsService'),
+  /** ObservationQueueStore — typed CRUD over the `observation_queue` capture table. */
+  OBSERVATION_QUEUE_STORE: Symbol.for('PtahObservationQueueStore'),
+  /** CorpusStore — typed CRUD over `corpora` + `corpus_memories` (migration 0017). */
+  CORPUS_STORE: Symbol.for('PtahCorpusStore'),
+  /** KnowledgeAgentService — orchestrates corpus build/prime/query/rebuild. */
+  KNOWLEDGE_AGENT_SERVICE: Symbol.for('PtahKnowledgeAgentService'),
 } as const;
 
 export type MemoryDIToken = keyof typeof MEMORY_TOKENS;

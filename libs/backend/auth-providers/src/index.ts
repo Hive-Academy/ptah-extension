@@ -71,9 +71,13 @@ export type { ICodexAuthService, CodexAuthFile } from './lib/providers/codex';
 export {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
+  OpenRouterPricingService,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
 } from './lib/providers/openrouter';
-export type { IOpenRouterAuthService } from './lib/providers/openrouter';
+export type {
+  IOpenRouterAuthService,
+  OpenRouterModel,
+} from './lib/providers/openrouter';
 export {
   LmStudioTranslationProxy,
   OllamaModelDiscoveryService,
