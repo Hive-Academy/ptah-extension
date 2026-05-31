@@ -314,6 +314,18 @@ export class OrchestraCanvasComponent implements OnDestroy {
       }
     });
     effect(() => {
+      const newPath = this.tabManager.activeWorkspacePath$();
+      if (!newPath) return;
+      const currentTabs = untracked(() => this.tabManager.tabs());
+      this.canvasStore.switchWorkspaceTiles(newPath, currentTabs);
+    });
+    effect(() => {
+      const removed = this.tabManager.removedWorkspace$();
+      if (!removed) return;
+      this.canvasStore.removeWorkspaceTileState(removed);
+      this.tabManager.clearRemovedWorkspace();
+    });
+    effect(() => {
       const tabs = this.tabManager.tabs();
       const tabIds = new Set<string>(tabs.map((t) => t.id));
       const tiles = untracked(() => this.canvasStore.tiles());

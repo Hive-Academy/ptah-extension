@@ -513,6 +513,17 @@ export class TabManagerService {
     return this.workspacePartition.activeWorkspacePath;
   }
 
+  /** Reactive read of the active workspace path. */
+  readonly activeWorkspacePath$ = this.workspacePartition.activeWorkspacePath$;
+
+  /** Reactive signal of the most recently removed workspace path. */
+  readonly removedWorkspace$ = this.workspacePartition.removedWorkspace$;
+
+  /** Ack the removedWorkspace$ signal after consumption. */
+  clearRemovedWorkspace(): void {
+    this.workspacePartition.clearRemovedWorkspace();
+  }
+
   /**
    * Cache a backend-provided encoded path for a workspace.
    * Called when workspace:switch RPC response includes encodedPath.
@@ -1184,10 +1195,7 @@ export class TabManagerService {
   // ----- Stats and model bookkeeping -----
 
   /** Set the live model stats summary for the tab. */
-  setLiveModelStats(
-    tabId: string,
-    stats: LiveModelStatsPayload | null,
-  ): void {
+  setLiveModelStats(tabId: string, stats: LiveModelStatsPayload | null): void {
     this.updateTabInternal(tabId, { liveModelStats: stats });
   }
 

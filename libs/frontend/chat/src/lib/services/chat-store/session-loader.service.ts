@@ -446,6 +446,17 @@ export class SessionLoaderService {
       return;
     }
 
+    const existingTab = this.tabManager.findTabBySessionId(sessionId);
+    if (existingTab?.hasLiveSession) {
+      const inActiveWorkspace = this.tabManager
+        .tabs()
+        .some((t) => t.id === existingTab.id);
+      if (inActiveWorkspace) {
+        this.tabManager.switchTab(existingTab.id);
+        return;
+      }
+    }
+
     this._inFlightSessions.add(sessionId);
     try {
       const workspacePath = this.vscodeService.config().workspaceRoot;
@@ -689,6 +700,5 @@ export class SessionLoaderService {
    * Create a new session
    * Delegates to SessionManager for session creation logic
    */
-  async createNewSession(): Promise<void> {
-  }
+  async createNewSession(): Promise<void> {}
 }
