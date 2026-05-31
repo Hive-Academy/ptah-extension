@@ -254,7 +254,7 @@ describe('migration 0017_memory_schema_v2 — schema shape (skipped without nati
   );
 
   maybe(
-    "delete-all shadow command + INSERT FROM SELECT rebuilds the index without 'rebuild' (per [[project_fts5_external_content_column_mismatch]])",
+    "plain DELETE + INSERT FROM SELECT rebuilds the index without the 'rebuild' shadow command (per [[project_fts5_external_content_column_mismatch]])",
     () => {
       const { db } = openWithMemoryBase();
       try {
@@ -273,7 +273,7 @@ describe('migration 0017_memory_schema_v2 — schema shape (skipped without nati
 
         expect(() =>
           db.exec(
-            `INSERT INTO memory_concepts_fts(memory_concepts_fts) VALUES('delete-all');
+            `DELETE FROM memory_concepts_fts;
              INSERT INTO memory_concepts_fts(memory_id, concept)
                SELECT memories.id, json_each.value FROM memories, json_each(memories.concepts_json);`,
           ),

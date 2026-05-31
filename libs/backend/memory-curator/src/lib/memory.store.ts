@@ -638,15 +638,17 @@ export class MemoryStore implements IMemoryLister {
   }
 
   /**
-   * Rebuild the `memory_concepts_fts` external-content index from the
-   * canonical `memories.concepts_json` column using the `'delete-all'`
-   * shadow command + INSERT FROM SELECT pattern. Never uses `('rebuild')`
-   * per `[[project_fts5_external_content_column_mismatch]]`.
+   * Rebuild the `memory_concepts_fts` index from the canonical
+   * `memories.concepts_json` column. The table is a regular (non-contentless)
+   * FTS5 so a plain `DELETE FROM` clears the inverted index — the
+   * `('delete-all')` shadow command only applies to contentless / external-
+   * content tables. `INSERT FROM SELECT` then repopulates from JSON. Never
+   * uses `('rebuild')` per `[[project_fts5_external_content_column_mismatch]]`.
    */
   rebuildConceptsIndex(): { rebuilt: boolean } {
     const db = this.connection.db;
     db.exec(
-      `INSERT INTO memory_concepts_fts(memory_concepts_fts) VALUES('delete-all');
+      `DELETE FROM memory_concepts_fts;
        INSERT INTO memory_concepts_fts(memory_id, concept)
          SELECT memories.id, json_each.value FROM memories, json_each(memories.concepts_json);`,
     );

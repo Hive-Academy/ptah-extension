@@ -1,15 +1,19 @@
 /**
  * 0017_memory_schema_v2 — claude-mem 5-field summary + type taxonomy +
- * concepts/files JSON storage + concepts FTS5 contentless index.
+ * concepts/files JSON storage + concepts FTS5 index.
  *
  * Additive over the `memories` table from 0002_memory. All new columns ship
  * with NOT NULL DEFAULT clauses (or nullable summary fields) so pre-existing
  * rows backfill at apply time without a separate UPDATE pass.
  *
- * Concepts FTS5 uses a contentless external-content shape with explicit
- * `memory_id UNINDEXED, concept` columns. ALL inserts/deletes are driven by
- * the application layer via `INSERT FROM SELECT` shadow commands — never the
- * `('rebuild')` command. See [[project_fts5_external_content_column_mismatch]].
+ * Concepts FTS5 stores `memory_id UNINDEXED` + `concept` (regular column).
+ * The table is NOT contentless: contentless FTS5 (`content=''`) discards
+ * every column value including UNINDEXED ones, so `SELECT memory_id …
+ * MATCH …` would return NULL. Storing the column lets the app retrieve
+ * memory_id directly from a MATCH query and lets the AFTER DELETE trigger
+ * use a plain `DELETE FROM … WHERE memory_id = old.id`. Bulk rebuilds still
+ * use the `('delete-all')` shadow command + `INSERT FROM SELECT` per
+ * [[project_fts5_external_content_column_mismatch]] — never `('rebuild')`.
  *
  * Rollback story: forward-only per persistence-sqlite/CLAUDE.md. Manual
  * recovery requires `ALTER TABLE memories DROP COLUMN` reverse-engineering
@@ -32,13 +36,10 @@ CREATE INDEX idx_memories_type ON memories(type);
 CREATE VIRTUAL TABLE memory_concepts_fts USING fts5(
   memory_id UNINDEXED,
   concept,
-  content='',
   tokenize='unicode61'
 );
 
 CREATE TRIGGER memories_concepts_ad AFTER DELETE ON memories BEGIN
-  INSERT INTO memory_concepts_fts(memory_concepts_fts, memory_id, concept)
-  SELECT 'delete', old.id, json_each.value
-  FROM json_each(old.concepts_json);
+  DELETE FROM memory_concepts_fts WHERE memory_id = old.id;
 END;
 `;

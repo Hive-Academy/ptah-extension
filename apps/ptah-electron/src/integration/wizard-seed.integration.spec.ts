@@ -120,13 +120,10 @@ CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_concepts_fts USING fts5(
   memory_id UNINDEXED,
   concept,
-  content='',
   tokenize='unicode61'
 );
 CREATE TRIGGER IF NOT EXISTS memories_concepts_ad AFTER DELETE ON memories BEGIN
-  INSERT INTO memory_concepts_fts(memory_concepts_fts, memory_id, concept)
-  SELECT 'delete', old.id, json_each.value
-  FROM json_each(old.concepts_json);
+  DELETE FROM memory_concepts_fts WHERE memory_id = old.id;
 END;
 
 CREATE INDEX IF NOT EXISTS idx_memories_session   ON memories(session_id);

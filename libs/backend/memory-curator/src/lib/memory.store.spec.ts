@@ -1002,7 +1002,7 @@ describe('MemoryStore A1 — 5-field summary + concepts FTS round-trip (native-g
 
         const hits = service.db
           .prepare(
-            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'rebuild-tag-one'`,
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"rebuild-tag-one"'`,
           )
           .all() as Array<{ memory_id: string }>;
         expect(hits.length).toBe(1);
@@ -1011,7 +1011,7 @@ describe('MemoryStore A1 — 5-field summary + concepts FTS round-trip (native-g
         expect(second.rebuilt).toBe(true);
         const hitsAfter = service.db
           .prepare(
-            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH 'rebuild-tag-two'`,
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"rebuild-tag-two"'`,
           )
           .all() as Array<{ memory_id: string }>;
         expect(hitsAfter.length).toBe(1);
