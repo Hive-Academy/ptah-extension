@@ -381,7 +381,9 @@ export class MemoryTriggerService {
       toolName: payload.toolName,
       toolInputJson: safeStringify(payload.toolInput),
       toolResponseText:
-        typeof payload.toolOutput === 'string' ? payload.toolOutput : null,
+        typeof payload.toolOutput === 'string'
+          ? payload.toolOutput
+          : safeStringify(payload.toolOutput),
     });
 
     if (payload.success) {
@@ -643,8 +645,29 @@ export class MemoryTriggerService {
         sqlite: this.sqlite,
         logger: this.logger,
         signal,
-        run: (sessionId, workspaceRoot, runSignal) =>
-          this.curator.curate({ sessionId, workspaceRoot, signal: runSignal }),
+        run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
+          let transcript = '';
+          try {
+            transcript = await this.transcriptReader.read(
+              scanSessionId,
+              scanWorkspaceRoot,
+            );
+          } catch (err: unknown) {
+            this.logger.warn(
+              '[memory-curator] boot-scan transcript read failed',
+              {
+                sessionId: scanSessionId,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
+          }
+          return this.curator.curate({
+            sessionId: scanSessionId,
+            workspaceRoot: scanWorkspaceRoot,
+            transcript,
+            signal: runSignal,
+          });
+        },
       });
       this.curator.pushEvent({
         kind: 'boot-scan',
@@ -791,11 +814,11 @@ export class MemoryTriggerService {
   }
 }
 
-const MAX_JSONL_BYTES = 20 * 1024;
-const TOOL_INPUT_PREVIEW = 400;
-const TOOL_RESPONSE_PREVIEW = 800;
-const ASSISTANT_PREVIEW = 800;
-const USER_PROMPT_PREVIEW = 400;
+const MAX_JSONL_BYTES = 32 * 1024;
+const TOOL_INPUT_PREVIEW = 1000;
+const TOOL_RESPONSE_PREVIEW = 2500;
+const ASSISTANT_PREVIEW = 2000;
+const USER_PROMPT_PREVIEW = 1000;
 
 function truncate(text: string | null | undefined, max: number): string {
   if (!text) return '';
