@@ -130,6 +130,25 @@ describe('TabWorkspacePartitionService', () => {
     });
   });
 
+  describe('reactive signals', () => {
+    it('activeWorkspacePath$ emits on switchWorkspace', () => {
+      expect(svc.activeWorkspacePath$()).toBeNull();
+      svc.switchWorkspace('/ws/a', [], null);
+      expect(svc.activeWorkspacePath$()).toBe('/ws/a');
+      svc.switchWorkspace('/ws/b', [], null);
+      expect(svc.activeWorkspacePath$()).toBe('/ws/b');
+    });
+
+    it('removedWorkspace$ emits the removed path then clears on ack', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      expect(svc.removedWorkspace$()).toBeNull();
+      svc.removeWorkspaceState('/ws/a');
+      expect(svc.removedWorkspace$()).toBe('/ws/a');
+      svc.clearRemovedWorkspace();
+      expect(svc.removedWorkspace$()).toBeNull();
+    });
+  });
+
   describe('storage key + encoded path helpers', () => {
     it('uses backend-provided encoded path when set', () => {
       svc.setBackendEncodedPath('/ws/a', 'BACKEND_KEY');

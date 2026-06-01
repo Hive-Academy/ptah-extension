@@ -1,5 +1,9 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { calculateSessionCostSummary, SessionId } from '@ptah-extension/shared';
+import {
+  calculateSessionCostSummary,
+  SessionId,
+  type SdkCompactionCompletePayload,
+} from '@ptah-extension/shared';
 import {
   ConversationRegistry,
   TabManagerService,
@@ -258,6 +262,54 @@ export class CompactionLifecycleService {
       }
     } else {
       this.clearCompactionState(TabId.from(result.tabId));
+    }
+  }
+
+  /**
+   * Handle the `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE` push notification
+   * (backend `PostCompact` SDK hook). Edge-triggered stamp into the
+   * `ConversationRegistry` so SESSION_STATS no longer needs a wall-clock
+   * grace window to detect the post-compaction tail. Fans out to every tab
+   * bound to the payload's session id and stamps each conversation once.
+   * No-tab-bound case warns and no-ops (does NOT throw) so a stale RPC
+   * delivery after tab close does not crash the webview.
+   */
+  handleCompactionCompleteNotification(
+    payload: SdkCompactionCompletePayload,
+  ): void {
+    const tabs = this.tabManager.findTabsBySessionId(
+      SessionId.from(payload.sessionId),
+    );
+    if (tabs.length === 0) {
+      console.warn(
+        '[ChatStore] handleCompactionCompleteNotification: no tab bound to sessionId',
+        { sessionId: payload.sessionId },
+      );
+      return;
+    }
+    const convIds = this.collectConversationIdsForTabs(tabs.map((t) => t.id));
+    if (convIds.length === 0) {
+      console.warn(
+        '[ChatStore] handleCompactionCompleteNotification: no conversation bound to tabs',
+        { sessionId: payload.sessionId },
+      );
+      return;
+    }
+    for (const convId of convIds) {
+      try {
+        this.conversationRegistry.markCompactionComplete(
+          convId,
+          payload.timestamp,
+        );
+      } catch (error: unknown) {
+        console.warn(
+          '[ChatStore] handleCompactionCompleteNotification: registry stamp failed',
+          {
+            convId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
     }
   }
 

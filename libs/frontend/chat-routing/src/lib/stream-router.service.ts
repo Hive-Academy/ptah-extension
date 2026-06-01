@@ -42,6 +42,7 @@ import {
   BackgroundAgentStore,
   BatchedUpdateService,
   EventDeduplicationService,
+  ExecutionTreeBuilderService,
   PermissionHandlerService,
   SessionManager,
   StreamingAccumulatorCore,
@@ -69,6 +70,7 @@ export class StreamRouter {
   private readonly deduplication = inject(EventDeduplicationService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
+  private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
   constructor() {
     this.migratePersistedTabs();
@@ -767,8 +769,15 @@ export class StreamRouter {
         const sid = evt.sessionId as ClaudeSessionId;
         this.streamingHandler.cleanupSessionDeduplication(sid);
         if (evt.kind === 'close') {
-          this.agentMonitorStore.clearSessionAgents(sid);
+          this.agentMonitorStore.forceClearSessionAgents(sid);
+          this.backgroundAgentStore.clearSession(sid);
+          this.treeBuilder.clearForSession(sid);
         }
+      }
+
+      if (evt.kind === 'close') {
+        this.treeBuilder.clearForTab(evt.tabId);
+        this.batchedUpdate.clearPendingUpdates(evt.tabId);
       }
 
       const tabId = TabId.safeParse(evt.tabId);

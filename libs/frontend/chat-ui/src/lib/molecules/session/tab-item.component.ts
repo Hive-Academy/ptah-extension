@@ -5,7 +5,13 @@ import {
   output,
   computed,
 } from '@angular/core';
-import { LucideAngularModule, X, Minimize2, Maximize2 } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  X,
+  Minimize2,
+  Maximize2,
+  Moon,
+} from 'lucide-angular';
 import { TabState } from '@ptah-extension/chat-types';
 
 /**
@@ -24,8 +30,13 @@ import { TabState } from '@ptah-extension/chat-types';
       [class.tab-item-inactive]="!isActive()"
       (click)="tabSelect.emit(tab().id)"
     >
-      <!-- Streaming indicator (visual only - DaisyUI spinner) -->
-      @if (isStreaming()) {
+      @if (isAwaitingBackground()) {
+        <lucide-angular
+          [img]="MoonIcon"
+          class="w-3 h-3 flex-shrink-0 text-base-content/60 animate-pulse-slow"
+          [attr.data-test]="'tab-item-awaiting-background-icon'"
+        />
+      } @else if (isStreaming()) {
         <span class="loading loading-spinner loading-xs text-primary"></span>
       }
 
@@ -73,9 +84,14 @@ export class TabItemComponent {
   readonly XIcon = X;
   readonly MinimizeIcon = Minimize2;
   readonly MaximizeIcon = Maximize2;
+  readonly MoonIcon = Moon;
 
   readonly isCompactMode = computed(
     () => (this.tab().viewMode ?? 'full') === 'compact',
+  );
+
+  readonly isAwaitingBackground = computed(
+    () => this.tab().status === 'awaiting-background',
   );
 
   protected onClose(event: Event): void {

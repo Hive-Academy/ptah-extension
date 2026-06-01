@@ -24,7 +24,7 @@ Wraps the official `@anthropic-ai/claude-agent-sdk` (plus `@openai/codex-sdk`) i
 
 ## Public API
 
-`SdkAgentAdapter`, `InternalQueryService`, `SdkMessageTransformer`, `SessionMetadataStore`, `SessionImporterService`, `SessionHistoryReaderService`, `JsonlReaderService`, `SdkPermissionHandler`, `ProviderModelsService`, `ClaudeCliDetector`, `SubagentMessageDispatcher`, `CompactionCallbackRegistry`, `CompactionHookHandler`. Errors: `SdkError`, `SessionNotActiveError`, `ModelNotAvailableError`. Registration: `registerSdkServices`, `SDK_TOKENS`. Constants: `ANTHROPIC_PROVIDERS`, `TIER_TO_MODEL_ID`, `DEFAULT_FALLBACK_MODEL_ID`.
+`SdkAgentAdapter`, `InternalQueryService`, `SdkMessageTransformer`, `SessionMetadataStore`, `SessionImporterService`, `SessionHistoryReaderService`, `JsonlReaderService`, `SdkPermissionHandler`, `ProviderModelsService`, `ClaudeCliDetector`, `SubagentMessageDispatcher`, `CompactionCallbackRegistry`, `CompactionHookHandler`. Errors: `SdkError`, `SessionNotActiveError`, `ModelNotAvailableError`. Registration: `registerSdkServices`, `SDK_TOKENS`. Constants: `ANTHROPIC_PROVIDERS` (provider entries carry `defaultTiers` for bare tier resolution).
 
 ## Internal Structure
 
@@ -47,7 +47,7 @@ Wraps the official `@anthropic-ai/claude-agent-sdk` (plus `@openai/codex-sdk`) i
 - `src/lib/internal-query/internal-query.service.ts` — entry point for headless SDK queries
 - `src/lib/di/tokens.ts` — `SDK_TOKENS`
 - `src/lib/di/register.ts` — `registerSdkServices` registration helper
-- `src/lib/helpers/index.ts` — TIER_TO_MODEL_ID, system prompt builder, dispatcher, compaction registry
+- `src/lib/helpers/index.ts` — system prompt builder, dispatcher, compaction registry
 
 ## Dependencies
 

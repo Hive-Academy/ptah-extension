@@ -31,10 +31,6 @@ import type {
 } from './types';
 import { JUDGE_DEFAULT_MODEL_ID } from './types';
 
-/**
- * Default model for the SKILL.md polish LLM call — single source of truth
- * from types.ts; mirrors `TIER_TO_MODEL_ID.haiku` in agent-sdk.
- */
 const POLISH_MODEL_ID = JUDGE_DEFAULT_MODEL_ID;
 
 /** Hard cap on a single polish LLM call — protects the synchronous promote RPC from a hung provider. */

@@ -31,6 +31,7 @@ export {
   GATEWAY_DISCORD_TOKEN_DEF,
   GATEWAY_SLACK_TOKEN_DEF,
 } from './schema/gateway-schema';
+export { SMITHERY_API_KEY_DEF } from './schema/smithery-schema';
 export { MEMORY_SETTING_DEFS } from './schema/memory-schema';
 export { SKILL_SYNTHESIS_SETTING_DEFS } from './schema/skill-synthesis-schema';
 export { CRON_SETTING_DEFS } from './schema/cron-schema';

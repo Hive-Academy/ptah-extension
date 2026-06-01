@@ -119,6 +119,15 @@ export class AutoAnimateDirective implements AfterViewInit, OnDestroy {
     this.controller = autoAnimate(this.el.nativeElement, opts);
   }
 
+  skipNext(): void {
+    const c = this.controller;
+    if (!c) return;
+    c.disable();
+    queueMicrotask(() => {
+      c.enable();
+    });
+  }
+
   private destroyController(): void {
     this.controller?.destroy?.();
     this.controller = undefined;

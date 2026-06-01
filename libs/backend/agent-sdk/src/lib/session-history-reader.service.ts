@@ -21,19 +21,23 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import type { FlatStreamEventUnion, AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import {
   calculateMessageCost,
   pickPrimaryModel,
+  isDirectAnthropic,
+  registerProviderPricing,
+  findModelPricing,
   type ModelUsageEntry,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from './errors';
 import type { IModelResolver } from './auth-env.port';
+import type { IPricingProvider } from './pricing.port';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -70,6 +74,10 @@ export class SessionHistoryReaderService {
     private readonly eventFactory: HistoryEventFactory,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.PRICING_PROVIDER)
+    private readonly pricingProvider: IPricingProvider,
   ) {}
 
   /**
@@ -99,7 +107,7 @@ export class SessionHistoryReaderService {
   ): Promise<{
     events: FlatStreamEventUnion[];
     stats: {
-      totalCost: number;
+      totalCost: number | null;
       tokens: {
         input: number;
         output: number;
@@ -115,7 +123,7 @@ export class SessionHistoryReaderService {
         model: string;
         inputTokens: number;
         outputTokens: number;
-        costUSD: number;
+        costUSD: number | null;
       }>;
     } | null;
   }> {
@@ -146,6 +154,9 @@ export class SessionHistoryReaderService {
         mainMessages,
         agentSessions,
       );
+      if (isDirectAnthropic(this.authEnv)) {
+        await this.hydrateMissingPricing(mainMessages, agentSessions);
+      }
       const stats = this.aggregateUsageStats(mainMessages, agentSessions);
 
       this.logger.info('[SessionHistoryReader] Loaded session with stats', {
@@ -357,6 +368,74 @@ export class SessionHistoryReaderService {
     );
   }
 
+  private async hydrateMissingPricing(
+    mainMessages: SessionHistoryMessage[],
+    agentSessions: AgentSessionData[],
+  ): Promise<void> {
+    const models = new Set<string>();
+    let detectedModel: string | undefined;
+    for (const msg of mainMessages) {
+      if (
+        !detectedModel &&
+        msg.type === 'system' &&
+        msg.subtype === 'init' &&
+        msg.model
+      ) {
+        detectedModel = String(msg.model);
+      }
+      if (msg.type === 'assistant' && msg.message?.model) {
+        models.add(String(msg.message.model));
+      }
+    }
+    for (const agent of agentSessions) {
+      for (const msg of agent.messages) {
+        if (msg.type === 'assistant' && msg.message?.model) {
+          models.add(String(msg.message.model));
+        }
+      }
+    }
+    if (detectedModel) {
+      models.add(detectedModel);
+    }
+    const missing: string[] = [];
+    for (const rawModel of models) {
+      const resolved = this.modelResolver.resolveForPricing(rawModel);
+      if (!findModelPricing(resolved)) {
+        missing.push(resolved);
+      }
+    }
+    if (missing.length === 0) {
+      return;
+    }
+    const results = await Promise.all(
+      missing.map(async (modelId) => {
+        try {
+          const pricing = await this.pricingProvider.getPricing(modelId);
+          return pricing ? ([modelId, pricing] as const) : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const hydrated: Record<string, ReturnType<typeof findModelPricing>> = {};
+    let hits = 0;
+    for (const entry of results) {
+      if (entry) {
+        hydrated[entry[0]] = entry[1];
+        hits++;
+      }
+    }
+    if (hits > 0) {
+      registerProviderPricing(
+        hydrated as Parameters<typeof registerProviderPricing>[0],
+      );
+      this.logger.info(
+        '[SessionHistoryReader] Hydrated historical pricing via IPricingProvider',
+        { hydratedCount: hits, missingCount: missing.length },
+      );
+    }
+  }
+
   /**
    * Aggregate usage stats from all session messages
    *
@@ -369,7 +448,7 @@ export class SessionHistoryReaderService {
     mainMessages: SessionHistoryMessage[],
     agentSessions: AgentSessionData[],
   ): {
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -383,7 +462,7 @@ export class SessionHistoryReaderService {
       model: string;
       inputTokens: number;
       outputTokens: number;
-      costUSD: number;
+      costUSD: number | null;
     }>;
   } | null {
     let totalInput = 0;
@@ -395,13 +474,14 @@ export class SessionHistoryReaderService {
     let detectedModel: string | undefined;
     const perModelUsage = new Map<
       string,
-      { input: number; output: number; cost: number }
+      {
+        input: number;
+        output: number;
+        cost: number;
+        hasCostContribution: boolean;
+      }
     >();
 
-    /**
-     * Accumulate token usage into the per-model map.
-     * Resolves model name for pricing before using as key.
-     */
     const accumulatePerModel = (
       rawModel: string,
       input: number,
@@ -415,19 +495,20 @@ export class SessionHistoryReaderService {
         input: 0,
         output: 0,
         cost: 0,
+        hasCostContribution: false,
       };
       existing.input += input;
       existing.output += output;
-      // null pricing → contribute 0 to the running total. Live OpenRouter
-      // hydration covers most models; only genuinely-unknown ones (or a
-      // pre-hydration cold start) hit this path.
-      existing.cost +=
-        calculateMessageCost(resolvedModel, {
-          input,
-          output,
-          cacheHit: cacheRead,
-          cacheCreation,
-        }) ?? 0;
+      const contribution = calculateMessageCost(resolvedModel, {
+        input,
+        output,
+        cacheHit: cacheRead,
+        cacheCreation,
+      });
+      if (contribution !== null) {
+        existing.cost += contribution;
+        existing.hasCostContribution = true;
+      }
       perModelUsage.set(modelKey, existing);
     };
     let statsStartIndex = 0;
@@ -512,32 +593,43 @@ export class SessionHistoryReaderService {
     if (!hasAnyUsage) {
       return null;
     }
-    const modelUsageList = Array.from(perModelUsage.entries())
+    const modelUsageList: Array<{
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      costUSD: number | null;
+    }> = Array.from(perModelUsage.entries())
       .map(([model, usage]) => ({
         model,
         inputTokens: usage.input,
         outputTokens: usage.output,
-        costUSD: usage.cost,
+        costUSD: usage.hasCostContribution ? usage.cost : null,
       }))
-      .sort((a, b) => b.costUSD - a.costUSD);
+      .sort((a, b) => (b.costUSD ?? -1) - (a.costUSD ?? -1));
     const primaryModelEntries: ModelUsageEntry[] = modelUsageList.map((m) => ({
       model: m.model,
-      totalCost: m.costUSD,
+      totalCost: m.costUSD ?? 0,
       tokens: { input: m.inputTokens, output: m.outputTokens },
     }));
     const primaryModel = pickPrimaryModel(primaryModelEntries) ?? detectedModel;
-    const totalCost =
-      modelUsageList.length > 0
-        ? modelUsageList.reduce((sum, entry) => sum + entry.costUSD, 0)
-        : (calculateMessageCost(
-            this.modelResolver.resolveForPricing(detectedModel || ''),
-            {
-              input: totalInput,
-              output: totalOutput,
-              cacheHit: totalCacheRead,
-              cacheCreation: totalCacheCreation,
-            },
-          ) ?? 0);
+    let totalCost: number | null;
+    if (modelUsageList.length > 0) {
+      const contributors = modelUsageList.filter((m) => m.costUSD !== null);
+      totalCost =
+        contributors.length > 0
+          ? contributors.reduce((sum, entry) => sum + (entry.costUSD ?? 0), 0)
+          : null;
+    } else {
+      totalCost = calculateMessageCost(
+        this.modelResolver.resolveForPricing(detectedModel || ''),
+        {
+          input: totalInput,
+          output: totalOutput,
+          cacheHit: totalCacheRead,
+          cacheCreation: totalCacheCreation,
+        },
+      );
+    }
 
     return {
       totalCost,

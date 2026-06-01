@@ -172,8 +172,8 @@ export function buildRouter(): Command {
         .conflicts('quiet'),
     )
     .option(
-      '--config <path>',
-      'override config file path (default ~/.ptah/settings.json)',
+      '--config <dir>',
+      'override Ptah data directory (default ~/.ptah). Settings, secrets, sqlite, and migrations all live under it. PTAH_CONFIG_PATH env var has the same effect; the flag wins.',
     )
     .option('--no-color', 'disable ANSI escape codes in --human mode')
     .option(

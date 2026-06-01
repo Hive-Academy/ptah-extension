@@ -394,29 +394,28 @@ describe('GitBranchesService (TASK_2026_111)', () => {
   // ==========================================================================
 
   describe('startListening()', () => {
-    it('triggers refreshBranches() when git:status-update message is dispatched', async () => {
-      // Spy on refreshBranches
+    it('triggers refreshForCauses() when git:status-update message is dispatched', async () => {
       const refreshSpy = jest
-        .spyOn(service, 'refreshBranches')
+        .spyOn(service, 'refreshForCauses')
         .mockResolvedValue();
 
       service.startListening();
 
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: { type: 'git:status-update', payload: {} },
+          data: { type: 'git:status-update', payload: { causes: ['head'] } },
         }),
       );
 
-      // Allow the microtask from the event handler to flush
       await Promise.resolve();
 
       expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(refreshSpy).toHaveBeenCalledWith(['head']);
     });
 
-    it('does NOT trigger refreshBranches() for unrelated message types', async () => {
+    it('does NOT trigger any refresh for unrelated message types', async () => {
       const refreshSpy = jest
-        .spyOn(service, 'refreshBranches')
+        .spyOn(service, 'refreshForCauses')
         .mockResolvedValue();
 
       service.startListening();
@@ -434,27 +433,26 @@ describe('GitBranchesService (TASK_2026_111)', () => {
 
     it('is idempotent: calling startListening() twice does not double-register', async () => {
       const refreshSpy = jest
-        .spyOn(service, 'refreshBranches')
+        .spyOn(service, 'refreshForCauses')
         .mockResolvedValue();
 
       service.startListening();
-      service.startListening(); // second call is no-op
+      service.startListening();
 
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: { type: 'git:status-update' },
+          data: { type: 'git:status-update', payload: { causes: ['head'] } },
         }),
       );
 
       await Promise.resolve();
 
-      // Should only fire once despite two startListening() calls
       expect(refreshSpy).toHaveBeenCalledTimes(1);
     });
 
     it('stopListening() removes the listener so subsequent messages are ignored', async () => {
       const refreshSpy = jest
-        .spyOn(service, 'refreshBranches')
+        .spyOn(service, 'refreshForCauses')
         .mockResolvedValue();
 
       service.startListening();
@@ -462,13 +460,89 @@ describe('GitBranchesService (TASK_2026_111)', () => {
 
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: { type: 'git:status-update' },
+          data: { type: 'git:status-update', payload: { causes: ['head'] } },
         }),
       );
 
       await Promise.resolve();
 
       expect(refreshSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // refreshForCauses — precision invalidation by cause kind
+  // ==========================================================================
+
+  describe('refreshForCauses()', () => {
+    function methodsCalled(): string[] {
+      return mockRpcCall.mock.calls.map(([, method]: [unknown, string]) => method);
+    }
+
+    it("workspace-only events do not fire ANY of the 3 RPCs", async () => {
+      await service.refreshForCauses(['workspace']);
+      expect(methodsCalled()).toEqual([]);
+    });
+
+    it("'index' alone does not fire branches/stash/lastCommit RPCs", async () => {
+      await service.refreshForCauses(['index']);
+      expect(methodsCalled()).toEqual([]);
+    });
+
+    it("'head' fires branches + lastCommit but NOT stash", async () => {
+      await service.refreshForCauses(['head']);
+      const methods = methodsCalled();
+      expect(methods).toContain('git:branches');
+      expect(methods).toContain('git:lastCommit');
+      expect(methods).not.toContain('git:stashList');
+    });
+
+    it("'refs-stash' fires only the stash RPC", async () => {
+      await service.refreshForCauses(['refs-stash']);
+      const methods = methodsCalled();
+      expect(methods).toContain('git:stashList');
+      expect(methods).not.toContain('git:branches');
+      expect(methods).not.toContain('git:lastCommit');
+    });
+
+    it("'refs' fires branches + stash but NOT lastCommit", async () => {
+      await service.refreshForCauses(['refs']);
+      const methods = methodsCalled();
+      expect(methods).toContain('git:branches');
+      expect(methods).toContain('git:stashList');
+      expect(methods).not.toContain('git:lastCommit');
+    });
+
+    it("'initial' fires all three RPCs (full refresh)", async () => {
+      await service.refreshForCauses(['initial']);
+      const methods = methodsCalled();
+      expect(methods).toEqual(
+        expect.arrayContaining(['git:branches', 'git:stashList', 'git:lastCommit']),
+      );
+    });
+
+    it('undefined causes is treated as initial (back-compat with older backends)', async () => {
+      await service.refreshForCauses(undefined);
+      const methods = methodsCalled();
+      expect(methods).toEqual(
+        expect.arrayContaining(['git:branches', 'git:stashList', 'git:lastCommit']),
+      );
+    });
+
+    it('empty causes array is treated as initial', async () => {
+      await service.refreshForCauses([]);
+      const methods = methodsCalled();
+      expect(methods).toEqual(
+        expect.arrayContaining(['git:branches', 'git:stashList', 'git:lastCommit']),
+      );
+    });
+
+    it('multiple causes union their RPCs without duplication', async () => {
+      await service.refreshForCauses(['head', 'refs-stash']);
+      const methods = methodsCalled();
+      expect(methods.filter((m) => m === 'git:branches')).toHaveLength(1);
+      expect(methods.filter((m) => m === 'git:stashList')).toHaveLength(1);
+      expect(methods.filter((m) => m === 'git:lastCommit')).toHaveLength(1);
     });
   });
 });

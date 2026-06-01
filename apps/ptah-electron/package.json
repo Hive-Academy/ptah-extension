@@ -1,6 +1,6 @@
 {
   "name": "ptah-desktop",
-  "version": "0.1.45",
+  "version": "0.1.47",
   "description": "Ptah - AI Coding Orchestra. Standalone desktop app.",
   "main": "main.mjs",
   "author": {
@@ -11,6 +11,7 @@
   "private": true,
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.150",
+    "@cursor/sdk": "^1.0.13",
     "@github/copilot-sdk": "0.1.32",
     "@openai/codex-sdk": "^0.133.0",
     "@slack/bolt": "4.4.0",

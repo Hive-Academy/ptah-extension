@@ -331,6 +331,106 @@ describe('MessageFinalizationService', () => {
     });
   });
 
+  describe('finalizeSessionHistory historical-replay safety net', () => {
+    it('preserves complete subagent nodes finalized via SubagentStop signal', () => {
+      const completedSubagent = makeNode({
+        id: 'sa1',
+        type: 'agent',
+        status: 'complete',
+        toolCallId: 'tc-sa1',
+      });
+      const root = makeNode({
+        id: 'root-msg',
+        type: 'text',
+        status: 'complete',
+        children: [completedSubagent],
+      });
+      treeBuilder.buildTree.mockReturnValue([root]);
+
+      const state = makeStreamingState({
+        messageEventIds: ['root-msg'],
+        events: new Map([
+          [
+            'evt-start',
+            {
+              eventType: 'message_start',
+              id: 'root-msg',
+              messageId: 'root-msg',
+              role: 'assistant',
+              timestamp: 1,
+            } as never,
+          ],
+        ]),
+      });
+
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          streamingState: state,
+        }),
+      ]);
+
+      service.finalizeSessionHistory('tab-1');
+
+      expect(tabManager.applyFinalizedHistory).toHaveBeenCalledTimes(1);
+      const [, msgs] = tabManager.applyFinalizedHistory.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      expect(msgs).toHaveLength(1);
+      const tree = msgs[0].streamingState as ExecutionNode;
+      expect(tree.children[0].status).toBe('complete');
+    });
+
+    it('marks orphaned streaming agent nodes as interrupted on JSONL history replay', () => {
+      const streamingSubagent = makeNode({
+        id: 'sa2',
+        type: 'agent',
+        status: 'streaming',
+        toolCallId: 'tc-sa2',
+      });
+      const root = makeNode({
+        id: 'root-msg-2',
+        type: 'text',
+        status: 'complete',
+        children: [streamingSubagent],
+      });
+      treeBuilder.buildTree.mockReturnValue([root]);
+
+      const state = makeStreamingState({
+        messageEventIds: ['root-msg-2'],
+        events: new Map([
+          [
+            'evt-start',
+            {
+              eventType: 'message_start',
+              id: 'root-msg-2',
+              messageId: 'root-msg-2',
+              role: 'assistant',
+              timestamp: 1,
+            } as never,
+          ],
+        ]),
+      });
+
+      tabsSignal.set([
+        makeTab({
+          id: 'tab-1',
+          streamingState: state,
+        }),
+      ]);
+
+      service.finalizeSessionHistory('tab-1');
+
+      const [, msgs] = tabManager.applyFinalizedHistory.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      const tree = msgs[0].streamingState as ExecutionNode;
+      expect(tree.children[0].status).toBe('interrupted');
+    });
+  });
+
   describe('markLastAgentAsInterrupted', () => {
     it('is a no-op when the tab is missing or has no messages', () => {
       service.markLastAgentAsInterrupted('nope');

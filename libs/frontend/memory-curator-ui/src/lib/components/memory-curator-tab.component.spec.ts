@@ -11,6 +11,7 @@ import { MemoryCuratorTabComponent } from './memory-curator-tab.component';
 function vscodeServiceStub(isElectron: boolean): Partial<VSCodeService> {
   return {
     config: signal({ isElectron }),
+    postMessage: jest.fn(),
   } as unknown as Partial<VSCodeService>;
 }
 
@@ -67,6 +68,16 @@ describe('MemoryCuratorTabComponent', () => {
       providers: [
         { provide: MemoryStateService, useValue: stateMock },
         { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        {
+          provide: MemoryRpcService,
+          useValue: {
+            listCorpora: jest.fn().mockResolvedValue({ corpora: [] }),
+            searchIndex: jest
+              .fn()
+              .mockResolvedValue({ rows: [], bm25Only: false }),
+            timeline: jest.fn().mockResolvedValue({ rows: [], anchorIndex: 0 }),
+          },
+        },
       ],
     }).compileComponents();
   });
@@ -107,6 +118,40 @@ describe('MemoryCuratorTabComponent', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('defaults to the list view and switches to timeline / corpus on tab click', () => {
+    const fixture = TestBed.createComponent(MemoryCuratorTabComponent);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(
+      root.querySelector('input[aria-label="Search memory entries"]'),
+    ).not.toBeNull();
+
+    const tabButtons = Array.from(root.querySelectorAll('button')).filter(
+      (b) => b.getAttribute('role') === 'tab',
+    );
+    const timelineTab = tabButtons.find(
+      (b) => (b.textContent ?? '').trim() === 'Timeline',
+    ) as HTMLButtonElement;
+    expect(timelineTab).toBeDefined();
+    timelineTab.click();
+    fixture.detectChanges();
+
+    expect(root.querySelector('ptah-timeline-view')).not.toBeNull();
+    expect(
+      root.querySelector('input[aria-label="Search memory entries"]'),
+    ).toBeNull();
+
+    const corpusTab = tabButtons.find(
+      (b) => (b.textContent ?? '').trim() === 'Corpus',
+    ) as HTMLButtonElement;
+    corpusTab.click();
+    fixture.detectChanges();
+
+    expect(root.querySelector('ptah-corpus-list')).not.toBeNull();
+    expect(root.querySelector('ptah-timeline-view')).toBeNull();
   });
 
   it('shows desktop-only placeholder when not on Electron and skips RPC init', async () => {

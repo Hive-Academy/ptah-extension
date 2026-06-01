@@ -83,6 +83,46 @@ function getPackageName(specifier) {
   return specifier.split('/')[0];
 }
 
+function validateNativeDeps() {
+  const platform = process.platform; // 'win32' | 'darwin' | 'linux'
+  const arch = process.arch; // 'x64' | 'arm64'
+  const vecPlatformName =
+    platform === 'win32'
+      ? `sqlite-vec-windows-${arch === 'x64' ? 'x64' : arch}`
+      : `sqlite-vec-${platform}-${arch}`;
+
+  let loadablePath;
+  try {
+    loadablePath = require('sqlite-vec').getLoadablePath();
+  } catch (err) {
+    console.error(`\n❌ sqlite-vec.getLoadablePath() failed: ${err.message}`);
+    console.error(`   Expected platform package: ${vecPlatformName}`);
+    console.error(`   Fix: \`npm install ${vecPlatformName}\` and re-run.\n`);
+    process.exit(1);
+  }
+  if (!fs.existsSync(loadablePath)) {
+    console.error(
+      `\n❌ sqlite-vec native binary missing on disk: ${loadablePath}`,
+    );
+    console.error(`   Expected platform package: ${vecPlatformName}`);
+    console.error(
+      `   electron-builder asarUnpack \`node_modules/sqlite-vec-*/**\` cannot unpack a file that does not exist;`,
+    );
+    console.error(
+      `   the packaged app would crash with "no such table: memories" on first run.\n`,
+    );
+    process.exit(1);
+  }
+  console.log(
+    `✅ sqlite-vec binary present (${platform}-${arch}): ${path.relative(ROOT, loadablePath)}`,
+  );
+}
+
+// Step 0: Native runtime preconditions. Must run before any pack/publish.
+// Catches the Sentry NODE-NESTJS-46/47 class of bug (missing platform binary
+// stays trapped inside app.asar → memory/skills tables never created).
+validateNativeDeps();
+
 // Step 1: Build if needed
 if (!fs.existsSync(DIST_MAIN)) {
   console.log('Building electron main process...');

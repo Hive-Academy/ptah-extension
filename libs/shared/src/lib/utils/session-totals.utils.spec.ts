@@ -32,7 +32,7 @@ describe('calculateSessionTotals', () => {
     expect(totals).toEqual({
       totalTokensInput: 0,
       totalTokensOutput: 0,
-      totalCost: 0,
+      totalCost: null,
       messagesWithCost: 0,
     });
   });

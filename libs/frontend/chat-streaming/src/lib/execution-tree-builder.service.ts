@@ -377,10 +377,28 @@ export class ExecutionTreeBuilderService {
   /** Clear cache for a specific key, or all entries (also resets unmatched log). */
   clearCache(cacheKey?: string): void {
     if (cacheKey) {
-      this.treeCache.delete(cacheKey);
+      const entry = this.treeCache.get(cacheKey);
+      if (entry) {
+        entry.nodesById.clear();
+        entry.fingerprintsById.clear();
+        this.treeCache.delete(cacheKey);
+      }
     } else {
+      for (const entry of this.treeCache.values()) {
+        entry.nodesById.clear();
+        entry.fingerprintsById.clear();
+      }
       this.treeCache.clear();
       this.loggedUnmatchedToolCallIds.clear();
     }
+  }
+
+  clearForTab(tabId: string): void {
+    this.clearCache(`tab-${tabId}`);
+  }
+
+  clearForSession(sessionId: string): void {
+    this.clearCache(`session-${sessionId}`);
+    this.clearCache(sessionId);
   }
 }

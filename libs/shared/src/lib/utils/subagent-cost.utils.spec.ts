@@ -261,7 +261,7 @@ describe('subagent-cost.utils', () => {
     it('returns zeros for an empty messages array', () => {
       const summary = calculateSessionCostSummary([]);
       expect(summary).toEqual({
-        totalCost: 0,
+        totalCost: null,
         totalTokens: {
           input: 0,
           output: 0,

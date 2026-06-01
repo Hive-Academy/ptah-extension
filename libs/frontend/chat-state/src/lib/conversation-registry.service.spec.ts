@@ -131,6 +131,36 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
       expect(() => registry.markCompactionStart(orphan)).toThrow();
       expect(() => registry.markCompactionComplete(orphan)).toThrow();
     });
+
+    it('stamps the explicit timestamp when provided (edge-triggered PostCompact path)', () => {
+      const id = registry.create(sid());
+      registry.markCompactionStart(id);
+
+      const explicit = 1_700_000_000_123;
+      registry.markCompactionComplete(id, explicit);
+
+      const state = registry.compactionStateFor(id);
+      expect(state?.inFlight).toBe(false);
+      expect(state?.lastCompactionAt).toBe(explicit);
+    });
+
+    it('falls back to Date.now() when no timestamp is provided (legacy path)', () => {
+      const id = registry.create(sid());
+      const before = Date.now();
+      registry.markCompactionComplete(id);
+      const after = Date.now();
+
+      const state = registry.compactionStateFor(id);
+      expect(state?.lastCompactionAt).not.toBeNull();
+      const stamp = state?.lastCompactionAt as number;
+      expect(stamp).toBeGreaterThanOrEqual(before);
+      expect(stamp).toBeLessThanOrEqual(after);
+    });
+
+    it('throws on unknown conversation id even when a timestamp is supplied', () => {
+      const orphan = ConversationId.create();
+      expect(() => registry.markCompactionComplete(orphan, 123)).toThrow();
+    });
   });
 
   // Compaction-on-conversation read API used by the chat view's

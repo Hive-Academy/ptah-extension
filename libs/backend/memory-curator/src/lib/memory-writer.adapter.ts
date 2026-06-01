@@ -52,9 +52,8 @@ export class MemoryWriterAdapter implements IMemoryWriter {
 
   async upsert(req: MemoryWriteRequest): Promise<MemoryWriteResult> {
     const newHash = sha256Hex(`${req.subject} ${req.content}`);
-    const candidates = this.store.list({ tier: req.tier, limit: 500 }).memories;
+    const candidates = this.store.findBySubjectAndTier(req.subject, req.tier);
     const matches = candidates.filter((m) => {
-      if (m.subject !== req.subject) return false;
       const parsed = parseSeedPrefix(m.content);
       return parsed?.fp === req.workspaceFingerprint;
     });

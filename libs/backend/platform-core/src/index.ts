@@ -47,6 +47,8 @@ export type {
 } from './interfaces/platform-abstractions.interface';
 export { PLATFORM_TOKENS } from './di';
 export { createEvent } from './utils/event-emitter';
+export { isUnsafeWorkspacePath } from './utils/workspace-path-guards';
+export type { WorkspacePathSafety } from './utils/workspace-path-guards';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
 export {
