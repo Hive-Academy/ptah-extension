@@ -9,12 +9,33 @@
  */
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { ITracer } from '@ptah-extension/platform-core';
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import type { MemoryStore } from './memory.store';
 import { MemorySearchService } from './memory-search.service';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 import type { ObservationQueueStore } from './observation-queue.store';
+
+interface RecordingTracer extends ITracer {
+  readonly spans: string[];
+}
+
+function makeRecordingTracer(): RecordingTracer {
+  const spans: string[] = [];
+  return {
+    spans,
+    startSpan: <T>(
+      name: string,
+      _attrs: Record<string, string | number | boolean>,
+      fn: () => T,
+    ): T => {
+      spans.push(name);
+      return fn();
+    },
+    addBreadcrumb: () => undefined,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1365,5 +1386,67 @@ describe('MemorySearchService.getObservations', () => {
     });
     expect(r.observationsBySession).toEqual({});
     expect(queue.peekForSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemorySearchService — tracing instrumentation', () => {
+  function makeTracedService(): {
+    service: MemorySearchService;
+    tracer: RecordingTracer;
+  } {
+    const tracer = makeRecordingTracer();
+    const service = new MemorySearchService(
+      makeLogger(),
+      makeConnection(),
+      makeEmbedder(),
+      makeStore(),
+      makeObservationQueue(),
+      tracer,
+    );
+    return { service, tracer };
+  }
+
+  it('search wraps in a memory.search span and returns the same result', async () => {
+    const { service, tracer } = makeTracedService();
+    const result = await service.search('hello world', 10);
+    expect(result).toEqual({ hits: [], bm25Only: true });
+    expect(tracer.spans).toContain('memory.search');
+    expect(tracer.spans).toContain('memory.searchRich');
+  });
+
+  it('searchRich wraps in a memory.searchRich span', async () => {
+    const { service, tracer } = makeTracedService();
+    const result = await service.searchRich('alpha beta', 5);
+    expect(result.bm25Only).toBe(true);
+    expect(tracer.spans).toContain('memory.searchRich');
+  });
+
+  it('searchIndex wraps in a memory.searchIndex span', async () => {
+    const { service, tracer } = makeTracedService();
+    const result = await service.searchIndex({ workspaceRoot: '/ws' });
+    expect(result.bm25Only).toBe(true);
+    expect(tracer.spans).toContain('memory.searchIndex');
+  });
+
+  it('memory.vecSearch span fires when vec extension is loaded', async () => {
+    const tracer = makeRecordingTracer();
+    const embedder = {
+      embed: jest.fn(async () => [new Float32Array(384)]),
+      dim: 384,
+    } as unknown as IEmbedder;
+    const connection = {
+      vecExtensionLoaded: true,
+      db: { prepare: jest.fn(() => ({ all: jest.fn(() => []) })) },
+    } as unknown as SqliteConnectionService;
+    const service = new MemorySearchService(
+      makeLogger(),
+      connection,
+      embedder,
+      makeStore(),
+      makeObservationQueue(),
+      tracer,
+    );
+    await service.searchRich('a longer query string here', 5);
+    expect(tracer.spans).toContain('memory.vecSearch');
   });
 });
