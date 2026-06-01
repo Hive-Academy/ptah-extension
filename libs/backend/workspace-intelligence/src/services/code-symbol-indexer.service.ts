@@ -217,6 +217,18 @@ export class CodeSymbolIndexer {
     }
 
     const durationMs = Date.now() - startMs;
+
+    if (
+      filteredPaths.length > 0 &&
+      totalSymbols === 0 &&
+      totalErrors === filteredPaths.length
+    ) {
+      throw new Error(
+        `Code symbol indexing failed: all ${totalErrors} files errored and 0 symbols were produced. ` +
+          `This usually means the tree-sitter WASM runtime or the symbol sink failed to initialize — check the logs for the underlying error.`,
+      );
+    }
+
     this.logger.info('[CodeSymbolIndexer] Workspace indexing complete', {
       filesScanned: filteredPaths.length,
       symbolsIndexed: totalSymbols,

@@ -204,4 +204,65 @@ describe('CodeSymbolIndexer', () => {
       expect(stats.errors).toBe(0);
     });
   });
+
+  describe('indexWorkspace — total failure surfaces an error', () => {
+    it('throws when every discovered file errors and 0 symbols are produced', async () => {
+      const files = fakeTsFiles(5);
+      const logger = makeLogger();
+      const fs = makeFs();
+      const sink = makeSymbolSink();
+      const indexer = makeIndexer(files);
+      fs.readFile.mockResolvedValue('const x = 1;');
+
+      // AST init dead (e.g. web-tree-sitter.wasm missing) — every parse errors.
+      const ast = {
+        analyzeSource: jest.fn().mockResolvedValue({
+          isErr: () => true,
+          error: new Error('web-tree-sitter.wasm not found'),
+        }),
+      } as unknown as jest.Mocked<AstAnalysisService>;
+
+      const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
+
+      await expect(service.indexWorkspace('/workspace')).rejects.toThrow(
+        /all 5 files errored/,
+      );
+      expect(sink.insertSymbols).not.toHaveBeenCalled();
+    });
+
+    it('does NOT throw when at least one file produces a symbol', async () => {
+      const files = fakeTsFiles(3);
+      const logger = makeLogger();
+      const fs = makeFs();
+      const sink = makeSymbolSink();
+      const indexer = makeIndexer(files);
+      fs.readFile.mockResolvedValue('function foo() {}');
+
+      // First file parses to a symbol; the rest error.
+      let call = 0;
+      const ast = {
+        analyzeSource: jest.fn().mockImplementation(async () => {
+          call++;
+          return call === 1
+            ? {
+                isErr: () => false,
+                value: {
+                  functions: [{ name: 'foo', startLine: 1, endLine: 1 }],
+                  classes: [],
+                },
+              }
+            : { isErr: () => true, error: new Error('parse failed') };
+        }),
+      } as unknown as jest.Mocked<AstAnalysisService>;
+
+      const service = new CodeSymbolIndexer(logger, ast, indexer, fs, sink);
+
+      const stats = await service.indexWorkspace('/workspace', {
+        batchSize: 1,
+      });
+      expect(stats.filesScanned).toBe(3);
+      expect(stats.symbolsIndexed).toBe(1);
+      expect(stats.errors).toBe(2);
+    });
+  });
 });
