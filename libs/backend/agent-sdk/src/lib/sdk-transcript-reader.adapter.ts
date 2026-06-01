@@ -14,7 +14,7 @@ export class SdkTranscriptReaderAdapter implements ITranscriptReader {
 
   async read(sessionId: string, workspacePath: string): Promise<string> {
     try {
-      const messages = await this.historyReader.readHistoryAsMessages(
+      const messages = await this.historyReader.readHistoryForCuration(
         sessionId,
         workspacePath,
       );

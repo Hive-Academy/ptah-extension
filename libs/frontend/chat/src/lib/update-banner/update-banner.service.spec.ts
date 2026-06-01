@@ -13,6 +13,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { UpdateBannerService } from './update-banner.service';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
 
@@ -33,7 +34,13 @@ describe('UpdateBannerService', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [UpdateBannerService],
+      providers: [
+        UpdateBannerService,
+        // isElectron=false → constructor hydration is a no-op (the update:*
+        // namespace is Electron-only), so these specs exercise the push path.
+        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+      ],
     });
     service = TestBed.inject(UpdateBannerService);
   });

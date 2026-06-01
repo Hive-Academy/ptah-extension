@@ -9,7 +9,8 @@
  */
 import { inject, injectable } from 'tsyringe';
 import { Worker } from 'node:worker_threads';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, NoopTracer, type Logger } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS, type ITracer } from '@ptah-extension/platform-core';
 import {
   PERSISTENCE_TOKENS,
   type IEmbedder,
@@ -74,21 +75,29 @@ export class EmbedderWorkerClient implements IEmbedder {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.EMBEDDER_WORKER_PATH)
     private readonly workerPath: string,
+    @inject(PLATFORM_TOKENS.TRACER)
+    private readonly tracer: ITracer = new NoopTracer(),
   ) {}
 
   async embed(texts: readonly string[]): Promise<Float32Array[]> {
     if (texts.length === 0) return [];
-    const worker = this.ensureWorker();
-    const id = this.nextId++;
-    const req: EmbedRequest = { id, type: 'embed', texts };
-    const reply = await this.send(worker, id, req);
-    if (reply.ok === false) {
-      throw new Error(`Embedder worker error: ${reply.error}`);
-    }
-    if (!('vectors' in reply)) {
-      throw new Error('Embedder worker returned unexpected response shape');
-    }
-    return reply.vectors.map((v) => Float32Array.from(v));
+    return this.tracer.startSpan(
+      'memory.embed',
+      { op: 'ai.embeddings', batchSize: texts.length, dims: DIM },
+      async () => {
+        const worker = this.ensureWorker();
+        const id = this.nextId++;
+        const req: EmbedRequest = { id, type: 'embed', texts };
+        const reply = await this.send(worker, id, req);
+        if (reply.ok === false) {
+          throw new Error(`Embedder worker error: ${reply.error}`);
+        }
+        if (!('vectors' in reply)) {
+          throw new Error('Embedder worker returned unexpected response shape');
+        }
+        return reply.vectors.map((v) => Float32Array.from(v));
+      },
+    );
   }
 
   /** Send a RERANK message to the worker. Returns ranked IDs with scores. */

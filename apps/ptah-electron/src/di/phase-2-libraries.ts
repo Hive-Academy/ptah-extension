@@ -77,7 +77,9 @@ export function registerPhase2Libraries(
     '[Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)',
   );
   try {
-    const dbPath = path.join(os.homedir(), '.ptah', 'state', 'ptah.sqlite');
+    const isDev = process.env['NODE_ENV'] === 'development';
+    const dbFileName = isDev ? 'ptah-dev.sqlite' : 'ptah.sqlite';
+    const dbPath = path.join(os.homedir(), '.ptah', 'state', dbFileName);
     container.register(PERSISTENCE_TOKENS.SQLITE_DB_PATH, {
       useValue: dbPath,
     });

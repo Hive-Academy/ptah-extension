@@ -32,6 +32,9 @@ export function createMockSentryService(
     captureException: jest.fn<void, [Error, unknown?]>(),
     captureMessage: jest.fn<void, [string, unknown?]>(),
     addBreadcrumb: jest.fn<void, [string, string, unknown?]>(),
+    startSpan: jest.fn((_name: string, _attrs: unknown, fn: () => unknown) =>
+      fn(),
+    ),
     flush: jest.fn<Promise<void>, [number?]>(async () => undefined),
     shutdown: jest.fn<Promise<void>, [number?]>(async () => undefined),
     isInitialized: jest.fn<boolean, []>(() => initialized),

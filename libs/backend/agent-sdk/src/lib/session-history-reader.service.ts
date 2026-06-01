@@ -198,6 +198,55 @@ export class SessionHistoryReaderService {
       timestamp: number;
     }[]
   > {
+    return this.readHistoryMessages(sessionId, workspacePath, (content) =>
+      this.eventFactory.extractTextContent(content),
+    );
+  }
+
+  /**
+   * Like {@link readHistoryAsMessages} but includes `tool_use`/`tool_result`
+   * blocks (via {@link HistoryEventFactory.extractContentForCuration}). Used by
+   * the memory curator's transcript reader so curation — including the
+   * boot-scan over historical sessions, whose only data source is this JSONL —
+   * captures tool inputs/outputs, not just assistant text. NOT for UI use: the
+   * UI history view must stay text-only via {@link readHistoryAsMessages}.
+   */
+  async readHistoryForCuration(
+    sessionId: string,
+    workspacePath: string,
+  ): Promise<
+    {
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: number;
+    }[]
+  > {
+    return this.readHistoryMessages(sessionId, workspacePath, (content) =>
+      this.eventFactory.extractContentForCuration(content),
+    );
+  }
+
+  /**
+   * Shared implementation for {@link readHistoryAsMessages} and
+   * {@link readHistoryForCuration}: read the session JSONL, drop everything
+   * before the last compaction boundary, and map each user/assistant message
+   * to `{ id, role, content, timestamp }` using the supplied content extractor.
+   * The extractor is the ONLY behavioural difference between the two public
+   * variants (text-only vs tool-aware).
+   */
+  private async readHistoryMessages(
+    sessionId: string,
+    workspacePath: string,
+    extractContent: (content: unknown) => string,
+  ): Promise<
+    {
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: number;
+    }[]
+  > {
     try {
       this.validateSessionId(sessionId);
 
@@ -236,9 +285,7 @@ export class SessionHistoryReaderService {
 
         const role = msg.message.role;
         if (role !== 'user' && role !== 'assistant') continue;
-        const content = this.eventFactory.extractTextContent(
-          msg.message.content,
-        );
+        const content = extractContent(msg.message.content);
         if (!content) continue;
         if (content.trimStart().startsWith('<task-notification>')) continue;
 

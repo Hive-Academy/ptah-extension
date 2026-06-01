@@ -405,8 +405,12 @@ import type {
 } from './rpc/rpc-persistence.types';
 
 import type {
+  UpdateGetStateParams,
+  UpdateGetStateResult,
   UpdateCheckNowParams,
   UpdateCheckNowResult,
+  UpdateDownloadNowParams,
+  UpdateDownloadNowResult,
   UpdateInstallNowParams,
   UpdateInstallNowResult,
 } from './rpc/rpc-update.types';
@@ -1469,9 +1473,17 @@ export interface RpcMethodRegistry {
     params: IndexingAcknowledgeDisclosureParams;
     result: IndexingAcknowledgeDisclosureResult;
   };
+  'update:get-state': {
+    params: UpdateGetStateParams;
+    result: UpdateGetStateResult;
+  };
   'update:check-now': {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
+  };
+  'update:download-now': {
+    params: UpdateDownloadNowParams;
+    result: UpdateDownloadNowResult;
   };
   'update:install-now': {
     params: UpdateInstallNowParams;
@@ -2145,7 +2157,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'indexing:dismissStale': true,
   'indexing:acknowledgeDisclosure': true,
 
+  'update:get-state': true,
   'update:check-now': true,
+  'update:download-now': true,
   'update:install-now': true,
 };
 

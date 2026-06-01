@@ -234,9 +234,13 @@
     },
     "package": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build", "copy-renderer"],
+      "dependsOn": ["build", "copy-renderer", "rebuild-native"],
       "options": {
-        "command": "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron"
+        "commands": [
+          "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron",
+          "node apps/ptah-electron/scripts/verify-packed-native.js"
+        ],
+        "parallel": false
       }
     },
     "typecheck": {

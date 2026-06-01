@@ -10,6 +10,7 @@ import {
   untracked,
   Injector,
   DestroyRef,
+  ElementRef,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -20,11 +21,6 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-angular';
-import {
-  ScrollingModule,
-  CdkVirtualScrollViewport,
-} from '@angular/cdk/scrolling';
-import { ScrollingModule as ExperimentalScrollingModule } from '@angular/cdk-experimental/scrolling';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
@@ -136,8 +132,6 @@ function filterCompactionNoise(
     CompactionNotificationComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
-    ScrollingModule,
-    ExperimentalScrollingModule,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -309,70 +303,67 @@ export class ChatViewComponent {
   }
 
   /**
-   * MutationObserver for auto-scroll behavior.
-   * Watches DOM mutations to trigger scroll after recursive ExecutionNode tree completes.
+   * ResizeObserver on the content wrapper. Fires whenever the content's height
+   * changes — streaming text growth, agent sub-output, markdown image load, or
+   * the streaming→finalized swap — which is exactly when a pinned transcript
+   * must re-stick to the bottom. Fires on real size change only, so it can't
+   * storm.
    */
-  private observer: MutationObserver | null = null;
-  private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private userMessageScrollTimeoutId: ReturnType<typeof setTimeout> | null =
-    null;
-  private readonly SCROLL_DEBOUNCE_MS = 50;
+  private resizeObserver: ResizeObserver | null = null;
+  private scrollRafId: number | null = null;
+  private lastContentHeight = 0;
+  /** Distance from bottom (px) within which the user is considered "pinned". */
+  private readonly NEAR_BOTTOM_PX = 120;
 
   /**
-   * Signal-based viewChild (Angular 20+ pattern)
-   * Replaces @ViewChild decorator for better reactivity
+   * The plain scroll container (`#messageContainer`). Off-screen message
+   * bubbles are skipped by the browser via `content-visibility: auto`
+   * (see chat-view.component.css), so this gives virtual-scroll-class
+   * performance without the experimental autosize estimator — scroll
+   * positions are the element's real `scrollTop`/`scrollHeight`.
    */
-  private readonly virtualViewport = viewChild(CdkVirtualScrollViewport);
-
-  private getScrollContainerEl(): HTMLElement | null {
-    const vp = this.virtualViewport();
-    return vp ? (vp.elementRef.nativeElement as HTMLElement) : null;
-  }
+  private readonly scrollContainer =
+    viewChild<ElementRef<HTMLElement>>('messageContainer');
+  /** Inner content wrapper observed for height changes (streaming growth). */
+  private readonly contentWrapper =
+    viewChild<ElementRef<HTMLElement>>('messageContent');
 
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
   private readonly chatInputRef = viewChild(ChatInputComponent);
 
   /**
-   * Auto-scroll state as signal for reactive tracking.
-   * Disabled when user scrolls up, re-enabled when user scrolls to bottom.
+   * Whether the transcript is pinned to the bottom (auto-follows new content).
+   * Set false when the user scrolls up past NEAR_BOTTOM_PX, true when they
+   * scroll back down or send a new message.
    */
-  private readonly userScrolledUp = signal(false);
+  private pinnedToBottom = true;
 
   /** Track message count to detect new user messages */
   private lastMessageCount = 0;
 
   /**
-   * Tracks previous streaming state to detect the streamingâ†’idle transition.
-   * When streaming ends (agent finishes), we force scroll-to-bottom regardless
-   * of userScrolledUp â€” the dramatic DOM change during finalization (streaming
-   * DOM replaced with finalized DOM) can trigger layout-driven scroll events
-   * that falsely set userScrolledUp=true.
+   * Tracks previous streaming state to detect the streaming→idle transition,
+   * which drives `isFinalizingTransition` (animation suppression) and a
+   * stick-to-bottom when the user is pinned.
    */
   private wasStreaming = false;
 
   /**
-   * Flag to suppress onScroll during programmatic scrollToBottom().
-   * Smooth scroll animations generate intermediate scroll events at positions
-   * that aren't near the bottom, which falsely set userScrolledUp=true.
-   * This guard prevents that race condition.
+   * Suppresses onScroll bookkeeping while WE drive the scroll position. The
+   * programmatic scroll emits scroll events that must not flip `pinnedToBottom`.
    */
-  private isProgrammaticScrolling = false;
+  private isAdjusting = false;
 
   private readonly scrollPositionCache = new Map<string, number>();
   private previousTabId: string | null = null;
-  private isRestoringScroll = false;
 
   /**
-   * Guard active during the streaming→finalized DOM transition.
-   * Suppresses onScroll events and forces scheduleScroll to scroll regardless
-   * of userScrolledUp. Prevents layout-driven scroll events from blocking
-   * auto-scroll during the dramatic DOM swap (streaming elements destroyed,
-   * finalized elements created).
+   * Active during the streaming→finalized DOM transition. Suppresses onScroll
+   * bookkeeping so the swap can't flip `pinnedToBottom`.
    *
-   * Promoted to a signal so it can flow reactively into
-   * <ptah-message-bubble> and onward to ExecutionNodeComponent +
-   * InlineAgentBubbleComponent — those use it to suppress fade keyframes
-   * during the finalize burst.
+   * A signal so it flows reactively into <ptah-message-bubble> and onward to
+   * ExecutionNodeComponent + InlineAgentBubbleComponent — those use it to
+   * suppress fade keyframes during the finalize burst.
    */
   protected readonly isFinalizingTransition = signal(false);
   private finalizingTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -746,68 +737,57 @@ export class ChatViewComponent {
         this._userExplicitlyClosed = false;
       }
     });
+    // Unified content-follow controller. Reacts to BOTH tab/session switches
+    // (resolvedTabId) and content changes (allMessages — which transitively
+    // tracks streaming-tree growth). One effect, one source of truth.
     effect(() => {
-      const messages = this.resolvedMessages();
+      const tabId = this.resolvedTabId();
+      const messages = this.allMessages();
       const count = messages.length;
-      if (count > this.lastMessageCount) {
-        const lastMsg = messages[count - 1];
-        if (lastMsg?.role === 'user') {
-          this.userScrolledUp.set(false);
-          this.userMessageScrollTimeoutId = setTimeout(() => {
-            this.scrollToBottom();
-            this.userMessageScrollTimeoutId = null;
-          }, 0);
+      untracked(() => {
+        if (tabId !== this.previousTabId) {
+          this.previousTabId = tabId ?? null;
+          this.lastMessageCount = count;
+          this.restoreScrollForTab(tabId);
+          return;
         }
-      }
-      this.lastMessageCount = count;
-    });
-    effect(() => {
-      const currentTabId = this.resolvedTabId();
-      if (currentTabId === this.previousTabId) return;
-
-      this.previousTabId = currentTabId ?? null;
-
-      if (currentTabId && this.scrollPositionCache.has(currentTabId)) {
-        const savedPosition = this.scrollPositionCache.get(currentTabId)!;
-        this.isRestoringScroll = true;
-        setTimeout(() => {
-          const viewport = this.virtualViewport();
-          if (viewport) {
-            viewport.scrollTo({ top: savedPosition, behavior: 'instant' });
-          }
-          setTimeout(() => {
-            this.isRestoringScroll = false;
-          }, this.SCROLL_DEBOUNCE_MS + 10);
-        }, 0);
-      }
+        const last = messages[count - 1];
+        const isNewUserMessage =
+          count > this.lastMessageCount && last?.role === 'user';
+        this.lastMessageCount = count;
+        if (isNewUserMessage) {
+          this.pinnedToBottom = true;
+        }
+        if (this.pinnedToBottom) {
+          this.scheduleStickToBottom();
+        }
+      });
     });
     effect(() => {
       const isStreaming = this.resolvedIsStreaming();
-      if (this.wasStreaming && !isStreaming) {
-        untracked(() => {
+      untracked(() => {
+        if (this.wasStreaming && !isStreaming) {
           this.isFinalizingTransition.set(true);
-          this.userScrolledUp.set(false);
+          if (this.pinnedToBottom) {
+            this.scheduleStickToBottom();
+          }
           if (this.finalizingTimeoutId) {
             clearTimeout(this.finalizingTimeoutId);
           }
-          afterNextRender(
-            () => {
-              this.scrollToBottom('instant');
-            },
-            { injector: this.injector },
-          );
           this.finalizingTimeoutId = setTimeout(() => {
             this.isFinalizingTransition.set(false);
             this.finalizingTimeoutId = null;
-            this.scrollToBottom('instant');
+            if (this.pinnedToBottom) {
+              this.scheduleStickToBottom();
+            }
           }, 300);
-        });
-      }
-      this.wasStreaming = isStreaming;
+        }
+        this.wasStreaming = isStreaming;
+      });
     });
     afterNextRender(
       () => {
-        this.setupMutationObserver();
+        this.setupResizeObserver();
       },
       { injector: this.injector },
     );
@@ -817,34 +797,23 @@ export class ChatViewComponent {
   }
 
   /**
-   * Handle scroll events on message container.
-   * Detects if user has scrolled up to disable auto-scroll.
-   * Ignores scroll events fired during programmatic scrollToBottom() to prevent
-   * smooth scroll animation intermediates from falsely setting userScrolledUp.
+   * Handle viewport scroll events. Updates `pinnedToBottom` from the user's
+   * position and caches the offset per tab. Ignored while WE drive the scroll
+   * (isAdjusting) or during the finalize transition, so neither can falsely
+   * unpin.
    */
-  onScroll(event: Event): void {
-    if (this.isProgrammaticScrolling || this.isFinalizingTransition()) return;
+  onScroll(_event: Event): void {
+    if (this.isAdjusting || this.isFinalizingTransition()) return;
 
-    const viewport = this.virtualViewport();
-    let scrollTop: number;
-    let distanceFromBottom: number;
-    if (viewport) {
-      scrollTop = viewport.measureScrollOffset('top');
-      distanceFromBottom = viewport.measureScrollOffset('bottom');
-    } else {
-      const container = event.target as HTMLElement;
-      if (!container) return;
-      scrollTop = container.scrollTop;
-      distanceFromBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight;
-    }
+    const el = this.scrollContainer()?.nativeElement;
+    if (!el) return;
 
-    const isNearBottom = distanceFromBottom < 100;
-    this.userScrolledUp.set(!isNearBottom);
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    this.pinnedToBottom = distanceFromBottom < this.NEAR_BOTTOM_PX;
 
     const tabId = this.resolvedTabId();
     if (tabId) {
-      this.scrollPositionCache.set(tabId, scrollTop);
+      this.scrollPositionCache.set(tabId, el.scrollTop);
     }
   }
 
@@ -1225,73 +1194,91 @@ export class ChatViewComponent {
     }
   }
 
-  private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {
-    const viewport = this.virtualViewport();
-    if (viewport) {
-      this.isProgrammaticScrolling = true;
-      viewport.scrollTo({ bottom: 0, behavior });
-      if (behavior === 'instant') {
-        requestAnimationFrame(() => {
-          this.isProgrammaticScrolling = false;
-        });
-      } else {
-        setTimeout(() => {
-          this.isProgrammaticScrolling = false;
-        }, 400);
-      }
-    }
-  }
-
-  private setupMutationObserver(): void {
-    const container = this.getScrollContainerEl();
-    if (!container || this.observer) return;
-
-    this.observer = new MutationObserver(() => {
-      this.scheduleScroll();
-    });
-    this.observer.observe(container, {
-      childList: true,
-      subtree: true,
-    });
-  }
-
   /**
-   * Schedule a scroll to bottom with debouncing.
-   * Debouncing coalesces rapid DOM mutations during streaming into single scroll.
+   * Stick the container to the bottom on the next frame. rAF-coalesced so a
+   * burst of streaming chunks collapses to a single adjustment per frame.
+   *
+   * Uses the element's real `scrollHeight` — there is no estimator to go
+   * stale, so the streamed content is always reachable without a manual
+   * scroll, and the position can't oscillate as it did with the autosize
+   * strategy.
    */
-  private scheduleScroll(): void {
-    if (this.scrollTimeoutId) {
-      clearTimeout(this.scrollTimeoutId);
+  private scheduleStickToBottom(): void {
+    if (this.scrollRafId !== null) {
+      cancelAnimationFrame(this.scrollRafId);
     }
-
-    this.scrollTimeoutId = setTimeout(() => {
-      if (this.isFinalizingTransition()) {
-        this.scrollTimeoutId = null;
-        return;
-      }
-      if (!this.userScrolledUp() && !this.isRestoringScroll) {
-        const behavior = this.resolvedIsStreaming() ? 'smooth' : 'instant';
-        this.scrollToBottom(behavior);
-      }
-      this.scrollTimeoutId = null;
-    }, this.SCROLL_DEBOUNCE_MS);
+    this.scrollRafId = requestAnimationFrame(() => {
+      this.scrollRafId = null;
+      const el = this.scrollContainer()?.nativeElement;
+      if (!el) return;
+      this.isAdjusting = true;
+      el.scrollTop = el.scrollHeight;
+      requestAnimationFrame(() => {
+        this.isAdjusting = false;
+      });
+    });
   }
 
   /**
-   * Cleanup observer and timeout on component destruction.
+   * On tab/session switch, restore the saved scroll offset (don't auto-follow),
+   * or pin to the bottom for a freshly-opened tab.
+   */
+  private restoreScrollForTab(tabId: string | null): void {
+    const saved =
+      tabId !== null ? this.scrollPositionCache.get(tabId) : undefined;
+    if (this.scrollRafId !== null) {
+      cancelAnimationFrame(this.scrollRafId);
+    }
+    this.scrollRafId = requestAnimationFrame(() => {
+      this.scrollRafId = null;
+      const el = this.scrollContainer()?.nativeElement;
+      if (!el) return;
+      this.isAdjusting = true;
+      if (saved !== undefined) {
+        el.scrollTop = saved;
+        this.pinnedToBottom = false;
+      } else {
+        el.scrollTop = el.scrollHeight;
+        this.pinnedToBottom = true;
+      }
+      requestAnimationFrame(() => {
+        this.isAdjusting = false;
+      });
+    });
+  }
+
+  /**
+   * Observe the content wrapper's height. Fires on real size changes only
+   * (streaming growth, agent output, image load, finalize swap), so a pinned
+   * transcript follows the stream without any per-frame re-measure loop.
+   */
+  private setupResizeObserver(): void {
+    const wrapper = this.contentWrapper()?.nativeElement;
+    if (!wrapper || this.resizeObserver) return;
+
+    this.resizeObserver = new ResizeObserver((entries) => {
+      if (this.isAdjusting) return;
+      const height = entries[0]?.contentRect.height ?? 0;
+      if (Math.abs(height - this.lastContentHeight) < 1) return;
+      this.lastContentHeight = height;
+      if (this.pinnedToBottom) {
+        this.scheduleStickToBottom();
+      }
+    });
+    this.resizeObserver.observe(wrapper);
+  }
+
+  /**
+   * Cleanup observer, animation frame, and timeout on component destruction.
    */
   private cleanup(): void {
-    if (this.observer) {
-      this.observer.disconnect();
-      this.observer = null;
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
     }
-    if (this.scrollTimeoutId) {
-      clearTimeout(this.scrollTimeoutId);
-      this.scrollTimeoutId = null;
-    }
-    if (this.userMessageScrollTimeoutId) {
-      clearTimeout(this.userMessageScrollTimeoutId);
-      this.userMessageScrollTimeoutId = null;
+    if (this.scrollRafId !== null) {
+      cancelAnimationFrame(this.scrollRafId);
+      this.scrollRafId = null;
     }
     if (this.finalizingTimeoutId) {
       clearTimeout(this.finalizingTimeoutId);
