@@ -38,9 +38,9 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 
 - `nx build ptah-electron` — chains `build-main` + `build-preload` + `build-embedder-worker` + `ptah-extension-webview:build`, then copies WASM.
 - `nx build-embedder-worker ptah-electron` — bundles `libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts` separately to `embedder-worker.mjs`.
-- `nx serve ptah-electron` — runs `rebuild-native.js` first (rebuilds `node-pty` etc. for current Electron ABI), then dev builds, copies renderer, launches via `scripts/launch.js`.
+- `nx serve ptah-electron` — runs `rebuild-native.js` first (compiles `better-sqlite3` from source for the current Electron ABI via `@electron/rebuild`), then dev builds, copies renderer, launches via `scripts/launch.js`.
 - `nx serve:watch ptah-electron` — parallel watch on main/preload/embedder/webview.
-- `nx package ptah-electron` — `electron-builder --config electron-builder.yml --project dist/apps/ptah-electron`.
+- `nx package ptah-electron` — depends on `rebuild-native`; runs `electron-builder` then `verify-packed-native.js` (asserts the packed `better-sqlite3` carries the Electron ABI).
 - `nx validate-deps ptah-electron` — runs after `build-main`; verifies externals declared in the generated `package.json`.
 
 ## Guidelines
@@ -52,7 +52,7 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 
 ## Deployment Notes
 
-- Native modules must be rebuilt for the Electron ABI: run `nx rebuild-native ptah-electron` after Electron upgrades.
+- `better-sqlite3` must be compiled from source for the Electron ABI (no prebuilt exists for Electron 38+; Electron 40 = ABI 143): run `nx rebuild-native ptah-electron` after Electron upgrades. Requires a C++ toolchain (MSVC / Xcode CLT / gcc). `node-pty` (N-API prebuild) and `sqlite-vec` (loadable extension) need no rebuild.
 - Auto-updater (`electron-updater`) is imported dynamically inside `post-window` Phase 6 and is intentionally disabled in dev builds.
 - Code signing inputs (Windows SSL.com IV / eSigner, macOS Developer ID) are read from env at `electron-builder` invocation time; never commit signing material.
 - Renderer copy: `scripts/copy-renderer.js` lives under `apps/ptah-electron/scripts/`.

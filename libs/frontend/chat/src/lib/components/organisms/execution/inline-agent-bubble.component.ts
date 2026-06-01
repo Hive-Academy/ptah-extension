@@ -378,6 +378,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             #contentContainer
             class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
             [auto-animate]
+            (scroll)="onAgentScroll()"
           >
             <!-- summaryContent is rendered as a text child node instead of a
              separate block. This ensures agent text is properly interleaved
@@ -572,6 +573,17 @@ export class InlineAgentBubbleComponent {
   private readonly SCROLL_DEBOUNCE_MS = 50;
 
   /**
+   * Whether the inner content container is pinned to its bottom. Set false
+   * when the user scrolls up inside the (capped, scrollable) bubble, true when
+   * they scroll back down — so streaming chunks only auto-follow when the user
+   * is already at the bottom and never yank them away from earlier output.
+   */
+  private pinnedToBottom = true;
+  /** Suppresses onAgentScroll bookkeeping during our own programmatic scroll. */
+  private isAdjusting = false;
+  private readonly NEAR_BOTTOM_PX = 60;
+
+  /**
    * Flag to prevent multiple afterNextRender callbacks from being queued
    * when user rapidly toggles collapse/expand.
    */
@@ -659,16 +671,30 @@ export class InlineAgentBubbleComponent {
   }
 
   /**
-   * Scroll agent content container to bottom.
+   * Update `pinnedToBottom` from the user's position inside the content
+   * container. Ignored while we drive the scroll programmatically.
+   */
+  onAgentScroll(): void {
+    if (this.isAdjusting) return;
+    const container = this.contentContainerRef()?.nativeElement;
+    if (!container) return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    this.pinnedToBottom = distanceFromBottom < this.NEAR_BOTTOM_PX;
+  }
+
+  /**
+   * Scroll agent content container to bottom (instant — no per-chunk smooth
+   * animation to stack during a fast stream).
    */
   private scrollAgentContentToBottom(): void {
-    const containerRef = this.contentContainerRef();
-    if (!containerRef) return;
+    const container = this.contentContainerRef()?.nativeElement;
+    if (!container) return;
 
-    const container = containerRef.nativeElement;
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: 'smooth',
+    this.isAdjusting = true;
+    container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
+    requestAnimationFrame(() => {
+      this.isAdjusting = false;
     });
   }
 
@@ -699,15 +725,16 @@ export class InlineAgentBubbleComponent {
    */
   private scheduleScroll(): void {
     const isStreaming = this.node().status === 'streaming';
-    const isCollapsed = this.isCollapsed();
-    if (!isStreaming || isCollapsed) return;
+    if (!isStreaming || this.isCollapsed() || !this.pinnedToBottom) return;
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
     }
     this.scrollTimeoutId = setTimeout(() => {
-      const stillStreaming = this.node().status === 'streaming';
-      const nowCollapsed = this.isCollapsed();
-      if (stillStreaming && !nowCollapsed) {
+      if (
+        this.node().status === 'streaming' &&
+        !this.isCollapsed() &&
+        this.pinnedToBottom
+      ) {
         this.scrollAgentContentToBottom();
       }
       this.scrollTimeoutId = null;

@@ -113,14 +113,33 @@ const ACTIONABLE_STATES = new Set([
             }
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
-            <button
-              type="button"
-              class="btn btn-primary btn-xs"
-              [disabled]="!restartEnabled()"
-              (click)="handleRestartNow()"
-            >
-              Restart Now
-            </button>
+            @switch (state().state) {
+              @case ('available') {
+                <button
+                  type="button"
+                  class="btn btn-primary btn-xs"
+                  [disabled]="!downloadEnabled()"
+                  (click)="handleDownload()"
+                >
+                  Download
+                </button>
+              }
+              @case ('downloading') {
+                <button type="button" class="btn btn-primary btn-xs" disabled>
+                  Downloading…
+                </button>
+              }
+              @case ('downloaded') {
+                <button
+                  type="button"
+                  class="btn btn-primary btn-xs"
+                  [disabled]="!restartEnabled()"
+                  (click)="handleRestartNow()"
+                >
+                  Restart Now
+                </button>
+              }
+            }
             <button
               type="button"
               class="btn btn-ghost btn-xs"
@@ -157,8 +176,15 @@ export class UpdateBannerComponent {
    */
   private readonly _installInFlight = signal(false);
 
+  /** In-flight guard for the `update:download-now` RPC (manual download flow). */
+  private readonly _downloadInFlight = signal(false);
+
   readonly restartEnabled = computed(
     () => this.state().state === 'downloaded' && !this._installInFlight(),
+  );
+
+  readonly downloadEnabled = computed(
+    () => this.state().state === 'available' && !this._downloadInFlight(),
   );
 
   readonly hasActiveAgent = computed(
@@ -210,6 +236,17 @@ export class UpdateBannerComponent {
 
   releaseNotesUrl(version: string): string {
     return `https://github.com/hive-academy/ptah-extension/releases/tag/v${version}`;
+  }
+
+  async handleDownload(): Promise<void> {
+    this._downloadInFlight.set(true);
+    try {
+      await this.rpcService.call('update:download-now', {});
+    } catch (err) {
+      console.error('[UpdateBanner] update:download-now failed', err);
+    } finally {
+      this._downloadInFlight.set(false);
+    }
   }
 
   async handleRestartNow(): Promise<void> {

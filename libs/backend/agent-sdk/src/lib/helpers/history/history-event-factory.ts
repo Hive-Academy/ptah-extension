@@ -51,7 +51,6 @@ export interface MessageUsageData {
  */
 @injectable()
 export class HistoryEventFactory {
-
   /**
    * Create a message_start event
    *
@@ -496,4 +495,76 @@ export class HistoryEventFactory {
     }
     return '';
   }
+
+  /**
+   * Like {@link extractTextContent} but ALSO includes `tool_use` and
+   * `tool_result` blocks, formatted as labelled lines. Used by the memory
+   * curator's transcript reader so curation sees tool inputs/outputs — the
+   * text-only {@link extractTextContent} (consumed by the UI history view)
+   * strips them, which leaves historical/boot-scan curation blind to tools.
+   * Each tool block is bounded so a single huge result can't dominate the
+   * transcript.
+   */
+  extractContentForCuration(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    const parts: string[] = [];
+    for (const block of content as ContentBlock[]) {
+      switch (block.type) {
+        case 'text':
+          if (block.text) parts.push(block.text);
+          break;
+        case 'tool_use': {
+          const name = block.name || 'tool';
+          parts.push(
+            `[tool_use ${name}] ${truncateBlock(safeJsonStringify(block.input), 1000)}`,
+          );
+          break;
+        }
+        case 'tool_result': {
+          const label = block.is_error ? 'tool_result error' : 'tool_result';
+          parts.push(
+            `[${label}] ${truncateBlock(flattenToolResultContent(block.content), 2500)}`,
+          );
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    return parts.join('\n');
+  }
+}
+
+function truncateBlock(text: string, max: number): string {
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function safeJsonStringify(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '';
+  }
+}
+
+function flattenToolResultContent(
+  content: string | unknown[] | undefined,
+): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const item of content) {
+    if (typeof item === 'string') {
+      parts.push(item);
+    } else if (item && typeof item === 'object') {
+      const rec = item as Record<string, unknown>;
+      if (typeof rec['text'] === 'string') parts.push(rec['text']);
+      else if (rec['type'] === 'image') parts.push('[image]');
+      else parts.push(safeJsonStringify(item));
+    }
+  }
+  return parts.join('\n');
 }

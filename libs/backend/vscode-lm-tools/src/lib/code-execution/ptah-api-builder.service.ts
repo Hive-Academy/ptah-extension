@@ -79,10 +79,12 @@ import {
   buildSkillNamespace,
   buildMemoryNamespace,
   buildCodeNamespace,
+  buildHarnessNamespace,
 } from './namespace-builders';
 import {
   AgentProcessManager,
   CliDetectionService,
+  McpRegistryProvider,
 } from '@ptah-extension/cli-agent-runtime';
 
 /**
@@ -179,6 +181,14 @@ interface EnhancedPromptsServiceLike {
 interface PluginLoaderLike {
   getWorkspacePluginConfig(): { enabledPluginIds: string[] };
   resolvePluginPaths(pluginIds: string[]): string[];
+  resolveCurrentPluginPaths(): string[];
+  discoverSkillsForPlugins(pluginPaths: string[]): Array<{
+    skillId: string;
+    displayName: string;
+    description: string;
+    pluginId: string;
+  }>;
+  getDisabledSkillIds(): string[];
 }
 
 interface PtahCliRegistryLike {
@@ -549,6 +559,19 @@ export class PtahAPIBuilder {
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
+      harness: this.buildNamespaceSafe('harness', () => {
+        if (!this.pluginLoader) {
+          throw new Error(
+            'SDK_PLUGIN_LOADER not registered — harness namespace requires the plugin loader',
+          );
+        }
+        return buildHarnessNamespace({
+          pluginLoader: this.pluginLoader,
+          mcpRegistry: new McpRegistryProvider(this.logger),
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+          logger: this.logger,
+        });
+      }),
       help: buildHelpMethod(),
     };
   }
