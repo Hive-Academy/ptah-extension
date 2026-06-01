@@ -8,6 +8,7 @@ export interface SentryInitOptions {
   release: string;
   platform: string;
   extensionVersion: string;
+  tracesSampleRate?: number;
 }
 
 export interface SentryErrorContext {
@@ -29,10 +30,12 @@ export class SentryService {
     if (this.initialized) return;
 
     const Sentry = require('@sentry/node') as typeof import('@sentry/node');
+    const tracesSampleRate = this.resolveTracesSampleRate(options);
     Sentry.init({
       dsn: options.dsn,
       environment: options.environment,
       release: `ptah-extension@${options.release}`,
+      tracesSampleRate,
       initialScope: {
         tags: {
           platform: options.platform,
@@ -43,7 +46,36 @@ export class SentryService {
     this.initialized = true;
     this.logger.info('[Sentry] Initialized', {
       environment: options.environment,
+      tracesSampleRate,
     });
+  }
+
+  private resolveTracesSampleRate(options: SentryInitOptions): number {
+    if (
+      typeof options.tracesSampleRate === 'number' &&
+      Number.isFinite(options.tracesSampleRate)
+    ) {
+      return options.tracesSampleRate;
+    }
+    const envValue = parseFloat(process.env['SENTRY_TRACES_SAMPLE_RATE'] ?? '');
+    if (Number.isFinite(envValue)) {
+      return envValue;
+    }
+    return options.environment === 'development' ? 1.0 : 0.1;
+  }
+
+  startSpan<T>(
+    name: string,
+    attributes: Record<string, string | number | boolean>,
+    fn: () => T,
+  ): T {
+    if (!this.initialized || process.env['NODE_ENV'] === 'test') {
+      return fn();
+    }
+    const Sentry = require('@sentry/node') as typeof import('@sentry/node');
+    const op =
+      typeof attributes['op'] === 'string' ? attributes['op'] : 'function';
+    return Sentry.startSpan({ name, op, attributes }, fn);
   }
 
   captureException(error: Error, context?: SentryErrorContext): void {

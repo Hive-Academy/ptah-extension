@@ -84,6 +84,8 @@ export type {
   SentryInitOptions,
   SentryErrorContext,
 } from './services/sentry.service';
+export { SentryTracerAdapter } from './services/sentry-tracer.adapter';
+export { NoopTracer } from './services/noop-tracer';
 export { GitInfoService } from './services/git-info.service';
 export {
   execGit,
