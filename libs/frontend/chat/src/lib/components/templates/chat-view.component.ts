@@ -10,6 +10,7 @@ import {
   untracked,
   Injector,
   DestroyRef,
+  ElementRef,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -20,11 +21,6 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-angular';
-import {
-  ScrollingModule,
-  CdkVirtualScrollViewport,
-} from '@angular/cdk/scrolling';
-import { ScrollingModule as ExperimentalScrollingModule } from '@angular/cdk-experimental/scrolling';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
@@ -136,8 +132,6 @@ function filterCompactionNoise(
     CompactionNotificationComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
-    ScrollingModule,
-    ExperimentalScrollingModule,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -309,28 +303,30 @@ export class ChatViewComponent {
   }
 
   /**
-   * ResizeObserver on the CDK content wrapper. Fires whenever the rendered
-   * content's height changes — streaming text growth, agent sub-output,
-   * markdown image load, or the streaming→finalized swap — which is exactly
-   * when we must (a) force the experimental autosize strategy to re-measure
-   * (via `viewport.checkViewportSize()`) and (b) re-pin to the bottom if the
-   * user is following the stream.
-   *
-   * Unlike the previous childList MutationObserver, a ResizeObserver does NOT
-   * fire on CDK's per-recycle node churn — only on actual size change — so it
-   * cannot storm during virtual scrolling.
+   * ResizeObserver on the content wrapper. Fires whenever the content's height
+   * changes — streaming text growth, agent sub-output, markdown image load, or
+   * the streaming→finalized swap — which is exactly when a pinned transcript
+   * must re-stick to the bottom. Fires on real size change only, so it can't
+   * storm.
    */
   private resizeObserver: ResizeObserver | null = null;
   private scrollRafId: number | null = null;
-  private lastWrapperHeight = 0;
+  private lastContentHeight = 0;
   /** Distance from bottom (px) within which the user is considered "pinned". */
   private readonly NEAR_BOTTOM_PX = 120;
 
   /**
-   * Signal-based viewChild (Angular 20+ pattern)
-   * Replaces @ViewChild decorator for better reactivity
+   * The plain scroll container (`#messageContainer`). Off-screen message
+   * bubbles are skipped by the browser via `content-visibility: auto`
+   * (see chat-view.component.css), so this gives virtual-scroll-class
+   * performance without the experimental autosize estimator — scroll
+   * positions are the element's real `scrollTop`/`scrollHeight`.
    */
-  private readonly virtualViewport = viewChild(CdkVirtualScrollViewport);
+  private readonly scrollContainer =
+    viewChild<ElementRef<HTMLElement>>('messageContainer');
+  /** Inner content wrapper observed for height changes (streaming growth). */
+  private readonly contentWrapper =
+    viewChild<ElementRef<HTMLElement>>('messageContent');
 
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
   private readonly chatInputRef = viewChild(ChatInputComponent);
@@ -353,10 +349,8 @@ export class ChatViewComponent {
   private wasStreaming = false;
 
   /**
-   * Suppresses onScroll bookkeeping while WE drive the scroll position
-   * (`checkViewportSize()` + `scrollTo`). The forced autosize re-measure and
-   * the programmatic scroll emit intermediate scroll events that must not flip
-   * `pinnedToBottom`.
+   * Suppresses onScroll bookkeeping while WE drive the scroll position. The
+   * programmatic scroll emits scroll events that must not flip `pinnedToBottom`.
    */
   private isAdjusting = false;
 
@@ -811,15 +805,15 @@ export class ChatViewComponent {
   onScroll(_event: Event): void {
     if (this.isAdjusting || this.isFinalizingTransition()) return;
 
-    const viewport = this.virtualViewport();
-    if (!viewport) return;
+    const el = this.scrollContainer()?.nativeElement;
+    if (!el) return;
 
-    const distanceFromBottom = viewport.measureScrollOffset('bottom');
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     this.pinnedToBottom = distanceFromBottom < this.NEAR_BOTTOM_PX;
 
     const tabId = this.resolvedTabId();
     if (tabId) {
-      this.scrollPositionCache.set(tabId, viewport.measureScrollOffset('top'));
+      this.scrollPositionCache.set(tabId, el.scrollTop);
     }
   }
 
@@ -1201,15 +1195,13 @@ export class ChatViewComponent {
   }
 
   /**
-   * Stick the viewport to the bottom on the next frame. rAF-coalesced so a
+   * Stick the container to the bottom on the next frame. rAF-coalesced so a
    * burst of streaming chunks collapses to a single adjustment per frame.
    *
-   * The `checkViewportSize()` call is the crux: it forces the experimental
-   * autosize strategy to re-measure the rendered content (it otherwise only
-   * re-measures on scroll or range change, never on in-place bubble growth),
-   * so the subsequent `scrollTo({ bottom: 0 })` targets the REAL bottom rather
-   * than a stale one — which is what made freshly-streamed content invisible
-   * until the user manually scrolled.
+   * Uses the element's real `scrollHeight` — there is no estimator to go
+   * stale, so the streamed content is always reachable without a manual
+   * scroll, and the position can't oscillate as it did with the autosize
+   * strategy.
    */
   private scheduleStickToBottom(): void {
     if (this.scrollRafId !== null) {
@@ -1217,11 +1209,10 @@ export class ChatViewComponent {
     }
     this.scrollRafId = requestAnimationFrame(() => {
       this.scrollRafId = null;
-      const viewport = this.virtualViewport();
-      if (!viewport) return;
+      const el = this.scrollContainer()?.nativeElement;
+      if (!el) return;
       this.isAdjusting = true;
-      viewport.checkViewportSize();
-      viewport.scrollTo({ bottom: 0, behavior: 'auto' });
+      el.scrollTop = el.scrollHeight;
       requestAnimationFrame(() => {
         this.isAdjusting = false;
       });
@@ -1240,15 +1231,14 @@ export class ChatViewComponent {
     }
     this.scrollRafId = requestAnimationFrame(() => {
       this.scrollRafId = null;
-      const viewport = this.virtualViewport();
-      if (!viewport) return;
+      const el = this.scrollContainer()?.nativeElement;
+      if (!el) return;
       this.isAdjusting = true;
-      viewport.checkViewportSize();
       if (saved !== undefined) {
-        viewport.scrollTo({ top: saved, behavior: 'auto' });
+        el.scrollTop = saved;
         this.pinnedToBottom = false;
       } else {
-        viewport.scrollTo({ bottom: 0, behavior: 'auto' });
+        el.scrollTop = el.scrollHeight;
         this.pinnedToBottom = true;
       }
       requestAnimationFrame(() => {
@@ -1258,22 +1248,19 @@ export class ChatViewComponent {
   }
 
   /**
-   * Observe the CDK content wrapper's height. Fires on real size changes only
-   * (streaming growth, agent output, image load, finalize swap) — never on
-   * CDK's per-recycle node churn — so it can't storm during virtual scrolling.
+   * Observe the content wrapper's height. Fires on real size changes only
+   * (streaming growth, agent output, image load, finalize swap), so a pinned
+   * transcript follows the stream without any per-frame re-measure loop.
    */
   private setupResizeObserver(): void {
-    const viewport = this.virtualViewport();
-    const wrapper = viewport?.elementRef.nativeElement.querySelector(
-      '.cdk-virtual-scroll-content-wrapper',
-    ) as HTMLElement | null;
+    const wrapper = this.contentWrapper()?.nativeElement;
     if (!wrapper || this.resizeObserver) return;
 
     this.resizeObserver = new ResizeObserver((entries) => {
       if (this.isAdjusting) return;
       const height = entries[0]?.contentRect.height ?? 0;
-      if (Math.abs(height - this.lastWrapperHeight) < 1) return;
-      this.lastWrapperHeight = height;
+      if (Math.abs(height - this.lastContentHeight) < 1) return;
+      this.lastContentHeight = height;
       if (this.pinnedToBottom) {
         this.scheduleStickToBottom();
       }
