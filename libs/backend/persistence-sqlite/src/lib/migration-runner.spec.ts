@@ -417,7 +417,7 @@ describe('SqliteMigrationRunner — vec-optional split', () => {
   ];
 
   // Versions that own a vecSql split or are pure-vec (deferred when no vec).
-  const VEC_VERSIONS = [2, 3, 7, 13];
+  const VEC_VERSIONS = [2, 3, 7, 13, 19];
 
   function loadMigrations(): readonly Migration[] {
     const { MIGRATIONS } = require('./migrations') as {
@@ -460,9 +460,13 @@ describe('SqliteMigrationRunner — vec-optional split', () => {
     // All vec versions parked in the pending table.
     expect(runner.readPendingVecVersions()).toEqual(VEC_VERSIONS);
 
-    // finalVersion is the highest applied base version (14), unaffected by
-    // the deferred pure-vec migration 7.
-    expect(result.finalVersion).toBe(migrations[migrations.length - 1].version);
+    // finalVersion is the highest applied base version, unaffected by the
+    // deferred pure-vec migrations (7, 19). When the last bundled migration is
+    // pure-vec (19), the no-vec finalVersion is the highest non-vec version.
+    const highestBaseVersion = Math.max(
+      ...migrations.filter((m) => m.requiresVec !== true).map((m) => m.version),
+    );
+    expect(result.finalVersion).toBe(highestBaseVersion);
   });
 
   it('no-vec then vec: deferred vecSql applied, pending cleared, vec tables exist', async () => {
@@ -487,9 +491,7 @@ describe('SqliteMigrationRunner — vec-optional split', () => {
     // Pure-vec migration 7 is now recorded applied.
     expect(second.readAppliedVersions().has(7)).toBe(true);
     // user_version converges to the true max (not the last-caught-up version 7).
-    expect(db.getUserVersion()).toBe(
-      migrations[migrations.length - 1].version,
-    );
+    expect(db.getUserVersion()).toBe(migrations[migrations.length - 1].version);
   });
 
   it('vec cold start: all tables incl. vec, pending empty', async () => {

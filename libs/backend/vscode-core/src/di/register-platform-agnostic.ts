@@ -10,6 +10,7 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { Logger } from '../logging/logger';
 import { TOKENS } from './tokens';
 import { RpcHandler } from '../messaging/rpc-handler';
@@ -19,6 +20,7 @@ import { FeatureGateService } from '../services/feature-gate.service';
 import { LicenseService } from '../services/license.service';
 import { AuthSecretsService } from '../services/auth-secrets.service';
 import { SentryService } from '../services/sentry.service';
+import { SentryTracerAdapter } from '../services/sentry-tracer.adapter';
 
 export interface PlatformAgnosticRegistrationOptions {
   /**
@@ -66,6 +68,9 @@ export function registerVsCodeCorePlatformAgnostic(
 
   if (includeLicensingAndAuth) {
     container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
+    if (!container.isRegistered(PLATFORM_TOKENS.TRACER)) {
+      container.registerSingleton(PLATFORM_TOKENS.TRACER, SentryTracerAdapter);
+    }
     container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
     container.registerSingleton(
       TOKENS.AUTH_SECRETS_SERVICE,
@@ -80,7 +85,12 @@ export function registerVsCodeCorePlatformAgnostic(
       'SUBAGENT_REGISTRY_SERVICE',
       'FEATURE_GATE_SERVICE',
       ...(includeLicensingAndAuth
-        ? ['SENTRY_SERVICE', 'LICENSE_SERVICE', 'AUTH_SECRETS_SERVICE']
+        ? [
+            'SENTRY_SERVICE',
+            'PLATFORM_TOKENS.TRACER',
+            'LICENSE_SERVICE',
+            'AUTH_SECRETS_SERVICE',
+          ]
         : []),
     ],
   });
