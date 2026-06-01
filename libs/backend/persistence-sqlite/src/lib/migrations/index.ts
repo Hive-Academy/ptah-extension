@@ -44,6 +44,7 @@ import { sql as sql0015MemoriesSubjectTierIdx } from './0015_memories_subject_ti
 import { sql as sql0016ObservationQueue } from './0016_observation_queue';
 import { sql as sql0017MemorySchemaV2 } from './0017_memory_schema_v2';
 import { sql as sql0018Corpora } from './0018_corpora';
+import { vecSql as vecSql0019MemoryChunksVecCleanup } from './0019_memory_chunks_vec_cleanup';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -177,5 +178,11 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 18,
     name: '0018_corpora',
     sql: sql0018Corpora,
+  },
+  {
+    version: 19,
+    name: '0019_memory_chunks_vec_cleanup',
+    vecSql: vecSql0019MemoryChunksVecCleanup,
+    requiresVec: true,
   },
 ];

@@ -123,9 +123,11 @@ export async function bootstrapElectron(
     const sentryService = container.resolve<SentryService>(
       TOKENS.SENTRY_SERVICE,
     );
+    const environment =
+      process.env['NODE_ENV'] === 'development' ? 'development' : 'production';
     sentryService.initialize({
       dsn: sentryDsn,
-      environment: 'production',
+      environment,
       release: app.getVersion(),
       platform: 'electron',
       extensionVersion: app.getVersion(),

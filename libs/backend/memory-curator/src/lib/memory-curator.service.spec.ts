@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { ITracer } from '@ptah-extension/platform-core';
 import type {
   ICompactionCallbackRegistry,
   ITranscriptReader,
@@ -9,6 +10,26 @@ import type { MemoryStore } from './memory.store';
 import type { SalienceScorer } from './salience-scorer';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import type { MemoryCuratorEvent } from './diagnostics.types';
+
+interface RecordingTracer extends ITracer {
+  readonly spans: string[];
+}
+
+function makeRecordingTracer(): RecordingTracer {
+  const spans: string[] = [];
+  return {
+    spans,
+    startSpan: <T>(
+      name: string,
+      _attrs: Record<string, string | number | boolean>,
+      fn: () => T,
+    ): T => {
+      spans.push(name);
+      return fn();
+    },
+    addBreadcrumb: () => undefined,
+  };
+}
 
 function makeLogger(): Logger {
   return {
@@ -508,5 +529,60 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
     );
     expect(callsByName.filter((n) => n === 'a').length).toBe(1);
     expect(callsByName.filter((n) => n === 'b').length).toBe(1);
+  });
+});
+
+describe('MemoryCuratorService — tracing instrumentation', () => {
+  function buildTracedService(): {
+    svc: MemoryCuratorService;
+    tracer: RecordingTracer;
+  } {
+    const tracer = makeRecordingTracer();
+    const registry = {
+      register: jest.fn(() => () => undefined),
+    } as unknown as ICompactionCallbackRegistry;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+      updateSalience: jest.fn(),
+    } as unknown as MemoryStore;
+    const scorer = { score: jest.fn(() => 0.5) } as unknown as SalienceScorer;
+    const transcriptReader = {
+      read: jest.fn().mockResolvedValue(''),
+    } as unknown as ITranscriptReader;
+    const llm = {
+      extract: jest.fn().mockResolvedValue([]),
+      resolve: jest.fn().mockResolvedValue([]),
+    } as unknown as ICuratorLLM;
+    const svc = new MemoryCuratorService(
+      makeLogger(),
+      registry,
+      store,
+      scorer,
+      transcriptReader,
+      llm,
+      null,
+      null,
+      null,
+      tracer,
+    );
+    return { svc, tracer };
+  }
+
+  it('curate wraps the run in a memory.curate span and returns identical stats', async () => {
+    const { svc, tracer } = buildTracedService();
+    const stats = await svc.curate({
+      sessionId: 'trace-1',
+      transcript: 'real transcript content',
+    });
+    expect(stats).toEqual({
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+    expect(tracer.spans).toContain('memory.curate');
   });
 });

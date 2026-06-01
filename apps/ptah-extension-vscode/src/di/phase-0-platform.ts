@@ -23,6 +23,7 @@ import {
   OutputManager,
   ConfigManager,
   SentryService,
+  SentryTracerAdapter,
   TOKENS,
 } from '@ptah-extension/vscode-core';
 import { registerPlatformVscodeServices } from '@ptah-extension/platform-vscode';
@@ -51,6 +52,9 @@ export function registerPhase0Platform(
   const logger = container.resolve<Logger>(TOKENS.LOGGER);
   if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) {
     container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
+  }
+  if (!container.isRegistered(PLATFORM_TOKENS.TRACER)) {
+    container.registerSingleton(PLATFORM_TOKENS.TRACER, SentryTracerAdapter);
   }
   if (!container.isRegistered(TOKENS.CONFIG_MANAGER)) {
     container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);

@@ -386,6 +386,30 @@ describe('SqliteConnectionService', () => {
     expect(service.unavailable?.detail).toMatch(/antivirus/i);
   });
 
+  // --- migration failure rollback (forward-only downgrade guard) ---
+
+  it('rolls back and reports migration_failed when the DB schema is newer than this build', async () => {
+    const fake = new FakeSqliteDatabase();
+    // Simulate a DB written by a newer build (e.g. a dev run that shares the
+    // ~/.ptah/state file): a version far above the bundled max trips the
+    // migration runner's forward-only "Refusing to downgrade" guard.
+    fake.insertMigrationRow(9999, Date.now());
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await expect(service.openAndMigrate()).rejects.toThrow(
+      /Refusing to downgrade/,
+    );
+
+    // The half-open connection must be rolled back, not left masquerading as
+    // healthy (which would emit raw `no such table` errors downstream).
+    expect(service.isOpen).toBe(false);
+    expect(service.unavailable?.reason).toBe('migration_failed');
+    expect(service.unavailable?.detail).toMatch(/newer than this build/i);
+    expect(() => service.db).toThrow(/Persistence is offline/);
+  });
+
   // --- handleFatalWriteError ---
 
   it('D5: handleFatalWriteError closes + marks unavailable on SQLITE_FULL', async () => {

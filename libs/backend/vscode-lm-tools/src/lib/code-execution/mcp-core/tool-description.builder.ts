@@ -919,15 +919,20 @@ export function buildBrowserRecordStopTool(): MCPToolDefinition {
 
 /**
  * Build the ptah_harness_search_skills tool definition
- * Search available skills from enabled plugins
+ * Search the installed plugin skill inventory (harness-builder tool)
  */
 export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
   return {
     name: 'ptah_harness_search_skills',
     description:
-      'Search available skills from enabled plugins. Returns skill IDs, names, descriptions, ' +
-      'plugin IDs, and disabled status. Use an optional query to filter by name or description ' +
-      '(case-insensitive substring match). Omit query to list all skills.',
+      'Harness-builder tool: search the skills provided by installed Ptah plugins ' +
+      '(SKILL.md files under ~/.ptah/plugins for the workspace-enabled plugins). ' +
+      'Returns skill IDs, names, descriptions, plugin IDs, and per-skill enabled/disabled status. ' +
+      'Use this when authoring or configuring a harness to discover which plugin skills exist and ' +
+      'whether they are enabled. NOTE: this is the on-disk plugin inventory, NOT the set of skills ' +
+      'you can invoke right now via the Skill tool — those are already listed in your context. ' +
+      'Pass an optional query to filter by name or description (case-insensitive substring); ' +
+      'omit it to list every installed plugin skill.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -944,15 +949,17 @@ export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
 
 /**
  * Build the ptah_harness_create_skill tool definition
- * Create a new skill file on disk
+ * Author a new plugin skill on disk (harness-builder tool)
  */
 export function buildHarnessCreateSkillTool(): MCPToolDefinition {
   return {
     name: 'ptah_harness_create_skill',
     description:
-      'Create a new skill file. Writes a SKILL.md file to ' +
-      '~/.ptah/plugins/ptah-hrnss-{name}/skills/{name}/SKILL.md with YAML frontmatter ' +
-      'and the provided markdown content. Returns the skill ID and file path.',
+      'Harness-builder tool: author a new plugin skill on disk. Writes a SKILL.md to ' +
+      '~/.ptah/plugins/ptah-harness-{name}/skills/{name}/SKILL.md with YAML frontmatter ' +
+      'and the provided markdown content, then returns the skill ID and file path. ' +
+      'Use this to persist a reusable skill while building a harness — it does not register ' +
+      'the skill into the current session; the skill becomes available after the plugin is enabled.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -990,9 +997,11 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
   return {
     name: 'ptah_harness_search_mcp_registry',
     description:
-      'Search the official MCP Server Registry for servers matching a query. ' +
+      'Harness-builder tool: search the official MCP Server Registry ' +
+      '(registry.modelcontextprotocol.io) for servers matching a query. ' +
       'Returns server names and descriptions. Use specific technology keywords ' +
-      '(e.g., "github", "postgresql", "slack") for best results.',
+      '(e.g., "github", "postgresql", "slack") for best results. Pair with ' +
+      'harness_list_installed_mcp to see which servers are already configured before adding more.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1019,9 +1028,10 @@ export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
   return {
     name: 'harness_list_installed_mcp',
     description:
-      'List MCP servers already installed and configured in the workspace. ' +
-      'Reads from .vscode/mcp.json and .mcp.json in the workspace root. ' +
-      'Use this to check what servers are already available before searching the registry.',
+      'Harness-builder tool: list the MCP servers already configured in the workspace. ' +
+      'Reads from .vscode/mcp.json and .mcp.json in the workspace root and returns each ' +
+      "server's name, config, and source file. Use this to check what is already available " +
+      'before searching the registry with ptah_harness_search_mcp_registry.',
     inputSchema: {
       type: 'object',
       properties: {},

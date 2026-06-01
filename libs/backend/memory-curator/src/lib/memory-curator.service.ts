@@ -12,7 +12,7 @@
  * logged and swallowed.
  */
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, NoopTracer, type Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
   type ICompactionCallbackRegistry,
@@ -21,6 +21,7 @@ import {
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
+  type ITracer,
 } from '@ptah-extension/platform-core';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
@@ -78,6 +79,8 @@ export class MemoryCuratorService {
     private readonly knowledgeAgent: KnowledgeAgentService | null = null,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
     private readonly workspace: IWorkspaceProvider | null = null,
+    @inject(PLATFORM_TOKENS.TRACER)
+    private readonly tracer: ITracer = new NoopTracer(),
   ) {}
 
   /** Begin listening for PreCompact events. Idempotent. */
@@ -202,9 +205,15 @@ export class MemoryCuratorService {
     const key = `${input.workspaceRoot ?? ''}::${input.sessionId ?? ''}`;
     const existing = this.inFlight.get(key);
     if (existing) return existing;
-    const work = this.doCurate(input).finally(() => {
-      this.inFlight.delete(key);
-    });
+    const work = this.tracer
+      .startSpan(
+        'memory.curate',
+        { op: 'ai.curate', trigger: input.tier ?? 'recall' },
+        () => this.doCurate(input),
+      )
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
     this.inFlight.set(key, work);
     return work;
   }

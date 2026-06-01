@@ -93,6 +93,7 @@ export type SqliteUnavailableReason =
   | 'native_abi_mismatch'
   | 'native_module_missing'
   | 'open_failed'
+  | 'migration_failed'
   | 'closed';
 
 @injectable()
@@ -199,15 +200,51 @@ export class SqliteConnectionService {
     this.logger.debug(
       '[persistence-sqlite] Migration runner created, applying migrations...',
     );
-    const result = await this.migrationRunner.applyAll(MIGRATIONS, {
-      vecExtensionLoaded: this.vecLoaded,
-    });
-    this.logger.info('[persistence-sqlite] openAndMigrate complete', {
-      dbPath: this._dbPath,
-      vecExtensionLoaded: this.vecLoaded,
-      applied: result.appliedVersions,
-      finalVersion: result.finalVersion,
-    });
+    try {
+      const result = await this.migrationRunner.applyAll(MIGRATIONS, {
+        vecExtensionLoaded: this.vecLoaded,
+      });
+      this.logger.info('[persistence-sqlite] openAndMigrate complete', {
+        dbPath: this._dbPath,
+        vecExtensionLoaded: this.vecLoaded,
+        applied: result.appliedVersions,
+        finalVersion: result.finalVersion,
+      });
+    } catch (err: unknown) {
+      this.close();
+      this.classifyMigrationFailure(err);
+      throw err;
+    }
+  }
+
+  /**
+   * Classify a migration failure thrown by
+   * {@link SqliteMigrationRunner.applyAll} so the connection surfaces a clean
+   * {@link RpcUserError} (`PERSISTENCE_UNAVAILABLE`) instead of leaving a
+   * half-migrated database open — which would otherwise emit raw
+   * `no such table` errors downstream and get reported to Sentry as a bug.
+   *
+   * The most common trigger is the forward-only guard: a database whose
+   * schema is newer than the running build (e.g. a dev build wrote a higher
+   * version into the shared `~/.ptah/state` file before an older prod build
+   * opened it). Detect "Refusing to downgrade" and tell the user to update.
+   *
+   * Must run AFTER {@link close} so the `'closed'` reason set there does not
+   * clobber the classification.
+   */
+  private classifyMigrationFailure(err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    this.unavailableReason = 'migration_failed';
+    if (/Refusing to downgrade/i.test(message)) {
+      this.unavailableDetail =
+        'The database schema is newer than this build of Ptah. Update Ptah, or remove ~/.ptah/state to start fresh.';
+    } else {
+      this.unavailableDetail = `Database migration failed: ${message}`;
+    }
+    this.logger.error(
+      '[persistence-sqlite] migration failed — persistence disabled',
+      { reason: this.unavailableReason, detail: this.unavailableDetail },
+    );
   }
 
   /**
@@ -324,6 +361,8 @@ export class SqliteConnectionService {
         );
       case 'open_failed':
         return `Persistence is offline: ${this.unavailableDetail ?? 'failed to open SQLite database.'}`;
+      case 'migration_failed':
+        return `Persistence is offline: ${this.unavailableDetail ?? 'database migration failed.'}`;
       case 'closed':
         return 'Persistence is offline: SQLite connection has been closed.';
       case 'not_initialized':

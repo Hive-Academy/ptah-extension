@@ -2,14 +2,22 @@
 /**
  * rebuild-native.js
  *
- * Downloads the Electron-ABI-specific prebuilt binary for better-sqlite3
- * using prebuild-install. Must be run once after `npm install` (or when
- * the Electron version changes) before `npm run electron:serve`.
+ * Builds the Electron-ABI-specific better-sqlite3 native binary by compiling
+ * it FROM SOURCE against the installed Electron version's headers, using
+ * @electron/rebuild. Must run once after `npm install` (or when the Electron
+ * version changes) and again immediately before electron-builder packs.
  *
- * Other native deps do NOT need Electron-specific rebuilding:
- *  - sqlite-vec: SQLite loadable extension (.dll/.so/.dylib), not a Node addon.
- *    Ships via sqlite-vec-<platform> packages at npm install time.
- *  - node-pty: ships N-API prebuilts (ABI-stable across Node/Electron).
+ * Why source compile (not prebuild-install):
+ *   better-sqlite3 only publishes prebuilt binaries up to electron-v136
+ *   (Electron 37). This app targets Electron 40 (ABI 143), for which NO
+ *   prebuilt exists — `prebuild-install --runtime electron --target 40.x`
+ *   404s. The only way to obtain a NODE_MODULE_VERSION 143 binary is to
+ *   compile it. Shipping the wrong ABI crashes every DB feature on first run
+ *   (Sentry 124004638: Memory/Skills/Cron/Gateway/Corpus PERSISTENCE_UNAVAILABLE).
+ *
+ * Other native deps do NOT need an Electron-specific rebuild:
+ *   - sqlite-vec: SQLite loadable extension (.dll/.so/.dylib), not a Node addon.
+ *   - node-pty: ships N-API prebuilds (ABI-stable across Node/Electron).
  *
  * Run via:  node apps/ptah-electron/scripts/rebuild-native.js
  * Or:       npm run electron:rebuild
@@ -20,13 +28,32 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const { pathToFileURL } = require('url');
 
 /** Absolute path to the workspace root (where node_modules lives). */
 const ROOT = path.resolve(__dirname, '../../..');
+
+/** True when invoked by npm's postinstall lifecycle (best-effort, non-fatal). */
+const IS_POSTINSTALL = process.env.npm_lifecycle_event === 'postinstall';
+
+// Electron major -> NODE_MODULE_VERSION, from nodejs/node abi_version_registry.json.
+// Fallback only — used when node-abi (ESM-only) cannot be dynamically imported.
+const ELECTRON_ABI_FALLBACK = {
+  30: 123,
+  31: 125,
+  32: 128,
+  33: 130,
+  34: 132,
+  35: 133,
+  36: 135,
+  37: 136,
+  38: 139,
+  39: 140,
+  40: 143,
+  41: 145,
+  42: 146,
+  43: 148,
+};
 
 /** Read the electron version from node_modules/electron/package.json */
 function getElectronVersion() {
@@ -38,14 +65,9 @@ function getElectronVersion() {
 
 /**
  * Read the NODE_MODULE_VERSION (ABI) baked into a compiled .node file.
- * Returns null if the file doesn't exist, can't be read, or the marker
- * isn't found. The .node file is a regular shared library; the embedded
- * `NODE_MODULE_VERSION` field of `node::node_module` is searchable as the
- * ASCII string `NODE_MODULE_VERSION` followed by the version number.
- *
- * This is heuristic but reliable for better-sqlite3's prebuilt binaries —
- * it lets us distinguish a Node-ABI build (e.g. NMV 137) from an
- * Electron-ABI build (e.g. NMV 143) without loading the binary.
+ * Heuristic byte-scan for the `node_register_module_v<NMV>` marker. Returns
+ * null when the file/marker is absent — callers must treat null as "unknown",
+ * never as "wrong", so a successful compile is never falsely rejected.
  */
 function readNativeAbi(packageName, addonName) {
   const candidate = path.join(
@@ -58,12 +80,7 @@ function readNativeAbi(packageName, addonName) {
   );
   if (!fs.existsSync(candidate)) return null;
   try {
-    const buf = fs.readFileSync(candidate);
-    // Search for the version registration callsite. Different toolchains
-    // emit the NMV either as an immediate in code or via an exported symbol
-    // matching `node_register_module_v<NMV>`. The export form is the most
-    // reliable cross-platform marker.
-    const text = buf.toString('binary');
+    const text = fs.readFileSync(candidate).toString('binary');
     const m = text.match(/node_register_module_v(\d+)/);
     if (m) return Number(m[1]);
   } catch {
@@ -73,115 +90,114 @@ function readNativeAbi(packageName, addonName) {
 }
 
 /** Map an Electron version to its Node ABI (NODE_MODULE_VERSION). */
-function getElectronAbi(electronVersion) {
+async function getElectronAbi(electronVersion) {
   try {
-    const abi = require(path.join(ROOT, 'node_modules', 'node-abi')).getAbi(
-      electronVersion,
-      'electron',
+    const nodeAbi = await import(
+      pathToFileURL(path.join(ROOT, 'node_modules', 'node-abi', 'index.js'))
+        .href
     );
-    return Number(abi);
+    return Number(nodeAbi.getAbi(electronVersion, 'electron'));
   } catch {
-    return null;
+    const major = Number(String(electronVersion).split('.')[0]);
+    return ELECTRON_ABI_FALLBACK[major] ?? null;
   }
 }
 
-/** Run prebuild-install to download a prebuilt Electron binary for a package.
- * @param {boolean} required - if false, failure is a warning (not fatal). */
-function prebuildInstall(packageName, electronVersion, required = true) {
-  const pkgDir = path.join(ROOT, 'node_modules', packageName);
-  if (!fs.existsSync(pkgDir)) {
-    console.log(`[skip] ${packageName} not found in node_modules`);
-    return;
-  }
-
-  // prebuild-install lives in the root node_modules (hoisted by npm)
-  const prebuildBin = path.join(
+/**
+ * Compile a native module from source against the target Electron's headers
+ * via @electron/rebuild. `--build-from-source` skips the (nonexistent for
+ * Electron 40+) prebuilt download and goes straight to node-gyp.
+ */
+function electronRebuildFromSource(packageName, electronVersion) {
+  const cli = path.join(
     ROOT,
     'node_modules',
-    'prebuild-install',
-    'bin.js',
+    '@electron',
+    'rebuild',
+    'lib',
+    'cli.js',
   );
-  if (!fs.existsSync(prebuildBin)) {
-    console.warn(
-      `[warn] prebuild-install not found at ${prebuildBin}, skipping ${packageName}`,
+  if (!fs.existsSync(cli)) {
+    throw new Error(
+      `@electron/rebuild not found at ${cli} — run npm install first`,
     );
-    return;
   }
-
   console.log(
-    `\n[rebuild] ${packageName} → prebuild-install (Electron ${electronVersion})`,
+    `\n[rebuild] ${packageName} → electron-rebuild from source ` +
+      `(Electron ${electronVersion}, ${process.platform}/${process.arch})`,
   );
-  try {
-    execFileSync(
-      process.execPath,
-      [
-        prebuildBin,
-        '--runtime',
-        'electron',
-        '--target',
-        electronVersion,
-        '--arch',
-        process.arch,
-        '--dist-url',
-        'https://electronjs.org/headers',
-      ],
-      { cwd: pkgDir, stdio: 'inherit' },
-    );
-    console.log(`[ok] ${packageName} rebuilt successfully`);
-    return true;
-  } catch (err) {
-    if (required) {
-      console.error(
-        `[error] Failed to rebuild ${packageName} via prebuild-install`,
-      );
-      console.error(err.message);
-      process.exit(1);
-    } else {
-      console.warn(
-        `[warn] ${packageName} prebuild failed (optional, skipping): ${err.message}`,
-      );
-      return false;
-    }
-  }
+  execFileSync(
+    process.execPath,
+    [
+      cli,
+      '--version',
+      electronVersion,
+      '--arch',
+      process.arch,
+      '--only',
+      packageName,
+      '--force',
+      '--build-from-source',
+      '--module-dir',
+      ROOT,
+    ],
+    { cwd: ROOT, stdio: 'inherit' },
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-
-const electronVersion = getElectronVersion();
-console.log(
-  `Rebuilding native modules for Electron ${electronVersion} (${process.platform}/${process.arch})`,
-);
-
-// --- Strategy 1: prebuild-install (no compiler needed) ---
-// better-sqlite3: REQUIRED for SQLite features (Memory, Cron, Gateway, Skills)
-//
-// We MUST verify the existing .node was built for Electron's ABI, not just
-// that some .node file exists — npm install's lifecycle script builds
-// better-sqlite3 against the system Node ABI, which is almost always wrong
-// for Electron. Skipping by file-existence alone leaves the wrong binary
-// in place forever and produces NODE_MODULE_VERSION mismatch errors at
-// runtime.
-const expectedAbi = getElectronAbi(electronVersion);
-const presentAbi = readNativeAbi('better-sqlite3', 'better_sqlite3');
-if (expectedAbi && presentAbi === expectedAbi) {
+(async () => {
+  const electronVersion = getElectronVersion();
   console.log(
-    `[skip] better-sqlite3 already built for Electron ABI ${expectedAbi}`,
+    `Rebuilding native modules for Electron ${electronVersion} ` +
+      `(${process.platform}/${process.arch})`,
   );
-} else {
-  if (presentAbi !== null) {
+
+  const expectedAbi = await getElectronAbi(electronVersion);
+  const presentAbi = readNativeAbi('better-sqlite3', 'better_sqlite3');
+
+  if (expectedAbi && presentAbi === expectedAbi) {
     console.log(
-      `[rebuild] better-sqlite3 has ABI ${presentAbi}, need ${expectedAbi || '?'} — replacing`,
+      `[skip] better-sqlite3 already built for Electron ABI ${expectedAbi}`,
+    );
+  } else {
+    if (presentAbi !== null) {
+      console.log(
+        `[rebuild] better-sqlite3 has ABI ${presentAbi}, ` +
+          `need ${expectedAbi || '?'} — rebuilding from source`,
+      );
+    }
+    electronRebuildFromSource('better-sqlite3', electronVersion);
+
+    // Verify only when we positively read an ABI. A null read means the marker
+    // scan could not determine the ABI (not that it is wrong) — trust that
+    // electron-rebuild threw on a genuine compile failure.
+    const afterAbi = readNativeAbi('better-sqlite3', 'better_sqlite3');
+    if (expectedAbi && afterAbi !== null && afterAbi !== expectedAbi) {
+      throw new Error(
+        `better-sqlite3 ABI is ${afterAbi} after rebuild, expected ${expectedAbi}`,
+      );
+    }
+    console.log(
+      `[ok] better-sqlite3 rebuilt for Electron ABI ${afterAbi ?? expectedAbi ?? '(unverified)'}`,
     );
   }
-  prebuildInstall('better-sqlite3', electronVersion, true);
-}
 
-// sqlite-vec is a SQLite loadable extension (.dll/.so/.dylib), NOT a Node addon.
-// It ships via sqlite-vec-windows-x64 / platform packages and requires no rebuild.
+  // sqlite-vec is a SQLite loadable extension (.dll/.so/.dylib), NOT a Node addon.
+  // node-pty ships N-API prebuilts and is ABI-stable. Neither needs a rebuild.
 
-// node-pty ships N-API prebuilts in prebuilds/<platform>-<arch>/pty.node
-// and is ABI-stable across Node/Electron versions — no rebuild needed.
-
-console.log('\n✅ Native module rebuild complete.');
+  console.log('\n✅ Native module rebuild complete.');
+})().catch((err) => {
+  const message = err instanceof Error ? err.message : String(err);
+  if (IS_POSTINSTALL) {
+    // Never break `npm install` for contributors without a build toolchain;
+    // the explicit pre-pack invocation (npm_lifecycle_event !== postinstall)
+    // is the gate that enforces a correct binary before shipping.
+    console.warn(
+      `[warn] better-sqlite3 Electron rebuild skipped during postinstall: ${message}\n` +
+        `       Run \`npm run electron:rebuild\` before \`nx serve ptah-electron\`.`,
+    );
+    process.exit(0);
+  }
+  console.error(`[error] rebuild-native failed: ${message}`);
+  process.exit(1);
+});

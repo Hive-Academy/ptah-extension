@@ -7,7 +7,8 @@
  */
 import { LRUCache } from 'lru-cache';
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, NoopTracer, type Logger } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS, type ITracer } from '@ptah-extension/platform-core';
 import {
   type IMemoryReader,
   type MemoryHitPage,
@@ -192,6 +193,8 @@ export class MemorySearchService implements IMemoryReader {
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
     @inject(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)
     private readonly observationQueue: ObservationQueueStore,
+    @inject(PLATFORM_TOKENS.TRACER)
+    private readonly tracer: ITracer = new NoopTracer(),
   ) {}
 
   /**
@@ -233,21 +236,39 @@ export class MemorySearchService implements IMemoryReader {
     topK = 10,
     workspaceRoot?: string,
   ): Promise<MemoryHitPage> {
-    const rich = await this.searchRich(query, topK, workspaceRoot);
-    return {
-      hits: rich.hits.map((h) => ({
-        memoryId: h.memory.id as string,
-        subject: h.memory.subject,
-        content: h.memory.content,
-        chunkText: h.chunk.text,
-        score: h.score,
-        tier: h.memory.tier,
-      })),
-      bm25Only: rich.bm25Only,
-    };
+    return this.tracer.startSpan(
+      'memory.search',
+      { op: 'db.query', topK, queryLength: query.length },
+      async () => {
+        const rich = await this.searchRich(query, topK, workspaceRoot);
+        return {
+          hits: rich.hits.map((h) => ({
+            memoryId: h.memory.id as string,
+            subject: h.memory.subject,
+            content: h.memory.content,
+            chunkText: h.chunk.text,
+            score: h.score,
+            tier: h.memory.tier,
+          })),
+          bm25Only: rich.bm25Only,
+        };
+      },
+    );
   }
 
   async searchRich(
+    query: string,
+    topK = 10,
+    workspaceRoot?: string,
+  ): Promise<MemorySearchResponse> {
+    return this.tracer.startSpan(
+      'memory.searchRich',
+      { op: 'db.query', topK, queryLength: query.length },
+      () => this.searchRichInner(query, topK, workspaceRoot),
+    );
+  }
+
+  private async searchRichInner(
     query: string,
     topK = 10,
     workspaceRoot?: string,
@@ -382,6 +403,18 @@ export class MemorySearchService implements IMemoryReader {
   }
 
   private async vecSearch(
+    query: string,
+    limit: number,
+    workspaceRoot?: string,
+  ): Promise<Array<FtsRow & { distance: number }>> {
+    return this.tracer.startSpan(
+      'memory.vecSearch',
+      { op: 'db.query.vector', topK: limit },
+      () => this.vecSearchInner(query, limit, workspaceRoot),
+    );
+  }
+
+  private async vecSearchInner(
     query: string,
     limit: number,
     workspaceRoot?: string,
@@ -533,6 +566,16 @@ export class MemorySearchService implements IMemoryReader {
    * the result is a pure-filter listing ordered by salience.
    */
   async searchIndex(
+    filter: MemSearchIndexFilter,
+  ): Promise<MemSearchIndexResponse> {
+    return this.tracer.startSpan(
+      'memory.searchIndex',
+      { op: 'db.query', topK: filter.topK ?? 20 },
+      () => this.searchIndexInner(filter),
+    );
+  }
+
+  private async searchIndexInner(
     filter: MemSearchIndexFilter,
   ): Promise<MemSearchIndexResponse> {
     const trimmedQuery = (filter.query ?? '').trim();

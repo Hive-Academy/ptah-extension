@@ -14,8 +14,12 @@ directories:
 asar: true
 compression: normal
 
-# Skip @electron/rebuild — rely on prebuilt native binaries (node-pty, sharp, etc.)
-# Source rebuild fails because npm tarballs omit git submodules (e.g. winpty).
+# npmRebuild: false — do NOT let electron-builder rebuild ALL native deps from
+# source (that fails: npm tarballs omit git submodules such as node-pty's winpty).
+# node-pty/sharp ship ABI-stable N-API prebuilts and need no rebuild. better-sqlite3
+# is the exception: it has no Electron-40 prebuilt, so scripts/rebuild-native.js
+# compiles it from source (@electron/rebuild) before packaging, and
+# scripts/verify-packed-native.js asserts the packed binary's ABI afterward.
 npmRebuild: false
 
 # QW-1: strip debug/source/doc files from all platform installers

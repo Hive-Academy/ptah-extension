@@ -9,7 +9,28 @@ import 'reflect-metadata';
 import { EventEmitter } from 'node:events';
 import { Worker } from 'node:worker_threads';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { ITracer } from '@ptah-extension/platform-core';
 import { EmbedderWorkerClient } from './embedder-worker-client';
+
+interface RecordingTracer extends ITracer {
+  readonly spans: string[];
+}
+
+function makeRecordingTracer(): RecordingTracer {
+  const spans: string[] = [];
+  return {
+    spans,
+    startSpan: <T>(
+      name: string,
+      _attrs: Record<string, string | number | boolean>,
+      fn: () => T,
+    ): T => {
+      spans.push(name);
+      return fn();
+    },
+    addBreadcrumb: () => undefined,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Fake Worker
@@ -66,9 +87,12 @@ function makeLogger(): Logger {
  */
 function makeClient(
   fakeHandler: (msg: unknown, reply: (resp: unknown) => void) => void,
+  tracer?: ITracer,
 ): EmbedderWorkerClient {
   const logger = makeLogger();
-  const client = new EmbedderWorkerClient(logger, '/fake/worker.mjs');
+  const client = tracer
+    ? new EmbedderWorkerClient(logger, '/fake/worker.mjs', tracer)
+    : new EmbedderWorkerClient(logger, '/fake/worker.mjs');
 
   const fake = new FakeWorker(fakeHandler);
 
@@ -157,6 +181,29 @@ describe('EmbedderWorkerClient.embed', () => {
     });
 
     await expect(client.embed(['crash'])).rejects.toThrow('OOM in worker');
+  });
+
+  it('wraps the embed round-trip in a memory.embed span and returns identical results', async () => {
+    const tracer = makeRecordingTracer();
+    const client = makeClient((msg, reply) => {
+      const m = msg as { id: number; type: string };
+      if (m.type === 'embed') {
+        reply({ id: m.id, ok: true, vectors: [[0.1, 0.2, 0.3]] });
+      }
+    }, tracer);
+
+    const result = await client.embed(['hello']);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBeInstanceOf(Float32Array);
+    expect(tracer.spans).toContain('memory.embed');
+  });
+
+  it('short-circuits empty input without opening a span', async () => {
+    const tracer = makeRecordingTracer();
+    const client = makeClient(() => undefined, tracer);
+    const result = await client.embed([]);
+    expect(result).toEqual([]);
+    expect(tracer.spans).not.toContain('memory.embed');
   });
 });
 

@@ -67,4 +67,7 @@ export const PLATFORM_TOKENS = {
 
   /** IMcpServerStatus — read-only port for querying the in-process MCP server status. Breaks the vscode-lm-tools ↔ cli-agent-runtime construction cycle. */
   MCP_SERVER_STATUS: Symbol.for('PlatformMcpServerStatus'),
+
+  /** ITracer — performance tracing port (spans + breadcrumbs). Adapters: SentryTracerAdapter / NoopTracer (vscode-core). */
+  TRACER: Symbol.for('Ptah.ITracer'),
 } as const;

@@ -188,9 +188,10 @@ jobs:
         run: python -m pip install setuptools
 
       # Rebuild better-sqlite3 for the runner's Node ABI before the real-native
-      # migration tests run. The Electron-ABI rebuild happens later inside
-      # electron-builder; at this point we want Node-ABI so Jest can require()
-      # better-sqlite3 directly and the SQL-M tests actually execute.
+      # migration tests run, so Jest can require() it directly and the SQL-M
+      # tests actually execute. It is recompiled for the Electron ABI by the
+      # "Rebuild better-sqlite3 for Electron ABI (pre-pack, from source)" step
+      # below, before electron-builder packs node_modules (npmRebuild: false).
       - name: Rebuild better-sqlite3 for runner Node ABI
         run: npm rebuild better-sqlite3
 
@@ -214,6 +215,22 @@ jobs:
       - name: Copy renderer
         run: npx nx copy-renderer ptah-electron
 
+      # CRITICAL: compile better-sqlite3 for the Electron ABI before packaging.
+      # The `npm rebuild better-sqlite3` step above built it for the runner's
+      # Node ABI so Jest could require() it for the native persistence tests.
+      # electron-builder runs with `npmRebuild: false`, so it packs node_modules
+      # as-is. better-sqlite3 ships NO Electron-40 prebuilt (only up to
+      # electron-v136 / Electron 37), so rebuild-native.js compiles it from
+      # source via @electron/rebuild. Without this the installer ships a
+      # Node-ABI binary that crashes Electron 40 with NODE_MODULE_VERSION
+      # mismatch (Memory/Skills/Cron/Gateway/Corpus all report
+      # PERSISTENCE_UNAVAILABLE on first run — Sentry 124004638).
+      - name: Rebuild better-sqlite3 for Electron ABI (pre-pack, from source)
+        run: node apps/ptah-electron/scripts/rebuild-native.js
+        env:
+          _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
+          CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
+
       - name: Package for platform
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never ${{ matrix.build-args }}
         env:
@@ -222,6 +239,12 @@ jobs:
           # _CL_ is for MSVC (Windows), CXXFLAGS is for GCC/Clang (Linux/macOS)
           _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
           CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
+
+      # Post-pack gate: prove the binary electron-builder actually placed inside
+      # the app carries the Electron ABI. Fails the job loudly instead of
+      # shipping a broken installer (the recurring Sentry 124004638 regression).
+      - name: Verify packed better-sqlite3 ABI
+        run: node apps/ptah-electron/scripts/verify-packed-native.js
 
       - name: Find Windows installer
         if: runner.os == 'Windows'

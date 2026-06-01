@@ -86,8 +86,8 @@ export class UpdateManager {
     const { autoUpdater } = await import('electron-updater');
     this._autoUpdater = autoUpdater;
 
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
 
     if (!this._listenersRegistered) {
       this._listenersRegistered = true;
@@ -204,6 +204,27 @@ export class UpdateManager {
     }
     const { autoUpdater } = await import('electron-updater');
     await autoUpdater.checkForUpdates();
+  }
+
+  /**
+   * Begin downloading an available update (called by the `update:download-now`
+   * RPC handler). With `autoDownload = false`, downloads only start on explicit
+   * user consent. Throws if no update is available so the handler can return a
+   * structured error; download progress flows through the `download-progress`
+   * and `update-downloaded` listeners registered in start().
+   */
+  async downloadUpdate(): Promise<void> {
+    if (!this._listenersRegistered) {
+      this.logger.warn(
+        '[UpdateManager] downloadUpdate called before start() — listeners not registered',
+      );
+      throw new Error('UpdateManager not started');
+    }
+    if (this._currentState.state !== 'available') {
+      throw new Error('No update is available to download');
+    }
+    const { autoUpdater } = await import('electron-updater');
+    await autoUpdater.downloadUpdate();
   }
 
   /**
