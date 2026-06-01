@@ -1,12 +1,15 @@
 /**
  * update-rpc.handlers.spec.ts
  *
- * Unit tests for UpdateRpcHandlers — the two Electron-local RPC methods
+ * Unit tests for UpdateRpcHandlers — the Electron-local RPC methods
  * that front the auto-update lifecycle:
  *
- *   update:check-now   — triggers an immediate update check via UpdateManager
- *   update:install-now — calls autoUpdater.quitAndInstall() when state=downloaded;
- *                        returns structured UPDATE_NOT_READY error otherwise
+ *   update:get-state    — returns the current lifecycle state (race-proof hydration)
+ *   update:check-now    — triggers an immediate update check via UpdateManager
+ *   update:download-now — calls updateManager.downloadUpdate() when state=available;
+ *                         returns structured UPDATE_NOT_AVAILABLE error otherwise
+ *   update:install-now  — calls autoUpdater.quitAndInstall() when state=downloaded;
+ *                         returns structured UPDATE_NOT_READY error otherwise
  *
  * Strategy:
  *   - Construct UpdateRpcHandlers directly (no DI container) by passing mocks.
@@ -49,6 +52,7 @@ jest.mock('electron-updater', () => ({
 
 interface MockUpdateManager {
   triggerCheck: jest.Mock;
+  downloadUpdate: jest.Mock;
   getCurrentState: jest.Mock<UpdateLifecycleState>;
 }
 
@@ -57,6 +61,7 @@ function createMockUpdateManager(
 ): MockUpdateManager {
   return {
     triggerCheck: jest.fn().mockResolvedValue(undefined),
+    downloadUpdate: jest.fn().mockResolvedValue(undefined),
     getCurrentState: jest
       .fn<UpdateLifecycleState, []>()
       .mockReturnValue(stateOverride),
@@ -130,6 +135,115 @@ describe('UpdateRpcHandlers', () => {
     handlers.register();
     return { handlers, rpcHandler };
   }
+
+  // -------------------------------------------------------------------------
+  // update:get-state
+  // -------------------------------------------------------------------------
+
+  describe('update:get-state', () => {
+    it('returns the current lifecycle state from updateManager', async () => {
+      const { rpcHandler } = buildHandlers({
+        state: 'available',
+        currentVersion: '1.0.0',
+        newVersion: '1.1.0',
+      });
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'update:get-state',
+        params: {},
+        correlationId: 'c-get-state',
+      });
+
+      expect(raw.success).toBe(true);
+      const data = raw.data as { state: UpdateLifecycleState };
+      expect(data.state).toEqual({
+        state: 'available',
+        currentVersion: '1.0.0',
+        newVersion: '1.1.0',
+      });
+      expect(updateManager.getCurrentState).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns { state: "idle" } when no update activity has occurred', async () => {
+      const { rpcHandler } = buildHandlers({ state: 'idle' });
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'update:get-state',
+        params: {},
+        correlationId: 'c-get-state-idle',
+      });
+
+      const data = raw.data as { state: UpdateLifecycleState };
+      expect(data.state).toEqual({ state: 'idle' });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // update:download-now
+  // -------------------------------------------------------------------------
+
+  describe('update:download-now', () => {
+    it('calls updateManager.downloadUpdate() when state is "available"', async () => {
+      const { rpcHandler } = buildHandlers({
+        state: 'available',
+        currentVersion: '1.0.0',
+        newVersion: '1.1.0',
+      });
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'update:download-now',
+        params: {},
+        correlationId: 'c-download-available',
+      });
+
+      expect(updateManager.downloadUpdate).toHaveBeenCalledTimes(1);
+      expect(raw.success).toBe(true);
+      const data = raw.data as Record<string, unknown>;
+      expect(data['success']).toBe(true);
+    });
+
+    it('returns { success: false, code: "UPDATE_NOT_AVAILABLE" } when no update is available', async () => {
+      const { rpcHandler } = buildHandlers({ state: 'idle' });
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'update:download-now',
+        params: {},
+        correlationId: 'c-download-idle',
+      });
+
+      expect(updateManager.downloadUpdate).not.toHaveBeenCalled();
+      const data = raw.data as Record<string, unknown>;
+      expect(data['success']).toBe(false);
+      expect(data['code']).toBe('UPDATE_NOT_AVAILABLE');
+    });
+
+    it('returns { success: false, code: "DOWNLOAD_FAILED" } when downloadUpdate throws', async () => {
+      const { rpcHandler } = buildHandlers({
+        state: 'available',
+        currentVersion: '1.0.0',
+        newVersion: '1.1.0',
+      });
+      updateManager.downloadUpdate.mockRejectedValue(new Error('disk full'));
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'update:download-now',
+        params: {},
+        correlationId: 'c-download-fail',
+      });
+
+      expect(raw.success).toBe(true);
+      const data = raw.data as Record<string, unknown>;
+      expect(data['success']).toBe(false);
+      expect(data['code']).toBe('DOWNLOAD_FAILED');
+      expect(data['error']).toContain('disk full');
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining(
+          '[UpdateRpcHandlers] update:download-now failed',
+        ),
+        expect.any(Error),
+      );
+    });
+  });
 
   // -------------------------------------------------------------------------
   // update:check-now

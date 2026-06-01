@@ -228,9 +228,9 @@ describe('UpdateBannerComponent', () => {
     expect(banner).toBeNull();
   });
 
-  // ---- Scenario 4: Restart Now disabled when state = available -------------
+  // ---- Scenario 4: Download button shown + enabled when state = available --
 
-  it('disables Restart Now button when state is available (not yet downloaded)', () => {
+  it('renders an enabled Download button when state is available (manual update flow)', () => {
     const stateSig = signal<UpdateLifecycleState>({
       state: 'available',
       currentVersion: '1.0.0',
@@ -240,12 +240,30 @@ describe('UpdateBannerComponent', () => {
     const { fixture } = setup({ stateSig });
     fixture.detectChanges();
 
-    const button = fixture.debugElement.query(
-      By.css('button[type="button"]:not(.btn-ghost)'),
-    );
+    const button = fixture.debugElement.query(By.css('button.btn-primary'));
     expect(button).not.toBeNull();
-    // The button should have the disabled attribute.
-    expect(button.nativeElement.disabled).toBe(true);
+    expect(button.nativeElement.textContent.trim()).toBe('Download');
+    expect(button.nativeElement.disabled).toBe(false);
+  });
+
+  it('calls update:download-now RPC when Download is clicked', async () => {
+    const stateSig = signal<UpdateLifecycleState>({
+      state: 'available',
+      currentVersion: '1.0.0',
+      newVersion: '1.1.0',
+      releaseNotesMarkdown: null,
+    });
+    const { fixture, rpcCall } = setup({ stateSig });
+    fixture.detectChanges();
+
+    const downloadBtn = fixture.debugElement.query(
+      By.css('button.btn-primary'),
+    );
+    downloadBtn.nativeElement.click();
+
+    await fixture.whenStable();
+
+    expect(rpcCall).toHaveBeenCalledWith('update:download-now', {});
   });
 
   // ---- Scenario 5: Restart Now enabled when state = downloaded -------------

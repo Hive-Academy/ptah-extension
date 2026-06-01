@@ -25,6 +25,7 @@ class MockAutoUpdater extends EventEmitter {
   currentVersion = { version: '1.0.0' };
 
   checkForUpdates = jest.fn().mockResolvedValue(undefined);
+  downloadUpdate = jest.fn().mockResolvedValue(undefined);
   quitAndInstall = jest.fn();
 }
 
@@ -85,6 +86,7 @@ beforeEach(() => {
   // Remove all listeners so tests are isolated
   mockAutoUpdater.removeAllListeners();
   mockAutoUpdater.checkForUpdates.mockReset().mockResolvedValue(undefined);
+  mockAutoUpdater.downloadUpdate.mockReset().mockResolvedValue(undefined);
   mockAutoUpdater.quitAndInstall.mockReset();
   mockAutoUpdater.currentVersion = { version: '1.0.0' };
   // Reset NODE_ENV to production-like for most tests
@@ -855,6 +857,64 @@ describe('UpdateManager', () => {
         '[UpdateManager] broadcastMessage failed',
         expect.any(Error),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Manual-update configuration: auto-download / auto-install disabled
+  // -------------------------------------------------------------------------
+
+  describe('manual update configuration', () => {
+    it('disables autoDownload and autoInstallOnAppQuit on start()', async () => {
+      mockAutoUpdater.autoDownload = true;
+      mockAutoUpdater.autoInstallOnAppQuit = true;
+      const { manager } = createUpdateManager();
+
+      await manager.start();
+
+      expect(mockAutoUpdater.autoDownload).toBe(false);
+      expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // downloadUpdate() — manual download flow
+  // -------------------------------------------------------------------------
+
+  describe('downloadUpdate()', () => {
+    it('throws "UpdateManager not started" when called before start()', async () => {
+      const { manager } = createUpdateManager();
+
+      await expect(manager.downloadUpdate()).rejects.toThrow(
+        'UpdateManager not started',
+      );
+    });
+
+    it('throws when no update is available (state !== "available")', async () => {
+      const { manager } = createUpdateManager();
+      await manager.start();
+
+      await expect(manager.downloadUpdate()).rejects.toThrow(
+        'No update is available to download',
+      );
+      expect(mockAutoUpdater.downloadUpdate).not.toHaveBeenCalled();
+    });
+
+    it('calls autoUpdater.downloadUpdate() when an update is available', async () => {
+      const { manager } = createUpdateManager();
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      } as unknown as Response);
+
+      await manager.start();
+
+      mockAutoUpdater.emit('update-available', { version: '2.0.0' });
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+
+      await expect(manager.downloadUpdate()).resolves.not.toThrow();
+      expect(mockAutoUpdater.downloadUpdate).toHaveBeenCalledTimes(1);
     });
   });
 });
