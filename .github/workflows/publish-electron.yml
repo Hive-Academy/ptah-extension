@@ -311,9 +311,26 @@ jobs:
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-          $binaries = Get-ChildItem -Path $unpacked -Recurse -File |
+          # Extension alone is not enough: node_modules ships cross-platform native
+          # addons, so a Linux (.node = ELF) or macOS (.node = Mach-O) binary can
+          # carry a .node/.dll name yet not be a Windows PE. CodeSignTool's
+          # batch_sign hashes every file as a PE and aborts on the first one
+          # without an "MZ" DOS header ("DOS header signature not found"). Filter
+          # to real PE files by reading the first two magic bytes (0x4D 0x5A).
+          $candidates = Get-ChildItem -Path $unpacked -Recurse -File |
             Where-Object { $_.Extension -in '.exe', '.dll', '.node' }
-          if ($binaries.Count -eq 0) { throw "No .exe/.dll/.node binaries found under $unpacked" }
+          $binaries = @()
+          $skipped = @()
+          foreach ($c in $candidates) {
+            $fs = [System.IO.File]::OpenRead($c.FullName)
+            try { $b0 = $fs.ReadByte(); $b1 = $fs.ReadByte() } finally { $fs.Dispose() }
+            if ($b0 -eq 0x4D -and $b1 -eq 0x5A) { $binaries += $c } else { $skipped += $c }
+          }
+          if ($skipped.Count -gt 0) {
+            Write-Host "Skipping $($skipped.Count) non-PE file(s) (no MZ header — not Windows binaries):"
+            $skipped | ForEach-Object { Write-Host "  SKIP $($_.FullName)" }
+          }
+          if ($binaries.Count -eq 0) { throw "No Windows PE (.exe/.dll/.node) binaries found under $unpacked" }
           if ($binaries.Count -gt 100) {
             throw "Found $($binaries.Count) binaries — CodeSignTool batch_sign caps at 100 per OTP. Split into batches."
           }
