@@ -310,6 +310,13 @@ jobs:
           $stage = "dist\sign-stage"
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          # CodeSignTool batch_sign writes signed files to output_path and does
+          # NOT overwrite input in place — output_path MUST differ from dir_path,
+          # otherwise the originals stay unsigned (Get-AuthenticodeSignature ->
+          # NotSigned). Sign into a separate dir and copy back from there.
+          $signedDir = "dist\sign-out"
+          Remove-Item -Recurse -Force $signedDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $signedDir | Out-Null
 
           # Extension alone is not enough: node_modules ships cross-platform native
           # addons, so a Linux (.node = ELF) or macOS (.node = Mach-O) binary can
@@ -353,6 +360,7 @@ jobs:
           Write-Host "Staged $($binaries.Count) binaries into $stage for batch signing:"
           $binaries | ForEach-Object { Write-Host "  $($_.FullName)" }
           echo "stage_dir=$stage" >> $env:GITHUB_OUTPUT
+          echo "signed_dir=$signedDir" >> $env:GITHUB_OUTPUT
           echo "manifest=$manifestPath" >> $env:GITHUB_OUTPUT
           echo "count=$($binaries.Count)" >> $env:GITHUB_OUTPUT
 
@@ -368,7 +376,7 @@ jobs:
           credential_id: ${{ secrets.SSL_COM_CREDENTIAL_ID }}
           totp_secret: ${{ secrets.SSL_COM_TOTP_SECRET }}
           dir_path: ${{ steps.stage-sign.outputs.stage_dir }}
-          output_path: ${{ steps.stage-sign.outputs.stage_dir }}
+          output_path: ${{ steps.stage-sign.outputs.signed_dir }}
           override: true
           environment_name: PROD
           malware_block: false
@@ -380,12 +388,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $stage = "${{ steps.stage-sign.outputs.stage_dir }}"
+          $signedDir = "${{ steps.stage-sign.outputs.signed_dir }}"
           $manifest = Get-Content "${{ steps.stage-sign.outputs.manifest }}" -Raw | ConvertFrom-Json
           $missing = @()
           $unsigned = @()
           foreach ($entry in $manifest) {
-            $signed = Join-Path $stage $entry.staged
+            $signed = Join-Path $signedDir $entry.staged
             if (-not (Test-Path $signed)) { $missing += $entry.staged; continue }
             $sig = Get-AuthenticodeSignature -LiteralPath $signed
             if ($sig.Status -ne 'Valid') { $unsigned += "$($entry.staged) [$($sig.Status)]" }
