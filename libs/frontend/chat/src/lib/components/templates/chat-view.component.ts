@@ -29,6 +29,7 @@ import {
   QuestionCardComponent,
   SessionStatsSummaryComponent,
   CompactionNotificationComponent,
+  CompactionMarkerComponent,
   SidebarTabComponent,
 } from '@ptah-extension/chat-ui';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
@@ -130,6 +131,7 @@ function filterCompactionNoise(
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
     CompactionNotificationComponent,
+    CompactionMarkerComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
   ],
@@ -531,6 +533,17 @@ export class ChatViewComponent {
     return (
       this._conversationRegistry.compactionStateFor(convId)?.inFlight ?? false
     );
+  });
+
+  readonly resolvedCompactionMarker = computed(() => {
+    const tab = this.resolvedTab();
+    const rawTabId = tab?.id ?? this._tabManager.activeTabId();
+    if (!rawTabId) return null;
+    const tabId = TabId.safeParse(rawTabId);
+    if (!tabId) return null;
+    const convId = this._tabSessionBinding.conversationFor(tabId);
+    if (!convId) return null;
+    return this._conversationRegistry.compactionMarkerFor(convId);
   });
 
   /**

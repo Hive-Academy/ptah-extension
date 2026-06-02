@@ -366,6 +366,9 @@ export class ChatStore {
       this.compaction.handleCompactionComplete({
         tabId: result.tabId,
         compactionSessionId: result.compactionSessionId,
+        preTokens: result.preTokens,
+        postTokens: result.postTokens,
+        durationMs: result.durationMs,
       });
       return;
     }

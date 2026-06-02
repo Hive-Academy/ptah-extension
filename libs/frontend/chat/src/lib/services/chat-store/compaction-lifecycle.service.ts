@@ -178,6 +178,9 @@ export class CompactionLifecycleService {
   handleCompactionComplete(result: {
     tabId: string;
     compactionSessionId: string;
+    preTokens?: number;
+    postTokens?: number;
+    durationMs?: number;
   }): void {
     if (this.compactionTimeoutId) {
       clearTimeout(this.compactionTimeoutId);
@@ -198,6 +201,17 @@ export class CompactionLifecycleService {
     const fanoutTabs = Array.from(fanoutMap.values()).filter(
       (t): t is NonNullable<typeof originatingTab> => t != null,
     );
+    const completedAt = Date.now();
+    for (const convId of this.collectConversationIdsForTabs(
+      fanoutTabs.map((t) => t.id),
+    )) {
+      this.conversationRegistry.setCompactionMarkerTokens(convId, {
+        preTokens: result.preTokens ?? null,
+        postTokens: result.postTokens ?? null,
+        durationMs: result.durationMs ?? null,
+        completedAt,
+      });
+    }
     const compactionTab = originatingTab;
     if (compactionTab) {
       const priorPreloaded = compactionTab.preloadedStats ?? null;
@@ -251,7 +265,7 @@ export class CompactionLifecycleService {
       };
       for (const sid of reloadIds) {
         this.sessionLoader
-          .switchSession(sid)
+          .switchSession(sid, { reason: 'compaction' })
           .catch((err) => {
             console.warn(
               '[ChatStore] Failed to reload session after compaction:',
@@ -301,6 +315,10 @@ export class CompactionLifecycleService {
           convId,
           payload.timestamp,
         );
+        this.conversationRegistry.setCompactionMarkerSummary(convId, {
+          summary: payload.compactSummary,
+          completedAt: payload.timestamp,
+        });
       } catch (error: unknown) {
         console.warn(
           '[ChatStore] handleCompactionCompleteNotification: registry stamp failed',
