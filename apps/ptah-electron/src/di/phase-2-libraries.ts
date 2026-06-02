@@ -43,6 +43,7 @@ import {
   registerMessagingGatewayServices,
   GATEWAY_TOKENS,
 } from '@ptah-extension/messaging-gateway';
+import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 
@@ -145,6 +146,7 @@ export function registerPhase2Libraries(
       useClass: ElectronSafeStorageVault,
     });
     registerMessagingGatewayServices(container, logger);
+    registerGatewayChatBridge(container, logger);
     logger.info(
       '[Electron DI] Messaging gateway services registered (Track 4)',
     );

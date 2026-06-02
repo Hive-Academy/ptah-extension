@@ -43,6 +43,7 @@ if (!gotLock) {
   let skillTrigger: { stop: () => void } | null = null;
   let cronScheduler: { stop: () => void } | null = null;
   let messagingGateway: { stop: () => Promise<void> } | null = null;
+  let chatBridge: { stop: () => void } | null = null;
   let symbolWatcher: { close: () => void } | null = null;
   let licenseReactivityDisposable: { dispose: () => void } | null = null;
   let statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null =
@@ -126,6 +127,7 @@ if (!gotLock) {
     revalidationInterval = post.revalidationInterval;
     updateCheckInterval = post.updateCheckInterval;
     messagingGateway = post.messagingGateway;
+    chatBridge = post.chatBridge;
   });
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -246,6 +248,14 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] SQLite close failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      chatBridge?.stop();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Gateway chat bridge stop failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }
