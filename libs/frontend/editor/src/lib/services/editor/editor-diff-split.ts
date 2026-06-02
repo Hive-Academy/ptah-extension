@@ -49,12 +49,28 @@ export class EditorDiffSplitHelper {
       ),
     ]);
 
+    if (!currentResult.success) {
+      this.state.isLoading.set(false);
+      this.state.showError(
+        `Failed to open ${extractFileName(relativePath)} for diff: ${
+          currentResult.error ?? 'unknown error'
+        }`,
+      );
+      return;
+    }
+
+    if (!originalResult.success) {
+      this.state.showError(
+        `Failed to read HEAD revision of ${extractFileName(relativePath)}: ${
+          originalResult.error ?? 'unknown error'
+        }`,
+      );
+    }
+
     const originalContent = originalResult.success
       ? (originalResult.data?.content ?? '')
       : '';
-    const currentContent = currentResult.success
-      ? (currentResult.data?.content ?? '')
-      : '';
+    const currentContent = currentResult.data?.content ?? '';
 
     const fileName = extractFileName(relativePath);
 
