@@ -118,6 +118,8 @@ export class SqliteConnectionService {
   /** Test seam: resolver for the sqlite-vec extension path. */
   private vecPathResolver: SqliteVecPathResolver | null =
     defaultSqliteVecPathResolver;
+  private vecPathPlatformResolver: SqliteVecPathResolver | null =
+    requireResolveVecPath;
   private vecPathFallbackResolver: SqliteVecPathResolver | null = null;
   /** Optional backup service — set via configure() or DI post-construction. */
   private backupService: IBackupService | undefined = undefined;
@@ -140,12 +142,15 @@ export class SqliteConnectionService {
   configure(options: {
     factory?: SqliteDatabaseFactory;
     vecPathResolver?: SqliteVecPathResolver | null;
+    vecPathPlatformResolver?: SqliteVecPathResolver | null;
     vecPathFallbackResolver?: SqliteVecPathResolver | null;
     backupService?: IBackupService;
   }): void {
     if (options.factory) this.factory = options.factory;
     if (options.vecPathResolver !== undefined)
       this.vecPathResolver = options.vecPathResolver;
+    if (options.vecPathPlatformResolver !== undefined)
+      this.vecPathPlatformResolver = options.vecPathPlatformResolver;
     if (options.vecPathFallbackResolver !== undefined)
       this.vecPathFallbackResolver = options.vecPathFallbackResolver;
     if (options.backupService !== undefined)
@@ -612,7 +617,14 @@ export class SqliteConnectionService {
       resolve: () => string;
     }> = [
       { name: 'primary-resolver', resolve: this.vecPathResolver },
-      { name: 'require-resolve-platform-pkg', resolve: requireResolveVecPath },
+      ...(this.vecPathPlatformResolver
+        ? [
+            {
+              name: 'require-resolve-platform-pkg',
+              resolve: this.vecPathPlatformResolver,
+            },
+          ]
+        : []),
       ...(this.vecPathFallbackResolver
         ? [
             {
@@ -738,8 +750,14 @@ const requireResolveVecPath: SqliteVecPathResolver = () => {
     );
   }
   const binaryName = resolveVecBinaryName();
-  const specifier = `${packageName}/${binaryName}`;
-  return require.resolve(specifier);
+  const baseDir = path.dirname(require.resolve('sqlite-vec'));
+  const candidate = path.join(baseDir, '..', packageName, binaryName);
+  if (!fs.existsSync(candidate)) {
+    throw new Error(
+      `sqlite-vec platform binary does not exist on disk: ${candidate}`,
+    );
+  }
+  return candidate;
 };
 
 /** Lazy default factory that requires better-sqlite3 only when invoked. */

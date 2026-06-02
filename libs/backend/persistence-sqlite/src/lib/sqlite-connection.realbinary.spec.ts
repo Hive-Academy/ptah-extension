@@ -95,7 +95,7 @@ describe('SqliteConnectionService — real-binary vec load (skipped without nati
   );
 
   maybe(
-    'records load-failed reason when every strategy fails (primary + host fallback both bad)',
+    'records load-failed reason when every strategy fails (primary + platform + host fallback all bad)',
     async () => {
       const service = new SqliteConnectionService(
         makeTempDbPath(),
@@ -105,60 +105,34 @@ describe('SqliteConnectionService — real-binary vec load (skipped without nati
         vecPathResolver: () => {
           throw new Error('synthetic primary failure');
         },
+        vecPathPlatformResolver: () => {
+          throw new Error('synthetic platform failure');
+        },
         vecPathFallbackResolver: () => {
           throw new Error('synthetic host fallback failure');
         },
       });
 
-      const platformSpecifiers: ReadonlyArray<string> = [
-        'sqlite-vec-windows-x64/vec0.dll',
-        'sqlite-vec-windows-arm64/vec0.dll',
-        'sqlite-vec-darwin-arm64/vec0.dylib',
-        'sqlite-vec-darwin-x64/vec0.dylib',
-        'sqlite-vec-linux-x64/vec0.so',
-        'sqlite-vec-linux-arm64/vec0.so',
-      ];
-      let moduleResolveAvailable = false;
-      const probeErrors: string[] = [];
-      for (const specifier of platformSpecifiers) {
-        try {
-          require.resolve(specifier);
-          moduleResolveAvailable = true;
-          break;
-        } catch (err: unknown) {
-          probeErrors.push(
-            `${specifier}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-      if (!moduleResolveAvailable) {
-        process.stderr.write(
-          `[realbinary-spec] no sqlite-vec platform package resolvable: ${probeErrors.join('; ')}\n`,
-        );
-      }
-
       await service.openAndMigrate();
 
       const diag = service.vecLoadDiagnostic;
+      expect(service.vecExtensionLoaded).toBe(false);
+      expect(diag.ok).toBe(false);
+      expect(['load-failed', 'binary-missing']).toContain(diag.reason);
+      expect(diag.error?.message.length ?? 0).toBeGreaterThan(0);
       expect(diag.errorChain).toBeDefined();
-      expect((diag.errorChain ?? []).length).toBeGreaterThanOrEqual(2);
+      expect((diag.errorChain ?? []).length).toBeGreaterThanOrEqual(3);
       expect(
         (diag.errorChain ?? []).some((e) => e.strategy === 'primary-resolver'),
       ).toBe(true);
       expect(
+        (diag.errorChain ?? []).some(
+          (e) => e.strategy === 'require-resolve-platform-pkg',
+        ),
+      ).toBe(true);
+      expect(
         (diag.errorChain ?? []).some((e) => e.strategy === 'host-fallback'),
       ).toBe(true);
-
-      if (moduleResolveAvailable) {
-        expect(service.vecExtensionLoaded).toBe(true);
-        expect(diag.ok).toBe(true);
-        expect(diag.reason).toBe('ok');
-      } else {
-        expect(service.vecExtensionLoaded).toBe(false);
-        expect(diag.ok).toBe(false);
-        expect(['load-failed', 'binary-missing']).toContain(diag.reason);
-        expect(diag.error?.message.length ?? 0).toBeGreaterThan(0);
-      }
 
       service.close();
     },
