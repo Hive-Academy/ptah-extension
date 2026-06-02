@@ -379,7 +379,10 @@ jobs:
           output_path: ${{ steps.stage-sign.outputs.signed_dir }}
           override: true
           environment_name: PROD
-          malware_block: false
+          # SSL.com PROD requires each hash to be malware-scanned before it will
+          # sign ("hash needs to be scanned first before submitting for signing").
+          # malware_block: true makes CodeSignTool submit the scan and wait.
+          malware_block: true
 
       # Phase 2c: copy each signed binary back over its original nested location
       # (restoring the .node extension). Fail loudly if a staged file is missing
