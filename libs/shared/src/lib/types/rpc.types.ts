@@ -409,10 +409,6 @@ import type {
   UpdateGetStateResult,
   UpdateCheckNowParams,
   UpdateCheckNowResult,
-  UpdateDownloadNowParams,
-  UpdateDownloadNowResult,
-  UpdateInstallNowParams,
-  UpdateInstallNowResult,
 } from './rpc/rpc-update.types';
 
 import type {
@@ -1481,14 +1477,6 @@ export interface RpcMethodRegistry {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
   };
-  'update:download-now': {
-    params: UpdateDownloadNowParams;
-    result: UpdateDownloadNowResult;
-  };
-  'update:install-now': {
-    params: UpdateInstallNowParams;
-    result: UpdateInstallNowResult;
-  };
 }
 
 export interface SkillSynthesisCandidateSummary {
@@ -2159,8 +2147,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
 
   'update:get-state': true,
   'update:check-now': true,
-  'update:download-now': true,
-  'update:install-now': true,
 };
 
 /**

@@ -82,7 +82,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'db:', // DB health + reset — maintenance commands
   'subagent:', // Bidirectional subagent messaging (send-message, stop, interrupt)
   'indexing:', // Workspace indexing control
-  'update:', // Electron auto-update UX (check-now, install-now)
+  'update:', // Desktop update banner (get-state, check-now)
 ] as const;
 
 /**

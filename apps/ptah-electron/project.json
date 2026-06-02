@@ -26,7 +26,6 @@
         "esbuildConfig": "apps/ptah-electron/esbuild.config.cjs",
         "external": [
           "electron",
-          "electron-updater",
           "@anthropic-ai/claude-agent-sdk",
           "@github/copilot-sdk",
           "@openai/codex-sdk",

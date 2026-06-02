@@ -13,7 +13,7 @@
  * When the user clicks "Later", the service transitions to
  * `{ state: 'dismissed' }`. Background re-checks emit `idle` and `checking`
  * states which MUST NOT re-show the banner. Only the actionable states
- * (`available`, `downloading`, `downloaded`, `error`) can exit dismissed.
+ * (`available`, `error`) can exit dismissed.
  */
 
 import { Injectable, inject, signal } from '@angular/core';
