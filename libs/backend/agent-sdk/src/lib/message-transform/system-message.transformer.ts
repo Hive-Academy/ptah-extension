@@ -28,7 +28,12 @@ import type { TransformerHelpers } from './transformer-helpers';
 export class SystemMessageTransformer {
   transformCompactBoundary(
     sdkMessage: SDKMessage & {
-      compact_metadata: { trigger: 'manual' | 'auto'; pre_tokens: number };
+      compact_metadata: {
+        trigger: 'manual' | 'auto';
+        pre_tokens: number;
+        post_tokens?: number;
+        duration_ms?: number;
+      };
       session_id?: string;
     },
     state: TransformerState,
@@ -72,6 +77,8 @@ export class SystemMessageTransformer {
       messageId: `compaction-${Date.now()}`,
       trigger: sdkMessage.compact_metadata.trigger,
       preTokens: sdkMessage.compact_metadata.pre_tokens,
+      postTokens: sdkMessage.compact_metadata.post_tokens,
+      durationMs: sdkMessage.compact_metadata.duration_ms,
     };
 
     return [compactionCompleteEvent];

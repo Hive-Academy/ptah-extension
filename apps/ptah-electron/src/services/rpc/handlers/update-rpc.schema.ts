@@ -16,13 +16,3 @@ export type UpdateGetStateInput = z.infer<typeof UpdateGetStateSchema>;
 export const UpdateCheckNowSchema = z.object({});
 
 export type UpdateCheckNowInput = z.infer<typeof UpdateCheckNowSchema>;
-
-/** Validated shape for the `update:download-now` RPC method. */
-export const UpdateDownloadNowSchema = z.object({});
-
-export type UpdateDownloadNowInput = z.infer<typeof UpdateDownloadNowSchema>;
-
-/** Validated shape for the `update:install-now` RPC method. */
-export const UpdateInstallNowSchema = z.object({});
-
-export type UpdateInstallNowInput = z.infer<typeof UpdateInstallNowSchema>;

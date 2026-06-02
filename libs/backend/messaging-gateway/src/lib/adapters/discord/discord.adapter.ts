@@ -1,21 +1,34 @@
 /**
  * Discord adapter — slash-commands ONLY (architecture §9.7).
  *
+ * Conversation model: one Discord thread per channel-conversation.
+ *
  * On inbound `/ptah <prompt>` interaction the adapter:
  *   1. Calls `interaction.deferReply()` immediately so Discord doesn't
  *      time out the 3-second initial-response window.
- *   2. Stores the interaction reference keyed by externalMsgId so a
- *      subsequent `editMessage` can call `editReply()` against the same
- *      interaction (Discord requires this — followups can't be edited
- *      once they've been finalized).
+ *   2. Resolves-or-creates a public thread for the channel (keyed by
+ *      `interaction.channelId`) and `editReply()`s a short pointer to it.
+ *      This happens well inside the 15-minute interaction-token window.
+ *   3. Emits the inbound message exactly as before.
  *
- * Because we run plaintext (architecture §11 default 4) the body is sent
- * as raw text to `editReply` / `followUp`.
+ * All outbound traffic (`sendMessage` / `editMessage`) targets DURABLE
+ * channel/thread messages via the bot REST API (`thread.send`,
+ * `channel.send`, `message.edit`). Those have no token-expiry, so
+ * multi-turn and unprompted messages work indefinitely — unlike the
+ * interaction/webhook token, which expires after 15 minutes.
+ *
+ * Required bot permissions: "Send Messages", "Create Public Threads",
+ * "Send Messages in Threads". The gateway intent stays `Guilds` only —
+ * thread create/send needs no privileged intent.
+ *
+ * The conversation→thread map is in-memory (v1). Persistence across
+ * process restarts is OUT OF SCOPE — on restart the next `/ptah` in a
+ * channel simply creates a fresh thread. (Follow-up: persist the map.)
  *
  * Mocking strategy (default 5): the discord.js client is constructed via
  * a factory; tests pass a `FakeDiscordClient` exposing the small surface
- * we touch: `login`, `destroy`, `on('interactionCreate', ...)` plus
- * synthetic interaction objects with `deferReply`, `editReply`, `followUp`.
+ * we touch: `login`, `destroy`, `on('interactionCreate', ...)`,
+ * `channels.fetch`, thread create/send, channel send, message edit.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -38,10 +51,34 @@ export interface DiscordInteractionLike {
   options: { getString(name: string): string | null };
   deferReply(): Promise<unknown>;
   editReply(payload: string | { content: string }): Promise<unknown>;
-  followUp(payload: string | { content: string }): Promise<{ id: string }>;
+}
+
+export interface DiscordMessageLike {
+  id: string;
+  edit(payload: string | { content: string }): Promise<unknown>;
+}
+
+export interface DiscordThreadLike {
+  id: string;
+  send(payload: string | { content: string }): Promise<DiscordMessageLike>;
+  setArchived(archived: boolean): Promise<unknown>;
+}
+
+export interface DiscordTextChannelLike {
+  threads: {
+    create(opts: {
+      name: string;
+      autoArchiveDuration: number;
+      type: number;
+    }): Promise<DiscordThreadLike>;
+  };
+  send(payload: string | { content: string }): Promise<DiscordMessageLike>;
 }
 
 export interface DiscordClientLike {
+  channels: {
+    fetch(channelId: string): Promise<DiscordTextChannelLike | null>;
+  };
   login(token: string): Promise<unknown>;
   destroy(): Promise<unknown> | unknown;
   on(
@@ -56,12 +93,33 @@ const defaultFactory: DiscordClientFactory = () => {
   const { Client, GatewayIntentBits } = require('discord.js') as {
     Client: new (opts: { intents: number[] }) => DiscordClientLike;
     GatewayIntentBits: { Guilds: number };
+    ChannelType: { PublicThread: number };
   };
   return new Client({ intents: [GatewayIntentBits.Guilds] });
 };
 
+function resolvePublicThreadType(): number {
+  try {
+    const { ChannelType } = require('discord.js') as {
+      ChannelType: { PublicThread: number };
+    };
+    return ChannelType.PublicThread;
+  } catch {
+    return PUBLIC_THREAD_TYPE_FALLBACK;
+  }
+}
+
 const PER_CHANNEL_EDIT_LIMIT = 5;
 const PER_CHANNEL_WINDOW_MS = 5_000;
+const THREAD_AUTO_ARCHIVE_MINUTES = 10_080;
+const THREAD_NAME_PROMPT_CHARS = 40;
+const PUBLIC_THREAD_TYPE_FALLBACK = 11;
+
+interface ConversationThread {
+  threadId: string;
+  thread: DiscordThreadLike;
+  currentMsgId?: string;
+}
 
 @injectable()
 export class DiscordAdapter implements IMessagingAdapter {
@@ -72,14 +130,10 @@ export class DiscordAdapter implements IMessagingAdapter {
   private running = false;
 
   private allowedGuildIds = new Set<string>();
-  /** Latest interaction handle keyed by externalMsgId so we can editReply. */
-  private interactions = new Map<string, DiscordInteractionLike>();
-  /**
-   * Pending interactions per channel, in arrival order. `consumeFreshInteractionForChannel`
-   * pops the most recent so the flush response goes to the user who actually
-   * invoked the slash command — not a bystander's older interaction.
-   */
-  private pendingByChannel = new Map<string, DiscordInteractionLike[]>();
+  /** channelId → resolved thread for that conversation. */
+  private threadsByChannel = new Map<string, ConversationThread>();
+  /** outbound message id → its live Message handle (for editMessage). */
+  private messagesById = new Map<string, DiscordMessageLike>();
   /** Per-channel sliding window for edit rate limit. */
   private channelEdits = new Map<string, number[]>();
 
@@ -128,23 +182,24 @@ export class DiscordAdapter implements IMessagingAdapter {
       });
     }
     this.client = null;
-    this.interactions.clear();
-    this.pendingByChannel.clear();
+    this.threadsByChannel.clear();
+    this.messagesById.clear();
     this.channelEdits.clear();
   }
 
   async sendMessage(externalChatId: string, body: string): Promise<SendResult> {
-    const interaction = this.consumeFreshInteractionForChannel(externalChatId);
-    if (!interaction) {
-      throw new Error(
-        `Discord adapter: no active interaction for channel ${externalChatId}; ` +
-          `Discord requires an interaction context for outbound messages.`,
-      );
-    }
     await this.respectChannelRateLimit(externalChatId);
-    const res = await interaction.followUp({ content: body });
-    this.interactions.set(res.id, interaction);
-    return { externalMsgId: res.id };
+    const conversation = this.threadsByChannel.get(externalChatId);
+    let message: DiscordMessageLike;
+    if (conversation) {
+      message = await conversation.thread.send({ content: body });
+      conversation.currentMsgId = message.id;
+    } else {
+      const channel = await this.requireChannel(externalChatId);
+      message = await channel.send({ content: body });
+    }
+    this.messagesById.set(message.id, message);
+    return { externalMsgId: message.id };
   }
 
   async editMessage(
@@ -152,14 +207,14 @@ export class DiscordAdapter implements IMessagingAdapter {
     externalMsgId: string,
     body: string,
   ): Promise<void> {
-    const interaction = this.interactions.get(externalMsgId);
-    if (!interaction) {
+    const message = this.messagesById.get(externalMsgId);
+    if (!message) {
       throw new Error(
-        `Discord adapter: no interaction recorded for message ${externalMsgId}`,
+        `Discord adapter: no message recorded for ${externalMsgId}`,
       );
     }
     await this.respectChannelRateLimit(externalChatId);
-    await interaction.editReply({ content: body });
+    await message.edit({ content: body });
   }
 
   on(event: 'inbound', listener: InboundListener): void {
@@ -167,14 +222,47 @@ export class DiscordAdapter implements IMessagingAdapter {
     this.listener = listener;
   }
 
-  private consumeFreshInteractionForChannel(
+  private async requireChannel(
     channelId: string,
-  ): DiscordInteractionLike | null {
-    const queue = this.pendingByChannel.get(channelId);
-    if (!queue || queue.length === 0) return null;
-    const interaction = queue.pop() ?? null;
-    if (queue.length === 0) this.pendingByChannel.delete(channelId);
-    return interaction;
+  ): Promise<DiscordTextChannelLike> {
+    if (!this.client) {
+      throw new Error('Discord adapter: client not started');
+    }
+    const channel = await this.client.channels.fetch(channelId);
+    if (!channel) {
+      throw new Error(`Discord adapter: channel ${channelId} not found`);
+    }
+    return channel;
+  }
+
+  private async resolveThread(
+    channelId: string,
+    prompt: string,
+  ): Promise<ConversationThread> {
+    const existing = this.threadsByChannel.get(channelId);
+    if (existing) {
+      await existing.thread.setArchived(false);
+      return existing;
+    }
+    const channel = await this.requireChannel(channelId);
+    const name = this.threadName(prompt);
+    const thread = await channel.threads.create({
+      name,
+      autoArchiveDuration: THREAD_AUTO_ARCHIVE_MINUTES,
+      type: resolvePublicThreadType(),
+    });
+    const conversation: ConversationThread = {
+      threadId: thread.id,
+      thread,
+    };
+    this.threadsByChannel.set(channelId, conversation);
+    return conversation;
+  }
+
+  private threadName(prompt: string): string {
+    const trimmed = prompt.trim();
+    const slice = trimmed.slice(0, THREAD_NAME_PROMPT_CHARS).trim();
+    return slice.length ? `Ptah: ${slice}` : 'Ptah';
   }
 
   private async handleInteraction(
@@ -195,11 +283,14 @@ export class DiscordAdapter implements IMessagingAdapter {
       }
     }
     await interaction.deferReply();
-    this.interactions.set(interaction.id, interaction);
-    const queue = this.pendingByChannel.get(interaction.channelId) ?? [];
-    queue.push(interaction);
-    this.pendingByChannel.set(interaction.channelId, queue);
     const prompt = interaction.options.getString('prompt') ?? '';
+    const conversation = await this.resolveThread(
+      interaction.channelId,
+      prompt,
+    );
+    await interaction.editReply({
+      content: `Working in thread <#${conversation.threadId}>`,
+    });
     const externalChatId = interaction.channelId;
     const inbound: InboundMessage = {
       platform: 'discord',

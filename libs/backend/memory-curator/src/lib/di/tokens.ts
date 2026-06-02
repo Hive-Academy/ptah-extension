@@ -33,6 +33,8 @@ export const MEMORY_TOKENS = {
   CORPUS_STORE: Symbol.for('PtahCorpusStore'),
   /** KnowledgeAgentService — orchestrates corpus build/prime/query/rebuild. */
   KNOWLEDGE_AGENT_SERVICE: Symbol.for('PtahKnowledgeAgentService'),
+  /** EmbedderStatusService — single source of truth for bge-small ONNX readiness + lazy download progress. */
+  EMBEDDER_STATUS: Symbol.for('PtahEmbedderStatus'),
 } as const;
 
 export type MemoryDIToken = keyof typeof MEMORY_TOKENS;

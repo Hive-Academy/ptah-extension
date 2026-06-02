@@ -41,6 +41,7 @@ export {
 export {
   ConversationRegistry,
   type ConversationRecord,
+  type CompactionMarkerRecord,
   type CompactionStatePatch,
   type CompactionStateView,
 } from './lib/conversation-registry.service';

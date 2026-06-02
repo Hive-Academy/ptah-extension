@@ -15,8 +15,25 @@ export type {
   SqliteVecPathResolver,
 } from './lib/sqlite-connection.service';
 
+export type {
+  VecLoadDiagnostic,
+  VecLoadReason,
+  VecLoadAttemptError,
+} from './lib/vec-load-diagnostic';
+export {
+  resolveVecPackageName,
+  resolveVecBinaryName,
+} from './lib/vec-load-diagnostic';
+
 export type { IBackupService, BackupKind } from './lib/backup.service';
 export { SqliteBackupService } from './lib/backup.service';
+
+export { VecStatusService } from './lib/vec-status.service';
+export type {
+  VecStatusSnapshot,
+  VecStatusChangeListener,
+  Disposable as VecStatusDisposable,
+} from './lib/vec-status.service';
 
 export { SqliteMigrationRunner } from './lib/migration-runner';
 export type { MigrationRunResult } from './lib/migration-runner';

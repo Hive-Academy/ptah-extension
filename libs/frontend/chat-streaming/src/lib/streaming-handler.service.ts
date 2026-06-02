@@ -94,6 +94,9 @@ export class StreamingHandlerService {
     queuedContent?: string;
     compactionSessionId?: string;
     compactionComplete?: boolean;
+    preTokens?: number;
+    postTokens?: number;
+    durationMs?: number;
   } | null {
     try {
       let primaryTab: TabState | undefined;
@@ -189,6 +192,9 @@ export class StreamingHandlerService {
     queuedContent?: string;
     compactionSessionId?: string;
     compactionComplete?: boolean;
+    preTokens?: number;
+    postTokens?: number;
+    durationMs?: number;
   } | null {
     let targetTab = initialTab;
     if (sessionId && !targetTab.claudeSessionId) {
@@ -232,6 +238,9 @@ export class StreamingHandlerService {
         tabId: targetTab.id,
         compactionComplete: true,
         compactionSessionId: event.sessionId,
+        preTokens: result.preTokens,
+        postTokens: result.postTokens,
+        durationMs: result.durationMs,
       };
     }
     if (

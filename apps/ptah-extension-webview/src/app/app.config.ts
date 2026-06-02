@@ -46,6 +46,7 @@ import {
   SetupHubComponent,
 } from '@ptah-extension/harness-builder';
 import { MarketplaceHubComponent } from '@ptah-extension/marketplace';
+import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 class WebviewErrorHandler implements ErrorHandler {
   public handleError(error: unknown): void {
@@ -131,6 +132,11 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: UpdateBannerService,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: VecEmbedderRecoveryService,
       multi: true,
     },
     provideMonacoEditor({

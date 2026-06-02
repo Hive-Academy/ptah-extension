@@ -19,6 +19,7 @@ import {
   __debugAssertSharedHandlersDisjoint,
   CorpusRpcHandlers,
   CronRpcHandlers,
+  EmbedderRpcHandlers,
   GatewayRpcHandlers,
   IndexingRpcHandlers,
   MemoryRpcHandlers,
@@ -93,6 +94,8 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'mem:searchIndex',
   'mem:timeline',
   'mem:getObservations',
+  'embedder:status',
+  'embedder:retry',
   'corpus:list',
   'corpus:get',
   'corpus:build',
@@ -147,6 +150,7 @@ export class CliRpcMethodRegistrationService {
     registerAllRpcHandlers(c, {
       exclude: [
         CronRpcHandlers,
+        EmbedderRpcHandlers,
         GatewayRpcHandlers,
         MemoryRpcHandlers,
         MemRpcHandlers,

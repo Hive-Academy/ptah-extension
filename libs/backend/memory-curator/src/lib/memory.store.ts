@@ -16,6 +16,7 @@ import {
 import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
+  VecStatusService,
   type IEmbedder,
 } from '@ptah-extension/persistence-sqlite';
 import {
@@ -140,6 +141,8 @@ export class MemoryStore implements IMemoryLister {
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: SqliteConnectionService,
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
   ) {}
 
   /**
@@ -193,7 +196,7 @@ export class MemoryStore implements IMemoryLister {
       concepts_json: JSON.stringify(conceptsArr),
       files_json: JSON.stringify(filesArr),
     };
-    const vecAvailable = this.connection.vecExtensionLoaded;
+    const vecAvailable = this.vecStatus.available;
     const embeddings: Float32Array[] =
       vecAvailable && chunks.length > 0
         ? await this.embedderEmbed(chunks.map((c) => c.text))
@@ -535,7 +538,7 @@ export class MemoryStore implements IMemoryLister {
     if (additional.length === 0) return;
     const ws = this.lookupWorkspaceRoot(id);
     const now = Date.now();
-    const vecAvailable = this.connection.vecExtensionLoaded;
+    const vecAvailable = this.vecStatus.available;
     const embeddings: Float32Array[] = vecAvailable
       ? await this.embedderEmbed(additional.map((c) => c.text))
       : [];
@@ -663,7 +666,7 @@ export class MemoryStore implements IMemoryLister {
        INSERT INTO memory_chunks_fts(rowid, chunk_id, text) SELECT rowid, id, text FROM memory_chunks;`,
     );
     let rebuiltVec = false;
-    if (this.connection.vecExtensionLoaded) {
+    if (this.vecStatus.available) {
       db.exec(`DELETE FROM memory_chunks_vec`);
       const chunkRows = db
         .prepare(

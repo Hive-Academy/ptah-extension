@@ -57,9 +57,20 @@ export class BatchedUpdateService {
       });
     });
 
+    effect(() => {
+      const visible = this.tabManager.visibleTabIds();
+      if (visible.size === 0) return;
+      untracked(() => {
+        this.drainDeferred();
+      });
+    });
+
     this.destroyRef.onDestroy(() => {
       if (this.visibilityListener && typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', this.visibilityListener);
+        document.removeEventListener(
+          'visibilitychange',
+          this.visibilityListener,
+        );
       }
       if (this.rafId !== null) {
         cancelAnimationFrame(this.rafId);
@@ -84,12 +95,25 @@ export class BatchedUpdateService {
   }
 
   private shouldDefer(tabId: string): boolean {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-      return true;
+    return !this.canFlush(tabId);
+  }
+
+  /**
+   * A tab may flush when the document is visible AND the tab is on-screen:
+   * present in the visible set (Orchestra Canvas tiles) or — when no tile has
+   * registered (single-tab webview) — the active tab.
+   */
+  private canFlush(tabId: string): boolean {
+    if (
+      typeof document !== 'undefined' &&
+      document.visibilityState === 'hidden'
+    ) {
+      return false;
     }
+    const visible = this.tabManager.visibleTabIds();
+    if (visible.size > 0) return visible.has(tabId);
     const activeId = this.tabManager.activeTabId();
-    if (!activeId) return false;
-    return activeId !== tabId;
+    return !activeId || activeId === tabId;
   }
 
   private flushPendingUpdates(): void {
@@ -105,23 +129,24 @@ export class BatchedUpdateService {
       this.pendingFlush.clear();
       return;
     }
-    const activeId = this.tabManager.activeTabId();
-    if (activeId) {
-      this.drainDeferredForTab(activeId);
-      return;
-    }
-    for (const [tabId, state] of this.deferredTabUpdates) {
+    let scheduled = false;
+    for (const tabId of [...this.deferredTabUpdates.keys()]) {
+      if (!this.canFlush(tabId)) continue;
+      const state = this.deferredTabUpdates.get(tabId);
+      this.deferredTabUpdates.delete(tabId);
+      this.pendingFlush.delete(tabId);
+      if (!state) continue;
       this.pendingTabUpdates.set(tabId, state);
+      scheduled = true;
     }
-    this.deferredTabUpdates.clear();
-    this.pendingFlush.clear();
-    if (this.rafId === null) {
+    if (scheduled && this.rafId === null) {
       this.rafId = requestAnimationFrame(() => this.flushPendingUpdates());
     }
   }
 
   private drainDeferredForTab(tabId: string): void {
     if (!this.pendingFlush.has(tabId)) return;
+    if (!this.canFlush(tabId)) return;
     const state = this.deferredTabUpdates.get(tabId);
     this.pendingFlush.delete(tabId);
     this.deferredTabUpdates.delete(tabId);

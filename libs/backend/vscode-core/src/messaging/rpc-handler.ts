@@ -80,9 +80,10 @@ export const ALLOWED_METHOD_PREFIXES = [
   'corpus:', // Knowledge corpus (list, get, build, prime, query, reprime, rebuild, delete)
   'skillSynthesis:', // Skills synthesis pipeline (listCandidates, getCandidate, promote, reject, invocations, stats)
   'db:', // DB health + reset — maintenance commands
+  'embedder:', // Embedder status + retry (lazy ONNX download recovery)
   'subagent:', // Bidirectional subagent messaging (send-message, stop, interrupt)
   'indexing:', // Workspace indexing control
-  'update:', // Electron auto-update UX (check-now, install-now)
+  'update:', // Desktop update banner (get-state, check-now)
 ] as const;
 
 /**

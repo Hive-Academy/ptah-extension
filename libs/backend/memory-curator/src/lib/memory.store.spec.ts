@@ -8,11 +8,36 @@
  */
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import {
+  SqliteConnectionService,
+  VecStatusService,
+} from '@ptah-extension/persistence-sqlite';
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import { MemoryStore } from './memory.store';
 import type { MemoryInsert } from './memory.types';
 import { memoryId } from './memory.types';
+
+function makeVecStatus(available = false): VecStatusService {
+  const diagnostic = {
+    ok: available,
+    reason: available ? ('ok' as const) : ('binary-missing' as const),
+    electronVersion: '40.0.0',
+    processArch: 'x64' as NodeJS.Architecture,
+    processPlatform: 'linux' as NodeJS.Platform,
+  };
+  return {
+    available,
+    reason: diagnostic.reason,
+    diagnostic,
+    getStatus: () => ({
+      available,
+      reason: diagnostic.reason,
+      diagnostic,
+    }),
+    on: () => ({ dispose: () => undefined }),
+    refresh: () => undefined,
+  } as unknown as VecStatusService;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,8 +106,17 @@ function makeDb(
 function makeStore(
   connection: SqliteConnectionService,
   embedder?: IEmbedder,
+  vecStatus?: VecStatusService,
 ): MemoryStore {
-  return new MemoryStore(makeLogger(), connection, embedder ?? makeEmbedder());
+  const available =
+    (connection as unknown as { vecExtensionLoaded?: boolean })
+      .vecExtensionLoaded ?? false;
+  return new MemoryStore(
+    makeLogger(),
+    connection,
+    embedder ?? makeEmbedder(),
+    vecStatus ?? makeVecStatus(available),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +497,70 @@ describe('MemoryStore.purgeBySubjectPattern', () => {
 });
 
 // ---------------------------------------------------------------------------
+// B1.5 regression — vec-offline graceful insert (TASK_2026_132)
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore B1.5 — vec-offline graceful insert (TASK_2026_132)', () => {
+  it('insertMemoryWithChunks succeeds with vec offline, prepares no vec INSERT, calls embedder zero times', async () => {
+    const preparedSqls: string[] = [];
+    const runMock = jest.fn(() => ({ changes: 1 }));
+    const getMock = jest.fn(() => ({ workspace_root: '/ws/A', rowid: 7 }));
+    const stub = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn((sql: string) => {
+          preparedSqls.push(sql);
+          return {
+            run: runMock,
+            get: getMock,
+            all: jest.fn(() => []),
+          };
+        }),
+        exec: jest.fn(),
+        transaction: jest.fn(
+          (fn: (...args: unknown[]) => unknown) =>
+            (...args: unknown[]) =>
+              fn(...args),
+        ),
+      },
+    } as unknown as SqliteConnectionService;
+    const embedMock = jest.fn(async () => []);
+    const embedder = {
+      embed: embedMock,
+      dim: 384,
+    } as unknown as IEmbedder;
+    const vecStatus = makeVecStatus(false);
+    const store = new MemoryStore(makeLogger(), stub, embedder, vecStatus);
+
+    const insert: MemoryInsert = {
+      tier: 'core',
+      kind: 'fact',
+      content: 'vec-offline content',
+      workspaceRoot: '/ws/A',
+    };
+    const id = await store.insertMemoryWithChunks(insert, [
+      { ord: 0, text: 'chunk text', tokenCount: 2 },
+    ]);
+
+    expect(typeof id).toBe('string');
+    expect(embedMock).not.toHaveBeenCalled();
+    const vecInsertSql = preparedSqls.find((s) =>
+      s.includes('memory_chunks_vec'),
+    );
+    expect(vecInsertSql).toBeUndefined();
+    const baseMemoryInsert = preparedSqls.find((s) =>
+      s.startsWith('INSERT INTO memories'),
+    );
+    expect(baseMemoryInsert).toBeDefined();
+    const chunkInsert = preparedSqls.find((s) =>
+      s.startsWith('INSERT INTO memory_chunks'),
+    );
+    expect(chunkInsert).toBeDefined();
+    expect(store.getWriteCounter('/ws/A')).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // B5 regression — sqlite-vec rowid INTEGER affinity (native-gated)
 // ---------------------------------------------------------------------------
 
@@ -521,7 +619,8 @@ describe('MemoryStore B5 — sqlite-vec rowid INTEGER affinity (native-gated)', 
     await service.openAndMigrate();
     expect(service.vecExtensionLoaded).toBe(true);
     const embedder = makeDeterministicEmbedder();
-    const store = new MemoryStore(logger, service, embedder);
+    const vecStatus = new VecStatusService(logger, service);
+    const store = new MemoryStore(logger, service, embedder, vecStatus);
     return { service, store, embedder };
   }
 
@@ -710,7 +809,8 @@ describe('MemoryStore B7 — rebuildIndex FTS repopulation (native-gated)', () =
     await service.openAndMigrate();
     expect(service.vecExtensionLoaded).toBe(true);
     const embedder = makeDeterministicEmbedder();
-    const store = new MemoryStore(logger, service, embedder);
+    const vecStatus = new VecStatusService(logger, service);
+    const store = new MemoryStore(logger, service, embedder, vecStatus);
     return { service, store };
   }
 
@@ -867,7 +967,12 @@ describe('MemoryStore A1 — 5-field summary + concepts FTS round-trip (native-g
     await service.openAndMigrate();
     expect(service.vecExtensionLoaded).toBe(true);
     const embedder = makeDeterministicEmbedder();
-    const store = new MemoryStore(logger, service, embedder);
+    const store = new MemoryStore(
+      logger,
+      service,
+      embedder,
+      new VecStatusService(logger, service),
+    );
     return { service, store };
   }
 

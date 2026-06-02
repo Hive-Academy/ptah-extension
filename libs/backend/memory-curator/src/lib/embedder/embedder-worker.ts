@@ -33,6 +33,30 @@ interface PipelineFn {
 let pipelineSingleton: PipelineFn | null = null;
 let pipelineLoading: Promise<PipelineFn> | null = null;
 
+interface PipelineProgressInfo {
+  readonly status: 'initiate' | 'download' | 'progress' | 'done' | 'ready';
+  readonly name?: string;
+  readonly file?: string;
+  readonly progress?: number;
+  readonly loaded?: number;
+  readonly total?: number;
+}
+
+const PROGRESS_EMIT_THROTTLE_MS = 500;
+let lastProgressEmitAt = 0;
+
+function emitPipelineProgress(info: PipelineProgressInfo): void {
+  if (info.status === 'progress') {
+    const now = Date.now();
+    if (now - lastProgressEmitAt < PROGRESS_EMIT_THROTTLE_MS) return;
+    lastProgressEmitAt = now;
+  }
+  port.postMessage({
+    type: 'pipeline-progress',
+    info,
+  });
+}
+
 async function loadPipeline(): Promise<PipelineFn> {
   if (pipelineSingleton) return pipelineSingleton;
   if (pipelineLoading) return pipelineLoading;
@@ -47,13 +71,23 @@ async function loadPipeline(): Promise<PipelineFn> {
       ) => Promise<PipelineFn>;
     };
     const { pipeline } = mod;
+    lastProgressEmitAt = 0;
+    emitPipelineProgress({
+      status: 'initiate',
+      name: 'Xenova/bge-small-en-v1.5',
+    });
     const fn: PipelineFn = await pipeline(
       'feature-extraction',
       'Xenova/bge-small-en-v1.5',
       {
         quantized: true,
+        progress_callback: emitPipelineProgress,
       },
     );
+    emitPipelineProgress({
+      status: 'ready',
+      name: 'Xenova/bge-small-en-v1.5',
+    });
     pipelineSingleton = fn;
     return fn;
   })();

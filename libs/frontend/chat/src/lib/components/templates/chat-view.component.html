@@ -38,6 +38,14 @@
       <!-- Compaction Notification Banner -->
       <div class="px-2">
         <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
+        @if (resolvedCompactionMarker(); as m) {
+          <ptah-compaction-marker
+            [summary]="m.summary"
+            [preTokens]="m.preTokens"
+            [postTokens]="m.postTokens"
+            [durationMs]="m.durationMs"
+          />
+        }
       </div>
 
       <div class="flex-1 flex flex-col min-h-0 relative">

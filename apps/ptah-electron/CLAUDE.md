@@ -32,7 +32,7 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 - `@ptah-extension/vscode-core` — shared infrastructure (DI, logger, RPC, license)
 - `@ptah-extension/agent-sdk` (`SDK_TOKENS`), `@ptah-extension/rpc-handlers`
 - `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-generation`, `@ptah-extension/llm-abstraction`, `@ptah-extension/vscode-lm-tools`, `@ptah-extension/memory-curator`, `@ptah-extension/persistence-sqlite`
-- Native + heavy externals (not bundled, listed in `project.json` externals): `electron`, `electron-updater`, `node-pty`, `better-sqlite3`, `sqlite-vec`, `@huggingface/transformers`, `chrome-launcher`, `chrome-remote-interface`, `grammy`, `discord.js`, `@slack/bolt`, `ffmpeg-static`, `nodejs-whisper`, `web-tree-sitter`, and all three AI provider SDKs.
+- Native + heavy externals (not bundled, listed in `project.json` externals): `electron`, `node-pty`, `better-sqlite3`, `sqlite-vec`, `@huggingface/transformers`, `chrome-launcher`, `chrome-remote-interface`, `grammy`, `discord.js`, `@slack/bolt`, `ffmpeg-static`, `nodejs-whisper`, `web-tree-sitter`, and all three AI provider SDKs.
 
 ## Build & Run
 
@@ -53,6 +53,6 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 ## Deployment Notes
 
 - `better-sqlite3` must be compiled from source for the Electron ABI (no prebuilt exists for Electron 38+; Electron 40 = ABI 143): run `nx rebuild-native ptah-electron` after Electron upgrades. Requires a C++ toolchain (MSVC / Xcode CLT / gcc). `node-pty` (N-API prebuild) and `sqlite-vec` (loadable extension) need no rebuild.
-- Auto-updater (`electron-updater`) is imported dynamically inside `post-window` Phase 6 and is intentionally disabled in dev builds.
+- Update detection queries the GitHub Releases API directly (no `electron-updater`); it runs in `post-window` Phase 6 (`UpdateManager.start()`) and is skipped in dev builds. The Download action opens the platform installer in the browser.
 - Code signing inputs (Windows SSL.com IV / eSigner, macOS Developer ID) are read from env at `electron-builder` invocation time; never commit signing material.
 - Renderer copy: `scripts/copy-renderer.js` lives under `apps/ptah-electron/scripts/`.
