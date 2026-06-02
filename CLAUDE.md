@@ -20,7 +20,6 @@ ptah-extension/
 │   ├── ptah-license-server-e2e/       # Jest e2e
 │   ├── ptah-landing-page/             # Angular marketing site
 │   ├── ptah-docs/                     # Astro Starlight (docs.ptah.live)
-│   └── infra-test/                    # MCP/trial-cron probes
 │
 ├── libs/backend/                      # 16 runtime-agnostic libs (DI: tsyringe)
 │   ├── platform-core/                 # ★ Port interfaces + 16 PLATFORM_TOKENS
@@ -130,7 +129,6 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [ptah-license-server-e2e](./apps/ptah-license-server-e2e/CLAUDE.md) — License e2e
 - [ptah-landing-page](./apps/ptah-landing-page/CLAUDE.md) — Angular marketing
 - [ptah-docs](./apps/ptah-docs/CLAUDE.md) — Astro Starlight docs
-- [infra-test](./apps/infra-test/CLAUDE.md) — MCP/trial probes
 
 ### Backend Libs
 
