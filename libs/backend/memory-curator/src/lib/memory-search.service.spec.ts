@@ -1097,6 +1097,7 @@ describe('MemorySearchService.searchIndex — empty query (pure-filter)', () => 
       makeEmbedder(),
       makeStore(),
       makeObservationQueue(),
+      makeVecStatus(false),
     );
     return { service, allMock };
   }
@@ -1171,6 +1172,7 @@ describe('MemorySearchService.timeline', () => {
       makeEmbedder(),
       makeStore(),
       makeObservationQueue(),
+      makeVecStatus(false),
     );
   }
 
@@ -1304,6 +1306,7 @@ describe('MemorySearchService.getObservations', () => {
       makeEmbedder(),
       makeStore(),
       queue,
+      makeVecStatus(false),
     );
     const r = service.getObservations({ ids: [] });
     expect(r.memories).toEqual([]);
@@ -1371,6 +1374,7 @@ describe('MemorySearchService.getObservations', () => {
       makeEmbedder(),
       makeStore(),
       queue,
+      makeVecStatus(false),
     );
     const r = service.getObservations({ ids: ['mem-1', 'mem-2'] });
     expect(r.memories.length).toBe(2);
@@ -1412,6 +1416,7 @@ describe('MemorySearchService.getObservations', () => {
       makeEmbedder(),
       makeStore(),
       queue,
+      makeVecStatus(false),
     );
     const r = service.getObservations({
       ids: ['mem-1'],
@@ -1434,6 +1439,7 @@ describe('MemorySearchService — tracing instrumentation', () => {
       makeEmbedder(),
       makeStore(),
       makeObservationQueue(),
+      makeVecStatus(false),
       tracer,
     );
     return { service, tracer };
@@ -1477,6 +1483,7 @@ describe('MemorySearchService — tracing instrumentation', () => {
       embedder,
       makeStore(),
       makeObservationQueue(),
+      makeVecStatus(true),
       tracer,
     );
     await service.searchRich('a longer query string here', 5);

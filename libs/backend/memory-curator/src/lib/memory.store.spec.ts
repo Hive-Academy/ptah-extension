@@ -967,7 +967,12 @@ describe('MemoryStore A1 — 5-field summary + concepts FTS round-trip (native-g
     await service.openAndMigrate();
     expect(service.vecExtensionLoaded).toBe(true);
     const embedder = makeDeterministicEmbedder();
-    const store = new MemoryStore(logger, service, embedder);
+    const store = new MemoryStore(
+      logger,
+      service,
+      embedder,
+      new VecStatusService(logger, service),
+    );
     return { service, store };
   }
 
