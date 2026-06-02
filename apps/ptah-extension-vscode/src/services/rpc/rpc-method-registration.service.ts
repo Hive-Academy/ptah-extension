@@ -25,6 +25,7 @@ import {
   WorkspaceRpcHandlers,
   CorpusRpcHandlers,
   CronRpcHandlers,
+  EmbedderRpcHandlers,
   GatewayRpcHandlers,
   MemoryRpcHandlers,
   MemRpcHandlers,
@@ -91,6 +92,7 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   'terminal:kill',
   'license:clearKey',
   ...CronRpcHandlers.METHODS,
+  ...EmbedderRpcHandlers.METHODS,
   ...GatewayRpcHandlers.METHODS,
   ...MemoryRpcHandlers.METHODS,
   ...MemRpcHandlers.METHODS,
@@ -131,6 +133,7 @@ export class RpcMethodRegistrationService {
       exclude: [
         WorkspaceRpcHandlers,
         CronRpcHandlers,
+        EmbedderRpcHandlers,
         GatewayRpcHandlers,
         MemoryRpcHandlers,
         MemRpcHandlers,
