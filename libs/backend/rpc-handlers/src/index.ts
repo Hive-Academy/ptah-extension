@@ -35,6 +35,7 @@ export {
   CorpusRpcHandlers,
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
+  EmbedderRpcHandlers,
   GatewayRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,

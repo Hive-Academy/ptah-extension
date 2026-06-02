@@ -66,10 +66,25 @@ function fakePromotedRow(
   };
 }
 
-function makeVecConnection(loaded: boolean) {
+function makeVecStatus(available: boolean): unknown {
+  const diagnostic = {
+    ok: available,
+    reason: available ? 'ok' : 'binary-missing',
+    electronVersion: '40.0.0',
+    processArch: 'x64',
+    processPlatform: 'linux',
+  };
   return {
-    vecExtensionLoaded: loaded,
-    db: {},
+    available,
+    reason: diagnostic.reason,
+    diagnostic,
+    getStatus: () => ({
+      available,
+      reason: diagnostic.reason,
+      diagnostic,
+    }),
+    on: () => ({ dispose: () => undefined }),
+    refresh: () => undefined,
   };
 }
 
@@ -83,10 +98,10 @@ describe('SkillClusterDedupService', () => {
       listByStatus: jest.fn(() => []),
       getEmbedding: jest.fn(() => null),
     } as unknown as SkillCandidateStore;
-    const connection = makeVecConnection(false);
+    const vecStatus = makeVecStatus(false);
     const svc = new SkillClusterDedupService(
       noopLogger as never,
-      connection as never,
+      vecStatus as never,
       store,
     );
     expect(svc.isDuplicate(VEC_A, makeSettings())).toBe(false);
@@ -98,10 +113,10 @@ describe('SkillClusterDedupService', () => {
       listByStatus: jest.fn(() => []),
       getEmbedding: jest.fn(() => null),
     } as unknown as SkillCandidateStore;
-    const connection = makeVecConnection(true);
+    const vecStatus = makeVecStatus(true);
     const svc = new SkillClusterDedupService(
       noopLogger as never,
-      connection as never,
+      vecStatus as never,
       store,
     );
     expect(svc.isDuplicate(VEC_A, makeSettings(0.8))).toBe(false);
@@ -113,10 +128,10 @@ describe('SkillClusterDedupService', () => {
       listByStatus: jest.fn(() => promoted),
       getEmbedding: jest.fn(() => VEC_A),
     } as unknown as SkillCandidateStore;
-    const connection = makeVecConnection(true);
+    const vecStatus = makeVecStatus(true);
     const svc = new SkillClusterDedupService(
       noopLogger as never,
-      connection as never,
+      vecStatus as never,
       store,
     );
     // Both probe and centroid are [1,0,0] → similarity = 1.0 > 0.8 → duplicate
@@ -130,10 +145,10 @@ describe('SkillClusterDedupService', () => {
       listByStatus: jest.fn(() => promoted),
       getEmbedding: jest.fn(() => VEC_B),
     } as unknown as SkillCandidateStore;
-    const connection = makeVecConnection(true);
+    const vecStatus = makeVecStatus(true);
     const svc = new SkillClusterDedupService(
       noopLogger as never,
-      connection as never,
+      vecStatus as never,
       store,
     );
     // similarity = 0.0, threshold = 0.0 → NOT strictly greater → not duplicate
@@ -147,10 +162,10 @@ describe('SkillClusterDedupService', () => {
       listByStatus,
       getEmbedding: jest.fn(() => VEC_A),
     } as unknown as SkillCandidateStore;
-    const connection = makeVecConnection(true);
+    const vecStatus = makeVecStatus(true);
     const svc = new SkillClusterDedupService(
       noopLogger as never,
-      connection as never,
+      vecStatus as never,
       store,
     );
     const settings = makeSettings(0.8);

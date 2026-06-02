@@ -52,13 +52,33 @@ describe('SkillSynthesisService', () => {
       isOpen?: boolean;
     } = {},
   ) {
+    const vecLoaded = opts.vecLoaded ?? false;
     const connection = {
       isOpen: opts.isOpen ?? true,
-      vecExtensionLoaded: opts.vecLoaded ?? false,
+      vecExtensionLoaded: vecLoaded,
       openAndMigrate: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<
       ConstructorParameters<typeof SkillSynthesisService>[1]
     >;
+    const vecStatusDiagnostic = {
+      ok: vecLoaded,
+      reason: vecLoaded ? 'ok' : 'binary-missing',
+      electronVersion: '40.0.0',
+      processArch: 'x64',
+      processPlatform: 'linux',
+    };
+    const vecStatus = {
+      available: vecLoaded,
+      reason: vecStatusDiagnostic.reason,
+      diagnostic: vecStatusDiagnostic,
+      getStatus: () => ({
+        available: vecLoaded,
+        reason: vecStatusDiagnostic.reason,
+        diagnostic: vecStatusDiagnostic,
+      }),
+      on: () => ({ dispose: () => undefined }),
+      refresh: () => undefined,
+    } as unknown as ConstructorParameters<typeof SkillSynthesisService>[2];
     const workspaceProvider = {
       getConfiguration: jest.fn(
         (_section: string, key: string, fallback: unknown) => {
@@ -67,7 +87,7 @@ describe('SkillSynthesisService', () => {
         },
       ),
     } as unknown as jest.Mocked<
-      ConstructorParameters<typeof SkillSynthesisService>[2]
+      ConstructorParameters<typeof SkillSynthesisService>[3]
     >;
     const store = {
       findByTrajectoryHash: jest.fn(() => null),
@@ -115,12 +135,12 @@ describe('SkillSynthesisService', () => {
     } as unknown as jest.Mocked<TrajectoryExtractor>;
     const sessionEndRegistry = {
       register: jest.fn(() => jest.fn()),
-    } as unknown as ConstructorParameters<typeof SkillSynthesisService>[8];
-    // curatorService is optional (arg index 7 in the new signature)
+    } as unknown as ConstructorParameters<typeof SkillSynthesisService>[9];
     const curatorService = null;
     const svc = new SkillSynthesisService(
       noopLogger,
       connection,
+      vecStatus,
       workspaceProvider,
       store,
       md,

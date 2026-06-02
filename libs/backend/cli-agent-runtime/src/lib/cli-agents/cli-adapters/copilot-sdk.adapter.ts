@@ -2,10 +2,14 @@
  * Copilot CLI Adapter (formerly Copilot SDK Adapter)
  *
  * The CLI-agent spawn path uses the official `@github/copilot` CLI binary
- * because @github/copilot-sdk's transitive `vscode-jsonrpc/node` import fails
- * in headless contexts (where vscode-jsonrpc is not hoisted by VS Code's
- * extension host). The official CLI v1.0.26+ bundles its dependencies
- * correctly and supports headless mode via `-p / --output-format json`.
+ * instead of `@github/copilot-sdk`. The SDK ships as ESM (`"type":"module"`)
+ * yet its dist imports `from "vscode-jsonrpc/node"` (extensionless), and
+ * vscode-jsonrpc is a CommonJS package with no `exports` map — so Node's ESM
+ * loader cannot resolve the extensionless subpath. `await import('@github/copilot-sdk')`
+ * therefore throws ERR_MODULE_NOT_FOUND in ANY Node/Electron context (verified
+ * in plain headless node, not just the VS Code extension host). The official
+ * CLI v1.0.26+ supports headless mode via `-p / --output-format json` and is
+ * the same binary the SDK would have spawned, so nothing is lost by skipping it.
  *
  * IMPORTANT: This adapter is used ONLY for the CLI-agent spawn path
  * (`ptah_agent_spawn { cli: 'copilot' }`). The "main agent" Copilot integration

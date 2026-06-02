@@ -74,15 +74,21 @@ export class SubagentMessageDispatcher {
   ) {}
 
   /**
-   * Send a user message into a running subagent.
+   * Nudge the orchestrator about a running subagent.
    *
-   * Uses the SDK's `streamInput` channel with `parent_tool_use_id` set so
-   * the message is routed to the correct subagent rather than the root
-   * coordinator. Pushes are serialised per session to avoid races.
+   * The Claude Agent SDK does not expose a per-subagent input channel —
+   * `streamInput` delivers to the root coordinator regardless of
+   * `parent_tool_use_id`, and the official subagents guide states:
+   * "The only channel from parent to subagent is the Agent tool's prompt
+   * string." So we push the user's text into the root session as a normal
+   * `human` message, prefixed with a reference to the target subagent. The
+   * coordinator can then decide whether to relay, restart, or ignore it.
+   *
+   * Pushes are serialised per session to avoid races with other input.
    *
    * @param sessionId - The parent session that owns the subagent
    * @param parentToolUseId - The Task tool_use ID that spawned the subagent
-   * @param text - Message text to send
+   * @param text - Message text from the user
    */
   async sendToSubagent(
     sessionId: string,
@@ -92,30 +98,38 @@ export class SubagentMessageDispatcher {
     const session = this.sessionLifecycle.find(sessionId as string);
     if (!session) {
       throw new RpcUserError(
-        `Session '${sessionId}' is not active — cannot send message to subagent`,
+        `Session '${sessionId}' is not active — cannot deliver nudge`,
         'SESSION_NOT_FOUND',
       );
     }
 
     if (!session.query) {
       throw new RpcUserError(
-        `Session '${sessionId}' query is not ready — cannot send message`,
+        `Session '${sessionId}' query is not ready — cannot deliver nudge`,
         'SESSION_NOT_FOUND',
       );
     }
 
     const query = session.query;
+    const record = this.registry.get(parentToolUseId);
+    const agentType = record?.agentType ?? 'unknown';
+    const prefixed = `Regarding the running '${agentType}' subagent (toolUseId=${parentToolUseId}): ${text}`;
 
     await serialisedPush(sessionId, async () => {
       this.logger.debug(
-        '[SubagentMessageDispatcher] sendToSubagent: pushing message',
-        { sessionId, parentToolUseId, textLength: text.length },
+        '[SubagentMessageDispatcher] sendToSubagent: nudging coordinator',
+        {
+          sessionId,
+          parentToolUseId,
+          agentType,
+          textLength: text.length,
+        },
       );
       const msg: SDKUserMessage = {
         type: 'user',
-        message: { role: 'user', content: text },
-        parent_tool_use_id: parentToolUseId,
-        origin: { kind: 'coordinator' } as unknown as SDKUserMessage['origin'],
+        message: { role: 'user', content: prefixed },
+        parent_tool_use_id: null,
+        origin: { kind: 'human' } as unknown as SDKUserMessage['origin'],
         shouldQuery: true,
         uuid: randomUUID(),
         session_id: sessionId,
@@ -129,7 +143,7 @@ export class SubagentMessageDispatcher {
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         throw new RpcUserError(
-          `Session ended before message could be delivered: ${message}`,
+          `Session ended before nudge could be delivered: ${message}`,
           'SESSION_ENDED',
         );
       }

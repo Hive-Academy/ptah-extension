@@ -88,6 +88,17 @@ export type {
   ResolvedMemoryDraft,
 } from './lib/curator-llm/curator-llm.interface';
 export { EmbedderWorkerClient } from './lib/embedder/embedder-worker-client';
+export type {
+  Disposable,
+  PipelineProgressInfo,
+  PipelineProgressListener,
+} from './lib/embedder/embedder-worker-client';
+export { EmbedderStatusService } from './lib/embedder/embedder-status.service';
+export type {
+  EmbedderStatusSnapshot,
+  EmbedderStatusError,
+  EmbedderStatusChangeListener,
+} from './lib/embedder/embedder-status.service';
 export { MEMORY_TOKENS } from './lib/di/tokens';
 export type { MemoryDIToken } from './lib/di/tokens';
 export { registerMemoryCuratorServices } from './lib/di/register';

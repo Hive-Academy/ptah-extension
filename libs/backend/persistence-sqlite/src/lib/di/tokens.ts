@@ -20,6 +20,8 @@ export const PERSISTENCE_TOKENS = {
   EMBEDDER_WORKER_PATH: Symbol.for('PtahEmbedderWorkerPath'),
   /** IBackupService — SQLite backup + rotation. */
   BACKUP_SERVICE: Symbol.for('PtahBackupService'),
+  /** VecStatusService — single source of truth for sqlite-vec availability. */
+  VEC_STATUS: Symbol.for('PtahVecStatus'),
 } as const;
 
 export type PersistenceDIToken = keyof typeof PERSISTENCE_TOKENS;

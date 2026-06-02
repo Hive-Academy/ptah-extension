@@ -47,6 +47,9 @@
       "@ptah-extension/cron-scheduler": [
         "./libs/backend/cron-scheduler/src/index.ts"
       ],
+      "@ptah-extension/gateway-chat-bridge": [
+        "./libs/backend/gateway-chat-bridge/src/index.ts"
+      ],
       "@ptah-extension/cron-scheduler-ui": [
         "./libs/frontend/cron-scheduler-ui/src/index.ts"
       ],

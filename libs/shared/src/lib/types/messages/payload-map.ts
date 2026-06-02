@@ -108,6 +108,21 @@ import type {
   MemoryExtractedPayload,
   MemorySessionStartInjectedPayload,
 } from './memory';
+import type {
+  VecLoadDiagnosticWire,
+  EmbedderStatusWire,
+} from '../rpc/rpc-persistence.types';
+
+/** Payload for MESSAGE_TYPES.VEC_STATUS_CHANGED ('db:vecStatusChanged'). */
+export interface VecStatusChangedPayload {
+  readonly ok: boolean;
+  readonly diagnostic: VecLoadDiagnosticWire;
+}
+
+/** Payload for MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED ('embedder:statusChanged'). */
+export interface EmbedderStatusChangedPayload {
+  readonly status: EmbedderStatusWire;
+}
 
 /**
  * Type mapping for message payloads - eliminates 'any' types
@@ -212,6 +227,8 @@ export interface MessagePayloadMap {
   'memory:corpusChanged': MemoryCorpusChangedPayload;
   'memory:extracted': MemoryExtractedPayload;
   'memory:sessionStartInjected': MemorySessionStartInjectedPayload;
+  'db:vecStatusChanged': VecStatusChangedPayload;
+  'embedder:statusChanged': EmbedderStatusChangedPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

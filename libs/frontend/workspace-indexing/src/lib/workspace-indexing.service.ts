@@ -37,6 +37,7 @@ export type IndexingUiState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'no-workspace' }
   | { readonly kind: 'never-indexed' }
+  | { readonly kind: 'code-only-no-memory'; readonly codeSymbolCount: number }
   | {
       readonly kind: 'indexing';
       readonly percent: number;
@@ -101,6 +102,11 @@ export class WorkspaceIndexingService implements MessageHandler {
         const p = this._progress();
         if (p !== null && p.percent < 100) {
           return this.buildIndexingState(p);
+        }
+        const codeSymbolCount = status.codeSymbolCount ?? 0;
+        const memoryChunkCount = status.memoryChunkCount ?? 0;
+        if (codeSymbolCount > 0 && memoryChunkCount === 0) {
+          return { kind: 'code-only-no-memory', codeSymbolCount };
         }
         return { kind: 'never-indexed' };
       }
