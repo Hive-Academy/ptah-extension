@@ -21,6 +21,9 @@
       "@ptah-extension/deep-agent-sdk": [
         "../../libs/backend/deep-agent-sdk/src/index.ts"
       ],
+      "@ptah-extension/gateway-chat-bridge": [
+        "../../libs/backend/gateway-chat-bridge/src/index.ts"
+      ],
       "@ptah-extension/platform-core": [
         "../../libs/backend/platform-core/src/index.ts"
       ],

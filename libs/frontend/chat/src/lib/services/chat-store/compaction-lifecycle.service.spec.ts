@@ -81,6 +81,8 @@ describe('CompactionLifecycleService', () => {
   let switchSessionMock: jest.Mock;
   let setCompactionStateMock: jest.Mock;
   let markCompactionCompleteMock: jest.Mock;
+  let setCompactionMarkerTokensMock: jest.Mock;
+  let setCompactionMarkerSummaryMock: jest.Mock;
   let conversationsMock: jest.Mock;
   let conversationForMock: jest.Mock;
   let warn: jest.SpyInstance;
@@ -108,6 +110,8 @@ describe('CompactionLifecycleService', () => {
     switchSessionMock = jest.fn().mockResolvedValue(undefined);
     setCompactionStateMock = jest.fn();
     markCompactionCompleteMock = jest.fn();
+    setCompactionMarkerTokensMock = jest.fn();
+    setCompactionMarkerSummaryMock = jest.fn();
     conversationsMock = jest.fn(() => []);
     conversationForMock = jest.fn(
       (tabId: TabId) => tabToConv[tabId as unknown as string] ?? null,
@@ -136,6 +140,8 @@ describe('CompactionLifecycleService', () => {
     const conversationRegistryMock = {
       setCompactionState: setCompactionStateMock,
       markCompactionComplete: markCompactionCompleteMock,
+      setCompactionMarkerTokens: setCompactionMarkerTokensMock,
+      setCompactionMarkerSummary: setCompactionMarkerSummaryMock,
       conversations: conversationsMock,
     } as unknown as ConversationRegistry;
 
@@ -220,7 +226,9 @@ describe('CompactionLifecycleService', () => {
         'tab-1',
         expect.objectContaining({ compactionCount: 3 }),
       );
-      expect(switchSessionMock).toHaveBeenCalledWith(SESS_1);
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_1, {
+        reason: 'compaction',
+      });
     });
 
     it('snapshots preloadedStats when none exist and messages are present', () => {
@@ -467,7 +475,81 @@ describe('CompactionLifecycleService', () => {
       });
 
       expect(switchSessionMock).toHaveBeenCalledTimes(1);
-      expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED);
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED, {
+        reason: 'compaction',
+      });
+    });
+  });
+
+  describe('compaction marker (token + summary merge inputs)', () => {
+    it('handleCompactionComplete upserts token fields into the marker', () => {
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: SESS_RELOAD,
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_RELOAD,
+        preTokens: 8000,
+        postTokens: 1500,
+        durationMs: 1200,
+      });
+
+      expect(setCompactionMarkerTokensMock).toHaveBeenCalledWith(
+        tabToConv['tab-1'],
+        expect.objectContaining({
+          preTokens: 8000,
+          postTokens: 1500,
+          durationMs: 1200,
+        }),
+      );
+    });
+
+    it('handleCompactionComplete passes null token fields when the event omits them', () => {
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: SESS_RELOAD,
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_RELOAD,
+      });
+
+      expect(setCompactionMarkerTokensMock).toHaveBeenCalledWith(
+        tabToConv['tab-1'],
+        expect.objectContaining({
+          preTokens: null,
+          postTokens: null,
+          durationMs: null,
+        }),
+      );
+    });
+
+    it('handleCompactionComplete reloads the session with { reason: compaction }', () => {
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: SESS_RELOAD,
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_RELOAD,
+      });
+
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_RELOAD, {
+        reason: 'compaction',
+      });
     });
   });
 
@@ -494,6 +576,19 @@ describe('CompactionLifecycleService', () => {
       expect(markCompactionCompleteMock).toHaveBeenCalledWith(
         tabToConv['tab-1'],
         1_700_000_000_123,
+      );
+    });
+
+    it('upserts the compaction marker summary from payload.compactSummary', () => {
+      tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_1 })];
+
+      service.handleCompactionCompleteNotification(
+        makePayload({ compactSummary: 'the recap text' }),
+      );
+
+      expect(setCompactionMarkerSummaryMock).toHaveBeenCalledWith(
+        tabToConv['tab-1'],
+        { summary: 'the recap text', completedAt: 1_700_000_000_123 },
       );
     });
 

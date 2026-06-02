@@ -368,6 +368,66 @@ describe('MessagingGatewayTabComponent', () => {
     });
   });
 
+  describe('setup guide drawer', () => {
+    function makeFixture() {
+      const stub = makeStub();
+      TestBed.configureTestingModule({
+        imports: [MessagingGatewayTabComponent],
+        providers: [
+          { provide: GatewayStateService, useValue: stub },
+          { provide: VSCodeService, useValue: makeVscodeStub(true) },
+        ],
+      });
+      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    function findSetupGuideButton(
+      fixture: ReturnType<typeof makeFixture>,
+    ): HTMLButtonElement {
+      const button = Array.from(
+        fixture.nativeElement.querySelectorAll('button'),
+      ).find(
+        (b) => (b as HTMLButtonElement).textContent?.trim() === 'Setup guide',
+      ) as HTMLButtonElement | undefined;
+      if (!button) throw new Error('Setup guide button not found');
+      return button;
+    }
+
+    it('is hidden until the Setup guide button is clicked', () => {
+      const fixture = makeFixture();
+      expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+
+      findSetupGuideButton(fixture).click();
+      fixture.detectChanges();
+
+      const dialog = fixture.nativeElement.querySelector(
+        '[role="dialog"]',
+      ) as HTMLElement | null;
+      expect(dialog).not.toBeNull();
+      expect(dialog?.getAttribute('aria-modal')).toBe('true');
+      expect(dialog?.getAttribute('aria-label')).toBe('Gateway setup guide');
+      expect(dialog?.textContent).toContain('Discord setup');
+      expect(dialog?.textContent).toContain('Telegram setup');
+    });
+
+    it('closes when the backdrop is clicked', () => {
+      const fixture = makeFixture();
+      findSetupGuideButton(fixture).click();
+      fixture.detectChanges();
+
+      const backdrop = fixture.nativeElement.querySelector(
+        '[aria-hidden="true"]',
+      ) as HTMLElement | null;
+      expect(backdrop).not.toBeNull();
+      backdrop?.click();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+    });
+  });
+
   describe('pending bindings approval queue', () => {
     function pendingBinding(id: string): GatewayBindingDto {
       return {

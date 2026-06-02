@@ -4,7 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
-import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import {
+  SqliteConnectionService,
+  VecStatusService,
+} from '@ptah-extension/persistence-sqlite';
 import { CodeSymbolStore, type CodeSymbolInsert } from './code-symbol.store';
 
 function makeTempDbPath(): string {
@@ -81,7 +84,8 @@ describe('CodeSymbolStore (native-gated)', () => {
     await service.openAndMigrate();
     expect(service.vecExtensionLoaded).toBe(true);
     const embedder = makeDeterministicEmbedder();
-    const store = new CodeSymbolStore(logger, service, embedder);
+    const vecStatus = new VecStatusService(logger, service);
+    const store = new CodeSymbolStore(logger, service, embedder, vecStatus);
     return { service, store, embedder, dbPath };
   }
 
@@ -214,8 +218,19 @@ describe('CodeSymbolStore (native-gated)', () => {
         configurable: true,
         get: () => false,
       });
+      Object.defineProperty(service, 'vecLoadDiagnostic', {
+        configurable: true,
+        get: () => ({
+          ok: false,
+          reason: 'binary-missing',
+          electronVersion: 'unknown',
+          processArch: process.arch,
+          processPlatform: process.platform,
+        }),
+      });
       const embedder = makeDeterministicEmbedder();
-      const store = new CodeSymbolStore(logger, service, embedder);
+      const vecStatus = new VecStatusService(logger, service);
+      const store = new CodeSymbolStore(logger, service, embedder, vecStatus);
       try {
         await store.insertBatch([
           makeEntry({

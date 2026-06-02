@@ -608,6 +608,47 @@ describe('SessionLoaderService', () => {
       expect(rpcCall).not.toHaveBeenCalled();
     });
 
+    it('bypasses the hasLiveSession short-circuit when reason=compaction', async () => {
+      const { service, switchTabMock } = makeGuardService({
+        existingTab: {
+          id: 'tab-live',
+          hasLiveSession: true,
+          claudeSessionId: 'sess-x',
+        },
+        activeWorkspaceTabs: [{ id: 'tab-live' }],
+      });
+      rpcCall.mockResolvedValue({
+        success: true,
+        data: { events: [{ type: 'noop' }] },
+      });
+
+      await service.switchSession('sess-x' as SessionId, {
+        reason: 'compaction',
+      });
+
+      expect(switchTabMock).not.toHaveBeenCalled();
+      expect(rpcCall.mock.calls.some((c) => c[0] === 'session:load')).toBe(
+        true,
+      );
+    });
+
+    it('still short-circuits on the default call (no opts) for a live active-workspace tab', async () => {
+      const { service, switchTabMock } = makeGuardService({
+        existingTab: {
+          id: 'tab-live',
+          hasLiveSession: true,
+          claudeSessionId: 'sess-x',
+        },
+        activeWorkspaceTabs: [{ id: 'tab-live' }],
+      });
+      rpcCall.mockClear();
+
+      await service.switchSession('sess-x' as SessionId);
+
+      expect(switchTabMock).toHaveBeenCalledWith('tab-live');
+      expect(rpcCall).not.toHaveBeenCalled();
+    });
+
     it('falls through to normal resume when existing tab has hasLiveSession=false', async () => {
       const { service, switchTabMock } = makeGuardService({
         existingTab: {

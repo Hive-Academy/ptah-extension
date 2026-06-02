@@ -1,6 +1,6 @@
 {
   "name": "ptah-desktop",
-  "version": "0.1.47",
+  "version": "0.1.49",
   "description": "Ptah - AI Coding Orchestra. Standalone desktop app.",
   "main": "main.mjs",
   "author": {
@@ -12,8 +12,8 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.150",
     "@cursor/sdk": "^1.0.13",
-    "@github/copilot-sdk": "0.1.32",
     "@openai/codex-sdk": "^0.133.0",
+    "@sentry/node": "^9.27.0",
     "@slack/bolt": "4.4.0",
     "@tavily/core": "^0.7.2",
     "@huggingface/transformers": "3.8.1",
@@ -25,7 +25,6 @@
     "croner": "^9.1.0",
     "cross-spawn": "^7.0.6",
     "discord.js": "14.16.3",
-    "electron-updater": "6.8.3",
     "eventemitter3": "5.0.4",
     "exa-js": "^2.10.2",
     "fast-glob": "3.3.3",
@@ -41,8 +40,6 @@
     "minimatch": "10.2.4",
     "node-pty": "1.1.0",
     "nodejs-whisper": "0.2.9",
-    "p-limit": "7.3.0",
-    "p-queue": "8.1.1",
     "picomatch": "4.0.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "7.8.2",

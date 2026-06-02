@@ -26,6 +26,22 @@ export interface SymbolsCursor {
   readonly batchIndex: number;
 }
 
+export interface IndexingVecStatusWire {
+  readonly ok: boolean;
+  readonly reason?: string;
+  readonly attemptedPath?: string;
+}
+
+export interface IndexingEmbedderStatusWire {
+  readonly ready: boolean;
+  readonly downloading?: boolean;
+  readonly progress?: {
+    readonly loaded: number;
+    readonly total: number;
+    readonly percent: number;
+  };
+}
+
 export interface IndexingStatusWire {
   readonly state: IndexingState;
   readonly workspaceFingerprint: string;
@@ -38,6 +54,29 @@ export interface IndexingStatusWire {
   readonly disclosureAcknowledgedAt: number | null;
   readonly lastDismissedStaleSha: string | null;
   readonly errorMessage: string | null;
+  /**
+   * Count of rows in the `code_symbols` table. Used by the banner predicate
+   * (`workspace-indexing.service`) to distinguish "code index built, memory
+   * empty" from "both indexes empty". Optional for backwards-compat — wire
+   * payloads from older backends decode as undefined; frontends MUST default
+   * to 0.
+   */
+  readonly codeSymbolCount?: number;
+  /**
+   * Count of rows in the `memory_chunks` table. Used by the banner predicate.
+   * Optional for backwards-compat.
+   */
+  readonly memoryChunkCount?: number;
+  /**
+   * Sqlite-vec availability summary. Optional for backwards-compat —
+   * undefined when the backend has not been redeployed.
+   */
+  readonly vec?: IndexingVecStatusWire;
+  /**
+   * Embedder readiness summary. Optional for backwards-compat. The
+   * `ready: true` default is stub-friendly; real progress streams land in B4.
+   */
+  readonly embedder?: IndexingEmbedderStatusWire;
 }
 
 export interface IndexingProgressEvent {

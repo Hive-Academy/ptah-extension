@@ -1,9 +1,13 @@
 /**
- * Update lifecycle state types for in-app Electron auto-update UX (VS Code-Style).
+ * Update lifecycle state types for the in-app desktop update banner.
  *
- * The `releaseNotesMarkdown` field is populated by the Electron main process
- * via a GitHub Releases API call (5s timeout). The renderer must NOT make
- * network calls — it receives the notes as part of the payload.
+ * Detection runs in the Electron main process by querying the GitHub Releases
+ * API directly (mirroring the landing-page download route) and comparing the
+ * latest `electron-v*` tag to the installed version. When a newer release
+ * exists the banner surfaces a Download action that opens the platform
+ * installer in the browser. The renderer never makes network calls — it
+ * receives `releaseNotesMarkdown`, `downloadUrl`, and `releaseUrl` in the
+ * payload.
  */
 
 export type UpdateLifecycleState =
@@ -15,22 +19,8 @@ export type UpdateLifecycleState =
       newVersion: string;
       releaseDate?: string;
       releaseNotesMarkdown?: string | null;
-    }
-  | {
-      state: 'downloading';
-      currentVersion: string;
-      newVersion: string;
-      percent: number;
-      bytesPerSecond: number;
-      transferred: number;
-      total: number;
-    }
-  | {
-      state: 'downloaded';
-      currentVersion: string;
-      newVersion: string;
-      releaseDate?: string;
-      releaseNotesMarkdown?: string | null;
+      downloadUrl: string | null;
+      releaseUrl: string;
     }
   | { state: 'dismissed' }
   | { state: 'error'; message: string };

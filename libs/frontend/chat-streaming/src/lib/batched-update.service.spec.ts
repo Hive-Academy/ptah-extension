@@ -15,7 +15,7 @@ import type { StreamingState } from '@ptah-extension/chat-types';
 
 type TabManagerSlice = Pick<
   TabManagerService,
-  'setStreamingState' | 'activeTabId'
+  'setStreamingState' | 'activeTabId' | 'visibleTabIds'
 >;
 
 function makeEmptyStreamingState(): StreamingState {
@@ -60,9 +60,11 @@ describe('BatchedUpdateService', () => {
     }) as typeof cancelAnimationFrame;
 
     const activeTabSignal = signal<string | null>(null);
+    const visibleTabSignal = signal<ReadonlySet<string>>(new Set());
     tabManager = {
       setStreamingState: jest.fn(),
       activeTabId: activeTabSignal.asReadonly(),
+      visibleTabIds: visibleTabSignal.asReadonly(),
     } as unknown as jest.Mocked<TabManagerSlice>;
 
     TestBed.configureTestingModule({

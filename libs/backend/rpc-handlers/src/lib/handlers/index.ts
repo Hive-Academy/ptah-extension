@@ -52,4 +52,7 @@ export type {
   DbHealthParams,
   DbResetParams,
   DbResetResult,
+  DbReloadVecResult,
+  DbOpenBindingFolderResult,
 } from './persistence-rpc.handlers';
+export { EmbedderRpcHandlers } from './embedder-rpc.handlers';

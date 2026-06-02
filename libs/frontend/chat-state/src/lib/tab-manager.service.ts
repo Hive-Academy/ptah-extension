@@ -121,6 +121,14 @@ export class TabManagerService {
   private readonly _streamingTabIds = signal<Set<string>>(new Set());
 
   /**
+   * Tab IDs whose surface is currently mounted and on-screen. The single-tab
+   * webview never registers (set stays empty); the Orchestra Canvas registers
+   * every rendered tile. Consumed by BatchedUpdateService to flush streaming
+   * for all visible tiles, not just the active one.
+   */
+  private readonly _visibleTabIds = signal<ReadonlySet<string>>(new Set());
+
+  /**
    * Signal emitted when a pop-out panel needs to load a specific session.
    * SessionLoaderService listens to this to trigger session loading,
    * breaking the circular dependency (TabManager → SessionLoader → TabManager).
@@ -189,6 +197,9 @@ export class TabManagerService {
 
   /** Read-only signal of tab IDs that are currently streaming (visual indicator only) */
   readonly streamingTabIds = this._streamingTabIds.asReadonly();
+
+  /** Read-only signal of tab IDs whose surface is currently mounted on-screen. */
+  readonly visibleTabIds = this._visibleTabIds.asReadonly();
 
   // ============================================================================
   // COMPUTED SIGNALS
@@ -1663,6 +1674,28 @@ export class TabManagerService {
       return newSet;
     });
     this.clearAbortController(tabId);
+  }
+
+  /**
+   * Mark a tab's surface as mounted and on-screen. Called by each Orchestra
+   * Canvas tile so streaming flushes target every visible tile, not only the
+   * active one.
+   */
+  registerVisibleTab(tabId: string): void {
+    this._visibleTabIds.update((set) => {
+      if (set.has(tabId)) return set;
+      return new Set([...set, tabId]);
+    });
+  }
+
+  /** Drop a tab from the visible set when its surface unmounts. */
+  unregisterVisibleTab(tabId: string): void {
+    this._visibleTabIds.update((set) => {
+      if (!set.has(tabId)) return set;
+      const next = new Set(set);
+      next.delete(tabId);
+      return next;
+    });
   }
 
   // ============================================================================

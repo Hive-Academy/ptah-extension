@@ -16,6 +16,7 @@ import {
 import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
+  VecStatusService,
   type IEmbedder,
 } from '@ptah-extension/persistence-sqlite';
 import { MEMORY_TOKENS } from './di/tokens';
@@ -193,6 +194,8 @@ export class MemorySearchService implements IMemoryReader {
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
     @inject(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)
     private readonly observationQueue: ObservationQueueStore,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
     @inject(PLATFORM_TOKENS.TRACER)
     private readonly tracer: ITracer = new NoopTracer(),
   ) {}
@@ -275,8 +278,7 @@ export class MemorySearchService implements IMemoryReader {
   ): Promise<MemorySearchResponse> {
     const limit = Math.max(1, Math.min(50, topK));
     const trimmed = query.trim();
-    if (!trimmed)
-      return { hits: [], bm25Only: !this.connection.vecExtensionLoaded };
+    if (!trimmed) return { hits: [], bm25Only: !this.vecStatus.available };
     const cacheKey = this.makeCacheKey(trimmed, workspaceRoot);
     const cached = this.cache.get(cacheKey);
     if (cached) {
@@ -286,7 +288,7 @@ export class MemorySearchService implements IMemoryReader {
 
     const bm25Rows = this.bm25Search(trimmed, limit * 4, workspaceRoot);
     let vecRows: Array<FtsRow & { distance: number }> = [];
-    let bm25Only = !this.connection.vecExtensionLoaded;
+    let bm25Only = !this.vecStatus.available;
     if (!bm25Only) {
       try {
         vecRows = await this.vecSearch(trimmed, limit * 4, workspaceRoot);

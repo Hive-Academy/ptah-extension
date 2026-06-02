@@ -231,6 +231,17 @@ jobs:
           _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
           CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
 
+      # CRITICAL: re-copy the tree-sitter WASM immediately before packing.
+      # `nx build` runs copy-wasm.js, but the intervening `nx validate-deps`
+      # and `nx copy-renderer` steps depend on build-main, whose cached output
+      # is the whole dist/apps/ptah-electron dir snapshotted BEFORE copy-wasm
+      # ran — a cache restore wipes wasm/ from dist. Re-running copy-wasm here
+      # (idempotent) guarantees the runtime + grammars are present for the asar.
+      # Without it the workspace indexer and every AST feature silently no-op
+      # (web-tree-sitter.wasm not found in app.asar).
+      - name: Copy tree-sitter WASM (re-copy pre-pack)
+        run: node scripts/copy-wasm.js dist/apps/ptah-electron
+
       - name: Package for platform
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never ${{ matrix.build-args }}
         env:
@@ -245,6 +256,12 @@ jobs:
       # shipping a broken installer (the recurring Sentry 124004638 regression).
       - name: Verify packed better-sqlite3 ABI
         run: node apps/ptah-electron/scripts/verify-packed-native.js
+
+      # Post-pack gate: fail loudly if the tree-sitter WASM runtime/grammars
+      # are missing from the packed app.asar, rather than shipping a build where
+      # workspace indexing silently does nothing.
+      - name: Verify packed tree-sitter WASM
+        run: node apps/ptah-electron/scripts/verify-packed-wasm.js
 
       - name: Find Windows installer
         if: runner.os == 'Windows'

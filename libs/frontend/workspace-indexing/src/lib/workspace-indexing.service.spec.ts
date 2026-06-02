@@ -162,3 +162,80 @@ describe('WorkspaceIndexingService — never-indexed override', () => {
     expect(service.uiState().kind).toBe('no-workspace');
   });
 });
+
+describe('WorkspaceIndexingService — banner three-state predicate', () => {
+  let service: WorkspaceIndexingService;
+  let rpcCall: jest.Mock;
+
+  beforeEach(() => {
+    rpcCall = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        WorkspaceIndexingService,
+        { provide: ClaudeRpcService, useValue: { call: rpcCall } },
+      ],
+    });
+    service = TestBed.inject(WorkspaceIndexingService);
+  });
+
+  it('returns never-indexed when both counts are zero', async () => {
+    rpcCall.mockResolvedValue(
+      makeRpcResult(true, {
+        status: baseStatus({
+          state: 'never-indexed',
+          codeSymbolCount: 0,
+          memoryChunkCount: 0,
+        }),
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.uiState()).toEqual({ kind: 'never-indexed' });
+  });
+
+  it('returns code-only-no-memory when code symbols exist but memory is empty', async () => {
+    rpcCall.mockResolvedValue(
+      makeRpcResult(true, {
+        status: baseStatus({
+          state: 'never-indexed',
+          codeSymbolCount: 6992,
+          memoryChunkCount: 0,
+        }),
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.uiState()).toEqual({
+      kind: 'code-only-no-memory',
+      codeSymbolCount: 6992,
+    });
+  });
+
+  it('returns indexed when state is indexed regardless of counts', async () => {
+    rpcCall.mockResolvedValue(
+      makeRpcResult(true, {
+        status: baseStatus({
+          state: 'indexed',
+          lastIndexedAt: 1700000000000,
+          codeSymbolCount: 6992,
+          memoryChunkCount: 10,
+        }),
+      }),
+    );
+    await service.loadStatus('/ws');
+    const ui = service.uiState() as Extract<
+      IndexingUiState,
+      { kind: 'indexed' }
+    >;
+    expect(ui.kind).toBe('indexed');
+    expect(ui.lastIndexedAt).toBe(1700000000000);
+  });
+
+  it('defaults missing wire fields to zero (backwards-compat with older backends)', async () => {
+    rpcCall.mockResolvedValue(
+      makeRpcResult(true, {
+        status: baseStatus({ state: 'never-indexed' }),
+      }),
+    );
+    await service.loadStatus('/ws');
+    expect(service.uiState()).toEqual({ kind: 'never-indexed' });
+  });
+});

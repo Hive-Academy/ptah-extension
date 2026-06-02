@@ -2,6 +2,7 @@ import {
   Component,
   input,
   computed,
+  signal,
   ChangeDetectionStrategy,
   ElementRef,
   viewChild,
@@ -10,25 +11,49 @@ import {
   NgZone,
   inject,
   afterNextRender,
+  ChangeDetectorRef,
 } from '@angular/core';
 import type * as monaco from 'monaco-editor';
+import { MonacoLoaderService } from '../services/monaco-loader.service';
 
 type MonacoApi = typeof monaco;
+
+type LoadState = 'loading' | 'ready' | 'error';
 
 /**
  * DiffViewComponent - Direct Monaco diff editor for side-by-side file comparison.
  *
- * Uses Monaco's createDiffEditor API directly instead of the ngx-monaco-editor-v2
- * wrapper to ensure proper diff decoration rendering (colored highlights for
- * added/removed lines) and full container sizing.
+ * Uses Monaco's createDiffEditor API directly rather than the
+ * `<ngx-monaco-diff-editor>` wrapper because that wrapper disposes and
+ * re-initialises the editor on every model setter call (flicker + tokenizer
+ * thrash on streaming diffs). Loading is coordinated with the ngx wrapper
+ * through `MonacoLoaderService` (shared via `window.monaco`), so this
+ * component renders correctly even when it is the first Monaco surface to
+ * mount in the session.
  */
 @Component({
   selector: 'ptah-diff-view',
   standalone: true,
   template: `
-    <div class="w-full h-full relative">
+    <div class="w-full h-full relative bg-base-100">
       <div #editorContainer class="w-full h-full"></div>
-      @if (isNewFile()) {
+      @if (loadState() === 'loading') {
+        <div
+          class="absolute inset-0 flex items-center justify-center text-sm text-base-content/60 pointer-events-none"
+        >
+          <span class="loading loading-spinner loading-sm mr-2"></span>
+          Loading diff editor…
+        </div>
+      } @else if (loadState() === 'error') {
+        <div
+          class="absolute inset-0 flex flex-col items-center justify-center p-4 text-sm text-error gap-2"
+        >
+          <span class="font-medium">Failed to load diff editor</span>
+          <span class="text-xs text-base-content/60 max-w-md text-center">
+            {{ loadError() }}
+          </span>
+        </div>
+      } @else if (isNewFile()) {
         <div
           class="absolute top-0 left-0 z-10 text-xs px-2 py-0.5 bg-base-300/80 text-base-content/60 pointer-events-none rounded-br"
         >
@@ -48,6 +73,8 @@ type MonacoApi = typeof monaco;
 })
 export class DiffViewComponent implements OnDestroy {
   private readonly ngZone = inject(NgZone);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly loader = inject(MonacoLoaderService);
 
   readonly filePath = input.required<string>();
   readonly originalContent = input.required<string>();
@@ -61,7 +88,10 @@ export class DiffViewComponent implements OnDestroy {
   private modifiedModel: monaco.editor.ITextModel | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
-  private monacoWaitInterval: ReturnType<typeof setInterval> | null = null;
+  private destroyed = false;
+
+  protected readonly loadState = signal<LoadState>('loading');
+  protected readonly loadError = signal<string>('');
 
   private readonly language = computed(() =>
     this.detectLanguage(this.filePath()),
@@ -73,7 +103,22 @@ export class DiffViewComponent implements OnDestroy {
 
   constructor() {
     afterNextRender(() => {
-      this.waitForMonacoAndCreate();
+      this.loader
+        .load()
+        .then((monacoApi) => {
+          if (this.destroyed) return;
+          this.createEditor(monacoApi);
+          this.loadState.set('ready');
+          this.cdr.markForCheck();
+        })
+        .catch((err: unknown) => {
+          if (this.destroyed) return;
+          this.loadState.set('error');
+          this.loadError.set(
+            err instanceof Error ? err.message : String(err ?? 'Unknown error'),
+          );
+          this.cdr.markForCheck();
+        });
     });
 
     effect(() => {
@@ -87,40 +132,12 @@ export class DiffViewComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.monacoWaitInterval) {
-      clearInterval(this.monacoWaitInterval);
-      this.monacoWaitInterval = null;
-    }
+    this.destroyed = true;
     this.resizeObserver?.disconnect();
     this.themeObserver?.disconnect();
     this.disposeModels();
     this.editor?.dispose();
     this.editor = null;
-  }
-
-  private waitForMonacoAndCreate(): void {
-    const monacoApi = (window as Window & { monaco?: MonacoApi }).monaco;
-    if (monacoApi) {
-      this.createEditor(monacoApi);
-      return;
-    }
-    let attempts = 0;
-    this.monacoWaitInterval = setInterval(() => {
-      attempts++;
-      const m = (window as Window & { monaco?: MonacoApi }).monaco;
-      if (m) {
-        if (this.monacoWaitInterval) {
-          clearInterval(this.monacoWaitInterval);
-          this.monacoWaitInterval = null;
-        }
-        this.createEditor(m);
-      } else if (attempts > 50) {
-        if (this.monacoWaitInterval) {
-          clearInterval(this.monacoWaitInterval);
-          this.monacoWaitInterval = null;
-        }
-      }
-    }, 100);
   }
 
   private createEditor(monacoApi: MonacoApi): void {
