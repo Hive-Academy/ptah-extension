@@ -1,44 +1,120 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { signal, WritableSignal } from '@angular/core';
+import { signal } from '@angular/core';
+import type {
+  AgentPackInfoDto,
+  AgentRecommendation,
+  MultiPhaseAnalysisResponse,
+} from '@ptah-extension/shared';
 import { AgentSelectionComponent } from './agent-selection.component';
-import {
-  SetupWizardStateService,
-  AgentSelection,
-} from '../services/setup-wizard-state.service';
+import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
-// AgentSelectionComponent was substantially refactored (community agent
-// packs, project/community tab switcher, recommendations-based selection via
-// wizardState.recommendedAgents). This spec was authored against the old
-// avail/selection table API and mocks a different state shape; every
-// template-assertion test (31/41) fails against the new UI. Kept skipped
-// with full pre-existing coverage captured in the service spec.
-describe.skip('AgentSelectionComponent', () => {
+function makeRecommendation(
+  overrides: Partial<AgentRecommendation> = {},
+): AgentRecommendation {
+  return {
+    agentId: 'frontend-developer',
+    agentName: 'Frontend Developer',
+    relevanceScore: 95,
+    matchedCriteria: ['Angular detected'],
+    category: 'development',
+    recommended: true,
+    description: 'Builds UI features',
+    ...overrides,
+  };
+}
+
+const mockMultiPhase = {
+  isMultiPhase: true,
+  analysisDir: '/mock/.ptah/analysis/demo',
+} as unknown as MultiPhaseAnalysisResponse;
+
+describe('AgentSelectionComponent', () => {
   let component: AgentSelectionComponent;
   let fixture: ComponentFixture<AgentSelectionComponent>;
   let mockStateService: Partial<SetupWizardStateService>;
   let mockRpcService: Partial<WizardRpcService>;
-  let availableAgentsSignal: WritableSignal<AgentSelection[]>;
-  let selectedCountSignal: WritableSignal<number>;
-  let canProceedSignal: WritableSignal<boolean>;
+
+  let recommendations: ReturnType<typeof signal<AgentRecommendation[]>>;
+  let selectedAgentsMap: ReturnType<typeof signal<Record<string, boolean>>>;
+  let recommendedAgents: ReturnType<typeof signal<AgentRecommendation[]>>;
+  let multiPhaseResult: ReturnType<
+    typeof signal<MultiPhaseAnalysisResponse | null>
+  >;
+  let communityPacks: ReturnType<typeof signal<AgentPackInfoDto[]>>;
+  let communityPacksLoading: ReturnType<typeof signal<boolean>>;
+  let installedCommunityAgentCount: ReturnType<typeof signal<number>>;
+  let expandedPackSource: ReturnType<typeof signal<string | null>>;
+  let agentInstallStatus: ReturnType<
+    typeof signal<Record<string, 'idle' | 'installing' | 'installed' | 'error'>>
+  >;
 
   beforeEach(async () => {
-    availableAgentsSignal = signal<AgentSelection[]>([]);
-    selectedCountSignal = signal<number>(0);
-    canProceedSignal = signal<boolean>(false);
+    recommendations = signal<AgentRecommendation[]>([]);
+    selectedAgentsMap = signal<Record<string, boolean>>({});
+    recommendedAgents = signal<AgentRecommendation[]>([]);
+    multiPhaseResult = signal<MultiPhaseAnalysisResponse | null>(
+      mockMultiPhase,
+    );
+    communityPacks = signal<AgentPackInfoDto[]>([]);
+    communityPacksLoading = signal(false);
+    installedCommunityAgentCount = signal(0);
+    expandedPackSource = signal<string | null>(null);
+    agentInstallStatus = signal<
+      Record<string, 'idle' | 'installing' | 'installed' | 'error'>
+    >({});
 
     mockStateService = {
-      toggleAgentSelection: jest.fn(),
-      setAvailableAgents: jest.fn(),
+      recommendations: recommendations.asReadonly(),
+      selectedAgentsMap: selectedAgentsMap.asReadonly(),
+      recommendedAgents: recommendedAgents.asReadonly(),
+      multiPhaseResult: multiPhaseResult.asReadonly(),
+      communityPacks: communityPacks.asReadonly(),
+      communityPacksLoading: communityPacksLoading.asReadonly(),
+      installedCommunityAgentCount: installedCommunityAgentCount.asReadonly(),
+      expandedPackSource: expandedPackSource.asReadonly(),
+      agentInstallStatus: agentInstallStatus.asReadonly(),
+      toggleAgentRecommendationSelection: jest.fn((agentId: string) => {
+        const next = { ...selectedAgentsMap() };
+        next[agentId] = !next[agentId];
+        selectedAgentsMap.set(next);
+      }),
+      selectAllRecommended: jest.fn(() => {
+        const next = { ...selectedAgentsMap() };
+        for (const agent of recommendedAgents()) next[agent.agentId] = true;
+        selectedAgentsMap.set(next);
+      }),
+      deselectAllAgents: jest.fn(() => selectedAgentsMap.set({})),
       setCurrentStep: jest.fn(),
-      availableAgents: availableAgentsSignal,
-      selectedCount: selectedCountSignal,
-      canProceed: canProceedSignal,
-    };
+      setSkillGenerationProgress: jest.fn(),
+      setCommunityPacks: jest.fn((packs: AgentPackInfoDto[]) =>
+        communityPacks.set(packs),
+      ),
+      setCommunityPacksLoading: jest.fn((loading: boolean) =>
+        communityPacksLoading.set(loading),
+      ),
+      setAgentInstallStatus: jest.fn(
+        (
+          key: string,
+          status: 'idle' | 'installing' | 'installed' | 'error',
+        ) => {
+          agentInstallStatus.set({ ...agentInstallStatus(), [key]: status });
+        },
+      ),
+      toggleExpandedPack: jest.fn((source: string) => {
+        expandedPackSource.set(expandedPackSource() === source ? null : source);
+      }),
+    } as unknown as Partial<SetupWizardStateService>;
 
     mockRpcService = {
-      submitAgentSelection: jest.fn(),
-    };
+      submitAgentSelection: jest.fn().mockResolvedValue({ success: true }),
+      listAgentPacks: jest.fn().mockResolvedValue([]),
+      installPackAgents: jest.fn().mockResolvedValue({
+        success: true,
+        agentsDownloaded: 1,
+        fromCache: false,
+      }),
+    } as unknown as Partial<WizardRpcService>;
 
     await TestBed.configureTestingModule({
       imports: [AgentSelectionComponent],
@@ -57,716 +133,352 @@ describe.skip('AgentSelectionComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  describe('Initial State', () => {
-    it('should initialize with isGenerating as false', () => {
-      expect(component['isGenerating']()).toBe(false);
+  describe('Initial state', () => {
+    it('should start on the project tab', () => {
+      expect(component['activeTab']()).toBe('project');
     });
 
-    it('should initialize with null error message', () => {
+    it('should initialize with isGenerating false and no error', () => {
+      expect(component['isGenerating']()).toBe(false);
       expect(component['errorMessage']()).toBeNull();
     });
 
-    it('should display heading', () => {
-      const heading = fixture.nativeElement.querySelector('h2');
-      expect(heading.textContent).toContain('Select Agents to Generate');
-    });
-
-    it('should display description', () => {
+    it('should show empty-recommendations message when none available', () => {
       const text = fixture.nativeElement.textContent;
-      expect(text).toContain(
-        "We've analyzed your project and recommended these agents",
-      );
+      expect(text).toContain('No Agent Recommendations');
     });
   });
 
-  describe('Agent List Display', () => {
-    it('should display agent table', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Frontend Developer',
-          selected: true,
-          score: 95,
-          reason: 'High relevance',
-          autoInclude: true,
-        },
-        {
-          id: '2',
-          name: 'Backend Developer',
-          selected: false,
-          score: 80,
-          reason: 'Medium relevance',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      selectedCountSignal.set(1);
+  describe('Recommendation display', () => {
+    beforeEach(() => {
+      recommendations.set([
+        makeRecommendation({
+          agentId: 'frontend-developer',
+          agentName: 'Frontend Developer',
+          relevanceScore: 95,
+          category: 'development',
+        }),
+        makeRecommendation({
+          agentId: 'qa-tester',
+          agentName: 'QA Tester',
+          relevanceScore: 70,
+          category: 'qa',
+        }),
+      ]);
       fixture.detectChanges();
+    });
 
-      const rows = fixture.nativeElement.querySelectorAll('tbody tr');
-      expect(rows.length).toBe(2);
+    it('should render a card per recommendation', () => {
+      const cards = fixture.nativeElement.querySelectorAll('[role="checkbox"]');
+      expect(cards.length).toBe(2);
     });
 
     it('should display agent names', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Frontend Developer',
-          selected: true,
-          score: 95,
-          reason: 'High relevance',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
-
       const text = fixture.nativeElement.textContent;
       expect(text).toContain('Frontend Developer');
+      expect(text).toContain('QA Tester');
     });
 
-    it('should display relevance scores with color coding', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'High Score',
-          selected: false,
-          score: 95,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '2',
-          name: 'Medium Score',
-          selected: false,
-          score: 70,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '3',
-          name: 'Low Score',
-          selected: false,
-          score: 50,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
-
-      const successBadge =
-        fixture.nativeElement.querySelector('.badge-success');
-      const warningBadge =
-        fixture.nativeElement.querySelector('.badge-warning');
-      const errorBadge = fixture.nativeElement.querySelector('.badge-error');
-
-      expect(successBadge.textContent).toContain('95%');
-      expect(warningBadge.textContent).toContain('70%');
-      expect(errorBadge.textContent).toContain('50%');
-    });
-
-    it('should display reasons', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: false,
-          score: 90,
-          reason: 'Matches project type',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
-
+    it('should display relevance score percentages', () => {
       const text = fixture.nativeElement.textContent;
-      expect(text).toContain('Matches project type');
+      expect(text).toContain('95%');
+      expect(text).toContain('70%');
     });
 
-    it('should display auto-include badge', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: true,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
-
-      const badge = fixture.nativeElement.querySelector('.badge-accent');
-      expect(badge.textContent).toContain('Auto-included');
+    it('should sort recommendations by score descending', () => {
+      const sorted = component['sortedRecommendations']();
+      expect(sorted[0].agentId).toBe('frontend-developer');
+      expect(sorted[1].agentId).toBe('qa-tester');
     });
 
-    it('should hide auto-include badge when not auto-included', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
-
-      const badge = fixture.nativeElement.querySelector('.badge-accent');
-      expect(badge).toBeFalsy();
+    it('should group agents by category', () => {
+      expect(
+        component['getAgentsByCategory']('development').map((a) => a.agentId),
+      ).toEqual(['frontend-developer']);
+      expect(
+        component['getAgentsByCategory']('qa').map((a) => a.agentId),
+      ).toEqual(['qa-tester']);
     });
 
-    it('should show empty state message when no agents', () => {
-      availableAgentsSignal.set([]);
-      fixture.detectChanges();
-
-      const text = fixture.nativeElement.textContent;
-      expect(text).toContain('No agents available. Please restart the wizard.');
+    it('should place unknown categories under "other"', () => {
+      recommendations.set([
+        makeRecommendation({
+          agentId: 'mystery',
+          agentName: 'Mystery Agent',
+          category: 'unknown-category' as never,
+        }),
+      ]);
+      expect(
+        component['getAgentsByCategory']('other').map((a) => a.agentId),
+      ).toEqual(['mystery']);
     });
   });
 
-  describe('Selection Controls', () => {
+  describe('Selection', () => {
     beforeEach(() => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '2',
-          name: 'Agent 2',
-          selected: false,
-          score: 80,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      selectedCountSignal.set(1);
+      recommendations.set([
+        makeRecommendation({ agentId: 'a', agentName: 'Agent A' }),
+        makeRecommendation({ agentId: 'b', agentName: 'Agent B' }),
+      ]);
       fixture.detectChanges();
     });
 
-    it('should display selection count', () => {
-      const badge = fixture.nativeElement.querySelector('.badge-outline');
-      expect(badge.textContent).toContain('1 / 2 selected');
-    });
-
-    it('should have select all button', () => {
-      const button = fixture.nativeElement.querySelector(
-        'button:nth-of-type(1)',
-      );
-      expect(button.textContent).toContain('Select All');
-    });
-
-    it('should have deselect all button', () => {
-      const button = fixture.nativeElement.querySelector(
-        'button:nth-of-type(2)',
-      );
-      expect(button.textContent).toContain('Deselect All');
-    });
-
-    it('should disable select all when all selected', () => {
-      selectedCountSignal.set(2);
-      fixture.detectChanges();
-
-      const button = fixture.nativeElement.querySelector(
-        'button:nth-of-type(1)',
-      );
-      expect(button.disabled).toBe(true);
-    });
-
-    it('should disable deselect all when none selected', () => {
-      selectedCountSignal.set(0);
-      fixture.detectChanges();
-
-      const button = fixture.nativeElement.querySelector(
-        'button:nth-of-type(2)',
-      );
-      expect(button.disabled).toBe(true);
-    });
-  });
-
-  describe('Agent Selection', () => {
-    it('should toggle agent selection on checkbox click', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: false,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
-
+    it('should toggle an agent on checkbox change', () => {
       const checkbox = fixture.nativeElement.querySelector(
         'input[type="checkbox"]',
       );
-      checkbox.click();
+      checkbox.dispatchEvent(new Event('change'));
 
-      expect(mockStateService.toggleAgentSelection).toHaveBeenCalledWith('1');
+      expect(
+        mockStateService.toggleAgentRecommendationSelection,
+      ).toHaveBeenCalled();
     });
 
-    it('should select all agents', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: false,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '2',
-          name: 'Agent 2',
-          selected: false,
-          score: 80,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
-
-      // component['onSelectAll']();
-
-      expect(mockStateService.setAvailableAgents).toHaveBeenCalledWith([
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '2',
-          name: 'Agent 2',
-          selected: true,
-          score: 80,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ]);
+    it('should compute selected count from the selection map', () => {
+      selectedAgentsMap.set({ a: true, b: false });
+      expect(component['selectedCount']()).toBe(1);
     });
 
-    it('should deselect all agents', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '2',
-          name: 'Agent 2',
-          selected: true,
-          score: 80,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
+    it('should report noneSelected when nothing selected', () => {
+      expect(component['noneSelected']()).toBe(true);
+      selectedAgentsMap.set({ a: true });
+      expect(component['noneSelected']()).toBe(false);
+    });
 
+    it('should delegate select-all-recommended to state', () => {
+      recommendedAgents.set([makeRecommendation({ agentId: 'a' })]);
+      component['onSelectAllRecommended']();
+      expect(mockStateService.selectAllRecommended).toHaveBeenCalled();
+      expect(selectedAgentsMap()['a']).toBe(true);
+    });
+
+    it('should delegate deselect-all to state', () => {
+      selectedAgentsMap.set({ a: true });
       component['onDeselectAll']();
+      expect(mockStateService.deselectAllAgents).toHaveBeenCalled();
+      expect(component['selectedCount']()).toBe(0);
+    });
 
-      expect(mockStateService.setAvailableAgents).toHaveBeenCalledWith([
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: false,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '2',
-          name: 'Agent 2',
-          selected: false,
-          score: 80,
-          reason: 'Test',
-          autoInclude: false,
-        },
+    it('should compute allRecommendedSelected', () => {
+      recommendedAgents.set([
+        makeRecommendation({ agentId: 'a' }),
+        makeRecommendation({ agentId: 'b' }),
       ]);
+      selectedAgentsMap.set({ a: true });
+      expect(component['allRecommendedSelected']()).toBe(false);
+      selectedAgentsMap.set({ a: true, b: true });
+      expect(component['allRecommendedSelected']()).toBe(true);
     });
   });
 
-  describe('Generate Agents', () => {
+  describe('Navigation', () => {
+    it('should go back to the analysis step', () => {
+      component['onBack']();
+      expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('analysis');
+    });
+  });
+
+  describe('Generate agents', () => {
     beforeEach(() => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '2',
-          name: 'Agent 2',
-          selected: false,
-          score: 80,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      selectedCountSignal.set(1);
-      canProceedSignal.set(true);
+      recommendations.set([
+        makeRecommendation({
+          agentId: 'a',
+          agentName: 'Agent A',
+          relevanceScore: 90,
+          matchedCriteria: ['x'],
+        }),
+      ]);
+      selectedAgentsMap.set({ a: true });
       fixture.detectChanges();
     });
 
-    it('should call RPC service when generate button clicked', async () => {
-      (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue(
-        undefined,
-      );
-
+    it('should submit the selected agents with the analysis dir', async () => {
       await component['onGenerateAgents']();
 
-      expect(mockRpcService.submitAgentSelection).toHaveBeenCalledWith([
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ]);
+      expect(mockRpcService.submitAgentSelection).toHaveBeenCalledWith(
+        [
+          {
+            id: 'a',
+            name: 'Agent A',
+            selected: true,
+            score: 90,
+            reason: 'x',
+            autoInclude: true,
+          },
+        ],
+        mockMultiPhase.analysisDir,
+      );
     });
 
-    it('should transition to generation step on success', async () => {
-      (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue(
-        undefined,
-      );
-
+    it('should transition to the generation step on success', async () => {
       await component['onGenerateAgents']();
 
+      expect(mockStateService.setSkillGenerationProgress).toHaveBeenCalled();
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith(
         'generation',
       );
     });
 
-    it('should show loading state while generating', async () => {
-      let resolvePromise: () => void;
-      const promise = new Promise<void>((resolve) => {
-        resolvePromise = resolve;
-      });
-      (mockRpcService.submitAgentSelection as jest.Mock).mockReturnValue(
-        promise,
-      );
-
-      const generatePromise = component['onGenerateAgents']();
-
-      expect(component['isGenerating']()).toBe(true);
-
-      resolvePromise();
-      await generatePromise;
-
+    it('should reset isGenerating after completion', async () => {
+      await component['onGenerateAgents']();
       expect(component['isGenerating']()).toBe(false);
     });
 
-    it('should display error message on failure', async () => {
-      const errorMessage = 'RPC timeout';
-      (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        new Error(errorMessage),
-      );
-
+    it('should not submit when nothing is selected', async () => {
+      selectedAgentsMap.set({});
       await component['onGenerateAgents']();
-
-      expect(component['errorMessage']()).toBe(errorMessage);
-    });
-
-    it('should display default error message for non-Error failures', async () => {
-      (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        'String error',
-      );
-
-      await component['onGenerateAgents']();
-
-      expect(component['errorMessage']()).toBe(
-        'Failed to generate agents. Please try again.',
-      );
-    });
-
-    it('should reset loading state on error', async () => {
-      (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        new Error('Test error'),
-      );
-
-      await component['onGenerateAgents']();
-
-      expect(component['isGenerating']()).toBe(false);
-    });
-
-    it('should prevent double-click while generating', async () => {
-      let resolvePromise: () => void;
-      const promise = new Promise<void>((resolve) => {
-        resolvePromise = resolve;
-      });
-      (mockRpcService.submitAgentSelection as jest.Mock).mockReturnValue(
-        promise,
-      );
-
-      component['onGenerateAgents']();
-      component['onGenerateAgents']();
-
-      expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
-
-      resolvePromise();
-    });
-
-    it('should prevent generation when canProceed is false', async () => {
-      canProceedSignal.set(false);
-
-      await component['onGenerateAgents']();
-
       expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
     });
 
-    it('should clear previous error message on new attempt', async () => {
-      (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        new Error('First error'),
-      );
+    it('should surface an error when analysis data is missing', async () => {
+      multiPhaseResult.set(null);
       await component['onGenerateAgents']();
 
-      expect(component['errorMessage']()).toBe('First error');
-
-      (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue(
-        undefined,
+      expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+      expect(component['errorMessage']()).toContain(
+        'No analysis data available',
       );
-      await component['onGenerateAgents']();
-
-      expect(component['errorMessage']()).toBeNull();
-    });
-
-    it('should log error to console on failure', async () => {
-      jest.spyOn(console, 'error').mockImplementation();
-      const error = new Error('Test error');
-      (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        error,
-      );
-
-      await component['onGenerateAgents']();
-
-      expect(console.error).toHaveBeenCalledWith(
-        'Agent generation failed:',
-        error,
+      expect(mockStateService.setCurrentStep).not.toHaveBeenCalledWith(
+        'generation',
       );
     });
-  });
 
-  describe('Generate Button', () => {
-    it('should display correct button text with singular agent', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      selectedCountSignal.set(1);
-      canProceedSignal.set(true);
-      fixture.detectChanges();
-
-      const button = fixture.nativeElement.querySelector('.btn-primary');
-      expect(button.textContent).toContain('Generate 1 Agent');
-    });
-
-    it('should display correct button text with multiple agents', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-        {
-          id: '2',
-          name: 'Agent 2',
-          selected: true,
-          score: 80,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      selectedCountSignal.set(2);
-      canProceedSignal.set(true);
-      fixture.detectChanges();
-
-      const button = fixture.nativeElement.querySelector('.btn-primary');
-      expect(button.textContent).toContain('Generate 2 Agents');
-    });
-
-    it('should disable button when generating', async () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      selectedCountSignal.set(1);
-      canProceedSignal.set(true);
-      fixture.detectChanges();
-
-      let resolvePromise: () => void;
-      const promise = new Promise<void>((resolve) => {
-        resolvePromise = resolve;
+    it('should surface a backend rejection as an error', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue({
+        success: false,
+        error: 'Backend exploded',
       });
-      (mockRpcService.submitAgentSelection as jest.Mock).mockReturnValue(
-        promise,
+
+      await component['onGenerateAgents']();
+
+      expect(component['errorMessage']()).toContain('Backend exploded');
+      expect(mockStateService.setCurrentStep).not.toHaveBeenCalledWith(
+        'generation',
       );
-
-      component['onGenerateAgents']();
-      fixture.detectChanges();
-
-      const button = fixture.nativeElement.querySelector('.btn-primary');
-      expect(button.disabled).toBe(true);
-
-      resolvePromise();
     });
 
-    it('should disable button when canProceed is false', () => {
-      canProceedSignal.set(false);
-      fixture.detectChanges();
+    it('should surface a thrown RPC error', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
+        new Error('RPC timeout'),
+      );
 
-      const button = fixture.nativeElement.querySelector('.btn-primary');
-      expect(button.disabled).toBe(true);
+      await component['onGenerateAgents']();
+
+      expect(component['errorMessage']()).toContain('RPC timeout');
+      expect(component['isGenerating']()).toBe(false);
+    });
+
+    it('should prevent re-entry while generating', async () => {
+      let resolve!: (v: { success: boolean }) => void;
+      (mockRpcService.submitAgentSelection as jest.Mock).mockReturnValue(
+        new Promise((r) => {
+          resolve = r;
+        }),
+      );
+
+      const first = component['onGenerateAgents']();
+      const second = component['onGenerateAgents']();
+
+      expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
+
+      resolve({ success: true });
+      await Promise.all([first, second]);
     });
   });
 
-  describe('Computed Signals', () => {
-    it('should compute noneSelected correctly', () => {
-      selectedCountSignal.set(0);
+  describe('Community packs tab', () => {
+    const pack: AgentPackInfoDto = {
+      source: 'https://example.com/pack.json',
+      name: 'Example Pack',
+      description: 'A pack of agents',
+      agents: [
+        {
+          file: 'agent-one.md',
+          name: 'Agent One',
+          description: 'First agent',
+          category: 'development',
+        },
+      ],
+    } as unknown as AgentPackInfoDto;
 
-      expect(component['noneSelected']()).toBe(true);
+    it('should switch to the community tab and lazy-load packs', async () => {
+      component['onSwitchToCommunityTab']();
+      await fixture.whenStable();
+
+      expect(component['activeTab']()).toBe('community');
+      expect(mockRpcService.listAgentPacks).toHaveBeenCalled();
     });
 
-    it('should compute noneSelected as false when some selected', () => {
-      selectedCountSignal.set(1);
+    it('should toggle pack expansion through state', () => {
+      component['onTogglePackExpand'](pack.source);
+      expect(mockStateService.toggleExpandedPack).toHaveBeenCalledWith(
+        pack.source,
+      );
+      expect(component['isPackExpanded'](pack.source)).toBe(true);
+    });
 
-      expect(component['noneSelected']()).toBe(false);
+    it('should install a single agent and mark it installed', async () => {
+      await component['onInstallAgent'](pack.source, 'agent-one.md');
+
+      expect(mockRpcService.installPackAgents).toHaveBeenCalledWith(
+        pack.source,
+        ['agent-one.md'],
+      );
+      expect(component['getAgentStatus'](pack.source, 'agent-one.md')).toBe(
+        'installed',
+      );
+    });
+
+    it('should mark an agent errored when install throws', async () => {
+      (mockRpcService.installPackAgents as jest.Mock).mockRejectedValue(
+        new Error('network down'),
+      );
+      await component['onInstallAgent'](pack.source, 'agent-one.md');
+
+      expect(component['getAgentStatus'](pack.source, 'agent-one.md')).toBe(
+        'error',
+      );
+    });
+
+    it('should report when all pack agents are installed', () => {
+      expect(component['allPackAgentsInstalled'](pack)).toBe(false);
+      agentInstallStatus.set({
+        [`${pack.source}::agent-one.md`]: 'installed',
+      });
+      expect(component['allPackAgentsInstalled'](pack)).toBe(true);
+    });
+  });
+
+  describe('Category helpers', () => {
+    it('should map categories to labels', () => {
+      expect(component['getCategoryLabel']('planning')).toBe(
+        'Planning & Architecture',
+      );
+      expect(component['getCategoryLabel']('qa')).toBe('Quality Assurance');
+      expect(component['getCategoryLabel']('other')).toBe('Other');
+    });
+
+    it('should map score to a badge class', () => {
+      expect(component['getScoreBadgeClass'](90)).toBe('badge-success');
+      expect(component['getScoreBadgeClass'](70)).toBe('badge-warning');
+      expect(component['getScoreBadgeClass'](40)).toBe('badge-error');
     });
   });
 
   describe('Accessibility', () => {
-    it('should have accessible checkboxes', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Frontend Developer',
-          selected: false,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
+    it('should expose recommendation cards as checkbox role with aria-label', () => {
+      recommendations.set([
+        makeRecommendation({
+          agentId: 'a',
+          agentName: 'Frontend Developer',
+        }),
+      ]);
       fixture.detectChanges();
 
-      const checkbox = fixture.nativeElement.querySelector(
-        'input[type="checkbox"]',
-      );
-      expect(checkbox.getAttribute('aria-label')).toContain(
-        'Frontend Developer',
-      );
-    });
-
-    it('should have proper heading hierarchy', () => {
-      const h2 = fixture.nativeElement.querySelector('h2');
-      expect(h2).toBeTruthy();
-    });
-
-    it('should have accessible table structure', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: false,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      fixture.detectChanges();
-
-      const table = fixture.nativeElement.querySelector('table');
-      const thead = table.querySelector('thead');
-      const tbody = table.querySelector('tbody');
-      expect(thead).toBeTruthy();
-      expect(tbody).toBeTruthy();
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('should handle empty agent selection', async () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: false,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      canProceedSignal.set(false);
-      (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue(
-        undefined,
-      );
-
-      await component['onGenerateAgents']();
-
-      expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
-    });
-
-    it('should handle single agent selection', () => {
-      const agents: AgentSelection[] = [
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ];
-      availableAgentsSignal.set(agents);
-      selectedCountSignal.set(1);
-      fixture.detectChanges();
-
-      const badge = fixture.nativeElement.querySelector('.badge-outline');
-      expect(badge.textContent).toContain('1 / 1 selected');
+      const card = fixture.nativeElement.querySelector('[role="checkbox"]');
+      expect(card.getAttribute('aria-label')).toContain('Frontend Developer');
     });
   });
 });
