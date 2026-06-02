@@ -193,9 +193,12 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
         this.parentEnvInjector,
       ),
     );
+
+    this.tabManager.registerVisibleTab(this.tabId());
   }
 
   ngOnDestroy(): void {
+    this.tabManager.unregisterVisibleTab(this.tabId());
     this.childInjector()?.destroy();
   }
 

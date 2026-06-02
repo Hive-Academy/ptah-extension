@@ -62,6 +62,8 @@ describe('CanvasTileComponent freeze-at-creation effort', () => {
     setOverrideEffort: jest.fn(),
     getTabViewMode: jest.fn().mockReturnValue('full'),
     toggleTabViewMode: jest.fn(),
+    registerVisibleTab: jest.fn(),
+    unregisterVisibleTab: jest.fn(),
   };
 
   function mountTile(tabId: string) {
