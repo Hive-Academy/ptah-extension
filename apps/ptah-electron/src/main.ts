@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
+import { TOKENS, type SentryService } from '@ptah-extension/vscode-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
@@ -34,6 +35,7 @@ if (!gotLock) {
     switchWorkspace: (p: string) => void;
   } | null = null;
   let flushWorkspacePersistence: (() => void) | null = null;
+  let sentryFlushed = false;
   let sqliteConnection: { close: () => void } | null = null;
   let memoryCurator: { stop: () => void } | null = null;
   let memoryTrigger: { stop: () => void } | null = null;
@@ -48,7 +50,7 @@ if (!gotLock) {
     const boot = await bootstrapElectron(() => mainWindow);
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
 
-    app.on('before-quit', () => {
+    app.on('before-quit', (event) => {
       try {
         const workspaceProvider =
           boot.container.resolve<ElectronWorkspaceProvider>(
@@ -60,6 +62,32 @@ if (!gotLock) {
           '[Ptah Electron] before-quit fileSettings flush failed (non-fatal):',
           error instanceof Error ? error.message : String(error),
         );
+      }
+
+      // Flush buffered Sentry events before the process exits, otherwise crash
+      // reports captured moments before quit are lost. flush() no-ops when
+      // Sentry was never initialized (dev / no DSN), and we only delay quit
+      // when it is actually initialized — so dev quit behaviour is unchanged.
+      // The guard prevents re-delaying the quit re-emitted by app.quit() below.
+      if (!sentryFlushed) {
+        sentryFlushed = true;
+        try {
+          const sentryService = boot.container.resolve<SentryService>(
+            TOKENS.SENTRY_SERVICE,
+          );
+          if (sentryService.isInitialized()) {
+            event.preventDefault();
+            void sentryService
+              .flush(2000)
+              .catch(() => undefined)
+              .finally(() => app.quit());
+          }
+        } catch (error) {
+          console.warn(
+            '[Ptah Electron] before-quit Sentry flush failed (non-fatal):',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       }
     });
 
