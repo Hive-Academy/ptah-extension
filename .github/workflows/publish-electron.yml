@@ -411,9 +411,13 @@ jobs:
       # --prepackaged packs the distributable from the existing app dir without
       # re-running asar packing or re-copying node_modules, so the signed
       # internal binaries are carried verbatim into the installer.
+      # NOTE: --prepackaged is resolved relative to --project, so a relative
+      # "dist/release/win-unpacked" becomes dist/apps/ptah-electron/dist/release/
+      # win-unpacked (does not exist). Pass an ABSOLUTE workspace path so it
+      # points at the real output dir where phase 1's --dir build emitted it.
       - name: Package Windows installer from signed app (NSIS)
         if: runner.os == 'Windows'
-        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never --win --prepackaged dist/release/win-unpacked
+        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never --win --prepackaged "${{ github.workspace }}/dist/release/win-unpacked"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
