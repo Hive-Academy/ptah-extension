@@ -149,6 +149,13 @@ linux:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # packElevateHelper copies elevate.exe into resources/ during NSIS packaging.
+  # Under the signed-app repack (electron-builder --prepackaged), that copy
+  # fails with "ENOENT ... elevate.exe" (electron-builder#7518). The elevate
+  # UAC helper is only needed for per-machine installs / electron-updater; Ptah
+  # ships a per-user installer (perMachine=false, %LOCALAPPDATA%) and updates via
+  # the GitHub Releases API, not electron-updater — so it is safe to drop.
+  packElevateHelper: false
 
 publish:
   provider: github
