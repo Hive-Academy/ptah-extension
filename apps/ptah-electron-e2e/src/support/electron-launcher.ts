@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { _electron, type ElectronApplication } from '@playwright/test';
 
@@ -58,10 +59,20 @@ export async function launchPtah(
     ? ['--no-sandbox', '--disable-dev-shm-usage']
     : [];
 
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-e2e-udd-'));
+
   const app = await _electron.launch({
-    args: [entry, ...ciArgs, ...(opts.args ?? [])],
+    args: [
+      entry,
+      `--user-data-dir=${userDataDir}`,
+      ...ciArgs,
+      ...(opts.args ?? []),
+    ],
     env: env as Record<string, string>,
     timeout: opts.timeout ?? 30_000,
+  });
+  app.process().on('exit', () => {
+    fs.rm(userDataDir, { recursive: true, force: true }, () => undefined);
   });
   app.process().stdout?.on('data', (chunk: Buffer) => {
     process.stderr.write(`[ptah-electron stdout] ${chunk.toString('utf8')}`);
