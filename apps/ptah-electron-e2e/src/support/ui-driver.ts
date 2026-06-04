@@ -245,15 +245,16 @@ export class UiDriver {
       return;
     }
     if (view === 'editor') {
-      const editorTab = this.page
-        .locator('[data-testid="electron-tab-editor"], [aria-label="Editor"]')
-        .first();
-      if (await editorTab.count()) {
+      const editorPanel = this.page.locator('ptah-editor-panel');
+      if (!(await editorPanel.count())) {
+        const editorTab = this.page
+          .getByRole('button', { name: 'Toggle Editor panel' })
+          .or(this.page.locator('[aria-label="Toggle Editor panel"]'))
+          .first();
+        await editorTab.waitFor({ state: 'visible' });
         await editorTab.click();
       }
-      await this.page
-        .locator('ptah-editor-panel')
-        .waitFor({ state: 'visible' });
+      await editorPanel.first().waitFor({ state: 'visible' });
       return;
     }
     const viewName = view === 'dashboard' ? 'analytics' : view;
