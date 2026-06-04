@@ -31,6 +31,7 @@
     <!-- Message bubble - uses base-300 for theme-aware background -->
     <div
       class="chat-bubble bg-base-300 text-base-content shadow-card min-w-[95%] md:min-w-[98%] lg:min-w-[95%]"
+      data-testid="chat-tool-output"
     >
       <!-- Collapsible Header (only for completed assistant messages) -->
       @if (messageSummary(); as summary) {

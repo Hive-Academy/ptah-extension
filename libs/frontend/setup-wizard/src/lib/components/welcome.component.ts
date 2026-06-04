@@ -204,6 +204,7 @@ type WelcomeMode = 'analysis' | 'new';
               <button
                 class="btn btn-primary btn-sm"
                 aria-label="Start new analysis"
+                data-testid="wizard-next-btn"
                 (click)="onStartSetup()"
               >
                 <lucide-angular

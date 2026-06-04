@@ -17,9 +17,33 @@ import { test, expect } from '../support/fixtures';
  *   `PTAH_LICENSE_PATH` env var, and no `fs.watch` call.
  *
  *   The tests below therefore exercise what actually exists: the unlicensed
- *   default startup state, the EventEmitter contract, and the revalidation
- *   interval.
+ *   default startup state, the EventEmitter contract, the revalidation
+ *   interval, and the real `license:` RPC contract (status revalidation and
+ *   malformed-key rejection) driven over the multiplexed 'rpc' channel.
  */
+
+/** Response envelope returned on 'to-renderer' for an `rpc:call`. */
+interface RpcResponseEnvelope<T = unknown> {
+  type?: string;
+  correlationId?: string;
+  success?: boolean;
+  data?: T;
+  error?: string;
+  errorCode?: string;
+}
+
+/** Build an `rpc:call` payload with a unique correlationId. */
+function rpcCall(method: string, params: unknown = {}) {
+  return {
+    type: 'rpc:call',
+    payload: {
+      method,
+      params,
+      correlationId: `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    },
+  };
+}
+
 test.describe('License watcher', () => {
   test('startup config defaults to unlicensed when no license is registered', async ({
     electronApp,
@@ -137,19 +161,71 @@ test.describe('License watcher', () => {
     expect(typeof sample.ts).toBe('number');
   });
 
-  test.skip('license file mutation -> watcher revalidates', // driven by `LicenseService.setLicenseKey()` writing to SecretStorage // Reason: license watching does NOT watch a file. License state changes are
-  // and the service emitting `license:verified` / `license:expired`
-  // events. To exercise this end-to-end we would need a renderer-side
-  // RPC method that invokes setLicenseKey + a stubbed license server.
-  () => {
-    /* no-op */
+  test('license state is revalidated via license:getStatus and reports an unlicensed tier', async ({
+    rpcBridge,
+    electronApp,
+    mainWindow,
+  }) => {
+    await mainWindow.waitForLoadState('domcontentloaded');
+
+    // The real revalidation path: license:getStatus -> LicenseService.verifyLicense().
+    // With no key in SecretStorage, verifyLicense() short-circuits to a
+    // not_found/Community status WITHOUT a network call, so this is deterministic
+    // in the e2e harness (no mock license server required).
+    const res = (await rpcBridge.sendRpc(
+      'rpc',
+      rpcCall('license:getStatus'),
+    )) as RpcResponseEnvelope<{
+      valid?: boolean;
+      tier?: string;
+      isPremium?: boolean;
+    }>;
+
+    expect(res.type).toBe('rpc:response');
+    expect(res.success).toBe(true);
+    expect(res.data).toBeDefined();
+    expect(typeof res.data?.valid).toBe('boolean');
+    expect(typeof res.data?.tier).toBe('string');
+    // An unlicensed app can never report a premium tier.
+    expect(res.data?.isPremium).toBe(false);
+
+    // The main process stayed responsive through the revalidation.
+    const alive = await electronApp.evaluate(() => 'alive');
+    expect(alive).toBe('alive');
   });
 
-  test.skip('malformed license payload -> caught, app does not crash', // Malformed-server-response handling lives in // Reason: Same as above -- there is no JSON file path to corrupt.
-  // libs/backend/vscode-core/src/services/license/license-fetcher.ts and
-  // is exercised by its unit tests; an e2e equivalent requires the
-  // mock-server harness described in the previous skip.
-  () => {
-    /* no-op */
+  test('malformed license payload is caught and does not crash the app', async ({
+    rpcBridge,
+    electronApp,
+    mainWindow,
+  }) => {
+    await mainWindow.waitForLoadState('domcontentloaded');
+
+    // A wrongly-formatted key is rejected by license:setKey's format guard
+    // BEFORE any network call or SecretStorage write -- the handler returns a
+    // structured failure instead of throwing, and never triggers a reload
+    // (reload only fires on a verified key).
+    const badFormat = (await rpcBridge.sendRpc(
+      'rpc',
+      rpcCall('license:setKey', { licenseKey: 'totally-not-a-valid-key' }),
+    )) as RpcResponseEnvelope<{ success?: boolean; error?: string }>;
+
+    expect(badFormat.type).toBe('rpc:response');
+    expect(badFormat.success).toBe(true); // RPC layer handled it gracefully
+    expect(badFormat.data?.success).toBe(false); // handler rejected the key
+    expect(badFormat.data?.error).toMatch(/format/i);
+
+    // An array payload exercises the non-string normalization branch.
+    const arrayPayload = (await rpcBridge.sendRpc(
+      'rpc',
+      rpcCall('license:setKey', { licenseKey: [] }),
+    )) as RpcResponseEnvelope<{ success?: boolean; error?: string }>;
+
+    expect(arrayPayload.data?.success).toBe(false);
+    expect(arrayPayload.data?.error).toMatch(/array|single string/i);
+
+    // After two malformed submissions the main process is still alive.
+    const alive = await electronApp.evaluate(() => 'alive');
+    expect(alive).toBe('alive');
   });
 });

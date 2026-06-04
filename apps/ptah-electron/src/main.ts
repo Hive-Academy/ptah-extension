@@ -14,7 +14,6 @@ import { bootstrapElectron } from './activation/bootstrap';
 import { wireRuntime } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import type { UpdateManager } from './services/update/update-manager';
-import { UPDATE_MANAGER_TOKEN } from './services/update/update-tokens';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env['NODE_ENV'] === 'development';
 app.setName(isDev ? 'Ptah Dev' : 'Ptah');
@@ -44,6 +43,7 @@ if (!gotLock) {
   let cronScheduler: { stop: () => void } | null = null;
   let messagingGateway: { stop: () => Promise<void> } | null = null;
   let chatBridge: { stop: () => void } | null = null;
+  let updateManager: UpdateManager | null = null;
   let symbolWatcher: { close: () => void } | null = null;
   let licenseReactivityDisposable: { dispose: () => void } | null = null;
   let statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null =
@@ -126,6 +126,7 @@ if (!gotLock) {
     });
     revalidationInterval = post.revalidationInterval;
     updateCheckInterval = post.updateCheckInterval;
+    updateManager = post.updateManager;
     messagingGateway = post.messagingGateway;
     chatBridge = post.chatBridge;
   });
@@ -158,12 +159,7 @@ if (!gotLock) {
       updateCheckInterval = null;
     }
     try {
-      const diContainer = ElectronDIContainer.getContainer();
-      if (diContainer.isRegistered(UPDATE_MANAGER_TOKEN)) {
-        const updateManager =
-          diContainer.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
-        updateManager.dispose();
-      }
+      updateManager?.dispose();
     } catch (error) {
       console.warn(
         '[Ptah Electron] UpdateManager dispose failed:',
