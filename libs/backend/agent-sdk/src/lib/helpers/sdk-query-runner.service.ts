@@ -129,9 +129,12 @@ export class SdkQueryRunner {
   private resolveSafeCwd(requested: string): string {
     const safety = isUnsafeWorkspacePath(requested, this.platformInfo);
     if (safety.ok) return requested;
-    const fallback = os.homedir();
+    const home = os.homedir();
+    const fallback = isUnsafeWorkspacePath(home, this.platformInfo).ok
+      ? home
+      : os.tmpdir();
     this.logger.warn(
-      `${SERVICE_TAG} Unsafe one-shot cwd rewritten to user home — ${safety.reason}`,
+      `${SERVICE_TAG} Unsafe one-shot cwd rewritten to ${fallback} — ${safety.reason}`,
       { requested, fallback },
     );
     return fallback;

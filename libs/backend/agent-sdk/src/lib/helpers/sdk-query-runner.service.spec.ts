@@ -227,6 +227,22 @@ describe('SdkQueryRunner', () => {
       ];
       expect(params.options.cwd).toBe('/work/project');
     });
+
+    it('rewrites an empty cwd to a safe directory', async () => {
+      const h = makeRunner();
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        isPremium: false,
+        mcpServerRunning: false,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      expect(params.options.cwd).toBe(os.homedir());
+    });
   });
 
   describe('invokeWithLoadedQuery — warm-query branching', () => {
