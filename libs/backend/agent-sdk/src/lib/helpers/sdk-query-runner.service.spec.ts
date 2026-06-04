@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 
+import { spawnSync } from 'node:child_process';
+
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
 import {
@@ -85,6 +87,7 @@ function makeRunner(
       prompt: string | AsyncIterable<SDKUserMessage>;
       options: SdkQueryOptions;
     }) => Query;
+    authEnv?: AuthEnv;
   } = {},
 ): RunnerHarness {
   const logger = createMockLogger();
@@ -107,7 +110,7 @@ function makeRunner(
   const userPromptSubmitHooks = {
     createHooks: jest.fn().mockReturnValue({}),
   };
-  const authEnv: AuthEnv = {} as AuthEnv;
+  const authEnv: AuthEnv = opts.authEnv ?? ({} as AuthEnv);
   const modelService = {
     resolveModelId: jest.fn((m: string) => m),
   } as unknown as SdkModelService;
@@ -354,6 +357,224 @@ describe('SdkQueryRunner', () => {
       expect(h.moduleLoader.getQueryFunction).toHaveBeenCalledTimes(1);
       expect(result.usedWarmQuery).toBe(false);
       expect(result.sdkQuery).toBe(freshQuery);
+    });
+  });
+
+  describe('runOneShot — one-shot auth override (input.auth)', () => {
+    async function capturedOptions(
+      h: RunnerHarness,
+      auth?: { env: AuthEnv; baseUrl?: string },
+    ): Promise<SdkQueryOptions> {
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        isPremium: false,
+        mcpServerRunning: false,
+        auth,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      return params.options;
+    }
+
+    it('derives env / settingSources / beta flag from the override, not this.authEnv', async () => {
+      const chatEnv: AuthEnv = {
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:9001',
+        ANTHROPIC_AUTH_TOKEN: 'chat-token',
+      } as AuthEnv;
+      const overrideEnv: AuthEnv = {
+        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+        ANTHROPIC_API_KEY: 'curator-key',
+      } as AuthEnv;
+      const h = makeRunner({ authEnv: chatEnv });
+
+      const options = await capturedOptions(h, { env: overrideEnv });
+      const env = options.env as Record<string, string | undefined>;
+
+      expect(env['ANTHROPIC_BASE_URL']).toBe(
+        'https://api.moonshot.ai/anthropic',
+      );
+      expect(env['ANTHROPIC_API_KEY']).toBe('curator-key');
+      expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
+      expect(options.settingSources).toEqual(['user', 'project', 'local']);
+      expect(env['CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS']).toBe('1');
+    });
+
+    it('honours an explicit override baseUrl for the derived decisions', async () => {
+      const chatEnv: AuthEnv = {
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      } as AuthEnv;
+      const overrideEnv: AuthEnv = {
+        ANTHROPIC_AUTH_TOKEN: 'curator-proxy-token',
+      } as AuthEnv;
+      const h = makeRunner({ authEnv: chatEnv });
+
+      const options = await capturedOptions(h, {
+        env: overrideEnv,
+        baseUrl: 'http://127.0.0.1:51999',
+      });
+      const env = options.env as Record<string, string | undefined>;
+
+      expect(options.settingSources).toEqual(['project', 'local']);
+      expect(env['CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS']).toBe('1');
+    });
+
+    it('builds the override identity prompt from the override env (not this.authEnv)', async () => {
+      const overrideEnv: AuthEnv = {
+        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'kimi-k2-curator',
+      } as AuthEnv;
+      const h = makeRunner({ authEnv: {} as AuthEnv });
+
+      const options = await capturedOptions(h, { env: overrideEnv });
+      const append = (options.systemPrompt as { append?: string } | undefined)
+        ?.append;
+
+      expect(append).toContain('kimi-k2-curator');
+    });
+
+    it('is byte-identical to today when input.auth is undefined (env keys + derived values)', async () => {
+      const chatEnv: AuthEnv = {
+        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+        ANTHROPIC_API_KEY: 'chat-key',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'kimi-chat',
+      } as AuthEnv;
+
+      const withoutAuth = await capturedOptions(
+        makeRunner({ authEnv: chatEnv }),
+      );
+      const withoutEnv = withoutAuth.env as Record<string, string | undefined>;
+
+      const equivalentOverride = await capturedOptions(
+        makeRunner({ authEnv: {} as AuthEnv }),
+        { env: chatEnv },
+      );
+      const equivalentEnv = equivalentOverride.env as Record<
+        string,
+        string | undefined
+      >;
+
+      expect(Object.keys(withoutEnv)).toEqual(Object.keys(equivalentEnv));
+      expect(withoutEnv['ANTHROPIC_BASE_URL']).toBe(
+        equivalentEnv['ANTHROPIC_BASE_URL'],
+      );
+      expect(withoutEnv['ANTHROPIC_API_KEY']).toBe(
+        equivalentEnv['ANTHROPIC_API_KEY'],
+      );
+      expect(withoutEnv['CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS']).toBe(
+        equivalentEnv['CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS'],
+      );
+      expect(withoutAuth.settingSources).toEqual(
+        equivalentOverride.settingSources,
+      );
+      expect(
+        (withoutAuth.systemPrompt as { append?: string } | undefined)?.append,
+      ).toBe(
+        (equivalentOverride.systemPrompt as { append?: string } | undefined)
+          ?.append,
+      );
+    });
+  });
+
+  describe('runOneShot — curator env strip at the subprocess boundary (S-2)', () => {
+    const CHAT_AUTH_KEYS = [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_BASE_URL',
+    ] as const;
+
+    function buildCuratorEnvLike(curatorValues: AuthEnv): AuthEnv {
+      const base: Record<string, string | undefined> = { ...process.env };
+      for (const key of CHAT_AUTH_KEYS) {
+        base[key] = undefined;
+      }
+      return { ...base, ...curatorValues } as AuthEnv;
+    }
+
+    async function capturedEnv(
+      h: RunnerHarness,
+      auth: { env: AuthEnv; baseUrl?: string },
+    ): Promise<Record<string, string | undefined>> {
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        isPremium: false,
+        mcpServerRunning: false,
+        auth,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      return params.options.env as Record<string, string | undefined>;
+    }
+
+    it('yields the 3 chat auth keys as present-with-undefined and preserves PATH through the full chain', async () => {
+      const saved = {
+        ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'],
+        ANTHROPIC_AUTH_TOKEN: process.env['ANTHROPIC_AUTH_TOKEN'],
+        ANTHROPIC_BASE_URL: process.env['ANTHROPIC_BASE_URL'],
+      };
+      process.env['ANTHROPIC_API_KEY'] = 'chat-real-key';
+      process.env['ANTHROPIC_AUTH_TOKEN'] = 'chat-real-token';
+      process.env['ANTHROPIC_BASE_URL'] = 'https://chat.example.test';
+      try {
+        const h = makeRunner({ authEnv: {} as AuthEnv });
+        const env = await capturedEnv(h, {
+          env: buildCuratorEnvLike({} as AuthEnv),
+        });
+
+        for (const key of CHAT_AUTH_KEYS) {
+          expect(key in env).toBe(true);
+          expect(env[key]).toBeUndefined();
+        }
+        expect(env['PATH'] ?? env['Path']).toBeDefined();
+      } finally {
+        process.env['ANTHROPIC_API_KEY'] = saved.ANTHROPIC_API_KEY;
+        process.env['ANTHROPIC_AUTH_TOKEN'] = saved.ANTHROPIC_AUTH_TOKEN;
+        process.env['ANTHROPIC_BASE_URL'] = saved.ANTHROPIC_BASE_URL;
+        if (saved.ANTHROPIC_API_KEY === undefined)
+          delete process.env['ANTHROPIC_API_KEY'];
+        if (saved.ANTHROPIC_AUTH_TOKEN === undefined)
+          delete process.env['ANTHROPIC_AUTH_TOKEN'];
+        if (saved.ANTHROPIC_BASE_URL === undefined)
+          delete process.env['ANTHROPIC_BASE_URL'];
+      }
+    });
+
+    it('omits the undefined keys from a spawned child while PATH survives (Node boundary)', async () => {
+      const saved = process.env['ANTHROPIC_API_KEY'];
+      process.env['ANTHROPIC_API_KEY'] = 'chat-real-key';
+      try {
+        const h = makeRunner({ authEnv: {} as AuthEnv });
+        const env = await capturedEnv(h, {
+          env: buildCuratorEnvLike({} as AuthEnv),
+        });
+
+        const child = spawnSync(
+          process.execPath,
+          [
+            '-e',
+            "process.stdout.write(JSON.stringify({hasKey:'ANTHROPIC_API_KEY' in process.env,hasPath:Boolean(process.env.PATH||process.env.Path)}))",
+          ],
+          { env, encoding: 'utf8' },
+        );
+
+        expect(child.status).toBe(0);
+        const report = JSON.parse(child.stdout) as {
+          hasKey: boolean;
+          hasPath: boolean;
+        };
+        expect(report.hasKey).toBe(false);
+        expect(report.hasPath).toBe(true);
+      } finally {
+        if (saved === undefined) delete process.env['ANTHROPIC_API_KEY'];
+        else process.env['ANTHROPIC_API_KEY'] = saved;
+      }
     });
   });
 });

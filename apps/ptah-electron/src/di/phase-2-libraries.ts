@@ -18,7 +18,10 @@ import {
   registerSdkServices,
   wireAgentAdapterAliases,
 } from '@ptah-extension/agent-sdk';
-import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
+import {
+  registerAuthProvidersServices,
+  registerCuratorAuthServices,
+} from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
@@ -61,6 +64,7 @@ export function registerPhase2Libraries(
   registerWorkspaceIntelligenceServices(container, logger);
   registerAuthProvidersServices(container, logger);
   registerSdkServices(container, logger);
+  registerCuratorAuthServices(container, logger);
   registerCliAgentRuntimeServices(container, logger);
 
   wireAgentAdapterAliases(container);

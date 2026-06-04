@@ -9,13 +9,10 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import {
-  ANTHROPIC_DIRECT_PROVIDER_ID,
-  DEFAULT_PROVIDER_ID,
-  normalizeAuthMethod,
-} from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import type { InternalQueryService } from '../internal-query';
+import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
+import type { ICuratorAuthResolver } from './curator-auth-resolver.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 import {
   EXTRACT_SYSTEM_PROMPT,
@@ -35,8 +32,7 @@ import { CuratorLlmQueryError } from './curator-llm-query.error';
 const CURATOR_MODEL_SECTION = 'ptah';
 const CURATOR_MODEL_KEY = 'memory.curatorModel';
 const CURATOR_PROVIDER_KEY = 'memory.curatorProvider';
-const AUTH_METHOD_KEY = 'authMethod';
-const ANTHROPIC_PROVIDER_ID_KEY = 'anthropicProviderId';
+const CURATOR_AUTH_ERROR_NAME = 'CuratorAuthError';
 export const CURATOR_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
 
 @injectable()
@@ -47,26 +43,35 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     private readonly internalQuery: InternalQueryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER, { isOptional: true })
+    private readonly resolver: ICuratorAuthResolver | null = null,
   ) {}
 
-  private resolveActiveProviderId(): string {
-    const rawMethod = this.workspace.getConfiguration<string>(
+  private resolveCuratorProviderId(): string {
+    const rawProvider = this.workspace.getConfiguration<string>(
       CURATOR_MODEL_SECTION,
-      AUTH_METHOD_KEY,
-      'apiKey',
+      CURATOR_PROVIDER_KEY,
+      '',
     );
-    const authMethod = normalizeAuthMethod(rawMethod);
-    if (authMethod === 'thirdParty') {
-      const providerId = this.workspace.getConfiguration<string>(
-        CURATOR_MODEL_SECTION,
-        ANTHROPIC_PROVIDER_ID_KEY,
-        DEFAULT_PROVIDER_ID,
-      );
-      return typeof providerId === 'string' && providerId.length > 0
-        ? providerId
-        : DEFAULT_PROVIDER_ID;
+    return (typeof rawProvider === 'string' ? rawProvider : '').trim();
+  }
+
+  private async resolveCuratorAuth(): Promise<OneShotAuthOverride | undefined> {
+    if (!this.resolver) return undefined;
+    const curatorProviderId = this.resolveCuratorProviderId();
+    try {
+      const auth = await this.resolver.resolve(curatorProviderId);
+      return auth ?? undefined;
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === CURATOR_AUTH_ERROR_NAME) {
+        this.logger.warn(
+          '[memory-curator] curator provider auth unavailable; riding active provider',
+          { error: error.message, curatorProviderId },
+        );
+        return undefined;
+      }
+      throw error;
     }
-    return ANTHROPIC_DIRECT_PROVIDER_ID;
   }
 
   private resolveCuratorModel(): string {
@@ -78,21 +83,6 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       );
       const configured = (typeof rawModel === 'string' ? rawModel : '').trim();
       if (configured.length === 0) return CURATOR_FALLBACK_MODEL;
-
-      const rawProvider = this.workspace.getConfiguration<string>(
-        CURATOR_MODEL_SECTION,
-        CURATOR_PROVIDER_KEY,
-        '',
-      );
-      const curatorProvider = (
-        typeof rawProvider === 'string' ? rawProvider : ''
-      ).trim();
-      if (
-        curatorProvider.length > 0 &&
-        curatorProvider !== this.resolveActiveProviderId()
-      ) {
-        return CURATOR_FALLBACK_MODEL;
-      }
       return configured;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -147,6 +137,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         });
     }
     try {
+      const auth = await this.resolveCuratorAuth();
       const handle = await this.internalQuery.execute({
         cwd: process.cwd(),
         model: this.resolveCuratorModel(),
@@ -156,6 +147,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         mcpServerRunning: false,
         maxTurns: 1,
         abortController,
+        auth,
       });
       let collected = '';
       for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {

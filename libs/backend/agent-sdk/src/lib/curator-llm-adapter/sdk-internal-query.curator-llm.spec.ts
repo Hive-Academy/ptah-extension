@@ -6,7 +6,19 @@ import {
   CURATOR_FALLBACK_MODEL,
 } from './sdk-internal-query.curator-llm';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
+import type { ICuratorAuthResolver } from './curator-auth-resolver.port';
+import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { InternalQueryService } from '../internal-query';
+import type { AuthEnv } from '@ptah-extension/shared';
+
+class FakeCuratorAuthError extends Error {
+  readonly providerId: string;
+  constructor(providerId: string, message: string) {
+    super(message);
+    this.name = 'CuratorAuthError';
+    this.providerId = providerId;
+  }
+}
 
 function makeLogger(): Logger {
   return {
@@ -59,18 +71,38 @@ async function* streamFrom(text: string): AsyncIterable<unknown> {
   yield { type: 'result' };
 }
 
+interface ExecuteCapture {
+  model?: string;
+  auth?: OneShotAuthOverride;
+  authWasPresent?: boolean;
+}
+
 function makeInternalQuery(opts: {
   text?: string;
   throwOnExecute?: Error;
-  capture?: { model?: string };
+  capture?: ExecuteCapture;
 }): InternalQueryService {
   return {
-    execute: jest.fn(async (config: { model: string }) => {
-      if (opts.capture) opts.capture.model = config.model;
-      if (opts.throwOnExecute) throw opts.throwOnExecute;
-      return { stream: streamFrom(opts.text ?? '') };
-    }),
+    execute: jest.fn(
+      async (config: { model: string; auth?: OneShotAuthOverride }) => {
+        if (opts.capture) {
+          opts.capture.model = config.model;
+          opts.capture.auth = config.auth;
+          opts.capture.authWasPresent = 'auth' in config;
+        }
+        if (opts.throwOnExecute) throw opts.throwOnExecute;
+        return { stream: streamFrom(opts.text ?? '') };
+      },
+    ),
   } as unknown as InternalQueryService;
+}
+
+function makeResolver(
+  impl: (id: string) => Promise<OneShotAuthOverride | null>,
+): ICuratorAuthResolver & { resolve: jest.Mock } {
+  return { resolve: jest.fn(impl) } as unknown as ICuratorAuthResolver & {
+    resolve: jest.Mock;
+  };
 }
 
 const EXTRACT_TRANSCRIPT = 'some real transcript content for extraction';
@@ -153,13 +185,16 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
   });
 });
 
-describe('SdkInternalQueryCuratorLlm — cross-provider guard', () => {
-  it('ignores curatorModel and uses the fallback when curatorProvider differs from the active provider', async () => {
-    const capture: { model?: string } = {};
+describe('SdkInternalQueryCuratorLlm — no cross-provider downgrade', () => {
+  it('uses the configured curatorModel verbatim even when curatorProvider differs from the active provider', async () => {
+    const capture: ExecuteCapture = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
       capture,
     });
+    const resolver = makeResolver(async () => ({
+      env: { ANTHROPIC_BASE_URL: 'https://example.test' } as AuthEnv,
+    }));
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
       internalQuery,
@@ -168,13 +203,14 @@ describe('SdkInternalQueryCuratorLlm — cross-provider guard', () => {
         'memory.curatorProvider': 'z-ai',
         authMethod: 'apiKey',
       }),
+      resolver,
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
-    expect(capture.model).toBe(CURATOR_FALLBACK_MODEL);
+    expect(capture.model).toBe('glm-4.6');
   });
 
-  it('uses curatorModel when curatorProvider matches the active anthropic provider', async () => {
-    const capture: { model?: string } = {};
+  it('uses the configured curatorModel when curatorProvider matches the active provider', async () => {
+    const capture: ExecuteCapture = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
       capture,
@@ -191,29 +227,93 @@ describe('SdkInternalQueryCuratorLlm — cross-provider guard', () => {
     await adapter.extract(EXTRACT_TRANSCRIPT);
     expect(capture.model).toBe('claude-sonnet-4-5-20250101');
   });
+});
 
-  it('uses curatorModel when curatorProvider matches the active third-party provider', async () => {
-    const capture: { model?: string } = {};
+describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
+  it('resolves auth and passes the override into execute when the resolver returns one', async () => {
+    const capture: ExecuteCapture = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
       capture,
     });
+    const override: OneShotAuthOverride = {
+      env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:51999' } as AuthEnv,
+      baseUrl: 'http://127.0.0.1:51999',
+    };
+    const resolver = makeResolver(async () => override);
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
       internalQuery,
       makeWorkspaceFromConfig({
         'memory.curatorModel': 'glm-4.6',
         'memory.curatorProvider': 'z-ai',
-        authMethod: 'thirdParty',
-        anthropicProviderId: 'z-ai',
+        authMethod: 'apiKey',
       }),
+      resolver,
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(resolver.resolve).toHaveBeenCalledWith('z-ai');
+    expect(capture.auth).toBe(override);
     expect(capture.model).toBe('glm-4.6');
   });
 
-  it('uses curatorModel when curatorProvider is unset (no guard applied)', async () => {
-    const capture: { model?: string } = {};
+  it('proceeds with auth=undefined and warns when the resolver throws CuratorAuthError', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const logger = makeLogger();
+    const resolver = makeResolver(async () => {
+      throw new FakeCuratorAuthError(
+        'github-copilot',
+        'curator provider not authenticated',
+      );
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      logger,
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'claude-sonnet-4-5-20250101',
+        'memory.curatorProvider': 'github-copilot',
+        authMethod: 'apiKey',
+      }),
+      resolver,
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.auth).toBeUndefined();
+    expect(capture.model).toBe('claude-sonnet-4-5-20250101');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[memory-curator] curator provider auth unavailable; riding active provider',
+      expect.objectContaining({ curatorProviderId: 'github-copilot' }),
+    );
+  });
+
+  it('returns auth=undefined when the resolver yields null (rides active provider)', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const resolver = makeResolver(async () => null);
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'claude-sonnet-4-5-20250101',
+        'memory.curatorProvider': '',
+        authMethod: 'apiKey',
+      }),
+      resolver,
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(resolver.resolve).toHaveBeenCalledWith('');
+    expect(capture.auth).toBeUndefined();
+    expect(capture.model).toBe('claude-sonnet-4-5-20250101');
+  });
+
+  it('rides active provider (auth=undefined) when no resolver is injected (off-Electron)', async () => {
+    const capture: ExecuteCapture = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
       capture,
@@ -223,12 +323,34 @@ describe('SdkInternalQueryCuratorLlm — cross-provider guard', () => {
       internalQuery,
       makeWorkspaceFromConfig({
         'memory.curatorModel': 'claude-sonnet-4-5-20250101',
-        'memory.curatorProvider': '',
+        'memory.curatorProvider': 'z-ai',
         authMethod: 'apiKey',
       }),
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.auth).toBeUndefined();
+    expect(capture.authWasPresent).toBe(true);
     expect(capture.model).toBe('claude-sonnet-4-5-20250101');
+  });
+
+  it('rethrows non-CuratorAuthError resolver failures', async () => {
+    const internalQuery = makeInternalQuery({ text: '{"memories":[]}' });
+    const resolver = makeResolver(async () => {
+      throw new Error('unexpected resolver crash');
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'claude-sonnet-4-5-20250101',
+        'memory.curatorProvider': 'z-ai',
+        authMethod: 'apiKey',
+      }),
+      resolver,
+    );
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).rejects.toBeInstanceOf(
+      CuratorLlmQueryError,
+    );
   });
 });
 

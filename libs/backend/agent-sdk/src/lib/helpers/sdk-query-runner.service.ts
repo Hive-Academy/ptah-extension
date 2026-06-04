@@ -61,6 +61,11 @@ import { PTAH_MCP_PORT } from '../constants';
 const SERVICE_TAG = '[SdkQueryRunner]';
 const DEFAULT_ONE_SHOT_MAX_TURNS = 25;
 
+export interface OneShotAuthOverride {
+  readonly env: AuthEnv;
+  readonly baseUrl?: string;
+}
+
 export interface OneShotRunInput {
   mode: 'oneShot';
   cwd: string;
@@ -74,6 +79,7 @@ export interface OneShotRunInput {
   outputFormat?: OutputFormat;
   abortController?: AbortController;
   pluginPaths?: string[];
+  auth?: OneShotAuthOverride;
 }
 
 export interface OneShotRunResult {
@@ -274,7 +280,13 @@ export class SdkQueryRunner {
     abortController: AbortController,
     cliJsPath: string | null,
   ): SdkQueryOptions {
-    const systemPrompt = this.buildOneShotSystemPrompt(input);
+    const authEnv = input.auth?.env ?? this.authEnv;
+    const effectiveBaseUrl =
+      input.auth?.baseUrl ??
+      input.auth?.env.ANTHROPIC_BASE_URL ??
+      authEnv.ANTHROPIC_BASE_URL;
+
+    const systemPrompt = this.buildOneShotSystemPrompt(input, authEnv);
 
     const mcpServers = this.buildOneShotMcpServers(
       input.isPremium,
@@ -309,18 +321,18 @@ export class SdkQueryRunner {
       pathToClaudeCodeExecutable: cliJsPath || undefined,
       env: {
         ...process.env,
-        ...buildTierEnvDefaults(this.authEnv),
-        ...this.authEnv,
+        ...buildTierEnvDefaults(authEnv),
+        ...authEnv,
         NO_PROXY: '127.0.0.1,localhost',
         ...(() => {
-          const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+          const baseUrl = effectiveBaseUrl?.trim();
           return baseUrl &&
             !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
             ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
             : {};
         })(),
       } as Record<string, string | undefined>,
-      settingSources: this.authEnv.ANTHROPIC_BASE_URL?.includes('127.0.0.1')
+      settingSources: effectiveBaseUrl?.includes('127.0.0.1')
         ? ['project', 'local']
         : ['user', 'project', 'local'],
       stderr: (data: string) => {
@@ -342,14 +354,17 @@ export class SdkQueryRunner {
     return options;
   }
 
-  private buildOneShotSystemPrompt(input: OneShotRunInput): {
+  private buildOneShotSystemPrompt(
+    input: OneShotRunInput,
+    authEnv: AuthEnv = this.authEnv,
+  ): {
     type: 'preset';
     preset: 'claude_code';
     append?: string;
   } {
     const appendParts: string[] = [];
 
-    const identityPrompt = this.buildOneShotIdentityPrompt();
+    const identityPrompt = this.buildOneShotIdentityPrompt(authEnv);
     if (identityPrompt) {
       appendParts.push(identityPrompt);
       this.logger.debug(
@@ -375,8 +390,10 @@ export class SdkQueryRunner {
     };
   }
 
-  private buildOneShotIdentityPrompt(): string | undefined {
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL;
+  private buildOneShotIdentityPrompt(
+    authEnv: AuthEnv = this.authEnv,
+  ): string | undefined {
+    const baseUrl = authEnv.ANTHROPIC_BASE_URL;
     if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
       return undefined;
     }
@@ -387,9 +404,9 @@ export class SdkQueryRunner {
       try {
         if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
           const actualModel =
-            this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-            this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-            this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+            authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+            authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+            authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
           if (!actualModel) {
             return undefined;

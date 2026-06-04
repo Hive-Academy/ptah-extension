@@ -33,6 +33,8 @@ export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
+export type { ICuratorAuthResolver } from './lib/curator-llm-adapter';
+export type { OneShotAuthOverride } from './lib/helpers';
 export type { IPricingProvider } from './lib/pricing.port';
 export {
   SdkError,
