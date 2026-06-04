@@ -18,6 +18,14 @@ export const PERSISTENCE_TOKENS = {
   EMBEDDER: Symbol.for('PtahEmbedder'),
   /** Absolute path to the embedder worker entry (useValue: string). */
   EMBEDDER_WORKER_PATH: Symbol.for('PtahEmbedderWorkerPath'),
+  /**
+   * Absolute path to a writable directory for the `@huggingface/transformers`
+   * model cache (useValue: string). Must live outside `app.asar` — the
+   * library's default `<pkg>/.cache` resolves inside the asar archive (a file)
+   * and fails with `ENOTDIR` when packaged. Optional; when unset the worker
+   * falls back to the library default.
+   */
+  EMBEDDER_MODEL_CACHE_DIR: Symbol.for('PtahEmbedderModelCacheDir'),
   /** IBackupService — SQLite backup + rotation. */
   BACKUP_SERVICE: Symbol.for('PtahBackupService'),
   /** VecStatusService — single source of truth for sqlite-vec availability. */

@@ -100,6 +100,8 @@ export class EmbedderWorkerClient implements IEmbedder {
     private readonly workerPath: string,
     @inject(PLATFORM_TOKENS.TRACER)
     private readonly tracer: ITracer = new NoopTracer(),
+    @inject(PERSISTENCE_TOKENS.EMBEDDER_MODEL_CACHE_DIR, { isOptional: true })
+    private readonly modelCacheDir: string | null = null,
   ) {}
 
   async embed(texts: readonly string[]): Promise<Float32Array[]> {
@@ -196,6 +198,7 @@ export class EmbedderWorkerClient implements IEmbedder {
     if (this.worker) return this.worker;
     const w = new Worker(this.workerPath, {
       type: 'module',
+      workerData: { modelCacheDir: this.modelCacheDir },
     } as unknown as ConstructorParameters<typeof Worker>[1]);
     w.on('message', (msg: WorkerMessage) => {
       if (

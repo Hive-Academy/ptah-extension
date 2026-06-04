@@ -15,13 +15,36 @@
  *           | { id, ok: true,  ranked: [{id, score}] }
  *           | { id, ok: false, error: string }
  */
-import { parentPort } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 
 if (!parentPort) {
   throw new Error('embedder-worker.ts must be run as a worker_thread');
 }
 
 const port = parentPort;
+
+/**
+ * Writable model-cache directory injected by the main thread. Required when
+ * packaged: `@huggingface/transformers` defaults to `<pkg>/.cache`, which lives
+ * inside `app.asar` (a file) and fails with `ENOTDIR`. When absent (tests /
+ * unpackaged dev) the library default is used.
+ */
+const modelCacheDir: string | null =
+  (workerData as { modelCacheDir?: string } | null)?.modelCacheDir ?? null;
+
+interface TransformersEnv {
+  cacheDir?: string;
+  allowLocalModels?: boolean;
+}
+
+let envConfigured = false;
+
+function configureTransformersEnv(env: TransformersEnv | undefined): void {
+  if (envConfigured || !env || !modelCacheDir) return;
+  env.cacheDir = modelCacheDir;
+  env.allowLocalModels = true;
+  envConfigured = true;
+}
 
 interface PipelineFn {
   (
@@ -69,7 +92,9 @@ async function loadPipeline(): Promise<PipelineFn> {
         model: string,
         options: Record<string, unknown>,
       ) => Promise<PipelineFn>;
+      env?: TransformersEnv;
     };
+    configureTransformersEnv(mod.env);
     const { pipeline } = mod;
     lastProgressEmitAt = 0;
     emitPipelineProgress({
@@ -147,7 +172,9 @@ async function loadCrossEncoder(): Promise<CrossEncoderFn> {
         model: string,
         options: Record<string, unknown>,
       ) => Promise<CrossEncoderFn>;
+      env?: TransformersEnv;
     };
+    configureTransformersEnv(mod.env);
 
     const fn = await Promise.race([
       mod.pipeline('text-classification', 'Xenova/ms-marco-MiniLM-L-6-v2', {

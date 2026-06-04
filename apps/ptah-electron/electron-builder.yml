@@ -70,6 +70,17 @@ asarUnpack:
   - 'node_modules/sqlite-vec-*/**'
   - 'node_modules/ffmpeg-static/**'
   - 'node_modules/nodejs-whisper/**'
+  # @huggingface/transformers: ONNX embedder/reranker. Its default model cache
+  # is <pkg>/.cache — inside app.asar (a file) it fails with ENOTDIR. Unpack so
+  # it resolves on the real FS; the worker also redirects the cache to
+  # ~/.ptah/models via workerData.modelCacheDir.
+  - 'node_modules/@huggingface/transformers/**'
+  # onnxruntime-node: the native ONNX runtime transformers loads at runtime —
+  # onnxruntime_binding.node + onnxruntime.dll + DirectML.dll. Native binaries
+  # cannot load from inside app.asar (like better-sqlite3). Unpacking also lets
+  # the CI signing pass (recursive .node/.dll scan) sign them so Windows SAC
+  # does not block the embedder worker.
+  - 'node_modules/onnxruntime-node/**'
 
 extraResources:
   - from: 'renderer'

@@ -100,6 +100,19 @@ export function registerPhase2Libraries(
       useValue: workerEntry,
     });
 
+    const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
+    try {
+      fs.mkdirSync(modelCacheDir, { recursive: true });
+    } catch (error) {
+      logger.warn(
+        '[Electron DI] Failed to create embedder model cache dir (non-fatal)',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+    container.register(PERSISTENCE_TOKENS.EMBEDDER_MODEL_CACHE_DIR, {
+      useValue: modelCacheDir,
+    });
+
     registerPersistenceSqliteServices(container, logger);
     try {
       const sqliteConnection = container.resolve<SqliteConnectionService>(
@@ -120,6 +133,7 @@ export function registerPhase2Libraries(
     logger.info('[Electron DI] Memory curator services registered (Track 1)', {
       dbPath,
       workerEntry,
+      modelCacheDir,
     });
   } catch (error) {
     logger.warn(
