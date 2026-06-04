@@ -60,6 +60,7 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
+  getModelContextWindow,
 } from '@ptah-extension/shared';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import {
@@ -635,6 +636,10 @@ export class SdkQueryOptionsBuilder {
               ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
               : {};
           })(),
+          ...this.resolveContextWindowOverride(
+            model,
+            effectiveAuthEnv.ANTHROPIC_BASE_URL,
+          ),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
           if (data.includes('[ERROR]')) {
@@ -669,6 +674,34 @@ export class SdkQueryOptionsBuilder {
         forkSession: resumeSessionId ? forkSession : undefined,
       },
     };
+  }
+
+  /**
+   * Resolve a `CLAUDE_CODE_MAX_CONTEXT_TOKENS` override for proxied providers.
+   *
+   * The SDK only auto-detects a model's context window for first-party
+   * Anthropic base URLs; behind a translation proxy it falls back to a
+   * hardcoded 200k window, so auto-compaction triggers at the wrong point
+   * (too late for smaller models, which then overflow). When the selected
+   * model's real window is known, pin it explicitly so the SDK's
+   * auto-compaction threshold tracks the actual model.
+   *
+   * Skipped for first-party Anthropic (native detection is correct), when the
+   * window is unknown (window === 0 → leave the SDK default), and when the
+   * value is already set upstream (respect an explicit override).
+   */
+  private resolveContextWindowOverride(
+    model: string,
+    baseUrl: string | undefined,
+  ): Record<string, string> {
+    if (process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']) return {};
+    const trimmed = baseUrl?.trim();
+    const isFirstPartyAnthropic =
+      !trimmed || /^https?:\/\/api\.anthropic\.com\/?$/i.test(trimmed);
+    if (isFirstPartyAnthropic) return {};
+    const window = getModelContextWindow(model);
+    if (window <= 0) return {};
+    return { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(window) };
   }
 
   /**
