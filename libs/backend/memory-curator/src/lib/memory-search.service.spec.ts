@@ -956,6 +956,22 @@ describe('MemorySearchService — workspaceRoot filtering', () => {
     expect(callArgs).toContain('/workspace/project');
   });
 
+  it('BM25: workspace-scoped query joins memories and filters m.workspace_root', async () => {
+    const { service, prepareMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10, '/workspace/project');
+
+    const bm25Sql = prepareMock.mock.calls
+      .map((c) => c[0] as string)
+      .find((sql) => sql.includes('memory_chunks_fts'));
+    expect(bm25Sql).toBeDefined();
+    // memory_chunks has no workspace_root column — it must be filtered via the
+    // parent memories table, else SQLite throws "no such column: mc.workspace_root".
+    expect(bm25Sql).toContain('JOIN memories m ON m.id = mc.memory_id');
+    expect(bm25Sql).toContain('m.workspace_root IS ?');
+    expect(bm25Sql).not.toContain('mc.workspace_root');
+  });
+
   it('BM25: omits workspaceRoot param when not provided (global search)', async () => {
     const { service, allMock } = makeServiceForWorkspaceFilter();
 

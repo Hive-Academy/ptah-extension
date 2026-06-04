@@ -379,13 +379,17 @@ export class MemorySearchService implements IMemoryReader {
     limit: number,
     workspaceRoot?: string,
   ): FtsRow[] {
-    const workspaceFilter = workspaceRoot ? 'AND mc.workspace_root IS ?' : '';
+    const workspaceJoin = workspaceRoot
+      ? 'JOIN memories m ON m.id = mc.memory_id'
+      : '';
+    const workspaceFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
              mc.created_at AS created_at
       FROM memory_chunks_fts fts
       JOIN memory_chunks mc ON mc.rowid = fts.rowid
+      ${workspaceJoin}
       WHERE memory_chunks_fts MATCH ?
       ${workspaceFilter}
       ORDER BY bm25(memory_chunks_fts) ASC
@@ -432,7 +436,7 @@ export class MemorySearchService implements IMemoryReader {
       .all(buf, limit) as VecRow[];
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
-    const workspaceFilter = workspaceRoot ? 'AND mc.workspace_root IS ?' : '';
+    const workspaceFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
