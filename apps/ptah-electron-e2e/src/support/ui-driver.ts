@@ -53,10 +53,12 @@ export class UiDriver {
         __uiMockStatics?: Record<string, unknown>;
         __uiMockFns?: Record<string, string>;
         __uiNamespaceDefaults?: Record<string, unknown>;
+        __uiObservedCalls?: { method: string; params: unknown }[];
       };
       g.__uiMockStatics = g.__uiMockStatics ?? {};
       g.__uiMockFns = g.__uiMockFns ?? {};
       g.__uiNamespaceDefaults = namespaceDefaults;
+      g.__uiObservedCalls = [];
 
       ipcMain.removeAllListeners('rpc');
       ipcMain.on('rpc', (event: Electron.IpcMainEvent, message: unknown) => {
@@ -70,6 +72,7 @@ export class UiDriver {
           (rpcData['requestId'] as string) ||
           '';
         if (!method) return;
+        (g.__uiObservedCalls ?? []).push({ method, params });
 
         let data: unknown = {};
         const fns = g.__uiMockFns ?? {};
@@ -165,6 +168,58 @@ export class UiDriver {
     );
   }
 
+  public async getObservedCalls(
+    method: string,
+  ): Promise<{ method: string; params: unknown }[]> {
+    return this.app.evaluate((_electron, target) => {
+      const g = globalThis as unknown as {
+        __uiObservedCalls?: { method: string; params: unknown }[];
+      };
+      return (g.__uiObservedCalls ?? []).filter((c) => c.method === target);
+    }, method);
+  }
+
+  public async waitForObservedCall(
+    method: string,
+    timeoutMs = 10_000,
+  ): Promise<{ method: string; params: unknown }> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const calls = await this.getObservedCalls(method);
+      if (calls.length > 0) {
+        return calls[calls.length - 1];
+      }
+      if (Date.now() > deadline) {
+        throw new Error(
+          `[UiDriver] waitForObservedCall timed out after ${timeoutMs}ms (method="${method}")`,
+        );
+      }
+      await this.page.waitForTimeout(50);
+    }
+  }
+
+  public async forceVisible(): Promise<void> {
+    await this.page.evaluate(() => {
+      const doc = document as unknown as {
+        __ptahVisibilityForced?: boolean;
+      };
+      if (doc.__ptahVisibilityForced) {
+        document.dispatchEvent(new Event('visibilitychange'));
+        return;
+      }
+      doc.__ptahVisibilityForced = true;
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'visible',
+      });
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        get: () => false,
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+  }
+
   public async pushEvent(message: RendererMessage): Promise<void> {
     await this.app.evaluate(({ BrowserWindow }, msg) => {
       const win = BrowserWindow.getAllWindows()[0];
@@ -180,14 +235,13 @@ export class UiDriver {
     await this.syncWorkspace();
     if (view === 'chat' || view === 'canvas') {
       await this.pushEvent({ type: 'switchView', payload: { view: 'chat' } });
-      const tabSelector =
-        view === 'canvas'
-          ? '[data-testid="electron-tab-canvas"], [aria-label="Canvas"]'
-          : '[data-testid="electron-tab-chat"], [aria-label="Chat"]';
-      const tab = this.page.locator(tabSelector).first();
-      if (await tab.count()) {
-        await tab.click();
-      }
+      const tabName = view === 'canvas' ? 'Canvas' : 'Chat';
+      const tab = this.page
+        .getByRole('tab', { name: tabName })
+        .or(this.page.locator(`[title="${tabName}"]`))
+        .first();
+      await tab.waitFor({ state: 'visible' });
+      await tab.click({ force: true });
       return;
     }
     if (view === 'editor') {
