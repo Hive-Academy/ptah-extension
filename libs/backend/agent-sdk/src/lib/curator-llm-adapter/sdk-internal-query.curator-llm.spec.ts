@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import * as os from 'os';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
@@ -29,8 +30,12 @@ function makeLogger(): Logger {
   } as unknown as Logger;
 }
 
-function makeWorkspace(curatorModel: string): IWorkspaceProvider {
+function makeWorkspace(
+  curatorModel: string,
+  workspaceRoot?: string,
+): IWorkspaceProvider {
   return {
+    getWorkspaceRoot: jest.fn(() => workspaceRoot),
     getConfiguration: jest.fn(
       <T>(_section: string, key: string, fallback?: T): T | undefined => {
         if (key === 'memory.curatorModel') {
@@ -46,6 +51,7 @@ function makeWorkspaceFromConfig(
   config: Record<string, unknown>,
 ): IWorkspaceProvider {
   return {
+    getWorkspaceRoot: jest.fn(() => undefined),
     getConfiguration: jest.fn(
       <T>(_section: string, key: string, fallback?: T): T | undefined => {
         if (key in config) return config[key] as unknown as T;
@@ -57,6 +63,7 @@ function makeWorkspaceFromConfig(
 
 function makeThrowingWorkspace(): IWorkspaceProvider {
   return {
+    getWorkspaceRoot: jest.fn(() => undefined),
     getConfiguration: jest.fn(() => {
       throw new Error('settings file unreadable');
     }),
@@ -73,6 +80,7 @@ async function* streamFrom(text: string): AsyncIterable<unknown> {
 
 interface ExecuteCapture {
   model?: string;
+  cwd?: string;
   auth?: OneShotAuthOverride;
   authWasPresent?: boolean;
 }
@@ -84,9 +92,14 @@ function makeInternalQuery(opts: {
 }): InternalQueryService {
   return {
     execute: jest.fn(
-      async (config: { model: string; auth?: OneShotAuthOverride }) => {
+      async (config: {
+        model: string;
+        cwd: string;
+        auth?: OneShotAuthOverride;
+      }) => {
         if (opts.capture) {
           opts.capture.model = config.model;
+          opts.capture.cwd = config.cwd;
           opts.capture.auth = config.auth;
           opts.capture.authWasPresent = 'auth' in config;
         }
@@ -182,6 +195,39 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
     expect(capture.model).toBe(CURATOR_FALLBACK_MODEL);
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — query cwd', () => {
+  it('roots the internal query at the active workspace, not process.cwd()', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace('', '/home/abdo/project'),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.cwd).toBe('/home/abdo/project');
+    expect(capture.cwd).not.toBe(process.cwd());
+  });
+
+  it('falls back to the user home dir when no workspace folder is open', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace(''),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.cwd).toBe(os.homedir());
   });
 });
 

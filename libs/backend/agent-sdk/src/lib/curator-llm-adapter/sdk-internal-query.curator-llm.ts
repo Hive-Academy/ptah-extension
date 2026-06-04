@@ -1,3 +1,4 @@
+import * as os from 'os';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -74,6 +75,13 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     }
   }
 
+  private resolveQueryCwd(): string {
+    const root = this.workspace.getWorkspaceRoot();
+    return typeof root === 'string' && root.trim().length > 0
+      ? root
+      : os.homedir();
+  }
+
   private resolveCuratorModel(): string {
     try {
       const rawModel = this.workspace.getConfiguration<string>(
@@ -139,7 +147,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     try {
       const auth = await this.resolveCuratorAuth();
       const handle = await this.internalQuery.execute({
-        cwd: process.cwd(),
+        cwd: this.resolveQueryCwd(),
         model: this.resolveCuratorModel(),
         prompt,
         systemPromptAppend,

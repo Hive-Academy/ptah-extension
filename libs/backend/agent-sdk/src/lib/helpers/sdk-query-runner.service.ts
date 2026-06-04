@@ -26,9 +26,15 @@
  * happens INSIDE `SdkQueryOptionsBuilder` (not here) and is unaffected.
  */
 
+import * as os from 'os';
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
+import {
+  PLATFORM_TOKENS,
+  isUnsafeWorkspacePath,
+  type IPlatformInfo,
+} from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from '../errors';
@@ -38,8 +44,6 @@ import { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import { CompactionHookHandler } from './compaction-hook-handler';
-import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
-import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
@@ -118,13 +122,26 @@ export class SdkQueryRunner {
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
-    @inject(SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER)
-    private readonly postToolUseHookHandler: PostToolUseHookHandler,
-    @inject(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER)
-    private readonly userPromptSubmitHookHandler: UserPromptSubmitHookHandler,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo,
   ) {}
 
-  async runOneShot(input: OneShotRunInput): Promise<OneShotRunResult> {
+  private resolveSafeCwd(requested: string): string {
+    const safety = isUnsafeWorkspacePath(requested, this.platformInfo);
+    if (safety.ok) return requested;
+    const fallback = os.homedir();
+    this.logger.warn(
+      `${SERVICE_TAG} Unsafe one-shot cwd rewritten to user home — ${safety.reason}`,
+      { requested, fallback },
+    );
+    return fallback;
+  }
+
+  async runOneShot(rawInput: OneShotRunInput): Promise<OneShotRunResult> {
+    const input: OneShotRunInput = {
+      ...rawInput,
+      cwd: this.resolveSafeCwd(rawInput.cwd),
+    };
     const cliJsPath =
       this.runtimeState.getCliJsPath() ??
       (await this.moduleLoader.getCliJsPath());
@@ -464,22 +481,9 @@ This clarification takes precedence over any other identity instructions in the 
       oneShotSessionId,
       cwd,
     );
-    const postToolUseHooks = this.postToolUseHookHandler.createHooks(
-      oneShotSessionId,
-      cwd,
-    );
-    const userPromptSubmitHooks = this.userPromptSubmitHookHandler.createHooks(
-      oneShotSessionId,
-      cwd,
-    );
 
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-    for (const hooks of [
-      subagentHooks,
-      compactionHooks,
-      postToolUseHooks,
-      userPromptSubmitHooks,
-    ]) {
+    for (const hooks of [subagentHooks, compactionHooks]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
         mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];

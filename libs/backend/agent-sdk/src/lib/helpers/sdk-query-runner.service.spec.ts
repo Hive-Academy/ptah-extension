@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import { spawnSync } from 'node:child_process';
+import * as os from 'os';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
@@ -17,8 +18,6 @@ import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SubagentHookHandler } from './subagent-hook-handler';
 import type { CompactionConfigProvider } from './compaction-config-provider';
 import type { CompactionHookHandler } from './compaction-hook-handler';
-import type { PostToolUseHookHandler } from './post-tool-use-hook-handler';
-import type { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import type { SdkModelService } from './sdk-model-service';
 import type { Query } from './session-lifecycle-manager';
 import type {
@@ -76,8 +75,7 @@ interface RunnerHarness {
   runtimeState: ReturnType<typeof createRuntimeState>;
   moduleLoader: ReturnType<typeof createModuleLoader>;
   queryFn: jest.Mock;
-  postToolUseHooks: { createHooks: jest.Mock };
-  userPromptSubmitHooks: { createHooks: jest.Mock };
+  subagentHooks: { createHooks: jest.Mock };
 }
 
 function makeRunner(
@@ -88,6 +86,7 @@ function makeRunner(
       options: SdkQueryOptions;
     }) => Query;
     authEnv?: AuthEnv;
+    extensionPath?: string;
   } = {},
 ): RunnerHarness {
   const logger = createMockLogger();
@@ -95,7 +94,7 @@ function makeRunner(
   const moduleLoader = createModuleLoader();
   const subagentHooks = {
     createHooks: jest.fn().mockReturnValue({}),
-  } as unknown as SubagentHookHandler;
+  };
   const compactionConfig = {
     getConfig: jest
       .fn()
@@ -104,12 +103,6 @@ function makeRunner(
   const compactionHooks = {
     createHooks: jest.fn().mockReturnValue({}),
   } as unknown as CompactionHookHandler;
-  const postToolUseHooks = {
-    createHooks: jest.fn().mockReturnValue({}),
-  };
-  const userPromptSubmitHooks = {
-    createHooks: jest.fn().mockReturnValue({}),
-  };
   const authEnv: AuthEnv = opts.authEnv ?? ({} as AuthEnv);
   const modelService = {
     resolveModelId: jest.fn((m: string) => m),
@@ -121,17 +114,21 @@ function makeRunner(
     queryFn as unknown as QueryFunction,
   );
 
+  const platformInfo = {
+    extensionPath: opts.extensionPath ?? '/opt/ptah/resources/app.asar',
+    globalStoragePath: '/opt/ptah-storage',
+  };
+
   const runner = new SdkQueryRunner(
     asLogger(logger),
     runtimeState as unknown as SdkRuntimeStateService,
     moduleLoader as unknown as SdkModuleLoader,
-    subagentHooks,
+    subagentHooks as unknown as SubagentHookHandler,
     compactionConfig,
     compactionHooks,
     authEnv,
     modelService,
-    postToolUseHooks as unknown as PostToolUseHookHandler,
-    userPromptSubmitHooks as unknown as UserPromptSubmitHookHandler,
+    platformInfo as unknown as import('@ptah-extension/platform-core').IPlatformInfo,
   );
 
   return {
@@ -140,8 +137,7 @@ function makeRunner(
     runtimeState,
     moduleLoader,
     queryFn,
-    postToolUseHooks,
-    userPromptSubmitHooks,
+    subagentHooks,
   };
 }
 
@@ -187,6 +183,49 @@ describe('SdkQueryRunner', () => {
       expect(params.prompt).toBe('hi');
       expect(params.options.permissionMode).toBe('bypassPermissions');
       expect(params.options.persistSession).toBe(false);
+    });
+  });
+
+  describe('runOneShot — unsafe cwd is rewritten at the chokepoint', () => {
+    async function capturedCwd(installCwd: string): Promise<string> {
+      const h = makeRunner({
+        extensionPath: `${installCwd}/resources/app.asar`,
+      });
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: installCwd,
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        isPremium: false,
+        mcpServerRunning: false,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      return params.options.cwd as string;
+    }
+
+    it('rewrites the app install dir to the user home so it never reaches the SDK', async () => {
+      const installDir = '/home/abdo/.local/programs/ptah';
+      const cwd = await capturedCwd(installDir);
+      expect(cwd).toBe(os.homedir());
+      expect(cwd).not.toBe(installDir);
+    });
+
+    it('passes a real workspace cwd through untouched', async () => {
+      const h = makeRunner();
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work/project',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        isPremium: false,
+        mcpServerRunning: false,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      expect(params.options.cwd).toBe('/work/project');
     });
   });
 
@@ -268,8 +307,8 @@ describe('SdkQueryRunner', () => {
     });
   });
 
-  describe('runOneShot — one-shot hook merger (PostToolUse + UserPromptSubmit)', () => {
-    it('invokes PostToolUseHookHandler.createHooks with (internal sessionId, cwd)', async () => {
+  describe('runOneShot — does not wire memory-observation hooks', () => {
+    it('wires subagent hooks for the one-shot query', async () => {
       const h = makeRunner();
 
       await h.runner.runOneShot({
@@ -281,42 +320,12 @@ describe('SdkQueryRunner', () => {
         mcpServerRunning: false,
       });
 
-      expect(h.postToolUseHooks.createHooks).toHaveBeenCalledTimes(1);
-      const [sessionIdArg, cwdArg] = h.postToolUseHooks.createHooks.mock
-        .calls[0] as [string, string];
-      expect(sessionIdArg).toMatch(/^internal-query-\d+$/);
-      expect(cwdArg).toBe('/work');
+      expect(h.subagentHooks.createHooks).toHaveBeenCalledWith('/work');
     });
 
-    it('invokes UserPromptSubmitHookHandler.createHooks with (internal sessionId, cwd)', async () => {
+    it('omits PostToolUse and UserPromptSubmit hooks so internal queries never feed the curators', async () => {
       const h = makeRunner();
-
-      await h.runner.runOneShot({
-        mode: 'oneShot',
-        cwd: '/work',
-        model: 'claude-sonnet-4-20250514',
-        prompt: 'hi',
-        isPremium: false,
-        mcpServerRunning: false,
-      });
-
-      expect(h.userPromptSubmitHooks.createHooks).toHaveBeenCalledTimes(1);
-      const [sessionIdArg, cwdArg] = h.userPromptSubmitHooks.createHooks.mock
-        .calls[0] as [string, string];
-      expect(sessionIdArg).toMatch(/^internal-query-\d+$/);
-      expect(cwdArg).toBe('/work');
-    });
-
-    it('merged hook options include PostToolUse and UserPromptSubmit keys', async () => {
-      const h = makeRunner();
-      const postMatcher = { hooks: [jest.fn()] };
-      const promptMatcher = { hooks: [jest.fn()] };
-      h.postToolUseHooks.createHooks.mockReturnValue({
-        PostToolUse: [postMatcher],
-      });
-      h.userPromptSubmitHooks.createHooks.mockReturnValue({
-        UserPromptSubmit: [promptMatcher],
-      });
+      h.subagentHooks.createHooks.mockReturnValue({});
 
       await h.runner.runOneShot({
         mode: 'oneShot',
@@ -331,13 +340,9 @@ describe('SdkQueryRunner', () => {
       const [params] = h.queryFn.mock.calls[0] as [
         { prompt: unknown; options: SdkQueryOptions },
       ];
-      const hooks = params.options.hooks as
-        | Record<string, unknown[]>
-        | undefined;
-      expect(hooks).toBeDefined();
-      expect(Object.keys(hooks ?? {})).toEqual(
-        expect.arrayContaining(['PostToolUse', 'UserPromptSubmit']),
-      );
+      const hooks = (params.options.hooks ?? {}) as Record<string, unknown[]>;
+      expect(hooks).not.toHaveProperty('PostToolUse');
+      expect(hooks).not.toHaveProperty('UserPromptSubmit');
     });
   });
 
