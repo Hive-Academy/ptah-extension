@@ -9,18 +9,18 @@ Memory settings live in `~/.ptah/settings.json` under the `memory.*` prefix. Edi
 
 ## Reference
 
-| Key                          | Default                     | What it does                                                                            |
-| ---------------------------- | --------------------------- | --------------------------------------------------------------------------------------- |
-| `memory.curatorEnabled`      | `true`                      | Master kill-switch — when `false`, no extraction or resolution runs                     |
-| `memory.tierLimits.core`     | `50`                        | Cap on the `core` tier; oldest unused memory is demoted when full                       |
-| `memory.tierLimits.recall`   | `500`                       | Cap on the `recall` tier                                                                |
-| `memory.tierLimits.archival` | `5000`                      | Cap on the `archival` tier                                                              |
-| `memory.decayHalflifeDays`   | `14`                        | Half-life of unused memories' salience                                                  |
-| `memory.embeddingModel`      | `Xenova/bge-small-en-v1.5`  | Embedder (transformers.js, runs in a worker)                                            |
-| `memory.curatorModel`        | `claude-haiku-4-5-20251001` | LLM used by both curator and resolver stages; empty falls back to this id               |
-| `memory.curatorProvider`     | _(empty)_                   | Curator provider id; empty uses the active provider (full provider routing coming soon) |
-| `memory.searchTopK`          | `10`                        | Number of hits returned per query                                                       |
-| `memory.searchAlpha`         | `0.5`                       | RRF weight: `1.0` = pure BM25, `0.0` = pure vector                                      |
+| Key                          | Default                     | What it does                                                                                                                  |
+| ---------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `memory.curatorEnabled`      | `true`                      | Master kill-switch — when `false`, no extraction or resolution runs                                                           |
+| `memory.tierLimits.core`     | `50`                        | Cap on the `core` tier; oldest unused memory is demoted when full                                                             |
+| `memory.tierLimits.recall`   | `500`                       | Cap on the `recall` tier                                                                                                      |
+| `memory.tierLimits.archival` | `5000`                      | Cap on the `archival` tier                                                                                                    |
+| `memory.decayHalflifeDays`   | `14`                        | Half-life of unused memories' salience                                                                                        |
+| `memory.embeddingModel`      | `Xenova/bge-small-en-v1.5`  | Embedder (transformers.js, runs in a worker)                                                                                  |
+| `memory.curatorModel`        | `claude-haiku-4-5-20251001` | LLM used by both curator and resolver stages; empty falls back to this id                                                     |
+| `memory.curatorProvider`     | _(empty)_                   | Curator provider id; empty rides the active provider, otherwise the curator runs on the chosen provider independently of chat |
+| `memory.searchTopK`          | `10`                        | Number of hits returned per query                                                                                             |
+| `memory.searchAlpha`         | `0.5`                       | RRF weight: `1.0` = pure BM25, `0.0` = pure vector                                                                            |
 
 ## Storage
 
