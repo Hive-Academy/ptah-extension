@@ -339,6 +339,15 @@ export class PtahAPIBuilder {
   }
 
   /**
+   * True only when both the code-symbol indexer and memory reader were
+   * injected (Electron). VS Code/CLI leave these optional tokens unbound,
+   * so this is the reliable discriminator for the SQLite-backed tools.
+   */
+  hasSymbolAndMemoryLayer(): boolean {
+    return this.symbolIndexer !== undefined && this.memorySearch !== undefined;
+  }
+
+  /**
    * Build the complete Ptah API object with all 14 namespaces.
    *
    * Each namespace builder is wrapped in try/catch so that one failing

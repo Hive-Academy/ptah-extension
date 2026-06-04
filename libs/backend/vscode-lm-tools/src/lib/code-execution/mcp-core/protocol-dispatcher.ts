@@ -16,6 +16,7 @@ import type {
   PtahAPI,
   MCPRequest,
   MCPResponse,
+  MCPToolDefinition,
   ExecuteCodeParams,
   ApprovalPromptParams,
 } from '../types';
@@ -126,6 +127,7 @@ export interface ProtocolHandlerDependencies {
   logger: Logger;
   onToolResult?: ToolResultCallback;
   hasIDECapabilities?: boolean;
+  hasSqliteLayer?: boolean;
   disabledMcpNamespaces?: string[];
 }
 
@@ -302,11 +304,62 @@ function handleToolsList(
       : []),
   ];
 
+  markEagerTools(tools, deps);
+
   return {
     jsonrpc: '2.0',
     id: request.id,
     result: { tools },
   };
+}
+
+/**
+ * Tools that should load eagerly on every runtime instead of being deferred
+ * behind the SDK's built-in tool-search tool.
+ */
+const ALWAYS_EAGER_TOOLS: ReadonlySet<string> = new Set([
+  'execute_code',
+  'ptah_search_files',
+  'ptah_ast_analyze',
+  'ptah_context_enrich_file',
+  'ptah_get_diagnostics',
+  'ptah_workspace_analyze',
+]);
+
+/** Eager only where VS Code IDE capabilities are present. */
+const IDE_EAGER_TOOLS: readonly string[] = [
+  'ptah_lsp_references',
+  'ptah_lsp_definitions',
+  'ptah_get_dirty_files',
+];
+
+/** Eager only where the SQLite symbol/memory layer is present (Electron). */
+const SQLITE_EAGER_TOOLS: readonly string[] = [
+  'ptah_code_search_symbols',
+  'ptah_memory_search',
+];
+
+/**
+ * Stamp `_meta['anthropic/alwaysLoad'] = true` onto the runtime-aware eager
+ * subset so the SDK loads them up front. Tools left untouched stay deferred.
+ */
+function markEagerTools(
+  tools: MCPToolDefinition[],
+  deps: ProtocolHandlerDependencies,
+): void {
+  const eager = new Set<string>(ALWAYS_EAGER_TOOLS);
+  if (deps.hasIDECapabilities === true) {
+    for (const name of IDE_EAGER_TOOLS) eager.add(name);
+  }
+  if (deps.hasSqliteLayer === true) {
+    for (const name of SQLITE_EAGER_TOOLS) eager.add(name);
+  }
+
+  for (const tool of tools) {
+    if (eager.has(tool.name)) {
+      tool._meta = { ...tool._meta, 'anthropic/alwaysLoad': true };
+    }
+  }
 }
 
 /**
