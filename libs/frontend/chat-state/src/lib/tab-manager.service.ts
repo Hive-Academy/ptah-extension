@@ -50,8 +50,10 @@ export interface ClosedTabEvent {
    * `close` — full teardown (router clears dedup state AND agent monitor cards).
    * `forceClose` — pop-out transfer; router clears dedup state only, leaves agents
    * alive so the target panel can re-attach.
+   * `reset` — in-place `/clear`: same per-session teardown as `close`, but the
+   * tab survives (re-emptied to a fresh conversation) instead of being removed.
    */
-  readonly kind: 'close' | 'forceClose';
+  readonly kind: 'close' | 'forceClose' | 'reset';
 }
 
 /**
@@ -752,6 +754,67 @@ export class TabManagerService {
         this._activeTabId.set(null);
       }
     }
+
+    this.saveTabState();
+  }
+
+  /**
+   * Reset a tab to a fresh, empty conversation in place (the `/clear` command).
+   *
+   * Unlike `closeTab`, the tab is kept — its messages, streaming state, stats,
+   * compaction state and session binding are wiped so the empty state renders
+   * and the next message starts a brand-new conversation. Per-tab user
+   * preferences (model/effort/preset/view-mode/order) are preserved.
+   *
+   * Emits a `reset` ClosedTabEvent so the StreamRouter runs the same
+   * per-session teardown as a close (dedup state, agent cards, tree, binding)
+   * without removing the tab.
+   */
+  resetTabToFresh(tabId: string): void {
+    const tab = this._tabs().find((t) => t.id === tabId);
+    if (!tab) return;
+
+    this.abortStreamingForTab(tabId);
+    this._streamingTabIds.update((set) => {
+      if (!set.has(tabId)) return set;
+      const next = new Set(set);
+      next.delete(tabId);
+      return next;
+    });
+
+    const previousSessionId = tab.claudeSessionId;
+    if (previousSessionId) {
+      this.workspacePartition.unregisterSession(previousSessionId);
+    }
+
+    this.updateTabInternal(tabId, {
+      claudeSessionId: null,
+      name: 'New Chat',
+      title: 'New Chat',
+      status: 'fresh',
+      isDirty: false,
+      messages: [],
+      streamingState: null,
+      currentMessageId: null,
+      queuedContent: null,
+      queuedOptions: null,
+      preloadedStats: null,
+      liveModelStats: null,
+      modelUsageList: undefined,
+      hasLiveSession: false,
+      isCompacting: false,
+      compactionCount: 0,
+      lastCompactionAt: null,
+      lastTerminalReason: undefined,
+      pendingBackgroundTasks: [],
+      pendingSessionCrons: [],
+    });
+
+    this._closedTab.set({
+      tabId,
+      sessionId: previousSessionId ?? null,
+      kind: 'reset',
+    });
 
     this.saveTabState();
   }
