@@ -51,7 +51,14 @@ export interface IndexingStats {
   durationMs: number;
 }
 
-const DEFAULT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'] as const;
+const DEFAULT_EXTENSIONS = [
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.py',
+  '.go',
+] as const;
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_MAX_FILES = 2000;
 
@@ -83,6 +90,11 @@ const DEFAULT_SKIP_PATTERNS = [
   'index.js',
   'index.jsx',
   'public-api.ts',
+  '*_test.go',
+  'test_*.py',
+  '*_test.py',
+  'conftest.py',
+  '__init__.py',
 ];
 const SKIP_MATCHER = picomatch(DEFAULT_SKIP_PATTERNS, { nocase: true });
 function shouldSkipFile(absoluteFilePath: string): boolean {
@@ -100,6 +112,10 @@ function extensionToLanguage(ext: string): SupportedLanguage | null {
     case '.js':
     case '.jsx':
       return 'javascript';
+    case '.py':
+      return 'python';
+    case '.go':
+      return 'go';
     default:
       return null;
   }
