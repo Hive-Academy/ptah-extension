@@ -42,7 +42,7 @@ let envConfigured = false;
 function configureTransformersEnv(env: TransformersEnv | undefined): void {
   if (envConfigured || !env || !modelCacheDir) return;
   env.cacheDir = modelCacheDir;
-  env.allowLocalModels = true;
+  env.allowLocalModels = false;
   envConfigured = true;
 }
 
