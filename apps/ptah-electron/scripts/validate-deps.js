@@ -123,10 +123,33 @@ function validateNativeDeps() {
 // stays trapped inside app.asar → memory/skills tables never created).
 validateNativeDeps();
 
-// Step 1: Build if needed
-if (!fs.existsSync(DIST_MAIN)) {
-  console.log('Building electron main process...');
-  execSync('npx nx build-main ptah-electron', { cwd: ROOT, stdio: 'inherit' });
+// Step 1: Ensure the bundle on disk is the PRODUCTION (minified) artifact.
+//
+// `build-main --configuration=development` (what the e2e harness runs) is NOT
+// minified and keeps JSDoc comments; the production build that actually ships IS
+// minified. Both write to the same main.mjs, so after an e2e run the dev bundle
+// sits on disk. Scanning it makes comment prose like
+// `'typescript' from 'typescript-explicit-any'` look like a phantom dependency.
+// Only the minified production artifact reflects what ships, so rebuild it when the
+// on-disk bundle is missing or unminified. Normal commits already hold the minified
+// bundle and skip the rebuild (fast); the rebuild happens once after an e2e run.
+function looksUnminified(src) {
+  const newlines = (src.match(/\n/g) || []).length;
+  const avgLineLength = src.length / (newlines + 1);
+  return avgLineLength < 200;
+}
+
+if (
+  !fs.existsSync(DIST_MAIN) ||
+  looksUnminified(fs.readFileSync(DIST_MAIN, 'utf8'))
+) {
+  console.log(
+    'Building production electron main bundle for an accurate dependency scan...',
+  );
+  execSync('npx nx run ptah-electron:build-main:production --skip-nx-cache', {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
 }
 
 // Step 2: Read the bundle and find external imports
