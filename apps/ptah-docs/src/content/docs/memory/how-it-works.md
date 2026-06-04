@@ -25,7 +25,7 @@ SQLite + vec     → memories land in ~/.ptah/ptah.db, chunks are embedded and
 
 ## Curator and resolver
 
-Both stages are LLM calls. By default they use **`claude-haiku-4-20251022`** — fast and cheap, which matters because the curator runs every compaction. Override via `memory.curatorModel` if you want a sharper or cheaper model.
+Both stages are LLM calls. By default they use **`claude-haiku-4-5-20251001`** — fast and cheap, which matters because the curator runs every compaction. You choose the curator provider and model in the **Memory** settings panel (or via `memory.curatorProvider` / `memory.curatorModel`); leaving the model empty falls back to `claude-haiku-4-5-20251001`. In this release the curator model **rides the active provider's auth** — the provider selection scopes the model list, with full provider routing coming soon.
 
 The curator's output is structured: each draft has a `kind` (`fact | preference | event | entity`), a body, an optional `subject`, and a tier hint. The resolver does the work of deciding what's actually new versus what's a refinement of something Ptah already knows.
 
