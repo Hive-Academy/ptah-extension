@@ -55,6 +55,15 @@ import {
   buildHarnessCreateSkillTool,
   buildHarnessSearchMcpRegistryTool,
   buildHarnessListInstalledMcpTool,
+  buildAstAnalyzeTool,
+  buildContextEnrichFileTool,
+  buildGetDependentsTool,
+  buildGetDependenciesTool,
+  buildCodeSearchSymbolsTool,
+  buildMemorySearchTool,
+  buildRelevanceRankFilesTool,
+  buildProjectDetectMonorepoTool,
+  buildGetSymbolIndexTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -206,6 +215,12 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * - 'git': ptah_git_worktree_list/add/remove
  * - 'json': ptah_json_validate
  * - 'browser': all ptah_browser_* tools (12 tools)
+ * - 'harness': ptah_harness_* tools
+ * - 'code': ptah_ast_analyze, ptah_context_enrich_file, ptah_get_dependents,
+ *           ptah_get_dependencies, ptah_get_symbol_index, ptah_code_search_symbols,
+ *           ptah_memory_search, ptah_relevance_rank_files, ptah_project_detect_monorepo
+ *           (ast/context/dependencies/relevance/project work on all runtimes; code/memory
+ *           return a graceful "unavailable" result where the SQLite index is absent, e.g. VS Code)
  *
  * Platform-agnostic tools (always included):
  * - ptah_get_diagnostics: Uses IDiagnosticsProvider abstraction (works on both platforms)
@@ -270,6 +285,19 @@ function handleToolsList(
           buildHarnessCreateSkillTool(),
           buildHarnessSearchMcpRegistryTool(),
           buildHarnessListInstalledMcpTool(),
+        ]
+      : []),
+    ...(!disabled.has('code')
+      ? [
+          buildAstAnalyzeTool(),
+          buildContextEnrichFileTool(),
+          buildGetDependentsTool(),
+          buildGetDependenciesTool(),
+          buildGetSymbolIndexTool(),
+          buildCodeSearchSymbolsTool(),
+          buildMemorySearchTool(),
+          buildRelevanceRankFilesTool(),
+          buildProjectDetectMonorepoTool(),
         ]
       : []),
   ];
@@ -1175,6 +1203,148 @@ async function handleIndividualTool(
         );
       }
 
+      case 'ptah_ast_analyze': {
+        const { file } = args as { file: string };
+        if (!file || typeof file !== 'string' || !file.trim()) {
+          return missingStringArgResponse(request, 'file');
+        }
+        const result = await ptahAPI.ast.analyze(file.trim());
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_context_enrich_file': {
+        const { file, language } = args as { file: string; language?: string };
+        if (!file || typeof file !== 'string' || !file.trim()) {
+          return missingStringArgResponse(request, 'file');
+        }
+        const result = await ptahAPI.context.enrichFile(file.trim(), language);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_get_dependents': {
+        const { file } = args as { file: string };
+        if (!file || typeof file !== 'string' || !file.trim()) {
+          return missingStringArgResponse(request, 'file');
+        }
+        await ensureDependencyGraphBuilt(ptahAPI);
+        const dependents = await ptahAPI.dependencies.getDependents(
+          file.trim(),
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({
+            file: file.trim(),
+            dependents,
+            count: dependents.length,
+          }),
+          deps,
+        );
+      }
+
+      case 'ptah_get_dependencies': {
+        const { file, depth } = args as { file: string; depth?: number };
+        if (!file || typeof file !== 'string' || !file.trim()) {
+          return missingStringArgResponse(request, 'file');
+        }
+        await ensureDependencyGraphBuilt(ptahAPI);
+        const dependencies = await ptahAPI.dependencies.getDependencies(
+          file.trim(),
+          depth,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({
+            file: file.trim(),
+            dependencies,
+            count: dependencies.length,
+          }),
+          deps,
+        );
+      }
+
+      case 'ptah_code_search_symbols': {
+        if (!ptahAPI.code) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              hits: [],
+              error:
+                'Code symbol index not available on this runtime. Use ptah_search_files or Grep instead.',
+            }),
+            deps,
+          );
+        }
+        const { query, maxResults, filePath } = args as {
+          query: string;
+          maxResults?: number;
+          filePath?: string;
+        };
+        if (!query || typeof query !== 'string' || !query.trim()) {
+          return missingStringArgResponse(request, 'query');
+        }
+        const result = await ptahAPI.code.searchSymbols(query.trim(), {
+          maxResults,
+          filePath,
+        });
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_memory_search': {
+        if (!ptahAPI.memory) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              hits: [],
+              error: 'Memory store not available on this runtime.',
+            }),
+            deps,
+          );
+        }
+        const {
+          query,
+          maxResults,
+          global: globalScope,
+        } = args as {
+          query: string;
+          maxResults?: number;
+          global?: boolean;
+        };
+        if (!query || typeof query !== 'string' || !query.trim()) {
+          return missingStringArgResponse(request, 'query');
+        }
+        const result = await ptahAPI.memory.search(
+          query.trim(),
+          globalScope === true
+            ? { maxResults }
+            : { workspace: true, maxResults },
+        );
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_relevance_rank_files': {
+        const { query, limit } = args as { query: string; limit?: number };
+        if (!query || typeof query !== 'string' || !query.trim()) {
+          return missingStringArgResponse(request, 'query');
+        }
+        const result = await ptahAPI.relevance.rankFiles(query.trim(), limit);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_project_detect_monorepo': {
+        const result = await ptahAPI.project.detectMonorepo();
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_get_symbol_index': {
+        await ensureDependencyGraphBuilt(ptahAPI);
+        const index = await ptahAPI.dependencies.getSymbolIndex();
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({ files: index, count: index.length }),
+          deps,
+        );
+      }
+
       default:
         return null;
     }
@@ -1199,6 +1369,41 @@ async function handleIndividualTool(
       },
     };
   }
+}
+
+/**
+ * Build a JSON-RPC tool error for a missing/empty required string argument.
+ */
+function missingStringArgResponse(
+  request: MCPRequest,
+  field: string,
+): MCPResponse {
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    result: {
+      content: [
+        {
+          type: 'text',
+          text: `Error: "${field}" is required and must be a non-empty string.`,
+        },
+      ],
+      isError: true,
+    },
+  };
+}
+
+/**
+ * Build the workspace import graph on first dependency query; reuse thereafter.
+ */
+async function ensureDependencyGraphBuilt(ptahAPI: PtahAPI): Promise<void> {
+  if (await ptahAPI.dependencies.isBuilt()) return;
+  const info = await ptahAPI.workspace.getInfo();
+  const workspaceRoot = info?.path;
+  if (!workspaceRoot) return;
+  const files = await ptahAPI.search.findFiles('**/*.{ts,tsx,js,jsx}', 5000);
+  if (files.length === 0) return;
+  await ptahAPI.dependencies.buildGraph(files, workspaceRoot);
 }
 
 /**
