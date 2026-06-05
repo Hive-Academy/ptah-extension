@@ -60,7 +60,11 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
     NativePopoverComponent,
   ],
   template: `
-    <div #canvasContainer class="flex flex-col h-full bg-base-100 relative">
+    <div
+      #canvasContainer
+      class="flex flex-col h-full bg-base-100 relative"
+      data-testid="canvas-grid"
+    >
       @if (canvasStore.tiles().length === 0) {
         <!-- Empty state: no tiles yet -->
         <ptah-canvas-empty-state (createSession)="openNewSessionPopover()" />
@@ -79,6 +83,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
                 }"
               >
                 <ptah-canvas-tile
+                  data-testid="canvas-tile"
                   [tabId]="tile.tabId"
                   [focused]="canvasStore.focusedTabId() === tile.tabId"
                   (focusRequested)="canvasStore.focusTile($event)"

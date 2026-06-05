@@ -134,6 +134,7 @@ function buildApi(): PtahAPI {
 function buildApiBuilder(api: PtahAPI): jest.Mocked<PtahAPIBuilder> {
   return {
     build: jest.fn(() => api),
+    hasSymbolAndMemoryLayer: jest.fn(() => false),
   } as unknown as jest.Mocked<PtahAPIBuilder>;
 }
 

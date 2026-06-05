@@ -141,26 +141,6 @@ export const appConfig: ApplicationConfig = {
     },
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',
-      onMonacoLoad: () => {
-        const monacoVsUrl = new URL('./assets/monaco/vs', window.location.href)
-          .href;
-        const monacoSelf = self as typeof self & {
-          MonacoEnvironment?: {
-            getWorker: (moduleId: string, label: string) => Worker;
-          };
-        };
-        monacoSelf.MonacoEnvironment = {
-          getWorker: (_moduleId: string, _label: string) => {
-            const workerUrl = `${monacoVsUrl}/base/worker/workerMain.js`;
-            const js = `self.MonacoEnvironment = { baseUrl: '${monacoVsUrl}/' };\nimportScripts('${workerUrl}');`;
-            const blob = new Blob([js], { type: 'application/javascript' });
-            const blobUrl = URL.createObjectURL(blob);
-            const worker = new Worker(blobUrl, { type: 'classic' as const });
-            URL.revokeObjectURL(blobUrl);
-            return worker;
-          },
-        };
-      },
     }),
     provideMarkdownRendering({ extensions: 'full' }),
   ],

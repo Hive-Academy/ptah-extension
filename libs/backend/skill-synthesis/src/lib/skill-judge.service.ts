@@ -8,6 +8,7 @@
  *
  * Only runs at the promotion gate — NOT at candidate creation time.
  */
+import * as os from 'node:os';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -81,7 +82,7 @@ export class SkillJudgeService {
 
     try {
       const handle = await this.internalQuery.execute({
-        cwd: process.cwd(),
+        cwd: os.homedir(),
         model,
         prompt,
         isPremium: false,

@@ -18,7 +18,10 @@ import {
   registerSdkServices,
   wireAgentAdapterAliases,
 } from '@ptah-extension/agent-sdk';
-import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
+import {
+  registerAuthProvidersServices,
+  registerCuratorAuthServices,
+} from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
@@ -61,6 +64,7 @@ export function registerPhase2Libraries(
   registerWorkspaceIntelligenceServices(container, logger);
   registerAuthProvidersServices(container, logger);
   registerSdkServices(container, logger);
+  registerCuratorAuthServices(container, logger);
   registerCliAgentRuntimeServices(container, logger);
 
   wireAgentAdapterAliases(container);
@@ -100,6 +104,19 @@ export function registerPhase2Libraries(
       useValue: workerEntry,
     });
 
+    const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
+    try {
+      fs.mkdirSync(modelCacheDir, { recursive: true });
+    } catch (error) {
+      logger.warn(
+        '[Electron DI] Failed to create embedder model cache dir (non-fatal)',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+    container.register(PERSISTENCE_TOKENS.EMBEDDER_MODEL_CACHE_DIR, {
+      useValue: modelCacheDir,
+    });
+
     registerPersistenceSqliteServices(container, logger);
     try {
       const sqliteConnection = container.resolve<SqliteConnectionService>(
@@ -120,6 +137,7 @@ export function registerPhase2Libraries(
     logger.info('[Electron DI] Memory curator services registered (Track 1)', {
       dbPath,
       workerEntry,
+      modelCacheDir,
     });
   } catch (error) {
     logger.warn(

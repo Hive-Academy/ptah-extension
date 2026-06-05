@@ -15,6 +15,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
+import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 import {
   AISessionConfig,
@@ -60,6 +61,7 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
+  getModelContextWindow,
 } from '@ptah-extension/shared';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import {
@@ -453,6 +455,8 @@ export class SdkQueryOptionsBuilder {
     private readonly sessionStartHookHandler: SessionStartHookHandler,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
     private readonly subagentStopHookHandler: SubagentStopHookHandler,
+    @inject(SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR, { isOptional: true })
+    private readonly codeSymbolPromptInjector?: CodeSymbolPromptInjector,
   ) {}
 
   /**
@@ -635,6 +639,10 @@ export class SdkQueryOptionsBuilder {
               ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
               : {};
           })(),
+          ...this.resolveContextWindowOverride(
+            model,
+            effectiveAuthEnv.ANTHROPIC_BASE_URL,
+          ),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
           if (data.includes('[ERROR]')) {
@@ -669,6 +677,34 @@ export class SdkQueryOptionsBuilder {
         forkSession: resumeSessionId ? forkSession : undefined,
       },
     };
+  }
+
+  /**
+   * Resolve a `CLAUDE_CODE_MAX_CONTEXT_TOKENS` override for proxied providers.
+   *
+   * The SDK only auto-detects a model's context window for first-party
+   * Anthropic base URLs; behind a translation proxy it falls back to a
+   * hardcoded 200k window, so auto-compaction triggers at the wrong point
+   * (too late for smaller models, which then overflow). When the selected
+   * model's real window is known, pin it explicitly so the SDK's
+   * auto-compaction threshold tracks the actual model.
+   *
+   * Skipped for first-party Anthropic (native detection is correct), when the
+   * window is unknown (window === 0 → leave the SDK default), and when the
+   * value is already set upstream (respect an explicit override).
+   */
+  private resolveContextWindowOverride(
+    model: string,
+    baseUrl: string | undefined,
+  ): Record<string, string> {
+    if (process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']) return {};
+    const trimmed = baseUrl?.trim();
+    const isFirstPartyAnthropic =
+      !trimmed || /^https?:\/\/api\.anthropic\.com\/?$/i.test(trimmed);
+    if (isFirstPartyAnthropic) return {};
+    const window = getModelContextWindow(model);
+    if (window <= 0) return {};
+    return { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(window) };
   }
 
   /**
@@ -890,10 +926,22 @@ export class SdkQueryOptionsBuilder {
         cwd,
       );
     }
+    let codeSymbolBlock = '';
+    if (
+      isPremium &&
+      initialUserQuery?.trim() &&
+      this.codeSymbolPromptInjector
+    ) {
+      codeSymbolBlock = await this.codeSymbolPromptInjector.buildBlock(
+        initialUserQuery,
+        cwd,
+      );
+    }
     const finalContentJoined = [
       sessionStartBlock,
       corpusPrimeBlock,
       memoryBlock,
+      codeSymbolBlock,
       result.content ?? '',
     ]
       .filter((p) => p.length > 0)
@@ -916,6 +964,8 @@ export class SdkQueryOptionsBuilder {
       corpusPrimeBlockLength: corpusPrimeBlock.length,
       hasMemoryBlock: !!memoryBlock,
       memoryBlockLength: memoryBlock.length,
+      hasCodeSymbolBlock: !!codeSymbolBlock,
+      codeSymbolBlockLength: codeSymbolBlock.length,
       totalAppendLength: finalContent?.length ?? 0,
     });
     return {

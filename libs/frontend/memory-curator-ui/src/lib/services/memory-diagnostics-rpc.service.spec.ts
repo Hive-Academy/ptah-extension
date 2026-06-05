@@ -169,6 +169,71 @@ describe('MemoryDiagnosticsRpcService', () => {
     expect(result).toEqual(payload);
   });
 
+  it('listModels() targets provider:listModels with providerId and returns data', async () => {
+    const payload = {
+      models: [
+        {
+          id: 'claude-haiku-4-5-20251001',
+          name: 'Claude Haiku 4.5',
+          description: '',
+          contextLength: 200000,
+          supportsToolUse: true,
+        },
+      ],
+      totalCount: 1,
+      isStatic: true,
+    };
+    rpcCall.mockResolvedValue(okResult(payload));
+
+    const result = await service.listModels('z-ai');
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'provider:listModels',
+      { toolUseOnly: false, providerId: 'z-ai' },
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toEqual(payload);
+  });
+
+  it('listModels() omits providerId when not supplied', async () => {
+    rpcCall.mockResolvedValue(
+      okResult({ models: [], totalCount: 0, isStatic: false }),
+    );
+
+    await service.listModels();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'provider:listModels',
+      { toolUseOnly: false },
+      expect.any(Object),
+    );
+  });
+
+  it('setTriggers() forwards curatorProvider + curatorModel PATCH', async () => {
+    const payload = {
+      triggers: {
+        preCompact: true,
+        idleMs: 600000,
+        turnThreshold: 20,
+        bootScan: true,
+        curatorProvider: 'z-ai',
+        curatorModel: 'glm-4.7-flashx',
+      },
+    };
+    rpcCall.mockResolvedValue(okResult(payload));
+
+    const result = await service.setTriggers({
+      triggers: { curatorProvider: 'z-ai', curatorModel: 'glm-4.7-flashx' },
+    });
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'memory:setTriggers',
+      { triggers: { curatorProvider: 'z-ai', curatorModel: 'glm-4.7-flashx' } },
+      expect.any(Object),
+    );
+    expect(result).toEqual(payload);
+  });
+
   it('throws with RPC error string on failure', async () => {
     rpcCall.mockResolvedValue(errResult('boom'));
 

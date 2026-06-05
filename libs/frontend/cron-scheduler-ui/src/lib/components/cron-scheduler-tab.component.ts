@@ -93,13 +93,18 @@ function emptyForm(timezone: string): CronJobFormState {
           <div class="card bg-base-200">
             <div class="card-body p-3">
               <div class="text-xs text-base-content/60">Total jobs</div>
-              <div class="text-lg font-semibold">{{ stats().total }}</div>
+              <div class="text-lg font-semibold" data-testid="cron-stat-total">
+                {{ stats().total }}
+              </div>
             </div>
           </div>
           <div class="card bg-base-200">
             <div class="card-body p-3">
               <div class="text-xs text-base-content/60">Enabled</div>
-              <div class="text-lg font-semibold text-success">
+              <div
+                class="text-lg font-semibold text-success"
+                data-testid="cron-stat-enabled"
+              >
                 {{ stats().enabled }}
               </div>
             </div>
@@ -107,7 +112,10 @@ function emptyForm(timezone: string): CronJobFormState {
           <div class="card bg-base-200">
             <div class="card-body p-3">
               <div class="text-xs text-base-content/60">Disabled</div>
-              <div class="text-lg font-semibold text-base-content/70">
+              <div
+                class="text-lg font-semibold text-base-content/70"
+                data-testid="cron-stat-disabled"
+              >
                 {{ stats().disabled }}
               </div>
             </div>
@@ -133,6 +141,7 @@ function emptyForm(timezone: string): CronJobFormState {
           <button
             type="button"
             class="btn btn-primary btn-sm"
+            data-testid="cron-new-job-btn"
             (click)="newJob()"
           >
             New job
@@ -156,7 +165,10 @@ function emptyForm(timezone: string): CronJobFormState {
           aria-label="Scheduled jobs"
         >
           @if (jobs().length === 0) {
-            <div class="p-4 text-sm text-base-content/60">
+            <div
+              class="p-4 text-sm text-base-content/60"
+              data-testid="cron-empty-state"
+            >
               No scheduled jobs yet. Click "New job" to create one.
             </div>
           } @else {
@@ -173,6 +185,7 @@ function emptyForm(timezone: string): CronJobFormState {
               <tbody>
                 @for (job of jobs(); track job.id) {
                   <tr
+                    data-testid="cron-job-row"
                     [class.bg-base-300]="selectedJobId() === job.id"
                     (click)="selectJob(job.id)"
                   >
@@ -245,6 +258,7 @@ function emptyForm(timezone: string): CronJobFormState {
           <section
             class="rounded-lg border border-base-300 bg-base-100 p-4"
             aria-label="Job editor"
+            data-testid="cron-form"
           >
             <h2 class="mb-3 text-sm font-semibold">
               {{ form().id ? 'Edit job' : 'New job' }}
@@ -255,6 +269,7 @@ function emptyForm(timezone: string): CronJobFormState {
                 <input
                   type="text"
                   class="input input-bordered input-sm"
+                  data-testid="cron-form-name"
                   [value]="form().name"
                   (input)="patchForm({ name: inputValue($event) })"
                 />
@@ -265,6 +280,7 @@ function emptyForm(timezone: string): CronJobFormState {
                 <input
                   type="text"
                   class="input input-bordered input-sm font-mono"
+                  data-testid="cron-form-expr"
                   placeholder="*/5 * * * *"
                   [value]="form().cronExpr"
                   (input)="patchForm({ cronExpr: inputValue($event) })"
@@ -285,6 +301,7 @@ function emptyForm(timezone: string): CronJobFormState {
                 <textarea
                   class="textarea textarea-bordered textarea-sm font-mono"
                   rows="3"
+                  data-testid="cron-form-prompt"
                   [value]="form().prompt"
                   (input)="patchForm({ prompt: inputValue($event) })"
                 ></textarea>
@@ -334,6 +351,7 @@ function emptyForm(timezone: string): CronJobFormState {
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
+                data-testid="cron-form-submit"
                 [disabled]="!canSubmit() || loading()"
                 (click)="submitForm()"
               >

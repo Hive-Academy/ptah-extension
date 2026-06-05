@@ -32,6 +32,8 @@ export const MEMORY_TRIGGER_KEYS = {
     observationCount: 'memory.triggers.sessionStart.observationCount',
     corpusCount: 'memory.triggers.sessionStart.corpusCount',
   },
+  curatorProvider: 'memory.curatorProvider',
+  curatorModel: 'memory.curatorModel',
 } as const;
 
 export const DEFAULT_CUE_LIST: readonly string[] = [
@@ -66,13 +68,15 @@ export const MEMORY_TRIGGER_DEFAULTS = {
   sessionEnd: {
     enabled: true,
   },
-  maxCuratesPerHour: 12,
+  maxCuratesPerHour: 20,
   maxObservationsPerCurate: 500,
   sessionStart: {
     injectionEnabled: true,
     observationCount: 10,
     corpusCount: 5,
   },
+  curatorProvider: '',
+  curatorModel: '',
 } as const;
 
 export const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> =
@@ -87,6 +91,8 @@ export const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> =
     episode: 'memory.triggers.episode',
     sessionEnd: 'memory.triggers.sessionEnd',
     maxCuratesPerHour: MEMORY_TRIGGER_KEYS.maxCuratesPerHour,
+    curatorProvider: MEMORY_TRIGGER_KEYS.curatorProvider,
+    curatorModel: MEMORY_TRIGGER_KEYS.curatorModel,
   };
 
 export interface PopulatedMemoryTriggers {
@@ -117,6 +123,8 @@ export interface PopulatedMemoryTriggers {
     readonly observationCount: number;
     readonly corpusCount: number;
   };
+  readonly curatorProvider: string;
+  readonly curatorModel: string;
 }
 
 export function readMemoryTriggers(
@@ -197,6 +205,18 @@ export function readMemoryTriggers(
       MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour,
     ) ?? MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour;
   const sessionStart = readSessionStartConfig(ws);
+  const curatorProvider =
+    ws.getConfiguration<string>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.curatorProvider,
+      MEMORY_TRIGGER_DEFAULTS.curatorProvider,
+    ) ?? MEMORY_TRIGGER_DEFAULTS.curatorProvider;
+  const curatorModel =
+    ws.getConfiguration<string>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.curatorModel,
+      MEMORY_TRIGGER_DEFAULTS.curatorModel,
+    ) ?? MEMORY_TRIGGER_DEFAULTS.curatorModel;
   return {
     preCompact,
     idleMs,
@@ -221,6 +241,8 @@ export function readMemoryTriggers(
     },
     maxCuratesPerHour,
     sessionStart,
+    curatorProvider,
+    curatorModel,
   };
 }
 

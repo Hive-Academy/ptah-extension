@@ -150,7 +150,7 @@ export class SkillCuratorService {
     try {
       const model = this.resolveModel(settings);
       const handle = await this.internalQuery.execute({
-        cwd: process.cwd(),
+        cwd: os.homedir(),
         model,
         prompt,
         isPremium: false,

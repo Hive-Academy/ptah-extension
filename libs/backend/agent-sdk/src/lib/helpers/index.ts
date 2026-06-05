@@ -138,13 +138,16 @@ export {
 export { SdkModuleLoader } from './sdk-module-loader';
 export {
   SdkQueryRunner,
+  type OneShotAuthOverride,
   type OneShotRunInput,
   type OneShotRunResult,
   type InteractiveRunInput,
   type InteractiveRunResult,
 } from './sdk-query-runner.service';
 export { MemoryPromptInjector } from './memory-prompt-injector';
+export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
+export type { ICuratorAuthResolver } from '../curator-llm-adapter';
 export {
   SdkModelService,
   TIER_ENV_VAR_MAP,

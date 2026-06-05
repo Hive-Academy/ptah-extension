@@ -26,9 +26,15 @@
  * happens INSIDE `SdkQueryOptionsBuilder` (not here) and is unaffected.
  */
 
+import * as os from 'os';
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
+import {
+  PLATFORM_TOKENS,
+  isUnsafeWorkspacePath,
+  type IPlatformInfo,
+} from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from '../errors';
@@ -38,8 +44,6 @@ import { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import { CompactionHookHandler } from './compaction-hook-handler';
-import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
-import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
@@ -61,6 +65,11 @@ import { PTAH_MCP_PORT } from '../constants';
 const SERVICE_TAG = '[SdkQueryRunner]';
 const DEFAULT_ONE_SHOT_MAX_TURNS = 25;
 
+export interface OneShotAuthOverride {
+  readonly env: AuthEnv;
+  readonly baseUrl?: string;
+}
+
 export interface OneShotRunInput {
   mode: 'oneShot';
   cwd: string;
@@ -74,6 +83,7 @@ export interface OneShotRunInput {
   outputFormat?: OutputFormat;
   abortController?: AbortController;
   pluginPaths?: string[];
+  auth?: OneShotAuthOverride;
 }
 
 export interface OneShotRunResult {
@@ -112,13 +122,29 @@ export class SdkQueryRunner {
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
-    @inject(SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER)
-    private readonly postToolUseHookHandler: PostToolUseHookHandler,
-    @inject(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER)
-    private readonly userPromptSubmitHookHandler: UserPromptSubmitHookHandler,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo,
   ) {}
 
-  async runOneShot(input: OneShotRunInput): Promise<OneShotRunResult> {
+  private resolveSafeCwd(requested: string): string {
+    const safety = isUnsafeWorkspacePath(requested, this.platformInfo);
+    if (safety.ok) return requested;
+    const home = os.homedir();
+    const fallback = isUnsafeWorkspacePath(home, this.platformInfo).ok
+      ? home
+      : os.tmpdir();
+    this.logger.warn(
+      `${SERVICE_TAG} Unsafe one-shot cwd rewritten to ${fallback} — ${safety.reason}`,
+      { requested, fallback },
+    );
+    return fallback;
+  }
+
+  async runOneShot(rawInput: OneShotRunInput): Promise<OneShotRunResult> {
+    const input: OneShotRunInput = {
+      ...rawInput,
+      cwd: this.resolveSafeCwd(rawInput.cwd),
+    };
     const cliJsPath =
       this.runtimeState.getCliJsPath() ??
       (await this.moduleLoader.getCliJsPath());
@@ -274,7 +300,13 @@ export class SdkQueryRunner {
     abortController: AbortController,
     cliJsPath: string | null,
   ): SdkQueryOptions {
-    const systemPrompt = this.buildOneShotSystemPrompt(input);
+    const authEnv = input.auth?.env ?? this.authEnv;
+    const effectiveBaseUrl =
+      input.auth?.baseUrl ??
+      input.auth?.env.ANTHROPIC_BASE_URL ??
+      authEnv.ANTHROPIC_BASE_URL;
+
+    const systemPrompt = this.buildOneShotSystemPrompt(input, authEnv);
 
     const mcpServers = this.buildOneShotMcpServers(
       input.isPremium,
@@ -309,18 +341,18 @@ export class SdkQueryRunner {
       pathToClaudeCodeExecutable: cliJsPath || undefined,
       env: {
         ...process.env,
-        ...buildTierEnvDefaults(this.authEnv),
-        ...this.authEnv,
+        ...buildTierEnvDefaults(authEnv),
+        ...authEnv,
         NO_PROXY: '127.0.0.1,localhost',
         ...(() => {
-          const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+          const baseUrl = effectiveBaseUrl?.trim();
           return baseUrl &&
             !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
             ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
             : {};
         })(),
       } as Record<string, string | undefined>,
-      settingSources: this.authEnv.ANTHROPIC_BASE_URL?.includes('127.0.0.1')
+      settingSources: effectiveBaseUrl?.includes('127.0.0.1')
         ? ['project', 'local']
         : ['user', 'project', 'local'],
       stderr: (data: string) => {
@@ -342,14 +374,17 @@ export class SdkQueryRunner {
     return options;
   }
 
-  private buildOneShotSystemPrompt(input: OneShotRunInput): {
+  private buildOneShotSystemPrompt(
+    input: OneShotRunInput,
+    authEnv: AuthEnv = this.authEnv,
+  ): {
     type: 'preset';
     preset: 'claude_code';
     append?: string;
   } {
     const appendParts: string[] = [];
 
-    const identityPrompt = this.buildOneShotIdentityPrompt();
+    const identityPrompt = this.buildOneShotIdentityPrompt(authEnv);
     if (identityPrompt) {
       appendParts.push(identityPrompt);
       this.logger.debug(
@@ -375,8 +410,10 @@ export class SdkQueryRunner {
     };
   }
 
-  private buildOneShotIdentityPrompt(): string | undefined {
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL;
+  private buildOneShotIdentityPrompt(
+    authEnv: AuthEnv = this.authEnv,
+  ): string | undefined {
+    const baseUrl = authEnv.ANTHROPIC_BASE_URL;
     if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
       return undefined;
     }
@@ -387,9 +424,9 @@ export class SdkQueryRunner {
       try {
         if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
           const actualModel =
-            this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-            this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-            this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+            authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+            authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+            authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
           if (!actualModel) {
             return undefined;
@@ -447,22 +484,9 @@ This clarification takes precedence over any other identity instructions in the 
       oneShotSessionId,
       cwd,
     );
-    const postToolUseHooks = this.postToolUseHookHandler.createHooks(
-      oneShotSessionId,
-      cwd,
-    );
-    const userPromptSubmitHooks = this.userPromptSubmitHookHandler.createHooks(
-      oneShotSessionId,
-      cwd,
-    );
 
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-    for (const hooks of [
-      subagentHooks,
-      compactionHooks,
-      postToolUseHooks,
-      userPromptSubmitHooks,
-    ]) {
+    for (const hooks of [subagentHooks, compactionHooks]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
         mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];

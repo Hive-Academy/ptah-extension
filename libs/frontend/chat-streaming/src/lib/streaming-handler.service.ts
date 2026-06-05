@@ -256,6 +256,15 @@ export class StreamingHandlerService {
     }
     if (result.stateMutated) {
       this.batchedUpdate.scheduleUpdate(targetTab.id, state);
+      // Content is flowing, so the SDK is actively generating for this tab.
+      // Re-assert the visual streaming flag if a turn-end (Stop hook, result,
+      // or a background-task pause that flipped the tab to 'awaiting-background'
+      // /'loaded') cleared it and the agent then resumed on its own. The next
+      // real turn-end clears it again; the membership guard keeps steady-state
+      // per-delta streaming a no-op.
+      if (!this.tabManager.isTabStreaming(targetTab.id)) {
+        this.tabManager.markTabStreaming(targetTab.id);
+      }
     }
     if (result.agentStartFlushNeeded) {
       this.batchedUpdate.flushSync();
