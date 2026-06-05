@@ -70,6 +70,8 @@ export const SDK_TOKENS = {
 
   SDK_MEMORY_PROMPT_INJECTOR: Symbol.for('SdkMemoryPromptInjector'),
 
+  SDK_CODE_SYMBOL_PROMPT_INJECTOR: Symbol.for('SdkCodeSymbolPromptInjector'),
+
   SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
 
   SDK_CURATOR_AUTH_RESOLVER: Symbol.for('SdkCuratorAuthResolver'),

@@ -132,6 +132,7 @@ export {
   buildTierEnvDefaults,
   SdkModelService,
   MemoryPromptInjector,
+  CodeSymbolPromptInjector,
 } from './lib/helpers';
 export type { ModelTier, EnvMappedTier } from './lib/helpers';
 export {

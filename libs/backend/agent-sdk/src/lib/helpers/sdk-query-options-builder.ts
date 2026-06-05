@@ -15,6 +15,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
+import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 import {
   AISessionConfig,
@@ -454,6 +455,8 @@ export class SdkQueryOptionsBuilder {
     private readonly sessionStartHookHandler: SessionStartHookHandler,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
     private readonly subagentStopHookHandler: SubagentStopHookHandler,
+    @inject(SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR, { isOptional: true })
+    private readonly codeSymbolPromptInjector?: CodeSymbolPromptInjector,
   ) {}
 
   /**
@@ -923,10 +926,22 @@ export class SdkQueryOptionsBuilder {
         cwd,
       );
     }
+    let codeSymbolBlock = '';
+    if (
+      isPremium &&
+      initialUserQuery?.trim() &&
+      this.codeSymbolPromptInjector
+    ) {
+      codeSymbolBlock = await this.codeSymbolPromptInjector.buildBlock(
+        initialUserQuery,
+        cwd,
+      );
+    }
     const finalContentJoined = [
       sessionStartBlock,
       corpusPrimeBlock,
       memoryBlock,
+      codeSymbolBlock,
       result.content ?? '',
     ]
       .filter((p) => p.length > 0)
@@ -949,6 +964,8 @@ export class SdkQueryOptionsBuilder {
       corpusPrimeBlockLength: corpusPrimeBlock.length,
       hasMemoryBlock: !!memoryBlock,
       memoryBlockLength: memoryBlock.length,
+      hasCodeSymbolBlock: !!codeSymbolBlock,
+      codeSymbolBlockLength: codeSymbolBlock.length,
       totalAppendLength: finalContent?.length ?? 0,
     });
     return {

@@ -285,8 +285,8 @@ The \`ptah.code\` namespace provides semantic search over indexed code symbols (
 **\`ptah.code.searchSymbols(query, { maxResults? })\`**
 - Returns \`{ hits: SymbolHit[], bm25Only: false }\` on success
 - Returns \`{ hits: [], error: "index unavailable" }\` when SQLite is not running
-- Each \`SymbolHit\`: \`{ subject: "code:<kind>:<absoluteFilePath>:<symbolName>", filePath, score, snippet }\`
-- Post-filtered to code symbols only — no conversational memory contamination
+- Each \`SymbolHit\`: \`{ subject, filePath, symbolName, kind, text, score }\` (\`text\` is the symbol body/signature)
+- Hybrid ranked over the dedicated code symbol index; \`bm25Only: true\` when the vector index is unavailable
 
 Example:
 \`\`\`javascript
@@ -310,7 +310,7 @@ if ('error' in result) {
   console.log('Search unavailable:', result.error);
 } else {
   for (const hit of result.hits) {
-    console.log(hit.subject, hit.chunkText, hit.score);
+    console.log(hit.symbolName, hit.filePath, hit.score);
   }
 }
 \`\`\`

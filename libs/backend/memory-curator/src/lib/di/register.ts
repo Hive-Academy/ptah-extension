@@ -74,6 +74,9 @@ export function registerMemoryCuratorServices(
     { useClass: CodeSymbolStore },
     { lifecycle: Lifecycle.Singleton },
   );
+  container.register(MEMORY_CONTRACT_TOKENS.CODE_SYMBOL_READER, {
+    useToken: MEMORY_TOKENS.CODE_SYMBOL_STORE,
+  });
   container.register(
     PLATFORM_TOKENS.MEMORY_WRITER,
     { useClass: MemoryWriterAdapter },
