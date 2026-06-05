@@ -47,6 +47,13 @@ export interface PostWindowResult {
    */
   updateCheckInterval: ReturnType<typeof setInterval> | null;
   /**
+   * The started UpdateManager instance, captured so will-quit can dispose it
+   * by reference instead of re-resolving the singleton from the container
+   * (a re-resolve reconstructs it and needs WEBVIEW_MANAGER, which may be
+   * gone during teardown). Null when resolution failed.
+   */
+  updateManager: UpdateManager | null;
+  /**
    * Messaging gateway service handle for orderly shutdown. Started after
    * window creation so adapters have a stable mainWindow for approval prompts.
    * Null when gateway.enabled is false or start() fails.
@@ -75,6 +82,7 @@ export async function registerPostWindow(
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
   let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
+  let updateManager: UpdateManager | null = null;
   let messagingGateway: GatewayService | null = null;
   let chatBridge: GatewayChatBridge | null = null;
   const baseStartupConfig = {
@@ -188,8 +196,7 @@ export async function registerPostWindow(
     }
   }
   try {
-    const updateManager =
-      container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
+    updateManager = container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
     await updateManager.start();
     updateCheckInterval = updateManager.getCheckInterval();
     console.log('[Ptah Electron] UpdateManager started');
@@ -256,6 +263,7 @@ export async function registerPostWindow(
   return {
     revalidationInterval,
     updateCheckInterval,
+    updateManager,
     messagingGateway,
     chatBridge,
   };

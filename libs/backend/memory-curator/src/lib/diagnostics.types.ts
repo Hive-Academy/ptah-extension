@@ -17,6 +17,7 @@ export type MemoryCuratorEventKind =
   | 'tool-failure'
   | 'rate-limited'
   | 'error'
+  | 'curator-error'
   | 'embedder-download';
 
 export interface MemoryCuratorEvent {

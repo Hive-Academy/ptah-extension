@@ -59,6 +59,10 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     refreshQuestionTargetsForSession: jest.Mock;
     routeStreamEvent: jest.Mock;
   };
+  let tabManager: {
+    tabs: jest.Mock;
+    resetTabToFresh: jest.Mock;
+  };
   let consoleWarnSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -75,6 +79,10 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       refreshQuestionTargetsForSession: jest.fn(),
       routeStreamEvent: jest.fn(),
     };
+    tabManager = {
+      tabs: jest.fn(() => [{ id: 'tab-1' }]),
+      resetTabToFresh: jest.fn(),
+    };
 
     TestBed.configureTestingModule({
       providers: [
@@ -85,7 +93,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
           provide: AgentMonitorStore,
           useValue: { resolveParentSessionId: jest.fn() },
         },
-        { provide: TabManagerService, useValue: {} },
+        { provide: TabManagerService, useValue: tabManager },
         { provide: MessageSenderService, useValue: {} },
       ],
     });
@@ -296,6 +304,36 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect.stringContaining('Invalid SdkSubagentEndedPayload'),
       expect.anything(),
     );
+  });
+
+  // ----- CHAT_COMPLETE (/clear native command) ------------------------------
+
+  it('handleChatComplete resets the target tab on the clear command', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_COMPLETE,
+      payload: { tabId: 'tab-1', sessionId: VALID_UUID, command: 'clear' },
+    });
+
+    expect(tabManager.resetTabToFresh).toHaveBeenCalledTimes(1);
+    expect(tabManager.resetTabToFresh).toHaveBeenCalledWith('tab-1');
+  });
+
+  it('handleChatComplete ignores ordinary (per-turn) completions', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_COMPLETE,
+      payload: { tabId: 'tab-1', sessionId: VALID_UUID },
+    });
+
+    expect(tabManager.resetTabToFresh).not.toHaveBeenCalled();
+  });
+
+  it('handleChatComplete no-ops when the clear targets an unknown tab', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_COMPLETE,
+      payload: { tabId: 'tab-gone', command: 'clear' },
+    });
+
+    expect(tabManager.resetTabToFresh).not.toHaveBeenCalled();
   });
 
   it('handleSessionSubagentEnded warns and no-ops on undefined payload', () => {

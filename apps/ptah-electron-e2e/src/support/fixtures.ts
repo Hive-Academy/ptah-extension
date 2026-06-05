@@ -5,6 +5,7 @@ import {
 } from '@playwright/test';
 import { launchPtah } from './electron-launcher';
 import { RpcBridge } from './rpc-bridge';
+import { UiDriver } from './ui-driver';
 
 /**
  * Playwright test fixtures for the Ptah Electron app.
@@ -28,6 +29,7 @@ export interface PtahFixtures {
   electronApp: ElectronApplication;
   mainWindow: Page;
   rpcBridge: RpcBridge;
+  ui: UiDriver;
   /** Captured stdout+stderr lines from the Electron main process. */
   mainProcessOutput: MainProcessOutput;
 }
@@ -77,6 +79,32 @@ export const test = base.extend<PtahFixtures>({
 
   rpcBridge: async ({ electronApp }, use) => {
     await use(new RpcBridge(electronApp));
+  },
+
+  ui: async ({ electronApp, mainWindow }, use) => {
+    await mainWindow.waitForLoadState('domcontentloaded');
+    const driver = new UiDriver(electronApp, mainWindow);
+    await driver.installFakeRpcListener();
+    await driver.mockRpc({
+      'workspace:getInfo': {
+        folders: ['C:\\ptah-e2e-ws'],
+        activeFolder: 'C:\\ptah-e2e-ws',
+      },
+      'workspace:switch': { success: true },
+      'auth:getAuthStatus': {
+        authMethod: 'apiKey',
+        hasApiKey: true,
+        availableProviders: [],
+        anthropicProviderId: null,
+      },
+      'config:get': {},
+      'cron:list': { jobs: [] },
+      'gateway:listBindings': { bindings: [] },
+      'skillSynthesis:listCandidates': { candidates: [] },
+      'memory:list': { memories: [], total: 0 },
+    });
+    await driver.prepare();
+    await use(driver);
   },
 });
 

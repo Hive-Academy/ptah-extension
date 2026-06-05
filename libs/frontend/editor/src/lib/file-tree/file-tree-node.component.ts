@@ -59,6 +59,7 @@ import type { GitFileStatus } from '@ptah-extension/shared';
     } @else {
       <div
         class="flex items-center gap-1.5 px-2 py-0.5 cursor-pointer rounded text-sm select-none hover:bg-base-300 transition-colors"
+        data-testid="editor-file-node"
         [class.bg-primary]="isActive()"
         [class.text-primary-content]="isActive()"
         [style.padding-left.px]="depth() * 16 + 8"

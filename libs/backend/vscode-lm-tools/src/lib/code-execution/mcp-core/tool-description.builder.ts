@@ -1041,6 +1041,233 @@ export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
 }
 
 /**
+ * Build the ptah_ast_analyze tool definition
+ * Tree-sitter structural analysis — functions/classes/imports/exports
+ */
+export function buildAstAnalyzeTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_ast_analyze',
+    description:
+      'Analyze a JavaScript/TypeScript file with Tree-sitter and return its structure — functions, classes, imports, and exports with line ranges — WITHOUT reading the full file (40-60% fewer tokens). Use this before reading a file to understand its shape and decide what to read.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_context_enrich_file tool definition
+ * .d.ts-style structural summary of a file
+ */
+export function buildContextEnrichFileTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_context_enrich_file',
+    description:
+      "Generate a .d.ts-style structural summary of a file — imports, class outlines, and function signatures without bodies — for a large token reduction over reading the whole file. Use when you need a file's API surface, not its implementation.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+        language: {
+          type: 'string',
+          enum: ['typescript', 'javascript'],
+          description: 'Optional language hint',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_get_dependents tool definition
+ * Reverse import edges — what imports this file (refactor blast radius)
+ */
+export function buildGetDependentsTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_get_dependents',
+    description:
+      'List the files that import the given file (reverse dependency edges). Essential for assessing blast radius before changing or renaming a module. Builds the workspace import graph on first use, then answers from cache.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_get_dependencies tool definition
+ * Forward import edges — what this file imports
+ */
+export function buildGetDependenciesTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_get_dependencies',
+    description:
+      'List the files that the given file imports (forward dependency edges). Use to understand what a module depends on. Builds the workspace import graph on first use, then answers from cache.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+        depth: {
+          type: 'number',
+          description: 'Transitive traversal depth, 1-3 (default: 1)',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_code_search_symbols tool definition
+ * Hybrid BM25 + vector search over the indexed workspace symbol table
+ */
+export function buildCodeSearchSymbolsTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_code_search_symbols',
+    description:
+      'Search indexed workspace code symbols (functions, classes, methods) by semantic description using hybrid BM25 + vector search. Prefer this over Grep to find a symbol by what it does across files. Returns symbol hits with file path, kind, name, and score. NOTE: backed by the SQLite symbol index — returns an "index unavailable" result on runtimes without it (e.g. VS Code); fall back to ptah_search_files or Grep in that case.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Natural-language description of the symbol to find (e.g. "validate auth token")',
+        },
+        maxResults: {
+          type: 'number',
+          description: 'Maximum hits to return (default: 20)',
+        },
+        filePath: {
+          type: 'string',
+          description:
+            'Optional: restrict results to symbols in this file path',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_memory_search tool definition
+ * Hybrid search over persistent cross-session memory
+ */
+export function buildMemorySearchTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_memory_search',
+    description:
+      'Search persistent memory from past sessions (facts, preferences, prior decisions) using hybrid BM25 + vector search. Call this when the user references past work ("last time", "previously", "the X we set up") or when prior context would help. Defaults to the active workspace scope. NOTE: backed by the memory store — returns a "not available" result on runtimes without it (e.g. VS Code).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What to recall (natural language)',
+        },
+        maxResults: {
+          type: 'number',
+          description: 'Maximum memory hits to return (default: 10, max: 50)',
+        },
+        global: {
+          type: 'boolean',
+          description:
+            'Search across all workspaces instead of just the active one (default: false)',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_relevance_rank_files tool definition
+ * Semantic file triage — rank files by relevance to a query
+ */
+export function buildRelevanceRankFilesTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_relevance_rank_files',
+    description:
+      'Rank workspace files by relevance to a natural-language query, each with a 0-100 score and the reasons behind it. Use to triage which files to open first for a task instead of guessing — prefer over scanning many files with Read/Grep.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What you are looking for (natural language)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum files to return (default: 20)',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_project_detect_monorepo tool definition
+ * Identify monorepo tooling and layout
+ */
+export function buildProjectDetectMonorepoTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_project_detect_monorepo',
+    description:
+      'Detect whether the workspace is a monorepo and identify the tool (nx, lerna, turborepo, pnpm/yarn workspaces). Returns isMonorepo, type, the config files that indicated it, and package count when detectable. Use to understand workspace layout before navigating a multi-package repo.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_get_symbol_index tool definition
+ * Map of file -> exported symbol names from the import graph
+ */
+export function buildGetSymbolIndexTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_get_symbol_index',
+    description:
+      'List the exported symbols for every file in the workspace import graph (a map of file path to exported symbol names). Use to discover where a symbol is exported from, or to get an at-a-glance map of the public surface. Builds the workspace import graph on first use, then answers from cache.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
  */

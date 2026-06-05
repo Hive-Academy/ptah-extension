@@ -128,6 +128,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
 
           <button
             class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
+            data-testid="editor-terminal-toggle"
             [class.text-primary]="editorService.terminalVisible()"
             [title]="
               editorService.terminalVisible()

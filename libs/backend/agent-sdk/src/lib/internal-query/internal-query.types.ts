@@ -18,6 +18,7 @@ import type {
   SDKMessage,
   OutputFormat,
 } from '../types/sdk-types/claude-sdk.types';
+import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 
 /**
  * Configuration for an internal one-shot query.
@@ -67,6 +68,8 @@ export interface InternalQueryConfig {
 
   /** Absolute paths to plugin directories (from PluginLoaderService) */
   pluginPaths?: string[];
+
+  auth?: OneShotAuthOverride;
 }
 
 /**

@@ -79,12 +79,13 @@ interface FileCacheEntry {
 }
 
 /**
- * Debounced search state
+ * Per-query debounced search state. Keyed by cacheKey so distinct concurrent
+ * queries each flush with their own options and resolve their own callers.
  */
-interface DebounceState {
-  timerId?: NodeJS.Timeout;
-  lastQuery: string;
-  pendingResolvers: Array<{
+interface PendingSearch {
+  timerId: NodeJS.Timeout;
+  options: FileSearchOptions;
+  resolvers: Array<{
     resolve: (results: FileSearchResult[]) => void;
     reject: (error: Error) => void;
   }>;
@@ -110,10 +111,7 @@ export class ContextService {
   private fileCache = new Map<string, FileCacheEntry>();
   private allFilesCache: FileSearchResult[] = [];
   private allFilesCacheTimestamp = 0;
-  private debounceState: DebounceState = {
-    lastQuery: '',
-    pendingResolvers: [],
-  };
+  private pendingSearches = new Map<string, PendingSearch>();
   private readonly DEBOUNCE_MS = 300;
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
   private readonly ALL_FILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
@@ -439,35 +437,46 @@ export class ContextService {
       return cached;
     }
     return new Promise<FileSearchResult[]>((resolve, reject) => {
-      this.addToDebounceQueue(resolve, reject);
-      if (this.debounceState.timerId) {
-        clearTimeout(this.debounceState.timerId);
+      const existing = this.pendingSearches.get(cacheKey);
+      if (existing) {
+        clearTimeout(existing.timerId);
+        existing.resolvers.push({ resolve, reject });
+        existing.options = options;
+        existing.timerId = this.scheduleFlush(cacheKey);
+        return;
       }
 
-      this.debounceState.lastQuery = options.query;
-      this.debounceState.timerId = setTimeout(async () => {
-        try {
-          const results = await this.performFileSearch(options);
-          this.cacheResults(cacheKey, results);
-          this.debounceState.pendingResolvers.forEach(({ resolve }) => {
-            resolve(results);
-          });
-          this.debounceState.pendingResolvers = [];
-
-          this.logger.debug(
-            `File search completed: ${results.length} results for "${options.query}"`,
-          );
-        } catch (error) {
-          this.logger.error('File search failed', error);
-          const errorToReject =
-            error instanceof Error ? error : new Error('File search failed');
-          this.debounceState.pendingResolvers.forEach(({ reject }) => {
-            reject(errorToReject);
-          });
-          this.debounceState.pendingResolvers = [];
-        }
-      }, this.DEBOUNCE_MS);
+      this.pendingSearches.set(cacheKey, {
+        timerId: this.scheduleFlush(cacheKey),
+        options,
+        resolvers: [{ resolve, reject }],
+      });
     });
+  }
+
+  private scheduleFlush(cacheKey: string): NodeJS.Timeout {
+    return setTimeout(async () => {
+      const pending = this.pendingSearches.get(cacheKey);
+      if (!pending) {
+        return;
+      }
+      this.pendingSearches.delete(cacheKey);
+      const { options, resolvers } = pending;
+      try {
+        const results = await this.performFileSearch(options);
+        this.cacheResults(cacheKey, results);
+        resolvers.forEach(({ resolve }) => resolve(results));
+
+        this.logger.debug(
+          `File search completed: ${results.length} results for "${options.query}"`,
+        );
+      } catch (error) {
+        this.logger.error('File search failed', error);
+        const errorToReject =
+          error instanceof Error ? error : new Error('File search failed');
+        resolvers.forEach(({ reject }) => reject(errorToReject));
+      }
+    }, this.DEBOUNCE_MS);
   }
 
   /**
@@ -795,9 +804,10 @@ export class ContextService {
    */
   dispose(): void {
     this.logger.info('Disposing Context Service...');
-    if (this.debounceState.timerId) {
-      clearTimeout(this.debounceState.timerId);
+    for (const pending of this.pendingSearches.values()) {
+      clearTimeout(pending.timerId);
     }
+    this.pendingSearches.clear();
     this.clearFileCache();
   }
 
@@ -929,12 +939,16 @@ export class ContextService {
       maxResults = 100,
       fileTypes = [],
     } = options;
-    let searchPattern = `**/*${query}*`;
-    if (fileTypes.length > 0) {
+    let searchPattern: string;
+    if (this.isGlobPattern(query)) {
+      searchPattern = query;
+    } else if (fileTypes.length > 0) {
       const extensions = fileTypes.map((ext) =>
         ext.startsWith('.') ? ext.slice(1) : ext,
       );
       searchPattern = `**/*${query}*.{${extensions.join(',')}}`;
+    } else {
+      searchPattern = `**/*${query}*`;
     }
     const extraExcludes: string[] = [];
     if (!includeImages && fileTypes.length === 0) {
@@ -999,6 +1013,10 @@ export class ContextService {
     });
 
     return results;
+  }
+
+  private isGlobPattern(query: string): boolean {
+    return /[*?{}[\]/]/.test(query);
   }
 
   private detectFileType(fileName: string): FileSearchResult['fileType'] {
@@ -1102,13 +1120,6 @@ export class ContextService {
       query: cacheKey,
       ttl: this.CACHE_TTL_MS,
     });
-  }
-
-  private addToDebounceQueue(
-    resolve: (results: FileSearchResult[]) => void,
-    reject: (error: Error) => void,
-  ): void {
-    this.debounceState.pendingResolvers.push({ resolve, reject });
   }
 
   private paginateResults(

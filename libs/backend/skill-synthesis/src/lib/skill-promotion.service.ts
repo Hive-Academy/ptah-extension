@@ -13,6 +13,7 @@
  * Materializes SKILL.md at the active root and updates `body_path` on the row.
  */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SkillCandidateStore } from './skill-candidate.store';
@@ -266,7 +267,7 @@ Skill description: ${description}`;
 
     try {
       const handle = await this.internalQuery.execute({
-        cwd: process.cwd(),
+        cwd: os.homedir(),
         model: POLISH_MODEL_ID,
         prompt: body,
         systemPromptAppend,

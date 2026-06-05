@@ -35,6 +35,7 @@ import {
   SdkModuleLoader,
   SdkModelService,
   MemoryPromptInjector,
+  CodeSymbolPromptInjector,
   SdkInternalQueryCuratorLlm,
   HistoryEventFactory,
   JsonlReaderService,
@@ -394,6 +395,11 @@ export function registerSdkServices(
   container.registerSingleton(
     SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR,
     MemoryPromptInjector,
+  );
+
+  container.registerSingleton(
+    SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR,
+    CodeSymbolPromptInjector,
   );
 
   container.register(

@@ -7,6 +7,7 @@ import type {
 } from '@ptah-extension/shared';
 
 import { MemoryDiagnosticsStateService } from '../../services/memory-diagnostics-state.service';
+import { MemoryDiagnosticsRpcService } from '../../services/memory-diagnostics-rpc.service';
 
 import { MemoryDiagnosticsAccordionComponent } from './memory-diagnostics-accordion.component';
 
@@ -48,6 +49,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
   let refreshMock: jest.Mock;
   let startPollingMock: jest.Mock;
   let stopPollingMock: jest.Mock;
+  let listModelsMock: jest.Mock;
 
   beforeEach(async () => {
     triggers.set({
@@ -78,6 +80,9 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     refreshMock = jest.fn(() => Promise.resolve());
     startPollingMock = jest.fn();
     stopPollingMock = jest.fn();
+    listModelsMock = jest.fn(() =>
+      Promise.resolve({ models: [], totalCount: 0, isStatic: true }),
+    );
 
     await TestBed.configureTestingModule({
       imports: [MemoryDiagnosticsAccordionComponent],
@@ -99,6 +104,10 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
             startPolling: startPollingMock,
             stopPolling: stopPollingMock,
           },
+        },
+        {
+          provide: MemoryDiagnosticsRpcService,
+          useValue: { listModels: listModelsMock },
         },
       ],
     }).compileComponents();
@@ -379,6 +388,29 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     number.value = '120';
     number.dispatchEvent(new Event('change'));
     expect(setTriggersMock).toHaveBeenCalledWith({ maxCuratesPerHour: 120 });
+  });
+
+  it('renders the curator model picker and forwards its change to setTriggers', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const picker = (fixture.nativeElement as HTMLElement).querySelector(
+      'ptah-curator-model-picker',
+    );
+    expect(picker).not.toBeNull();
+
+    const providerSelect = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="curator-provider-select"]',
+    ) as HTMLSelectElement;
+    providerSelect.value = 'z-ai';
+    providerSelect.dispatchEvent(new Event('change'));
+
+    expect(setTriggersMock).toHaveBeenCalledWith({
+      curatorProvider: 'z-ai',
+      curatorModel: '',
+    });
   });
 
   it('renders read-only cue list textarea joined by newlines', () => {

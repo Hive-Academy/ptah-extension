@@ -532,6 +532,104 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
   });
 });
 
+describe('MemoryCuratorService — curator-error on LLM failure', () => {
+  it('extract rejection pushes curator-error, zeroes stats, and does not throw out of curate()', async () => {
+    const extract = jest
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'The memory curator could not complete its language-model query.',
+        ),
+      );
+    const resolve = jest.fn().mockResolvedValue([]);
+    const llm = { extract, resolve } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+
+    const stats = await svc.curate({
+      sessionId: 'err-1',
+      transcript: 'real transcript content',
+    });
+
+    expect(stats).toEqual({
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+    expect(resolve).not.toHaveBeenCalled();
+    const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
+    expect(evt).toBeDefined();
+    expect(evt?.sessionId).toBe('err-1');
+    expect(typeof evt?.error).toBe('string');
+    const info = svc.lastRunInfo();
+    expect(info.stats).toEqual({
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+  });
+
+  it('extract rejection attributes the failure to the extract stage in the message', async () => {
+    const extract = jest.fn().mockRejectedValue(new Error('auth expired'));
+    const resolve = jest.fn().mockResolvedValue([]);
+    const llm = { extract, resolve } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+
+    await svc.curate({
+      sessionId: 'err-extract-stage',
+      transcript: 'real transcript content',
+    });
+
+    const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
+    expect(evt?.error).toContain('memory extraction failed');
+    expect(evt?.error).toContain('auth expired');
+  });
+
+  it('resolve rejection pushes curator-error, zeroes stats, attributes the resolve stage, preserves the extracted count, and does not throw out of curate()', async () => {
+    const draft = {
+      kind: 'event' as const,
+      subject: 's',
+      content: 'c',
+      salienceHint: 0.5,
+      type: 'feature' as const,
+      concepts: ['x'] as const,
+      files: [] as const,
+    };
+    const extract = jest.fn().mockResolvedValue([draft, { ...draft }]);
+    const resolve = jest.fn().mockRejectedValue(new Error('transport down'));
+    const llm = { extract, resolve } as unknown as ICuratorLLM;
+    const svc = buildService({ llm });
+
+    const stats = await svc.curate({
+      sessionId: 'err-2',
+      transcript: 'real transcript content',
+    });
+
+    expect(stats).toEqual({
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    const evt = svc.recentEvents(5).find((e) => e.kind === 'curator-error');
+    expect(evt).toBeDefined();
+    expect(evt?.sessionId).toBe('err-2');
+    expect(evt?.error).toContain('memory resolution failed');
+    expect(evt?.error).toContain('2 extracted');
+    expect(evt?.error).toContain('transport down');
+    const info = svc.lastRunInfo();
+    expect(info.stats).toEqual({
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+  });
+});
+
 describe('MemoryCuratorService — tracing instrumentation', () => {
   function buildTracedService(): {
     svc: MemoryCuratorService;

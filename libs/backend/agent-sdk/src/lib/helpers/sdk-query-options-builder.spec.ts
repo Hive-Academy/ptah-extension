@@ -295,6 +295,110 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 });
 
 // ---------------------------------------------------------------------------
+// build() — CLAUDE_CODE_MAX_CONTEXT_TOKENS override for proxied providers.
+// The SDK only auto-detects the context window for first-party Anthropic; behind
+// a translation proxy it defaults to 200k, mis-timing auto-compaction. We pin the
+// real window when known, only for non-Anthropic base URLs.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.build — context-window override', () => {
+  function makeBuilder(baseUrl: string | undefined): SdkQueryOptionsBuilder {
+    const noopHooks = { createHooks: jest.fn().mockReturnValue({}) };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      {
+        createCallback: jest
+          .fn()
+          .mockReturnValue(() => ({ behavior: 'allow' })),
+      },
+      noopHooks,
+      {
+        getConfig: jest
+          .fn()
+          .mockReturnValue({ enabled: true, contextTokenThreshold: 100_000 }),
+      },
+      noopHooks,
+      noopHooks,
+      (baseUrl ? { ANTHROPIC_BASE_URL: baseUrl } : {}) as AuthEnv,
+      {
+        resolveModelId: jest.fn().mockImplementation((m: string) => m),
+        hasCachedModels: jest.fn().mockReturnValue(false),
+        getSupportedModels: jest.fn(),
+      },
+      {
+        buildBlock: jest.fn().mockResolvedValue(''),
+        buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+        buildCorpusBlock: jest.fn().mockResolvedValue(''),
+      },
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+    );
+  }
+
+  async function buildEnv(
+    baseUrl: string | undefined,
+    model: string,
+  ): Promise<Record<string, string | undefined>> {
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    const cfg = await makeBuilder(baseUrl).build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig: { model, projectPath: 'D:/tmp/ws' } as AISessionConfig,
+    });
+    return cfg.options.env as Record<string, string | undefined>;
+  }
+
+  const savedEnv = process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
+  afterEach(() => {
+    if (savedEnv === undefined) {
+      delete process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
+    } else {
+      process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] = savedEnv;
+    }
+  });
+  beforeEach(() => {
+    delete process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'];
+  });
+
+  it('pins the model window for a non-Anthropic base URL when known', async () => {
+    const env = await buildEnv('http://127.0.0.1:4000', 'claude-sonnet-4-5');
+    expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBe('200000');
+  });
+
+  it('does NOT set the override for a first-party Anthropic base URL', async () => {
+    const env = await buildEnv(
+      'https://api.anthropic.com',
+      'claude-sonnet-4-5',
+    );
+    expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBeUndefined();
+  });
+
+  it('does NOT set the override when the model window is unknown', async () => {
+    const env = await buildEnv('http://127.0.0.1:4000', 'mystery-model-xyz');
+    expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBeUndefined();
+  });
+
+  it('respects an explicit CLAUDE_CODE_MAX_CONTEXT_TOKENS already in the env', async () => {
+    process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] = '512000';
+    const env = await buildEnv('http://127.0.0.1:4000', 'claude-sonnet-4-5');
+    expect(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']).toBe('512000');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // build() — system prompt prepend order: sessionStart → corpusPrime → memoryRecall → preset
 // ---------------------------------------------------------------------------
 //

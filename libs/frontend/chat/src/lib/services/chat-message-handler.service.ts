@@ -63,6 +63,7 @@ export class ChatMessageHandler implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
+    MESSAGE_TYPES.CHAT_COMPLETE,
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
@@ -84,6 +85,9 @@ export class ChatMessageHandler implements MessageHandler {
     switch (message.type) {
       case MESSAGE_TYPES.CHAT_CHUNK:
         this.handleChatChunk(message.payload);
+        break;
+      case MESSAGE_TYPES.CHAT_COMPLETE:
+        this.handleChatComplete(message.payload);
         break;
       case MESSAGE_TYPES.CHAT_ERROR:
         this.handleChatError(message.payload);
@@ -131,6 +135,23 @@ export class ChatMessageHandler implements MessageHandler {
         this.handleSessionSubagentEnded(message.payload);
         break;
     }
+  }
+
+  /**
+   * CHAT_COMPLETE is intentionally NOT used to finalize streaming — it fires
+   * per-turn (on each message_complete) and SESSION_STATS is the authoritative
+   * end-of-turn signal (TASK_2025_101). The ONLY completion we action here is
+   * the native `/clear` command, which the backend signals via this channel
+   * with `command: 'clear'`. It wipes the target tab to a fresh, empty
+   * conversation; every other CHAT_COMPLETE is ignored.
+   */
+  private handleChatComplete(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as { command?: unknown; tabId?: unknown };
+    if (data.command !== 'clear') return;
+    if (typeof data.tabId !== 'string') return;
+    if (!this.tabManager.tabs().some((t) => t.id === data.tabId)) return;
+    this.tabManager.resetTabToFresh(data.tabId);
   }
 
   private handleSessionSubagentEnded(payload: unknown): void {

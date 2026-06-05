@@ -289,6 +289,7 @@ interface PastedImage {
               (click)="handleStop()"
               title="Stop generating"
               type="button"
+              data-testid="chat-stop-btn"
             >
               <lucide-angular [img]="SquareIcon" class="w-4 h-4" />
             </button>
@@ -299,6 +300,7 @@ interface PastedImage {
             [disabled]="!canSend()"
             (click)="handleSend()"
             type="button"
+            data-testid="chat-send-btn"
           >
             <lucide-angular [img]="SendIcon" class="w-4 h-4" />
           </button>

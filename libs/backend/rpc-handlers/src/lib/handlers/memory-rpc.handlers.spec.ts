@@ -889,7 +889,7 @@ describe('MemoryRpcHandlers — memory:getTriggers', () => {
           minPromptLength: 20,
         }),
         postToolUse: { enabled: true },
-        maxCuratesPerHour: 12,
+        maxCuratesPerHour: 20,
       },
     });
   });
@@ -910,6 +910,39 @@ describe('MemoryRpcHandlers — memory:getTriggers', () => {
     await expect(
       rpcHandler.call('memory:getTriggers', { junk: 'value' } as unknown),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('round-trips curatorProvider/curatorModel through setTriggers → getTriggers', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await rpcHandler.call('memory:setTriggers', {
+      triggers: {
+        curatorProvider: 'anthropic',
+        curatorModel: 'claude-haiku-4-5-20251001',
+      },
+    });
+
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.curatorProvider',
+      'anthropic',
+    );
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.curatorModel',
+      'claude-haiku-4-5-20251001',
+    );
+
+    const result = await rpcHandler.call('memory:getTriggers', {});
+    expect(result).toMatchObject({
+      triggers: {
+        curatorProvider: 'anthropic',
+        curatorModel: 'claude-haiku-4-5-20251001',
+      },
+    });
   });
 });
 
@@ -1050,7 +1083,7 @@ describe('MemoryRpcHandlers — nested triggers (userPromptSubmit / postToolUse 
           minPromptLength: 20,
         }),
         postToolUse: { enabled: true },
-        maxCuratesPerHour: 12,
+        maxCuratesPerHour: 20,
       },
     });
   });

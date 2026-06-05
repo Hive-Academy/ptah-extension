@@ -19,6 +19,12 @@ import {
 } from '../auth/strategies';
 import { registerProviders } from '../providers/register-providers';
 import { OpenRouterPricingService } from '../providers/openrouter';
+import { CopilotTranslationProxy } from '../providers/copilot';
+import { CodexTranslationProxy } from '../providers/codex';
+import { OpenRouterTranslationProxy } from '../providers/openrouter';
+import { LmStudioTranslationProxy } from '../providers/local';
+import { CuratorProxyManager } from '../auth/curator-proxy-manager';
+import { CuratorAuthResolver } from '../auth/curator-auth-resolver';
 
 export function registerAuthProvidersServices(
   container: DependencyContainer,
@@ -81,9 +87,51 @@ export function registerAuthProvidersServices(
 
   logger.info('[auth-providers] Services registered');
 
-  // Fire-and-forget pricing catalog warmup. Failures degrade silently —
-  // costs read as "unavailable" until the next process or manual refresh.
-  // Resolved lazily so the synchronous DI registration above is unaffected.
+  warmupPricing(container, logger);
+}
+
+export function registerCuratorAuthServices(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
+  logger.info('[auth-providers] Registering curator auth services...');
+
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CURATOR_COPILOT_PROXY,
+    { useClass: CopilotTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CURATOR_CODEX_PROXY,
+    { useClass: CodexTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CURATOR_OPENROUTER_PROXY,
+    { useClass: OpenRouterTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CURATOR_LM_STUDIO_PROXY,
+    { useClass: LmStudioTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CURATOR_PROXY_MANAGER,
+    { useClass: CuratorProxyManager },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER,
+    { useClass: CuratorAuthResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  logger.info('[auth-providers] Curator auth services registered');
+}
+
+function warmupPricing(container: DependencyContainer, logger: Logger): void {
   try {
     const pricing = container.resolve<OpenRouterPricingService>(
       AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PRICING,

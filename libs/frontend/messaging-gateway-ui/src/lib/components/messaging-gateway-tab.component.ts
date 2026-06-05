@@ -164,12 +164,14 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           <section
             class="card bg-base-200 shadow-sm"
             [attr.aria-label]="cfg.label + ' adapter'"
+            [attr.data-testid]="'gateway-platform-card-' + cfg.id"
           >
             <div class="card-body p-4">
               <div class="flex items-center justify-between">
                 <h3 class="card-title text-sm">{{ cfg.label }}</h3>
                 <span
                   class="badge badge-sm"
+                  [attr.data-testid]="'gateway-platform-status-' + cfg.id"
                   [class.badge-success]="statusFor(cfg.id) === 'running'"
                   [class.badge-warning]="statusFor(cfg.id) === 'starting'"
                   [class.badge-error]="statusFor(cfg.id) === 'error'"
@@ -312,7 +314,10 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           <div class="card-body p-4">
             <h3 class="card-title text-sm">Pending bindings</h3>
             @if (pendingBindings().length === 0) {
-              <p class="text-xs text-base-content/60">
+              <p
+                class="text-xs text-base-content/60"
+                data-testid="gateway-binding-empty"
+              >
                 No pending requests. New bindings appear here after a user
                 messages the bot.
               </p>
@@ -320,6 +325,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
               <ul class="mt-2 flex flex-col gap-2">
                 @for (b of pendingBindings(); track b.id) {
                   <li
+                    data-testid="gateway-pending-binding-row"
                     class="flex flex-col gap-2 rounded border border-base-300 p-2 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div class="flex flex-col">
@@ -335,6 +341,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                       <input
                         type="text"
                         autocomplete="off"
+                        data-testid="gateway-approve-code"
                         class="input input-bordered input-xs w-24 font-mono"
                         placeholder="code"
                         [value]="bindingCodeFor(b.id)"
@@ -345,6 +352,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                       />
                       <button
                         type="button"
+                        data-testid="gateway-approve-btn"
                         class="btn btn-success btn-xs"
                         [disabled]="!bindingCodeFor(b.id)"
                         (click)="onApprove(b)"

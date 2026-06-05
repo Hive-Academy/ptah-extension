@@ -50,6 +50,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   private registeredInMcpJson = false;
 
   private readonly hasIDECapabilities: boolean;
+  private readonly hasSqliteLayer: boolean;
 
   constructor(
     @inject(TOKENS.PTAH_API_BUILDER)
@@ -74,6 +75,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     ideCapabilities: IIDECapabilities | undefined,
   ) {
     this.hasIDECapabilities = ideCapabilities !== undefined;
+    this.hasSqliteLayer = this.apiBuilder.hasSymbolAndMemoryLayer();
     this.ptahAPI = this.apiBuilder.build();
   }
 
@@ -101,6 +103,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
           logger: this.logger,
           onToolResult: this.toolResultCallback,
           hasIDECapabilities: this.hasIDECapabilities,
+          hasSqliteLayer: this.hasSqliteLayer,
           disabledMcpNamespaces:
             this.workspaceProvider.getConfiguration<string[]>(
               'ptah',

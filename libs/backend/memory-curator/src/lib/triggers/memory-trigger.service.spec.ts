@@ -1077,7 +1077,7 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     );
   });
 
-  it('error→recovery fires episode-trigger with critical-learning salience boost', async () => {
+  it('recovery-only episode (turnCount === 0) does NOT fire episode-trigger', async () => {
     const { service, toolFailure, postToolUse, curator } = buildService({
       workspace: makeWorkspace({
         'memory.triggers.idleMs': 0,
@@ -1085,6 +1085,37 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
       }),
     });
     service.start();
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: 'TypeError: x is undefined',
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    postToolUse.fire(
+      postToolUsePayload({
+        toolInput: { command: 'npm test' },
+        exitCode: 0,
+        success: true,
+      }),
+    );
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(curator.pushEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'episode-trigger' }),
+    );
+  });
+
+  it('real episode (turnCount > 0 && critical) fires episode-trigger with salience boost', async () => {
+    const { service, stop, toolFailure, postToolUse, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
     toolFailure.fire({
       toolName: 'Bash',
       toolInput: { command: 'npm test' },
@@ -1447,13 +1478,14 @@ describe('MemoryTriggerService — salience boost threading', () => {
   });
 
   it('episode boundary threads the critical-learning salienceBoost into curate()', async () => {
-    const { service, toolFailure, postToolUse, curator } = buildService({
+    const { service, stop, toolFailure, postToolUse, curator } = buildService({
       workspace: makeWorkspace({
         'memory.triggers.idleMs': 0,
         'memory.triggers.turnThreshold': 0,
       }),
     });
     service.start();
+    stop.fire(stopPayload());
     toolFailure.fire({
       toolName: 'Bash',
       toolInput: { command: 'npm test' },
