@@ -344,6 +344,76 @@ describe('ptah interact', () => {
     });
   });
 
+  describe('top-level failure', () => {
+    it('emits task.error with ptah_code and no embedded stack', async () => {
+      const notifications: Array<{ method: string; params?: unknown }> = [];
+      const formatter = {
+        writeNotification: jest.fn(async (method: string, params?: unknown) => {
+          notifications.push({ method, params });
+        }),
+        writeRequest: jest.fn(async () => undefined),
+        writeResponse: jest.fn(async () => undefined),
+        writeError: jest.fn(async () => undefined),
+        close: jest.fn(async () => undefined),
+      };
+      const boom = new Error('engine exploded') as Error & {
+        ptahCode?: string;
+      };
+      boom.ptahCode = 'sdk_init_failed';
+      const exitCalls: number[] = [];
+      const hooks: InteractExecuteHooks = {
+        formatter,
+        withEngine: (async () => {
+          throw boom;
+        }) as unknown as InteractExecuteHooks['withEngine'],
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        exit: (code: number) => {
+          exitCalls.push(code);
+        },
+      };
+
+      const code = await execute({}, baseGlobals, hooks);
+
+      expect(code).toBe(ExitCode.InternalFailure);
+      const err = notifications.find((n) => n.method === 'task.error');
+      expect(err).toBeDefined();
+      const params = err?.params as Record<string, unknown>;
+      expect(params['ptah_code']).toBe('sdk_init_failed');
+      expect(params['command']).toBe('interact');
+      expect(params['message']).toBe('engine exploded');
+      expect(params['stack']).toBeUndefined();
+    });
+
+    it('falls back to internal_failure when the error carries no ptahCode', async () => {
+      const notifications: Array<{ method: string; params?: unknown }> = [];
+      const formatter = {
+        writeNotification: jest.fn(async (method: string, params?: unknown) => {
+          notifications.push({ method, params });
+        }),
+        writeRequest: jest.fn(async () => undefined),
+        writeResponse: jest.fn(async () => undefined),
+        writeError: jest.fn(async () => undefined),
+        close: jest.fn(async () => undefined),
+      };
+      const hooks: InteractExecuteHooks = {
+        formatter,
+        withEngine: (async () => {
+          throw new Error('plain failure');
+        }) as unknown as InteractExecuteHooks['withEngine'],
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        exit: () => undefined,
+      };
+
+      await execute({}, baseGlobals, hooks);
+      const err = notifications.find((n) => n.method === 'task.error');
+      const params = err?.params as Record<string, unknown>;
+      expect(params['ptah_code']).toBe('internal_failure');
+      expect(params['stack']).toBeUndefined();
+    });
+  });
+
   describe('session.describe / session.methods introspection (Phase 5)', () => {
     it('returns mode=interact with the registered method list and empty tools', async () => {
       const h = makeHarness();

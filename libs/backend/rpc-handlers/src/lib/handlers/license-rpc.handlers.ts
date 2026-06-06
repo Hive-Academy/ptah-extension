@@ -27,6 +27,40 @@ import type {
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
+ * Rejection reasons the license server reports for a key it did NOT accept.
+ *
+ * `LicenseService.verifyLicense` deliberately launders these into a valid
+ * `{ valid: true, tier: 'community', reason }` community fallback (so the
+ * no-license community experience keeps working). On the SET path we must NOT
+ * treat that as activation success — a rejected paid key would otherwise
+ * report `success: true`.
+ */
+const LICENSE_REJECTION_REASONS: ReadonlySet<
+  NonNullable<LicenseStatus['reason']>
+> = new Set(['not_found', 'expired', 'revoked', 'trial_ended']);
+
+/**
+ * Decide whether a verification result represents a genuinely ACCEPTED license
+ * key (as opposed to a community fallback synthesized after the server rejected
+ * the key).
+ *
+ * Accepted when the status is valid AND it is not a community tier carrying a
+ * rejection reason. Premium tiers (pro/trial_pro) are always acceptances; a
+ * plain valid community status with no rejection reason is also fine.
+ */
+function isAcceptedLicense(status: LicenseStatus): boolean {
+  if (!status.valid) return false;
+  if (
+    status.tier === 'community' &&
+    status.reason !== undefined &&
+    LICENSE_REJECTION_REASONS.has(status.reason)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * RPC handlers for license operations (Freemium model: Community + Pro).
  *
  * Exposes license status to the frontend for:
@@ -183,7 +217,7 @@ export class LicenseRpcHandlers {
           await this.licenseService.setLicenseKey(key);
           const newStatus = await this.licenseService.verifyLicense();
 
-          if (newStatus.valid) {
+          if (isAcceptedLicense(newStatus)) {
             this.logger.info('RPC: license:setKey - license activated', {
               tier: newStatus.tier,
             });
@@ -195,16 +229,15 @@ export class LicenseRpcHandlers {
               plan: newStatus.plan ? { name: newStatus.plan.name } : undefined,
             };
           } else {
-            this.logger.warn('RPC: license:setKey - verification failed', {
+            this.logger.warn('RPC: license:setKey - key was not accepted', {
               reason: newStatus.reason,
               tier: newStatus.tier,
+              valid: newStatus.valid,
             });
-            const reasonDetail = newStatus.reason
-              ? ` (reason: ${newStatus.reason})`
-              : '';
+            const reasonDetail = newStatus.reason ?? 'rejected';
             return {
               success: false,
-              error: `License verification failed${reasonDetail}. Please check your key and try again.`,
+              error: `License key was not accepted (${reasonDetail}). Please check your key and try again.`,
             };
           }
         } catch (error) {

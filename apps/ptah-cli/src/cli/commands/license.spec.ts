@@ -169,11 +169,11 @@ describe('ptah license set', () => {
     expect(formatterTrace.notifications[0]?.method).toBe('license.updated');
   });
 
-  it('bubbles backend success: false as task.error + exit 5', async () => {
+  it('reports backend success: false as task.error + exit LicenseRequired', async () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('license:setKey', {
       success: true,
-      data: { success: false, error: 'invalid key' },
+      data: { success: false, error: 'License key was not accepted (revoked)' },
     });
 
     const exit = await execute(
@@ -182,10 +182,15 @@ describe('ptah license set', () => {
       hooks,
     );
 
-    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(exit).toBe(ExitCode.LicenseRequired);
     const last =
       formatterTrace.notifications[formatterTrace.notifications.length - 1];
     expect(last?.method).toBe('task.error');
+    const params = last?.params as Record<string, unknown>;
+    expect(params?.['ptah_code']).toBe('license_required');
+    expect(params?.['message']).toBe('License key was not accepted (revoked)');
+    // It must NOT re-query license:getStatus on the rejection path.
+    expect(engine.rpcCalls.map((c) => c.method)).toEqual(['license:setKey']);
   });
 });
 

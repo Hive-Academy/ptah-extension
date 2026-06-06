@@ -178,7 +178,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
 export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   authMethod: 'apiKey',
   anthropicProviderId: 'openrouter',
-  'llm.defaultProvider': 'vscode-lm',
+  'llm.defaultProvider': '',
   'llm.vscode.model': 'copilot/gpt-4o',
   reasoningEffort: 'medium',
   'model.selected': '',

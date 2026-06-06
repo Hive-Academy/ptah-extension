@@ -52,6 +52,8 @@ Headless Node CLI that hosts the full Ptah agent backend in-process and exposes 
 - Approval-gated requests time out at 5 minutes -> exit code 3 (`auth_required`). `PTAH_AUTO_APPROVE=true` bypasses for unattended runs.
 - `ptah agent-cli` only accepts `--cli glm` and `--cli gemini`; the allowlist ignores `PTAH_AGENT_CLI_OVERRIDE`.
 - Auth/config bootstrap commands pass `requireSdk: false` to `withEngine` so they can run before the SDK is configured.
+- `ptah init` (`src/cli/commands/init.ts`) is the first-run setup entry point. Interactive (@clack) only on a real TTY with `--human`; in machine mode (non-TTY / `--json` / `--quiet`) it never prompts — it emits one `init.plan` notification (ordered `steps[]` + `ready/route/blockers`) and exits `0`. Agents drive setup off `init.plan` or `doctor.report`.
+- **Slot-unification invariant**: `provider set-key` (`llm:setApiKey`) MUST write the same secret slot the SDK reads (`AuthSecretsService`: `ptah.auth.anthropicApiKey` / `ptah.auth.provider.<id>`) and persist `authMethod`, so a pure-CLI bootstrap (`set-key` → `default set` → `session start --once`) starts a session and `doctor`'s `effective.ready` agrees with `session start`. `set-key` validates the key (`verified`) and rejects malformed keys with exit `3`; `license set` rejects server-rejected keys with exit `4`. A fresh install ships `llm.defaultProvider: ""`, so a provider must be selected explicitly.
 - New RPC namespaces need entries in both `rpc.types.ts` AND `rpc-handler.ts ALLOWED_METHOD_PREFIXES` (see user memory).
 
 ## JSON-RPC Schema

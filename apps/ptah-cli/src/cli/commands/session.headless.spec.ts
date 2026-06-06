@@ -287,6 +287,7 @@ describe('ptah session start --task — headless end-to-end', () => {
         withEngine: h.withEngineHook,
         randomUUID: () => 'tab-headless',
         installSigint: () => () => undefined,
+        exit: () => undefined,
       },
     );
 
@@ -356,6 +357,7 @@ describe('ptah session start --task — headless end-to-end', () => {
         withEngine: h.withEngineHook,
         randomUUID: () => 'tab-order',
         installSigint: () => () => undefined,
+        exit: () => undefined,
       },
     );
     expect(exit).toBe(ExitCode.Success);

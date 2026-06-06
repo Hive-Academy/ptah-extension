@@ -107,6 +107,51 @@ export function shouldUseColor(globals: FormatterGlobals = {}): boolean {
   return true;
 }
 
+/** Method suffixes that denote a successful mutation / completion. */
+const CONFIRMATION_SUFFIXES = [
+  '.set',
+  '.updated',
+  '.removed',
+  '.cleared',
+  '.complete',
+] as const;
+
+/** True when `method` ends with a confirmation/completion suffix. */
+function isConfirmationSuffix(method: string): boolean {
+  return CONFIRMATION_SUFFIXES.some((suffix) => method.endsWith(suffix));
+}
+
+/**
+ * Provider/config mutation notifications that get a dedicated one-line
+ * confirmation render (success glyph + verb + salient field).
+ */
+const CONFIRMATION_METHODS = new Set<string>([
+  'provider.key.set',
+  'provider.key.removed',
+  'provider.default',
+  'provider.default.updated',
+  'provider.tier.updated',
+  'provider.tier.cleared',
+  'provider.base_url.set',
+  'provider.base_url.cleared',
+  'provider.ollama.endpoint.set',
+  'provider.ollama.endpoint.cleared',
+]);
+
+/**
+ * Field names a confirmation render surfaces, in priority order. The first
+ * matching scalar fields are appended to the confirmation line.
+ */
+const CONFIRMATION_SALIENT_KEYS = [
+  'provider',
+  'tier',
+  'model',
+  'baseUrl',
+  'endpoint',
+  'default',
+  'defaultProvider',
+] as const;
+
 /**
  * Pretty-printer for `--human` mode. Renders each event as a one- or
  * two-line summary with a colored prefix and indented key/value body. Does
@@ -166,6 +211,7 @@ export class HumanFormatter implements Formatter {
   }
 
   private prefixFor(method: string): string {
+    if (isConfirmationSuffix(method)) return '✓';
     if (method.startsWith('task.')) return '*';
     if (method.startsWith('agent.')) return '>';
     if (method.startsWith('session.')) return '~';
@@ -175,7 +221,7 @@ export class HumanFormatter implements Formatter {
 
   private colorFor(method: string): AnsiKey {
     if (method.endsWith('.error')) return 'red';
-    if (method.endsWith('.complete')) return 'green';
+    if (isConfirmationSuffix(method)) return 'green';
     if (method.startsWith('agent.tool')) return 'magenta';
     if (method.startsWith('agent.')) return 'blue';
     if (method.startsWith('session.')) return 'yellow';
@@ -235,7 +281,80 @@ export class HumanFormatter implements Formatter {
     if (method === 'doctor.report') {
       return this.renderDoctorReport(obj);
     }
+    if (
+      method === 'license.status' ||
+      method === 'license.updated' ||
+      method === 'license.cleared'
+    ) {
+      return this.renderLicense(method, obj);
+    }
+    if (CONFIRMATION_METHODS.has(method)) {
+      return this.renderConfirmation(method, obj);
+    }
     return null;
+  }
+
+  /**
+   * Render the `license.*` family. Reuses the same field shape as the License
+   * section of `doctor.report` (tier / valid / daysRemaining / expiryWarning).
+   */
+  private renderLicense(method: string, obj: Record<string, unknown>): string {
+    const lines: string[] = [];
+    lines.push(this.color(`✓ ${method}`, this.colorFor(method)));
+    lines.push(this.renderLicenseFields(obj));
+    return `${lines.join('\n')}\n`;
+  }
+
+  /**
+   * Shared License field renderer — used by both `renderDoctorReport` and
+   * `renderLicense`. Returns the indented body (no trailing newline).
+   */
+  private renderLicenseFields(license: Record<string, unknown>): string {
+    const lines: string[] = [];
+    const tier = stringField(license, 'tier') || '(unknown)';
+    const valid = booleanField(license, 'valid') ? 'yes' : 'no';
+    const days =
+      typeof license['daysRemaining'] === 'number'
+        ? String(license['daysRemaining'])
+        : '(none)';
+    const warn = stringField(license, 'expiryWarning');
+    const expiry =
+      stringField(license, 'expiresAt') || stringField(license, 'expiry');
+    lines.push(`    tier:           ${tier}`);
+    lines.push(`    valid:          ${valid}`);
+    lines.push(`    daysRemaining:  ${days}`);
+    if (expiry) {
+      lines.push(`    expiresAt:      ${expiry}`);
+    }
+    if (warn) {
+      const warnColor: AnsiKey = warn === 'critical' ? 'red' : 'yellow';
+      lines.push(`    expiryWarning:  ${this.color(warn, warnColor)}`);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * Render a mutation/confirmation notification (`provider.default.updated`,
+   * `provider.key.set`, `provider.base_url.cleared`, ...) as a single success
+   * line: a green glyph + the method verb + the salient field(s). Falls back
+   * to the prefixed JSON line only if no recognizable field is present.
+   */
+  private renderConfirmation(
+    method: string,
+    obj: Record<string, unknown>,
+  ): string {
+    const glyph = this.color('✓', 'green');
+    const parts: string[] = [];
+    for (const key of CONFIRMATION_SALIENT_KEYS) {
+      const value = obj[key];
+      if (typeof value === 'string' && value.length > 0) {
+        parts.push(`${key}=${value}`);
+      } else if (typeof value === 'boolean' || typeof value === 'number') {
+        parts.push(`${key}=${String(value)}`);
+      }
+    }
+    const tail = parts.length > 0 ? `  ${parts.join('  ')}` : '';
+    return `${glyph} ${method}${tail}\n`;
   }
 
   /**
@@ -257,20 +376,7 @@ export class HumanFormatter implements Formatter {
     const license = (obj['license'] ?? null) as Record<string, unknown> | null;
     if (license) {
       lines.push(this.color('  License', 'bold'));
-      const tier = stringField(license, 'tier') || '(unknown)';
-      const valid = booleanField(license, 'valid') ? 'yes' : 'no';
-      const days =
-        typeof license['daysRemaining'] === 'number'
-          ? String(license['daysRemaining'])
-          : '(none)';
-      const warn = stringField(license, 'expiryWarning');
-      lines.push(`    tier:           ${tier}`);
-      lines.push(`    valid:          ${valid}`);
-      lines.push(`    daysRemaining:  ${days}`);
-      if (warn) {
-        const warnColor: AnsiKey = warn === 'critical' ? 'red' : 'yellow';
-        lines.push(`    expiryWarning:  ${this.color(warn, warnColor)}`);
-      }
+      lines.push(this.renderLicenseFields(license));
     }
     const auth = (obj['auth'] ?? null) as Record<string, unknown> | null;
     if (auth) {
