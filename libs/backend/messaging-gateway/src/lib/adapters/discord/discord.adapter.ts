@@ -1,5 +1,6 @@
 /**
- * Discord adapter — slash-commands ONLY (architecture §9.7).
+ * Discord adapter — slash `/ptah` plus free-form inbound: @mention the bot in
+ * a channel to open a conversation, then type plain messages in its thread.
  *
  * Conversation model: one Discord thread per channel-conversation.
  *
@@ -18,8 +19,9 @@
  * interaction/webhook token, which expires after 15 minutes.
  *
  * Required bot permissions: "Send Messages", "Create Public Threads",
- * "Send Messages in Threads". The gateway intent stays `Guilds` only —
- * thread create/send needs no privileged intent.
+ * "Send Messages in Threads". Gateway intents: `Guilds`, `GuildMessages`, and
+ * the privileged `MessageContent` — the last is required to read free-form
+ * replies and must also be enabled on the Developer Portal Bot page.
  *
  * The conversation→thread map is in-memory (v1). Persistence across
  * process restarts is OUT OF SCOPE — on restart the next `/ptah` in a
@@ -58,6 +60,21 @@ export interface DiscordMessageLike {
   edit(payload: string | { content: string }): Promise<unknown>;
 }
 
+export interface DiscordIncomingMessageLike {
+  id: string;
+  content: string;
+  channelId: string;
+  guildId: string | null;
+  author: { id: string; username?: string; bot: boolean };
+  mentions: { has(id: string): boolean };
+  channel: { isThread(): boolean; parentId: string | null };
+}
+
+export interface DiscordGuildLike {
+  id: string;
+  name: string;
+}
+
 export interface DiscordThreadLike {
   id: string;
   send(payload: string | { content: string }): Promise<DiscordMessageLike>;
@@ -76,6 +93,8 @@ export interface DiscordTextChannelLike {
 }
 
 export interface DiscordClientLike {
+  user: { id: string } | null;
+  guilds: { cache: { map<T>(fn: (g: DiscordGuildLike) => T): T[] } };
   channels: {
     fetch(channelId: string): Promise<DiscordTextChannelLike | null>;
   };
@@ -85,6 +104,10 @@ export interface DiscordClientLike {
     event: 'interactionCreate',
     handler: (interaction: DiscordInteractionLike) => void | Promise<void>,
   ): void;
+  on(
+    event: 'messageCreate',
+    handler: (message: DiscordIncomingMessageLike) => void | Promise<void>,
+  ): void;
 }
 
 export type DiscordClientFactory = () => DiscordClientLike;
@@ -92,10 +115,20 @@ export type DiscordClientFactory = () => DiscordClientLike;
 const defaultFactory: DiscordClientFactory = () => {
   const { Client, GatewayIntentBits } = require('discord.js') as {
     Client: new (opts: { intents: number[] }) => DiscordClientLike;
-    GatewayIntentBits: { Guilds: number };
+    GatewayIntentBits: {
+      Guilds: number;
+      GuildMessages: number;
+      MessageContent: number;
+    };
     ChannelType: { PublicThread: number };
   };
-  return new Client({ intents: [GatewayIntentBits.Guilds] });
+  return new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+  });
 };
 
 function resolvePublicThreadType(): number {
@@ -153,6 +186,12 @@ export class DiscordAdapter implements IMessagingAdapter {
     return this.running;
   }
 
+  /** Servers the bot is currently a member of — empty until connected. */
+  listGuilds(): DiscordGuildLike[] {
+    if (!this.client) return [];
+    return this.client.guilds.cache.map((g) => ({ id: g.id, name: g.name }));
+  }
+
   async start(token: string): Promise<void> {
     if (this.running) return;
     if (!token) throw new Error('Discord token is empty');
@@ -162,6 +201,15 @@ export class DiscordAdapter implements IMessagingAdapter {
         await this.handleInteraction(interaction);
       } catch (err) {
         this.logger.warn('[gateway] discord interaction handler failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+    this.client.on('messageCreate', async (message) => {
+      try {
+        await this.handleIncomingMessage(message);
+      } catch (err) {
+        this.logger.warn('[gateway] discord message handler failed', {
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -302,6 +350,65 @@ export class DiscordAdapter implements IMessagingAdapter {
       allowListId: interaction.guildId ?? undefined,
     };
     await this.listener(inbound);
+  }
+
+  private async handleIncomingMessage(
+    message: DiscordIncomingMessageLike,
+  ): Promise<void> {
+    if (!this.listener) return;
+    if (message.author.bot) return;
+    let body = message.content?.trim() ?? '';
+    if (!body) return;
+    if (this.allowedGuildIds.size) {
+      if (!message.guildId || !this.allowedGuildIds.has(message.guildId)) {
+        this.logger.debug('[gateway] discord message rejected by allow-list', {
+          guildId: message.guildId ?? 'null(DM)',
+        });
+        return;
+      }
+    }
+
+    const botId = this.client?.user?.id;
+    let externalChatId: string;
+
+    if (message.channel.isThread()) {
+      const parentId = message.channel.parentId;
+      const conversation = parentId
+        ? this.threadsByChannel.get(parentId)
+        : undefined;
+      if (!conversation || conversation.threadId !== message.channelId) return;
+      externalChatId = parentId as string;
+      if (botId) body = this.stripMention(body, botId);
+    } else {
+      if (!botId || !message.mentions.has(botId)) return;
+      body = this.stripMention(body, botId);
+      if (!body) return;
+      externalChatId = message.channelId;
+      const conversation = await this.resolveThread(externalChatId, body);
+      const channel = await this.requireChannel(externalChatId);
+      await channel.send({
+        content: `Working in thread <#${conversation.threadId}>`,
+      });
+    }
+    if (!body) return;
+
+    const inbound: InboundMessage = {
+      platform: 'discord',
+      externalChatId,
+      displayName: message.author.username,
+      externalMsgId: message.id,
+      body,
+      conversationKey: ConversationKey.for('discord', externalChatId),
+      allowListId: message.guildId ?? undefined,
+    };
+    await this.listener(inbound);
+  }
+
+  private stripMention(text: string, botId: string): string {
+    return text
+      .replace(new RegExp(`<@!?${botId}>`, 'g'), ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private async respectChannelRateLimit(channelId: string): Promise<void> {

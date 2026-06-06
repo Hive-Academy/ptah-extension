@@ -1434,6 +1434,30 @@ export interface RpcMethodRegistry {
     params: GatewayTestParams;
     result: GatewayTestResult;
   };
+  'gateway:getAllowList': {
+    params: GatewayGetAllowListParams;
+    result: GatewayGetAllowListResult;
+  };
+  'gateway:setAllowList': {
+    params: GatewaySetAllowListParams;
+    result: GatewaySetAllowListResult;
+  };
+  'gateway:getDiscordAppId': {
+    params: GatewayGetDiscordAppIdParams;
+    result: GatewayGetDiscordAppIdResult;
+  };
+  'gateway:setDiscordAppId': {
+    params: GatewaySetDiscordAppIdParams;
+    result: GatewaySetDiscordAppIdResult;
+  };
+  'gateway:registerDiscordCommands': {
+    params: GatewayRegisterDiscordCommandsParams;
+    result: GatewayRegisterDiscordCommandsResult;
+  };
+  'gateway:listDiscordGuilds': {
+    params: GatewayListDiscordGuildsParams;
+    result: GatewayListDiscordGuildsResult;
+  };
 
   'db:health': {
     params: { fullCheck?: boolean };
@@ -1657,6 +1681,8 @@ export interface GatewayBindingDto {
   id: string;
   platform: GatewayPlatformId;
   externalChatId: string;
+  /** Allow-list id (Telegram user / Discord guild / Slack team), or null for pre-0020 rows. */
+  allowListId: string | null;
   displayName: string | null;
   approvalStatus: GatewayApprovalStatus;
   ptahSessionId: string | null;
@@ -1772,6 +1798,47 @@ export interface GatewayTestParams {
 export type GatewayTestResult =
   | { ok: true; bindingId: string; externalMsgId: string | null }
   | { ok: false; error: string };
+
+export interface GatewayGetAllowListParams {
+  platform: GatewayPlatformId;
+}
+export interface GatewayGetAllowListResult {
+  entries: string[];
+}
+
+export interface GatewaySetAllowListParams {
+  platform: GatewayPlatformId;
+  entries: string[];
+}
+export interface GatewaySetAllowListResult {
+  ok: true;
+}
+
+export type GatewayGetDiscordAppIdParams = Record<string, never>;
+export interface GatewayGetDiscordAppIdResult {
+  applicationId: string | null;
+}
+
+export interface GatewaySetDiscordAppIdParams {
+  applicationId: string;
+}
+export interface GatewaySetDiscordAppIdResult {
+  ok: true;
+}
+
+export type GatewayRegisterDiscordCommandsParams = Record<string, never>;
+export type GatewayRegisterDiscordCommandsResult =
+  | { ok: true; registered: number; scope: 'guild' | 'global' }
+  | { ok: false; error: string };
+
+export interface GatewayDiscordGuildDto {
+  id: string;
+  name: string;
+}
+export type GatewayListDiscordGuildsParams = Record<string, never>;
+export interface GatewayListDiscordGuildsResult {
+  guilds: GatewayDiscordGuildDto[];
+}
 
 export interface ScheduledJobDto {
   id: string;
@@ -2154,6 +2221,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:blockBinding': true,
   'gateway:listMessages': true,
   'gateway:test': true,
+  'gateway:getAllowList': true,
+  'gateway:setAllowList': true,
+  'gateway:getDiscordAppId': true,
+  'gateway:setDiscordAppId': true,
+  'gateway:registerDiscordCommands': true,
+  'gateway:listDiscordGuilds': true,
 
   'db:health': true,
   'db:reset': true,

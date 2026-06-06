@@ -14,6 +14,7 @@ CREATE TABLE gateway_bindings (
   id              TEXT PRIMARY KEY,
   platform        TEXT NOT NULL CHECK (platform IN ('telegram','discord','slack')),
   external_chat_id TEXT NOT NULL,
+  allow_list_id   TEXT,
   display_name    TEXT,
   approval_status TEXT NOT NULL CHECK (approval_status IN ('pending','approved','rejected','revoked')) DEFAULT 'pending',
   ptah_session_id TEXT,
@@ -88,5 +89,36 @@ maybe('BindingStore.setPtahSessionId', () => {
     expect(() =>
       store.setPtahSessionId(BindingId.create('does-not-exist'), 'session-x'),
     ).toThrow(/not found/);
+  });
+
+  it('persists allowListId on insert and round-trips it via findById', () => {
+    const created = store.upsertPending({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      allowListId: 'guild-9',
+    });
+    expect(created.allowListId).toBe('guild-9');
+    expect(store.findById(created.id)?.allowListId).toBe('guild-9');
+  });
+
+  it('defaults allowListId to null when not provided', () => {
+    const id = seed('telegram', 'chat-2');
+    expect(store.findById(id)?.allowListId).toBeNull();
+  });
+
+  it('backfills a null allowListId on a later inbound that carries one', () => {
+    const first = store.upsertPending({
+      platform: 'discord',
+      externalChatId: 'chan-2',
+    });
+    expect(first.allowListId).toBeNull();
+
+    const second = store.upsertPending({
+      platform: 'discord',
+      externalChatId: 'chan-2',
+      allowListId: 'guild-7',
+    });
+    expect(second.allowListId).toBe('guild-7');
+    expect(store.findById(first.id)?.allowListId).toBe('guild-7');
   });
 });
