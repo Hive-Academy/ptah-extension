@@ -63,8 +63,8 @@ import { MarketingModule } from '../marketing/marketing.module';
     ContactModule, // Contact form message handling
     SessionModule, // Training session request handling
     HealthModule, // Health check with DB validation (TASK_2025_180)
-    AdminModule, // TASK_2025_290: native admin dashboard
     MarketingModule, // TASK_2025_292: marketing backend foundation
+    AdminModule, // TASK_2025_290: native admin dashboard
   ],
   providers: [
     {
