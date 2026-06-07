@@ -103,6 +103,7 @@ export class StreamingHandlerService {
     event: FlatStreamEventUnion,
     tabId?: string,
     sessionId?: string,
+    options?: { isReplay?: boolean },
   ): {
     tabId: string;
     queuedContent?: string;
@@ -112,6 +113,7 @@ export class StreamingHandlerService {
     postTokens?: number;
     durationMs?: number;
   } | null {
+    const isReplay = options?.isReplay ?? false;
     try {
       let primaryTab: TabState | undefined;
       if (tabId) {
@@ -159,6 +161,7 @@ export class StreamingHandlerService {
         primaryTab,
         event,
         sessionId,
+        isReplay,
       );
       const allBoundTabs = this.tabManager.findTabsBySessionId(
         SessionId.from(event.sessionId),
@@ -166,7 +169,7 @@ export class StreamingHandlerService {
       if (allBoundTabs.length > 1) {
         for (const otherTab of allBoundTabs) {
           if (otherTab.id === primaryTab.id) continue;
-          this.processEventForTab(otherTab, event, sessionId);
+          this.processEventForTab(otherTab, event, sessionId, isReplay);
         }
       }
 
@@ -201,6 +204,7 @@ export class StreamingHandlerService {
     initialTab: TabState,
     event: FlatStreamEventUnion,
     sessionId?: string,
+    isReplay = false,
   ): {
     tabId: string;
     queuedContent?: string;
@@ -281,10 +285,19 @@ export class StreamingHandlerService {
       // trailing "[Request interrupted by user]" message. That content must
       // not self-heal the spinner back on, so skip the re-mark when the tab's
       // last turn ended in an aborted terminal reason.
+      //
+      // Exception: a historical replay (session opened from the sidebar)
+      // pushes finalized events through this same path. Those mutate state but
+      // must NOT light up the spinner — the replay has no live turn and no
+      // terminal event to clear the flag again, so it would stick on `loaded`.
       const lastReason = targetTab.lastTerminalReason;
       const wasAborted =
         lastReason != null && ABORTED_TERMINAL_REASONS.has(lastReason);
-      if (!wasAborted && !this.tabManager.isTabStreaming(targetTab.id)) {
+      if (
+        !isReplay &&
+        !wasAborted &&
+        !this.tabManager.isTabStreaming(targetTab.id)
+      ) {
         this.tabManager.markTabStreaming(targetTab.id);
       }
     }

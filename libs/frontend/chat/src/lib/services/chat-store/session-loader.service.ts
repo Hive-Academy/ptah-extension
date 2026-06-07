@@ -555,6 +555,7 @@ export class SessionLoaderService {
             event as FlatStreamEventUnion,
             activeTabId,
             sessionId,
+            { isReplay: true },
           );
         }
         this.streamingHandler.finalizeSessionHistory(
