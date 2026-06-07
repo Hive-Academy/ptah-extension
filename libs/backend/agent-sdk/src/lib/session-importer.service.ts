@@ -105,12 +105,95 @@ export class SessionImporterService {
       imported += fileImported;
     }
 
+    await this.pruneTitleOnlySessions(sessionsDir, workspacePath);
+
     this.logger.info('[SessionImporter] Import complete', {
       imported,
       fromIndex: indexImported,
     });
 
     return imported;
+  }
+
+  /**
+   * Remove previously-imported metadata that points to title-only sidecar
+   * files — the CLI's `{"type":"ai-title",...}` files that carry no
+   * conversation. Earlier builds imported these as phantom "Session <date>"
+   * entries; this reconciles the store so they disappear on the next scan.
+   *
+   * Deletes only when the backing file still exists AND is positively a
+   * title-only sidecar (an `ai-title` line with no system/user line). Entries
+   * whose JSONL was removed externally, or any file that contains a real
+   * session marker, are left untouched.
+   */
+  private async pruneTitleOnlySessions(
+    sessionsDir: string,
+    workspacePath: string,
+  ): Promise<number> {
+    let pruned = 0;
+    try {
+      const stored = await this.metadataStore.getForWorkspace(workspacePath);
+      for (const entry of stored) {
+        const filePath = path.join(sessionsDir, `${entry.sessionId}.jsonl`);
+        try {
+          await fs.promises.access(filePath);
+        } catch {
+          continue;
+        }
+        if (await this.isTitleOnlySidecar(filePath)) {
+          await this.metadataStore.delete(entry.sessionId);
+          pruned++;
+        }
+      }
+    } catch (error) {
+      this.logger.debug('[SessionImporter] Title-only prune failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (pruned > 0) {
+      this.logger.info('[SessionImporter] Pruned title-only phantom sessions', {
+        pruned,
+      });
+    }
+
+    return pruned;
+  }
+
+  /**
+   * Detect a title-only sidecar file: parses the leading lines and reports
+   * true only when an `ai-title` line is present and no `system`/`user`
+   * session line exists. A truncated or unparseable real-session file fails
+   * the positive `ai-title` test, so it is never misclassified.
+   */
+  private async isTitleOnlySidecar(filePath: string): Promise<boolean> {
+    try {
+      const fd = await fs.promises.open(filePath, 'r');
+      const buffer = Buffer.alloc(8192);
+      const { bytesRead } = await fd.read(buffer, 0, 8192, 0);
+      await fd.close();
+
+      if (bytesRead === 0) return false;
+
+      const content = buffer.toString('utf-8', 0, bytesRead);
+      const lines = content.split('\n').filter((line) => line.trim());
+
+      let sawAiTitle = false;
+      for (const line of lines) {
+        let msg: { type?: string };
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (msg.type === 'system' || msg.type === 'user') return false;
+        if (msg.type === 'ai-title') sawAiTitle = true;
+      }
+
+      return sawAiTitle;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -402,11 +485,15 @@ export class SessionImporterService {
 
       let sessionId: string | null = null;
       let sessionName: string | null = null;
+      let sawSessionContent = false;
 
       for (const line of lines) {
         const msg = JSON.parse(line);
         if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
           sessionId = msg.session_id;
+        }
+        if (msg.type === 'system' || msg.type === 'user') {
+          sawSessionContent = true;
         }
         if (msg.type === 'user' && !sessionName) {
           const text = this.extractUserMessageText(msg);
@@ -417,6 +504,13 @@ export class SessionImporterService {
         }
         if (sessionId && sessionName) break;
       }
+
+      // Skip sidecar files that hold no conversation — e.g. the CLI's
+      // title-only `{"type":"ai-title",...}` files. They carry no system
+      // init or user turn, so importing them produces phantom
+      // "Session <date>" entries in the session list.
+      if (!sawSessionContent) return null;
+
       if (!sessionId) {
         sessionId = this.extractSessionIdFromFilename(path.basename(filePath));
       }
