@@ -46,7 +46,7 @@ import {
 
     <!-- Social Login Buttons -->
     <div class="flex justify-center gap-4 mb-8">
-      <!-- GitHub -->
+      <!-- GitHub (disabled — OAuth not currently working)
       <button
         viewportAnimation
         [viewportConfig]="socialBtn1Config"
@@ -65,6 +65,7 @@ import {
           aria-hidden="true"
         />
       </button>
+      -->
 
       <!-- Google -->
       <button
@@ -89,27 +90,27 @@ import {
 
       <!-- Magic Link (for signin only) -->
       @if (mode() === 'signin') {
-      <button
-        viewportAnimation
-        [viewportConfig]="socialBtn3Config"
-        type="button"
-        (click)="magicLinkClick.emit()"
-        [disabled]="!emailValid()"
-        class="w-14 h-14 rounded-full border border-neutral-content/20 bg-gradient-to-br from-secondary/20 to-amber-500/20
+        <button
+          viewportAnimation
+          [viewportConfig]="socialBtn3Config"
+          type="button"
+          (click)="magicLinkClick.emit()"
+          [disabled]="!emailValid()"
+          class="w-14 h-14 rounded-full border border-neutral-content/20 bg-gradient-to-br from-secondary/20 to-amber-500/20
                  flex items-center justify-center
                  hover:border-secondary/50 hover:from-secondary/30 hover:to-amber-500/30 hover:scale-110
                  active:scale-95 transition-all duration-300
                  disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100
                  focus-visible:outline focus-visible:outline-2 focus-visible:outline-secondary"
-        aria-label="Send Magic Link"
-        title="Send passwordless login link to your email"
-      >
-        <lucide-angular
-          [img]="KeyRoundIcon"
-          class="w-6 h-6 text-secondary"
-          aria-hidden="true"
-        />
-      </button>
+          aria-label="Send Magic Link"
+          title="Send passwordless login link to your email"
+        >
+          <lucide-angular
+            [img]="KeyRoundIcon"
+            class="w-6 h-6 text-secondary"
+            aria-hidden="true"
+          />
+        </button>
       }
     </div>
   `,
