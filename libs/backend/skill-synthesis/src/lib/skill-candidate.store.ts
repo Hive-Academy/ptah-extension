@@ -356,6 +356,64 @@ export class SkillCandidateStore {
     };
   }
 
+  recordSkillEvent(input: {
+    skillSlug: string;
+    sessionId: string;
+    contextId: string | null;
+    source: string;
+    succeeded: boolean;
+    isError: boolean;
+    invokedAt: number;
+  }): void {
+    const stmt = this.db.prepare(
+      `INSERT INTO skill_invocation_events
+         (id, skill_slug, session_id, context_id, source, succeeded, is_error, invoked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    stmt.run(
+      ulid(),
+      input.skillSlug,
+      input.sessionId,
+      input.contextId,
+      input.source,
+      input.succeeded ? 1 : 0,
+      input.isError ? 1 : 0,
+      input.invokedAt,
+    );
+  }
+
+  getInvocationStats(slug: string): {
+    total: number;
+    succeeded: number;
+    failed: number;
+    distinctContexts: number;
+  } {
+    const row = this.db
+      .prepare(
+        `SELECT
+           COUNT(*) AS total,
+           COALESCE(SUM(succeeded), 0) AS succeeded,
+           COALESCE(SUM(CASE WHEN succeeded = 0 THEN 1 ELSE 0 END), 0) AS failed,
+           COUNT(DISTINCT context_id) AS distinctContexts
+         FROM skill_invocation_events
+         WHERE skill_slug = ?`,
+      )
+      .get(slug) as
+      | {
+          total: number;
+          succeeded: number;
+          failed: number;
+          distinctContexts: number;
+        }
+      | undefined;
+    return {
+      total: row?.total ?? 0,
+      succeeded: row?.succeeded ?? 0,
+      failed: row?.failed ?? 0,
+      distinctContexts: row?.distinctContexts ?? 0,
+    };
+  }
+
   listInvocations(skillId: CandidateId, limit = 100): SkillInvocationRow[] {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_invocations

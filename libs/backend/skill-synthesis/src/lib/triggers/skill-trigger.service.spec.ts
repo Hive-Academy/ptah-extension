@@ -17,10 +17,14 @@ import type {
   SubagentStopCallback,
   SubagentStopCallbackRegistry,
   SubagentStopPayload,
+  UserPromptExpansionCallback,
+  UserPromptExpansionCallbackRegistry,
+  UserPromptExpansionPayload,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { SkillTriggerService } from './skill-trigger.service';
 import type { SkillSynthesisService } from '../skill-synthesis.service';
+import type { SkillInvocationRecorder } from '../skill-invocation-recorder';
 
 function makeLogger(): Logger {
   return {
@@ -128,6 +132,40 @@ function makePostToolUseRegistry(): PostToolUseHarness {
   };
 }
 
+interface ExpansionHarness {
+  fire: (payload: UserPromptExpansionPayload) => void;
+  registry: UserPromptExpansionCallbackRegistry;
+}
+
+function makeUserPromptExpansionRegistry(): ExpansionHarness {
+  const subscribers = new Set<UserPromptExpansionCallback>();
+  return {
+    fire: (payload) => {
+      for (const cb of subscribers) cb(payload);
+    },
+    registry: {
+      register: jest.fn((cb: UserPromptExpansionCallback) => {
+        subscribers.add(cb);
+        return () => {
+          subscribers.delete(cb);
+        };
+      }),
+      notifyAll: jest.fn((payload: UserPromptExpansionPayload) => {
+        for (const cb of subscribers) cb(payload);
+      }),
+      get size() {
+        return subscribers.size;
+      },
+    } as unknown as UserPromptExpansionCallbackRegistry,
+  };
+}
+
+function makeRecorder(): SkillInvocationRecorder {
+  return {
+    recordSkillEvent: jest.fn(),
+  } as unknown as SkillInvocationRecorder;
+}
+
 function makeWorkspace(
   overrides: Partial<Record<string, unknown>> = {},
 ): IWorkspaceProvider {
@@ -202,6 +240,8 @@ function buildService(opts?: {
   sessionEnd: SessionEndHarness;
   subagentStop: SubagentStopHarness;
   postToolUse: PostToolUseHarness;
+  expansion: ExpansionHarness;
+  recorder: SkillInvocationRecorder;
   synthesis: SkillSynthesisService;
   workspace: IWorkspaceProvider;
   rateLimiter: CuratorRateLimitService;
@@ -210,6 +250,8 @@ function buildService(opts?: {
   const sessionEnd = makeSessionEndRegistry();
   const subagentStop = makeSubagentStopRegistry();
   const postToolUse = makePostToolUseRegistry();
+  const expansion = makeUserPromptExpansionRegistry();
+  const recorder = makeRecorder();
   const synthesis = opts?.synthesis ?? makeSynthesis();
   const workspace = opts?.workspace ?? makeWorkspace();
   const rateLimiter =
@@ -226,6 +268,8 @@ function buildService(opts?: {
     subagentStop.registry,
     postToolUse.registry,
     rateLimiter,
+    expansion.registry,
+    recorder,
   );
   return {
     service,
@@ -233,6 +277,8 @@ function buildService(opts?: {
     sessionEnd,
     subagentStop,
     postToolUse,
+    expansion,
+    recorder,
     synthesis,
     workspace,
     rateLimiter,

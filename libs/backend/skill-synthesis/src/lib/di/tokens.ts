@@ -37,6 +37,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_TRIGGER_SERVICE: Symbol.for('PtahSkillTriggerService'),
   /** SkillSynthesisDiagnosticsService — read-only diagnostics snapshot. */
   SKILL_DIAGNOSTICS_SERVICE: Symbol.for('PtahSkillSynthesisDiagnosticsService'),
+  /** SkillInvocationRecorder — capture-path telemetry for skill invocations. */
+  SKILL_INVOCATION_RECORDER: Symbol.for('PtahSkillInvocationRecorder'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

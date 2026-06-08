@@ -24,6 +24,7 @@ import { SkillJudgeService } from '../skill-judge.service';
 import { SkillCuratorService } from '../skill-curator.service';
 import { SkillTriggerService } from '../triggers/skill-trigger.service';
 import { SkillSynthesisDiagnosticsService } from '../diagnostics.service';
+import { SkillInvocationRecorder } from '../skill-invocation-recorder';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
 
 export function registerSkillSynthesisServices(
@@ -42,6 +43,7 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillSynthesisService);
   container.registerSingleton(SkillTriggerService);
   container.registerSingleton(SkillSynthesisDiagnosticsService);
+  container.registerSingleton(SkillInvocationRecorder);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });
@@ -68,6 +70,9 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE, {
     useToken: SkillSynthesisDiagnosticsService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_INVOCATION_RECORDER, {
+    useToken: SkillInvocationRecorder,
   });
 
   logger.info('[skill-synthesis] services registered', {
