@@ -288,7 +288,82 @@ describe('SkillCuratorService', () => {
 
     const enhanceMock = (enhancer as unknown as { enhance: jest.Mock }).enhance;
     expect(enhanceMock).toHaveBeenCalledTimes(1);
-    expect(enhanceMock).toHaveBeenCalledWith('eligible', expect.anything());
+    expect(enhanceMock).toHaveBeenCalledWith('eligible', expect.anything(), {
+      kind: 'skill',
+    });
+  });
+
+  it('unified pass: selects + enhances eligible agent and command clones with their kind', async () => {
+    const promoted = fakePromotedRow('sk1');
+    const baseStore = makeStore([promoted]);
+    const store = {
+      ...baseStore,
+      listByStatus: baseStore.listByStatus,
+      updateStatus: baseStore.updateStatus,
+      getInvocationStats: jest.fn(() => ({
+        total: 12,
+        succeeded: 4,
+        failed: 8,
+        distinctContexts: 3,
+      })),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
+
+    const query = {
+      execute: jest.fn().mockResolvedValue({
+        stream: (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: '[]' }] },
+          };
+          yield { type: 'result' };
+        })(),
+      }),
+    };
+
+    const registry = {
+      listAll: jest.fn(() => [
+        { kind: 'agent', slug: 'an-agent' },
+        { kind: 'command', slug: 'a-command' },
+      ]),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
+
+    const enhancer = {
+      isEligible: jest.fn(() => true),
+      enhance: jest.fn().mockResolvedValue({ changed: true, slug: 'x' }),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
+
+    const svc = new SkillCuratorService(
+      noopLogger,
+      store,
+      query as never,
+      noopWorkspaceProvider,
+      noopRateLimiter,
+      registry,
+      enhancer,
+    );
+    svc.start(makeSettings());
+    await svc.runManual();
+
+    const isEligibleMock = (enhancer as unknown as { isEligible: jest.Mock })
+      .isEligible;
+    expect(isEligibleMock).toHaveBeenCalledWith(
+      'an-agent',
+      expect.anything(),
+      'agent',
+    );
+    expect(isEligibleMock).toHaveBeenCalledWith(
+      'a-command',
+      expect.anything(),
+      'command',
+    );
+
+    const enhanceMock = (enhancer as unknown as { enhance: jest.Mock }).enhance;
+    expect(enhanceMock).toHaveBeenCalledWith('an-agent', expect.anything(), {
+      kind: 'agent',
+    });
+    expect(enhanceMock).toHaveBeenCalledWith('a-command', expect.anything(), {
+      kind: 'command',
+    });
   });
 
   it('unified pass: degrades to legacy promoted-only when registry/enhancer absent', async () => {

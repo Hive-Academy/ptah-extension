@@ -125,10 +125,12 @@ export const SkillGetCloneParamsSchema = z.object({
 });
 
 export const SkillEnhanceNowParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
   slug: SlugSchema,
 });
 
 export const SkillRevertEnhancementParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
   slug: SlugSchema,
   historyTs: HistoryTsSchema,
 });

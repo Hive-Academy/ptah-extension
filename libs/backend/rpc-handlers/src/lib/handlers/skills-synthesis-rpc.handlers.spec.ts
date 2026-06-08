@@ -714,9 +714,10 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
   });
 
-  it('enhanceNow reads settings and calls enhancer with manual flag', async () => {
-    const { rpcHandler, enhancer, synthesis } = buildHandlers();
+  it('enhanceNow reads settings and calls enhancer with manual flag + kind', async () => {
+    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
     synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
+    registry.getBySlug.mockReturnValue(sampleRow);
     enhancer.enhance.mockResolvedValue({
       changed: true,
       slug: 'deep-research',
@@ -727,13 +728,14 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     });
 
     const result = await rpcHandler.call('skillSynthesis:enhanceNow', {
+      kind: 'skill',
       slug: 'deep-research',
     });
 
     expect(enhancer.enhance).toHaveBeenCalledWith(
       'deep-research',
       { minJudgeScore: 6 },
-      { manual: true },
+      { manual: true, kind: 'skill' },
     );
     expect(result).toMatchObject({
       changed: true,
@@ -743,7 +745,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     });
   });
 
-  it('revertEnhancement delegates to enhancer.revert', async () => {
+  it('revertEnhancement delegates to enhancer.revert with kind', async () => {
     const { rpcHandler, enhancer } = buildHandlers();
     enhancer.revert.mockResolvedValue({
       reverted: true,
@@ -753,6 +755,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     });
 
     const result = await rpcHandler.call('skillSynthesis:revertEnhancement', {
+      kind: 'skill',
       slug: 'deep-research',
       historyTs: '1717848000000',
     });
@@ -760,14 +763,38 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(enhancer.revert).toHaveBeenCalledWith(
       'deep-research',
       '1717848000000',
+      'skill',
     );
     expect(result).toMatchObject({ reverted: true });
+  });
+
+  it('revertEnhancement forwards an agent kind to enhancer.revert', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+    enhancer.revert.mockResolvedValue({
+      reverted: true,
+      slug: 'my-agent',
+      revertedFrom: '1717848000000',
+      newHistoryTs: '1717848000001',
+    });
+
+    await rpcHandler.call('skillSynthesis:revertEnhancement', {
+      kind: 'agent',
+      slug: 'my-agent',
+      historyTs: '1717848000000',
+    });
+
+    expect(enhancer.revert).toHaveBeenCalledWith(
+      'my-agent',
+      '1717848000000',
+      'agent',
+    );
   });
 
   it('revertEnhancement rejects a traversal historyTs with INVALID_PARAMS; enhancer untouched', async () => {
     const { rpcHandler, enhancer } = buildHandlers();
     await expect(
       rpcHandler.call('skillSynthesis:revertEnhancement', {
+        kind: 'skill',
         slug: 'deep-research',
         historyTs: '../../etc',
       }),
@@ -775,24 +802,75 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(enhancer.revert).not.toHaveBeenCalled();
   });
 
-  it('enhanceNow short-circuits with kind-not-supported for an agent-kind clone; enhancer untouched', async () => {
-    const { rpcHandler, registry, enhancer } = buildHandlers();
+  it('enhanceNow enhances an agent-kind clone with kind agent', async () => {
+    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
+    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
     registry.getBySlug.mockImplementation((kind: string) =>
       kind === 'agent'
         ? { ...sampleRow, kind: 'agent', slug: 'my-agent' }
         : null,
     );
-
-    const result = await rpcHandler.call('skillSynthesis:enhanceNow', {
-      slug: 'my-agent',
-    });
-
-    expect(result).toMatchObject({
-      changed: false,
+    enhancer.enhance.mockResolvedValue({
+      changed: true,
       slug: 'my-agent',
       kind: 'agent',
-      skipReason: 'kind-not-supported',
+      judgeScore: 8,
+      judgeReason: 'judge-verdict',
+      historyTs: '1717848000000',
     });
+
+    const result = await rpcHandler.call('skillSynthesis:enhanceNow', {
+      kind: 'agent',
+      slug: 'my-agent',
+    });
+
+    expect(enhancer.enhance).toHaveBeenCalledWith(
+      'my-agent',
+      { minJudgeScore: 6 },
+      { manual: true, kind: 'agent' },
+    );
+    expect(result).toMatchObject({ changed: true, kind: 'agent' });
+  });
+
+  it('enhanceNow enhances a command-kind clone with kind command', async () => {
+    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
+    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
+    registry.getBySlug.mockImplementation((kind: string) =>
+      kind === 'command'
+        ? { ...sampleRow, kind: 'command', slug: 'my-cmd' }
+        : null,
+    );
+    enhancer.enhance.mockResolvedValue({
+      changed: false,
+      slug: 'my-cmd',
+      kind: 'command',
+      judgeScore: null,
+      judgeReason: null,
+      historyTs: null,
+    });
+
+    await rpcHandler.call('skillSynthesis:enhanceNow', {
+      kind: 'command',
+      slug: 'my-cmd',
+    });
+
+    expect(enhancer.enhance).toHaveBeenCalledWith(
+      'my-cmd',
+      { minJudgeScore: 6 },
+      { manual: true, kind: 'command' },
+    );
+  });
+
+  it('enhanceNow rejects with INVALID_PARAMS when no clone exists for (kind, slug); enhancer untouched', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(null);
+
+    await expect(
+      rpcHandler.call('skillSynthesis:enhanceNow', {
+        kind: 'agent',
+        slug: 'missing',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
     expect(enhancer.enhance).not.toHaveBeenCalled();
   });
 
@@ -812,13 +890,14 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     });
 
     const result = await rpcHandler.call('skillSynthesis:enhanceNow', {
+      kind: 'skill',
       slug: 'deep-research',
     });
 
     expect(enhancer.enhance).toHaveBeenCalledWith(
       'deep-research',
       { minJudgeScore: 6 },
-      { manual: true },
+      { manual: true, kind: 'skill' },
     );
     expect(result).toMatchObject({ changed: true, skipReason: null });
   });

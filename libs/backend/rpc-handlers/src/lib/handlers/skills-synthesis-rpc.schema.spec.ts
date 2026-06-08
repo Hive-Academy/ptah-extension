@@ -181,31 +181,99 @@ describe('SkillGetCloneParamsSchema', () => {
 });
 
 describe('SkillEnhanceNowParamsSchema', () => {
-  it('accepts a non-empty slug', () => {
-    const result = SkillEnhanceNowParamsSchema.parse({ slug: 'my-skill' });
+  it('accepts a non-empty slug + kind', () => {
+    const result = SkillEnhanceNowParamsSchema.parse({
+      kind: 'skill',
+      slug: 'my-skill',
+    });
     expect(result.slug).toBe('my-skill');
+    expect(result.kind).toBe('skill');
+  });
+
+  it('accepts agent and command kinds', () => {
+    expect(() =>
+      SkillEnhanceNowParamsSchema.parse({ kind: 'agent', slug: 'my-agent' }),
+    ).not.toThrow();
+    expect(() =>
+      SkillEnhanceNowParamsSchema.parse({ kind: 'command', slug: 'my-cmd' }),
+    ).not.toThrow();
   });
 
   it('rejects an empty slug', () => {
-    expect(() => SkillEnhanceNowParamsSchema.parse({ slug: '' })).toThrow();
+    expect(() =>
+      SkillEnhanceNowParamsSchema.parse({ kind: 'skill', slug: '' }),
+    ).toThrow();
   });
 
   it('rejects a missing slug', () => {
-    expect(() => SkillEnhanceNowParamsSchema.parse({})).toThrow();
+    expect(() =>
+      SkillEnhanceNowParamsSchema.parse({ kind: 'skill' }),
+    ).toThrow();
+  });
+
+  it('rejects a missing kind', () => {
+    expect(() =>
+      SkillEnhanceNowParamsSchema.parse({ slug: 'my-skill' }),
+    ).toThrow();
+  });
+
+  it('rejects an unknown kind', () => {
+    expect(() =>
+      SkillEnhanceNowParamsSchema.parse({ kind: 'plugin', slug: 'my-skill' }),
+    ).toThrow();
   });
 });
 
 describe('SkillRevertEnhancementParamsSchema', () => {
-  it('accepts slug + historyTs (epoch-millis snapshot format)', () => {
+  it('accepts kind + slug + historyTs (epoch-millis snapshot format)', () => {
     const result = SkillRevertEnhancementParamsSchema.parse({
+      kind: 'skill',
       slug: 'my-skill',
       historyTs: '1717848000000',
     });
     expect(result.historyTs).toBe('1717848000000');
+    expect(result.kind).toBe('skill');
+  });
+
+  it('accepts agent and command kinds', () => {
+    expect(() =>
+      SkillRevertEnhancementParamsSchema.parse({
+        kind: 'agent',
+        slug: 'my-agent',
+        historyTs: '1717848000000',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      SkillRevertEnhancementParamsSchema.parse({
+        kind: 'command',
+        slug: 'my-cmd',
+        historyTs: '1717848000000',
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects a missing kind', () => {
+    expect(() =>
+      SkillRevertEnhancementParamsSchema.parse({
+        slug: 'my-skill',
+        historyTs: '1717848000000',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects an unknown kind', () => {
+    expect(() =>
+      SkillRevertEnhancementParamsSchema.parse({
+        kind: 'plugin',
+        slug: 'my-skill',
+        historyTs: '1717848000000',
+      }),
+    ).toThrow();
   });
 
   it('accepts a collision-suffixed historyTs (ts-counter)', () => {
     const result = SkillRevertEnhancementParamsSchema.parse({
+      kind: 'skill',
       slug: 'my-skill',
       historyTs: '1717848000000-1',
     });
@@ -214,13 +282,17 @@ describe('SkillRevertEnhancementParamsSchema', () => {
 
   it('rejects a missing historyTs', () => {
     expect(() =>
-      SkillRevertEnhancementParamsSchema.parse({ slug: 'my-skill' }),
+      SkillRevertEnhancementParamsSchema.parse({
+        kind: 'skill',
+        slug: 'my-skill',
+      }),
     ).toThrow();
   });
 
   it('rejects an empty historyTs', () => {
     expect(() =>
       SkillRevertEnhancementParamsSchema.parse({
+        kind: 'skill',
         slug: 'my-skill',
         historyTs: '',
       }),
@@ -230,6 +302,7 @@ describe('SkillRevertEnhancementParamsSchema', () => {
   it('rejects a traversal historyTs (../../etc)', () => {
     expect(() =>
       SkillRevertEnhancementParamsSchema.parse({
+        kind: 'skill',
         slug: 'my-skill',
         historyTs: '../../etc',
       }),
@@ -239,6 +312,7 @@ describe('SkillRevertEnhancementParamsSchema', () => {
   it('rejects a single-level traversal historyTs (../)', () => {
     expect(() =>
       SkillRevertEnhancementParamsSchema.parse({
+        kind: 'skill',
         slug: 'my-skill',
         historyTs: '../',
       }),
@@ -248,6 +322,7 @@ describe('SkillRevertEnhancementParamsSchema', () => {
   it('rejects a non-numeric (legacy ISO-ish) historyTs', () => {
     expect(() =>
       SkillRevertEnhancementParamsSchema.parse({
+        kind: 'skill',
         slug: 'my-skill',
         historyTs: '20260608T120000',
       }),
@@ -279,12 +354,16 @@ describe('Slug traversal hardening (all clone schemas)', () => {
   describe('SkillEnhanceNowParamsSchema.slug', () => {
     for (const slug of malicious) {
       it(`rejects ${JSON.stringify(slug)}`, () => {
-        expect(() => SkillEnhanceNowParamsSchema.parse({ slug })).toThrow();
+        expect(() =>
+          SkillEnhanceNowParamsSchema.parse({ kind: 'skill', slug }),
+        ).toThrow();
       });
     }
     for (const slug of valid) {
       it(`accepts ${JSON.stringify(slug)}`, () => {
-        expect(() => SkillEnhanceNowParamsSchema.parse({ slug })).not.toThrow();
+        expect(() =>
+          SkillEnhanceNowParamsSchema.parse({ kind: 'skill', slug }),
+        ).not.toThrow();
       });
     }
   });
@@ -294,6 +373,7 @@ describe('Slug traversal hardening (all clone schemas)', () => {
       it(`rejects ${JSON.stringify(slug)}`, () => {
         expect(() =>
           SkillRevertEnhancementParamsSchema.parse({
+            kind: 'skill',
             slug,
             historyTs: '1717848000000',
           }),
@@ -304,6 +384,7 @@ describe('Slug traversal hardening (all clone schemas)', () => {
       it(`accepts ${JSON.stringify(slug)}`, () => {
         expect(() =>
           SkillRevertEnhancementParamsSchema.parse({
+            kind: 'skill',
             slug,
             historyTs: '1717848000000',
           }),

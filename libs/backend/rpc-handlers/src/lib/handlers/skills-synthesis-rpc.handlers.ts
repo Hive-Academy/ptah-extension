@@ -724,26 +724,18 @@ export class SkillsSynthesisRpcHandlers {
       try {
         const enhancer = this.requireDesktop(this.enhancer);
         const registry = this.requireDesktop(this.registry);
-        const skillRow = registry.getBySlug('skill', parsed.slug);
-        if (!skillRow) {
-          const otherRow =
-            registry.getBySlug('agent', parsed.slug) ??
-            registry.getBySlug('command', parsed.slug);
-          if (otherRow) {
-            return {
-              changed: false,
-              slug: parsed.slug,
-              kind: otherRow.kind as SkillCloneKind,
-              judgeScore: null,
-              judgeReason: null,
-              historyTs: null,
-              skipReason: 'kind-not-supported',
-            };
-          }
+        const kind = parsed.kind as SkillRegistryKind;
+        const row = registry.getBySlug(kind, parsed.slug);
+        if (!row) {
+          throw new RpcUserError(
+            `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
+            'INVALID_PARAMS',
+          );
         }
         const settings = this.synthesis.readSettings();
         const result = await enhancer.enhance(parsed.slug, settings, {
           manual: true,
+          kind,
         });
         return {
           changed: result.changed,
@@ -774,7 +766,11 @@ export class SkillsSynthesisRpcHandlers {
       );
       try {
         const enhancer = this.requireDesktop(this.enhancer);
-        const result = await enhancer.revert(parsed.slug, parsed.historyTs);
+        const result = await enhancer.revert(
+          parsed.slug,
+          parsed.historyTs,
+          parsed.kind as SkillRegistryKind,
+        );
         return {
           reverted: result.reverted,
           slug: result.slug,

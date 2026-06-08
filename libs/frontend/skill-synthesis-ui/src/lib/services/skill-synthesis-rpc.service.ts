@@ -248,10 +248,11 @@ export class SkillSynthesisRpcService {
   /** Manually trigger an enhancement pass for a slug (judge-gated). */
   public async enhanceNow(
     slug: string,
+    kind: SkillCloneKind = 'skill',
   ): Promise<SkillSynthesisEnhanceNowResult> {
     const result = await this.rpcService.call(
       'skillSynthesis:enhanceNow',
-      { slug },
+      { kind, slug },
       { timeout: SKILL_RPC_TIMEOUTS.ENHANCE_MS },
     );
     if (result.isSuccess() && result.data) {
@@ -264,10 +265,11 @@ export class SkillSynthesisRpcService {
   public async revertEnhancement(
     slug: string,
     historyTs: string,
+    kind: SkillCloneKind = 'skill',
   ): Promise<SkillSynthesisRevertEnhancementResult> {
     const result = await this.rpcService.call(
       'skillSynthesis:revertEnhancement',
-      { slug, historyTs },
+      { kind, slug, historyTs },
       { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
     );
     if (result.isSuccess() && result.data) {

@@ -49,6 +49,7 @@ export interface SkillSynthesisGetCloneResult {
 }
 
 export interface SkillSynthesisEnhanceNowParams {
+  kind: SkillCloneKind;
   slug: string;
 }
 export interface SkillSynthesisEnhanceNowResult {
@@ -62,6 +63,7 @@ export interface SkillSynthesisEnhanceNowResult {
 }
 
 export interface SkillSynthesisRevertEnhancementParams {
+  kind: SkillCloneKind;
   slug: string;
   historyTs: string;
 }

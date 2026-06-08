@@ -21,7 +21,10 @@ import {
   type CuratorRateLimitService,
 } from '@ptah-extension/agent-sdk';
 import { SkillCandidateStore } from './skill-candidate.store';
-import { SkillRegistryStore } from './skill-registry.store';
+import {
+  SkillRegistryStore,
+  type SkillRegistryKind,
+} from './skill-registry.store';
 import { SkillEnhancerService } from './skill-enhancer.service';
 import type { IInternalQuery } from './internal-query.interface';
 import type { SkillSynthesisSettings } from './types';
@@ -266,7 +269,12 @@ export class SkillCuratorService {
       return;
     }
 
-    let eligible: Array<{ slug: string; failed: number; total: number }>;
+    let eligible: Array<{
+      slug: string;
+      kind: SkillRegistryKind;
+      failed: number;
+      total: number;
+    }>;
     try {
       eligible = this.selectEnhancementCandidates(settings);
     } catch (err: unknown) {
@@ -290,7 +298,9 @@ export class SkillCuratorService {
         break;
       }
       try {
-        const result = await this.enhancer.enhance(candidate.slug, settings);
+        const result = await this.enhancer.enhance(candidate.slug, settings, {
+          kind: candidate.kind,
+        });
         if (result.changed) {
           enhancedThisPass += 1;
           this.logger.info('[skill-curator] auto-enhanced clone', {
@@ -309,17 +319,27 @@ export class SkillCuratorService {
 
   private selectEnhancementCandidates(
     settings: SkillSynthesisSettings,
-  ): Array<{ slug: string; failed: number; total: number }> {
+  ): Array<{
+    slug: string;
+    kind: SkillRegistryKind;
+    failed: number;
+    total: number;
+  }> {
     if (!this.registry || !this.enhancer) return [];
     const rows = this.registry.listAll();
-    const selected: Array<{ slug: string; failed: number; total: number }> = [];
+    const selected: Array<{
+      slug: string;
+      kind: SkillRegistryKind;
+      failed: number;
+      total: number;
+    }> = [];
     for (const row of rows) {
-      if (row.kind !== 'skill') continue;
       const stats = this.store.getInvocationStats(row.slug);
       if (stats.total < ENHANCE_MIN_INVOCATIONS) continue;
-      if (!this.enhancer.isEligible(row.slug, settings)) continue;
+      if (!this.enhancer.isEligible(row.slug, settings, row.kind)) continue;
       selected.push({
         slug: row.slug,
+        kind: row.kind,
         failed: stats.failed,
         total: stats.total,
       });
