@@ -137,6 +137,14 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
+  findByName(name: string): SkillCandidateRow | null {
+    const stmt = this.db.prepare(
+      `SELECT * FROM skill_candidates WHERE name = ? ORDER BY created_at DESC LIMIT 1`,
+    );
+    const raw = stmt.get(name) as RawCandidateRow | undefined;
+    return raw ? this.toCandidateRow(raw) : null;
+  }
+
   listByStatus(status: SkillStatus): SkillCandidateRow[] {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates

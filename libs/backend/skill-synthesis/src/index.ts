@@ -53,6 +53,17 @@ export {
   readSkillTriggers,
   type PopulatedSkillTriggers,
 } from './lib/triggers/skill-trigger-config';
+export {
+  SkillRegistryStore,
+  type SkillRegistryEntry,
+  type SkillRegistryRow,
+  type SkillRegistryKind,
+  type CloneStatus,
+} from './lib/skill-registry.store';
+export {
+  SkillRegistryCatalogService,
+  type CatalogSyncResult,
+} from './lib/skill-registry-catalog.service';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,

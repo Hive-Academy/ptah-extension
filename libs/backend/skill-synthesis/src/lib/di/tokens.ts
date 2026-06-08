@@ -18,6 +18,19 @@ export const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for(
   'SdkInternalQueryService',
 );
 
+/**
+ * Cross-library DI token for agent-generation's UserLayerMirrorService.
+ * Matches AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE =
+ * Symbol.for('PtahUserLayerMirrorService').
+ *
+ * Referenced via Symbol.for() instead of importing the agent-generation
+ * barrel as a value — the barrel transitively pulls in workspace-intelligence
+ * tree-sitter (import.meta) code that breaks the CommonJS Jest transform.
+ */
+export const USER_LAYER_MIRROR_SERVICE_TOKEN = Symbol.for(
+  'PtahUserLayerMirrorService',
+);
+
 export const SKILL_SYNTHESIS_TOKENS = {
   /** SkillSynthesisService — top-level orchestrator (analyzes sessions). */
   SKILL_SYNTHESIS_SERVICE: Symbol.for('PtahSkillSynthesisService'),
@@ -39,6 +52,10 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_DIAGNOSTICS_SERVICE: Symbol.for('PtahSkillSynthesisDiagnosticsService'),
   /** SkillInvocationRecorder — capture-path telemetry for skill invocations. */
   SKILL_INVOCATION_RECORDER: Symbol.for('PtahSkillInvocationRecorder'),
+  /** SkillRegistryStore — SQLite catalog of cloned skills/agents/commands. */
+  SKILL_REGISTRY_STORE: Symbol.for('PtahSkillRegistryStore'),
+  /** SkillRegistryCatalogService — sidecar→skill_registry enrichment sync. */
+  SKILL_REGISTRY_CATALOG_SERVICE: Symbol.for('PtahSkillRegistryCatalogService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

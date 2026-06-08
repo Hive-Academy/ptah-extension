@@ -13,6 +13,10 @@ import {
   type UserLayerMirrorService,
   type UserLayerRoots,
 } from '@ptah-extension/agent-generation';
+import {
+  SKILL_SYNTHESIS_TOKENS,
+  type SkillRegistryCatalogService,
+} from '@ptah-extension/skill-synthesis';
 
 const USER_LAYER_MIRRORED_AT = 'user_layer_mirrored_at';
 
@@ -98,6 +102,39 @@ export async function mirrorUserLayer(
       error instanceof Error ? error.message : String(error),
     );
     return null;
+  }
+}
+
+/**
+ * Electron-only enrichment: walk the user layer (the sidecars the mirror
+ * already wrote) and upsert each clone into the SQLite skill_registry catalog,
+ * linking synth rows to skill_candidates by name. Pure read-of-sidecars +
+ * upsert; never mirrors the filesystem itself. Non-fatal on failure. Must run
+ * AFTER mirrorUserLayer so the sidecars exist.
+ */
+export async function syncSkillRegistryCatalog(
+  container: DependencyContainer,
+): Promise<void> {
+  try {
+    if (
+      !container.isRegistered(
+        SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_CATALOG_SERVICE,
+      )
+    ) {
+      return;
+    }
+    const catalog = container.resolve<SkillRegistryCatalogService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_CATALOG_SERVICE,
+    );
+    const result = await catalog.sync();
+    console.log(
+      `[Ptah Electron] Skill registry catalog synced (upserted: ${result.upserted}, linked: ${result.linked})`,
+    );
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Skill registry catalog sync failed (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 

@@ -27,6 +27,7 @@ import {
   activateSkillJunctions,
   initPluginLoader,
   mirrorUserLayer,
+  syncSkillRegistryCatalog,
 } from './plugin-activation';
 import {
   PERSISTENCE_TOKENS,
@@ -536,6 +537,9 @@ export async function wireRuntime(
     });
     initPluginLoader(container, contentDownload.getPluginsPath());
     const userLayerRoots = await mirrorUserLayer(container, workspaceRoot);
+    if (refs.sqliteConnection !== null && refs.sqliteConnection.isOpen) {
+      void syncSkillRegistryCatalog(container);
+    }
     refs.skillJunctionRef = activateSkillJunctions(
       container,
       contentDownload.getPluginsPath(),
