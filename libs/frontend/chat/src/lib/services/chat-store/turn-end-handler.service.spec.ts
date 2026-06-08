@@ -341,7 +341,7 @@ describe('TurnEndHandlerService', () => {
       });
     });
 
-    it('warns and still routes the error once when no tab is bound to the sessionId', () => {
+    it('warns and no-ops when no tab is bound to the sessionId', () => {
       tabs = [];
       service.handleTurnFailed(
         makeTurnFailedPayload({ sessionId: SESS_UNKNOWN }),
@@ -349,7 +349,7 @@ describe('TurnEndHandlerService', () => {
 
       expect(setLastTerminalReasonMock).not.toHaveBeenCalled();
       expect(finalizeCurrentMessageMock).not.toHaveBeenCalled();
-      expect(handleChatErrorMock).toHaveBeenCalledTimes(1);
+      expect(handleChatErrorMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleTurnFailed: no tab bound to sessionId',
         expect.objectContaining({

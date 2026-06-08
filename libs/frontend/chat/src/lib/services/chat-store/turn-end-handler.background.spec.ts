@@ -10,7 +10,8 @@
  *     pendingBackgroundTasks; status 'loaded' only when prior status was
  *     'awaiting-background' AND remaining===0.
  *   - handleTurnFailed: updateBackgroundTab with lastTerminalReason + status
- *     'loaded'; no finalize; handleChatError STILL fires exactly once.
+ *     'loaded'; no finalize; the foreground handleChatError channel is NOT
+ *     invoked (its active-tab fallback would reset an unrelated foreground tab).
  * The existing active-tab path (findTabsBySessionId hit) is unaffected and never
  * calls updateBackgroundTab.
  */
@@ -348,7 +349,7 @@ describe('TurnEndHandlerService — background fallback', () => {
   });
 
   describe('handleTurnFailed background fallback', () => {
-    it('updates the bg tab with lastTerminalReason + loaded, no finalize, error routed once', () => {
+    it('updates the bg tab with lastTerminalReason + loaded, no finalize, no foreground error surface', () => {
       crossWsTab = makeTab();
 
       service.handleTurnFailed(makeTurnFailedPayload());
@@ -362,20 +363,18 @@ describe('TurnEndHandlerService — background fallback', () => {
       expect(setLastTerminalReasonMock).not.toHaveBeenCalled();
       expect(markTabIdleMock).not.toHaveBeenCalled();
 
-      expect(handleChatErrorMock).toHaveBeenCalledTimes(1);
-      expect(handleChatErrorMock).toHaveBeenCalledWith({
-        sessionId: SESS_BG,
-        error: 'Rate limited by Anthropic. Wait a moment and try again.',
-      });
+      // handleChatError's active-tab fallback would reset an unrelated
+      // foreground tab; a background failure must not reach it.
+      expect(handleChatErrorMock).not.toHaveBeenCalled();
     });
 
-    it('still routes handleChatError once when no tab is found anywhere', () => {
+    it('warns without routing handleChatError when no tab is found anywhere', () => {
       crossWsTab = null;
 
       service.handleTurnFailed(makeTurnFailedPayload());
 
       expect(updateBackgroundTabMock).not.toHaveBeenCalled();
-      expect(handleChatErrorMock).toHaveBeenCalledTimes(1);
+      expect(handleChatErrorMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleTurnFailed: no tab bound to sessionId',
         expect.objectContaining({ sessionId: SESS_BG }),

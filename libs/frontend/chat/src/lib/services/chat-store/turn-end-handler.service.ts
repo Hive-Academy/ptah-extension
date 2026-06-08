@@ -172,9 +172,16 @@ export class TurnEndHandlerService {
 
   /**
    * Handle the `session:turnFailed` push (backend `StopFailure` SDK hook).
-   * Always finalizes as aborted and routes the SDK error through the
-   * existing `ChatLifecycleService.handleChatError` channel so the error
-   * surface, reset semantics, and session refresh stay co-located.
+   *
+   * When a foreground tab is bound to the session, finalizes as aborted and
+   * routes the SDK error through `ChatLifecycleService.handleChatError` so the
+   * error surface, reset semantics, and session refresh stay co-located.
+   *
+   * When no foreground tab is bound, the failure belongs to a background
+   * workspace (or no tab at all): stamp the background tab's terminal state via
+   * `updateBackgroundTab` and return. The foreground `handleChatError` channel
+   * is intentionally skipped — its active-tab fallback would otherwise reset an
+   * unrelated foreground tab for a failure that is not its own.
    */
   handleTurnFailed(payload: SdkTurnFailedPayload): void {
     const tabs = this.tabManager.findTabsBySessionId(
@@ -189,22 +196,19 @@ export class TurnEndHandlerService {
           lastTerminalReason: payload.terminalReason,
           status: 'loaded',
         });
-      } else {
-        console.warn(
-          '[ChatStore] handleTurnFailed: no tab bound to sessionId',
-          {
-            sessionId: payload.sessionId,
-            terminalReason: payload.terminalReason,
-            error: payload.error,
-          },
-        );
+        return;
       }
-    } else {
-      for (const tab of tabs) {
-        this.tabManager.setLastTerminalReason(tab.id, payload.terminalReason);
-        this.finalization.finalizeCurrentMessage(tab.id, true);
-        this.tabManager.markTabIdle(tab.id);
-      }
+      console.warn('[ChatStore] handleTurnFailed: no tab bound to sessionId', {
+        sessionId: payload.sessionId,
+        terminalReason: payload.terminalReason,
+        error: payload.error,
+      });
+      return;
+    }
+    for (const tab of tabs) {
+      this.tabManager.setLastTerminalReason(tab.id, payload.terminalReason);
+      this.finalization.finalizeCurrentMessage(tab.id, true);
+      this.tabManager.markTabIdle(tab.id);
     }
     const errorMessage = this.formatTurnFailedError(payload);
     this.lifecycle.handleChatError({
