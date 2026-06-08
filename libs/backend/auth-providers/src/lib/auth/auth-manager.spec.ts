@@ -557,7 +557,8 @@ describe('AuthManager', () => {
       const result = await manager.configureAuthentication('apiKey');
 
       expect(result.configured).toBe(false);
-      expect(result.errorMessage).toContain('No authentication configured yet');
+      expect(result.errorMessage).toContain('No authentication configured');
+      expect(result.errorMessage).not.toMatch(/Settings|tab/i);
     });
   });
 });

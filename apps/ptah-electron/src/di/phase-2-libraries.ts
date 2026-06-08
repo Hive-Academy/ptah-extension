@@ -122,14 +122,13 @@ export function registerPhase2Libraries(
       const sqliteConnection = container.resolve<SqliteConnectionService>(
         PERSISTENCE_TOKENS.SQLITE_CONNECTION,
       );
-      const hostFallbackResolver =
-        createElectronVecPathFallbackResolver(logger);
+      const electronVecResolver = createElectronVecPathResolver(logger);
       sqliteConnection.configure({
-        vecPathFallbackResolver: hostFallbackResolver,
+        vecPathResolver: electronVecResolver,
       });
     } catch (error) {
       logger.warn(
-        '[Electron DI] Failed to wire electron vec fallback resolver (non-fatal)',
+        '[Electron DI] Failed to wire electron vec resolver (non-fatal)',
         { error: error instanceof Error ? error.message : String(error) },
       );
     }
@@ -176,9 +175,7 @@ export function registerPhase2Libraries(
   }
 }
 
-function createElectronVecPathFallbackResolver(
-  logger: Logger,
-): SqliteVecPathResolver {
+function createElectronVecPathResolver(logger: Logger): SqliteVecPathResolver {
   return () => {
     const packageName = resolveVecPackageName();
     if (!packageName) {

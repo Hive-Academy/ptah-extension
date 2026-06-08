@@ -39,11 +39,38 @@ interface StubState {
       readonly message: string;
     } | null>
   >;
+  readonly allowLists: ReturnType<
+    typeof signal<Record<'telegram' | 'discord' | 'slack', string[]>>
+  >;
+  readonly discordAppId: ReturnType<typeof signal<string | null>>;
+  readonly discordGuilds: ReturnType<
+    typeof signal<readonly { id: string; name: string }[]>
+  >;
   readonly hasApprovedBindingFor: jest.Mock<
     boolean,
     ['telegram' | 'discord' | 'slack']
   >;
   readonly initialize: jest.Mock<Promise<void>, []>;
+  readonly saveAllowList: jest.Mock<
+    Promise<{ ok: boolean; error?: string }>,
+    ['telegram' | 'discord' | 'slack', string[]]
+  >;
+  readonly loadAllowList: jest.Mock<
+    Promise<void>,
+    ['telegram' | 'discord' | 'slack']
+  >;
+  readonly saveDiscordAppId: jest.Mock<
+    Promise<{ ok: boolean; error?: string }>,
+    [string]
+  >;
+  readonly loadDiscordGuilds: jest.Mock<Promise<void>, []>;
+  readonly registerDiscordCommands: jest.Mock<
+    Promise<
+      | { ok: true; registered: number; scope: 'guild' | 'global' }
+      | { ok: false; error: string }
+    >,
+    []
+  >;
   readonly setToken: jest.Mock<
     Promise<void>,
     ['telegram' | 'discord' | 'slack', string, string?]
@@ -83,8 +110,24 @@ function makeStub(): StubState {
       readonly ok: boolean;
       readonly message: string;
     } | null>(null),
+    allowLists: signal<Record<'telegram' | 'discord' | 'slack', string[]>>({
+      telegram: [],
+      discord: [],
+      slack: [],
+    }),
+    discordAppId: signal<string | null>(null),
+    discordGuilds: signal<readonly { id: string; name: string }[]>([]),
     hasApprovedBindingFor: jest.fn(() => false),
     initialize: jest.fn(async () => undefined),
+    saveAllowList: jest.fn(async () => ({ ok: true as const })),
+    loadAllowList: jest.fn(async () => undefined),
+    saveDiscordAppId: jest.fn(async () => ({ ok: true as const })),
+    loadDiscordGuilds: jest.fn(async () => undefined),
+    registerDiscordCommands: jest.fn(async () => ({
+      ok: true as const,
+      registered: 1,
+      scope: 'guild' as const,
+    })),
     setToken: jest.fn(async () => undefined),
     approveBinding: jest.fn(async () => ({ ok: true as const })),
     rejectBinding: jest.fn(async () => undefined),
@@ -434,6 +477,7 @@ describe('MessagingGatewayTabComponent', () => {
         id,
         platform: 'telegram',
         externalChatId: 'chat-' + id,
+        allowListId: null,
         displayName: null,
         approvalStatus: 'pending',
         ptahSessionId: null,
@@ -485,6 +529,321 @@ describe('MessagingGatewayTabComponent', () => {
       approveBtn?.click();
       await Promise.resolve();
       expect(stub.approveBinding).toHaveBeenCalledWith('bind-1', 'ABC123');
+    });
+  });
+
+  describe('Discord integration', () => {
+    function mount(stub: StubState) {
+      TestBed.configureTestingModule({
+        imports: [MessagingGatewayTabComponent],
+        providers: [
+          { provide: GatewayStateService, useValue: stub },
+          { provide: VSCodeService, useValue: makeVscodeStub(true) },
+        ],
+      });
+      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('seeds the editable allow-list from state and saves trimmed, de-duplicated entries', async () => {
+      const stub = makeStub();
+      stub.allowLists.set({ telegram: [], discord: ['111', '222'], slack: [] });
+      const fixture = mount(stub);
+
+      const textarea = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-allowlist-discord"]',
+      ) as HTMLTextAreaElement;
+      expect(textarea.value).toBe('111\n222');
+
+      textarea.value = ' 111 \n\n333\n';
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-allowlist-save-discord"]',
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+
+      expect(stub.saveAllowList).toHaveBeenCalledWith('discord', [
+        '111',
+        '333',
+      ]);
+    });
+
+    it('builds an invite URL only once an application id is entered', () => {
+      const stub = makeStub();
+      const fixture = mount(stub);
+
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-invite"]',
+        ),
+      ).toBeNull();
+
+      const appIdInput = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-appid"]',
+      ) as HTMLInputElement;
+      appIdInput.value = '123456';
+      appIdInput.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      const invite = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-invite"]',
+      ) as HTMLAnchorElement;
+      expect(invite).not.toBeNull();
+      const href = invite.getAttribute('href') ?? '';
+      expect(href).toContain('client_id=123456');
+      expect(href).toContain('permissions=292057779200');
+      expect(href).toContain('scope=bot%20applications.commands');
+    });
+
+    it('saves the trimmed application id', async () => {
+      const stub = makeStub();
+      const fixture = mount(stub);
+      const appIdInput = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-appid"]',
+      ) as HTMLInputElement;
+      appIdInput.value = '  789  ';
+      appIdInput.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-appid-save"]',
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+      expect(stub.saveDiscordAppId).toHaveBeenCalledWith('789');
+    });
+
+    it('registers /ptah and shows a success summary', async () => {
+      const stub = makeStub();
+      stub.registerDiscordCommands.mockResolvedValueOnce({
+        ok: true,
+        registered: 2,
+        scope: 'guild',
+      });
+      const fixture = mount(stub);
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-register"]',
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(stub.registerDiscordCommands).toHaveBeenCalledTimes(1);
+      const feedback = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-register-feedback"]',
+      ) as HTMLElement;
+      expect(feedback.textContent).toContain('Registered /ptah on 2 server(s)');
+    });
+
+    it('maps a missing-application-id error to a friendly hint', async () => {
+      const stub = makeStub();
+      stub.registerDiscordCommands.mockResolvedValueOnce({
+        ok: false,
+        error: 'missing-application-id',
+      });
+      const fixture = mount(stub);
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-register"]',
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      const feedback = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-register-feedback"]',
+      ) as HTMLElement;
+      expect(feedback.textContent).toContain(
+        'set & save the Application ID first',
+      );
+    });
+
+    it('renders the integration block only for the Discord card', () => {
+      const stub = makeStub();
+      const fixture = mount(stub);
+      expect(
+        fixture.nativeElement.querySelectorAll(
+          '[data-testid="gateway-discord-integration"]',
+        ).length,
+      ).toBe(1);
+    });
+
+    it('shows the picker hint and no checkboxes when no servers are loaded', () => {
+      const stub = makeStub();
+      const fixture = mount(stub);
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid^="gateway-discord-guild-"]',
+        ),
+      ).toBeNull();
+    });
+
+    it('renders a checkbox per joined server, checked from the allow-list', () => {
+      const stub = makeStub();
+      stub.discordGuilds.set([
+        { id: 'g1', name: 'Alpha' },
+        { id: 'g2', name: 'Beta' },
+      ]);
+      stub.allowLists.set({ telegram: [], discord: ['g2'], slack: [] });
+      const fixture = mount(stub);
+
+      const g1 = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-guild-g1"] input',
+      ) as HTMLInputElement;
+      const g2 = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-guild-g2"] input',
+      ) as HTMLInputElement;
+      expect(g1.checked).toBe(false);
+      expect(g2.checked).toBe(true);
+    });
+
+    it('ticking an unchecked server adds it to the allow-list', async () => {
+      const stub = makeStub();
+      stub.discordGuilds.set([{ id: 'g1', name: 'Alpha' }]);
+      stub.allowLists.set({ telegram: [], discord: [], slack: [] });
+      const fixture = mount(stub);
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-guild-g1"] input',
+        ) as HTMLInputElement
+      ).click();
+      await Promise.resolve();
+      expect(stub.saveAllowList).toHaveBeenCalledWith('discord', ['g1']);
+    });
+
+    it('un-ticking a checked server removes it from the allow-list', async () => {
+      const stub = makeStub();
+      stub.discordGuilds.set([
+        { id: 'g1', name: 'Alpha' },
+        { id: 'g2', name: 'Beta' },
+      ]);
+      stub.allowLists.set({ telegram: [], discord: ['g1', 'g2'], slack: [] });
+      const fixture = mount(stub);
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-guild-g1"] input',
+        ) as HTMLInputElement
+      ).click();
+      await Promise.resolve();
+      expect(stub.saveAllowList).toHaveBeenCalledWith('discord', ['g2']);
+    });
+
+    it('Refresh re-queries the joined servers', async () => {
+      const stub = makeStub();
+      const fixture = mount(stub);
+      stub.loadDiscordGuilds.mockClear();
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-guilds-refresh"]',
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+      expect(stub.loadDiscordGuilds).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('allow-from-binding', () => {
+    function buildBinding(
+      over: Partial<GatewayBindingDto> & { id: string },
+    ): GatewayBindingDto {
+      return {
+        id: over.id,
+        platform: over.platform ?? 'telegram',
+        externalChatId: 'chat-' + over.id,
+        allowListId: over.allowListId ?? null,
+        displayName: over.displayName ?? null,
+        approvalStatus: over.approvalStatus ?? 'pending',
+        ptahSessionId: null,
+        workspaceRoot: null,
+        pairingCode: null,
+        createdAt: 0,
+        approvedAt: null,
+        lastActiveAt: null,
+      };
+    }
+
+    function mount(stub: StubState) {
+      TestBed.configureTestingModule({
+        imports: [MessagingGatewayTabComponent],
+        providers: [
+          { provide: GatewayStateService, useValue: stub },
+          { provide: VSCodeService, useValue: makeVscodeStub(true) },
+        ],
+      });
+      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('offers "Allow this user" for a pending telegram sender and appends its id', async () => {
+      const stub = makeStub();
+      stub.pendingBindings.set([
+        buildBinding({ id: 'b1', platform: 'telegram', allowListId: '12345' }),
+      ]);
+      const fixture = mount(stub);
+
+      const btn = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-allow-sender-b1"]',
+      ) as HTMLButtonElement;
+      expect(btn).not.toBeNull();
+      expect(btn.textContent?.trim()).toBe('Allow this user');
+
+      btn.click();
+      await Promise.resolve();
+      expect(stub.saveAllowList).toHaveBeenCalledWith('telegram', ['12345']);
+    });
+
+    it('labels the button per platform (discord = server)', () => {
+      const stub = makeStub();
+      stub.pendingBindings.set([
+        buildBinding({ id: 'b2', platform: 'discord', allowListId: 'guild-1' }),
+      ]);
+      const fixture = mount(stub);
+      const btn = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-allow-sender-b2"]',
+      ) as HTMLButtonElement;
+      expect(btn.textContent?.trim()).toBe('Allow this server');
+    });
+
+    it('hides the button when the binding carries no allow-list id', () => {
+      const stub = makeStub();
+      stub.pendingBindings.set([
+        buildBinding({ id: 'b3', platform: 'telegram', allowListId: null }),
+      ]);
+      const fixture = mount(stub);
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-allow-sender-b3"]',
+        ),
+      ).toBeNull();
+    });
+
+    it('hides the button when the sender is already allow-listed', () => {
+      const stub = makeStub();
+      stub.allowLists.set({ telegram: ['12345'], discord: [], slack: [] });
+      stub.pendingBindings.set([
+        buildBinding({ id: 'b4', platform: 'telegram', allowListId: '12345' }),
+      ]);
+      const fixture = mount(stub);
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-allow-sender-b4"]',
+        ),
+      ).toBeNull();
     });
   });
 });

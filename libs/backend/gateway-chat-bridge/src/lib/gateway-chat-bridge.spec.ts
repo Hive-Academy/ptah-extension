@@ -44,6 +44,7 @@ function makeBinding(
     id: BindingId.create(overrides.id ?? 'binding-1'),
     platform: overrides.platform ?? 'telegram',
     externalChatId: overrides.externalChatId ?? 'chat-1',
+    allowListId: null,
     displayName: null,
     approvalStatus: 'approved',
     ptahSessionId: overrides.ptahSessionId ?? null,

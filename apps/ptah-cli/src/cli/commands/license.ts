@@ -104,8 +104,13 @@ async function runSet(
       plan?: { name?: string };
       error?: string;
     }>(ctx.transport, 'license:setKey', { licenseKey: key });
-    if (result?.success === false) {
-      throw new Error(result.error ?? 'license:setKey failed');
+    if (result?.success !== true) {
+      await formatter.writeNotification('task.error', {
+        success: false,
+        ptah_code: 'license_required',
+        message: result?.error ?? 'license:setKey returned success=false',
+      });
+      return ExitCode.LicenseRequired;
     }
     let expiryWarning: 'near_expiry' | 'critical' | null = null;
     let daysRemaining: number | null = null;

@@ -54,6 +54,8 @@ export interface GatewayBinding {
   id: BindingId;
   platform: GatewayPlatform;
   externalChatId: string;
+  /** Allow-list id captured at inbound: Telegram user / Discord guild / Slack team. */
+  allowListId: string | null;
   displayName: string | null;
   approvalStatus: ApprovalStatus;
   ptahSessionId: string | null;

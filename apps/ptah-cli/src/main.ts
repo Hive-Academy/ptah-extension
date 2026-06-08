@@ -27,6 +27,29 @@ fixPath();
 
 let shuttingDown = false;
 
+/**
+ * Suppress only the DEP0190 DeprecationWarning (child_process spawned with
+ * `shell: true` and an args array), which the bundled SDK emits on every
+ * SDK-touching command. It is harmless to the NDJSON stdout stream but noisy
+ * on stderr for humans. Every other warning is re-emitted to Node's default
+ * handler so genuine diagnostics still surface. The upstream fix belongs in
+ * the SDK's spawn sites, which are out of scope for the CLI.
+ */
+function installDep0190Filter(): void {
+  const isDep0190 = (warning: Error & { code?: string }): boolean =>
+    warning.name === 'DeprecationWarning' && warning.code === 'DEP0190';
+
+  const defaultHandler = (warning: Error): void => {
+    process.stderr.write(`${warning.stack ?? warning.message}\n`);
+  };
+
+  process.removeAllListeners('warning');
+  process.on('warning', (warning: Error & { code?: string }) => {
+    if (isDep0190(warning)) return;
+    defaultHandler(warning);
+  });
+}
+
 function installSignalHandlers(): void {
   const onSignal = (signal: 'SIGINT' | 'SIGTERM', exitCode: number) => () => {
     if (shuttingDown) {
@@ -85,6 +108,7 @@ function checkSchemaVersionSkew(): void {
 }
 
 async function main(): Promise<void> {
+  installDep0190Filter();
   installSignalHandlers();
   checkSchemaVersionSkew();
 

@@ -84,6 +84,18 @@ function buildMinimalContainer(): DependencyContainer {
       delete: jest.fn(async () => undefined),
     },
   });
+  c.register(TOKENS.AUTH_SECRETS_SERVICE, {
+    useValue: {
+      getCredential: jest.fn(async () => undefined),
+      setCredential: jest.fn(async () => undefined),
+      deleteCredential: jest.fn(async () => undefined),
+      hasCredential: jest.fn(async () => false),
+      getProviderKey: jest.fn(async () => undefined),
+      setProviderKey: jest.fn(async () => undefined),
+      deleteProviderKey: jest.fn(async () => undefined),
+      hasProviderKey: jest.fn(async () => false),
+    },
+  });
 
   c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
     useValue: {

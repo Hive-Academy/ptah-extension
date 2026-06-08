@@ -17,6 +17,7 @@ import * as doctorCmd from './commands/doctor.js';
 import * as executeSpecCmd from './commands/execute-spec.js';
 import * as gitCmd from './commands/git.js';
 import * as harnessCmd from './commands/harness.js';
+import * as initCmd from './commands/init.js';
 import * as interactCmd from './commands/interact.js';
 import * as licenseCmd from './commands/license.js';
 import * as mcpCmd from './commands/mcp.js';
@@ -186,6 +187,21 @@ export function buildRouter(): Command {
       'show sensitive values verbatim (config list only)',
       false,
     );
+
+  // -- ptah init -------------------------------------------------------------
+  // Interactive first-run setup wizard (clack) when stdout is an interactive
+  // TTY and --json was not requested. In machine mode (default / non-TTY /
+  // --json / --quiet) it never prompts — it emits a structured `init.plan`
+  // with the discrete commands an agent should run to finish setup.
+  program
+    .command('init')
+    .description(
+      'interactive first-run setup (license, provider, credentials, verify). In machine mode emits a non-interactive init.plan.',
+    )
+    .action(async () => {
+      const exit = await initCmd.execute({}, resolveGlobals(program));
+      process.exitCode = exit;
+    });
 
   // -- ptah config -----------------------------------------------------------
   const config = program
@@ -1903,7 +1919,7 @@ export function buildRouter(): Command {
   session
     .command('start')
     .description(
-      'start a new chat session — synthesizes a tabId, persists the entry, and (with --task) streams a turn',
+      'start a new chat session — synthesizes a tabId, persists the entry, and (with --task) streams a turn. With --task it runs a single turn and exits cleanly; without --task it opens a persistent session that stays running. For one-shot human use add --human (and optionally --once).',
     )
     .option('--profile <name>', 'system prompt preset (claude_code|enhanced)')
     .option('--task <text>', 'initial prompt — when given, streams the turn')
@@ -2264,7 +2280,9 @@ export function buildRouter(): Command {
   // -- ptah interact ---------------------------------------------------------
   program
     .command('interact')
-    .description('persistent JSON-RPC 2.0 stdio session')
+    .description(
+      'persistent JSON-RPC 2.0 stdio session — BLOCKS reading newline-delimited requests from stdin until EOF (Ctrl-D) or SIGINT (Ctrl-C). For machine/A2A hosts. For a one-shot human run prefer `ptah session start --task "..." --once --human`.',
+    )
     .option('--session <id>', 'resume or create the session with this id')
     .option(
       '--proxy-start',

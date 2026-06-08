@@ -129,8 +129,11 @@ export class SessionStatsAggregatorService {
           );
         }
       } else {
+        for (const t of targetTabs) {
+          this.tabManager.setModelUsageList(t.id, stats.modelUsage);
+        }
         console.warn(
-          '[ChatStore] handleSessionStats: skipped post-compaction cumulative-fallback update',
+          '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction); preserved per-model breakdown',
           {
             sessionId: stats.sessionId,
             model: primaryModel.model,

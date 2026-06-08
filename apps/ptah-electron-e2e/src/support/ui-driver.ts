@@ -32,6 +32,7 @@ const NAMESPACE_EMPTY_DEFAULTS: Record<string, unknown> = {
   bindings: [],
   candidates: [],
   entries: [],
+  guilds: [],
 };
 
 const DEFAULT_STARTUP_CONFIG: StartupConfigSeed = {

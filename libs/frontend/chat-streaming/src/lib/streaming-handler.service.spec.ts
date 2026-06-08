@@ -612,6 +612,44 @@ describe('StreamingHandlerService', () => {
 
       expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
     });
+
+    // Regression: clicking Stop ends the turn (markTabIdle clears the flag and
+    // stamps an aborted terminal reason), then the SDK emits a trailing
+    // "[Request interrupted by user]" message. That content must NOT self-heal
+    // the spinner back on — otherwise the stop button reappears and the user
+    // has to click it twice. A clean completion still self-heals (above).
+    it('does NOT re-mark when the last turn ended in aborted_streaming (post-abort interrupt content)', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'aborted_streaming' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('does NOT re-mark when the last turn ended in aborted_tools', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'aborted_tools' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('still self-heals when the last turn completed cleanly (background resume path)', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'completed' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
+    });
   });
 
   // Multi-tab fan-out. When two tabs share a claudeSessionId (canvas-grid

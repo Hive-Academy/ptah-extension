@@ -63,12 +63,30 @@ export async function createTmpHome(prefix = 'ptah-e2e-'): Promise<TmpHome> {
       if (!realTarget.startsWith(realTmp)) {
         return;
       }
-      await fsp.rm(homePath, {
-        recursive: true,
-        force: true,
-        maxRetries: 3,
-        retryDelay: 100,
-      });
+      try {
+        await fsp.rm(homePath, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 200,
+        });
+      } catch (err) {
+        // Best-effort: on Windows a freshly-killed CLI child can still hold a
+        // native handle (the SQLite db under .ptah) when rmdir runs, yielding
+        // EBUSY/EPERM/ENOTEMPTY even after retries. The tmp dir lives under
+        // os.tmpdir(), so a leftover is reclaimed on reboot at worst — never
+        // fail a test over it. Genuinely unexpected errors still surface.
+        const code = (err as NodeJS.ErrnoException).code;
+        if (
+          code === 'EBUSY' ||
+          code === 'EPERM' ||
+          code === 'ENOTEMPTY' ||
+          code === 'ENOTDIR'
+        ) {
+          return;
+        }
+        throw err;
+      }
     },
   };
 }

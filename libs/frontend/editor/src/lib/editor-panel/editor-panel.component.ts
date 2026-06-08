@@ -3,6 +3,7 @@ import {
   inject,
   signal,
   computed,
+  effect,
   OnInit,
   OnDestroy,
   ChangeDetectionStrategy,
@@ -503,12 +504,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     }
   };
 
-  ngOnInit(): void {
+  private readonly _workspaceBinding = effect(() => {
     const workspaceRoot = this.vscodeService.config().workspaceRoot;
     if (workspaceRoot) {
       this.editorService.switchWorkspace(workspaceRoot);
     }
+  });
 
+  ngOnInit(): void {
     this.gitStatus.startListening();
     this.editorService.startFileTreeWatcher();
     void this.vimModeService.loadPreference();
