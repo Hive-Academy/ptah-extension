@@ -113,6 +113,7 @@ function makeBinding(
   const { id: rawId, ...rest } = overrides;
   return {
     id: BindingId.create(rawId ?? 'binding-1'),
+    allowListId: null,
     displayName: null,
     approvalStatus: 'approved',
     ptahSessionId: null,

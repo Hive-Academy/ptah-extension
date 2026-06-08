@@ -30,17 +30,36 @@ npm view @hive-academy/ptah-cli --json | jq '.dist.attestations'
 
 ## First-time setup
 
-A fresh `ptah` install needs three things to run agent turns: a license, an authenticated provider, and an active auth strategy. Pick one of the two paths below.
+A fresh `ptah` install needs a provider, credentials for it, and (for premium features) a license. A fresh install has **no default provider** (`llm.defaultProvider: ""`), so you must pick one before turns will start. Pick one of the paths below.
 
-`ptah doctor` is the source of truth on whether the CLI is ready. When `effective.ready` is `false` it emits a `hints` array of the exact commands needed to get green — read it after every setup step.
+`ptah doctor` is the source of truth on whether the CLI is ready. When `effective.ready` is `false` it emits a `hints` array of the exact commands needed to get green — read it after every setup step. `doctor` reflects the exact secret slot the SDK reads, so `doctor` and `session start` always agree.
 
-### Bootstrapping a new machine from scratch
+### Guided setup with `ptah init`
 
 ```bash
-ptah license set --key ptah_lic_...               # paste your license key
-ptah auth login github-copilot                    # or claude (claude-cli) / openai-codex
+ptah init --human                                 # interactive wizard on a TTY
+```
+
+`ptah init` walks license → provider → credentials → optional tier mapping → verify → optional smoke turn. On a TTY with `--human` it uses interactive prompts; in machine mode (the default when stdout is not a TTY, or with `--json` / `--quiet`) it never prompts — it emits an ordered `init.plan` describing exactly which commands to run. See [`### init`](#init) below.
+
+### Bootstrapping a new machine from scratch (pure CLI)
+
+```bash
+ptah provider set-key --provider anthropic --key sk-ant-...   # writes the slot the SDK reads
+ptah provider default set anthropic                           # pick a provider (required)
+ptah license set --key ptah_lic_...                           # optional — Community works without
+ptah doctor                                                   # confirm effective.ready: true
+```
+
+`provider set-key` validates the key and reports `verified:true/false`; a malformed key is rejected with exit `3`. `license set` rejects a server-rejected key with exit `4`. Trust the exit code and `verified`, not a bare `success`. The old "`ANTHROPIC_API_KEY` env var is the only working path" workaround is no longer required — `set-key` now reaches the SDK directly (the env var still works as an alternative).
+
+To bootstrap with an OAuth provider instead of an API key:
+
+```bash
+ptah auth login github-copilot                    # or codex (codex login --device-auth)
 ptah auth use github-copilot                      # switch active strategy
-ptah doctor                                       # confirm effective.ready: true
+ptah provider default set github-copilot
+ptah doctor
 ```
 
 ### Copying setup from a machine where Ptah is already configured
@@ -65,6 +84,10 @@ The CLI and the Electron desktop app share `~/.ptah/settings.json` for configura
 ## Quick start
 
 ```bash
+# First-run setup. On a TTY use the interactive wizard; in scripts/agents
+# drop --human to get a machine-readable init.plan instead.
+ptah init --human
+
 # Single-turn agent invocation, streams JSON-RPC notifications on stdout.
 ptah session start --task "explain this repo"
 
@@ -82,16 +105,71 @@ All commands accept the [global flags](#global-flags). Most commands emit JSON-R
 
 ### Top-level commands
 
-| Command                       | Description                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------------- |
-| `--version` / `-V`            | Print package version and exit.                                                 |
-| `--help` / `-h`               | Print usage and exit.                                                           |
-| `analyze`                     | Run multi-phase workspace analysis (`wizard:deep-analyze`). Premium-gated.      |
-| `setup`                       | Run the 5-phase Setup Wizard end-to-end.                                        |
-| `run --task <text>`           | DEPRECATED alias for `session start --task`. Emits a stderr deprecation notice. |
-| `execute-spec --id <task-id>` | Execute a stored spec via the Team Leader agent.                                |
-| `interact`                    | Persistent bidirectional JSON-RPC 2.0 stdio session.                            |
-| `mcp-serve`                   | Serve Ptah as a stdio Model Context Protocol server for external hosts.         |
+| Command                       | Description                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `--version` / `-V`            | Print package version and exit.                                                                             |
+| `--help` / `-h`               | Print usage and exit.                                                                                       |
+| `init`                        | First-run setup wizard. Interactive on a TTY with `--human`; otherwise emits a non-interactive `init.plan`. |
+| `doctor` / `diagnose`         | Readiness oracle — emits `doctor.report` (`effective.ready` + `hints[]`).                                   |
+| `analyze`                     | Run multi-phase workspace analysis (`wizard:deep-analyze`). Premium-gated.                                  |
+| `setup`                       | Run the 5-phase Setup Wizard end-to-end.                                                                    |
+| `run --task <text>`           | DEPRECATED alias for `session start --task`. Emits a stderr deprecation notice.                             |
+| `execute-spec --id <task-id>` | Execute a stored spec via the Team Leader agent.                                                            |
+| `interact`                    | Persistent bidirectional JSON-RPC 2.0 stdio session.                                                        |
+| `mcp-serve`                   | Serve Ptah as a stdio Model Context Protocol server for external hosts.                                     |
+
+### init
+
+First-run setup. Walks license → provider → credentials → optional tier mapping → verify (doctor) → optional smoke turn → next steps.
+
+| Flag     | Description                                                                            |
+| -------- | -------------------------------------------------------------------------------------- |
+| _(none)_ | Uses the [global flags](#global-flags) only. `--human` on a TTY → interactive prompts. |
+
+**Interactive mode** (fancy [@clack](https://github.com/bombshell-dev/clack) prompts) runs only when stdout is a real TTY **and** `--json` was not requested — in practice, pass `--human` from an interactive terminal:
+
+```bash
+ptah init --human
+```
+
+**Machine mode** is the default everywhere else (non-TTY, or `--json`, or `--quiet`) and **never prompts**. It emits a single `init.plan` notification and exits `0`. This is the path AI agents and scripts should use: spawn `ptah init`, read `init.plan`, then run each unsatisfied `command`.
+
+```bash
+ptah init   # → one init.plan notification on stdout, exit 0
+```
+
+`init.plan.params` carries:
+
+| Field      | Shape                                                  | Meaning                                                           |
+| ---------- | ------------------------------------------------------ | ----------------------------------------------------------------- |
+| `ready`    | `boolean`                                              | Mirror of `doctor`'s `effective.ready` — true when turns can run. |
+| `route`    | `string`                                               | The resolved auth route (e.g. `api-key`, `oauth`, `cli`).         |
+| `blockers` | `string[]`                                             | Human-readable reasons setup is not ready (empty when `ready`).   |
+| `license`  | `{ tier, valid, daysRemaining }`                       | License snapshot.                                                 |
+| `auth`     | `{ authMethod, defaultProvider, anthropicProviderId }` | Auth/provider snapshot.                                           |
+| `steps`    | `Array<{ id, description, command, satisfied }>`       | Ordered setup steps; run the `command` of each `satisfied:false`. |
+
+Step ids are `license`, `provider.default`, `provider.credential`, and `verify`. Have the user run the credential/license `command`s themselves so raw secrets never pass through an agent; never invent keys. After running the steps, verify with `ptah doctor` and proceed only when `effective.ready:true`.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "init.plan",
+  "params": {
+    "ready": true,
+    "route": "api-key",
+    "blockers": [],
+    "license": { "tier": "community", "valid": true, "daysRemaining": null },
+    "auth": { "authMethod": "anthropic-api-key", "defaultProvider": "anthropic", "anthropicProviderId": "anthropic" },
+    "steps": [
+      { "id": "license", "description": "Set a Ptah license key (optional — Community tier works without one)", "command": "ptah license set --key ptah_lic_...", "satisfied": true },
+      { "id": "provider.default", "description": "Choose a default provider", "command": "ptah provider default set <provider-id>", "satisfied": true },
+      { "id": "provider.credential", "description": "Store an API key for anthropic", "command": "ptah provider set-key --provider anthropic --key <KEY>", "satisfied": true },
+      { "id": "verify", "description": "Verify readiness", "command": "ptah doctor", "satisfied": true }
+    ]
+  }
+}
+```
 
 ### `session *` — chat sessions
 
@@ -380,6 +458,12 @@ from external agents") at
 Errors are written to **stderr** as JSON-RPC error objects with the standard `code` (`-32700` parse error, `-32600` invalid request, `-32601` method not found, `-32602` invalid params, `-32603` internal error) and a Ptah-specific `data.ptah_code` (`auth_required`, `license_required`, `internal_failure`, `wizard_phase_failed`, `cli_agent_unavailable`, etc.). See [`docs/jsonrpc-schema.md`](docs/jsonrpc-schema.md) for the full taxonomy.
 
 ## Troubleshooting
+
+**`session start` exits `3` (`auth_required`) on a fresh install** — A fresh install has no default provider (`llm.defaultProvider: ""`), so nothing can resolve headlessly. Run `ptah doctor` (or `ptah init`) to see the blocker, then `ptah provider default set <id>` plus `ptah provider set-key`. The bootstrap auth error is runtime-neutral: "No authentication configured. Set a provider API key or sign in to a provider, then retry." (there is no GUI settings tab in the CLI).
+
+**`provider set-key` reported `success` but turns still fail** — Trust `verified` and the exit code, not a bare `success`. A malformed key is rejected with `verified:false` and exit `3`. A good key returns `{ success:true, verified:true }` and exit `0`, writes the exact slot the SDK reads, and persists `authMethod`. After it, `ptah doctor` should show `effective.ready:true` — `doctor` and `session start` now agree.
+
+**`license set` accepted a bad key on Community tier** — It no longer does. A server-rejected key fails with exit `4` (`license_required`) and a `task.error` like "License key was not accepted (not_found)" instead of silently downgrading to `tier:community`. Read the exit code.
 
 **`license_required` on `session start` / `setup` / `analyze`** — Premium-gated commands require a valid Ptah license. Set one via `ptah license set --key ptah_lic_...`. Read-only commands (`license status`, `config list`, `auth status`) are unaffected.
 

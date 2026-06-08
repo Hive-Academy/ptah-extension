@@ -45,6 +45,21 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
 ];
 
 /**
+ * View Channel + Send Messages + Create Public Threads + Send Messages in
+ * Threads — the minimum the Discord adapter needs to create per-conversation
+ * threads and stream replies into them.
+ */
+const DISCORD_INVITE_PERMISSIONS = '292057779200';
+
+function describeRegisterError(error: string): string {
+  if (error === 'missing-application-id') {
+    return 'set & save the Application ID first';
+  }
+  if (error === 'missing-token') return 'save the bot token first';
+  return error;
+}
+
+/**
  * MessagingGatewayTabComponent
  *
  * Gateway tab inside the Thoth shell. Renders:
@@ -256,18 +271,153 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                 <span class="label-text text-xs">
                   Allow-list ({{ cfg.label }})
                   <span class="text-base-content/50">
-                    — one entry per line; configured in
-                    <span class="font-mono">~/.ptah/settings.json</span>
+                    — one ID per line. Empty = accept any sender it can see.
                   </span>
                 </span>
                 <textarea
                   class="textarea textarea-bordered textarea-sm mt-1 w-full font-mono"
                   rows="3"
-                  readonly
-                  [attr.aria-label]="cfg.label + ' allow-list (read-only)'"
-                  [value]="allowListPlaceholder"
+                  [attr.data-testid]="'gateway-allowlist-' + cfg.id"
+                  [attr.aria-label]="cfg.label + ' allow-list'"
+                  [value]="allowListValue(cfg.id)"
+                  (input)="onAllowListInput(cfg.id, $event)"
                 ></textarea>
+                <div class="mt-1 flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-xs"
+                    [attr.data-testid]="'gateway-allowlist-save-' + cfg.id"
+                    (click)="onSaveAllowList(cfg.id)"
+                  >
+                    Save allow-list
+                  </button>
+                  @if (allowListFeedbackFor(cfg.id); as fb) {
+                    <span class="text-xs text-base-content/70">{{ fb }}</span>
+                  }
+                </div>
               </label>
+
+              @if (cfg.id === 'discord') {
+                <div
+                  class="mt-3 flex flex-col gap-2 rounded border border-base-300 p-3"
+                  data-testid="gateway-discord-integration"
+                >
+                  <h4 class="text-xs font-semibold">Discord integration</h4>
+
+                  <label class="form-control w-full">
+                    <span class="label-text text-xs">
+                      Application (client) ID
+                    </span>
+                    <div class="flex items-center gap-2">
+                      <input
+                        type="text"
+                        autocomplete="off"
+                        class="input input-bordered input-sm w-full font-mono"
+                        placeholder="e.g. 1512896140939362527"
+                        data-testid="gateway-discord-appid"
+                        [value]="discordAppIdValue()"
+                        (input)="onDiscordAppIdInput($event)"
+                        aria-label="Discord application id"
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-sm"
+                        data-testid="gateway-discord-appid-save"
+                        (click)="onSaveDiscordAppId()"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </label>
+
+                  <div class="flex flex-wrap items-center gap-2">
+                    @if (discordInviteUrl(); as url) {
+                      <a
+                        class="btn btn-primary btn-sm"
+                        [href]="url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="gateway-discord-invite"
+                      >
+                        Add to your server
+                      </a>
+                    } @else {
+                      <span class="text-xs text-base-content/50">
+                        Enter the Application ID to generate an invite link.
+                      </span>
+                    }
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      data-testid="gateway-discord-register"
+                      [disabled]="registering()"
+                      (click)="onRegisterDiscordCommands()"
+                    >
+                      @if (registering()) {
+                        Registering&hellip;
+                      } @else {
+                        Register /ptah
+                      }
+                    </button>
+                  </div>
+
+                  @if (registerFeedback(); as fb) {
+                    <span
+                      class="text-xs text-base-content/70"
+                      data-testid="gateway-discord-register-feedback"
+                      >{{ fb }}</span
+                    >
+                  }
+                  <!-- Server picker -->
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                      <span class="label-text text-xs">
+                        Allowed servers
+                        <span class="text-base-content/50">
+                          — tick to allow; empty = any server the bot is in
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        data-testid="gateway-discord-guilds-refresh"
+                        (click)="onRefreshGuilds()"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                    @if (discordGuilds().length === 0) {
+                      <span class="text-xs text-base-content/50">
+                        Start the bot, then Refresh to pick servers by name (or
+                        add IDs in the allow-list above).
+                      </span>
+                    } @else {
+                      @for (g of discordGuilds(); track g.id) {
+                        <label
+                          class="flex items-center gap-2 text-xs"
+                          [attr.data-testid]="'gateway-discord-guild-' + g.id"
+                        >
+                          <input
+                            type="checkbox"
+                            class="checkbox checkbox-xs"
+                            [checked]="isGuildAllowed(g.id)"
+                            (change)="onToggleGuild(g.id)"
+                            [attr.aria-label]="'Allow server ' + g.name"
+                          />
+                          <span>{{ g.name }}</span>
+                        </label>
+                      }
+                    }
+                  </div>
+
+                  <span class="text-xs text-base-content/50">
+                    Invite grants View Channel, Send Messages, Create Public
+                    Threads, and Send Messages in Threads. Enable the Message
+                    Content intent in the Developer Portal for free-form
+                    replies.
+                  </span>
+                </div>
+              }
 
               <!-- Send test -->
               <div class="mt-3 flex items-center gap-2">
@@ -366,6 +516,16 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                       >
                         Reject
                       </button>
+                      @if (canAllowSender(b)) {
+                        <button
+                          type="button"
+                          class="btn btn-outline btn-xs"
+                          [attr.data-testid]="'gateway-allow-sender-' + b.id"
+                          (click)="onAllowSender(b)"
+                        >
+                          {{ allowSenderLabel(b.platform) }}
+                        </button>
+                      }
                     </div>
                   </li>
                 }
@@ -399,13 +559,25 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                         }
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-xs"
-                      (click)="onRevoke(b)"
-                    >
-                      Revoke
-                    </button>
+                    <div class="flex items-center gap-2">
+                      @if (canAllowSender(b)) {
+                        <button
+                          type="button"
+                          class="btn btn-outline btn-xs"
+                          [attr.data-testid]="'gateway-allow-sender-' + b.id"
+                          (click)="onAllowSender(b)"
+                        >
+                          {{ allowSenderLabel(b.platform) }}
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        (click)="onRevoke(b)"
+                      >
+                        Revoke
+                      </button>
+                    </div>
                   </li>
                 }
               </ul>
@@ -573,8 +745,6 @@ export class MessagingGatewayTabComponent implements OnInit {
   private readonly vscode = inject(VSCodeService);
 
   protected readonly platformCards = PLATFORM_CARDS;
-  protected readonly allowListPlaceholder =
-    'Configured in settings file (gateway.allowList.<platform>).';
   protected readonly enabled = this.state.enabled;
   protected readonly platforms = this.state.platforms;
   protected readonly pendingBindings = this.state.pendingBindings;
@@ -583,6 +753,7 @@ export class MessagingGatewayTabComponent implements OnInit {
   protected readonly whisperModel = this.state.whisperModel;
   protected readonly rateLimit = this.state.rateLimit;
   protected readonly voiceDownload = this.state.voiceDownload;
+  protected readonly discordGuilds = this.state.discordGuilds;
 
   /**
    * Local-only token signals — one per (platform, kind). These are the ONLY
@@ -596,6 +767,21 @@ export class MessagingGatewayTabComponent implements OnInit {
 
   /** Pending-binding code-entry inputs, keyed by binding id. */
   private readonly bindingCodes = signal<Record<string, string>>({});
+
+  /**
+   * Local edit drafts for the per-platform allow-list textareas, keyed by
+   * platform. Undefined entry means "show the persisted value"; once the user
+   * types, the draft takes over until saved (then cleared back to persisted).
+   */
+  private readonly allowListDrafts = signal<Record<string, string>>({});
+  private readonly allowListFeedback = signal<Record<string, string>>({});
+
+  /** Local edit draft for the Discord application id (null = show persisted). */
+  private readonly discordAppIdDraft = signal<string | null>(null);
+
+  /** Discord slash-command registration in-flight + last result. */
+  protected readonly registering = signal(false);
+  protected readonly registerFeedback = signal<string | null>(null);
 
   /** Transient toast for binding-approval feedback (code mismatch, etc.). */
   protected readonly approvalToast = signal<string | null>(null);
@@ -770,6 +956,129 @@ export class MessagingGatewayTabComponent implements OnInit {
 
   protected async onRevoke(binding: GatewayBindingDto): Promise<void> {
     await this.state.revokeBinding(binding.id);
+  }
+
+  protected allowListValue(platform: GatewayPlatformId): string {
+    const draft = this.allowListDrafts()[platform];
+    if (draft !== undefined) return draft;
+    return this.state.allowLists()[platform].join('\n');
+  }
+
+  protected onAllowListInput(platform: GatewayPlatformId, event: Event): void {
+    const target = event.target as HTMLTextAreaElement | null;
+    if (!target) return;
+    const value = target.value;
+    this.allowListDrafts.update((current) => ({
+      ...current,
+      [platform]: value,
+    }));
+  }
+
+  protected allowListFeedbackFor(platform: GatewayPlatformId): string | null {
+    return this.allowListFeedback()[platform] ?? null;
+  }
+
+  protected isSenderAllowed(binding: GatewayBindingDto): boolean {
+    const id = binding.allowListId;
+    if (!id) return false;
+    return this.state.allowLists()[binding.platform].includes(id);
+  }
+
+  protected canAllowSender(binding: GatewayBindingDto): boolean {
+    return !!binding.allowListId && !this.isSenderAllowed(binding);
+  }
+
+  protected allowSenderLabel(platform: GatewayPlatformId): string {
+    if (platform === 'discord') return 'Allow this server';
+    if (platform === 'slack') return 'Allow this workspace';
+    return 'Allow this user';
+  }
+
+  protected async onAllowSender(binding: GatewayBindingDto): Promise<void> {
+    const id = binding.allowListId;
+    if (!id) return;
+    const current = this.state.allowLists()[binding.platform];
+    if (current.includes(id)) return;
+    await this.state.saveAllowList(binding.platform, [...current, id]);
+  }
+
+  protected isGuildAllowed(id: string): boolean {
+    return this.state.allowLists().discord.includes(id);
+  }
+
+  protected async onToggleGuild(id: string): Promise<void> {
+    const current = this.state.allowLists().discord;
+    const next = current.includes(id)
+      ? current.filter((g) => g !== id)
+      : [...current, id];
+    await this.state.saveAllowList('discord', next);
+  }
+
+  protected async onRefreshGuilds(): Promise<void> {
+    await this.state.loadDiscordGuilds();
+  }
+
+  protected async onSaveAllowList(platform: GatewayPlatformId): Promise<void> {
+    const entries = this.allowListValue(platform)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    const result = await this.state.saveAllowList(platform, entries);
+    this.allowListDrafts.update((current) => {
+      const next = { ...current };
+      delete next[platform];
+      return next;
+    });
+    this.allowListFeedback.update((current) => ({
+      ...current,
+      [platform]: result.ok ? 'Saved.' : `Save failed: ${result.error}`,
+    }));
+  }
+
+  protected discordAppIdValue(): string {
+    const draft = this.discordAppIdDraft();
+    if (draft !== null) return draft;
+    return this.state.discordAppId() ?? '';
+  }
+
+  protected onDiscordAppIdInput(event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    if (!target) return;
+    this.discordAppIdDraft.set(target.value);
+  }
+
+  protected async onSaveDiscordAppId(): Promise<void> {
+    await this.state.saveDiscordAppId(this.discordAppIdValue().trim());
+    this.discordAppIdDraft.set(null);
+  }
+
+  protected discordInviteUrl(): string | null {
+    const appId = this.discordAppIdValue().trim();
+    if (!appId) return null;
+    const scope = encodeURIComponent('bot applications.commands');
+    return (
+      `https://discord.com/api/oauth2/authorize` +
+      `?client_id=${encodeURIComponent(appId)}` +
+      `&scope=${scope}` +
+      `&permissions=${DISCORD_INVITE_PERMISSIONS}`
+    );
+  }
+
+  protected async onRegisterDiscordCommands(): Promise<void> {
+    this.registering.set(true);
+    this.registerFeedback.set(null);
+    try {
+      const result = await this.state.registerDiscordCommands();
+      this.registerFeedback.set(
+        result.ok
+          ? `Registered /ptah on ${result.registered} ${
+              result.scope === 'guild' ? 'server(s)' : 'globally'
+            }.`
+          : `Registration failed: ${describeRegisterError(result.error)}`,
+      );
+    } finally {
+      this.registering.set(false);
+    }
   }
 
   protected onDismissVoiceToast(): void {

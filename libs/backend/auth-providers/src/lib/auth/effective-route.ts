@@ -105,14 +105,27 @@ export function resolveEffectiveAuthRoute(
     return { route: 'unresolved', ready: false, blockers };
   }
 
+  const normalize = (v: string | null | undefined): string | null => {
+    const t = (v ?? '').trim();
+    return t.length > 0 ? t : null;
+  };
+
   let driverProviderId: string | null = null;
   if (legacy === 'claudeCli') {
     driverProviderId = 'claude-cli';
   } else if (legacy === 'thirdParty') {
     driverProviderId =
-      config.anthropicProviderId ?? config.defaultProvider ?? null;
+      normalize(config.anthropicProviderId) ??
+      normalize(config.defaultProvider);
   } else if (legacy === 'apiKey') {
-    driverProviderId = config.defaultProvider ?? 'anthropic';
+    driverProviderId = normalize(config.defaultProvider) ?? 'anthropic';
+  }
+
+  if (driverProviderId === null) {
+    blockers.push(
+      'no provider selected — choose a provider and configure its credentials',
+    );
+    return { route: 'unresolved', ready: false, blockers };
   }
 
   const driver = providers.find((p) => p.id === driverProviderId);

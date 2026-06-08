@@ -10,7 +10,10 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
-import type { SentryService } from '@ptah-extension/vscode-core';
+import type {
+  SentryService,
+  IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ISecretStorage } from '@ptah-extension/platform-core';
 import type {
@@ -70,6 +73,37 @@ const PROVIDER_INFO: Record<string, ProviderInfo> = {
     minLength: 10,
   },
 };
+
+/**
+ * Validate an API key's format for a provider.
+ *
+ * Known providers (PROVIDER_INFO) enforce keyPrefix (when defined) + minLength.
+ * Unknown providers fall back to a length>10 heuristic. Returns a structured
+ * result so both `llm:setApiKey` (gate the write) and `llm:validateApiKeyFormat`
+ * (report-only) share one source of truth.
+ */
+function validateApiKeyFormat(
+  provider: string,
+  apiKey: string,
+): { valid: boolean; error?: string } {
+  const key = apiKey.trim();
+  const providerInfo = PROVIDER_INFO[provider];
+  if (providerInfo) {
+    const valid = providerInfo.keyPrefix
+      ? key.startsWith(providerInfo.keyPrefix) &&
+        key.length > providerInfo.minLength
+      : key.length > providerInfo.minLength;
+    return valid
+      ? { valid: true }
+      : {
+          valid: false,
+          error: `API key should start with '${providerInfo.keyPrefix}' and be at least ${providerInfo.minLength} characters`,
+        };
+  }
+  return key.length > 10
+    ? { valid: true }
+    : { valid: false, error: 'API key must be at least 11 characters' };
+}
 
 /**
  * Build the per-provider status entry list.
@@ -163,6 +197,8 @@ export class LlmRpcHandlers {
       get<T>(key: string): T | undefined;
       set<T>(key: string, value: T): Promise<void>;
     },
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecrets: IAuthSecretsService,
   ) {}
 
   /**
@@ -257,10 +293,14 @@ export class LlmRpcHandlers {
               }
               let hasApiKey = false;
               if (authType === 'apiKey') {
-                const stored = await secretStorage.get(
+                const legacyStored = await secretStorage.get(
                   `${API_KEY_PREFIX}.${entry.id}`,
                 );
-                hasApiKey = !!stored;
+                const sdkStored =
+                  entry.id === ANTHROPIC_DIRECT_PROVIDER_ID
+                    ? await this.authSecrets.hasCredential('apiKey')
+                    : await this.authSecrets.hasProviderKey(entry.id);
+                hasApiKey = !!legacyStored || sdkStored;
               }
 
               return {
@@ -294,12 +334,25 @@ export class LlmRpcHandlers {
   }
 
   /**
-   * llm:setApiKey - Set API key for a provider
+   * llm:setApiKey - Set API key for a provider.
+   *
+   * Writes to BOTH credential slots so the value is readable everywhere:
+   *   - The legacy `ptah.apiKey.<provider>` slot via ISecretStorage (preserved
+   *     for backward compatibility) plus the matching process.env var.
+   *   - The AuthSecretsService slot the SDK auth strategies actually read
+   *     (`ptah.auth.anthropicApiKey` for the direct Anthropic provider,
+   *     `ptah.auth.provider.<id>` for third-party Anthropic-compatible
+   *     providers), plus the active `authMethod` (+ `anthropicProviderId` for
+   *     third-party) so a fresh `session start` can authenticate.
+   *
+   * A format check runs before any write: malformed keys are rejected so
+   * `doctor`/`provider status` no longer report ready for a fake key. The
+   * `verified` flag reports format-validity (a live network probe is deferred).
    */
   private registerSetApiKey(): void {
     this.rpcHandler.registerMethod<
       { provider: string; apiKey: string },
-      { success: boolean; error?: string }
+      { success: boolean; error?: string; verified?: boolean }
     >(
       'llm:setApiKey',
       async (params: { provider: string; apiKey: string } | undefined) => {
@@ -310,6 +363,16 @@ export class LlmRpcHandlers {
           };
         }
 
+        const key = params.apiKey.trim();
+        const formatCheck = validateApiKeyFormat(params.provider, key);
+        if (!formatCheck.valid) {
+          return {
+            success: false,
+            verified: false,
+            error: formatCheck.error,
+          };
+        }
+
         try {
           this.logger.debug('RPC: llm:setApiKey called', {
             provider: params.provider,
@@ -317,13 +380,15 @@ export class LlmRpcHandlers {
 
           const secretStorage = this.getSecretStorage();
           const storageKey = `${API_KEY_PREFIX}.${params.provider}`;
-          await secretStorage.store(storageKey, params.apiKey);
+          await secretStorage.store(storageKey, key);
           const providerInfo = PROVIDER_INFO[params.provider];
           if (providerInfo) {
-            process.env[providerInfo.envVar] = params.apiKey;
+            process.env[providerInfo.envVar] = key;
           }
 
-          return { success: true };
+          await this.persistToAuthSecrets(params.provider, key);
+
+          return { success: true, verified: true };
         } catch (error) {
           this.logger.error(
             'RPC: llm:setApiKey failed',
@@ -340,6 +405,31 @@ export class LlmRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Populate the AuthSecretsService credential slot the SDK auth strategies
+   * read, and persist the active auth method. Mirrors the GUI's
+   * `auth:saveSettings` write path so the CLI/Electron set-key flow ends up in
+   * the same state.
+   *
+   * - `anthropic` (direct): writes the `apiKey` credential + `authMethod=apiKey`.
+   * - third-party providers: writes the per-provider key + `authMethod=thirdParty`
+   *   and selects the provider via `anthropicProviderId`.
+   */
+  private async persistToAuthSecrets(
+    provider: string,
+    key: string,
+  ): Promise<void> {
+    const configManager = this.getConfigManager();
+    if (provider === ANTHROPIC_DIRECT_PROVIDER_ID) {
+      await this.authSecrets.setCredential('apiKey', key);
+      await configManager.set('authMethod', 'apiKey');
+      return;
+    }
+    await this.authSecrets.setProviderKey(provider, key);
+    await configManager.set('authMethod', 'thirdParty');
+    await configManager.set('anthropicProviderId', provider);
   }
 
   /**
@@ -364,6 +454,12 @@ export class LlmRpcHandlers {
         const providerInfo = PROVIDER_INFO[params.provider];
         if (providerInfo) {
           delete process.env[providerInfo.envVar];
+        }
+
+        if (params.provider === ANTHROPIC_DIRECT_PROVIDER_ID) {
+          await this.authSecrets.deleteCredential('apiKey');
+        } else {
+          await this.authSecrets.deleteProviderKey(params.provider);
         }
 
         return { success: true };
@@ -516,22 +612,7 @@ export class LlmRpcHandlers {
             provider: params.provider,
           });
 
-          const key = params.apiKey.trim();
-          const providerInfo = PROVIDER_INFO[params.provider];
-
-          if (providerInfo) {
-            const valid = providerInfo.keyPrefix
-              ? key.startsWith(providerInfo.keyPrefix) &&
-                key.length > providerInfo.minLength
-              : key.length > providerInfo.minLength;
-            return valid
-              ? { valid: true }
-              : {
-                  valid: false,
-                  error: `API key should start with '${providerInfo.keyPrefix}' and be at least ${providerInfo.minLength} characters`,
-                };
-          }
-          return { valid: key.length > 10 };
+          return validateApiKeyFormat(params.provider, params.apiKey);
         } catch (error) {
           this.logger.error(
             'RPC: llm:validateApiKeyFormat failed',

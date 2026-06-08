@@ -86,7 +86,11 @@ export interface SessionOptions {
   task?: string;
   /** For `start` — system prompt preset selection. */
   profile?: 'claude_code' | 'enhanced';
-  /** For `start --once` — single-turn mode. Currently informational. */
+  /**
+   * For `start --once` — force the auto-exit path after the first turn. A
+   * `start --task` run auto-exits regardless; `--once` only matters for a
+   * task-less `start` that would otherwise stay persistent.
+   */
   once?: boolean;
   /** For `rename --to <name>`. */
   to?: string;
@@ -119,6 +123,13 @@ export interface SessionExecuteHooks {
   installSigint?: (handler: () => void) => () => void;
   /** Override the drain timeout (default 5_000 ms). */
   drainTimeoutMs?: number;
+  /**
+   * Override hook for tests — terminates the process on the one-shot exit
+   * path (`--once`, or `start --task`). Defaults to real `process.exit`.
+   * Tests pass a `jest.fn()` so the auto-exit path can be asserted without
+   * tearing down the worker.
+   */
+  exit?: (code: number) => void;
 }
 
 /** Persisted shape under `WORKSPACE_STATE_STORAGE` namespace `'sessions'`. */
@@ -330,7 +341,10 @@ async function runStart(
     });
   });
 
-  if (opts.once === true) {
+  const hasTask = typeof opts.task === 'string' && opts.task.trim().length > 0;
+  const shouldAutoExit = opts.once === true || hasTask;
+
+  if (shouldAutoExit) {
     await formatter.close();
 
     const drainTimeoutMs = hooks.drainTimeoutMs ?? 5_000;
@@ -354,7 +368,12 @@ async function runStart(
         clearTimeout(timeoutHandle);
       }
     }
-    process.exit(exitCode);
+    const exit =
+      hooks.exit ??
+      ((code: number): void => {
+        process.exit(code);
+      });
+    exit(exitCode);
   }
 
   return exitCode;

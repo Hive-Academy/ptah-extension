@@ -30,6 +30,7 @@ interface BindingRow {
   id: string;
   platform: GatewayPlatform;
   external_chat_id: string;
+  allow_list_id: string | null;
   display_name: string | null;
   approval_status: ApprovalStatus;
   ptah_session_id: string | null;
@@ -41,7 +42,7 @@ interface BindingRow {
 }
 
 const SELECT_COLS =
-  'id, platform, external_chat_id, display_name, approval_status, ptah_session_id, ' +
+  'id, platform, external_chat_id, allow_list_id, display_name, approval_status, ptah_session_id, ' +
   'workspace_root, pairing_code, created_at, approved_at, last_active_at';
 
 @injectable()
@@ -104,27 +105,40 @@ export class BindingStore {
     platform: GatewayPlatform;
     externalChatId: string;
     displayName?: string;
+    allowListId?: string;
   }): GatewayBinding {
     const existing = this.findByExternal(args.platform, args.externalChatId);
     if (existing) {
+      const now = Date.now();
+      const backfillAllowListId =
+        existing.allowListId === null && args.allowListId
+          ? args.allowListId
+          : existing.allowListId;
       this.sqlite.db
-        .prepare('UPDATE gateway_bindings SET last_active_at = ? WHERE id = ?')
-        .run(Date.now(), existing.id);
-      return { ...existing, lastActiveAt: Date.now() };
+        .prepare(
+          'UPDATE gateway_bindings SET last_active_at = ?, allow_list_id = ? WHERE id = ?',
+        )
+        .run(now, backfillAllowListId, existing.id);
+      return {
+        ...existing,
+        allowListId: backfillAllowListId,
+        lastActiveAt: now,
+      };
     }
     const id = randomUUID();
     const now = Date.now();
     const pairingCode = String(randomInt(100000, 1000000));
     this.sqlite.db
       .prepare(
-        `INSERT INTO gateway_bindings (id, platform, external_chat_id, display_name, approval_status,
+        `INSERT INTO gateway_bindings (id, platform, external_chat_id, allow_list_id, display_name, approval_status,
             ptah_session_id, workspace_root, pairing_code, created_at, approved_at, last_active_at)
-         VALUES (?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, ?)`,
       )
       .run(
         id,
         args.platform,
         args.externalChatId,
+        args.allowListId ?? null,
         args.displayName ?? null,
         pairingCode,
         now,
@@ -192,6 +206,7 @@ export class BindingStore {
       id: row.id as BindingId,
       platform: row.platform,
       externalChatId: row.external_chat_id,
+      allowListId: row.allow_list_id ?? null,
       displayName: row.display_name,
       approvalStatus: row.approval_status,
       ptahSessionId: row.ptah_session_id,

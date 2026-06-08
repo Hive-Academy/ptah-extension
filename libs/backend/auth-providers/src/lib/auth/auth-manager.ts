@@ -192,10 +192,10 @@ export class AuthManager implements IAuthEnvProvider {
       this.logger.info(`[AuthManager] ${result.errorMessage}`);
     } else {
       const infoMsg =
-        'No authentication configured yet. Configure in Ptah Settings > Authentication tab.';
+        'No authentication configured. Set a provider API key or sign in to a provider, then retry.';
       this.logger.info(`[AuthManager] ${infoMsg}`);
       this.logger.debug(
-        '[AuthManager] Option 1 (Provider): Configure in Settings > Authentication > Provider tab',
+        '[AuthManager] Option 1 (Provider): select a provider and configure its API key',
       );
       this.logger.debug(
         '[AuthManager] Option 2 (Claude CLI): Run "claude login" to authenticate',
