@@ -22,7 +22,13 @@ const noopLogger = {
 
 const noopWorkspaceProvider = {
   getConfiguration: jest.fn(() => ''),
+  getWorkspaceRoot: jest.fn(() => ''),
 } as unknown as ConstructorParameters<typeof SkillCuratorService>[3];
+
+const noopRateLimiter = {
+  tryAcquire: jest.fn(() => ({ allowed: true })),
+  snapshot: jest.fn(() => null),
+} as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
 
 function makeSettings(
   overrides: Partial<SkillSynthesisSettings> = {},
@@ -95,6 +101,9 @@ describe('SkillCuratorService', () => {
       store,
       null,
       noopWorkspaceProvider,
+      noopRateLimiter,
+      null,
+      null,
     );
     // Should not throw; no interval should be set
     svc.start(makeSettings({ curatorEnabled: false }));
@@ -110,6 +119,9 @@ describe('SkillCuratorService', () => {
       store,
       null,
       noopWorkspaceProvider,
+      noopRateLimiter,
+      null,
+      null,
     );
     expect(() => svc.stop()).not.toThrow();
   });
@@ -121,6 +133,9 @@ describe('SkillCuratorService', () => {
       store,
       null,
       noopWorkspaceProvider,
+      noopRateLimiter,
+      null,
+      null,
     );
     svc.start(makeSettings());
     const report = await svc.runManual();
@@ -149,6 +164,9 @@ describe('SkillCuratorService', () => {
       store,
       query as never,
       noopWorkspaceProvider,
+      noopRateLimiter,
+      null,
+      null,
     );
     svc.start(makeSettings(), { onPassComplete });
     await svc.runManual();
@@ -168,6 +186,9 @@ describe('SkillCuratorService', () => {
       store,
       query as never,
       noopWorkspaceProvider,
+      noopRateLimiter,
+      null,
+      null,
     );
     svc.start(makeSettings(), { onPassComplete });
     await svc.runManual();
@@ -201,6 +222,9 @@ describe('SkillCuratorService', () => {
       store,
       query as never,
       noopWorkspaceProvider,
+      noopRateLimiter,
+      null,
+      null,
     );
     svc.start(makeSettings());
     await svc.runManual();
@@ -211,6 +235,90 @@ describe('SkillCuratorService', () => {
     expect(rejectedCalls).toHaveLength(0);
   });
 
+  it('unified pass: enhances threshold-crossing eligible slugs, skips others', async () => {
+    const promoted = fakePromotedRow('sk1');
+    const baseStore = makeStore([promoted]);
+    const store = {
+      ...baseStore,
+      listByStatus: baseStore.listByStatus,
+      updateStatus: baseStore.updateStatus,
+      getInvocationStats: jest.fn((slug: string) =>
+        slug === 'eligible'
+          ? { total: 12, succeeded: 4, failed: 8, distinctContexts: 3 }
+          : { total: 1, succeeded: 1, failed: 0, distinctContexts: 1 },
+      ),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
+
+    const query = {
+      execute: jest.fn().mockResolvedValue({
+        stream: (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: '[]' }] },
+          };
+          yield { type: 'result' };
+        })(),
+      }),
+    };
+
+    const registry = {
+      listAll: jest.fn(() => [
+        { kind: 'skill', slug: 'eligible' },
+        { kind: 'skill', slug: 'tooFew' },
+        { kind: 'agent', slug: 'an-agent' },
+      ]),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
+
+    const enhancer = {
+      isEligible: jest.fn((slug: string) => slug === 'eligible'),
+      enhance: jest.fn().mockResolvedValue({ changed: true, slug: 'eligible' }),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
+
+    const svc = new SkillCuratorService(
+      noopLogger,
+      store,
+      query as never,
+      noopWorkspaceProvider,
+      noopRateLimiter,
+      registry,
+      enhancer,
+    );
+    svc.start(makeSettings());
+    await svc.runManual();
+
+    const enhanceMock = (enhancer as unknown as { enhance: jest.Mock }).enhance;
+    expect(enhanceMock).toHaveBeenCalledTimes(1);
+    expect(enhanceMock).toHaveBeenCalledWith('eligible', expect.anything());
+  });
+
+  it('unified pass: degrades to legacy promoted-only when registry/enhancer absent', async () => {
+    const promoted = fakePromotedRow('sk1');
+    const store = makeStore([promoted]);
+    const query = {
+      execute: jest.fn().mockResolvedValue({
+        stream: (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: '[]' }] },
+          };
+          yield { type: 'result' };
+        })(),
+      }),
+    };
+    const svc = new SkillCuratorService(
+      noopLogger,
+      store,
+      query as never,
+      noopWorkspaceProvider,
+      noopRateLimiter,
+      null,
+      null,
+    );
+    svc.start(makeSettings());
+    const report = await svc.runManual();
+    expect(report.changesQueued).toBe(0);
+  });
+
   it('settings restart triggers stop+start (curatorEnabled change)', () => {
     const store = makeStore();
     const svc = new SkillCuratorService(
@@ -218,6 +326,9 @@ describe('SkillCuratorService', () => {
       store,
       null,
       noopWorkspaceProvider,
+      noopRateLimiter,
+      null,
+      null,
     );
     const stopSpy = jest.spyOn(svc, 'stop');
     const startSpy = jest.spyOn(svc, 'start');

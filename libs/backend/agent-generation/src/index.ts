@@ -114,6 +114,11 @@ export type {
   RebaseResult,
   KeepCloneArgs,
   KeepResult,
+  WriteEnhancedSkillArgs,
+  WriteEnhancedResult,
+  RevertCloneArgs,
+  RevertResult,
+  HistoryEntry,
 } from './lib/services/user-layer/user-layer-mirror.service';
 export type {
   OriginSidecar,

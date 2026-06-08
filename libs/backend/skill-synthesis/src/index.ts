@@ -64,6 +64,18 @@ export {
   SkillRegistryCatalogService,
   type CatalogSyncResult,
 } from './lib/skill-registry-catalog.service';
+export {
+  SkillEnhancerService,
+  type EnhanceResult,
+  type EnhanceOptions,
+  type EnhanceSkipReason,
+  type RevertEnhancementResult,
+} from './lib/skill-enhancer.service';
+export {
+  SKILL_REPROPAGATION_TOKEN,
+  type SkillRepropagationPort,
+  type SkillRepropagationKind,
+} from './lib/skill-repropagation.port';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,

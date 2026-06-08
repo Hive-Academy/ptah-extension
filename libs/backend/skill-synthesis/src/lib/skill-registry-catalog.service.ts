@@ -50,7 +50,9 @@ export class SkillRegistryCatalogService {
 
     for (const clone of clones) {
       const candidate =
-        clone.kind === 'skill' ? this.candidates.findByName(clone.slug) : null;
+        clone.kind === 'skill' && clone.pluginId === null
+          ? this.candidates.findByName(clone.slug)
+          : null;
       const candidateId = candidate ? String(candidate.id) : null;
       const cloneStatus = this.deriveStatus(clone, candidateId !== null);
       const entry: SkillRegistryEntry = {

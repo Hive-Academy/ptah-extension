@@ -56,6 +56,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_REGISTRY_STORE: Symbol.for('PtahSkillRegistryStore'),
   /** SkillRegistryCatalogService — sidecar→skill_registry enrichment sync. */
   SKILL_REGISTRY_CATALOG_SERVICE: Symbol.for('PtahSkillRegistryCatalogService'),
+  /** SkillEnhancerService — judge-gated auto-enhancement of cloned skills. */
+  SKILL_ENHANCER_SERVICE: Symbol.for('PtahSkillEnhancerService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

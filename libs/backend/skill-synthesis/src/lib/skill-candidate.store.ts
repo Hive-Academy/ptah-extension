@@ -422,6 +422,20 @@ export class SkillCandidateStore {
     };
   }
 
+  getRecentSessionsForSlug(slug: string, limit = 5): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT session_id, MAX(invoked_at) AS last_at
+         FROM skill_invocation_events
+         WHERE skill_slug = ?
+         GROUP BY session_id
+         ORDER BY last_at DESC
+         LIMIT ?`,
+      )
+      .all(slug, limit) as Array<{ session_id: string }>;
+    return rows.map((r) => r.session_id).filter((id) => id.length > 0);
+  }
+
   listInvocations(skillId: CandidateId, limit = 100): SkillInvocationRow[] {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_invocations

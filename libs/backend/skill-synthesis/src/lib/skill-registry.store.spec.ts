@@ -190,6 +190,34 @@ maybe('SkillRegistryStore', () => {
     }
   });
 
+  it('markEnhanced sets last_enhanced_at and source_hash', () => {
+    const db = createInMemoryDb();
+    try {
+      const store = makeStore(db);
+      store.upsert(entry({ sourceHash: 'sha256:orig' }));
+      store.markEnhanced('skill', 'deep-research', 1700, 'sha256:enhanced');
+      const row = store.getBySlug('skill', 'deep-research');
+      expect(row?.lastEnhancedAt).toBe(1700);
+      expect(row?.sourceHash).toBe('sha256:enhanced');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('markEnhanced without hash preserves existing source_hash', () => {
+    const db = createInMemoryDb();
+    try {
+      const store = makeStore(db);
+      store.upsert(entry({ sourceHash: 'sha256:orig' }));
+      store.markEnhanced('skill', 'deep-research', 1800);
+      const row = store.getBySlug('skill', 'deep-research');
+      expect(row?.lastEnhancedAt).toBe(1800);
+      expect(row?.sourceHash).toBe('sha256:orig');
+    } finally {
+      db.close();
+    }
+  });
+
   it('linkCandidate sets candidate_id and clone_status synth', () => {
     const db = createInMemoryDb();
     try {

@@ -137,6 +137,28 @@ export class SkillRegistryStore {
     stmt.run(pendingSourceHash, Date.now(), kind, slug);
   }
 
+  markEnhanced(
+    kind: SkillRegistryKind,
+    slug: string,
+    lastEnhancedAt: number,
+    currentContentHash?: string,
+  ): void {
+    const stmt = this.db.prepare(
+      `UPDATE skill_registry
+         SET last_enhanced_at = ?,
+             source_hash = COALESCE(?, source_hash),
+             updated_at = ?
+       WHERE kind = ? AND slug = ?`,
+    );
+    stmt.run(
+      lastEnhancedAt,
+      currentContentHash ?? null,
+      Date.now(),
+      kind,
+      slug,
+    );
+  }
+
   linkCandidate(
     kind: SkillRegistryKind,
     slug: string,

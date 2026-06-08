@@ -102,6 +102,37 @@ export interface KeepResult {
   sourceHash: string;
 }
 
+export interface WriteEnhancedSkillArgs {
+  slug: string;
+  newBody: string;
+}
+
+export interface WriteEnhancedResult {
+  slug: string;
+  historyTs: string | null;
+  currentContentHash: string;
+}
+
+export interface RevertCloneArgs {
+  kind: OriginKind;
+  slug: string;
+  historyTs: string;
+}
+
+export interface RevertResult {
+  kind: OriginKind;
+  slug: string;
+  revertedFrom: string;
+  newHistoryTs: string | null;
+  restored: boolean;
+}
+
+export interface HistoryEntry {
+  ts: string;
+  path: string;
+  hasSkillMd: boolean;
+}
+
 const MAX_COPY_RECURSION_DEPTH = 20;
 const SYNTH_CANDIDATES_DIR = '_candidates';
 
@@ -269,6 +300,230 @@ export class UserLayerMirrorService {
       const root = args.kind === 'agent' ? roots.agents : roots.commands;
       return this.keepFileClone(args.kind, args.slug, root);
     });
+  }
+
+  async writeEnhancedSkill(
+    args: WriteEnhancedSkillArgs,
+  ): Promise<WriteEnhancedResult> {
+    return this.withSlugLock('skill', args.slug, async () => {
+      const roots = this.getUserLayerRoots();
+      const cloneDir = join(roots.skills, args.slug);
+      this.assertUnderUserLayer(cloneDir);
+
+      let historyTs: string | null = null;
+      if (await this.dirExists(cloneDir)) {
+        historyTs = basename(await this.snapshotDirToHistory(cloneDir));
+      } else {
+        await mkdir(cloneDir, { recursive: true });
+      }
+
+      const skillFile = join(cloneDir, 'SKILL.md');
+      this.assertUnderUserLayer(skillFile);
+      await this.writeTextAtomic(skillFile, args.newBody);
+
+      const currentContentHash = await computeSourceHash(cloneDir);
+      await this.refreshEnhancedSidecarDir(
+        cloneDir,
+        args.slug,
+        currentContentHash,
+      );
+
+      return { slug: args.slug, historyTs, currentContentHash };
+    });
+  }
+
+  async revert(args: RevertCloneArgs): Promise<RevertResult> {
+    return this.withSlugLock(args.kind, args.slug, async () => {
+      const roots = this.getUserLayerRoots();
+      if (args.kind === 'skill') {
+        return this.revertDirClone(args.slug, args.historyTs, roots.skills);
+      }
+      const root = args.kind === 'agent' ? roots.agents : roots.commands;
+      return this.revertFileClone(args.kind, args.slug, args.historyTs, root);
+    });
+  }
+
+  async listHistory(kind: OriginKind, slug: string): Promise<HistoryEntry[]> {
+    const roots = this.getUserLayerRoots();
+    const historyParent =
+      kind === 'skill'
+        ? join(roots.skills, slug, DEFAULT_HISTORY_DIR)
+        : join(
+            kind === 'agent' ? roots.agents : roots.commands,
+            DEFAULT_HISTORY_DIR,
+            slug,
+          );
+
+    let names: string[];
+    try {
+      names = await this.listSubdirectories(historyParent);
+    } catch (error: unknown) {
+      if (this.isEnoent(error)) {
+        return [];
+      }
+      throw error;
+    }
+
+    const entries: HistoryEntry[] = [];
+    const fileName = kind === 'skill' ? 'SKILL.md' : `${slug}.md`;
+    for (const ts of names) {
+      const tsDir = join(historyParent, ts);
+      entries.push({
+        ts,
+        path: tsDir,
+        hasSkillMd: await this.fileExists(join(tsDir, fileName)),
+      });
+    }
+    entries.sort((a, b) => b.ts.localeCompare(a.ts));
+    return entries;
+  }
+
+  private async revertDirClone(
+    slug: string,
+    historyTs: string,
+    skillsRoot: string,
+  ): Promise<RevertResult> {
+    const cloneDir = join(skillsRoot, slug);
+    const historyDir = join(cloneDir, DEFAULT_HISTORY_DIR, historyTs);
+    this.assertUnderUserLayer(cloneDir);
+
+    if (!(await this.dirExists(historyDir))) {
+      this.logger.warn('[UserLayerMirror] revert skipped: history missing', {
+        slug,
+        historyTs,
+      });
+      return {
+        kind: 'skill',
+        slug,
+        revertedFrom: historyTs,
+        newHistoryTs: null,
+        restored: false,
+      };
+    }
+
+    let newHistoryTs: string | null = null;
+    if (await this.dirExists(cloneDir)) {
+      newHistoryTs = basename(await this.snapshotDirToHistory(cloneDir));
+      await this.clearCloneTrackedContent(cloneDir);
+    } else {
+      await mkdir(cloneDir, { recursive: true });
+    }
+
+    await this.copyTree(historyDir, cloneDir);
+    const currentContentHash = await computeSourceHash(cloneDir);
+    await this.refreshEnhancedSidecarDir(cloneDir, slug, currentContentHash);
+
+    return {
+      kind: 'skill',
+      slug,
+      revertedFrom: historyTs,
+      newHistoryTs,
+      restored: true,
+    };
+  }
+
+  private async revertFileClone(
+    kind: OriginKind,
+    slug: string,
+    historyTs: string,
+    rootDir: string,
+  ): Promise<RevertResult> {
+    const cloneFile = join(rootDir, `${slug}.md`);
+    const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
+    const historyDir = join(rootDir, DEFAULT_HISTORY_DIR, slug, historyTs);
+    const historyFile = join(historyDir, `${slug}.md`);
+    this.assertUnderUserLayer(cloneFile);
+
+    if (!(await this.fileExists(historyFile))) {
+      this.logger.warn('[UserLayerMirror] revert skipped: history missing', {
+        kind,
+        slug,
+        historyTs,
+      });
+      return {
+        kind,
+        slug,
+        revertedFrom: historyTs,
+        newHistoryTs: null,
+        restored: false,
+      };
+    }
+
+    let newHistoryTs: string | null = null;
+    if (await this.fileExists(cloneFile)) {
+      newHistoryTs = basename(
+        await this.snapshotFileToHistory(rootDir, slug, cloneFile),
+      );
+    }
+    await mkdir(rootDir, { recursive: true });
+    await this.copyFileAtomic(historyFile, cloneFile);
+
+    const currentContentHash = await computeSourceHash(cloneFile);
+    const existing = await readSidecarAt(sidecarPath);
+    const sidecar: OriginSidecar = existing
+      ? {
+          ...existing,
+          currentContentHash,
+          lastEnhancedAt: Date.now(),
+        }
+      : {
+          ...this.buildSidecar(kind, slug, null, currentContentHash),
+          lastEnhancedAt: Date.now(),
+        };
+    this.assertUnderUserLayer(sidecarPath);
+    await writeSidecarAtomicAt(sidecarPath, sidecar);
+
+    return {
+      kind,
+      slug,
+      revertedFrom: historyTs,
+      newHistoryTs,
+      restored: true,
+    };
+  }
+
+  private async refreshEnhancedSidecarDir(
+    cloneDir: string,
+    slug: string,
+    currentContentHash: string,
+  ): Promise<void> {
+    const existing = await readSidecar(cloneDir);
+    const sidecar: OriginSidecar = existing
+      ? {
+          ...existing,
+          lastEnhancedAt: Date.now(),
+          currentContentHash,
+        }
+      : {
+          ...this.buildSidecar('skill', slug, null, currentContentHash),
+          lastEnhancedAt: Date.now(),
+        };
+    this.assertUnderUserLayer(cloneDir);
+    await writeSidecarAtomic(cloneDir, sidecar);
+  }
+
+  private async writeTextAtomic(
+    targetFile: string,
+    content: string,
+  ): Promise<void> {
+    this.assertUnderUserLayer(targetFile);
+    const tempPath = `${targetFile}.${process.pid}.${Date.now()}.tmp`;
+    if (dirname(tempPath) !== dirname(targetFile)) {
+      throw new Error(
+        `[UserLayerMirror] temp path must share the target parent dir: ${tempPath}`,
+      );
+    }
+    await mkdir(dirname(targetFile), { recursive: true });
+    let renamed = false;
+    try {
+      await writeFile(tempPath, content, 'utf8');
+      await rename(tempPath, targetFile);
+      renamed = true;
+    } finally {
+      if (!renamed) {
+        await unlink(tempPath).catch(() => undefined);
+      }
+    }
   }
 
   private async rebaseDirClone(
@@ -822,7 +1077,7 @@ export class UserLayerMirrorService {
       release = res;
     });
     this.inflight.set(key, gate);
-    await prior;
+    await prior.catch(() => undefined);
     try {
       return await fn();
     } finally {
