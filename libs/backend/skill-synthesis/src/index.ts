@@ -28,6 +28,7 @@ export {
 export {
   SKILL_SYNTHESIS_TOKENS,
   INTERNAL_QUERY_SERVICE_TOKEN,
+  USER_LAYER_MIRROR_SERVICE_TOKEN,
   type SkillSynthesisDIToken,
 } from './lib/di/tokens';
 export { registerSkillSynthesisServices } from './lib/di/register';

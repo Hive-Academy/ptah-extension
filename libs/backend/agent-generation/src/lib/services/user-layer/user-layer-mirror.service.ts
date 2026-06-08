@@ -386,6 +386,7 @@ export class UserLayerMirrorService {
     const cloneDir = join(skillsRoot, slug);
     const historyDir = join(cloneDir, DEFAULT_HISTORY_DIR, historyTs);
     this.assertUnderUserLayer(cloneDir);
+    this.assertUnderUserLayer(historyDir);
 
     if (!(await this.dirExists(historyDir))) {
       this.logger.warn('[UserLayerMirror] revert skipped: history missing', {
@@ -433,6 +434,7 @@ export class UserLayerMirrorService {
     const historyDir = join(rootDir, DEFAULT_HISTORY_DIR, slug, historyTs);
     const historyFile = join(historyDir, `${slug}.md`);
     this.assertUnderUserLayer(cloneFile);
+    this.assertUnderUserLayer(historyDir);
 
     if (!(await this.fileExists(historyFile))) {
       this.logger.warn('[UserLayerMirror] revert skipped: history missing', {

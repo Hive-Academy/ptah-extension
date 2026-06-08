@@ -214,4 +214,27 @@ describe('UserLayerMirrorService enhance/revert/history', () => {
       'original body',
     );
   });
+
+  it('revert (skill) THROWS via assertUnderUserLayer for a traversal historyTs; no copy, clone untouched', async () => {
+    const historyTs = join('..', '..', '..', '..', '..', '..', 'etc');
+    await expect(
+      service.revert({ kind: 'skill', slug: 'deep-research', historyTs }),
+    ).rejects.toThrow(/outside ~\/\.ptah\/user/);
+    expect(await readFile(join(skillDir, 'SKILL.md'), 'utf8')).toBe(
+      'original body',
+    );
+  });
+
+  it('revert (agent/file) THROWS via assertUnderUserLayer for a traversal historyTs; clone untouched', async () => {
+    const agentsRoot = service.getUserLayerRoots().agents;
+    await mkdir(agentsRoot, { recursive: true });
+    await writeFile(join(agentsRoot, 'my-agent.md'), 'agent body', 'utf8');
+    const historyTs = join('..', '..', '..', '..', '..', '..', 'etc');
+    await expect(
+      service.revert({ kind: 'agent', slug: 'my-agent', historyTs }),
+    ).rejects.toThrow(/outside ~\/\.ptah\/user/);
+    expect(await readFile(join(agentsRoot, 'my-agent.md'), 'utf8')).toBe(
+      'agent body',
+    );
+  });
 });
