@@ -637,7 +637,8 @@ async function handleIndividualTool(
 
       case 'ptah_count_tokens': {
         const { file } = args as { file: string };
-        const fileContent = await ptahAPI.files.read(file);
+        const readPath = await toWorkspaceReadPath(file.trim(), ptahAPI);
+        const fileContent = await ptahAPI.files.read(readPath);
         const tokenCount = await ptahAPI.context.countTokens(fileContent);
         return createToolSuccessResponse(
           request,
@@ -1918,6 +1919,33 @@ function createErrorResponse(
       ...(data && { data }),
     },
   };
+}
+
+/**
+ * Normalize a tool-supplied file path for the sandboxed `files.read` primitive,
+ * which accepts workspace-relative paths only. An absolute path inside the
+ * workspace is rewritten to its relative form; a relative path or any path that
+ * escapes the workspace is returned unchanged (and rejected by the sandbox if it
+ * escapes). Lets read-only tools accept either an absolute or relative path.
+ */
+async function toWorkspaceReadPath(
+  file: string,
+  ptahAPI: PtahAPI,
+): Promise<string> {
+  const isAbsolute =
+    file.startsWith('/') || /^[A-Za-z]:/.test(file) || file.startsWith('\\\\');
+  if (!isAbsolute) {
+    return file;
+  }
+  const info = await ptahAPI.workspace.getInfo();
+  const workspaceRoot = info?.path;
+  if (!workspaceRoot) {
+    return file;
+  }
+  const relative = path.relative(workspaceRoot, file);
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+    ? relative
+    : file;
 }
 
 /**

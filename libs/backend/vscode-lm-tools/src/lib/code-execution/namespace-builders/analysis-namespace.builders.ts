@@ -19,6 +19,7 @@ import {
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import * as path from 'path';
 import {
   ContextNamespace,
   ProjectNamespace,
@@ -48,6 +49,28 @@ export interface AnalysisNamespaceDependencies {
 }
 
 /**
+ * Resolve a tool-supplied file path to an absolute path, accepting either an
+ * absolute path (POSIX, Windows drive, or UNC) or a workspace-relative one.
+ */
+function resolveWorkspaceFilePath(
+  filePath: string,
+  workspaceProvider: IWorkspaceProvider,
+): string {
+  if (
+    filePath.startsWith('/') ||
+    /^[A-Za-z]:/.test(filePath) ||
+    filePath.startsWith('\\\\')
+  ) {
+    return filePath;
+  }
+  const workspaceRoot = workspaceProvider.getWorkspaceRoot();
+  if (!workspaceRoot) {
+    throw new Error('No workspace folder open');
+  }
+  return path.join(workspaceRoot, filePath);
+}
+
+/**
  * Build context optimization namespace
  * Manages token budgets and intelligent file selection
  */
@@ -69,8 +92,12 @@ export function buildContextNamespace(
           language === 'typescript' || language === 'javascript'
             ? (language as 'typescript' | 'javascript')
             : undefined;
+        const resolvedPath = resolveWorkspaceFilePath(
+          filePath.trim(),
+          workspaceProvider,
+        );
         return await contextEnrichment.generateStructuralSummary(
-          filePath,
+          resolvedPath,
           lang,
         );
       } catch (error) {
@@ -287,7 +314,7 @@ function toAbsoluteWorkspacePath(workspaceRoot: string, file: string): string {
 export function buildDependencyNamespace(
   deps: AnalysisNamespaceDependencies,
 ): DependenciesNamespace {
-  const { dependencyGraph } = deps;
+  const { dependencyGraph, workspaceProvider } = deps;
 
   return {
     buildGraph: async (filePaths: string[], workspaceRoot: string) => {
@@ -330,7 +357,11 @@ export function buildDependencyNamespace(
       depth?: number,
     ): Promise<string[]> => {
       try {
-        return dependencyGraph.getDependencies(filePath, depth);
+        const resolved = resolveWorkspaceFilePath(
+          filePath.trim(),
+          workspaceProvider,
+        );
+        return dependencyGraph.getDependencies(resolved, depth);
       } catch {
         return [];
       }
@@ -338,7 +369,11 @@ export function buildDependencyNamespace(
 
     getDependents: async (filePath: string): Promise<string[]> => {
       try {
-        return dependencyGraph.getDependents(filePath);
+        const resolved = resolveWorkspaceFilePath(
+          filePath.trim(),
+          workspaceProvider,
+        );
+        return dependencyGraph.getDependents(resolved);
       } catch {
         return [];
       }
