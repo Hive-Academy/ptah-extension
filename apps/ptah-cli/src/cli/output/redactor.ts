@@ -2,10 +2,13 @@
  * Sensitive-key redactor for `config list` and any other surface that emits
  * arbitrary configuration payloads.
  *
- * Walks an arbitrary value (object/array/scalar) recursively. For object
- * keys matching `/apikey|api_key|token|secret|password/i`, the value is
- * replaced with the literal string `'<redacted>'`. The `reveal` option
- * bypasses redaction and returns the input shape untouched.
+ * Walks an arbitrary value (object/array/scalar) recursively. A STRING value
+ * under an object key matching `/apikey|api_key|token|secret|password/i` is
+ * replaced with the literal string `'<redacted>'`. Booleans, numbers, and
+ * null are never redacted (they cannot carry a credential), and capability
+ * predicate keys (`hasApiKey`, `isLocal`, ...) are skipped so their flag
+ * values survive. The `reveal` option bypasses redaction and returns the
+ * input shape untouched.
  *
  * Pure function — no IO, no DI, no side effects. Safe to import anywhere.
  */
@@ -23,6 +26,14 @@ export const DEFAULT_REDACTION = '<redacted>';
 
 /** Pattern matching sensitive object keys (case-insensitive). */
 export const SENSITIVE_KEY_PATTERN = /apikey|api_key|token|secret|password/i;
+
+/**
+ * Boolean/capability predicate keys (`hasApiKey`, `isLocal`, `requiresAuth`,
+ * `supportsTools`, ...) carry no credential material — their VALUE is a flag,
+ * not a secret. They are skipped so a `hasApiKey: true` boolean survives
+ * redaction even though it contains the `apikey` substring.
+ */
+export const PREDICATE_KEY_PATTERN = /^(has|is|requires|supports)[A-Z]/;
 
 /**
  * Walk `value` recursively, returning a deep copy with sensitive object
@@ -57,7 +68,11 @@ function walk(
 
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (SENSITIVE_KEY_PATTERN.test(key)) {
+    if (
+      typeof child === 'string' &&
+      !PREDICATE_KEY_PATTERN.test(key) &&
+      SENSITIVE_KEY_PATTERN.test(key)
+    ) {
       out[key] = replacement;
       continue;
     }

@@ -463,6 +463,8 @@ export class MemoryRpcHandlers {
               sessionId: e.sessionId,
               stats: e.stats,
               error: e.error,
+              phase: e.phase,
+              progress: e.progress,
             })),
             dbHealth: {
               memories: snapshot.dbHealth.memories,

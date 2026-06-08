@@ -437,7 +437,10 @@ export class SessionLoaderService {
    * The backend returns FlatStreamEventUnion[] which we process exactly
    * like live streaming events, building the same execution tree.
    */
-  async switchSession(sessionId: SessionId): Promise<void> {
+  async switchSession(
+    sessionId: SessionId,
+    opts?: { reason?: 'compaction' },
+  ): Promise<void> {
     if (this._inFlightSessions.has(sessionId)) {
       console.debug(
         '[SessionLoaderService] Skipping duplicate switchSession for:',
@@ -446,20 +449,35 @@ export class SessionLoaderService {
       return;
     }
 
+    const existingTab = this.tabManager.findTabBySessionId(sessionId);
+    if (opts?.reason !== 'compaction' && existingTab?.hasLiveSession) {
+      const inActiveWorkspace = this.tabManager
+        .tabs()
+        .some((t) => t.id === existingTab.id);
+      if (inActiveWorkspace) {
+        this.tabManager.switchTab(existingTab.id);
+        return;
+      }
+    }
+
+    this._inFlightSessions.add(sessionId);
     try {
-      this._inFlightSessions.add(sessionId);
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
-        console.warn('[SessionLoaderService] No workspace path available');
-        return;
+        throw new Error(
+          '[SessionLoaderService] No workspace path available for switchSession',
+        );
       }
       const loadResult = await this.claudeRpcService.call('session:load', {
         sessionId,
       });
 
       if (!loadResult.success) {
-        console.error('[SessionLoaderService] Session not found:', sessionId);
-        return;
+        throw new Error(
+          `[SessionLoaderService] session:load failed for ${sessionId}: ${
+            loadResult.error ?? 'session not found'
+          }`,
+        );
       }
       const session = this._sessions().find((s) => s.id === sessionId);
       const title = session?.name || sessionId.substring(0, 50);
@@ -526,6 +544,10 @@ export class SessionLoaderService {
             })),
           );
         }
+      } else {
+        this.tabManager.setPreloadedStats(activeTabId, null);
+        this.tabManager.setLiveModelStats(activeTabId, null);
+        this.tabManager.setModelUsageList(activeTabId, []);
       }
       if (resumeResult.success && events && events.length > 0) {
         for (const event of events) {
@@ -533,6 +555,7 @@ export class SessionLoaderService {
             event as FlatStreamEventUnion,
             activeTabId,
             sessionId,
+            { isReplay: true },
           );
         }
         this.streamingHandler.finalizeSessionHistory(
@@ -551,7 +574,7 @@ export class SessionLoaderService {
           id: msg.id,
           role: msg.role as 'user' | 'assistant',
           timestamp: msg.timestamp,
-          streamingState: null, // No execution tree for simple messages
+          streamingState: null,
           rawContent: msg.content,
           sessionId,
         }));
@@ -563,19 +586,20 @@ export class SessionLoaderService {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
         }
       } else {
-        console.error(
-          '[SessionLoaderService] Failed to resume session:',
-          resumeResult.error || 'No messages or events found',
-        );
         this.tabManager.applyResumeFailure(activeTabId);
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set([]);
         this._resumableSubagentsSessionId = sessionId;
+        throw new Error(
+          `[SessionLoaderService] chat:resume failed for ${sessionId}: ${
+            resumeResult.error ?? 'No messages or events found'
+          }`,
+        );
       }
-    } catch (error) {
-      console.error('[SessionLoaderService] Failed to switch session:', error);
+    } catch (error: unknown) {
       this._resumableSubagents.set([]);
       this._resumableSubagentsSessionId = null;
+      throw error;
     } finally {
       this._inFlightSessions.delete(sessionId);
     }
@@ -680,6 +704,5 @@ export class SessionLoaderService {
    * Create a new session
    * Delegates to SessionManager for session creation logic
    */
-  async createNewSession(): Promise<void> {
-  }
+  async createNewSession(): Promise<void> {}
 }

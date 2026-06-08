@@ -105,6 +105,13 @@ export interface MCPToolDefinition {
     /** Tool interacts with external systems beyond the local environment */
     openWorldHint?: boolean;
   };
+
+  /**
+   * MCP `_meta` passthrough. Used to carry `anthropic/alwaysLoad` so the
+   * Claude Agent SDK loads selected tools eagerly instead of deferring them
+   * behind the built-in tool-search tool.
+   */
+  _meta?: Record<string, unknown>;
 }
 
 /**

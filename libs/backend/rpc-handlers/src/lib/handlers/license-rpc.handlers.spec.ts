@@ -466,9 +466,60 @@ describe('LicenseRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toMatch(/verification failed/i);
+      expect(result.error).toMatch(/not accepted/i);
       expect(result.error).toMatch(/revoked/);
       expect(h.platformCommands.reloadWindow).not.toHaveBeenCalled();
+    });
+
+    it.each(['not_found', 'expired', 'revoked', 'trial_ended'] as const)(
+      'returns failure when a rejected key (%s) is laundered into a community fallback',
+      async (reason) => {
+        const h = makeHarness();
+        h.licenseService.setLicenseKey.mockResolvedValue(undefined);
+        // verifyLicense launders a rejected key into a VALID community status
+        // (the deliberate community fallback). The SET path must NOT treat
+        // this as activation success.
+        h.licenseService.verifyLicense.mockResolvedValue(
+          makeLicenseStatus({ valid: true, tier: 'community', reason }),
+        );
+        h.handlers.register();
+
+        const result = await call<{ success: boolean; error?: string }>(
+          h,
+          'license:setKey',
+          { licenseKey: VALID_KEY },
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/not accepted/i);
+        expect(result.error).toMatch(new RegExp(reason));
+        expect(h.platformCommands.reloadWindow).not.toHaveBeenCalled();
+      },
+    );
+
+    it('activates a genuine community license (valid, no rejection reason)', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        h.licenseService.setLicenseKey.mockResolvedValue(undefined);
+        h.licenseService.verifyLicense.mockResolvedValue(
+          makeLicenseStatus({ valid: true, tier: 'community' }),
+        );
+        h.handlers.register();
+
+        const result = await call<{ success: boolean; tier?: string }>(
+          h,
+          'license:setKey',
+          { licenseKey: VALID_KEY },
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.tier).toBe('community');
+        jest.advanceTimersByTime(1500);
+        expect(h.platformCommands.reloadWindow).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('captures storage exceptions to Sentry and returns error message', async () => {

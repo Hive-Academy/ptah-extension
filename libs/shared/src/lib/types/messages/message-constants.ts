@@ -115,6 +115,14 @@ export const MESSAGE_TYPES = {
   SESSION_STATS: 'session:stats',
   /** Push notification: session metadata changed (created/updated/deleted/forked). */
   SESSION_METADATA_CHANGED: 'session:metadataChanged',
+  /** Backend → Frontend: SDK PostCompact hook fired (edge-triggered stamp). */
+  SESSION_COMPACTION_COMPLETE: 'session:compactionComplete',
+  /** Backend → Frontend: SDK Stop hook fired — turn ended, status pivot. */
+  SESSION_TURN_ENDED: 'session:turnEnded',
+  /** Backend → Frontend: SDK StopFailure hook fired — turn failed with error. */
+  SESSION_TURN_FAILED: 'session:turnFailed',
+  /** Backend → Frontend: SDK SubagentStop hook fired — a backgrounded subagent finished. */
+  SESSION_SUBAGENT_ENDED: 'session:subagentEnded',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */
@@ -145,6 +153,19 @@ export const MESSAGE_TYPES = {
   INDEXING_PROGRESS: 'indexing:progress',
   /** Backend → Frontend: workspace indexing run finished successfully. */
   INDEXING_COMPLETE: 'indexing:complete',
+  BATCH: 'batch',
+  /** Backend → Frontend: observation queue row captured by a hook. */
+  MEMORY_OBSERVATION_CAPTURED: 'memory:observationCaptured',
+  /** Backend → Frontend: corpus built / rebuilt / primed / deleted. */
+  MEMORY_CORPUS_CHANGED: 'memory:corpusChanged',
+  /** Backend → Frontend: a curator run produced extracted memories. */
+  MEMORY_EXTRACTED: 'memory:extracted',
+  /** Backend → Frontend: session-start injection block emitted (for UI badge). */
+  MEMORY_SESSION_START_INJECTED: 'memory:sessionStartInjected',
+  /** Backend → Frontend: sqlite-vec load state transitioned (Electron only). */
+  VEC_STATUS_CHANGED: 'db:vecStatusChanged',
+  /** Backend → Frontend: embedder readiness/progress/error changed (Electron only). */
+  EMBEDDER_STATUS_CHANGED: 'embedder:statusChanged',
 } as const;
 
 /**

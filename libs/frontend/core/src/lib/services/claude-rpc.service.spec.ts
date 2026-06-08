@@ -467,5 +467,70 @@ describe('ClaudeRpcService', () => {
       expect(result.isError()).toBe(true);
       expect(result.error).toMatch(/^session-not-active/);
     });
+
+    it('EH-010 — rewindFiles dryRun=true uses a 15s timeout, NOT 60s', async () => {
+      jest.useFakeTimers();
+      const pending = service.rewindFiles(
+        'sess-1' as unknown as Parameters<typeof service.rewindFiles>[0],
+        'msg-dry',
+        true,
+      );
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      jest.advanceTimersByTime(14999);
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      jest.advanceTimersByTime(2);
+      await Promise.resolve();
+      const result = await pending;
+      expect(result.isError()).toBe(true);
+      expect(result.error).toMatch(/timeout/i);
+      jest.useRealTimers();
+    });
+
+    it('EH-010 — rewindFiles commit (dryRun=false) uses a 60s timeout, NOT 15s', async () => {
+      jest.useFakeTimers();
+      const pending = service.rewindFiles(
+        'sess-1' as unknown as Parameters<typeof service.rewindFiles>[0],
+        'msg-commit',
+        false,
+      );
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      jest.advanceTimersByTime(15001);
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      jest.advanceTimersByTime(45000);
+      await Promise.resolve();
+      const result = await pending;
+      expect(result.isError()).toBe(true);
+      expect(result.error).toMatch(/timeout/i);
+      jest.useRealTimers();
+    });
+
+    it('EH-010 — rewindFiles with undefined dryRun defaults to commit (60s) timeout, NOT 15s', async () => {
+      jest.useFakeTimers();
+      const pending = service.rewindFiles(
+        'sess-1' as unknown as Parameters<typeof service.rewindFiles>[0],
+        'msg-default',
+      );
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      jest.advanceTimersByTime(15001);
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      jest.advanceTimersByTime(45000);
+      await Promise.resolve();
+      const result = await pending;
+      expect(result.isError()).toBe(true);
+      expect(result.error).toMatch(/timeout/i);
+      jest.useRealTimers();
+    });
   });
 });

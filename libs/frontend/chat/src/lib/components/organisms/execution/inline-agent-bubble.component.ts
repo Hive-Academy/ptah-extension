@@ -42,7 +42,8 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
-import { formatModelDisplayName } from '@ptah-extension/shared';
+import { resolveModelDisplayName } from '@ptah-extension/shared';
+import { ModelStateService } from '@ptah-extension/core';
 import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 
 /**
@@ -287,24 +288,31 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             </button>
           }
 
-          <!-- Send-message toggle (collapsed by default) -->
+          <!-- Nudge-orchestrator toggle (collapsed by default).
+               The Claude Agent SDK has no per-subagent input channel — input
+               always lands at the root coordinator. We surface that honestly
+               as a "nudge the orchestrator about this agent" affordance. -->
           <button
             type="button"
             class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/50"
             (click)="toggleSendInput($event)"
             data-testid="subagent-send-toggle"
             [attr.aria-expanded]="sendInputExpanded()"
-            [title]="sendInputExpanded() ? 'Hide send input' : 'Send a message'"
+            [title]="
+              sendInputExpanded()
+                ? 'Hide nudge input'
+                : 'Nudge the orchestrator about this agent'
+            "
           >
             <lucide-angular
               [img]="sendInputExpanded() ? ChevronUpIcon : ChevronDownIcon"
               class="w-3 h-3"
             />
-            <span class="text-[9px]">Send a message</span>
+            <span class="text-[9px]">Nudge orchestrator</span>
           </button>
         </div>
 
-        <!-- Send-message input (collapsed by default). -->
+        <!-- Nudge-orchestrator input (collapsed by default). -->
         @if (sendInputExpanded()) {
           <div
             class="flex items-start gap-2 px-3 py-2 border-t border-base-300/30 bg-base-100/30"
@@ -316,8 +324,8 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
               [class.textarea-disabled]="!canSendMessage()"
               [disabled]="!canSendMessage()"
               [title]="canSendMessage() ? '' : 'Agent is no longer running'"
-              [attr.aria-label]="'Send a message to this subagent'"
-              placeholder="Send a message to this agent…"
+              [attr.aria-label]="'Nudge the orchestrator about this subagent'"
+              placeholder="Nudge the orchestrator about this agent…"
               rows="1"
               [value]="sendDraft()"
               (input)="onSendDraftInput($event)"
@@ -330,8 +338,8 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
               [disabled]="!canSubmitSend()"
               (click)="onSendSubmit()"
               data-testid="subagent-send-submit"
-              title="Send (Cmd/Ctrl+Enter)"
-              aria-label="Send message"
+              title="Send nudge (Cmd/Ctrl+Enter)"
+              aria-label="Send nudge to orchestrator"
             >
               <lucide-angular [img]="SendIcon" class="w-3 h-3" />
             </button>
@@ -377,6 +385,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             #contentContainer
             class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
             [auto-animate]
+            (scroll)="onAgentScroll()"
           >
             <!-- summaryContent is rendered as a text child node instead of a
              separate block. This ensures agent text is properly interleaved
@@ -458,8 +467,8 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
           @if (agentTokenUsage()) {
             <ptah-token-badge [tokens]="agentTokenUsage()!" />
           }
-          @if (agentCost() > 0) {
-            <ptah-cost-badge [cost]="agentCost()" />
+          @if (agentCost() !== null && agentCost()! > 0) {
+            <ptah-cost-badge [cost]="agentCost()!" />
           }
           @if (agentDuration()) {
             <ptah-duration-badge [durationMs]="agentDuration()!" />
@@ -560,6 +569,7 @@ export class InlineAgentBubbleComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly modelState = inject(ModelStateService);
 
   /**
    * MutationObserver for auto-scroll behavior.
@@ -568,6 +578,17 @@ export class InlineAgentBubbleComponent {
   private observer: MutationObserver | null = null;
   private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private readonly SCROLL_DEBOUNCE_MS = 50;
+
+  /**
+   * Whether the inner content container is pinned to its bottom. Set false
+   * when the user scrolls up inside the (capped, scrollable) bubble, true when
+   * they scroll back down — so streaming chunks only auto-follow when the user
+   * is already at the bottom and never yank them away from earlier output.
+   */
+  private pinnedToBottom = true;
+  /** Suppresses onAgentScroll bookkeeping during our own programmatic scroll. */
+  private isAdjusting = false;
+  private readonly NEAR_BOTTOM_PX = 60;
 
   /**
    * Flag to prevent multiple afterNextRender callbacks from being queued
@@ -657,16 +678,30 @@ export class InlineAgentBubbleComponent {
   }
 
   /**
-   * Scroll agent content container to bottom.
+   * Update `pinnedToBottom` from the user's position inside the content
+   * container. Ignored while we drive the scroll programmatically.
+   */
+  onAgentScroll(): void {
+    if (this.isAdjusting) return;
+    const container = this.contentContainerRef()?.nativeElement;
+    if (!container) return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    this.pinnedToBottom = distanceFromBottom < this.NEAR_BOTTOM_PX;
+  }
+
+  /**
+   * Scroll agent content container to bottom (instant — no per-chunk smooth
+   * animation to stack during a fast stream).
    */
   private scrollAgentContentToBottom(): void {
-    const containerRef = this.contentContainerRef();
-    if (!containerRef) return;
+    const container = this.contentContainerRef()?.nativeElement;
+    if (!container) return;
 
-    const container = containerRef.nativeElement;
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: 'smooth',
+    this.isAdjusting = true;
+    container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
+    requestAnimationFrame(() => {
+      this.isAdjusting = false;
     });
   }
 
@@ -697,15 +732,16 @@ export class InlineAgentBubbleComponent {
    */
   private scheduleScroll(): void {
     const isStreaming = this.node().status === 'streaming';
-    const isCollapsed = this.isCollapsed();
-    if (!isStreaming || isCollapsed) return;
+    if (!isStreaming || this.isCollapsed() || !this.pinnedToBottom) return;
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
     }
     this.scrollTimeoutId = setTimeout(() => {
-      const stillStreaming = this.node().status === 'streaming';
-      const nowCollapsed = this.isCollapsed();
-      if (stillStreaming && !nowCollapsed) {
+      if (
+        this.node().status === 'streaming' &&
+        !this.isCollapsed() &&
+        this.pinnedToBottom
+      ) {
         this.scrollAgentContentToBottom();
       }
       this.scrollTimeoutId = null;
@@ -777,7 +813,7 @@ export class InlineAgentBubbleComponent {
     }
     return '';
   });
-  readonly agentCost = computed(() => this.node().cost ?? 0);
+  readonly agentCost = computed(() => this.node().cost ?? null);
 
   /**
    * Computed signal: whether agent has children (tool calls)
@@ -803,7 +839,7 @@ export class InlineAgentBubbleComponent {
   readonly modelDisplayName = computed(() => {
     const model = this.rawModelId();
     if (!model) return null;
-    return formatModelDisplayName(model);
+    return resolveModelDisplayName(model, this.modelState.availableModels());
   });
 
   /**
@@ -827,7 +863,7 @@ export class InlineAgentBubbleComponent {
     return !!(
       this.modelDisplayName() ||
       this.agentTokenUsage() ||
-      this.agentCost() > 0 ||
+      (this.agentCost() !== null && this.agentCost()! > 0) ||
       this.agentDuration() !== null
     );
   });

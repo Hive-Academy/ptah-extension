@@ -376,14 +376,28 @@ describe('AppStateManager', () => {
   describe('canvas session request signal bridge', () => {
     it('requestCanvasSession / clearCanvasSessionRequest flip the signal', () => {
       const service = createService();
-      service.requestCanvasSession('sess-1', 'Session One');
-      expect(service.canvasSessionRequest()).toEqual({
-        sessionId: 'sess-1',
-        name: 'Session One',
-      });
-
+      const pending = service.requestCanvasSession('sess-1', 'Session One');
+      expect(pending).toBeInstanceOf(Promise);
+      expect(service.canvasSessionRequest()).toEqual(
+        expect.objectContaining({
+          sessionId: 'sess-1',
+          name: 'Session One',
+          resolve: expect.any(Function),
+        }),
+      );
+      service.canvasSessionRequest()?.resolve?.(true);
       service.clearCanvasSessionRequest();
       expect(service.canvasSessionRequest()).toBeNull();
+      return expect(pending).resolves.toBe(true);
+    });
+
+    it('requestCanvasSession promise resolves to false when the safety timeout fires (no canvas mounted)', async () => {
+      jest.useFakeTimers();
+      const service = createService();
+      const pending = service.requestCanvasSession('sess-orphan', 'Orphan');
+      jest.advanceTimersByTime(5000);
+      jest.useRealTimers();
+      await expect(pending).resolves.toBe(false);
     });
 
     it('requestNewCanvasSession / clearNewCanvasSessionRequest flip the signal', () => {

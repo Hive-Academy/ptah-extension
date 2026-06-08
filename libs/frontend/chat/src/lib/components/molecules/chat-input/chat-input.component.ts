@@ -289,6 +289,7 @@ interface PastedImage {
               (click)="handleStop()"
               title="Stop generating"
               type="button"
+              data-testid="chat-stop-btn"
             >
               <lucide-angular [img]="SquareIcon" class="w-4 h-4" />
             </button>
@@ -299,6 +300,7 @@ interface PastedImage {
             [disabled]="!canSend()"
             (click)="handleSend()"
             type="button"
+            data-testid="chat-send-btn"
           >
             <lucide-angular [img]="SendIcon" class="w-4 h-4" />
           </button>
@@ -383,6 +385,35 @@ export class ChatInputComponent implements OnInit {
   readonly isActiveTabStreaming = computed(() => {
     const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
     return tabId ? this.tabManager.isTabStreaming(tabId) : false;
+  });
+
+  /**
+   * Per-`SessionStatus` direct-send enablement matrix.
+   *
+   * - `fresh` — enabled
+   * - `draft` — enabled
+   * - `loaded` — enabled
+   * - `awaiting-background` — enabled
+   * - `streaming` — disabled
+   * - `resuming` — disabled
+   * - `switching` — disabled
+   */
+  readonly inputEnabled = computed<boolean>(() => {
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (!tabId) return true;
+    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+    if (!tab) return true;
+    switch (tab.status) {
+      case 'fresh':
+      case 'draft':
+      case 'loaded':
+      case 'awaiting-background':
+        return true;
+      case 'streaming':
+      case 'resuming':
+      case 'switching':
+        return false;
+    }
   });
 
   /**

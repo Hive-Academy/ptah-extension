@@ -27,6 +27,7 @@ export class InternalQueryService {
       outputFormat: config.outputFormat,
       abortController: config.abortController,
       pluginPaths: config.pluginPaths,
+      auth: config.auth,
     });
   }
 }

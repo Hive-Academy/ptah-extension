@@ -20,6 +20,8 @@ export {
 export {
   ConfirmationDialogService,
   type ConfirmationDialogOptions,
+  type ConfirmationDialogCheckbox,
+  type ConfirmationDialogResult,
 } from './lib/confirmation-dialog.service';
 export {
   MODEL_REFRESH_CONTROL,
@@ -39,6 +41,7 @@ export {
 export {
   ConversationRegistry,
   type ConversationRecord,
+  type CompactionMarkerRecord,
   type CompactionStatePatch,
   type CompactionStateView,
 } from './lib/conversation-registry.service';

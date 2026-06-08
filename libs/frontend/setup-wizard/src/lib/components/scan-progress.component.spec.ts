@@ -1,71 +1,105 @@
-import { signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import type {
+  AgentRecommendation,
+  AnalysisStreamPayload,
+  MultiPhaseAnalysisResponse,
+} from '@ptah-extension/shared';
 import {
-  GenerationProgress,
   ScanProgress,
   SetupWizardStateService,
 } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { ScanProgressComponent } from './scan-progress.component';
+import { AnalysisTranscriptComponent } from './analysis-transcript.component';
+import { AnalysisActivityIndicatorComponent } from './analysis-activity-indicator.component';
 
-// The ScanProgressComponent imports @ptah-extension/chat transitively
-// (via SetupWizardStateService -> chat-routing/chat-streaming -> chat
-// barrel). That barrel eagerly pulls in ExecutionNodeComponent + its deep
-// component tree, at least one of which is `undefined` at Angular TestBed
-// compile time in the Jest ESM/CJS interop window —
-// `queueTypesFromModulesArrayRecur` throws "Cannot read properties of
-// undefined (reading 'ɵcmp')" before any test body runs. Additionally
-// every assertion in this suite targets the legacy UI (simple heading +
-// table) and no longer matches the current multi-phase /
-// activity-indicator template. Unblocking requires a dedicated spec
-// rewrite with NO_ERRORS_SCHEMA + stub sub-components.
-describe.skip('ScanProgressComponent', () => {
+/**
+ * AnalysisTranscriptComponent transitively imports ExecutionNodeComponent from
+ * the `@ptah-extension/chat` barrel, whose deep component tree is undefined at
+ * Angular TestBed compile time in the Jest ESM/CJS interop window. We swap it
+ * for a selector-compatible stub via TestBed.overrideComponent so the rest of
+ * the standalone import graph (stats dashboard, activity indicator,
+ * confirmation modal) compiles normally.
+ */
+@Component({
+  selector: 'ptah-analysis-transcript',
+  standalone: true,
+  template: '',
+})
+class StubAnalysisTranscriptComponent {}
+
+/**
+ * AnalysisActivityIndicatorComponent runs a setInterval-based typewriter
+ * effect that keeps the Angular zone perpetually unstable, hanging every
+ * `fixture.whenStable()` await. It carries no behaviour under test, so we
+ * swap it for an inert selector-compatible stub.
+ */
+@Component({
+  selector: 'ptah-analysis-activity-indicator',
+  standalone: true,
+  template: '',
+})
+class StubAnalysisActivityIndicatorComponent {}
+
+const mockMultiPhase = {
+  isMultiPhase: true,
+  analysisDir: '/mock/.ptah/analysis/demo',
+} as unknown as MultiPhaseAnalysisResponse;
+
+const mockRecommendations: AgentRecommendation[] = [
+  {
+    agentId: 'frontend-developer',
+    agentName: 'Frontend Developer',
+    relevanceScore: 95,
+    matchedCriteria: ['Angular detected'],
+    category: 'development',
+    recommended: true,
+  },
+];
+
+describe('ScanProgressComponent', () => {
   let component: ScanProgressComponent;
   let fixture: ComponentFixture<ScanProgressComponent>;
   let mockStateService: Partial<SetupWizardStateService>;
   let mockRpcService: Partial<WizardRpcService>;
 
-  const mockMultiPhaseResult = {
-    isMultiPhase: true,
-    manifest: {
-      slug: 'angular-nx-monorepo',
-      analyzedAt: new Date().toISOString(),
-      model: 'claude-sonnet-4-5-20250929',
-      totalDurationMs: 45000,
-      phases: {},
-    },
-    phaseContents: {},
-    analysisDir: '/mock/.ptah/analysis/angular-nx-monorepo',
-  };
-  const mockRecommendations = [
-    {
-      agentId: 'frontend-developer',
-      agentName: 'Frontend Developer',
-      relevanceScore: 95,
-      recommended: true,
-      matchedCriteria: ['Angular detected'],
-      category: 'development' as const,
-    },
-  ];
+  let scanProgress: ReturnType<typeof signal<ScanProgress | null>>;
+  let fallbackWarning: ReturnType<typeof signal<string | null>>;
+  let analysisStream: ReturnType<typeof signal<AnalysisStreamPayload[]>>;
+  let multiPhaseResult: ReturnType<
+    typeof signal<MultiPhaseAnalysisResponse | null>
+  >;
+  let recommendations: ReturnType<typeof signal<AgentRecommendation[]>>;
 
   beforeEach(async () => {
+    scanProgress = signal<ScanProgress | null>(null);
+    fallbackWarning = signal<string | null>(null);
+    analysisStream = signal<AnalysisStreamPayload[]>([]);
+    multiPhaseResult = signal<MultiPhaseAnalysisResponse | null>(null);
+    recommendations = signal<AgentRecommendation[]>([]);
+
     mockStateService = {
-      generationProgress: signal<GenerationProgress | null>(null),
-      scanProgress: signal<ScanProgress | null>(null),
-      analysisStream: signal([]).asReadonly(),
-      multiPhaseResult: signal(null).asReadonly(),
-      recommendations: signal([]).asReadonly(),
-      fallbackWarning: signal(null).asReadonly(),
+      scanProgress: scanProgress.asReadonly(),
+      fallbackWarning: fallbackWarning.asReadonly(),
+      analysisStream: analysisStream.asReadonly(),
+      multiPhaseResult: multiPhaseResult.asReadonly(),
+      recommendations: recommendations.asReadonly(),
       reset: jest.fn(),
-      setMultiPhaseResult: jest.fn(),
-      setRecommendations: jest.fn(),
+      setMultiPhaseResult: jest.fn((r: MultiPhaseAnalysisResponse) =>
+        multiPhaseResult.set(r),
+      ),
+      setRecommendations: jest.fn((r: AgentRecommendation[]) =>
+        recommendations.set(r),
+      ),
       setCurrentStep: jest.fn(),
-    };
+    } as unknown as Partial<SetupWizardStateService>;
+
     mockRpcService = {
-      deepAnalyze: jest.fn().mockResolvedValue(mockMultiPhaseResult),
+      deepAnalyze: jest.fn().mockResolvedValue(mockMultiPhase),
       recommendAgents: jest.fn().mockResolvedValue(mockRecommendations),
       cancelAnalysis: jest.fn().mockResolvedValue(undefined),
-    };
+    } as unknown as Partial<WizardRpcService>;
 
     await TestBed.configureTestingModule({
       imports: [ScanProgressComponent],
@@ -73,7 +107,22 @@ describe.skip('ScanProgressComponent', () => {
         { provide: SetupWizardStateService, useValue: mockStateService },
         { provide: WizardRpcService, useValue: mockRpcService },
       ],
-    }).compileComponents();
+    })
+      .overrideComponent(ScanProgressComponent, {
+        remove: {
+          imports: [
+            AnalysisTranscriptComponent,
+            AnalysisActivityIndicatorComponent,
+          ],
+        },
+        add: {
+          imports: [
+            StubAnalysisTranscriptComponent,
+            StubAnalysisActivityIndicatorComponent,
+          ],
+        },
+      })
+      .compileComponents();
 
     fixture = TestBed.createComponent(ScanProgressComponent);
     component = fixture.componentInstance;
@@ -84,67 +133,60 @@ describe.skip('ScanProgressComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  describe('Initial State', () => {
-    it('should initialize with isAnalyzing as false before ngOnInit', () => {
+  describe('Initial state', () => {
+    it('should start with isAnalyzing false before ngOnInit', () => {
       expect(component['isAnalyzing']()).toBe(false);
     });
 
-    it('should initialize with null error message', () => {
+    it('should start with no error message', () => {
       expect(component['errorMessage']()).toBeNull();
     });
 
-    it('should display analyzing workspace heading', () => {
+    it('should render the analyzing-workspace heading', () => {
       fixture.detectChanges();
       const heading = fixture.nativeElement.querySelector('h2');
       expect(heading.textContent).toContain('Analyzing Workspace');
     });
   });
 
-  describe('Analysis Flow (ngOnInit)', () => {
-    it('should call deepAnalyze on init', async () => {
+  describe('Analysis flow (ngOnInit)', () => {
+    it('should run deep analysis on init', async () => {
       fixture.detectChanges();
       await fixture.whenStable();
 
       expect(mockRpcService.deepAnalyze).toHaveBeenCalled();
     });
 
-    it('should store multi-phase result in state', async () => {
+    it('should store the multi-phase result', async () => {
       fixture.detectChanges();
       await fixture.whenStable();
 
       expect(mockStateService.setMultiPhaseResult).toHaveBeenCalledWith(
-        mockMultiPhaseResult,
+        mockMultiPhase,
       );
     });
 
-    it('should call recommendAgents after deep analysis', async () => {
+    it('should request recommendations after analysis', async () => {
       fixture.detectChanges();
       await fixture.whenStable();
 
       expect(mockRpcService.recommendAgents).toHaveBeenCalledWith(
-        mockMultiPhaseResult,
+        mockMultiPhase,
       );
-    });
-
-    it('should store recommendations in state', async () => {
-      fixture.detectChanges();
-      await fixture.whenStable();
-
       expect(mockStateService.setRecommendations).toHaveBeenCalledWith(
         mockRecommendations,
       );
     });
 
-    it('should transition to analysis step on success', async () => {
+    it('should advance to the analysis step on success', async () => {
       fixture.detectChanges();
       await fixture.whenStable();
 
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('analysis');
     });
 
-    it('should update status text during analysis phases', async () => {
-      // Use a deferred promise to check intermediate state
-      let resolveDeepAnalyze!: (value: unknown) => void;
+    it('should set the analyzing status text while running', () => {
+      let resolveDeepAnalyze!: (value: MultiPhaseAnalysisResponse) => void;
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
@@ -155,38 +197,72 @@ describe.skip('ScanProgressComponent', () => {
 
       expect(component['statusText']()).toBe('Analyzing project structure...');
 
-      resolveDeepAnalyze(mockMultiPhaseResult);
+      resolveDeepAnalyze(mockMultiPhase);
+    });
+  });
+
+  describe('Smart retry', () => {
+    it('should skip deep analysis when a multi-phase result is cached', async () => {
+      multiPhaseResult.set(mockMultiPhase);
+
+      component['onRetry']();
+      await fixture.whenStable();
+
+      expect(mockRpcService.deepAnalyze).not.toHaveBeenCalled();
+      expect(mockRpcService.recommendAgents).toHaveBeenCalledWith(
+        mockMultiPhase,
+      );
+    });
+  });
+
+  describe('Re-entry guard', () => {
+    it('should prevent concurrent analysis calls', async () => {
+      let resolveDeepAnalyze!: (value: MultiPhaseAnalysisResponse) => void;
+      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveDeepAnalyze = resolve;
+        }),
+      );
+
+      fixture.detectChanges();
+      component['onRetry']();
+
+      expect(mockRpcService.deepAnalyze).toHaveBeenCalledTimes(1);
+
+      resolveDeepAnalyze(mockMultiPhase);
       await fixture.whenStable();
     });
   });
 
-  describe('Analysis Error Handling', () => {
-    it('should show error message on deep analysis failure', async () => {
-      const errorMsg = 'Deep analysis failed: timeout';
+  describe('Error handling', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+
+    it('should surface a deep-analysis failure', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
-        new Error(errorMsg),
+        new Error('Deep analysis failed: timeout'),
       );
 
       fixture.detectChanges();
       await fixture.whenStable();
 
-      expect(component['errorMessage']()).toBe(errorMsg);
+      expect(component['errorMessage']()).toBe('Deep analysis failed: timeout');
       expect(component['statusText']()).toBe('Analysis failed');
     });
 
-    it('should show error message on recommendation failure', async () => {
-      const errorMsg = 'Recommendation failed';
+    it('should surface a recommendation failure', async () => {
       (mockRpcService.recommendAgents as jest.Mock).mockRejectedValue(
-        new Error(errorMsg),
+        new Error('Recommendation failed'),
       );
 
       fixture.detectChanges();
       await fixture.whenStable();
 
-      expect(component['errorMessage']()).toBe(errorMsg);
+      expect(component['errorMessage']()).toBe('Recommendation failed');
     });
 
-    it('should show default error for non-Error failures', async () => {
+    it('should use a default message for non-Error failures', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
         'String error',
       );
@@ -199,7 +275,7 @@ describe.skip('ScanProgressComponent', () => {
       );
     });
 
-    it('should NOT transition step on failure', async () => {
+    it('should not advance the step on failure', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
         new Error('fail'),
       );
@@ -220,153 +296,8 @@ describe.skip('ScanProgressComponent', () => {
 
       expect(component['isAnalyzing']()).toBe(false);
     });
-  });
 
-  describe('Smart Retry', () => {
-    it('should skip deep analysis on retry if multi-phase result already cached', async () => {
-      // First call fails at recommendation stage
-      (mockRpcService.recommendAgents as jest.Mock).mockRejectedValueOnce(
-        new Error('timeout'),
-      );
-
-      fixture.detectChanges();
-      await fixture.whenStable();
-
-      // Multi-phase result was stored
-      expect(mockStateService.setMultiPhaseResult).toHaveBeenCalledWith(
-        mockMultiPhaseResult,
-      );
-
-      // Simulate cached multi-phase result in state
-      (
-        mockStateService as unknown as Record<string, unknown>
-      ).multiPhaseResult = signal(mockMultiPhaseResult).asReadonly();
-
-      // Reset mock and retry — second call should succeed
-      (mockRpcService.deepAnalyze as jest.Mock).mockClear();
-      (mockRpcService.recommendAgents as jest.Mock).mockResolvedValueOnce(
-        mockRecommendations,
-      );
-
-      component['onRetry']();
-      await fixture.whenStable();
-
-      // Should NOT have called deepAnalyze again (cached)
-      expect(mockRpcService.deepAnalyze).not.toHaveBeenCalled();
-      expect(mockRpcService.recommendAgents).toHaveBeenCalled();
-    });
-  });
-
-  describe('Re-entry Guard', () => {
-    it('should prevent concurrent analysis calls', async () => {
-      let resolveDeepAnalyze!: (value: unknown) => void;
-      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
-        new Promise((resolve) => {
-          resolveDeepAnalyze = resolve;
-        }),
-      );
-
-      fixture.detectChanges(); // Triggers first call via ngOnInit
-
-      // Try to call again while first is in flight
-      component['onRetry']();
-
-      // Should only have been called once
-      expect(mockRpcService.deepAnalyze).toHaveBeenCalledTimes(1);
-
-      resolveDeepAnalyze(mockMultiPhaseResult);
-      await fixture.whenStable();
-    });
-  });
-
-  describe('Cancel / Back Functionality', () => {
-    it('should reset wizard state on confirmed cancellation', () => {
-      component['onConfirmCancellation']();
-
-      expect(mockStateService.reset).toHaveBeenCalled();
-    });
-
-    it('should reset wizard state on go back', () => {
-      component['onGoBack']();
-
-      expect(mockStateService.reset).toHaveBeenCalled();
-    });
-
-    it('should do nothing on declined cancellation', () => {
-      component['onDeclineCancellation']();
-
-      expect(mockStateService.reset).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Progress Display', () => {
-    it('should display progress information', () => {
-      fixture.detectChanges();
-
-      const progressSignal = mockStateService.scanProgress as unknown as {
-        set: (v: ScanProgress | null) => void;
-      };
-      progressSignal.set({
-        filesScanned: 50,
-        totalFiles: 100,
-        detections: ['Angular', 'TypeScript'],
-      });
-      fixture.detectChanges();
-
-      const text = fixture.nativeElement.textContent;
-      expect(text).toContain('Analyzing 50 of 100 files...');
-      expect(text).toContain('50%');
-    });
-
-    it('should calculate progress percentage correctly', () => {
-      const progressSignal = mockStateService.scanProgress as unknown as {
-        set: (v: ScanProgress | null) => void;
-      };
-      progressSignal.set({
-        filesScanned: 25,
-        totalFiles: 100,
-        detections: [],
-      });
-
-      expect(component['progressPercentage']()).toBe(25);
-    });
-
-    it('should handle zero total files', () => {
-      const progressSignal = mockStateService.scanProgress as unknown as {
-        set: (v: ScanProgress | null) => void;
-      };
-      progressSignal.set({
-        filesScanned: 0,
-        totalFiles: 0,
-        detections: [],
-      });
-
-      expect(component['progressPercentage']()).toBe(0);
-    });
-
-    it('should display detections list', () => {
-      fixture.detectChanges();
-
-      const progressSignal = mockStateService.scanProgress as unknown as {
-        set: (v: ScanProgress | null) => void;
-      };
-      progressSignal.set({
-        filesScanned: 50,
-        totalFiles: 100,
-        detections: ['Angular', 'TypeScript', 'Nx'],
-      });
-      fixture.detectChanges();
-
-      const alerts = fixture.nativeElement.querySelectorAll('.alert-info');
-      expect(alerts.length).toBe(3);
-      expect(alerts[0].textContent).toContain('Angular');
-      expect(alerts[1].textContent).toContain('TypeScript');
-      expect(alerts[2].textContent).toContain('Nx');
-    });
-  });
-
-  describe('UI States', () => {
-    it('should show error alert when analysis fails', async () => {
+    it('should render the error alert with Back and Retry buttons', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
         new Error('Test error'),
       );
@@ -378,134 +309,160 @@ describe.skip('ScanProgressComponent', () => {
       const alert = fixture.nativeElement.querySelector('.alert-error');
       expect(alert).toBeTruthy();
       expect(alert.textContent).toContain('Test error');
-    });
 
-    it('should hide error alert when no error', () => {
-      fixture.detectChanges();
-      const alert = fixture.nativeElement.querySelector('.alert-error');
-      expect(alert).toBeFalsy();
-    });
-
-    it('should show Back and Retry buttons on error', async () => {
-      (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
-        new Error('fail'),
-      );
-
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      const buttons = fixture.nativeElement.querySelectorAll('button');
-      const buttonTexts = Array.from(buttons).map((b) =>
-        ((b as HTMLButtonElement).textContent ?? '').trim(),
-      );
+      const buttonTexts = Array.from(
+        fixture.nativeElement.querySelectorAll('button'),
+      ).map((b) => ((b as HTMLButtonElement).textContent ?? '').trim());
       expect(buttonTexts).toContain('Back');
-      expect(buttonTexts.some((t: string) => t.includes('Retry'))).toBe(true);
-    });
-
-    it('should show Cancel Scan button when not in error state', async () => {
-      // Prevent auto-analysis from completing during this test
-      let resolveDeepAnalyze!: (value: unknown) => void;
-      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
-        new Promise((resolve) => {
-          resolveDeepAnalyze = resolve;
-        }),
-      );
-
-      fixture.detectChanges();
-
-      const button = fixture.nativeElement.querySelector('button');
-      expect(button.textContent).toContain('Cancel Scan');
-
-      resolveDeepAnalyze(mockMultiPhaseResult);
-    });
-
-    it('should enable Cancel Scan button during analysis', async () => {
-      // Prevent auto-analysis from completing during this test
-      let resolveDeepAnalyze!: (value: unknown) => void;
-      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
-        new Promise((resolve) => {
-          resolveDeepAnalyze = resolve;
-        }),
-      );
-
-      fixture.detectChanges();
-
-      const button = fixture.nativeElement.querySelector('button');
-      expect(button.textContent).toContain('Cancel Scan');
-      expect(button.disabled).toBe(false);
-
-      resolveDeepAnalyze(mockMultiPhaseResult);
+      expect(buttonTexts.some((t) => t.includes('Retry'))).toBe(true);
     });
   });
 
-  describe('Accessibility', () => {
-    it('should have proper heading hierarchy', () => {
-      fixture.detectChanges();
+  describe('Cancel / back', () => {
+    it('should reset wizard state on confirmed cancellation', async () => {
+      component['onConfirmCancellation']();
+      await fixture.whenStable();
 
-      const h2 = fixture.nativeElement.querySelector('h2');
-      expect(h2).toBeTruthy();
-
-      const progressSignal = mockStateService.scanProgress as unknown as {
-        set: (v: ScanProgress | null) => void;
-      };
-      progressSignal.set({
-        filesScanned: 50,
-        totalFiles: 100,
-        detections: ['Angular'],
-      });
-      fixture.detectChanges();
-
-      const h3 = fixture.nativeElement.querySelector('h3');
-      expect(h3).toBeTruthy();
+      expect(mockRpcService.cancelAnalysis).toHaveBeenCalled();
+      expect(mockStateService.reset).toHaveBeenCalled();
     });
 
-    it('should have accessible progress bar', () => {
-      fixture.detectChanges();
+    it('should reset wizard state on go back', () => {
+      component['onGoBack']();
+      expect(mockStateService.reset).toHaveBeenCalled();
+    });
 
-      const progressSignal = mockStateService.scanProgress as unknown as {
-        set: (v: ScanProgress | null) => void;
-      };
-      progressSignal.set({
-        filesScanned: 50,
+    it('should do nothing on declined cancellation', () => {
+      jest.spyOn(console, 'log').mockImplementation(() => undefined);
+      component['onDeclineCancellation']();
+      expect(mockStateService.reset).not.toHaveBeenCalled();
+    });
+
+    it('should show the confirmation modal only while analyzing', () => {
+      let resolveDeepAnalyze!: (value: MultiPhaseAnalysisResponse) => void;
+      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveDeepAnalyze = resolve;
+        }),
+      );
+
+      fixture.detectChanges();
+      const showSpy = jest
+        .spyOn(component.confirmModal(), 'show')
+        .mockImplementation(() => undefined);
+
+      component['onCancel']();
+      expect(showSpy).toHaveBeenCalled();
+
+      resolveDeepAnalyze(mockMultiPhase);
+    });
+  });
+
+  describe('Progress display', () => {
+    it('should compute progress percentage', () => {
+      scanProgress.set({
+        filesScanned: 25,
         totalFiles: 100,
         detections: [],
       });
-      fixture.detectChanges();
-
-      const progressBar = fixture.nativeElement.querySelector('progress');
-      expect(progressBar.getAttribute('role')).toBe('progressbar');
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('should handle null progress data', () => {
-      fixture.detectChanges();
-
-      const progressSignal = mockStateService.scanProgress as unknown as {
-        set: (v: ScanProgress | null) => void;
-      };
-      progressSignal.set(null);
-      fixture.detectChanges();
-
-      // Should show the spinner with status text, not crash
-      expect(fixture.nativeElement).toBeTruthy();
+      expect(component['progressPercentage']()).toBe(25);
     });
 
-    it('should handle missing detections array', () => {
-      fixture.detectChanges();
+    it('should handle zero total files', () => {
+      scanProgress.set({
+        filesScanned: 0,
+        totalFiles: 0,
+        detections: [],
+      });
+      expect(component['progressPercentage']()).toBe(0);
+    });
 
-      const progressSignal = mockStateService.scanProgress as unknown as {
-        set: (v: ScanProgress | null) => void;
-      };
-      progressSignal.set({
+    it('should render the file-progress bar and label', () => {
+      let resolveDeepAnalyze!: (value: MultiPhaseAnalysisResponse) => void;
+      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveDeepAnalyze = resolve;
+        }),
+      );
+
+      fixture.detectChanges();
+      scanProgress.set({
         filesScanned: 50,
         totalFiles: 100,
+        detections: ['Angular', 'TypeScript'],
       });
       fixture.detectChanges();
 
-      // Should not crash
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Analyzing 50 of 100 files...');
+      expect(text).toContain('50%');
+
+      const progressBar = fixture.nativeElement.querySelector('progress');
+      expect(progressBar.getAttribute('role')).toBe('progressbar');
+
+      resolveDeepAnalyze(mockMultiPhase);
+    });
+
+    it('should render detected stack entries', () => {
+      let resolveDeepAnalyze!: (value: MultiPhaseAnalysisResponse) => void;
+      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveDeepAnalyze = resolve;
+        }),
+      );
+
+      fixture.detectChanges();
+      scanProgress.set({
+        filesScanned: 50,
+        totalFiles: 100,
+        detections: ['Angular', 'TypeScript', 'Nx'],
+      });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Detected Stack');
+      expect(text).toContain('Angular');
+      expect(text).toContain('TypeScript');
+      expect(text).toContain('Nx');
+
+      resolveDeepAnalyze(mockMultiPhase);
+    });
+  });
+
+  describe('Phase stepper', () => {
+    it('should mark completed phases', () => {
+      scanProgress.set({
+        filesScanned: 0,
+        totalFiles: 0,
+        detections: [],
+        currentPhase: 'architecture-assessment',
+        completedPhases: ['project-profile'],
+      });
+
+      expect(component['isPhaseComplete']('project-profile')).toBe(true);
+      expect(component['isCurrentPhase']('architecture-assessment')).toBe(true);
+      expect(component['isPhaseCompleteOrCurrent']('quality-audit')).toBe(
+        false,
+      );
+    });
+  });
+
+  describe('Edge cases', () => {
+    it('should not crash with null progress data', () => {
+      let resolveDeepAnalyze!: (value: MultiPhaseAnalysisResponse) => void;
+      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveDeepAnalyze = resolve;
+        }),
+      );
+
+      fixture.detectChanges();
+      scanProgress.set(null);
+      fixture.detectChanges();
+
       expect(fixture.nativeElement).toBeTruthy();
+
+      resolveDeepAnalyze(mockMultiPhase);
     });
   });
 });

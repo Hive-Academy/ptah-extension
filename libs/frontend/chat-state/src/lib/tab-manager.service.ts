@@ -11,6 +11,9 @@ import {
   EffortLevel,
   getModelContextWindow,
   SessionId,
+  SdkBackgroundTaskSummary,
+  SdkSessionCronSummary,
+  SdkTerminalReason,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -47,8 +50,10 @@ export interface ClosedTabEvent {
    * `close` — full teardown (router clears dedup state AND agent monitor cards).
    * `forceClose` — pop-out transfer; router clears dedup state only, leaves agents
    * alive so the target panel can re-attach.
+   * `reset` — in-place `/clear`: same per-session teardown as `close`, but the
+   * tab survives (re-emptied to a fresh conversation) instead of being removed.
    */
-  readonly kind: 'close' | 'forceClose';
+  readonly kind: 'close' | 'forceClose' | 'reset';
 }
 
 /**
@@ -116,6 +121,14 @@ export class TabManagerService {
    * Does not affect session management, message sending, or any backend communication.
    */
   private readonly _streamingTabIds = signal<Set<string>>(new Set());
+
+  /**
+   * Tab IDs whose surface is currently mounted and on-screen. The single-tab
+   * webview never registers (set stays empty); the Orchestra Canvas registers
+   * every rendered tile. Consumed by BatchedUpdateService to flush streaming
+   * for all visible tiles, not just the active one.
+   */
+  private readonly _visibleTabIds = signal<ReadonlySet<string>>(new Set());
 
   /**
    * Signal emitted when a pop-out panel needs to load a specific session.
@@ -186,6 +199,9 @@ export class TabManagerService {
 
   /** Read-only signal of tab IDs that are currently streaming (visual indicator only) */
   readonly streamingTabIds = this._streamingTabIds.asReadonly();
+
+  /** Read-only signal of tab IDs whose surface is currently mounted on-screen. */
+  readonly visibleTabIds = this._visibleTabIds.asReadonly();
 
   // ============================================================================
   // COMPUTED SIGNALS
@@ -513,6 +529,17 @@ export class TabManagerService {
     return this.workspacePartition.activeWorkspacePath;
   }
 
+  /** Reactive read of the active workspace path. */
+  readonly activeWorkspacePath$ = this.workspacePartition.activeWorkspacePath$;
+
+  /** Reactive signal of the most recently removed workspace path. */
+  readonly removedWorkspace$ = this.workspacePartition.removedWorkspace$;
+
+  /** Ack the removedWorkspace$ signal after consumption. */
+  clearRemovedWorkspace(): void {
+    this.workspacePartition.clearRemovedWorkspace();
+  }
+
   /**
    * Cache a backend-provided encoded path for a workspace.
    * Called when workspace:switch RPC response includes encodedPath.
@@ -732,6 +759,67 @@ export class TabManagerService {
   }
 
   /**
+   * Reset a tab to a fresh, empty conversation in place (the `/clear` command).
+   *
+   * Unlike `closeTab`, the tab is kept — its messages, streaming state, stats,
+   * compaction state and session binding are wiped so the empty state renders
+   * and the next message starts a brand-new conversation. Per-tab user
+   * preferences (model/effort/preset/view-mode/order) are preserved.
+   *
+   * Emits a `reset` ClosedTabEvent so the StreamRouter runs the same
+   * per-session teardown as a close (dedup state, agent cards, tree, binding)
+   * without removing the tab.
+   */
+  resetTabToFresh(tabId: string): void {
+    const tab = this._tabs().find((t) => t.id === tabId);
+    if (!tab) return;
+
+    this.abortStreamingForTab(tabId);
+    this._streamingTabIds.update((set) => {
+      if (!set.has(tabId)) return set;
+      const next = new Set(set);
+      next.delete(tabId);
+      return next;
+    });
+
+    const previousSessionId = tab.claudeSessionId;
+    if (previousSessionId) {
+      this.workspacePartition.unregisterSession(previousSessionId);
+    }
+
+    this.updateTabInternal(tabId, {
+      claudeSessionId: null,
+      name: 'New Chat',
+      title: 'New Chat',
+      status: 'fresh',
+      isDirty: false,
+      messages: [],
+      streamingState: null,
+      currentMessageId: null,
+      queuedContent: null,
+      queuedOptions: null,
+      preloadedStats: null,
+      liveModelStats: null,
+      modelUsageList: undefined,
+      hasLiveSession: false,
+      isCompacting: false,
+      compactionCount: 0,
+      lastCompactionAt: null,
+      lastTerminalReason: undefined,
+      pendingBackgroundTasks: [],
+      pendingSessionCrons: [],
+    });
+
+    this._closedTab.set({
+      tabId,
+      sessionId: previousSessionId ?? null,
+      kind: 'reset',
+    });
+
+    this.saveTabState();
+  }
+
+  /**
    * Switch to a different tab
    * @param tabId - Tab ID to switch to
    */
@@ -859,6 +947,37 @@ export class TabManagerService {
       status: 'resuming',
       hasLiveSession: true,
     });
+  }
+
+  /**
+   * Transition the tab into the `awaiting-background` status. Used by the
+   * Phase 3 turn-end pivot when the SDK `Stop` hook reports in-flight
+   * background tasks (subagents / shells / monitors / workflows). The agent
+   * itself is idle, but the tab should not render as `loaded` while
+   * background work continues.
+   *
+   * Scheduled on a microtask so this transition lands AFTER the
+   * `applyFinalizedTurn` microtask that flips status to `'loaded'` — the
+   * final assistant message is rendered as completed/aborted first, then
+   * the status pill flips to the awaiting-background indicator.
+   */
+  markTabAwaitingBackground(tabId: string): void {
+    queueMicrotask(() => {
+      this.updateTabInternal(tabId, { status: 'awaiting-background' });
+    });
+  }
+
+  /**
+   * Replace the SDK background-task snapshot on a tab without touching
+   * status or other turn-end fields. Used by the Phase 3 `SubagentStop`
+   * consumer (`handleSubagentEnded`) to apply the SDK's authoritative
+   * "who is still running" snapshot after each subagent reports in.
+   */
+  setPendingBackgroundTasks(
+    tabId: string,
+    tasks: readonly SdkBackgroundTaskSummary[],
+  ): void {
+    this.updateTabInternal(tabId, { pendingBackgroundTasks: tasks });
   }
 
   /**
@@ -1181,10 +1300,42 @@ export class TabManagerService {
     });
   }
 
+  /**
+   * Persist the SDK `Stop` hook snapshot onto the tab. Captures background
+   * tasks + session crons in-flight at turn-end (Phase 3 will surface these
+   * on the tab bar) and stamps `lastTerminalReason` so the streaming-handler
+   * safety-net can detect "Stop already observed" on later SESSION_STATS
+   * arrivals.
+   */
+  setTurnEndedFields(
+    tabId: string,
+    payload: {
+      pendingBackgroundTasks: readonly SdkBackgroundTaskSummary[];
+      pendingSessionCrons: readonly SdkSessionCronSummary[];
+      lastTerminalReason: SdkTerminalReason | null;
+    },
+  ): void {
+    this.updateTabInternal(tabId, {
+      pendingBackgroundTasks: payload.pendingBackgroundTasks,
+      pendingSessionCrons: payload.pendingSessionCrons,
+      lastTerminalReason: payload.lastTerminalReason,
+    });
+  }
+
+  /**
+   * Stamp `lastTerminalReason` only. Used by the `StopFailure` path, which
+   * does not carry background-task / cron snapshots on the failure payload.
+   */
+  setLastTerminalReason(tabId: string, reason: SdkTerminalReason | null): void {
+    this.updateTabInternal(tabId, {
+      lastTerminalReason: reason,
+    });
+  }
+
   // ----- Stats and model bookkeeping -----
 
   /** Set the live model stats summary for the tab. */
-  setLiveModelStats(tabId: string, stats: LiveModelStatsPayload): void {
+  setLiveModelStats(tabId: string, stats: LiveModelStatsPayload | null): void {
     this.updateTabInternal(tabId, { liveModelStats: stats });
   }
 
@@ -1544,7 +1695,8 @@ export class TabManagerService {
           status:
             tab.status === 'streaming' ||
             tab.status === 'resuming' ||
-            tab.status === 'switching'
+            tab.status === 'switching' ||
+            tab.status === 'awaiting-background'
               ? 'loaded'
               : tab.status,
           queuedContent: null,
@@ -1585,6 +1737,28 @@ export class TabManagerService {
       return newSet;
     });
     this.clearAbortController(tabId);
+  }
+
+  /**
+   * Mark a tab's surface as mounted and on-screen. Called by each Orchestra
+   * Canvas tile so streaming flushes target every visible tile, not only the
+   * active one.
+   */
+  registerVisibleTab(tabId: string): void {
+    this._visibleTabIds.update((set) => {
+      if (set.has(tabId)) return set;
+      return new Set([...set, tabId]);
+    });
+  }
+
+  /** Drop a tab from the visible set when its surface unmounts. */
+  unregisterVisibleTab(tabId: string): void {
+    this._visibleTabIds.update((set) => {
+      if (!set.has(tabId)) return set;
+      const next = new Set(set);
+      next.delete(tabId);
+      return next;
+    });
   }
 
   // ============================================================================

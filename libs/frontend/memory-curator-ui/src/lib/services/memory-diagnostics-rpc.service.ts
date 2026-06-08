@@ -7,6 +7,7 @@ import type {
   MemoryRunNowResult,
   MemorySetTriggersParams,
   MemorySetTriggersResult,
+  ProviderListModelsResult,
 } from '@ptah-extension/shared';
 
 const DIAGNOSTICS_RPC_TIMEOUTS = {
@@ -73,5 +74,23 @@ export class MemoryDiagnosticsRpcService {
       return result.data;
     }
     throw new Error(result.error || 'memory:getTriggers failed');
+  }
+
+  public async listModels(
+    providerId?: string,
+  ): Promise<ProviderListModelsResult> {
+    const result = await this.rpc.call(
+      'provider:listModels',
+      {
+        toolUseOnly: false,
+        ...(providerId ? { providerId } : {}),
+      },
+      { timeout: DIAGNOSTICS_RPC_TIMEOUTS.READ_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'provider:listModels failed');
   }
 }

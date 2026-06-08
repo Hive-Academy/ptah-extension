@@ -14,11 +14,12 @@
 import { Injectable, signal, computed } from '@angular/core';
 
 export interface ActionBannerState {
-  kind: 'error' | 'info';
+  kind: 'error' | 'info' | 'warning';
   message: string;
 }
 
 const DEFAULT_DURATION_MS = 4000;
+const WARNING_DURATION_MS = 8000;
 
 @Injectable({ providedIn: 'root' })
 export class ActionBannerService {
@@ -40,6 +41,17 @@ export class ActionBannerService {
     return b?.kind === 'info' ? b.message : null;
   });
 
+  /**
+   * Convenience computed: warning message text, or null when no warning banner.
+   * Warnings stick around longer than info/error (default 8s) because they
+   * report partial-success / desync conditions (e.g. "file rollback skipped")
+   * that the user must read and decide whether to investigate.
+   */
+  readonly warning = computed(() => {
+    const b = this._banner();
+    return b?.kind === 'warning' ? b.message : null;
+  });
+
   /** Show an error-style banner. Auto-clears after `durationMs` (default 4s). */
   showError(message: string, durationMs: number = DEFAULT_DURATION_MS): void {
     this.show({ kind: 'error', message }, durationMs);
@@ -48,6 +60,20 @@ export class ActionBannerService {
   /** Show an info-style banner. Auto-clears after `durationMs` (default 4s). */
   showInfo(message: string, durationMs: number = DEFAULT_DURATION_MS): void {
     this.show({ kind: 'info', message }, durationMs);
+  }
+
+  /**
+   * Show a warning-style banner. Used for partial-success or desync states
+   * such as "file rollback skipped" — the rewind itself succeeded but the
+   * working tree no longer matches the conversation. Auto-clears after a
+   * longer interval than info/error (default 8s) so the user has time to
+   * read it.
+   */
+  showWarning(
+    message: string,
+    durationMs: number = WARNING_DURATION_MS,
+  ): void {
+    this.show({ kind: 'warning', message }, durationMs);
   }
 
   /** Dismiss any active banner immediately and cancel its auto-clear timer. */

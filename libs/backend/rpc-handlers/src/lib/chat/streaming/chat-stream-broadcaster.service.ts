@@ -120,10 +120,6 @@ export class ChatStreamBroadcaster {
             if (ptahCliAgentId) {
               this.ptahCli.setSdkSessionId(ptahCliAgentId, event.sessionId);
             }
-            this.logger.info(
-              '[RPC] Child session metadata saved for Ptah CLI session',
-              { sessionId: event.sessionId, tabId, agentId: ptahCliAgentId },
-            );
           } catch (err: unknown) {
             this.logger.warn(
               '[RPC] Failed to save child session metadata — session may appear in sidebar',
@@ -148,22 +144,11 @@ export class ChatStreamBroadcaster {
               outputFilePath: bgEvent.outputFilePath,
               backgroundStartedAt: Date.now(),
             });
-            this.logger.info(
-              '[RPC] Background agent registered from stream event',
-              {
-                toolCallId: bgEvent.toolCallId,
-                agentId: bgEvent.agentId,
-              },
-            );
           }
         }
 
         if (event.eventType === 'message_complete' && !turnCompleteSent) {
           turnCompleteSent = true;
-          this.logger.info(
-            `[RPC] Turn complete - sending chat:complete for session ${sessionId}, tabId ${tabId}`,
-            { eventCount },
-          );
           await this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.CHAT_COMPLETE,
             {

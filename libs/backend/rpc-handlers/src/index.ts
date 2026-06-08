@@ -26,12 +26,16 @@ export {
   WebSearchRpcHandlers,
   HarnessRpcHandlers,
   McpDirectoryRpcHandlers,
+  SkillsShRpcHandlers,
   GitRpcHandlers,
   WorkspaceRpcHandlers,
   SettingsRpcHandlers,
   MemoryRpcHandlers,
+  MemRpcHandlers,
+  CorpusRpcHandlers,
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
+  EmbedderRpcHandlers,
   GatewayRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
@@ -51,7 +55,10 @@ export type {
 } from '@ptah-extension/platform-core';
 export * from './lib/register-all';
 export * from './lib/verify-and-report';
-export { registerSharedRpcHandlers } from './lib/register-shared-rpc-handlers';
+export {
+  registerSharedRpcHandlers,
+  activateSessionLifecycleNotifier,
+} from './lib/register-shared-rpc-handlers';
 export { HARNESS_TOKENS, registerHarnessServices } from './lib/harness';
 export { CHAT_TOKENS, registerChatServices } from './lib/chat';
 export { isAuthorizedWorkspace } from './lib/utils/workspace-authorization';

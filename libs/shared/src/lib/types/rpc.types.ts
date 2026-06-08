@@ -20,6 +20,8 @@ export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-terminal.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
+export * from './rpc/rpc-mem.types';
+export * from './rpc/rpc-corpus.types';
 
 export * from './rpc/rpc-indexing.types';
 
@@ -204,6 +206,18 @@ import type {
   McpDirectoryListInstalledResult,
   McpDirectoryGetPopularParams,
   McpDirectoryGetPopularResult,
+  McpDirectorySetSmitheryApiKeyParams,
+  McpDirectorySetSmitheryApiKeyResult,
+  McpDirectoryGetSmitheryKeyStatusParams,
+  McpDirectoryGetSmitheryKeyStatusResult,
+  McpDirectoryResolveSmitheryParams,
+  McpDirectoryResolveSmitheryResult,
+  McpDirectoryInstallSmitheryParams,
+  McpDirectoryInstallSmitheryResult,
+  McpDirectoryUninstallSmitheryParams,
+  McpDirectoryUninstallSmitheryResult,
+  McpDirectoryListSmitheryInstalledParams,
+  McpDirectoryListSmitheryInstalledResult,
 } from './mcp-directory.types';
 
 import type {
@@ -273,6 +287,34 @@ import type {
   MemorySearchSymbolsParams,
   MemorySearchSymbolsResult,
 } from './rpc/rpc-memory.types';
+
+import type {
+  MemSearchIndexParams,
+  MemSearchIndexResult,
+  MemTimelineParams,
+  MemTimelineResult,
+  MemGetObservationsParams,
+  MemGetObservationsResult,
+} from './rpc/rpc-mem.types';
+
+import type {
+  CorpusListParams,
+  CorpusListResult,
+  CorpusGetParams,
+  CorpusGetResult,
+  CorpusBuildParams,
+  CorpusBuildResult,
+  CorpusPrimeParams,
+  CorpusPrimeResult,
+  CorpusQueryParams,
+  CorpusQueryResult,
+  CorpusReprimeParams,
+  CorpusReprimeResult,
+  CorpusRebuildParams,
+  CorpusRebuildResult,
+  CorpusDeleteParams,
+  CorpusDeleteResult,
+} from './rpc/rpc-corpus.types';
 
 import type {
   IndexingGetStatusParams,
@@ -360,13 +402,19 @@ import type {
 import type {
   DbHealthResult,
   DbResetResult,
+  DbReloadVecResult,
+  DbOpenBindingFolderResult,
+  EmbedderStatusParams,
+  EmbedderStatusResult,
+  EmbedderRetryParams,
+  EmbedderRetryResult,
 } from './rpc/rpc-persistence.types';
 
 import type {
+  UpdateGetStateParams,
+  UpdateGetStateResult,
   UpdateCheckNowParams,
   UpdateCheckNowResult,
-  UpdateInstallNowParams,
-  UpdateInstallNowResult,
 } from './rpc/rpc-update.types';
 
 import type {
@@ -841,6 +889,18 @@ export interface RpcMethodRegistry {
     params: Record<string, never>;
     result: SkillDetectionResult;
   };
+  'skillsSh:setApiKey': {
+    params: { apiKey: string };
+    result: { success: boolean };
+  };
+  'skillsSh:getApiKeyStatus': {
+    params: Record<string, never>;
+    result: { configured: boolean };
+  };
+  'skillsSh:deleteApiKey': {
+    params: Record<string, never>;
+    result: { success: boolean };
+  };
   'mcpDirectory:search': {
     params: McpDirectorySearchParams;
     result: McpDirectorySearchResult;
@@ -864,6 +924,30 @@ export interface RpcMethodRegistry {
   'mcpDirectory:getPopular': {
     params: McpDirectoryGetPopularParams;
     result: McpDirectoryGetPopularResult;
+  };
+  'mcpDirectory:setSmitheryApiKey': {
+    params: McpDirectorySetSmitheryApiKeyParams;
+    result: McpDirectorySetSmitheryApiKeyResult;
+  };
+  'mcpDirectory:getSmitheryKeyStatus': {
+    params: McpDirectoryGetSmitheryKeyStatusParams;
+    result: McpDirectoryGetSmitheryKeyStatusResult;
+  };
+  'mcpDirectory:resolveSmithery': {
+    params: McpDirectoryResolveSmitheryParams;
+    result: McpDirectoryResolveSmitheryResult;
+  };
+  'mcpDirectory:installSmithery': {
+    params: McpDirectoryInstallSmitheryParams;
+    result: McpDirectoryInstallSmitheryResult;
+  };
+  'mcpDirectory:uninstallSmithery': {
+    params: McpDirectoryUninstallSmitheryParams;
+    result: McpDirectoryUninstallSmitheryResult;
+  };
+  'mcpDirectory:listSmitheryInstalled': {
+    params: McpDirectoryListSmitheryInstalledParams;
+    result: McpDirectoryListSmitheryInstalledResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1201,6 +1285,50 @@ export interface RpcMethodRegistry {
     params: MemoryGetTriggersParams;
     result: MemoryGetTriggersResult;
   };
+  'mem:searchIndex': {
+    params: MemSearchIndexParams;
+    result: MemSearchIndexResult;
+  };
+  'mem:timeline': {
+    params: MemTimelineParams;
+    result: MemTimelineResult;
+  };
+  'mem:getObservations': {
+    params: MemGetObservationsParams;
+    result: MemGetObservationsResult;
+  };
+  'corpus:list': {
+    params: CorpusListParams;
+    result: CorpusListResult;
+  };
+  'corpus:get': {
+    params: CorpusGetParams;
+    result: CorpusGetResult;
+  };
+  'corpus:build': {
+    params: CorpusBuildParams;
+    result: CorpusBuildResult;
+  };
+  'corpus:prime': {
+    params: CorpusPrimeParams;
+    result: CorpusPrimeResult;
+  };
+  'corpus:query': {
+    params: CorpusQueryParams;
+    result: CorpusQueryResult;
+  };
+  'corpus:reprime': {
+    params: CorpusReprimeParams;
+    result: CorpusReprimeResult;
+  };
+  'corpus:rebuild': {
+    params: CorpusRebuildParams;
+    result: CorpusRebuildResult;
+  };
+  'corpus:delete': {
+    params: CorpusDeleteParams;
+    result: CorpusDeleteResult;
+  };
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
     result: SkillSynthesisListCandidatesResult;
@@ -1306,6 +1434,30 @@ export interface RpcMethodRegistry {
     params: GatewayTestParams;
     result: GatewayTestResult;
   };
+  'gateway:getAllowList': {
+    params: GatewayGetAllowListParams;
+    result: GatewayGetAllowListResult;
+  };
+  'gateway:setAllowList': {
+    params: GatewaySetAllowListParams;
+    result: GatewaySetAllowListResult;
+  };
+  'gateway:getDiscordAppId': {
+    params: GatewayGetDiscordAppIdParams;
+    result: GatewayGetDiscordAppIdResult;
+  };
+  'gateway:setDiscordAppId': {
+    params: GatewaySetDiscordAppIdParams;
+    result: GatewaySetDiscordAppIdResult;
+  };
+  'gateway:registerDiscordCommands': {
+    params: GatewayRegisterDiscordCommandsParams;
+    result: GatewayRegisterDiscordCommandsResult;
+  };
+  'gateway:listDiscordGuilds': {
+    params: GatewayListDiscordGuildsParams;
+    result: GatewayListDiscordGuildsResult;
+  };
 
   'db:health': {
     params: { fullCheck?: boolean };
@@ -1314,6 +1466,22 @@ export interface RpcMethodRegistry {
   'db:reset': {
     params: { confirm: string };
     result: DbResetResult;
+  };
+  'db:reloadVec': {
+    params: Record<string, never>;
+    result: DbReloadVecResult;
+  };
+  'db:openBindingFolder': {
+    params: Record<string, never>;
+    result: DbOpenBindingFolderResult;
+  };
+  'embedder:status': {
+    params: EmbedderStatusParams;
+    result: EmbedderStatusResult;
+  };
+  'embedder:retry': {
+    params: EmbedderRetryParams;
+    result: EmbedderRetryResult;
   };
   'indexing:getStatus': {
     params: IndexingGetStatusParams;
@@ -1347,13 +1515,13 @@ export interface RpcMethodRegistry {
     params: IndexingAcknowledgeDisclosureParams;
     result: IndexingAcknowledgeDisclosureResult;
   };
+  'update:get-state': {
+    params: UpdateGetStateParams;
+    result: UpdateGetStateResult;
+  };
   'update:check-now': {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
-  };
-  'update:install-now': {
-    params: UpdateInstallNowParams;
-    result: UpdateInstallNowResult;
   };
 }
 
@@ -1513,6 +1681,8 @@ export interface GatewayBindingDto {
   id: string;
   platform: GatewayPlatformId;
   externalChatId: string;
+  /** Allow-list id (Telegram user / Discord guild / Slack team), or null for pre-0020 rows. */
+  allowListId: string | null;
   displayName: string | null;
   approvalStatus: GatewayApprovalStatus;
   ptahSessionId: string | null;
@@ -1628,6 +1798,47 @@ export interface GatewayTestParams {
 export type GatewayTestResult =
   | { ok: true; bindingId: string; externalMsgId: string | null }
   | { ok: false; error: string };
+
+export interface GatewayGetAllowListParams {
+  platform: GatewayPlatformId;
+}
+export interface GatewayGetAllowListResult {
+  entries: string[];
+}
+
+export interface GatewaySetAllowListParams {
+  platform: GatewayPlatformId;
+  entries: string[];
+}
+export interface GatewaySetAllowListResult {
+  ok: true;
+}
+
+export type GatewayGetDiscordAppIdParams = Record<string, never>;
+export interface GatewayGetDiscordAppIdResult {
+  applicationId: string | null;
+}
+
+export interface GatewaySetDiscordAppIdParams {
+  applicationId: string;
+}
+export interface GatewaySetDiscordAppIdResult {
+  ok: true;
+}
+
+export type GatewayRegisterDiscordCommandsParams = Record<string, never>;
+export type GatewayRegisterDiscordCommandsResult =
+  | { ok: true; registered: number; scope: 'guild' | 'global' }
+  | { ok: false; error: string };
+
+export interface GatewayDiscordGuildDto {
+  id: string;
+  name: string;
+}
+export type GatewayListDiscordGuildsParams = Record<string, never>;
+export interface GatewayListDiscordGuildsResult {
+  guilds: GatewayDiscordGuildDto[];
+}
 
 export interface ScheduledJobDto {
   id: string;
@@ -1862,12 +2073,21 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillsSh:uninstall': true,
   'skillsSh:getPopular': true,
   'skillsSh:detectRecommended': true,
+  'skillsSh:setApiKey': true,
+  'skillsSh:getApiKeyStatus': true,
+  'skillsSh:deleteApiKey': true,
   'mcpDirectory:search': true,
   'mcpDirectory:getDetails': true,
   'mcpDirectory:install': true,
   'mcpDirectory:uninstall': true,
   'mcpDirectory:listInstalled': true,
   'mcpDirectory:getPopular': true,
+  'mcpDirectory:setSmitheryApiKey': true,
+  'mcpDirectory:getSmitheryKeyStatus': true,
+  'mcpDirectory:resolveSmithery': true,
+  'mcpDirectory:installSmithery': true,
+  'mcpDirectory:uninstallSmithery': true,
+  'mcpDirectory:listSmitheryInstalled': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,
@@ -1953,6 +2173,19 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:setTriggers': true,
   'memory:getTriggers': true,
 
+  'mem:searchIndex': true,
+  'mem:timeline': true,
+  'mem:getObservations': true,
+
+  'corpus:list': true,
+  'corpus:get': true,
+  'corpus:build': true,
+  'corpus:prime': true,
+  'corpus:query': true,
+  'corpus:reprime': true,
+  'corpus:rebuild': true,
+  'corpus:delete': true,
+
   'skillSynthesis:listCandidates': true,
   'skillSynthesis:getCandidate': true,
   'skillSynthesis:promote': true,
@@ -1988,9 +2221,20 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:blockBinding': true,
   'gateway:listMessages': true,
   'gateway:test': true,
+  'gateway:getAllowList': true,
+  'gateway:setAllowList': true,
+  'gateway:getDiscordAppId': true,
+  'gateway:setDiscordAppId': true,
+  'gateway:registerDiscordCommands': true,
+  'gateway:listDiscordGuilds': true,
 
   'db:health': true,
   'db:reset': true,
+  'db:reloadVec': true,
+  'db:openBindingFolder': true,
+
+  'embedder:status': true,
+  'embedder:retry': true,
 
   'indexing:getStatus': true,
   'indexing:start': true,
@@ -2001,8 +2245,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'indexing:dismissStale': true,
   'indexing:acknowledgeDisclosure': true,
 
+  'update:get-state': true,
   'update:check-now': true,
-  'update:install-now': true,
 };
 
 /**

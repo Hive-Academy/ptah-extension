@@ -100,9 +100,35 @@ function makeConnection(db: BetterSqliteDb) {
   };
 }
 
+function makeVecStatus(available = false): unknown {
+  const diagnostic = {
+    ok: available,
+    reason: available ? 'ok' : 'binary-missing',
+    electronVersion: '40.0.0',
+    processArch: 'x64',
+    processPlatform: 'linux',
+  };
+  return {
+    available,
+    reason: diagnostic.reason,
+    diagnostic,
+    getStatus: () => ({
+      available,
+      reason: diagnostic.reason,
+      diagnostic,
+    }),
+    on: () => ({ dispose: () => undefined }),
+    refresh: () => undefined,
+  };
+}
+
 function makeStore(db: BetterSqliteDb): SkillCandidateStore {
   const connection = makeConnection(db);
-  return new SkillCandidateStore(noopLogger as never, connection as never);
+  return new SkillCandidateStore(
+    noopLogger as never,
+    connection as never,
+    makeVecStatus(false) as never,
+  );
 }
 
 function candidateInput(suffix: string): NewCandidateInput {

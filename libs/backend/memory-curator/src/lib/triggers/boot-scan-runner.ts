@@ -160,6 +160,7 @@ export class BootScanRunner {
     mtime: number,
     logger?: Logger,
   ): void {
+    if (!sqlite.isOpen) return;
     try {
       const now = Date.now();
       sqlite.db

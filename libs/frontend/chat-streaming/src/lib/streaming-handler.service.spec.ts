@@ -281,6 +281,7 @@ describe('StreamingHandlerService', () => {
       }),
       markTabIdle: jest.fn(),
       markTabStreaming: jest.fn(),
+      isTabStreaming: jest.fn().mockReturnValue(false),
     } as unknown as jest.Mocked<
       Pick<
         TabManagerService,
@@ -293,6 +294,7 @@ describe('StreamingHandlerService', () => {
         | 'setMessages'
         | 'markTabIdle'
         | 'markTabStreaming'
+        | 'isTabStreaming'
       >
     > & { tabs: ReturnType<typeof computed<TabState[]>> };
 
@@ -580,6 +582,76 @@ describe('StreamingHandlerService', () => {
     });
   });
 
+  // Visual streaming-flag self-heal. A turn-end (Stop hook / result / a
+  // background-task pause) clears `_streamingTabIds` via markTabIdle — hiding
+  // the stop button + tab spinner — while the SDK later resumes streaming on
+  // its own. The execution-tree bubble re-enters 'streaming' from those events;
+  // the flag must be re-asserted too, regardless of the tab's lifecycle status.
+  describe('streaming-flag re-assertion when the SDK pauses then resumes', () => {
+    it('re-marks the tab when content resumes and the flag was cleared', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
+    });
+
+    it('does NOT re-mark when the flag is already set (steady-state streaming is a no-op)', () => {
+      tabManager.isTabStreaming.mockReturnValue(true);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('re-marks an awaiting-background tab when the agent resumes after a background command finishes', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([makeTab({ status: 'awaiting-background' })]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
+    });
+
+    // Regression: clicking Stop ends the turn (markTabIdle clears the flag and
+    // stamps an aborted terminal reason), then the SDK emits a trailing
+    // "[Request interrupted by user]" message. That content must NOT self-heal
+    // the spinner back on — otherwise the stop button reappears and the user
+    // has to click it twice. A clean completion still self-heals (above).
+    it('does NOT re-mark when the last turn ended in aborted_streaming (post-abort interrupt content)', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'aborted_streaming' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('does NOT re-mark when the last turn ended in aborted_tools', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'aborted_tools' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('still self-heals when the last turn completed cleanly (background resume path)', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'completed' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
+    });
+  });
+
   // Multi-tab fan-out. When two tabs share a claudeSessionId (canvas-grid
   // scenario), processStreamEvent must write streamingState to BOTH tabs'
   // state, not just the primary.
@@ -653,6 +725,144 @@ describe('StreamingHandlerService', () => {
       // how many bound tabs received finalization.
       expect(permissionHandler.consumeHardDenyToolUseIds).toHaveBeenCalledTimes(
         1,
+      );
+    });
+  });
+
+  // Stop-observed guard. Phase 2 Batch 4 — TurnEndHandlerService is now the
+  // primary turn-end pivot. SESSION_STATS only finalizes as a safety net
+  // when Stop did not fire; when Stop has stamped `lastTerminalReason`, the
+  // finalization block is skipped and only the last-assistant-message stats
+  // merge runs.
+  describe('Stop-observed guard (Phase 2 Batch 4)', () => {
+    const assistantMsg = {
+      id: 'asst-msg-1',
+      role: 'assistant' as const,
+      content: 'response text',
+      tokens: { input: 0, output: 0 },
+      cost: 0,
+      duration: 0,
+    };
+
+    it('finalizes via safety-net when lastTerminalReason is undefined (no Stop observed)', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'streaming',
+        lastTerminalReason: undefined,
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.25,
+        tokens: { input: 5, output: 5 },
+        duration: 200,
+      });
+
+      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith(TAB_ID);
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith(TAB_ID);
+    });
+
+    it('skips finalization when lastTerminalReason is null (Stop fired without reason)', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'loaded',
+        lastTerminalReason: null,
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.5,
+        tokens: { input: 11, output: 13 },
+        duration: 250,
+      });
+
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(finalization.markLastAgentAsInterrupted).not.toHaveBeenCalled();
+      expect(
+        finalization.markAgentsAsInterruptedByToolCallIds,
+      ).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+      expect(tabManager.setMessages).toHaveBeenCalledWith(
+        TAB_ID,
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'asst-msg-1',
+            role: 'assistant',
+            tokens: { input: 11, output: 13 },
+            cost: 0.5,
+            duration: 250,
+          }),
+        ]),
+      );
+    });
+
+    it('skips finalization when lastTerminalReason is set (Stop already pivoted)', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'loaded',
+        lastTerminalReason: 'completed',
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.25,
+        tokens: { input: 5, output: 5 },
+        duration: 200,
+      });
+
+      expect(finalization.finalizeCurrentMessage).not.toHaveBeenCalled();
+      expect(finalization.markLastAgentAsInterrupted).not.toHaveBeenCalled();
+      expect(
+        finalization.markAgentsAsInterruptedByToolCallIds,
+      ).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).not.toHaveBeenCalled();
+    });
+
+    it('still patches last-assistant-message tokens/cost/duration when Stop has finalized', () => {
+      const tab = makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'loaded',
+        lastTerminalReason: 'completed',
+        messages: [assistantMsg],
+      } as Partial<TabState>);
+      tabsSignal.set([tab]);
+      tabManager.findTabsBySessionId.mockReturnValue([tab]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.75,
+        tokens: { input: 42, output: 17 },
+        duration: 333,
+      });
+
+      expect(tabManager.setMessages).toHaveBeenCalledWith(
+        TAB_ID,
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'asst-msg-1',
+            role: 'assistant',
+            tokens: { input: 42, output: 17 },
+            cost: 0.75,
+            duration: 333,
+          }),
+        ]),
       );
     });
   });

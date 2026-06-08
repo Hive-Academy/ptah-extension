@@ -25,6 +25,22 @@ export interface ConversationRecord {
   /** True between `compaction_start` and `compaction_complete` events. */
   readonly compactionInFlight: boolean;
   readonly lastCompactionAt: number | null;
+  readonly compactionMarker: CompactionMarkerRecord | null;
+}
+
+/**
+ * Persistent, per-conversation record of a completed compaction. Merged from
+ * two independent backend signals: the in-stream `compaction_complete` event
+ * (token delta) and the `SESSION_COMPACTION_COMPLETE` push (summary text).
+ * Each field is independently nullable so the marker renders with whatever
+ * subset has arrived.
+ */
+export interface CompactionMarkerRecord {
+  readonly summary: string | null;
+  readonly preTokens: number | null;
+  readonly postTokens: number | null;
+  readonly durationMs: number | null;
+  readonly completedAt: number;
 }
 
 /** Internal mutable shape — never exposed. */
@@ -42,6 +58,7 @@ interface MutableRecord {
   compactionTrigger: 'manual' | 'auto' | null;
   compactionPreTokens: number | null;
   compactionStartedAt: number | null;
+  compactionMarker: CompactionMarkerRecord | null;
 }
 
 /**
@@ -102,6 +119,7 @@ export class ConversationRegistry {
       compactionTrigger: null,
       compactionPreTokens: null,
       compactionStartedAt: null,
+      compactionMarker: null,
     };
     this._byId.update((prev) => {
       const next = new Map(prev);
@@ -166,11 +184,19 @@ export class ConversationRegistry {
     this.patch(convId, (r) => ({ ...r, compactionInFlight: true }));
   }
 
-  markCompactionComplete(convId: ConversationId): void {
+  /**
+   * Mark the conversation's compaction as complete. The optional `timestamp`
+   * argument lets edge-triggered callers (the `PostCompact` RPC notification
+   * path) stamp the exact backend hook firing time; omitting it falls back
+   * to `Date.now()` for legacy in-stream `compaction_complete` callers.
+   * Throws on unknown conversation id (preserves the legacy contract).
+   */
+  markCompactionComplete(convId: ConversationId, timestamp?: number): void {
+    const stamp = timestamp ?? Date.now();
     this.patch(convId, (r) => ({
       ...r,
       compactionInFlight: false,
-      lastCompactionAt: Date.now(),
+      lastCompactionAt: stamp,
     }));
   }
 
@@ -234,6 +260,113 @@ export class ConversationRegistry {
     };
   }
 
+  setCompactionMarkerTokens(
+    convId: ConversationId,
+    fields: {
+      preTokens: number | null;
+      postTokens: number | null;
+      durationMs: number | null;
+      completedAt: number;
+    },
+  ): void {
+    if (!this._byId().has(convId)) return;
+    this.patch(convId, (r) => {
+      const prior = r.compactionMarker ?? this.readPersisted(convId);
+      const merged: CompactionMarkerRecord = {
+        summary: prior?.summary ?? null,
+        preTokens: fields.preTokens ?? prior?.preTokens ?? null,
+        postTokens: fields.postTokens ?? prior?.postTokens ?? null,
+        durationMs: fields.durationMs ?? prior?.durationMs ?? null,
+        completedAt: Math.max(prior?.completedAt ?? 0, fields.completedAt),
+      };
+      this.writePersisted(convId, merged);
+      return { ...r, compactionMarker: merged };
+    });
+  }
+
+  setCompactionMarkerSummary(
+    convId: ConversationId,
+    fields: { summary: string | null; completedAt: number },
+  ): void {
+    if (!this._byId().has(convId)) return;
+    this.patch(convId, (r) => {
+      const prior = r.compactionMarker ?? this.readPersisted(convId);
+      const merged: CompactionMarkerRecord = {
+        summary: fields.summary ?? prior?.summary ?? null,
+        preTokens: prior?.preTokens ?? null,
+        postTokens: prior?.postTokens ?? null,
+        durationMs: prior?.durationMs ?? null,
+        completedAt: Math.max(prior?.completedAt ?? 0, fields.completedAt),
+      };
+      this.writePersisted(convId, merged);
+      return { ...r, compactionMarker: merged };
+    });
+  }
+
+  compactionMarkerFor(convId: ConversationId): CompactionMarkerRecord | null {
+    const r = this._byId().get(convId);
+    if (!r) return null;
+    if (r.compactionMarker) {
+      return { ...r.compactionMarker };
+    }
+    const persisted = this.readPersisted(convId);
+    if (persisted) {
+      r.compactionMarker = persisted;
+      return { ...persisted };
+    }
+    return null;
+  }
+
+  private static markerStorageKey(convId: ConversationId): string {
+    return `ptah:compaction-marker:${convId}`;
+  }
+
+  private readPersisted(convId: ConversationId): CompactionMarkerRecord | null {
+    try {
+      const raw = globalThis.localStorage?.getItem(
+        ConversationRegistry.markerStorageKey(convId),
+      );
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<CompactionMarkerRecord>;
+      return {
+        summary: parsed.summary ?? null,
+        preTokens: parsed.preTokens ?? null,
+        postTokens: parsed.postTokens ?? null,
+        durationMs: parsed.durationMs ?? null,
+        completedAt: parsed.completedAt ?? 0,
+      };
+    } catch (error: unknown) {
+      console.warn(
+        '[ConversationRegistry] failed to read persisted compaction marker',
+        {
+          convId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
+    }
+  }
+
+  private writePersisted(
+    convId: ConversationId,
+    marker: CompactionMarkerRecord,
+  ): void {
+    try {
+      globalThis.localStorage?.setItem(
+        ConversationRegistry.markerStorageKey(convId),
+        JSON.stringify(marker),
+      );
+    } catch (error: unknown) {
+      console.warn(
+        '[ConversationRegistry] failed to persist compaction marker',
+        {
+          convId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
   /**
    * Remove a conversation. The router calls this once the last bound tab
    * unbinds and the underlying SDK session(s) have been cleaned up.
@@ -274,5 +407,6 @@ function freeze(r: MutableRecord): ConversationRecord {
     createdAt: r.createdAt,
     compactionInFlight: r.compactionInFlight,
     lastCompactionAt: r.lastCompactionAt,
+    compactionMarker: r.compactionMarker ? { ...r.compactionMarker } : null,
   };
 }

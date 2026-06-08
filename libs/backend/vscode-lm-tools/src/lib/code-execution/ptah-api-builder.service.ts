@@ -29,6 +29,7 @@ import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type {
   IMemoryReader,
   IMemoryLister,
+  ICodeSymbolReader,
 } from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
@@ -79,10 +80,12 @@ import {
   buildSkillNamespace,
   buildMemoryNamespace,
   buildCodeNamespace,
+  buildHarnessNamespace,
 } from './namespace-builders';
 import {
   AgentProcessManager,
   CliDetectionService,
+  McpRegistryProvider,
 } from '@ptah-extension/cli-agent-runtime';
 
 /**
@@ -146,6 +149,16 @@ const MEMORY_SEARCH_TOKEN = Symbol.for('PtahMemorySearch');
 const MEMORY_STORE_TOKEN = Symbol.for('PtahMemoryStore');
 
 /**
+ * Duplicated from MEMORY_CONTRACT_TOKENS.CODE_SYMBOL_READER to avoid a hard
+ * dependency from vscode-lm-tools onto memory-curator's concrete store. Must
+ * match the Symbol.for() description in:
+ * libs/backend/memory-contracts/src/lib/tokens.ts
+ *
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const CODE_SYMBOL_READER_TOKEN = Symbol.for('PtahCodeSymbolReader');
+
+/**
  * Duplicated from PLATFORM_TOKENS.MEMORY_WRITER to avoid circular dependency
  * between vscode-lm-tools -> platform-core via DI resolution.
  * Must match: libs/backend/platform-core/src/di/tokens.ts
@@ -179,6 +192,14 @@ interface EnhancedPromptsServiceLike {
 interface PluginLoaderLike {
   getWorkspacePluginConfig(): { enabledPluginIds: string[] };
   resolvePluginPaths(pluginIds: string[]): string[];
+  resolveCurrentPluginPaths(): string[];
+  discoverSkillsForPlugins(pluginPaths: string[]): Array<{
+    skillId: string;
+    displayName: string;
+    description: string;
+    pluginId: string;
+  }>;
+  getDisabledSkillIds(): string[];
 }
 
 interface PtahCliRegistryLike {
@@ -310,6 +331,9 @@ export class PtahAPIBuilder {
     @inject(MEMORY_STORE_TOKEN, { isOptional: true })
     private readonly memoryStore: IMemoryLister | undefined,
 
+    @inject(CODE_SYMBOL_READER_TOKEN, { isOptional: true })
+    private readonly codeSymbolReader: ICodeSymbolReader | undefined,
+
     @inject(MEMORY_WRITER_TOKEN, { isOptional: true })
     private readonly memoryWriter: IMemoryWriter | undefined,
 
@@ -326,6 +350,15 @@ export class PtahAPIBuilder {
     private readonly browserCapabilities: IBrowserCapabilities | undefined,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
+  }
+
+  /**
+   * True only when both the code-symbol indexer and memory reader were
+   * injected (Electron). VS Code/CLI leave these optional tokens unbound,
+   * so this is the reliable discriminator for the SQLite-backed tools.
+   */
+  hasSymbolAndMemoryLayer(): boolean {
+    return this.symbolIndexer !== undefined && this.memorySearch !== undefined;
   }
 
   /**
@@ -544,11 +577,25 @@ export class PtahAPIBuilder {
       ),
       code: this.buildNamespaceSafe('code', () =>
         buildCodeNamespace({
+          getCodeSymbolSearch: () => this.codeSymbolReader,
           getMemorySearch: () => this.memorySearch,
           getSymbolIndexer: () => this.symbolIndexer,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
+      harness: this.buildNamespaceSafe('harness', () => {
+        if (!this.pluginLoader) {
+          throw new Error(
+            'SDK_PLUGIN_LOADER not registered — harness namespace requires the plugin loader',
+          );
+        }
+        return buildHarnessNamespace({
+          pluginLoader: this.pluginLoader,
+          mcpRegistry: new McpRegistryProvider(this.logger),
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+          logger: this.logger,
+        });
+      }),
       help: buildHelpMethod(),
     };
   }

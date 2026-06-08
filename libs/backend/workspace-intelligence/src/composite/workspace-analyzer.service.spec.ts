@@ -9,7 +9,6 @@ import { ContextService } from '../context/context.service';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 import { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import { GenericAstNode } from '../ast/ast.types';
 import { CodeInsights } from '../ast/ast-analysis.interfaces';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
@@ -90,32 +89,11 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
     service.dispose();
   });
 
-  // Pre-existing: Tests need update for analyzeSource() API change (was analyzeAst)
-  describe.skip('extractCodeInsights - AST Integration', () => {
-    it('should extract code insights from TypeScript file using AST parsing', async () => {
+  describe('extractCodeInsights - AST Integration', () => {
+    it('should extract code insights from TypeScript file using query-based AST analysis', async () => {
       // Arrange
       const filePath = 'D:\\test\\sample.ts';
       const fileContent = 'function hello() { return "world"; }';
-
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: fileContent,
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 1, column: 0 },
-        isNamed: true,
-        fieldName: null,
-        children: [
-          {
-            type: 'function_declaration',
-            text: 'function hello() { return "world"; }',
-            startPosition: { row: 0, column: 0 },
-            endPosition: { row: 1, column: 0 },
-            isNamed: true,
-            fieldName: null,
-            children: [],
-          },
-        ],
-      };
 
       const mockInsights: CodeInsights = {
         functions: [
@@ -129,8 +107,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       };
 
       mockFileSystem.readFile.mockResolvedValue(fileContent);
-      mockTreeSitterParser.parse.mockResolvedValue(Result.ok(mockAst));
-      mockAstAnalyzer.analyzeAst.mockResolvedValue(Result.ok(mockInsights));
+      mockAstAnalyzer.analyzeSource.mockResolvedValue(Result.ok(mockInsights));
 
       // Act
       const result = await service.extractCodeInsights(filePath);
@@ -145,12 +122,9 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
 
       // Verify the integration chain
       expect(mockFileSystem.readFile).toHaveBeenCalled();
-      expect(mockTreeSitterParser.parse).toHaveBeenCalledWith(
+      expect(mockAstAnalyzer.analyzeSource).toHaveBeenCalledWith(
         fileContent,
         'typescript',
-      );
-      expect(mockAstAnalyzer.analyzeAst).toHaveBeenCalledWith(
-        mockAst,
         filePath,
       );
       expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -158,23 +132,13 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       );
     });
 
-    it('should detect language from file extension (TypeScript)', async () => {
+    it('should detect language from file extension (TypeScript .tsx)', async () => {
       // Arrange
       const filePath = 'D:\\test\\component.tsx';
       const fileContent = 'const Component = () => <div>Hello</div>;';
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: '',
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 0, column: 0 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
 
       mockFileSystem.readFile.mockResolvedValue(fileContent);
-      mockTreeSitterParser.parse.mockResolvedValue(Result.ok(mockAst));
-      mockAstAnalyzer.analyzeAst.mockResolvedValue(
+      mockAstAnalyzer.analyzeSource.mockResolvedValue(
         Result.ok({ functions: [], classes: [], imports: [] }),
       );
 
@@ -182,9 +146,10 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       await service.extractCodeInsights(filePath);
 
       // Assert
-      expect(mockTreeSitterParser.parse).toHaveBeenCalledWith(
+      expect(mockAstAnalyzer.analyzeSource).toHaveBeenCalledWith(
         fileContent,
         'typescript',
+        filePath,
       );
     });
 
@@ -192,19 +157,9 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       // Arrange
       const filePath = 'D:\\test\\script.js';
       const fileContent = 'function test() {}';
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: '',
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 0, column: 0 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
 
       mockFileSystem.readFile.mockResolvedValue(fileContent);
-      mockTreeSitterParser.parse.mockResolvedValue(Result.ok(mockAst));
-      mockAstAnalyzer.analyzeAst.mockResolvedValue(
+      mockAstAnalyzer.analyzeSource.mockResolvedValue(
         Result.ok({ functions: [], classes: [], imports: [] }),
       );
 
@@ -212,51 +167,20 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       await service.extractCodeInsights(filePath);
 
       // Assert
-      expect(mockTreeSitterParser.parse).toHaveBeenCalledWith(
+      expect(mockAstAnalyzer.analyzeSource).toHaveBeenCalledWith(
         fileContent,
         'javascript',
+        filePath,
       );
-    });
-
-    it('should return null when AST parsing fails', async () => {
-      // Arrange
-      const filePath = 'D:\\test\\invalid.ts';
-      const fileContent = 'invalid syntax {{{';
-
-      mockFileSystem.readFile.mockResolvedValue(fileContent);
-      mockTreeSitterParser.parse.mockResolvedValue(
-        Result.err(new Error('Parse error: unexpected token')),
-      );
-
-      // Act
-      const result = await service.extractCodeInsights(filePath);
-
-      // Assert
-      expect(result).toBeNull();
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining('AST parsing failed'),
-        expect.any(Error),
-      );
-      expect(mockAstAnalyzer.analyzeAst).not.toHaveBeenCalled();
     });
 
     it('should return null when AST analysis fails', async () => {
       // Arrange
       const filePath = 'D:\\test\\problematic.ts';
       const fileContent = 'const x = 1;';
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: '',
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 0, column: 0 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
 
       mockFileSystem.readFile.mockResolvedValue(fileContent);
-      mockTreeSitterParser.parse.mockResolvedValue(Result.ok(mockAst));
-      mockAstAnalyzer.analyzeAst.mockResolvedValue(
+      mockAstAnalyzer.analyzeSource.mockResolvedValue(
         Result.err(new Error('Analysis failed')),
       );
 
@@ -288,8 +212,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
         expect.stringContaining('Error extracting code insights'),
         expect.any(Error),
       );
-      expect(mockTreeSitterParser.parse).not.toHaveBeenCalled();
-      expect(mockAstAnalyzer.analyzeAst).not.toHaveBeenCalled();
+      expect(mockAstAnalyzer.analyzeSource).not.toHaveBeenCalled();
     });
 
     it('should extract complex code insights with multiple functions and classes', async () => {
@@ -308,16 +231,6 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
 
         import { Component } from '@angular/core';
       `;
-
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: fileContent,
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 12, column: 0 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
 
       const mockInsights: CodeInsights = {
         functions: [
@@ -339,8 +252,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       };
 
       mockFileSystem.readFile.mockResolvedValue(fileContent);
-      mockTreeSitterParser.parse.mockResolvedValue(Result.ok(mockAst));
-      mockAstAnalyzer.analyzeAst.mockResolvedValue(Result.ok(mockInsights));
+      mockAstAnalyzer.analyzeSource.mockResolvedValue(Result.ok(mockInsights));
 
       // Act
       const result = await service.extractCodeInsights(filePath);
@@ -360,23 +272,13 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       expect(result?.imports[0].source).toBe('@angular/core');
     });
 
-    it('should log debug messages at each integration step', async () => {
+    it('should log debug messages around analysis', async () => {
       // Arrange
       const filePath = 'D:\\test\\debug-test.ts';
       const fileContent = 'const x = 1;';
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: '',
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 0, column: 0 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
 
       mockFileSystem.readFile.mockResolvedValue(fileContent);
-      mockTreeSitterParser.parse.mockResolvedValue(Result.ok(mockAst));
-      mockAstAnalyzer.analyzeAst.mockResolvedValue(
+      mockAstAnalyzer.analyzeSource.mockResolvedValue(
         Result.ok({ functions: [], classes: [], imports: [] }),
       );
 
@@ -388,10 +290,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
         expect.stringContaining('Extracting code insights'),
       );
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('AST parsed successfully'),
-      );
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('Code insights extracted'),
+        expect.stringContaining('Code insights extracted successfully'),
       );
     });
   });

@@ -1,9 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import {
-  ConversationRegistry,
-  TabManagerService,
-  TabSessionBinding,
-} from '@ptah-extension/chat-state';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 import {
@@ -33,14 +29,6 @@ export class SessionStatsAggregatorService {
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
   private readonly messageDispatch = inject(MessageDispatchService);
-  /**
-   * `isLateAfterCompaction` sources compaction status from the
-   * `ConversationRegistry` instead of the per-tab `isCompacting` flag,
-   * eliminating the dual-source-of-truth race that dropped or double-counted
-   * late SESSION_STATS events.
-   */
-  private readonly conversationRegistry = inject(ConversationRegistry);
-  private readonly tabSessionBinding = inject(TabSessionBinding);
 
   /**
    * Handle session stats update from backend
@@ -68,20 +56,9 @@ export class SessionStatsAggregatorService {
       lastTurnContextTokens?: number;
     }>;
   }): void {
-    let targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
+    const targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
       SessionId.from(stats.sessionId),
     );
-    const filteredTabs = targetTabs.filter(
-      (t) => !this.isLateAfterCompaction(t),
-    );
-    if (filteredTabs.length === 0 && targetTabs.length > 0) {
-      console.warn(
-        '[ChatStore] handleSessionStats: dropped late event after compaction',
-        { sessionId: stats.sessionId },
-      );
-      return;
-    }
-    targetTabs = filteredTabs;
     for (const t of targetTabs) {
       this.compactionLifecycle.clearCompactionState(t.id);
     }
@@ -152,8 +129,11 @@ export class SessionStatsAggregatorService {
           );
         }
       } else {
+        for (const t of targetTabs) {
+          this.tabManager.setModelUsageList(t.id, stats.modelUsage);
+        }
         console.warn(
-          '[ChatStore] handleSessionStats: skipped post-compaction cumulative-fallback update',
+          '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction); preserved per-model breakdown',
           {
             sessionId: stats.sessionId,
             model: primaryModel.model,
@@ -164,9 +144,13 @@ export class SessionStatsAggregatorService {
     }
     for (const t of targetTabs) {
       if (!t.preloadedStats) continue;
+      const prevCost = t.preloadedStats.totalCost;
+      const turnCost = stats.cost;
+      const nextCost =
+        turnCost === null ? prevCost : (prevCost ?? 0) + turnCost;
       this.tabManager.setPreloadedStats(t.id, {
         ...t.preloadedStats,
-        totalCost: t.preloadedStats.totalCost + stats.cost,
+        totalCost: nextCost,
         tokens: {
           input: t.preloadedStats.tokens.input + stats.tokens.input,
           output: t.preloadedStats.tokens.output + stats.tokens.output,
@@ -189,47 +173,5 @@ export class SessionStatsAggregatorService {
         result.queuedContent,
       );
     }
-  }
-
-  /**
-   * Grace window (ms) after `compaction_complete` during which incoming
-   * SESSION_STATS events are presumed to be late stragglers from the last
-   * pre-compaction turn. 2s covers the worst-case in-flight RPC latency.
-   */
-  private static readonly COMPACTION_GRACE_MS = 2000;
-
-  /**
-   * Returns true when a SESSION_STATS event arriving for `tab` should be
-   * treated as a late, pre-compaction straggler. The tab is "still settling"
-   * if its conversation is currently compacting OR completed a compaction
-   * within the grace window. Tabs/conversations that have never compacted
-   * return false.
-   *
-   * Reads compaction state from `ConversationRegistry` via
-   * `TabSessionBinding`. The legacy path consulted `tab.isCompacting`
-   * which could drift from the registry when StreamRouter and lifecycle
-   * service raced. If the tab has no conversation binding yet we fall back
-   * to the locally-stamped `lastCompactionAt` on the tab so the grace window
-   * still works for unbound, post-complete tail events.
-   */
-  private isLateAfterCompaction(tab: TabState): boolean {
-    const convId = this.tabSessionBinding.conversationFor(tab.id);
-    if (convId) {
-      const state = this.conversationRegistry.compactionStateFor(convId);
-      if (state) {
-        if (state.inFlight) return true;
-        const lastAt = state.lastCompactionAt;
-        if (lastAt === null) return false;
-        return (
-          Date.now() - lastAt <
-          SessionStatsAggregatorService.COMPACTION_GRACE_MS
-        );
-      }
-    }
-    const lastAt = tab.lastCompactionAt ?? null;
-    if (lastAt === null) return false;
-    return (
-      Date.now() - lastAt < SessionStatsAggregatorService.COMPACTION_GRACE_MS
-    );
   }
 }

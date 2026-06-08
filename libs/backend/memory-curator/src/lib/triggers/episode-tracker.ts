@@ -139,6 +139,12 @@ export class EpisodeTracker {
   /**
    * Assemble the buffered episode into a transcript for the curator LLM.
    * Returns an empty string when there is nothing worth curating.
+   *
+   * @deprecated Episode transcript composition has moved to
+   * `MemoryTriggerService.invokeCurate`, which composes a richer transcript
+   * from a JSONL excerpt + drained `observation_queue` rows + episode
+   * snapshot. This method is retained as a non-load-bearing utility for
+   * episode debug dumps and is no longer called from the trigger path.
    */
   buildTranscript(sessionId: string): string {
     const snap = this.snapshot(sessionId);

@@ -15,7 +15,6 @@
     "skipDefaultLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-
     "paths": {
       "@ptah-extension/agent-generation": [
         "./libs/backend/agent-generation/src/index.ts"
@@ -47,6 +46,9 @@
       "@ptah-extension/core": ["./libs/frontend/core/src/index.ts"],
       "@ptah-extension/cron-scheduler": [
         "./libs/backend/cron-scheduler/src/index.ts"
+      ],
+      "@ptah-extension/gateway-chat-bridge": [
+        "./libs/backend/gateway-chat-bridge/src/index.ts"
       ],
       "@ptah-extension/cron-scheduler-ui": [
         "./libs/frontend/cron-scheduler-ui/src/index.ts"
@@ -109,6 +111,9 @@
       ],
       "@ptah-extension/harness-builder": [
         "./libs/frontend/harness-builder/src/index.ts"
+      ],
+      "@ptah-extension/marketplace": [
+        "./libs/frontend/marketplace/src/index.ts"
       ],
       "@ptah-extension/markdown": ["./libs/frontend/markdown/src/index.ts"],
       "@ptah-extension/setup-wizard": [

@@ -819,6 +819,14 @@ export class AgentMonitorStore implements OnDestroy {
     });
   }
 
+  forceClearSessionAgents(sessionId: string): void {
+    this._agents.update((list) => {
+      const next = list.filter((a) => a.parentSessionId !== sessionId);
+      return next.length === list.length ? list : next;
+    });
+    this.syncTick();
+  }
+
   removeAgent(agentId: string): void {
     this._agents.update((list) => {
       const next = list.filter((a) => a.agentId !== agentId);

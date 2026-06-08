@@ -60,7 +60,11 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
     NativePopoverComponent,
   ],
   template: `
-    <div #canvasContainer class="flex flex-col h-full bg-base-100 relative">
+    <div
+      #canvasContainer
+      class="flex flex-col h-full bg-base-100 relative"
+      data-testid="canvas-grid"
+    >
       @if (canvasStore.tiles().length === 0) {
         <!-- Empty state: no tiles yet -->
         <ptah-canvas-empty-state (createSession)="openNewSessionPopover()" />
@@ -79,6 +83,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
                 }"
               >
                 <ptah-canvas-tile
+                  data-testid="canvas-tile"
                   [tabId]="tile.tabId"
                   [focused]="canvasStore.focusedTabId() === tile.tabId"
                   (focusRequested)="canvasStore.focusTile($event)"
@@ -297,7 +302,12 @@ export class OrchestraCanvasComponent implements OnDestroy {
         const tabId = this.canvasStore.addTileFromSession(sessionId, req.name);
         this.appState.clearCanvasSessionRequest();
         if (tabId) {
-          this.chatStore.switchSession(sessionId);
+          this.chatStore
+            .switchSession(sessionId)
+            .then(() => req.resolve?.(true))
+            .catch(() => req.resolve?.(false));
+        } else {
+          req.resolve?.(false);
         }
       }
     });
@@ -307,6 +317,18 @@ export class OrchestraCanvasComponent implements OnDestroy {
         this.canvasStore.addTile(name);
         this.appState.clearNewCanvasSessionRequest();
       }
+    });
+    effect(() => {
+      const newPath = this.tabManager.activeWorkspacePath$();
+      if (!newPath) return;
+      const currentTabs = untracked(() => this.tabManager.tabs());
+      this.canvasStore.switchWorkspaceTiles(newPath, currentTabs);
+    });
+    effect(() => {
+      const removed = this.tabManager.removedWorkspace$();
+      if (!removed) return;
+      this.canvasStore.removeWorkspaceTileState(removed);
+      this.tabManager.clearRemovedWorkspace();
     });
     effect(() => {
       const tabs = this.tabManager.tabs();

@@ -20,10 +20,14 @@ import {
   ToolFailureCallbackRegistry,
   SessionEndHookCallbackRegistry,
   CuratorRateLimitService,
+  PreToolUseCallbackRegistry,
+  SessionStartCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import {
   MEMORY_TOKENS,
   MemoryTriggerService,
+  ObservationQueueStore,
 } from '@ptah-extension/memory-curator';
 import {
   SKILL_SYNTHESIS_TOKENS,
@@ -173,6 +177,31 @@ function buildTestContainer(): DependencyContainer {
     {
       useClass: CuratorRateLimitService,
     },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  c.register(
+    SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY,
+    {
+      useClass: PreToolUseCallbackRegistry,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  c.register(
+    SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY,
+    {
+      useClass: SessionStartCallbackRegistry,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  c.register(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER, {
+    useValue: {
+      read: jest.fn().mockResolvedValue(''),
+    },
+  });
+
+  c.register(
+    MEMORY_TOKENS.OBSERVATION_QUEUE_STORE,
+    { useClass: ObservationQueueStore },
     { lifecycle: Lifecycle.Singleton },
   );
 

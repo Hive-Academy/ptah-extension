@@ -127,6 +127,16 @@ export interface AccumulatorResult {
    */
   readonly compactionComplete: boolean;
   /**
+   * Pre-compaction cumulative token count, copied off the
+   * `compaction_complete` event when the SDK reported it. Undefined on every
+   * other event type.
+   */
+  readonly preTokens?: number;
+  /** Post-compaction token count, copied off `compaction_complete`. */
+  readonly postTokens?: number;
+  /** Compaction duration in ms, copied off `compaction_complete`. */
+  readonly durationMs?: number;
+  /**
    * The eventType that ran. Wrappers inspect this to decide
    * follow-up work (e.g. chat checks `message_complete` for queued
    * content; nothing else). Always echoed even on dedup-skip so the
@@ -490,6 +500,9 @@ export class StreamingAccumulatorCore {
           replacementState: fresh,
           compactionStart: false,
           compactionComplete: true,
+          preTokens: event.preTokens,
+          postTokens: event.postTokens,
+          durationMs: event.durationMs,
           eventType: event.eventType,
         };
       }

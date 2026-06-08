@@ -4,13 +4,13 @@ import {
   signal,
   computed,
   viewChild,
-  ElementRef,
   ChangeDetectionStrategy,
   afterNextRender,
   effect,
   untracked,
   Injector,
   DestroyRef,
+  ElementRef,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -29,13 +29,13 @@ import {
   QuestionCardComponent,
   SessionStatsSummaryComponent,
   CompactionNotificationComponent,
+  CompactionMarkerComponent,
   SidebarTabComponent,
 } from '@ptah-extension/chat-ui';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
-import { AutoAnimateDirective } from '../../directives/auto-animate.directive';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
@@ -57,6 +57,7 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  RpcResult,
 } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -65,8 +66,6 @@ import {
 } from '@ptah-extension/shared';
 import type { SubagentRecord } from '@ptah-extension/shared';
 
-/** Shared empty Set instance to keep `streamingMessageIds()` referentially
- *  stable when no message is streaming (avoids unnecessary template re-evals). */
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 
 /**
@@ -132,9 +131,9 @@ function filterCompactionNoise(
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
     CompactionNotificationComponent,
+    CompactionMarkerComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
-    AutoAnimateDirective,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -202,6 +201,7 @@ export class ChatViewComponent {
   private readonly actionBanner = inject(ActionBannerService);
   readonly actionError = this.actionBanner.error;
   readonly actionInfo = this.actionBanner.info;
+  readonly actionWarning = this.actionBanner.warning;
 
   private showActionError(message: string): void {
     this.actionBanner.showError(message);
@@ -209,6 +209,10 @@ export class ChatViewComponent {
 
   private showActionInfo(message: string): void {
     this.actionBanner.showInfo(message);
+  }
+
+  private showActionWarning(message: string): void {
+    this.actionBanner.showWarning(message);
   }
 
   /**
@@ -301,66 +305,67 @@ export class ChatViewComponent {
   }
 
   /**
-   * MutationObserver for auto-scroll behavior.
-   * Watches DOM mutations to trigger scroll after recursive ExecutionNode tree completes.
+   * ResizeObserver on the content wrapper. Fires whenever the content's height
+   * changes — streaming text growth, agent sub-output, markdown image load, or
+   * the streaming→finalized swap — which is exactly when a pinned transcript
+   * must re-stick to the bottom. Fires on real size change only, so it can't
+   * storm.
    */
-  private observer: MutationObserver | null = null;
-  private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private userMessageScrollTimeoutId: ReturnType<typeof setTimeout> | null =
-    null;
-  private readonly SCROLL_DEBOUNCE_MS = 50;
+  private resizeObserver: ResizeObserver | null = null;
+  private scrollRafId: number | null = null;
+  private lastContentHeight = 0;
+  /** Distance from bottom (px) within which the user is considered "pinned". */
+  private readonly NEAR_BOTTOM_PX = 120;
 
   /**
-   * Signal-based viewChild (Angular 20+ pattern)
-   * Replaces @ViewChild decorator for better reactivity
+   * The plain scroll container (`#messageContainer`). Off-screen message
+   * bubbles are skipped by the browser via `content-visibility: auto`
+   * (see chat-view.component.css), so this gives virtual-scroll-class
+   * performance without the experimental autosize estimator — scroll
+   * positions are the element's real `scrollTop`/`scrollHeight`.
    */
-  private readonly messageContainerRef =
+  private readonly scrollContainer =
     viewChild<ElementRef<HTMLElement>>('messageContainer');
+  /** Inner content wrapper observed for height changes (streaming growth). */
+  private readonly contentWrapper =
+    viewChild<ElementRef<HTMLElement>>('messageContent');
 
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
   private readonly chatInputRef = viewChild(ChatInputComponent);
 
   /**
-   * Auto-scroll state as signal for reactive tracking.
-   * Disabled when user scrolls up, re-enabled when user scrolls to bottom.
+   * Whether the transcript is pinned to the bottom (auto-follows new content).
+   * Set false when the user scrolls up past NEAR_BOTTOM_PX, true when they
+   * scroll back down or send a new message.
    */
-  private readonly userScrolledUp = signal(false);
+  private pinnedToBottom = true;
 
   /** Track message count to detect new user messages */
   private lastMessageCount = 0;
 
   /**
-   * Tracks previous streaming state to detect the streamingâ†’idle transition.
-   * When streaming ends (agent finishes), we force scroll-to-bottom regardless
-   * of userScrolledUp â€” the dramatic DOM change during finalization (streaming
-   * DOM replaced with finalized DOM) can trigger layout-driven scroll events
-   * that falsely set userScrolledUp=true.
+   * Tracks previous streaming state to detect the streaming→idle transition,
+   * which drives `isFinalizingTransition` (animation suppression) and a
+   * stick-to-bottom when the user is pinned.
    */
   private wasStreaming = false;
 
   /**
-   * Flag to suppress onScroll during programmatic scrollToBottom().
-   * Smooth scroll animations generate intermediate scroll events at positions
-   * that aren't near the bottom, which falsely set userScrolledUp=true.
-   * This guard prevents that race condition.
+   * Suppresses onScroll bookkeeping while WE drive the scroll position. The
+   * programmatic scroll emits scroll events that must not flip `pinnedToBottom`.
    */
-  private isProgrammaticScrolling = false;
+  private isAdjusting = false;
 
   private readonly scrollPositionCache = new Map<string, number>();
   private previousTabId: string | null = null;
-  private isRestoringScroll = false;
 
   /**
-   * Guard active during the streaming→finalized DOM transition.
-   * Suppresses onScroll events and forces scheduleScroll to scroll regardless
-   * of userScrolledUp. Prevents layout-driven scroll events from blocking
-   * auto-scroll during the dramatic DOM swap (streaming elements destroyed,
-   * finalized elements created).
+   * Active during the streaming→finalized DOM transition. Suppresses onScroll
+   * bookkeeping so the swap can't flip `pinnedToBottom`.
    *
-   * Promoted to a signal so it can flow reactively into
-   * <ptah-message-bubble> and onward to ExecutionNodeComponent +
-   * InlineAgentBubbleComponent — those use it to suppress fade keyframes
-   * during the finalize burst.
+   * A signal so it flows reactively into <ptah-message-bubble> and onward to
+   * ExecutionNodeComponent + InlineAgentBubbleComponent — those use it to
+   * suppress fade keyframes during the finalize burst.
    */
   protected readonly isFinalizingTransition = signal(false);
   private finalizingTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -421,17 +426,6 @@ export class ChatViewComponent {
     return this.chatStore.isStreaming();
   });
 
-  /**
-   * Resolved "session is active in the SDK this run" — tile-scoped when
-   * SESSION_CONTEXT is provided, otherwise reads from the active tab.
-   *
-   * Sticky-true once the tab has streamed/resumed at least once. Used to
-   * gate the rewind action: rewind requires a live `Query` handle on the
-   * backend (`SessionLifecycleManager.getActiveSession`), which sessions
-   * loaded purely from disk via `session:load` do NOT have. Without this
-   * guard the user can click rewind on a historical session and the SDK
-   * throws `SessionNotActiveError` (Sentry NODE-NESTJS-2Y / 2N / 2X).
-   */
   readonly resolvedSessionIsActive = computed(() => {
     const ctx = this._sessionContext;
     if (ctx) {
@@ -541,6 +535,17 @@ export class ChatViewComponent {
     );
   });
 
+  readonly resolvedCompactionMarker = computed(() => {
+    const tab = this.resolvedTab();
+    const rawTabId = tab?.id ?? this._tabManager.activeTabId();
+    if (!rawTabId) return null;
+    const tabId = TabId.safeParse(rawTabId);
+    if (!tabId) return null;
+    const convId = this._tabSessionBinding.conversationFor(tabId);
+    if (!convId) return null;
+    return this._conversationRegistry.compactionMarkerFor(convId);
+  });
+
   /**
    * Resolved question requests: scoped to this tile's session in canvas mode.
    *
@@ -631,6 +636,20 @@ export class ChatViewComponent {
    * DEDUPLICATION: Finalized messages use tree.id (event id) NOT messageId,
    * so we can properly match and filter out already-finalized trees.
    */
+  private readonly finalizedMessageIds = computed((): ReadonlySet<string> => {
+    const msgs = this.resolvedMessages();
+    if (msgs.length === 0) return EMPTY_STRING_SET;
+    const ids = new Set<string>();
+    for (const m of msgs) ids.add(m.id);
+    return ids;
+  });
+
+  protected readonly finalizedFiltered = computed(
+    (): readonly ExecutionChatMessage[] => {
+      return filterCompactionNoise(this.resolvedMessages());
+    },
+  );
+
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
     const trees = this.resolvedExecutionTrees();
     if (trees.length === 0) return [];
@@ -638,11 +657,9 @@ export class ChatViewComponent {
     const streamingState = this.resolvedStreamingState();
     const pendingStats = streamingState?.pendingStats;
 
-    const finalizedMessageIds = new Set(
-      this.resolvedMessages().map((msg) => msg.id),
-    );
+    const finalizedIds = this.finalizedMessageIds();
     const nonFinalizedTrees = trees.filter(
-      (tree) => !finalizedMessageIds.has(tree.id),
+      (tree) => !finalizedIds.has(tree.id),
     );
     if (nonFinalizedTrees.length === 0) return [];
 
@@ -679,24 +696,39 @@ export class ChatViewComponent {
    * `resolvedIsStreaming()` AND identity (only the live trees are streaming;
    * historical messages are not).
    */
-  readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
-    const finalized = this.resolvedMessages();
-    const streaming = this.streamingMessages();
-    const combined =
-      streaming.length === 0 ? finalized : [...finalized, ...streaming];
-    return filterCompactionNoise(combined);
+  readonly totalMessageCount = computed((): number => {
+    return this.finalizedFiltered().length + this.streamingMessages().length;
   });
 
-  /**
-   * Set of message ids that are currently being streamed (live trees, not yet
-   * finalized). Used by the template to flip `isStreaming` per-bubble inside
-   * the unified `@for` loop.
-   */
-  readonly streamingMessageIds = computed((): ReadonlySet<string> => {
+  private _allMessagesCache: readonly ExecutionChatMessage[] = [];
+  private _allMessagesFinalizedRef: readonly ExecutionChatMessage[] | null =
+    null;
+  private _allMessagesStreamingRef: readonly ExecutionChatMessage[] | null =
+    null;
+
+  readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
+    const finalized = this.finalizedFiltered();
     const streaming = this.streamingMessages();
-    if (streaming.length === 0) return EMPTY_STRING_SET;
-    return new Set(streaming.map((m) => m.id));
+    if (
+      finalized === this._allMessagesFinalizedRef &&
+      streaming === this._allMessagesStreamingRef
+    ) {
+      return this._allMessagesCache;
+    }
+    const next =
+      streaming.length === 0 ? finalized : [...finalized, ...streaming];
+    this._allMessagesFinalizedRef = finalized;
+    this._allMessagesStreamingRef = streaming;
+    this._allMessagesCache = next;
+    return next;
   });
+
+  protected trackByMessageId(
+    _index: number,
+    msg: ExecutionChatMessage,
+  ): string {
+    return msg.id;
+  }
 
   constructor() {
     effect(() => {
@@ -718,68 +750,57 @@ export class ChatViewComponent {
         this._userExplicitlyClosed = false;
       }
     });
+    // Unified content-follow controller. Reacts to BOTH tab/session switches
+    // (resolvedTabId) and content changes (allMessages — which transitively
+    // tracks streaming-tree growth). One effect, one source of truth.
     effect(() => {
-      const messages = this.resolvedMessages();
+      const tabId = this.resolvedTabId();
+      const messages = this.allMessages();
       const count = messages.length;
-      if (count > this.lastMessageCount) {
-        const lastMsg = messages[count - 1];
-        if (lastMsg?.role === 'user') {
-          this.userScrolledUp.set(false);
-          this.userMessageScrollTimeoutId = setTimeout(() => {
-            this.scrollToBottom();
-            this.userMessageScrollTimeoutId = null;
-          }, 0);
+      untracked(() => {
+        if (tabId !== this.previousTabId) {
+          this.previousTabId = tabId ?? null;
+          this.lastMessageCount = count;
+          this.restoreScrollForTab(tabId);
+          return;
         }
-      }
-      this.lastMessageCount = count;
-    });
-    effect(() => {
-      const currentTabId = this.resolvedTabId();
-      if (currentTabId === this.previousTabId) return;
-
-      this.previousTabId = currentTabId ?? null;
-
-      if (currentTabId && this.scrollPositionCache.has(currentTabId)) {
-        const savedPosition = this.scrollPositionCache.get(currentTabId)!;
-        this.isRestoringScroll = true;
-        setTimeout(() => {
-          const container = this.messageContainerRef()?.nativeElement;
-          if (container) {
-            container.scrollTo({ top: savedPosition, behavior: 'instant' });
-          }
-          setTimeout(() => {
-            this.isRestoringScroll = false;
-          }, this.SCROLL_DEBOUNCE_MS + 10);
-        }, 0);
-      }
+        const last = messages[count - 1];
+        const isNewUserMessage =
+          count > this.lastMessageCount && last?.role === 'user';
+        this.lastMessageCount = count;
+        if (isNewUserMessage) {
+          this.pinnedToBottom = true;
+        }
+        if (this.pinnedToBottom) {
+          this.scheduleStickToBottom();
+        }
+      });
     });
     effect(() => {
       const isStreaming = this.resolvedIsStreaming();
-      if (this.wasStreaming && !isStreaming) {
-        untracked(() => {
+      untracked(() => {
+        if (this.wasStreaming && !isStreaming) {
           this.isFinalizingTransition.set(true);
-          this.userScrolledUp.set(false);
+          if (this.pinnedToBottom) {
+            this.scheduleStickToBottom();
+          }
           if (this.finalizingTimeoutId) {
             clearTimeout(this.finalizingTimeoutId);
           }
-          afterNextRender(
-            () => {
-              this.scrollToBottom('instant');
-            },
-            { injector: this.injector },
-          );
           this.finalizingTimeoutId = setTimeout(() => {
             this.isFinalizingTransition.set(false);
             this.finalizingTimeoutId = null;
-            this.scrollToBottom('instant');
+            if (this.pinnedToBottom) {
+              this.scheduleStickToBottom();
+            }
           }, 300);
-        });
-      }
-      this.wasStreaming = isStreaming;
+        }
+        this.wasStreaming = isStreaming;
+      });
     });
     afterNextRender(
       () => {
-        this.setupMutationObserver();
+        this.setupResizeObserver();
       },
       { injector: this.injector },
     );
@@ -789,26 +810,23 @@ export class ChatViewComponent {
   }
 
   /**
-   * Handle scroll events on message container.
-   * Detects if user has scrolled up to disable auto-scroll.
-   * Ignores scroll events fired during programmatic scrollToBottom() to prevent
-   * smooth scroll animation intermediates from falsely setting userScrolledUp.
+   * Handle viewport scroll events. Updates `pinnedToBottom` from the user's
+   * position and caches the offset per tab. Ignored while WE drive the scroll
+   * (isAdjusting) or during the finalize transition, so neither can falsely
+   * unpin.
    */
-  onScroll(event: Event): void {
-    if (this.isProgrammaticScrolling || this.isFinalizingTransition()) return;
+  onScroll(_event: Event): void {
+    if (this.isAdjusting || this.isFinalizingTransition()) return;
 
-    const container = event.target as HTMLElement;
-    if (!container) return;
+    const el = this.scrollContainer()?.nativeElement;
+    if (!el) return;
 
-    const isNearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
-      100;
-
-    this.userScrolledUp.set(!isNearBottom);
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    this.pinnedToBottom = distanceFromBottom < this.NEAR_BOTTOM_PX;
 
     const tabId = this.resolvedTabId();
     if (tabId) {
-      this.scrollPositionCache.set(tabId, container.scrollTop);
+      this.scrollPositionCache.set(tabId, el.scrollTop);
     }
   }
 
@@ -942,24 +960,10 @@ export class ChatViewComponent {
     }
   }
 
-  /**
-   * "Rewind to here" — revert tracked file changes back to the checkpoint
-   * captured at the given user message. Performs a dry-run preview first,
-   * confirms with the user, then commits. The backend auto-resumes inactive
-   * sessions transparently (see `SessionRpcHandlers.registerRewindFiles`);
-   * the frontend no longer needs a manual resume-and-retry dance — any
-   * remaining `session-not-active:*` error is surfaced as a hard failure.
-   */
   async onRewindRequested(messageId: string): Promise<void> {
     const sessionId = this.resolvedSessionId();
     if (!sessionId) {
       this.showActionError('No active session to rewind.');
-      return;
-    }
-    if (!this.resolvedSessionIsActive()) {
-      this.showActionError(
-        'Rewind is only available during an active conversation. Send a message or resume the session first.',
-      );
       return;
     }
     const inFlight = this._actionInFlight();
@@ -967,7 +971,7 @@ export class ChatViewComponent {
     this._actionInFlight.set(new Set([...inFlight, messageId]));
 
     try {
-      await this.attemptRewind(sessionId, messageId);
+      await this.attemptRewindV2(sessionId, messageId);
     } finally {
       const next = new Set(this._actionInFlight());
       next.delete(messageId);
@@ -975,7 +979,7 @@ export class ChatViewComponent {
     }
   }
 
-  private async attemptRewind(
+  private async attemptRewindV2(
     sessionId: SessionId,
     messageId: string,
   ): Promise<void> {
@@ -991,18 +995,19 @@ export class ChatViewComponent {
     }
 
     const dryData = dryRun.data;
-    if (!dryData.canRewind) {
-      this.showActionError(dryData.error ?? 'Cannot rewind to this message.');
-      return;
-    }
-
+    const cannotRewind = !dryData.canRewind;
     const files = dryData.filesChanged ?? [];
     const ins = dryData.insertions ?? 0;
     const del = dryData.deletions ?? 0;
-    const checkpointsLost = files.length === 0 && ins === 0 && del === 0;
+    const checkpointsLost =
+      cannotRewind || (files.length === 0 && ins === 0 && del === 0);
 
     const fileList = checkpointsLost
-      ? 'No file changes can be reverted — checkpoints were lost when the session was previously closed. The conversation will still be truncated to this point.'
+      ? cannotRewind
+        ? `No file changes can be reverted (${
+            dryData.error ?? 'no checkpoints available'
+          }). The conversation will still be truncated to this point.`
+        : 'No file changes can be reverted — checkpoints were lost when the session was previously closed. The conversation will still be truncated to this point.'
       : files.length === 0
         ? 'No files will be modified.'
         : files
@@ -1012,86 +1017,181 @@ export class ChatViewComponent {
           (files.length > 10 ? `\n…and ${files.length - 10} more` : '');
 
     const header = checkpointsLost
-      ? 'The conversation will be truncated to this message.'
-      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). The conversation will also be truncated to this message.`;
+      ? 'A new session will be forked from this message.'
+      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). A new session will be forked from this message.`;
 
-    const confirmed = await this._confirmDialog.confirm({
+    const dialogResult = await this._confirmDialog.confirmWithCheckboxes({
       title: 'Rewind to this message?',
       message: `${header}\n\n${fileList}`,
       confirmLabel: 'Rewind',
       cancelLabel: 'Cancel',
       confirmStyle: 'warning',
+      checkboxes: [
+        {
+          id: 'deleteOriginal',
+          label: 'Also delete original session',
+          defaultChecked: false,
+        },
+      ],
     });
 
-    if (!confirmed) return;
+    if (!dialogResult.confirmed) return;
+    const deleteOriginal = dialogResult.checkboxes['deleteOriginal'] === true;
 
-    const commit = await this._claudeRpc.rewindFiles(
+    let rollbackSuffix: string | null = null;
+    if (checkpointsLost) {
+      rollbackSuffix = cannotRewind
+        ? `file rollback skipped: ${dryData.error ?? 'no checkpoints'}`
+        : null;
+    } else {
+      const commit = await this._claudeRpc.rewindFiles(
+        sessionId,
+        messageId,
+        false,
+      );
+      if (!commit.isSuccess()) {
+        const errMsg = commit.error ?? 'unknown error';
+        if (this.isHardRewindFailure(errMsg)) {
+          this.showActionError(`Rewind failed: ${errMsg}`);
+          return;
+        }
+        rollbackSuffix = `file rollback skipped: ${errMsg}`;
+      } else if (!commit.data.canRewind) {
+        rollbackSuffix = `file rollback skipped: ${
+          commit.data.error ?? 'unknown reason'
+        }`;
+      }
+    }
+
+    const forkResult = await this._claudeRpc.forkSession(
       sessionId,
       messageId,
-      false,
+      undefined,
+      'rewind',
     );
 
-    if (!commit.isSuccess()) {
-      this.showActionError(`Rewind failed: ${commit.error ?? 'Unknown error'}`);
-      return;
-    }
-    if (!commit.data.canRewind) {
+    if (!forkResult.isSuccess()) {
+      if (this.isMessageIdNotFoundError(forkResult)) {
+        this.showActionError(
+          'Cannot rewind to this point — no assistant reply exists yet.',
+        );
+        return;
+      }
       this.showActionError(
-        commit.data.error ?? 'Rewind failed without an error message.',
+        `Rewind failed: ${forkResult.error ?? 'Unknown error'}`,
       );
       return;
     }
 
-    let editorRefreshFailed = false;
-    const filesChanged = commit.data.filesChanged ?? [];
-    if (filesChanged.length > 0) {
-      try {
-        const revert = await this._claudeRpc.call('editor:revertFiles', {
-          files: filesChanged,
-        });
-        if (!revert.isSuccess()) {
-          editorRefreshFailed = true;
-        }
-      } catch {
-        editorRefreshFailed = true;
-      }
-    }
-    const tabId = this.resolvedTabId();
-    const workspacePath = this.vscodeService.config().workspaceRoot;
-    let truncateFailed = false;
-    if (tabId) {
-      const truncated = await this._claudeRpc.call('chat:resume', {
-        sessionId,
-        tabId,
-        workspacePath,
-        activate: true,
-        resumeSessionAt: messageId,
-      });
-      if (!truncated.isSuccess() || truncated.data.success === false) {
-        truncateFailed = true;
-      } else {
-        try {
-          await this.chatStore.switchSession(sessionId);
-        } catch {
-          truncateFailed = true;
-        }
+    const newSessionId = forkResult.data.newSessionId;
+    let swapFailed = false;
+
+    if (this._appState.layoutMode() === 'grid') {
+      const adopted = await this._appState.requestCanvasSession(
+        newSessionId,
+        'Rewind',
+      );
+      if (!adopted) {
+        swapFailed = true;
+        this.showActionError(
+          'Rewind canvas tile could not be opened (tile cap reached or canvas not mounted).',
+        );
       }
     } else {
-      truncateFailed = true;
+      this._tabManager.openSessionTab(newSessionId, 'Rewind');
+      try {
+        await this.chatStore.switchSession(newSessionId);
+      } catch (err: unknown) {
+        swapFailed = true;
+        this.showActionError(
+          `Rewind tab opened, but loading history failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
 
-    const changedCount = filesChanged.length;
-    const baseMsg =
-      changedCount === 0
-        ? 'Rewind complete — conversation truncated; no files changed.'
-        : `Rewind complete — ${changedCount} file(s) reverted, conversation truncated.`;
-    const suffix = [
-      editorRefreshFailed ? 'editor refresh failed' : null,
-      truncateFailed ? 'transcript truncation failed' : null,
-    ]
-      .filter((s): s is string => s !== null)
-      .join(', ');
-    this.showActionInfo(suffix ? `${baseMsg} (${suffix})` : baseMsg);
+    let deleteSuffix: string | null = null;
+    if (deleteOriginal && !swapFailed) {
+      const result = await this.deleteOriginalSession(sessionId);
+      if (!result.allTabsClosed) {
+        deleteSuffix =
+          'original session left in place — close the streaming tab first';
+      } else if (!result.deletedOk) {
+        deleteSuffix = `original session delete failed: ${
+          result.deleteError ?? 'unknown error'
+        }`;
+      }
+    }
+
+    if (swapFailed) return;
+
+    const baseMsg = 'Rewind complete — switched to new session';
+    const suffixes = [rollbackSuffix, deleteSuffix].filter(
+      (s): s is string => s !== null,
+    );
+
+    if (suffixes.length > 0) {
+      this.showActionWarning(`${baseMsg} (${suffixes.join('; ')})`);
+    } else {
+      this.showActionInfo(baseMsg);
+    }
+  }
+
+  private static readonly MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE =
+    'not found in session history';
+
+  private isHardRewindFailure(errMsg: string): boolean {
+    return (
+      errMsg.startsWith('session-not-active:') ||
+      errMsg.startsWith('unauthorized-path-rewrite:')
+    );
+  }
+
+  private isMessageIdNotFoundError<T>(result: RpcResult<T>): boolean {
+    if (result.errorCode === 'MESSAGE_ID_NOT_FOUND') return true;
+    const msg = result.error ?? '';
+    return msg.includes(ChatViewComponent.MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE);
+  }
+
+  private async deleteOriginalSession(originalId: SessionId): Promise<{
+    allTabsClosed: boolean;
+    deletedOk: boolean;
+    deleteError?: string;
+  }> {
+    const tabs = this._tabManager.findTabsBySessionId(originalId);
+    for (const tab of tabs) {
+      try {
+        await this._tabManager.closeTab(tab.id);
+      } catch (err: unknown) {
+        console.warn(
+          '[chat-view] failed to close tab during delete-original',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    const survivors = this._tabManager.findTabsBySessionId(originalId);
+    if (survivors.length > 0) {
+      return { allTabsClosed: false, deletedOk: false };
+    }
+
+    try {
+      const del = await this._claudeRpc.deleteSession(originalId);
+      if (!del.isSuccess()) {
+        return {
+          allTabsClosed: true,
+          deletedOk: false,
+          deleteError: del.error ?? undefined,
+        };
+      }
+      return { allTabsClosed: true, deletedOk: true };
+    } catch (err: unknown) {
+      return {
+        allTabsClosed: true,
+        deletedOk: false,
+        deleteError: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /** Handle "New Session" request from context warning bar */
@@ -1107,82 +1207,91 @@ export class ChatViewComponent {
     }
   }
 
-  private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {
-    const containerRef = this.messageContainerRef();
-    if (!containerRef) return;
-
-    const container = containerRef.nativeElement;
-    this.isProgrammaticScrolling = true;
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior,
-    });
-
-    if (behavior === 'instant') {
+  /**
+   * Stick the container to the bottom on the next frame. rAF-coalesced so a
+   * burst of streaming chunks collapses to a single adjustment per frame.
+   *
+   * Uses the element's real `scrollHeight` — there is no estimator to go
+   * stale, so the streamed content is always reachable without a manual
+   * scroll, and the position can't oscillate as it did with the autosize
+   * strategy.
+   */
+  private scheduleStickToBottom(): void {
+    if (this.scrollRafId !== null) {
+      cancelAnimationFrame(this.scrollRafId);
+    }
+    this.scrollRafId = requestAnimationFrame(() => {
+      this.scrollRafId = null;
+      const el = this.scrollContainer()?.nativeElement;
+      if (!el) return;
+      this.isAdjusting = true;
+      el.scrollTop = el.scrollHeight;
       requestAnimationFrame(() => {
-        this.isProgrammaticScrolling = false;
+        this.isAdjusting = false;
       });
-    } else {
-      setTimeout(() => {
-        this.isProgrammaticScrolling = false;
-      }, 400);
-    }
-  }
-
-  /**
-   * Setup MutationObserver to watch for DOM changes in message container.
-   * This ensures scroll happens after recursive ExecutionNode tree completes rendering.
-   */
-  private setupMutationObserver(): void {
-    const container = this.messageContainerRef()?.nativeElement;
-    if (!container || this.observer) return;
-
-    this.observer = new MutationObserver(() => {
-      this.scheduleScroll();
-    });
-    this.observer.observe(container, {
-      childList: true, // New nodes added/removed
-      subtree: true, // Watch entire subtree (recursive components)
     });
   }
 
   /**
-   * Schedule a scroll to bottom with debouncing.
-   * Debouncing coalesces rapid DOM mutations during streaming into single scroll.
+   * On tab/session switch, restore the saved scroll offset (don't auto-follow),
+   * or pin to the bottom for a freshly-opened tab.
    */
-  private scheduleScroll(): void {
-    if (this.scrollTimeoutId) {
-      clearTimeout(this.scrollTimeoutId);
+  private restoreScrollForTab(tabId: string | null): void {
+    const saved =
+      tabId !== null ? this.scrollPositionCache.get(tabId) : undefined;
+    if (this.scrollRafId !== null) {
+      cancelAnimationFrame(this.scrollRafId);
     }
-
-    this.scrollTimeoutId = setTimeout(() => {
-      if (this.isFinalizingTransition()) {
-        this.scrollTimeoutId = null;
-        return;
+    this.scrollRafId = requestAnimationFrame(() => {
+      this.scrollRafId = null;
+      const el = this.scrollContainer()?.nativeElement;
+      if (!el) return;
+      this.isAdjusting = true;
+      if (saved !== undefined) {
+        el.scrollTop = saved;
+        this.pinnedToBottom = false;
+      } else {
+        el.scrollTop = el.scrollHeight;
+        this.pinnedToBottom = true;
       }
-      if (!this.userScrolledUp() && !this.isRestoringScroll) {
-        const behavior = this.resolvedIsStreaming() ? 'smooth' : 'instant';
-        this.scrollToBottom(behavior);
-      }
-      this.scrollTimeoutId = null;
-    }, this.SCROLL_DEBOUNCE_MS);
+      requestAnimationFrame(() => {
+        this.isAdjusting = false;
+      });
+    });
   }
 
   /**
-   * Cleanup observer and timeout on component destruction.
+   * Observe the content wrapper's height. Fires on real size changes only
+   * (streaming growth, agent output, image load, finalize swap), so a pinned
+   * transcript follows the stream without any per-frame re-measure loop.
+   */
+  private setupResizeObserver(): void {
+    const wrapper = this.contentWrapper()?.nativeElement;
+    if (!wrapper || this.resizeObserver) return;
+
+    this.resizeObserver = new ResizeObserver((entries) => {
+      if (this.isAdjusting) return;
+      const height = entries[0]?.contentRect.height ?? 0;
+      if (Math.abs(height - this.lastContentHeight) < 1) return;
+      this.lastContentHeight = height;
+      if (this.pinnedToBottom) {
+        this.scheduleStickToBottom();
+      }
+    });
+    this.resizeObserver.observe(wrapper);
+  }
+
+  /**
+   * Cleanup observer, animation frame, and timeout on component destruction.
    */
   private cleanup(): void {
-    if (this.observer) {
-      this.observer.disconnect();
-      this.observer = null;
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
     }
-    if (this.scrollTimeoutId) {
-      clearTimeout(this.scrollTimeoutId);
-      this.scrollTimeoutId = null;
-    }
-    if (this.userMessageScrollTimeoutId) {
-      clearTimeout(this.userMessageScrollTimeoutId);
-      this.userMessageScrollTimeoutId = null;
+    if (this.scrollRafId !== null) {
+      cancelAnimationFrame(this.scrollRafId);
+      this.scrollRafId = null;
     }
     if (this.finalizingTimeoutId) {
       clearTimeout(this.finalizingTimeoutId);

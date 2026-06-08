@@ -20,20 +20,61 @@ import { injectable, inject } from 'tsyringe';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
+  PLATFORM_TOKENS,
+  type IUserInteraction,
+} from '@ptah-extension/platform-core';
+import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
+  VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
-import type { IBackupService } from '@ptah-extension/persistence-sqlite';
+import type {
+  IBackupService,
+  VecLoadDiagnostic,
+} from '@ptah-extension/persistence-sqlite';
 import type {
   RpcMethodName,
   DbHealthResult,
   DbResetResult,
+  DbReloadVecResult,
+  DbOpenBindingFolderResult,
+  VecLoadDiagnosticWire,
 } from '@ptah-extension/shared';
-export type { DbHealthResult, DbResetResult } from '@ptah-extension/shared';
+export type {
+  DbHealthResult,
+  DbResetResult,
+  DbReloadVecResult,
+  DbOpenBindingFolderResult,
+} from '@ptah-extension/shared';
+
+function toVecDiagnosticWire(
+  diagnostic: VecLoadDiagnostic,
+): VecLoadDiagnosticWire {
+  const wire: VecLoadDiagnosticWire = {
+    ok: diagnostic.ok,
+    reason: diagnostic.reason,
+    electronVersion: diagnostic.electronVersion,
+    processArch: diagnostic.processArch,
+    processPlatform: diagnostic.processPlatform,
+    attemptedPath: diagnostic.attemptedPath,
+    packageName: diagnostic.packageName,
+    fsExists: diagnostic.fsExists,
+    error: diagnostic.error
+      ? { code: diagnostic.error.code, message: diagnostic.error.message }
+      : undefined,
+    errorChain: diagnostic.errorChain?.map((e) => ({
+      strategy: e.strategy,
+      code: e.code,
+      message: e.message,
+    })),
+  };
+  return wire;
+}
 
 /** Optional request params for `db:health`. */
 export interface DbHealthParams {
@@ -97,6 +138,8 @@ export class PersistenceRpcHandlers {
   static readonly METHODS = [
     'db:health',
     'db:reset',
+    'db:reloadVec',
+    'db:openBindingFolder',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -106,9 +149,13 @@ export class PersistenceRpcHandlers {
     private readonly connection: SqliteConnectionService,
     @inject(PERSISTENCE_TOKENS.BACKUP_SERVICE)
     private readonly backup: IBackupService,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
+    @inject(PLATFORM_TOKENS.USER_INTERACTION)
+    private readonly userInteraction: IUserInteraction,
   ) {}
 
-  /** Register both `db:*` methods with the shared RpcHandler. */
+  /** Register all `db:*` methods with the shared RpcHandler. */
   register(): void {
     this.rpcHandler.registerMethod<DbHealthParams, DbHealthResult>(
       'db:health',
@@ -120,7 +167,94 @@ export class PersistenceRpcHandlers {
       (params) => this.handleReset(params),
     );
 
+    this.rpcHandler.registerMethod<Record<string, never>, DbReloadVecResult>(
+      'db:reloadVec',
+      () => this.handleReloadVec(),
+    );
+
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      DbOpenBindingFolderResult
+    >('db:openBindingFolder', () => this.handleOpenBindingFolder());
+
     this.logger.info('[persistence] RPC handlers registered');
+  }
+
+  /**
+   * Re-runs the sqlite-vec loader after the user has attempted an OS-level
+   * fix (AV unblock, missing VC++ install, replaced DLL). Refreshes the
+   * `VecStatusService` so listeners (push-event bridge) emit a change tick.
+   *
+   * Never throws — packages every failure into the diagnostic snapshot so
+   * the renderer can render a clear next-step message in the toast.
+   */
+  private async handleReloadVec(): Promise<DbReloadVecResult> {
+    try {
+      const diagnostic = this.connection.reloadVecExtension();
+      this.vecStatus.refresh();
+      return {
+        ok: diagnostic.ok,
+        diagnostic: toVecDiagnosticWire(diagnostic),
+        message: diagnostic.ok
+          ? 'sqlite-vec loaded successfully.'
+          : `sqlite-vec still offline: ${diagnostic.reason}.`,
+      };
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : String(err);
+      const sanitised = sanitiseErrorMessage(raw);
+      this.logger.error('[persistence] db:reloadVec failed', { error: raw });
+      const snapshot = this.vecStatus.getStatus();
+      return {
+        ok: false,
+        diagnostic: toVecDiagnosticWire(snapshot.diagnostic),
+        message: `Retry failed: ${sanitised}`,
+      };
+    }
+  }
+
+  /**
+   * Open the directory containing the most-recently-attempted sqlite-vec
+   * binary in the platform file manager. Uses `IUserInteraction.openExternal`
+   * with a `file://` URL — on Electron this delegates to `shell.openExternal`
+   * which opens folders in the OS file manager.
+   *
+   * Returns the basename only (never the absolute path) to avoid leaking
+   * the user's home directory across the RPC boundary.
+   */
+  private async handleOpenBindingFolder(): Promise<DbOpenBindingFolderResult> {
+    const diagnostic = this.connection.vecLoadDiagnostic;
+    const attempted = diagnostic.attemptedPath;
+    if (!attempted) {
+      return {
+        opened: false,
+        folder: null,
+        message:
+          'No native binding path is known — run "Retry vec" first to populate a candidate path.',
+      };
+    }
+    const folder = path.dirname(attempted);
+    const folderName = path.basename(folder);
+    try {
+      const url = pathToFileURL(folder).toString();
+      const opened = await this.userInteraction.openExternal(url);
+      return {
+        opened,
+        folder: folderName,
+        message: opened
+          ? `Opened native binding folder (${folderName}).`
+          : `Could not open ${folderName} in the file manager.`,
+      };
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : String(err);
+      this.logger.warn('[persistence] db:openBindingFolder failed', {
+        error: raw,
+      });
+      return {
+        opened: false,
+        folder: folderName,
+        message: `Could not open ${folderName}: ${sanitiseErrorMessage(raw)}`,
+      };
+    }
   }
 
   /**
@@ -141,12 +275,14 @@ export class PersistenceRpcHandlers {
         freelistRatio: null,
         walSizeKb: null,
         vecExtensionLoaded: false,
+        vecDiagnostic: null,
         lastMigrationVersion: 0,
         fullCheckRun: false,
         integrityCheckPassed: null,
       };
     }
 
+    const vecSnapshot = this.vecStatus.getStatus();
     const result: DbHealthResult = {
       isOpen: true,
       quickCheckPassed: null,
@@ -155,7 +291,8 @@ export class PersistenceRpcHandlers {
       dbSizeMb: null,
       freelistRatio: null,
       walSizeKb: null,
-      vecExtensionLoaded: this.connection.vecExtensionLoaded,
+      vecExtensionLoaded: vecSnapshot.available,
+      vecDiagnostic: toVecDiagnosticWire(vecSnapshot.diagnostic),
       lastMigrationVersion: this.connection.lastMigrationVersion,
       fullCheckRun: fullCheck,
       integrityCheckPassed: null,
@@ -233,6 +370,7 @@ export class PersistenceRpcHandlers {
         freelistRatio: null,
         walSizeKb: null,
         vecExtensionLoaded: false,
+        vecDiagnostic: null,
         lastMigrationVersion: 0,
         fullCheckRun: false,
         integrityCheckPassed: null,

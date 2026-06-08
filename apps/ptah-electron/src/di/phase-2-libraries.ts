@@ -18,7 +18,10 @@ import {
   registerSdkServices,
   wireAgentAdapterAliases,
 } from '@ptah-extension/agent-sdk';
-import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
+import {
+  registerAuthProvidersServices,
+  registerCuratorAuthServices,
+} from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
@@ -27,7 +30,13 @@ import {
 import {
   registerPersistenceSqliteServices,
   PERSISTENCE_TOKENS,
+  resolveVecPackageName,
+  resolveVecBinaryName,
+  type SqliteConnectionService,
+  type SqliteVecPathResolver,
 } from '@ptah-extension/persistence-sqlite';
+import * as fs from 'node:fs';
+import { app } from 'electron';
 import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -37,6 +46,7 @@ import {
   registerMessagingGatewayServices,
   GATEWAY_TOKENS,
 } from '@ptah-extension/messaging-gateway';
+import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 
@@ -54,6 +64,7 @@ export function registerPhase2Libraries(
   registerWorkspaceIntelligenceServices(container, logger);
   registerAuthProvidersServices(container, logger);
   registerSdkServices(container, logger);
+  registerCuratorAuthServices(container, logger);
   registerCliAgentRuntimeServices(container, logger);
 
   wireAgentAdapterAliases(container);
@@ -77,7 +88,9 @@ export function registerPhase2Libraries(
     '[Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)',
   );
   try {
-    const dbPath = path.join(os.homedir(), '.ptah', 'state', 'ptah.sqlite');
+    const isDev = process.env['NODE_ENV'] === 'development';
+    const dbFileName = isDev ? 'ptah-dev.sqlite' : 'ptah.sqlite';
+    const dbPath = path.join(os.homedir(), '.ptah', 'state', dbFileName);
     container.register(PERSISTENCE_TOKENS.SQLITE_DB_PATH, {
       useValue: dbPath,
     });
@@ -91,11 +104,39 @@ export function registerPhase2Libraries(
       useValue: workerEntry,
     });
 
+    const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
+    try {
+      fs.mkdirSync(modelCacheDir, { recursive: true });
+    } catch (error) {
+      logger.warn(
+        '[Electron DI] Failed to create embedder model cache dir (non-fatal)',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+    container.register(PERSISTENCE_TOKENS.EMBEDDER_MODEL_CACHE_DIR, {
+      useValue: modelCacheDir,
+    });
+
     registerPersistenceSqliteServices(container, logger);
+    try {
+      const sqliteConnection = container.resolve<SqliteConnectionService>(
+        PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+      );
+      const electronVecResolver = createElectronVecPathResolver(logger);
+      sqliteConnection.configure({
+        vecPathResolver: electronVecResolver,
+      });
+    } catch (error) {
+      logger.warn(
+        '[Electron DI] Failed to wire electron vec resolver (non-fatal)',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
     registerMemoryCuratorServices(container, logger);
     logger.info('[Electron DI] Memory curator services registered (Track 1)', {
       dbPath,
       workerEntry,
+      modelCacheDir,
     });
   } catch (error) {
     logger.warn(
@@ -122,6 +163,7 @@ export function registerPhase2Libraries(
       useClass: ElectronSafeStorageVault,
     });
     registerMessagingGatewayServices(container, logger);
+    registerGatewayChatBridge(container, logger);
     logger.info(
       '[Electron DI] Messaging gateway services registered (Track 4)',
     );
@@ -131,4 +173,68 @@ export function registerPhase2Libraries(
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
+}
+
+function createElectronVecPathResolver(logger: Logger): SqliteVecPathResolver {
+  return () => {
+    const packageName = resolveVecPackageName();
+    if (!packageName) {
+      throw new Error(
+        `[Electron DI] no sqlite-vec package mapping for ${process.platform}/${process.arch}`,
+      );
+    }
+    const binaryName = resolveVecBinaryName();
+    const candidates: string[] = [];
+    if (
+      typeof process.resourcesPath === 'string' &&
+      process.resourcesPath.length > 0
+    ) {
+      candidates.push(
+        path.join(
+          process.resourcesPath,
+          'app.asar.unpacked',
+          'node_modules',
+          packageName,
+          binaryName,
+        ),
+      );
+    }
+    let appPath: string | undefined;
+    try {
+      appPath = app.getAppPath();
+    } catch (error: unknown) {
+      logger.warn(
+        '[Electron DI] app.getAppPath() unavailable during vec fallback resolution',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+    if (appPath && appPath.endsWith('app.asar')) {
+      candidates.push(
+        path.join(
+          appPath + '.unpacked',
+          'node_modules',
+          packageName,
+          binaryName,
+        ),
+      );
+    }
+    if (appPath) {
+      candidates.push(
+        path.join(appPath, 'node_modules', packageName, binaryName),
+      );
+    }
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate)) return candidate;
+      } catch (error: unknown) {
+        logger.warn('[Electron DI] fs.existsSync threw for vec candidate', {
+          candidate,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    throw new Error(
+      `[Electron DI] no sqlite-vec binary found among electron-host candidates: ${candidates.join(' | ')}`,
+    );
+  };
 }

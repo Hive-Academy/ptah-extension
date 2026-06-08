@@ -20,6 +20,7 @@ import {
   ORCHESTRA_CANVAS_COMPONENT,
   HARNESS_BUILDER_COMPONENT,
   SETUP_HUB_COMPONENT,
+  MARKETPLACE_COMPONENT,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -44,6 +45,8 @@ import {
   HarnessBuilderViewComponent,
   SetupHubComponent,
 } from '@ptah-extension/harness-builder';
+import { MarketplaceHubComponent } from '@ptah-extension/marketplace';
+import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 class WebviewErrorHandler implements ErrorHandler {
   public handleError(error: unknown): void {
@@ -106,6 +109,7 @@ export const appConfig: ApplicationConfig = {
       useValue: HarnessBuilderViewComponent,
     },
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
+    { provide: MARKETPLACE_COMPONENT, useValue: MarketplaceHubComponent },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
     ...provideEditorInternalState(),
@@ -130,28 +134,13 @@ export const appConfig: ApplicationConfig = {
       useExisting: UpdateBannerService,
       multi: true,
     },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: VecEmbedderRecoveryService,
+      multi: true,
+    },
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',
-      onMonacoLoad: () => {
-        const monacoVsUrl = new URL('./assets/monaco/vs', window.location.href)
-          .href;
-        const monacoSelf = self as typeof self & {
-          MonacoEnvironment?: {
-            getWorker: (moduleId: string, label: string) => Worker;
-          };
-        };
-        monacoSelf.MonacoEnvironment = {
-          getWorker: (_moduleId: string, _label: string) => {
-            const workerUrl = `${monacoVsUrl}/base/worker/workerMain.js`;
-            const js = `self.MonacoEnvironment = { baseUrl: '${monacoVsUrl}/' };\nimportScripts('${workerUrl}');`;
-            const blob = new Blob([js], { type: 'application/javascript' });
-            const blobUrl = URL.createObjectURL(blob);
-            const worker = new Worker(blobUrl, { type: 'classic' as const });
-            URL.revokeObjectURL(blobUrl);
-            return worker;
-          },
-        };
-      },
     }),
     provideMarkdownRendering({ extensions: 'full' }),
   ],

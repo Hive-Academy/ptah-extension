@@ -97,11 +97,21 @@ interface ActionDialogState {
               <div class="stats stats-horizontal w-full bg-base-100">
                 <div class="stat px-3 py-2">
                   <div class="stat-title text-xs">Candidates</div>
-                  <div class="stat-value text-lg">{{ s.totalCandidates }}</div>
+                  <div
+                    class="stat-value text-lg"
+                    data-testid="skills-stat-candidates"
+                  >
+                    {{ s.totalCandidates }}
+                  </div>
                 </div>
                 <div class="stat px-3 py-2">
                   <div class="stat-title text-xs">Promoted</div>
-                  <div class="stat-value text-lg">{{ s.totalPromoted }}</div>
+                  <div
+                    class="stat-value text-lg"
+                    data-testid="skills-stat-promoted"
+                  >
+                    {{ s.totalPromoted }}
+                  </div>
                 </div>
                 <div class="stat px-3 py-2">
                   <div class="stat-title text-xs">Rejected</div>
@@ -135,6 +145,7 @@ interface ActionDialogState {
               type="button"
               role="tab"
               class="tab tab-sm"
+              [attr.data-testid]="'skills-filter-' + f.id"
               [class.tab-active]="statusFilter() === f.id"
               [attr.aria-selected]="statusFilter() === f.id"
               (click)="onFilterChange(f.id)"
@@ -172,6 +183,7 @@ interface ActionDialogState {
                 <tbody>
                   @for (c of candidates(); track c.id) {
                     <tr
+                      data-testid="skills-candidate-row"
                       class="hover cursor-pointer"
                       [class.bg-base-300]="selectedCandidateId() === c.id"
                       (click)="onSelectRow(c.id)"
@@ -185,7 +197,11 @@ interface ActionDialogState {
                         </div>
                       </td>
                       <td>
-                        <span class="badge badge-sm" [class]="statusClass(c)">
+                        <span
+                          class="badge badge-sm"
+                          data-testid="skills-candidate-status"
+                          [class]="statusClass(c)"
+                        >
                           {{ c.status }}
                         </span>
                       </td>
@@ -206,6 +222,7 @@ interface ActionDialogState {
                         <div class="flex justify-end gap-1">
                           <button
                             type="button"
+                            data-testid="skills-promote-btn"
                             class="btn btn-xs btn-success"
                             [disabled]="c.status === 'promoted' || loading()"
                             (click)="onOpenAction('promote', c, $event)"
@@ -214,6 +231,7 @@ interface ActionDialogState {
                           </button>
                           <button
                             type="button"
+                            data-testid="skills-reject-btn"
                             class="btn btn-xs btn-error btn-outline"
                             [disabled]="c.status === 'rejected' || loading()"
                             (click)="onOpenAction('reject', c, $event)"
@@ -242,7 +260,9 @@ interface ActionDialogState {
                         @if (loading()) {
                           <span>Loading candidates&hellip;</span>
                         } @else {
-                          <span>No candidates for this filter.</span>
+                          <span data-testid="skills-empty-state"
+                            >No candidates for this filter.</span
+                          >
                         }
                       </td>
                     </tr>
@@ -693,6 +713,7 @@ interface ActionDialogState {
               </button>
               <button
                 type="button"
+                data-testid="skills-action-confirm"
                 class="btn btn-sm"
                 [class.btn-success]="dlg.kind === 'promote'"
                 [class.btn-error]="dlg.kind === 'reject'"

@@ -19,7 +19,9 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS } from '../di/tokens';
+import { NoopTracer } from '../services/noop-tracer';
 import {
   createMockConfigManager,
   type MockConfigManager,
@@ -105,6 +107,7 @@ export function registerVscodeCoreMocks(
   target.register(TOKENS.AUTH_SECRETS_SERVICE, { useValue: authSecrets });
   target.register(TOKENS.SENTRY_SERVICE, { useValue: sentry });
   target.register(TOKENS.RPC_HANDLER, { useValue: rpcHandler });
+  target.register(PLATFORM_TOKENS.TRACER, { useValue: new NoopTracer() });
 
   return { logger, configManager, authSecrets, sentry, rpcHandler };
 }

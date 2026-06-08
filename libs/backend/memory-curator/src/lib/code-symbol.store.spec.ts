@@ -4,7 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
-import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import {
+  SqliteConnectionService,
+  VecStatusService,
+} from '@ptah-extension/persistence-sqlite';
 import { CodeSymbolStore, type CodeSymbolInsert } from './code-symbol.store';
 
 function makeTempDbPath(): string {
@@ -81,7 +84,8 @@ describe('CodeSymbolStore (native-gated)', () => {
     await service.openAndMigrate();
     expect(service.vecExtensionLoaded).toBe(true);
     const embedder = makeDeterministicEmbedder();
-    const store = new CodeSymbolStore(logger, service, embedder);
+    const vecStatus = new VecStatusService(logger, service);
+    const store = new CodeSymbolStore(logger, service, embedder, vecStatus);
     return { service, store, embedder, dbPath };
   }
 
@@ -214,8 +218,19 @@ describe('CodeSymbolStore (native-gated)', () => {
         configurable: true,
         get: () => false,
       });
+      Object.defineProperty(service, 'vecLoadDiagnostic', {
+        configurable: true,
+        get: () => ({
+          ok: false,
+          reason: 'binary-missing',
+          electronVersion: 'unknown',
+          processArch: process.arch,
+          processPlatform: process.platform,
+        }),
+      });
       const embedder = makeDeterministicEmbedder();
-      const store = new CodeSymbolStore(logger, service, embedder);
+      const vecStatus = new VecStatusService(logger, service);
+      const store = new CodeSymbolStore(logger, service, embedder, vecStatus);
       try {
         await store.insertBatch([
           makeEntry({
@@ -296,4 +311,144 @@ describe('CodeSymbolStore (native-gated)', () => {
       }
     },
   );
+
+  maybe(
+    'searchSymbols returns hybrid hits ranked by relevance with text + score',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertBatch([
+          makeEntry({
+            symbolName: 'login',
+            subject: 'code:/test/ws/src/auth.ts#login',
+            filePath: '/test/ws/src/auth.ts',
+            text: 'login handler validates the session token for a user',
+          }),
+          makeEntry({
+            symbolName: 'add',
+            subject: 'code:/test/ws/src/math.ts#add',
+            filePath: '/test/ws/src/math.ts',
+            text: 'add two numbers and return the sum',
+          }),
+        ]);
+
+        const page = await store.searchSymbols('session token', 10, '/test/ws');
+        expect(page.bm25Only).toBe(false);
+        expect(page.hits.length).toBeGreaterThan(0);
+        const top = page.hits[0];
+        expect(top.symbolName).toBe('login');
+        expect(top.text).toContain('session token');
+        expect(top.kind).toBe('function');
+        expect(top.score).toBeGreaterThan(0);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe('searchSymbols scopes results to workspaceRoot', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      await store.insertBatch([
+        makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'login',
+          subject: 'code:/ws/a/src/auth.ts#login',
+          filePath: '/ws/a/src/auth.ts',
+          text: 'login handler validates the session token',
+        }),
+        makeEntry({
+          workspaceRoot: '/ws/b',
+          symbolName: 'login',
+          subject: 'code:/ws/b/src/auth.ts#login',
+          filePath: '/ws/b/src/auth.ts',
+          text: 'login handler validates the session token',
+        }),
+      ]);
+
+      const page = await store.searchSymbols('session token', 10, '/ws/a');
+      expect(page.hits.length).toBeGreaterThan(0);
+      for (const hit of page.hits) {
+        expect(hit.workspaceRoot).toBe('/ws/a');
+      }
+    } finally {
+      service.close();
+    }
+  });
+
+  maybe(
+    'searchSymbols falls back to BM25-only when vec is unavailable',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertBatch([
+          makeEntry({
+            symbolName: 'login',
+            subject: 'code:/test/ws/src/auth.ts#login',
+            filePath: '/test/ws/src/auth.ts',
+            text: 'login handler validates the session token',
+          }),
+        ]);
+
+        const logger = makeLogger();
+        const embedder = makeDeterministicEmbedder();
+        const fakeVecStatus = {
+          available: false,
+        } as unknown as VecStatusService;
+        const bm25Store = new CodeSymbolStore(
+          logger,
+          service,
+          embedder,
+          fakeVecStatus,
+        );
+
+        const page = await bm25Store.searchSymbols(
+          'session token',
+          10,
+          '/test/ws',
+        );
+        expect(page.bm25Only).toBe(true);
+        expect(page.hits.length).toBeGreaterThan(0);
+        expect(page.hits[0].symbolName).toBe('login');
+        expect(embedder.embed).not.toHaveBeenCalled();
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'searchSymbols neutralises adversarial FTS metacharacters without throwing',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertBatch([
+          makeEntry({
+            symbolName: 'login',
+            subject: 'code:/test/ws/src/auth.ts#login',
+            filePath: '/test/ws/src/auth.ts',
+            text: 'login handler validates the session token',
+          }),
+        ]);
+
+        await expect(
+          store.searchSymbols('"OR session*() ^token:', 10, '/test/ws'),
+        ).resolves.toEqual(
+          expect.objectContaining({ hits: expect.any(Array) }),
+        );
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe('searchSymbols returns an empty page for a blank query', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      const page = await store.searchSymbols('   ', 10, '/test/ws');
+      expect(page.hits).toHaveLength(0);
+    } finally {
+      service.close();
+    }
+  });
 });

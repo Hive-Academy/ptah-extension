@@ -49,6 +49,7 @@ import {
 import {
   PlatformType,
   type IPlatformInfo,
+  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 
 import { SdkAgentAdapter } from './sdk-agent-adapter';
@@ -173,6 +174,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'executeQuery'
     | 'executeSlashCommandQuery'
     | 'disposeAllSessions'
+    | 'dispose'
     | 'endSession'
     | 'find'
     | 'bindRealSessionId'
@@ -186,6 +188,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     executeQuery: jest.fn(),
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
+    dispose: jest.fn(),
     endSession: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockReturnValue(undefined),
     bindRealSessionId: jest.fn(),
@@ -243,6 +246,19 @@ function createMockPlatformInfo(
   };
 }
 
+function createMockWorkspaceProvider(
+  root: string | null = '/fake/workspace-root',
+): jest.Mocked<IWorkspaceProvider> {
+  return {
+    getWorkspaceRoot: jest.fn(() => root),
+    getWorkspaceFolders: jest.fn(() => (root ? [root] : [])),
+    getConfiguration: jest.fn(<T>(_: string, __: string, def?: T) => def),
+    setConfiguration: jest.fn().mockResolvedValue(undefined),
+    onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
+    onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
+  } as unknown as jest.Mocked<IWorkspaceProvider>;
+}
+
 function createFakeQuery(): Query {
   const gen = createFakeAsyncGenerator<SDKMessage>([]);
   const q = {
@@ -272,6 +288,7 @@ interface AdapterHarness {
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
   modelService: ReturnType<typeof createMockModelService>;
   platformInfo: IPlatformInfo;
+  workspaceProvider: jest.Mocked<IWorkspaceProvider>;
   warmQueryManager: ReturnType<typeof createMockWarmQueryManager>;
   forkService: ReturnType<typeof createMockForkService>;
   events: SdkAdapterEvents;
@@ -281,6 +298,7 @@ function makeAdapter(
   options: {
     config?: Record<string, unknown>;
     platformInfo?: Partial<IPlatformInfo>;
+    workspaceRoot?: string | null;
   } = {},
 ): AdapterHarness {
   const logger = createMockLogger();
@@ -294,6 +312,11 @@ function makeAdapter(
   const moduleLoader = createMockModuleLoader();
   const modelService = createMockModelService();
   const platformInfo = createMockPlatformInfo(options.platformInfo);
+  const workspaceProvider = createMockWorkspaceProvider(
+    options.workspaceRoot === undefined
+      ? '/fake/workspace-root'
+      : options.workspaceRoot,
+  );
   const warmQueryManager = createMockWarmQueryManager();
   const forkService = createMockForkService();
 
@@ -318,6 +341,7 @@ function makeAdapter(
     sentry as unknown as SentryService,
     events,
     activityRegistry,
+    workspaceProvider,
   );
 
   return {
@@ -333,6 +357,7 @@ function makeAdapter(
     moduleLoader,
     modelService,
     platformInfo,
+    workspaceProvider,
     warmQueryManager,
     forkService,
     events,
@@ -670,6 +695,7 @@ describe('SdkAgentAdapter', () => {
         messageQueue: [],
         resolveNext: null,
         currentModel: 'claude-sonnet-4-20250514',
+        lastActivityAt: 0,
       });
 
       await h.adapter.resumeSession(
@@ -845,6 +871,7 @@ describe('SdkAgentAdapter', () => {
       expect(h.warmQueryManager.prewarm).toHaveBeenCalledTimes(1);
       expect(h.warmQueryManager.prewarm).toHaveBeenCalledWith(
         '/bin/cli.js',
+        '/fake/workspace-root',
         mcp,
       );
     });

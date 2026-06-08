@@ -69,12 +69,23 @@ export interface GitAddWorktreeParams {
   path?: string;
   /** Whether to create a new branch (vs checkout existing) */
   createBranch?: boolean;
+  /**
+   * Correlation ID for the async fire-and-forget flow. When provided, the
+   * handler returns immediately with `pending: true` and emits a matching
+   * `git:worktreeChanged` push notification when the underlying git
+   * subprocess completes. Required for the non-blocking UI flow.
+   */
+  operationId?: string;
 }
 
 /** Response from git:addWorktree RPC method */
 export interface GitAddWorktreeResult {
   success: boolean;
-  /** Absolute path to the created worktree */
+  /** True when the operation was kicked off asynchronously; await git:worktreeChanged. */
+  pending?: boolean;
+  /** Echo of the request's operationId — present when pending is true. */
+  operationId?: string;
+  /** Absolute path to the created worktree (synchronous-success path only). */
   worktreePath?: string;
   error?: string;
 }
@@ -85,11 +96,17 @@ export interface GitRemoveWorktreeParams {
   path: string;
   /** Whether to force removal (--force flag) */
   force?: boolean;
+  /** See GitAddWorktreeParams.operationId. */
+  operationId?: string;
 }
 
 /** Response from git:removeWorktree RPC method */
 export interface GitRemoveWorktreeResult {
   success: boolean;
+  /** True when the operation was kicked off asynchronously; await git:worktreeChanged. */
+  pending?: boolean;
+  /** Echo of the request's operationId — present when pending is true. */
+  operationId?: string;
   error?: string;
 }
 
@@ -110,6 +127,19 @@ export interface GitWorktreeChangedNotification {
   name?: string;
   /** Worktree path (for removed, or the created path if available) */
   path?: string;
+  /**
+   * Correlation ID echoing the originating add/remove RPC's `operationId`.
+   * Present only when the notification corresponds to a fire-and-forget
+   * RPC; absent for SDK-hook-driven notifications.
+   */
+  operationId?: string;
+  /**
+   * Whether the underlying git subprocess succeeded. Absent for SDK-hook
+   * notifications (those are informational and always represent success).
+   */
+  success?: boolean;
+  /** Error message when success === false. */
+  error?: string;
 }
 
 /** Parameters for git:stage RPC method */

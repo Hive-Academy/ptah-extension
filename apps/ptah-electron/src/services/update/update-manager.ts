@@ -1,55 +1,55 @@
 /**
- * UpdateManager — Electron main-process auto-update orchestrator.
+ * UpdateManager — Electron main-process desktop-update detector.
  *
- * Wraps `electron-updater`'s `autoUpdater` to provide:
- *   - Event-driven state tracking via `UpdateLifecycleState` discriminated union
- *   - Broadcast of state changes to the renderer via `WebviewManager`
- *   - Throttled `download-progress` events (≤ 10 Hz, final ≥99.9% always forwarded)
- *   - 4-hour periodic background checks
- *   - `triggerCheck()` for on-demand check-now RPC
- *   - `dispose()` for LIFO cleanup in `main.ts` `will-quit`
- *   - `fetchReleaseNotes()` — GitHub Releases API fetch, main-process only,
- *     result embedded in `update-available` / `update-downloaded` payloads
- *
- * In-App Electron Auto-Update UX (VS Code-Style).
+ * Detects newer releases by querying the GitHub Releases API directly (the same
+ * source the landing-page download route uses), comparing the latest
+ * `electron-v*` tag to the installed version from `app.getVersion()`. When a
+ * newer release exists it broadcasts an `available` state carrying the platform
+ * installer URL and release notes; the banner's Download action opens that URL
+ * in the browser. No electron-updater, no in-app download/install.
  */
 
 import { injectable, inject } from 'tsyringe';
+import { app } from 'electron';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
 
-/** GitHub repository constants for release-notes fetching. */
-const PTAH_GITHUB_OWNER = 'hive-academy';
-const PTAH_GITHUB_REPO = 'ptah-extension';
+const GITHUB_RELEASES_URL =
+  'https://api.github.com/repos/Hive-Academy/ptah-extension/releases';
 
-/** Minimum milliseconds between `download-progress` broadcasts (10 Hz). */
-const PROGRESS_THROTTLE_MS = 100;
+const ELECTRON_TAG_PREFIX = 'electron-v';
 
 /** 4-hour periodic check interval in milliseconds. */
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
+/** Timeout for the GitHub Releases request. */
+const FETCH_TIMEOUT_MS = 5000;
+
 interface WebviewBroadcaster {
   broadcastMessage(type: string, payload: unknown): Promise<void>;
+}
+
+interface GitHubReleaseAsset {
+  name: string;
+  browser_download_url: string;
+}
+
+interface GitHubRelease {
+  tag_name: string;
+  html_url: string;
+  published_at?: string;
+  body?: string | null;
+  draft?: boolean;
+  prerelease?: boolean;
+  assets: GitHubReleaseAsset[];
 }
 
 @injectable()
 export class UpdateManager {
   private _currentState: UpdateLifecycleState = { state: 'idle' };
   private _checkInterval: ReturnType<typeof setInterval> | null = null;
-  private _lastProgressBroadcast = 0;
-  private _listenersRegistered = false;
-  /** Cached version from the most recent `update-available` or `update-downloaded` event. */
-  private _pendingVersion = '';
-  /**
-   * Cached reference to the resolved `autoUpdater` singleton. Captured during
-   * the first `start()` call so `dispose()` can detach listeners synchronously
-   * during `will-quit` cleanup (per ptah-electron CLAUDE.md: `will-quit` runs
-   * LIFO and synchronously — no dynamic imports allowed there).
-   */
-  private _autoUpdater: typeof import('electron-updater').autoUpdater | null =
-    null;
 
   constructor(
     @inject(TOKENS.WEBVIEW_MANAGER)
@@ -58,7 +58,7 @@ export class UpdateManager {
     private readonly logger: Logger,
   ) {}
 
-  /** Read the latest state synchronously (used by the RPC install-now handler). */
+  /** Read the latest state synchronously (used by the update:get-state RPC). */
   getCurrentState(): UpdateLifecycleState {
     return this._currentState;
   }
@@ -69,10 +69,10 @@ export class UpdateManager {
   }
 
   /**
-   * Start the auto-updater lifecycle.
+   * Start update detection.
    *
-   * Idempotent: safe to call multiple times — the interval is created only once.
-   * Dev-mode gate: bails immediately when NODE_ENV === 'development'.
+   * Idempotent: the periodic interval is created only once. Dev-mode gate:
+   * bails immediately when NODE_ENV === 'development'.
    */
   async start(): Promise<void> {
     if (process.env['NODE_ENV'] === 'development') {
@@ -82,213 +82,147 @@ export class UpdateManager {
     if (this._checkInterval !== null) {
       return;
     }
-
-    const { autoUpdater } = await import('electron-updater');
-    this._autoUpdater = autoUpdater;
-
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
-
-    if (!this._listenersRegistered) {
-      this._listenersRegistered = true;
-
-      autoUpdater.on('checking-for-update', () => {
-        this._broadcast({ state: 'checking' });
-      });
-
-      autoUpdater.on(
-        'update-available',
-        (info: { version: string; releaseDate?: string }) => {
-          this._pendingVersion = info.version;
-          void this.fetchReleaseNotes(info.version).then(
-            (releaseNotesMarkdown) => {
-              this._broadcast({
-                state: 'available',
-                currentVersion: autoUpdater.currentVersion?.version ?? '',
-                newVersion: info.version,
-                releaseDate: info.releaseDate,
-                releaseNotesMarkdown,
-              });
-            },
-          );
-        },
-      );
-
-      autoUpdater.on('update-not-available', () => {
-        this._broadcast({ state: 'idle' });
-      });
-
-      autoUpdater.on(
-        'download-progress',
-        (progress: {
-          percent: number;
-          bytesPerSecond: number;
-          transferred: number;
-          total: number;
-        }) => {
-          const now = Date.now();
-          const elapsed = now - this._lastProgressBroadcast;
-          const isFinal = progress.percent >= 99.9;
-
-          if (elapsed >= PROGRESS_THROTTLE_MS || isFinal) {
-            this._lastProgressBroadcast = now;
-            this._broadcast({
-              state: 'downloading',
-              currentVersion: autoUpdater.currentVersion?.version ?? '',
-              newVersion: this._pendingVersion,
-              percent: progress.percent,
-              bytesPerSecond: progress.bytesPerSecond,
-              transferred: progress.transferred,
-              total: progress.total,
-            });
-          }
-        },
-      );
-
-      autoUpdater.on(
-        'update-downloaded',
-        (info: { version: string; releaseDate?: string }) => {
-          this._pendingVersion = info.version;
-          void this.fetchReleaseNotes(info.version).then(
-            (releaseNotesMarkdown) => {
-              this._broadcast({
-                state: 'downloaded',
-                currentVersion: autoUpdater.currentVersion?.version ?? '',
-                newVersion: info.version,
-                releaseDate: info.releaseDate,
-                releaseNotesMarkdown,
-              });
-            },
-          );
-        },
-      );
-
-      autoUpdater.on('error', (err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        this.logger.error(
-          '[UpdateManager] Auto-updater error',
-          err instanceof Error ? err : new Error(message),
-        );
-        this._broadcast({ state: 'error', message });
-      });
-    }
-    void autoUpdater.checkForUpdates()?.catch((err: unknown) => {
-      this.logger.warn(
-        '[UpdateManager] Initial check failed',
-        err instanceof Error ? err : new Error(String(err)),
-      );
-    });
+    this.logger.info(
+      `[UpdateManager] start: checking GitHub releases (installed=${app.getVersion()})`,
+    );
+    void this.checkViaGitHub();
     this._checkInterval = setInterval(() => {
-      void autoUpdater.checkForUpdates()?.catch((err: unknown) => {
-        this.logger.warn(
-          '[UpdateManager] Periodic check failed',
-          err instanceof Error ? err : new Error(String(err)),
-        );
-      });
+      void this.checkViaGitHub();
     }, CHECK_INTERVAL_MS);
   }
 
-  /**
-   * On-demand update check (called by the `update:check-now` RPC handler).
-   * Errors are re-thrown so the handler can wrap them in a structured response.
-   *
-   * FIX 4: Guards against being called before start() registers listeners.
-   * Throws so the RPC handler can return { success: false, error }.
-   */
+  /** On-demand check (called by the update:check-now RPC handler). */
   async triggerCheck(): Promise<void> {
-    if (!this._listenersRegistered) {
-      this.logger.warn(
-        '[UpdateManager] triggerCheck called before start() — listeners not registered',
-      );
-      throw new Error('UpdateManager not started');
-    }
-    const { autoUpdater } = await import('electron-updater');
-    await autoUpdater.checkForUpdates();
+    await this.checkViaGitHub();
   }
 
   /**
-   * Tear down the auto-updater lifecycle.
-   *
-   * FIX 2: Removes all autoUpdater listeners in addition to clearing the
-   * interval, preventing listener accumulation on the process-global
-   * autoUpdater singleton if a new UpdateManager instance is ever created
-   * after dispose() (e.g. macOS re-init or test re-runs).
-   *
-   * After dispose() the manager is re-startable: call start() again and all
-   * six listeners will be re-registered fresh.
-   *
-   * Called from `will-quit` LIFO cleanup in main.ts.
+   * Query the GitHub Releases API, compare the latest `electron-v*` tag to the
+   * installed version, and broadcast the resulting lifecycle state.
    */
+  async checkViaGitHub(): Promise<void> {
+    this._broadcast({ state: 'checking' });
+
+    const installed = app.getVersion();
+    let releases: GitHubRelease[];
+    try {
+      releases = await this.fetchReleases();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        '[UpdateManager] GitHub releases check failed',
+        error instanceof Error ? error : new Error(message),
+      );
+      this._broadcast({ state: 'error', message });
+      return;
+    }
+
+    const candidates = releases
+      .filter(
+        (r) =>
+          !r.draft &&
+          !r.prerelease &&
+          typeof r.tag_name === 'string' &&
+          r.tag_name.startsWith(ELECTRON_TAG_PREFIX),
+      )
+      .map((release) => ({
+        release,
+        version: release.tag_name.slice(ELECTRON_TAG_PREFIX.length),
+      }))
+      .sort((a, b) => this.compareVersions(b.version, a.version));
+
+    const latest = candidates[0];
+    if (!latest || this.compareVersions(latest.version, installed) <= 0) {
+      this.logger.info(
+        `[UpdateManager] up to date (installed=${installed}, latest=${
+          latest?.version ?? 'none'
+        })`,
+      );
+      this._broadcast({ state: 'idle' });
+      return;
+    }
+
+    const downloadUrl = this.platformInstallerUrl(latest.release.assets);
+    this.logger.info(
+      `[UpdateManager] update-available: ${installed} -> ${latest.version} (installer=${
+        downloadUrl ?? 'release page'
+      })`,
+    );
+    this._broadcast({
+      state: 'available',
+      currentVersion: installed,
+      newVersion: latest.version,
+      releaseDate: latest.release.published_at,
+      releaseNotesMarkdown: latest.release.body ?? null,
+      downloadUrl,
+      releaseUrl: latest.release.html_url,
+    });
+  }
+
+  /** Tear down the periodic interval. Called from will-quit LIFO cleanup. */
   dispose(): void {
     if (this._checkInterval !== null) {
       clearInterval(this._checkInterval);
       this._checkInterval = null;
     }
-    if (this._listenersRegistered && this._autoUpdater) {
-      const au = this._autoUpdater;
-      try {
-        au.removeAllListeners('checking-for-update');
-        au.removeAllListeners('update-available');
-        au.removeAllListeners('update-not-available');
-        au.removeAllListeners('download-progress');
-        au.removeAllListeners('update-downloaded');
-        au.removeAllListeners('error');
-      } catch (err: unknown) {
-        this.logger.warn(
-          '[UpdateManager] removeAllListeners during dispose failed',
-          err instanceof Error ? err : new Error(String(err)),
-        );
-      }
-    }
-
-    this._autoUpdater = null;
-    this._listenersRegistered = false;
-    this._pendingVersion = '';
   }
 
-  /**
-   * Fetch GitHub Releases markdown body for a given version tag.
-   *
-   * - URL: `https://api.github.com/repos/{owner}/{repo}/releases/tags/v{version}`
-   * - 5-second AbortController timeout.
-   * - Returns `null` on any error (HTTP error, network error, timeout, parse error).
-   *   Never throws.
-   */
-  async fetchReleaseNotes(version: string): Promise<string | null> {
-    const url = `https://api.github.com/repos/${PTAH_GITHUB_OWNER}/${PTAH_GITHUB_REPO}/releases/tags/v${version}`;
+  private async fetchReleases(): Promise<GitHubRelease[]> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const resp = await fetch(url, {
+      const resp = await fetch(`${GITHUB_RELEASES_URL}?per_page=10`, {
         signal: controller.signal,
         headers: {
           Accept: 'application/vnd.github+json',
           'User-Agent': 'ptah-electron-updater',
         },
       });
-
       if (!resp.ok) {
-        return null;
+        throw new Error(`GitHub releases request failed: HTTP ${resp.status}`);
       }
-
-      const data = (await resp.json()) as { body?: string | null };
-      return data.body ?? null;
-    } catch {
-      return null;
+      return (await resp.json()) as GitHubRelease[];
     } finally {
       clearTimeout(timeoutId);
     }
   }
 
-  /**
-   * Synchronously update `_currentState` BEFORE broadcasting so that the
-   * `update:install-now` RPC handler can read state without a race condition.
-   *
-   * FIX 5: Log IPC failures instead of swallowing them so that a closed or
-   * erroring webview does not silently prevent state updates from reaching
-   * the renderer.
-   */
+  private platformInstallerUrl(assets: GitHubReleaseAsset[]): string | null {
+    const platform = process.platform;
+    const matches = (name: string): boolean => {
+      const n = name.toLowerCase();
+      if (
+        n.endsWith('.yml') ||
+        n.endsWith('.yaml') ||
+        n.endsWith('.blockmap')
+      ) {
+        return false;
+      }
+      if (platform === 'win32') {
+        return n.endsWith('.exe');
+      }
+      if (platform === 'darwin') {
+        return n.endsWith('.dmg') || n.includes('-mac.zip');
+      }
+      return n.endsWith('.appimage') || n.endsWith('.deb');
+    };
+    const asset = assets.find((a) => matches(a.name));
+    return asset?.browser_download_url ?? null;
+  }
+
+  private compareVersions(a: string, b: string): number {
+    const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+    const len = Math.max(pa.length, pb.length);
+    for (let k = 0; k < len; k++) {
+      const diff = (pa[k] ?? 0) - (pb[k] ?? 0);
+      if (diff !== 0) {
+        return diff > 0 ? 1 : -1;
+      }
+    }
+    return 0;
+  }
+
   private _broadcast(payload: UpdateLifecycleState): void {
     this._currentState = payload;
     this.webviewManager

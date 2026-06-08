@@ -252,6 +252,7 @@ export type PtahNotification =
   | 'agent_cli.resumed'
   | 'debug.di.phase'
   | 'doctor.report'
+  | 'init.plan'
   | 'system.schema.version';
 
 /**

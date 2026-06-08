@@ -48,8 +48,6 @@
           "tslib",
           "chokidar",
           "fast-glob",
-          "p-limit",
-          "p-queue",
           "axios",
           "exa-js",
           "gpt-tokenizer",

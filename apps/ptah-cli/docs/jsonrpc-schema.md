@@ -198,8 +198,40 @@ Example:
 | `provider.tiers`           | `provider tier get`    | `{ tiers: Record<'sonnet'\|'opus'\|'haiku', string\|null> }` |
 | `provider.tier.updated`    | `provider tier set`    | `{ tier, model, changed: bool }`                             |
 | `provider.tier.cleared`    | `provider tier clear`  | `{ tier }`                                                   |
-| `provider.key.set`         | `provider set-key`     | `{ provider, changed: bool }`                                |
-| `provider.key.removed`     | `provider remove-key`  | `{ provider, changed: bool }`                                |
+| `provider.key.set`         | `provider set-key`     | `{ provider, success: bool, verified: bool }`                |
+| `provider.key.removed`     | `provider remove-key`  | `{ provider, success: bool }`                                |
+
+> `provider set-key` format-validates the key and writes the secret slot the SDK actually reads (`AuthSecretsService` — `ptah.auth.anthropicApiKey` / `ptah.auth.provider.<id>`), persisting `authMethod`. On a **good** key it emits `provider.key.set` with `verified:true` and exits `0`. On a **malformed** key it emits `task.error` with `{ provider, verified: false, ptah_code: 'auth_required', message }` and exits `3` — no `provider.key.set` is written. Clients should branch on the exit code + `verified`, never on a bare `success`.
+
+### 1.7.1 First-run setup plan (`init.plan`)
+
+| Method      | Trigger                    | Key params                                                                                                                                                                                                             |
+| ----------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init.plan` | `ptah init` (machine mode) | `{ ready: bool, route: string, blockers: string[], license: { tier, valid, daysRemaining }, auth: { authMethod, defaultProvider, anthropicProviderId }, steps: Array<{ id, description, command, satisfied: bool }> }` |
+
+`ptah init` runs interactively (clack prompts) only when stdout is a real TTY **and** `--json` was not requested. In **machine mode** (the default for non-TTY, `--json`, or `--quiet`) it never prompts — it emits exactly one `init.plan` notification, then exits `0`. The `steps[]` array is ordered (`license`, `provider.default`, `provider.credential`, `verify`); a client should run the `command` of every step whose `satisfied` is `false`, then re-check with `ptah doctor`. `ready` mirrors `doctor`'s `effective.ready`.
+
+Example:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "init.plan",
+  "params": {
+    "ready": false,
+    "route": "unconfigured",
+    "blockers": ["no provider selected"],
+    "license": { "tier": "community", "valid": true, "daysRemaining": null },
+    "auth": { "authMethod": null, "defaultProvider": null, "anthropicProviderId": null },
+    "steps": [
+      { "id": "license", "description": "Set a Ptah license key (optional — Community tier works without one)", "command": "ptah license set --key ptah_lic_...", "satisfied": false },
+      { "id": "provider.default", "description": "Choose a default provider", "command": "ptah provider default set <provider-id>", "satisfied": false },
+      { "id": "provider.credential", "description": "Store credentials for the chosen provider (depends on its auth type)", "command": "ptah provider set-key --provider <provider-id> --key <KEY>", "satisfied": false },
+      { "id": "verify", "description": "Verify readiness", "command": "ptah doctor", "satisfied": false }
+    ]
+  }
+}
+```
 
 ### 1.8 Config (`config.*`)
 
@@ -215,30 +247,32 @@ Example:
 
 ### 1.9 Workspace / Git / License / Web search / Settings / Quality / Prompts
 
-| Method                 | Trigger                                   | Key params                                   |
-| ---------------------- | ----------------------------------------- | -------------------------------------------- |
-| `workspace.info`       | `workspace info`                          | `{ folders, active }`                        |
-| `workspace.added`      | `workspace add`                           | `{ path, changed: bool }`                    |
-| `workspace.removed`    | `workspace remove`                        | `{ path, changed: bool }`                    |
-| `workspace.switched`   | `workspace switch`                        | `{ path }`                                   |
-| `git.info`             | `git info`                                | `{ branch, dirty, ahead, behind }`           |
-| `git.worktrees`        | `git worktrees`                           | `{ entries }`                                |
-| `git.worktree.added`   | `git add-worktree`                        | `{ path, branch, changed: bool }`            |
-| `git.worktree.removed` | `git remove-worktree`                     | `{ path, changed: bool }`                    |
-| `git.staged`           | `git stage`                               | `{ paths }`                                  |
-| `git.unstaged`         | `git unstage`                             | `{ paths }`                                  |
-| `git.discarded`        | `git discard --confirm`                   | `{ paths }`                                  |
-| `git.committed`        | `git commit`                              | `{ sha, message }`                           |
-| `git.file`             | `git show-file`                           | `{ path, content }`                          |
-| `license.status`       | `license status`                          | `{ valid: bool, tier?, expires_at? }`        |
-| `license.updated`      | `license set`                             | `{ valid: bool, changed: bool }`             |
-| `license.cleared`      | `license clear`                           | `{ changed: bool }`                          |
-| `websearch.status`     | `websearch status`                        | `{ provider, has_api_key }`                  |
-| `websearch.config`     | `websearch config get`                    | `{ provider, max_results }`                  |
-| `websearch.test`       | `websearch test`                          | `{ success: bool, message? }`                |
-| `websearch.updated`    | `websearch set-key/remove-key/config set` | `{ key, value?, changed: bool }`             |
-| `settings.exported`    | `settings export`                         | `{ path?, size_bytes }`                      |
-| `settings.imported`    | `settings import`                         | `{ keys_imported: string[], changed: bool }` |
+| Method                 | Trigger                                   | Key params                                                      |
+| ---------------------- | ----------------------------------------- | --------------------------------------------------------------- |
+| `workspace.info`       | `workspace info`                          | `{ folders, active }`                                           |
+| `workspace.added`      | `workspace add`                           | `{ path, changed: bool }`                                       |
+| `workspace.removed`    | `workspace remove`                        | `{ path, changed: bool }`                                       |
+| `workspace.switched`   | `workspace switch`                        | `{ path }`                                                      |
+| `git.info`             | `git info`                                | `{ branch, dirty, ahead, behind }`                              |
+| `git.worktrees`        | `git worktrees`                           | `{ entries }`                                                   |
+| `git.worktree.added`   | `git add-worktree`                        | `{ path, branch, changed: bool }`                               |
+| `git.worktree.removed` | `git remove-worktree`                     | `{ path, changed: bool }`                                       |
+| `git.staged`           | `git stage`                               | `{ paths }`                                                     |
+| `git.unstaged`         | `git unstage`                             | `{ paths }`                                                     |
+| `git.discarded`        | `git discard --confirm`                   | `{ paths }`                                                     |
+| `git.committed`        | `git commit`                              | `{ sha, message }`                                              |
+| `git.file`             | `git show-file`                           | `{ path, content }`                                             |
+| `license.status`       | `license status`                          | `{ valid: bool, tier?, expires_at? }`                           |
+| `license.updated`      | `license set` (accepted)                  | `{ success: true, tier?, plan?, expiryWarning, daysRemaining }` |
+| `license.cleared`      | `license clear`                           | `{ success: true }`                                             |
+| `websearch.status`     | `websearch status`                        | `{ provider, has_api_key }`                                     |
+| `websearch.config`     | `websearch config get`                    | `{ provider, max_results }`                                     |
+| `websearch.test`       | `websearch test`                          | `{ success: bool, message? }`                                   |
+| `websearch.updated`    | `websearch set-key/remove-key/config set` | `{ key, value?, changed: bool }`                                |
+| `settings.exported`    | `settings export`                         | `{ path?, size_bytes }`                                         |
+| `settings.imported`    | `settings import`                         | `{ keys_imported: string[], changed: bool }`                    |
+
+> `license set` only emits `license.updated` when the server **accepts** the key. A server-rejected key emits `task.error` with `{ success: false, ptah_code: 'license_required', message }` (e.g. "License key was not accepted (not_found)…") and exits `4` — it does **not** silently downgrade to `tier:community`. Branch on the exit code, not on the absence of an error.
 
 > `quality.assessment` / `quality.history` / `quality.export.complete` are emitted by the `quality *` commands per the underlying `quality:*` RPC handler payloads (Phase 2 / dedicated wire schema documentation deferred).
 

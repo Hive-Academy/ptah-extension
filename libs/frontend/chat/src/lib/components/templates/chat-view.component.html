@@ -38,55 +38,57 @@
       <!-- Compaction Notification Banner -->
       <div class="px-2">
         <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
-      </div>
-
-      <!-- Message List
-           - Unified `@for` over `allMessages()`: finalized + streaming share the
-             same `track msg.id` so the streaming → finalized swap reuses the
-             same component instance (no remount, no layout shift).
-           - `[auto-animate]` on the container animates new bubble inserts via
-             FLIP without affecting siblings.
-           - `[autoAnimateDisabled]` is wired to the streaming flag: while
-             streaming, FLIP transforms race against the MutationObserver-driven
-             scroll-to-bottom (scrollHeight reflects post-mutation layout while
-             elements are mid-flight). Disabling FLIP during streaming trades a
-             tiny amount of insert smoothness for stable scroll. Animations
-             reactivate once streaming ends.
-      -->
-      <div
-        class="flex-1 overflow-y-auto p-2 space-y-3"
-        #messageContainer
-        (scroll)="onScroll($event)"
-        [auto-animate]
-        [autoAnimateDisabled]="
-          resolvedIsStreaming() ||
-          isFinalizingTransition() ||
-          suppressAnimateOnce()
-        "
-      >
-        @for (msg of allMessages(); track msg.id; let i = $index) {
-          <ptah-message-bubble
-            [message]="msg"
-            [messageIndex]="i"
-            [totalMessages]="allMessages().length"
-            [isStreaming]="streamingMessageIds().has(msg.id)"
-            [isFinalizing]="isFinalizingTransition()"
-            [isSessionActive]="resolvedSessionIsActive()"
-            (branchRequested)="onBranchRequested($event)"
-            (rewindRequested)="onRewindRequested($event)"
+        @if (resolvedCompactionMarker(); as m) {
+          <ptah-compaction-marker
+            [summary]="m.summary"
+            [preTokens]="m.preTokens"
+            [postTokens]="m.postTokens"
+            [durationMs]="m.durationMs"
           />
         }
+      </div>
 
-        <!-- Skeleton placeholder: streaming started but no trees yet -->
+      <div class="flex-1 flex flex-col min-h-0 relative">
+        <div
+          class="flex-1 chat-scroll-container"
+          #messageContainer
+          (scroll)="onScroll($event)"
+        >
+          <div #messageContent class="chat-scroll-content">
+            @for (
+              msg of allMessages();
+              track trackByMessageId($index, msg);
+              let i = $index
+            ) {
+              <ptah-message-bubble
+                class="block px-2 pb-3 chat-msg-cv"
+                [message]="msg"
+                [messageIndex]="i"
+                [totalMessages]="totalMessageCount()"
+                [isStreaming]="i >= finalizedFiltered().length"
+                [isFinalizing]="isFinalizingTransition()"
+                [isSessionActive]="resolvedSessionIsActive()"
+                (branchRequested)="onBranchRequested($event)"
+                (rewindRequested)="onRewindRequested($event)"
+              />
+            }
+          </div>
+        </div>
+
         @if (streamingMessages().length === 0 && resolvedIsStreaming()) {
           <div
-            class="chat chat-start"
+            class="chat chat-start px-2 pb-2 flex-shrink-0"
             animate.enter="fade-enter"
             animate.leave="fade-leave"
           >
             <div class="chat-image avatar">
               <div class="w-8 h-8 rounded-full overflow-hidden">
-                <img [src]="ptahIconUri()" alt="Claude" width="32" height="32" />
+                <img
+                  [src]="ptahIconUri()"
+                  alt="Claude"
+                  width="32"
+                  height="32"
+                />
               </div>
             </div>
             <div class="chat-bubble bg-neutral">
@@ -97,13 +99,13 @@
           </div>
         }
 
-        <!-- Empty state - Egyptian themed welcome -->
         @if (
           resolvedMessages().length === 0 &&
           !resolvedIsStreaming() &&
           streamingMessages().length === 0
         ) {
           <ptah-chat-empty-state
+            class="absolute inset-0 flex items-center justify-center"
             animate.enter="fade-enter"
             animate.leave="fade-leave"
             (promptSelected)="handlePromptSelected($event)"

@@ -1,3 +1,4 @@
+import * as os from 'os';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -5,8 +6,14 @@ import {
   type ExtractedMemoryDraft,
   type ResolvedMemoryDraft,
 } from '@ptah-extension/memory-contracts';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
 import type { InternalQueryService } from '../internal-query';
+import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
+import type { ICuratorAuthResolver } from './curator-auth-resolver.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 import {
   EXTRACT_SYSTEM_PROMPT,
@@ -16,15 +23,18 @@ import {
   RESOLVE_SYSTEM_PROMPT,
   buildResolveUserPrompt,
 } from './resolve-prompt';
+import {
+  ExtractedDraftSchema,
+  ExtractedResponseSchema,
+} from './extract.schema';
+import { ResolvedDraftSchema, ResolvedResponseSchema } from './resolve.schema';
+import { CuratorLlmQueryError } from './curator-llm-query.error';
 
-type MemoryKind = 'fact' | 'preference' | 'event' | 'entity';
-
-const KIND_VALUES = new Set<MemoryKind>([
-  'fact',
-  'preference',
-  'event',
-  'entity',
-]);
+const CURATOR_MODEL_SECTION = 'ptah';
+const CURATOR_MODEL_KEY = 'memory.curatorModel';
+const CURATOR_PROVIDER_KEY = 'memory.curatorProvider';
+const CURATOR_AUTH_ERROR_NAME = 'CuratorAuthError';
+export const CURATOR_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
 
 @injectable()
 export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
@@ -32,7 +42,65 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQuery: InternalQueryService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspace: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER, { isOptional: true })
+    private readonly resolver: ICuratorAuthResolver | null = null,
   ) {}
+
+  private resolveCuratorProviderId(): string {
+    const rawProvider = this.workspace.getConfiguration<string>(
+      CURATOR_MODEL_SECTION,
+      CURATOR_PROVIDER_KEY,
+      '',
+    );
+    return (typeof rawProvider === 'string' ? rawProvider : '').trim();
+  }
+
+  private async resolveCuratorAuth(): Promise<OneShotAuthOverride | undefined> {
+    if (!this.resolver) return undefined;
+    const curatorProviderId = this.resolveCuratorProviderId();
+    try {
+      const auth = await this.resolver.resolve(curatorProviderId);
+      return auth ?? undefined;
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === CURATOR_AUTH_ERROR_NAME) {
+        this.logger.warn(
+          '[memory-curator] curator provider auth unavailable; riding active provider',
+          { error: error.message, curatorProviderId },
+        );
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  private resolveQueryCwd(): string {
+    const root = this.workspace.getWorkspaceRoot();
+    return typeof root === 'string' && root.trim().length > 0
+      ? root
+      : os.homedir();
+  }
+
+  private resolveCuratorModel(): string {
+    try {
+      const rawModel = this.workspace.getConfiguration<string>(
+        CURATOR_MODEL_SECTION,
+        CURATOR_MODEL_KEY,
+        '',
+      );
+      const configured = (typeof rawModel === 'string' ? rawModel : '').trim();
+      if (configured.length === 0) return CURATOR_FALLBACK_MODEL;
+      return configured;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        '[memory-curator] curator model resolution failed; using fallback',
+        { error: message },
+      );
+      return CURATOR_FALLBACK_MODEL;
+    }
+  }
 
   async extract(
     transcript: string,
@@ -77,15 +145,17 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         });
     }
     try {
+      const auth = await this.resolveCuratorAuth();
       const handle = await this.internalQuery.execute({
-        cwd: process.cwd(),
-        model: 'claude-haiku-4-20251022',
+        cwd: this.resolveQueryCwd(),
+        model: this.resolveCuratorModel(),
         prompt,
         systemPromptAppend,
         isPremium: false,
         mcpServerRunning: false,
         maxTurns: 1,
         abortController,
+        auth,
       });
       let collected = '';
       for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {
@@ -104,22 +174,28 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         if (msg.type === 'result') break;
       }
       return collected;
-    } catch (err) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       this.logger.warn('[memory-curator] curator LLM query failed', {
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      return '';
+      throw new CuratorLlmQueryError(
+        'The memory curator could not complete its language-model query.',
+        error instanceof Error ? { cause: error } : undefined,
+      );
     }
   }
 
   private parseDrafts(text: string): readonly ExtractedMemoryDraft[] {
     const json = this.extractJsonObject(text);
     if (!json) return [];
-    const list = (json as { memories?: unknown }).memories;
-    if (!Array.isArray(list)) return [];
+    const env = ExtractedResponseSchema.safeParse(json);
+    if (!env.success) return [];
     const out: ExtractedMemoryDraft[] = [];
-    for (const item of list) {
-      const draft = this.coerceDraft(item);
+    for (const item of env.data.memories) {
+      const parsed = ExtractedDraftSchema.safeParse(item);
+      if (!parsed.success) continue;
+      const draft = parsed.data;
       if (draft) out.push(draft);
     }
     return out;
@@ -131,44 +207,19 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   ): readonly ResolvedMemoryDraft[] {
     const json = this.extractJsonObject(text);
     if (!json) return fallback.map((d) => ({ ...d, mergeTargetId: null }));
-    const list = (json as { memories?: unknown }).memories;
-    if (!Array.isArray(list))
+    const env = ResolvedResponseSchema.safeParse(json);
+    if (!env.success)
       return fallback.map((d) => ({ ...d, mergeTargetId: null }));
     const out: ResolvedMemoryDraft[] = [];
-    for (const item of list) {
-      const draft = this.coerceDraft(item);
-      if (!draft) continue;
-      const mergeTargetId =
-        typeof (item as { mergeTargetId?: unknown }).mergeTargetId === 'string'
-          ? (item as { mergeTargetId: string }).mergeTargetId
-          : null;
-      out.push({ ...draft, mergeTargetId });
+    for (const item of env.data.memories) {
+      const parsed = ResolvedDraftSchema.safeParse(item);
+      if (!parsed.success) continue;
+      const draft = parsed.data;
+      if (draft) out.push(draft);
     }
     return out.length > 0
       ? out
       : fallback.map((d) => ({ ...d, mergeTargetId: null }));
-  }
-
-  private coerceDraft(item: unknown): ExtractedMemoryDraft | null {
-    if (!item || typeof item !== 'object') return null;
-    const o = item as Record<string, unknown>;
-    const kindRaw = o['kind'];
-    if (typeof kindRaw !== 'string') return null;
-    const kind = kindRaw as MemoryKind;
-    if (!KIND_VALUES.has(kind)) return null;
-    const content =
-      typeof o['content'] === 'string' ? (o['content'] as string).trim() : '';
-    if (!content) return null;
-    const subject =
-      typeof o['subject'] === 'string' && (o['subject'] as string).trim()
-        ? (o['subject'] as string).trim().toLowerCase()
-        : null;
-    const sh =
-      typeof o['salienceHint'] === 'number'
-        ? (o['salienceHint'] as number)
-        : 0.3;
-    const salienceHint = Math.max(0, Math.min(1, sh));
-    return { kind, subject, content, salienceHint };
   }
 
   private extractJsonObject(text: string): unknown | null {
