@@ -40,7 +40,10 @@ import { app } from 'electron';
 import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
+import {
+  registerSkillSynthesisServices,
+  SKILL_REPROPAGATION_TOKEN,
+} from '@ptah-extension/skill-synthesis';
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
@@ -49,6 +52,7 @@ import {
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
+import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
 
 /**
  * Phase 2: Register library services in the order required by inter-library deps.
@@ -147,6 +151,10 @@ export function registerPhase2Libraries(
     );
   }
   registerSkillSynthesisServices(container, logger);
+  container.registerInstance(
+    SKILL_REPROPAGATION_TOKEN,
+    new ElectronSkillRepropagation(container),
+  );
   try {
     registerCronSchedulerServices(container, logger);
     logger.info('[Electron DI] Cron scheduler services registered (Track 3)');
