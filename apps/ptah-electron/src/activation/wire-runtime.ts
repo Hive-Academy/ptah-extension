@@ -23,7 +23,11 @@ import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method
 import { createApplicationMenu } from '../menu/application-menu';
 import { syncCliAgentsOnActivation } from './cli-agent-sync';
 import { syncCliSkillsOnActivation } from './cli-skill-sync';
-import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
+import {
+  activateSkillJunctions,
+  initPluginLoader,
+  mirrorUserLayer,
+} from './plugin-activation';
 import {
   PERSISTENCE_TOKENS,
   VecStatusService,
@@ -531,9 +535,13 @@ export async function wireRuntime(
       }
     });
     initPluginLoader(container, contentDownload.getPluginsPath());
+    const userLayerRoots = await mirrorUserLayer(container, workspaceRoot);
     refs.skillJunctionRef = activateSkillJunctions(
       container,
       contentDownload.getPluginsPath(),
+      userLayerRoots
+        ? { skills: userLayerRoots.skills, commands: userLayerRoots.commands }
+        : undefined,
     );
     try {
       const providerModels = container.resolve(

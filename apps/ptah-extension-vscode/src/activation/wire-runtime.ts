@@ -19,7 +19,11 @@ import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { DIContainer } from '../di/container';
 import { SettingsCommands } from '../commands/settings-commands';
-import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
+import {
+  activateSkillJunctions,
+  initPluginLoader,
+  mirrorUserLayer,
+} from './plugin-activation';
 
 /**
  * Runtime wiring after license verification: content download, plugin
@@ -44,7 +48,16 @@ export async function wireRuntimeVscode(
   });
 
   initPluginLoader(contentDownload.getPluginsPath(), logger);
-  activateSkillJunctions(contentDownload.getPluginsPath(), logger);
+  const userLayerWorkspaceRoot =
+    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const userLayerRoots = await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+  activateSkillJunctions(
+    contentDownload.getPluginsPath(),
+    logger,
+    userLayerRoots
+      ? { skills: userLayerRoots.skills, commands: userLayerRoots.commands }
+      : undefined,
+  );
   void licenseStatus;
   try {
     const providerModels = DIContainer.getContainer().resolve(
