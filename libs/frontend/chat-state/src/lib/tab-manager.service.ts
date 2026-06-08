@@ -415,6 +415,10 @@ export class TabManagerService {
     );
   }
 
+  updateBackgroundTab(tabId: string, updates: Partial<TabState>): boolean {
+    return this.workspacePartition.updateBackgroundTab(tabId, updates);
+  }
+
   // ============================================================================
   // INITIALIZATION
   // ============================================================================
