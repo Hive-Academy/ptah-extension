@@ -1,4 +1,3 @@
-
 import {
   app,
   BrowserWindow,
@@ -19,6 +18,7 @@ import {
   type MigrationRunner,
 } from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
+import { activateSessionLifecycleNotifier } from '@ptah-extension/rpc-handlers';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { IpcBridge } from '../ipc/ipc-bridge';
@@ -123,9 +123,11 @@ export async function bootstrapElectron(
     const sentryService = container.resolve<SentryService>(
       TOKENS.SENTRY_SERVICE,
     );
+    const environment =
+      process.env['NODE_ENV'] === 'development' ? 'development' : 'production';
     sentryService.initialize({
       dsn: sentryDsn,
-      environment: 'production',
+      environment,
       release: app.getVersion(),
       platform: 'electron',
       extensionVersion: app.getVersion(),
@@ -255,6 +257,15 @@ export async function bootstrapElectron(
   } catch (error: unknown) {
     console.error(
       '[Ptah Electron] Failed to register WEBVIEW_MANAGER:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+  try {
+    activateSessionLifecycleNotifier(container);
+  } catch (error: unknown) {
+    console.error(
+      '[Ptah Electron] Failed to activate SessionLifecycleNotifier:',
       error instanceof Error ? error.message : String(error),
     );
     throw error;

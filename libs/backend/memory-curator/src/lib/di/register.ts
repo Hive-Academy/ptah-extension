@@ -24,6 +24,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './tokens';
 import { EmbedderWorkerClient } from '../embedder/embedder-worker-client';
+import { EmbedderStatusService } from '../embedder/embedder-status.service';
 import { SalienceScorer } from '../salience-scorer';
 import { MemoryStore } from '../memory.store';
 import { MemorySearchService } from '../memory-search.service';
@@ -35,6 +36,9 @@ import { CodeSymbolStore } from '../code-symbol.store';
 import { IndexingControlService } from '../control/indexing-control.service';
 import { MemoryTriggerService } from '../triggers/memory-trigger.service';
 import { MemoryDiagnosticsService } from '../diagnostics.service';
+import { ObservationQueueStore } from '../observation-queue.store';
+import { CorpusStore } from '../knowledge-agents/corpus.store';
+import { KnowledgeAgentService } from '../knowledge-agents/knowledge-agent.service';
 
 export function registerMemoryCuratorServices(
   container: DependencyContainer,
@@ -60,10 +64,19 @@ export function registerMemoryCuratorServices(
   );
 
   container.register(
+    MEMORY_TOKENS.OBSERVATION_QUEUE_STORE,
+    { useClass: ObservationQueueStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     MEMORY_TOKENS.CODE_SYMBOL_STORE,
     { useClass: CodeSymbolStore },
     { lifecycle: Lifecycle.Singleton },
   );
+  container.register(MEMORY_CONTRACT_TOKENS.CODE_SYMBOL_READER, {
+    useToken: MEMORY_TOKENS.CODE_SYMBOL_STORE,
+  });
   container.register(
     PLATFORM_TOKENS.MEMORY_WRITER,
     { useClass: MemoryWriterAdapter },
@@ -81,6 +94,17 @@ export function registerMemoryCuratorServices(
   container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
     useToken: MEMORY_TOKENS.MEMORY_STORE,
   });
+
+  container.register(
+    MEMORY_TOKENS.CORPUS_STORE,
+    { useClass: CorpusStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    MEMORY_TOKENS.KNOWLEDGE_AGENT_SERVICE,
+    { useClass: KnowledgeAgentService },
+    { lifecycle: Lifecycle.Singleton },
+  );
 
   container.register(
     MEMORY_TOKENS.MEMORY_DECAY_JOB,
@@ -113,6 +137,12 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.MEMORY_DIAGNOSTICS_SERVICE,
     { useClass: MemoryDiagnosticsService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    MEMORY_TOKENS.EMBEDDER_STATUS,
+    { useClass: EmbedderStatusService },
     { lifecycle: Lifecycle.Singleton },
   );
 

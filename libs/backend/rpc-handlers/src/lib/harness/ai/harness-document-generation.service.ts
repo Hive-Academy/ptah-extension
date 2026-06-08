@@ -13,7 +13,6 @@
 
 import { inject, injectable } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import { DEFAULT_FALLBACK_MODEL_ID } from '@ptah-extension/agent-sdk';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import type {
@@ -134,8 +133,7 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
         timeoutMs: 60_000,
         execute: {
           cwd: workspaceRoot,
-          model:
-            this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID,
+          model: this.modelSettings.selectedModel.get() || 'default',
           prompt:
             prompt +
             '\n\nReturn a JSON object with a single "document" field containing the full markdown PRD as a string.',

@@ -1,9 +1,9 @@
 /**
  * Electron Update RPC Handlers
  *
- * Handles auto-update methods specific to the Electron app:
- *   - update:check-now   — Trigger an immediate update check
- *   - update:install-now — Quit and install a previously downloaded update
+ * Desktop update banner methods:
+ *   - update:get-state — Pull the current lifecycle state (race-proof hydration)
+ *   - update:check-now — Trigger an immediate GitHub Releases check
  *
  * This handler is Electron-local and must NOT appear in
  * `libs/backend/rpc-handlers/` or the SHARED_HANDLERS list.
@@ -15,8 +15,8 @@ import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { UpdateManager } from '../../update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../../update/update-tokens';
 import {
+  UpdateGetStateSchema,
   UpdateCheckNowSchema,
-  UpdateInstallNowSchema,
 } from './update-rpc.schema';
 
 @injectable()
@@ -28,8 +28,18 @@ export class UpdateRpcHandlers {
   ) {}
 
   register(): void {
+    this.registerGetState();
     this.registerCheckNow();
-    this.registerInstallNow();
+  }
+
+  private registerGetState(): void {
+    this.rpcHandler.registerMethod(
+      'update:get-state',
+      async (params: unknown) => {
+        UpdateGetStateSchema.parse(params ?? {});
+        return { state: this.updateManager.getCurrentState() };
+      },
+    );
   }
 
   private registerCheckNow(): void {
@@ -49,40 +59,6 @@ export class UpdateRpcHandlers {
             error instanceof Error ? error : new Error(message),
           );
           return { success: false, error: message };
-        }
-      },
-    );
-  }
-
-  private registerInstallNow(): void {
-    this.rpcHandler.registerMethod(
-      'update:install-now',
-      async (params: unknown) => {
-        UpdateInstallNowSchema.parse(params ?? {});
-        const state = this.updateManager.getCurrentState();
-
-        if (state.state !== 'downloaded') {
-          return {
-            success: false,
-            code: 'UPDATE_NOT_READY' as const,
-            error: 'No update is ready to install',
-          };
-        }
-        try {
-          const { autoUpdater } = await import('electron-updater');
-          autoUpdater.quitAndInstall();
-          return { success: true };
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err);
-          this.logger.error(
-            '[UpdateRpcHandlers] quitAndInstall failed',
-            err instanceof Error ? err : new Error(message),
-          );
-          return {
-            success: false,
-            code: 'INSTALL_FAILED' as const,
-            error: message,
-          };
         }
       },
     );

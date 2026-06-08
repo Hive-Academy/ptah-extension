@@ -23,9 +23,12 @@ import {
   registerAllRpcHandlers,
   verifyAndReportRpcRegistration,
   WorkspaceRpcHandlers,
+  CorpusRpcHandlers,
   CronRpcHandlers,
+  EmbedderRpcHandlers,
   GatewayRpcHandlers,
   MemoryRpcHandlers,
+  MemRpcHandlers,
   PersistenceRpcHandlers,
   SkillsSynthesisRpcHandlers,
   IndexingRpcHandlers,
@@ -47,7 +50,6 @@ import {
   EditorRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
-  SkillsShRpcHandlers,
 } from './handlers';
 
 /**
@@ -90,8 +92,11 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   'terminal:kill',
   'license:clearKey',
   ...CronRpcHandlers.METHODS,
+  ...EmbedderRpcHandlers.METHODS,
   ...GatewayRpcHandlers.METHODS,
   ...MemoryRpcHandlers.METHODS,
+  ...MemRpcHandlers.METHODS,
+  ...CorpusRpcHandlers.METHODS,
   ...SkillsSynthesisRpcHandlers.METHODS,
   ...PersistenceRpcHandlers.METHODS,
   ...IndexingRpcHandlers.METHODS,
@@ -114,8 +119,6 @@ export class RpcMethodRegistrationService {
     @inject(CommandRpcHandlers)
     private readonly commandHandlers: CommandRpcHandlers,
     @inject(AgentRpcHandlers) private readonly agentHandlers: AgentRpcHandlers,
-    @inject(SkillsShRpcHandlers)
-    private readonly skillsShHandlers: SkillsShRpcHandlers,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly container: DependencyContainer,
   ) {
@@ -130,8 +133,11 @@ export class RpcMethodRegistrationService {
       exclude: [
         WorkspaceRpcHandlers,
         CronRpcHandlers,
+        EmbedderRpcHandlers,
         GatewayRpcHandlers,
         MemoryRpcHandlers,
+        MemRpcHandlers,
+        CorpusRpcHandlers,
         SkillsSynthesisRpcHandlers,
         PersistenceRpcHandlers,
         IndexingRpcHandlers,
@@ -142,7 +148,6 @@ export class RpcMethodRegistrationService {
     this.editorHandlers.register();
     this.commandHandlers.register();
     this.agentHandlers.register();
-    this.skillsShHandlers.register();
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),

@@ -164,6 +164,69 @@ export interface RunnerHandle {
 
 const STDERR_CAP_BYTES = 1_048_576; // 1 MB
 
+/**
+ * Windows native fail-fast exit codes the spawned CLI can hit intermittently
+ * during its native-heavy cold bootstrap (better-sqlite3 / sqlite-vec /
+ * @huggingface/transformers / web-tree-sitter) under system memory pressure —
+ * NOT a logic failure in the CLI under test:
+ *   - 3221226505 = 0xC0000409  STATUS_STACK_BUFFER_OVERRUN (__fastfail)
+ *   - 3221225477 = 0xC0000005  STATUS_ACCESS_VIOLATION
+ *   - 3221226356 = 0xC0000374  STATUS_HEAP_CORRUPTION
+ * These surface as a child that dies before emitting any terminal JSON-RPC
+ * envelope. They are non-deterministic, so the harness retries them a bounded
+ * number of times instead of failing the run. A genuine command failure exits
+ * with a deterministic ExitCode (0–5) and is NEVER retried.
+ */
+const NATIVE_FAILFAST_EXIT_CODES = new Set<number>([
+  3221226505, 3221225477, 3221226356,
+]);
+const NATIVE_CRASH_MAX_ATTEMPTS = 3;
+
+function isNativeCrashExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): boolean {
+  if (signal === 'SIGSEGV' || signal === 'SIGABRT' || signal === 'SIGBUS') {
+    return true;
+  }
+  return code !== null && NATIVE_FAILFAST_EXIT_CODES.has(code);
+}
+
+/**
+ * True once stdout carries a terminal JSON-RPC envelope — proof the CLI ran the
+ * command to a real conclusion, so a subsequent non-zero/native exit is genuine
+ * and must NOT be retried.
+ */
+function hasTerminalEnvelope(stdoutLines: unknown[]): boolean {
+  return stdoutLines.some((line) => {
+    if (typeof line !== 'object' || line === null) return false;
+    const method = (line as { method?: unknown }).method;
+    return (
+      method === 'task.complete' ||
+      method === 'task.error' ||
+      method === 'session.created' ||
+      method === 'init.plan' ||
+      method === 'doctor.report'
+    );
+  });
+}
+
+/**
+ * Fully release a spawned child: kill its process tree if still alive, then
+ * destroy stdio streams and drop every listener so no handle survives the test.
+ */
+async function reapChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode === null && child.signalCode === null) {
+    await killTree(child).catch(() => undefined);
+  }
+  child.stdout.removeAllListeners();
+  child.stderr.removeAllListeners();
+  child.stdout.destroy();
+  child.stderr.destroy();
+  child.stdin.destroy();
+  child.removeAllListeners();
+}
+
 interface PendingRequest {
   resolve(value: unknown): void;
   reject(err: Error): void;
@@ -187,6 +250,12 @@ export class CliRunner {
 
   /**
    * Spawn `interact` and (unless `skipReady`) await `session.ready`.
+   *
+   * If the child dies with a native fail-fast crash signature
+   * ({@link isNativeCrashExit}) before `session.ready` arrives, the whole spawn
+   * is retried up to {@link NATIVE_CRASH_MAX_ATTEMPTS} times — same rationale as
+   * {@link CliRunner.spawnOneshot}: those are non-deterministic native-bootstrap
+   * flakes, not session-setup bugs.
    */
   static async spawn(opts: CliRunnerOptions): Promise<RunnerHandle> {
     if (!fs.existsSync(CliRunner.DIST_BIN)) {
@@ -196,6 +265,29 @@ export class CliRunner {
       );
     }
 
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= NATIVE_CRASH_MAX_ATTEMPTS; attempt++) {
+      try {
+        return await CliRunner.spawnInteractAttempt(opts);
+      } catch (err) {
+        lastErr = err;
+        const crash = isNativeCrashExit(
+          (err as { childExitCode?: number | null })?.childExitCode ?? null,
+          (err as { childSignal?: NodeJS.Signals | null })?.childSignal ?? null,
+        );
+        if (!crash || attempt >= NATIVE_CRASH_MAX_ATTEMPTS) throw err;
+        process.stderr.write(
+          `[cli-runner] interact native crash on spawn — ` +
+            `retry ${attempt + 1}/${NATIVE_CRASH_MAX_ATTEMPTS}\n`,
+        );
+      }
+    }
+    throw lastErr;
+  }
+
+  private static async spawnInteractAttempt(
+    opts: CliRunnerOptions,
+  ): Promise<RunnerHandle> {
     const args = ['interact', ...(opts.args ?? [])];
     const env = buildEnv(opts.home.path, opts.env);
 
@@ -214,6 +306,13 @@ export class CliRunner {
   /**
    * Run a non-interact subcommand to completion. Captures stdout (decoded as
    * NDJSON when possible), stderr, and exit code.
+   *
+   * A single attempt that dies with a native fail-fast crash signature
+   * ({@link isNativeCrashExit}) BEFORE emitting any terminal JSON-RPC envelope
+   * is retried up to {@link NATIVE_CRASH_MAX_ATTEMPTS} times — those crashes are
+   * non-deterministic native-bootstrap flakes, not command failures. Any clean
+   * `ExitCode` (including non-zero error codes) is returned as-is on the first
+   * attempt.
    */
   static async spawnOneshot(opts: OneshotOptions): Promise<OneshotResult> {
     if (!fs.existsSync(CliRunner.DIST_BIN)) {
@@ -223,75 +322,99 @@ export class CliRunner {
       );
     }
 
-    const env = buildEnv(opts.home.path, opts.env);
-    const child = spawn(process.execPath, [CliRunner.DIST_BIN, ...opts.args], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: opts.home.path,
-      env,
-      windowsHide: true,
-    });
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-
-    let stdoutRaw = '';
-    let stderrBuf = '';
-    let hasMalformedStdout = false;
-    const stdoutLines: unknown[] = [];
-
-    const rl = readline.createInterface({
-      input: child.stdout,
-      terminal: false,
-    });
-    rl.on('line', (line) => {
-      stdoutRaw += line + '\n';
-      const trimmed = line.trim();
-      if (trimmed.length === 0) return;
-      try {
-        stdoutLines.push(JSON.parse(trimmed));
-      } catch {
-        hasMalformedStdout = true;
+    let lastResult: OneshotResult | undefined;
+    for (let attempt = 1; attempt <= NATIVE_CRASH_MAX_ATTEMPTS; attempt++) {
+      lastResult = await runOneshotAttempt(opts);
+      const crashed = isNativeCrashExit(lastResult.exitCode, lastResult.signal);
+      if (!crashed || hasTerminalEnvelope(lastResult.stdoutLines)) {
+        return lastResult;
       }
-    });
-
-    child.stderr.on('data', (chunk: string) => {
-      if (stderrBuf.length < STDERR_CAP_BYTES) {
-        stderrBuf += chunk;
-        if (stderrBuf.length > STDERR_CAP_BYTES) {
-          stderrBuf = stderrBuf.slice(0, STDERR_CAP_BYTES);
-        }
+      if (attempt < NATIVE_CRASH_MAX_ATTEMPTS) {
+        process.stderr.write(
+          `[cli-runner] native crash (code=${lastResult.exitCode}, ` +
+            `signal=${lastResult.signal ?? 'null'}) on \`${opts.args.join(' ')}\` ` +
+            `— retry ${attempt + 1}/${NATIVE_CRASH_MAX_ATTEMPTS}\n`,
+        );
       }
-    });
-
-    if (opts.stdin !== undefined) {
-      child.stdin.write(opts.stdin);
     }
-    child.stdin.end();
+    return lastResult as OneshotResult;
+  }
+}
 
-    const deadline = opts.timeoutMs ?? 30_000;
-    let killed = false;
-    const exitPromise = new Promise<{
-      code: number | null;
-      signal: NodeJS.Signals | null;
-    }>((resolve) => {
-      child.once('exit', (code, signal) => resolve({ code, signal }));
-    });
+/**
+ * One spawn-and-collect attempt for {@link CliRunner.spawnOneshot}. Always
+ * fully tears the child down before resolving (kill tree, destroy stdio, drop
+ * listeners, clear the deadline timer) so nothing leaks into the next test —
+ * leaked child stdio + timers are what made `--runInBand` accumulate handles
+ * and starve the native bootstrap of memory.
+ */
+async function runOneshotAttempt(opts: OneshotOptions): Promise<OneshotResult> {
+  const env = buildEnv(opts.home.path, opts.env);
+  const child = spawn(process.execPath, [CliRunner.DIST_BIN, ...opts.args], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: opts.home.path,
+    env,
+    windowsHide: true,
+  });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
 
-    const result = await Promise.race([
-      exitPromise,
-      new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-        (resolve) => {
-          setTimeout(() => {
-            killed = true;
-            void killTree(child).then(() => {
-              child.once('exit', (code, signal) => resolve({ code, signal }));
-            });
-          }, deadline);
-        },
-      ),
-    ]);
+  let stdoutRaw = '';
+  let stderrBuf = '';
+  let hasMalformedStdout = false;
+  const stdoutLines: unknown[] = [];
 
-    rl.close();
+  const rl = readline.createInterface({
+    input: child.stdout,
+    terminal: false,
+  });
+  rl.on('line', (line) => {
+    stdoutRaw += line + '\n';
+    const trimmed = line.trim();
+    if (trimmed.length === 0) return;
+    try {
+      stdoutLines.push(JSON.parse(trimmed));
+    } catch {
+      hasMalformedStdout = true;
+    }
+  });
 
+  child.stderr.on('data', (chunk: string) => {
+    if (stderrBuf.length < STDERR_CAP_BYTES) {
+      stderrBuf += chunk;
+      if (stderrBuf.length > STDERR_CAP_BYTES) {
+        stderrBuf = stderrBuf.slice(0, STDERR_CAP_BYTES);
+      }
+    }
+  });
+
+  if (opts.stdin !== undefined) {
+    child.stdin.write(opts.stdin);
+  }
+  child.stdin.end();
+
+  const deadline = opts.timeoutMs ?? 30_000;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const exitPromise = new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve) => {
+    child.once('exit', (code, signal) => resolve({ code, signal }));
+  });
+
+  const timeoutPromise = new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve) => {
+    timer = setTimeout(() => {
+      void killTree(child).then(() => {
+        child.once('exit', (code, signal) => resolve({ code, signal }));
+      });
+    }, deadline);
+  });
+
+  try {
+    const result = await Promise.race([exitPromise, timeoutPromise]);
     return {
       exitCode: result.code,
       signal: result.signal,
@@ -300,6 +423,10 @@ export class CliRunner {
       stderr: stderrBuf,
       hasMalformedStdout,
     };
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    rl.close();
+    await reapChild(child);
   }
 }
 
@@ -339,6 +466,7 @@ async function wireHandle(
   const notifWaiters: NotificationWaiter[] = [];
   let stderrBuf = '';
   let resolvedExit: number | null = null;
+  let resolvedSignal: NodeJS.Signals | null = null;
   let nextId = 1;
 
   const rl = readline.createInterface({ input: child.stdout, terminal: false });
@@ -395,8 +523,9 @@ async function wireHandle(
     }
   });
 
-  child.once('exit', (code) => {
+  child.once('exit', (code, signal) => {
     resolvedExit = code;
+    resolvedSignal = signal;
     for (const p of pending.values()) {
       if (p.timer) clearTimeout(p.timer);
       p.reject(
@@ -427,6 +556,7 @@ async function wireHandle(
       );
     }
     notifWaiters.length = 0;
+    rl.close();
   });
 
   child.once('error', (err) => {
@@ -537,10 +667,15 @@ async function wireHandle(
       );
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `CliRunner.spawn: session.ready never arrived. ${reason}\n` +
-          `--- stderr (last 1000 chars) ---\n${stderrBuf.slice(-1000)}`,
+      await reapChild(child);
+      const wrapped = Object.assign(
+        new Error(
+          `CliRunner.spawn: session.ready never arrived. ${reason}\n` +
+            `--- stderr (last 1000 chars) ---\n${stderrBuf.slice(-1000)}`,
+        ),
+        { childExitCode: resolvedExit, childSignal: resolvedSignal },
       );
+      throw wrapped;
     }
   }
 
@@ -560,7 +695,10 @@ async function wireHandle(
     stderr: () => stderrBuf,
     exitCode: () => resolvedExit,
     async shutdown(): Promise<number | null> {
-      if (resolvedExit !== null) return resolvedExit;
+      if (resolvedExit !== null) {
+        await reapChild(child);
+        return resolvedExit;
+      }
 
       await request('session.shutdown', {}, 2_000).catch(() => undefined);
       try {
@@ -572,11 +710,12 @@ async function wireHandle(
       } catch {
         await killTree(child);
       }
+      await reapChild(child);
       return resolvedExit;
     },
     async kill(): Promise<void> {
-      if (resolvedExit !== null) return;
-      await killTree(child);
+      await killTree(child).catch(() => undefined);
+      await reapChild(child);
     },
   };
 }

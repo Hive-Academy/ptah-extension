@@ -1,7 +1,9 @@
+import type { EmbedderDownloadPhase } from '@ptah-extension/memory-contracts';
 import type { CuratorRunStats } from './memory-curator.service';
 
 export type MemoryCuratorEventKind =
   | 'curator-run'
+  | 'curator-skipped-no-data'
   | 'decay-run'
   | 'idle-trigger'
   | 'turn-trigger'
@@ -14,7 +16,9 @@ export type MemoryCuratorEventKind =
   | 'session-end-trigger'
   | 'tool-failure'
   | 'rate-limited'
-  | 'error';
+  | 'error'
+  | 'curator-error'
+  | 'embedder-download';
 
 export interface MemoryCuratorEvent {
   readonly kind: MemoryCuratorEventKind;
@@ -22,6 +26,8 @@ export interface MemoryCuratorEvent {
   readonly sessionId?: string;
   readonly stats?: Readonly<Record<string, number | string | boolean | null>>;
   readonly error?: string;
+  readonly phase?: EmbedderDownloadPhase;
+  readonly progress?: number;
 }
 
 export interface MemoryDecayStats {

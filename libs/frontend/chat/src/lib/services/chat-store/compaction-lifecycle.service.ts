@@ -1,5 +1,9 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { calculateSessionCostSummary, SessionId } from '@ptah-extension/shared';
+import {
+  calculateSessionCostSummary,
+  SessionId,
+  type SdkCompactionCompletePayload,
+} from '@ptah-extension/shared';
 import {
   ConversationRegistry,
   TabManagerService,
@@ -174,6 +178,9 @@ export class CompactionLifecycleService {
   handleCompactionComplete(result: {
     tabId: string;
     compactionSessionId: string;
+    preTokens?: number;
+    postTokens?: number;
+    durationMs?: number;
   }): void {
     if (this.compactionTimeoutId) {
       clearTimeout(this.compactionTimeoutId);
@@ -194,6 +201,17 @@ export class CompactionLifecycleService {
     const fanoutTabs = Array.from(fanoutMap.values()).filter(
       (t): t is NonNullable<typeof originatingTab> => t != null,
     );
+    const completedAt = Date.now();
+    for (const convId of this.collectConversationIdsForTabs(
+      fanoutTabs.map((t) => t.id),
+    )) {
+      this.conversationRegistry.setCompactionMarkerTokens(convId, {
+        preTokens: result.preTokens ?? null,
+        postTokens: result.postTokens ?? null,
+        durationMs: result.durationMs ?? null,
+        completedAt,
+      });
+    }
     const compactionTab = originatingTab;
     if (compactionTab) {
       const priorPreloaded = compactionTab.preloadedStats ?? null;
@@ -247,7 +265,7 @@ export class CompactionLifecycleService {
       };
       for (const sid of reloadIds) {
         this.sessionLoader
-          .switchSession(sid)
+          .switchSession(sid, { reason: 'compaction' })
           .catch((err) => {
             console.warn(
               '[ChatStore] Failed to reload session after compaction:',
@@ -258,6 +276,58 @@ export class CompactionLifecycleService {
       }
     } else {
       this.clearCompactionState(TabId.from(result.tabId));
+    }
+  }
+
+  /**
+   * Handle the `MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE` push notification
+   * (backend `PostCompact` SDK hook). Edge-triggered stamp into the
+   * `ConversationRegistry` so SESSION_STATS no longer needs a wall-clock
+   * grace window to detect the post-compaction tail. Fans out to every tab
+   * bound to the payload's session id and stamps each conversation once.
+   * No-tab-bound case warns and no-ops (does NOT throw) so a stale RPC
+   * delivery after tab close does not crash the webview.
+   */
+  handleCompactionCompleteNotification(
+    payload: SdkCompactionCompletePayload,
+  ): void {
+    const tabs = this.tabManager.findTabsBySessionId(
+      SessionId.from(payload.sessionId),
+    );
+    if (tabs.length === 0) {
+      console.warn(
+        '[ChatStore] handleCompactionCompleteNotification: no tab bound to sessionId',
+        { sessionId: payload.sessionId },
+      );
+      return;
+    }
+    const convIds = this.collectConversationIdsForTabs(tabs.map((t) => t.id));
+    if (convIds.length === 0) {
+      console.warn(
+        '[ChatStore] handleCompactionCompleteNotification: no conversation bound to tabs',
+        { sessionId: payload.sessionId },
+      );
+      return;
+    }
+    for (const convId of convIds) {
+      try {
+        this.conversationRegistry.markCompactionComplete(
+          convId,
+          payload.timestamp,
+        );
+        this.conversationRegistry.setCompactionMarkerSummary(convId, {
+          summary: payload.compactSummary,
+          completedAt: payload.timestamp,
+        });
+      } catch (error: unknown) {
+        console.warn(
+          '[ChatStore] handleCompactionCompleteNotification: registry stamp failed',
+          {
+            convId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
     }
   }
 

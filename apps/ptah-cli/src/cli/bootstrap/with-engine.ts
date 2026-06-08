@@ -38,6 +38,7 @@ import type { MigrationRunner } from '@ptah-extension/settings-core';
 interface SdkAgentLifecycle {
   initialize(): Promise<boolean>;
   dispose?(): void | Promise<void>;
+  getHealth?(): { errorMessage?: string } | undefined;
 }
 
 /**
@@ -117,7 +118,7 @@ export interface WithEngineGlobals {
   verbose?: boolean;
   /** Override workspace path (matches `--cwd`). */
   cwd?: string;
-  /** Override config file path (matches `--config`). */
+  /** Override Ptah data directory (matches `--config <dir>`). */
   config?: string;
   /**
    * When true (matches `--auto-approve` global flag), the SDK permission
@@ -192,6 +193,9 @@ export async function withEngine<T>(
     verbose: globals.verbose === true,
   };
   if (globals.cwd !== undefined) bootOptions.workspacePath = globals.cwd;
+  const ptahDirOverride =
+    globals.config ?? process.env['PTAH_CONFIG_PATH'] ?? undefined;
+  if (ptahDirOverride) bootOptions.userDataPath = ptahDirOverride;
 
   const result = bootstrap(bootOptions);
   const ctx: EngineContext = {
@@ -259,8 +263,15 @@ export async function withEngine<T>(
     }
 
     if (!initialized) {
+      let healthMessage: string | undefined;
+      try {
+        healthMessage = sdkAdapter.getHealth?.()?.errorMessage;
+      } catch {
+        // intentionally empty
+      }
       const message =
         initErrorMessage ??
+        healthMessage ??
         'SDK agent adapter initialize() returned false (auth not configured)';
       emitFatalError('sdk_init_failed', message, {
         command: 'engine.bootstrap',

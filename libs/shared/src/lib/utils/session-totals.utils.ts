@@ -13,7 +13,7 @@ import { ExecutionChatMessage } from '../types/execution';
 export interface SessionTotals {
   readonly totalTokensInput: number;
   readonly totalTokensOutput: number;
-  readonly totalCost: number;
+  readonly totalCost: number | null;
   readonly messagesWithCost: number; // Count of messages contributing to totals
 }
 
@@ -67,7 +67,7 @@ export function calculateSessionTotals(
       totalTokensInput += message.tokens.input;
       totalTokensOutput += message.tokens.output;
     }
-    if (message.cost !== undefined) {
+    if (message.cost !== undefined && message.cost !== null) {
       totalCost += message.cost;
       messagesWithCost++;
     }
@@ -77,7 +77,7 @@ export function calculateSessionTotals(
   return {
     totalTokensInput,
     totalTokensOutput,
-    totalCost,
+    totalCost: messagesWithCost > 0 ? totalCost : null,
     messagesWithCost,
   };
 }

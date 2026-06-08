@@ -19,6 +19,8 @@
         type="button"
         role="listitem"
         class="stats stats-vertical bg-base-200/40 border border-base-content/10 shadow-sm text-left transition-colors hover:border-primary/50 hover:bg-base-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        data-testid="dashboard-status-card"
+        [attr.data-pillar]="tile.id"
         [class.opacity-60]="!tile.available"
         (click)="openTab(tile.id)"
         (keydown)="onRowKeydown($event, tile.id)"
@@ -42,7 +44,11 @@
             ></lucide-angular>
           </div>
 
-          <div class="stat-value text-3xl flex items-baseline gap-1.5" [class]="tile.accent">
+          <div
+            class="stat-value text-3xl flex items-baseline gap-1.5"
+            data-testid="dashboard-status-card-value"
+            [class]="tile.accent"
+          >
             {{ tile.value }}
             @if (tile.unit) {
               <span class="text-xs font-medium text-base-content/40">{{ tile.unit }}</span>

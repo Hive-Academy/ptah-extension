@@ -19,6 +19,14 @@ import { PERSISTENCE_TOKENS } from './di/tokens';
 import { SqliteMigrationRunner } from './migration-runner';
 import { MIGRATIONS } from './migrations';
 import type { IBackupService } from './backup.service';
+import {
+  buildBaseDiagnostic,
+  resolveVecBinaryName,
+  resolveVecPackageName,
+  type VecLoadAttemptError,
+  type VecLoadDiagnostic,
+  type VecLoadReason,
+} from './vec-load-diagnostic';
 
 /**
  * Minimal subset of better-sqlite3's `Database` surface that this lib uses.
@@ -93,6 +101,7 @@ export type SqliteUnavailableReason =
   | 'native_abi_mismatch'
   | 'native_module_missing'
   | 'open_failed'
+  | 'migration_failed'
   | 'closed';
 
 @injectable()
@@ -100,6 +109,7 @@ export class SqliteConnectionService {
   private database: SqliteDatabase | null = null;
   private migrationRunner: SqliteMigrationRunner | null = null;
   private vecLoaded = false;
+  private vecDiagnostic: VecLoadDiagnostic = buildBaseDiagnostic();
   private unavailableReason: SqliteUnavailableReason = 'not_initialized';
   private unavailableDetail: string | null = null;
 
@@ -108,6 +118,9 @@ export class SqliteConnectionService {
   /** Test seam: resolver for the sqlite-vec extension path. */
   private vecPathResolver: SqliteVecPathResolver | null =
     defaultSqliteVecPathResolver;
+  private vecPathPlatformResolver: SqliteVecPathResolver | null =
+    requireResolveVecPath;
+  private vecPathFallbackResolver: SqliteVecPathResolver | null = null;
   /** Optional backup service — set via configure() or DI post-construction. */
   private backupService: IBackupService | undefined = undefined;
 
@@ -129,11 +142,17 @@ export class SqliteConnectionService {
   configure(options: {
     factory?: SqliteDatabaseFactory;
     vecPathResolver?: SqliteVecPathResolver | null;
+    vecPathPlatformResolver?: SqliteVecPathResolver | null;
+    vecPathFallbackResolver?: SqliteVecPathResolver | null;
     backupService?: IBackupService;
   }): void {
     if (options.factory) this.factory = options.factory;
     if (options.vecPathResolver !== undefined)
       this.vecPathResolver = options.vecPathResolver;
+    if (options.vecPathPlatformResolver !== undefined)
+      this.vecPathPlatformResolver = options.vecPathPlatformResolver;
+    if (options.vecPathFallbackResolver !== undefined)
+      this.vecPathFallbackResolver = options.vecPathFallbackResolver;
     if (options.backupService !== undefined)
       this.backupService = options.backupService;
   }
@@ -152,9 +171,13 @@ export class SqliteConnectionService {
    * any pending migrations. Idempotent: a second call with an already-open
    * connection is a no-op.
    *
-   * Migrations marked `requiresVec: true` are skipped gracefully when
-   * sqlite-vec is unavailable, so cron / gateway / basic memory operations
-   * still work even without vector search support.
+   * When sqlite-vec is unavailable the migration runner still creates all base
+   * relational + FTS5 tables and defers only the `vec0` virtual tables into
+   * `schema_migrations_vec_pending`; a vec deferral is NOT a failure, so this
+   * method completes successfully with `vecExtensionLoaded=false`. The deferred
+   * vec indexes are created automatically on a later boot once sqlite-vec
+   * loads. Only genuine open failures (ABI mismatch, missing binary, disk
+   * full) mark the connection unavailable.
    */
   async openAndMigrate(): Promise<void> {
     if (this.database?.open) {
@@ -195,15 +218,51 @@ export class SqliteConnectionService {
     this.logger.debug(
       '[persistence-sqlite] Migration runner created, applying migrations...',
     );
-    const result = await this.migrationRunner.applyAll(MIGRATIONS, {
-      vecExtensionLoaded: this.vecLoaded,
-    });
-    this.logger.info('[persistence-sqlite] openAndMigrate complete', {
-      dbPath: this._dbPath,
-      vecExtensionLoaded: this.vecLoaded,
-      applied: result.appliedVersions,
-      finalVersion: result.finalVersion,
-    });
+    try {
+      const result = await this.migrationRunner.applyAll(MIGRATIONS, {
+        vecExtensionLoaded: this.vecLoaded,
+      });
+      this.logger.info('[persistence-sqlite] openAndMigrate complete', {
+        dbPath: this._dbPath,
+        vecExtensionLoaded: this.vecLoaded,
+        applied: result.appliedVersions,
+        finalVersion: result.finalVersion,
+      });
+    } catch (err: unknown) {
+      this.close();
+      this.classifyMigrationFailure(err);
+      throw err;
+    }
+  }
+
+  /**
+   * Classify a migration failure thrown by
+   * {@link SqliteMigrationRunner.applyAll} so the connection surfaces a clean
+   * {@link RpcUserError} (`PERSISTENCE_UNAVAILABLE`) instead of leaving a
+   * half-migrated database open — which would otherwise emit raw
+   * `no such table` errors downstream and get reported to Sentry as a bug.
+   *
+   * The most common trigger is the forward-only guard: a database whose
+   * schema is newer than the running build (e.g. a dev build wrote a higher
+   * version into the shared `~/.ptah/state` file before an older prod build
+   * opened it). Detect "Refusing to downgrade" and tell the user to update.
+   *
+   * Must run AFTER {@link close} so the `'closed'` reason set there does not
+   * clobber the classification.
+   */
+  private classifyMigrationFailure(err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    this.unavailableReason = 'migration_failed';
+    if (/Refusing to downgrade/i.test(message)) {
+      this.unavailableDetail =
+        'The database schema is newer than this build of Ptah. Update Ptah, or remove ~/.ptah/state to start fresh.';
+    } else {
+      this.unavailableDetail = `Database migration failed: ${message}`;
+    }
+    this.logger.error(
+      '[persistence-sqlite] migration failed — persistence disabled',
+      { reason: this.unavailableReason, detail: this.unavailableDetail },
+    );
   }
 
   /**
@@ -320,6 +379,8 @@ export class SqliteConnectionService {
         );
       case 'open_failed':
         return `Persistence is offline: ${this.unavailableDetail ?? 'failed to open SQLite database.'}`;
+      case 'migration_failed':
+        return `Persistence is offline: ${this.unavailableDetail ?? 'database migration failed.'}`;
       case 'closed':
         return 'Persistence is offline: SQLite connection has been closed.';
       case 'not_initialized':
@@ -331,6 +392,38 @@ export class SqliteConnectionService {
   /** True if `sqlite-vec` was loaded successfully on the current connection. */
   get vecExtensionLoaded(): boolean {
     return this.vecLoaded;
+  }
+
+  get vecLoadDiagnostic(): VecLoadDiagnostic {
+    return this.vecDiagnostic;
+  }
+
+  /**
+   * Re-run the sqlite-vec loader against the current open connection.
+   *
+   * Intended for user-triggered recovery via the Thoth DB Health "Retry
+   * vec" button — after the user installs a missing VC++ redistributable,
+   * removes AV quarantine on the binary, or replaces a corrupted DLL,
+   * they can attempt to enable vec without restarting the app.
+   *
+   * Safe to call when the connection is unavailable — emits a no-op
+   * `'not-attempted'` diagnostic in that case so the renderer can still
+   * read a coherent shape.
+   */
+  reloadVecExtension(): VecLoadDiagnostic {
+    if (this.unavailable !== null) {
+      this.vecLoaded = false;
+      this.vecDiagnostic = buildBaseDiagnostic({
+        ok: false,
+        reason: 'not-attempted',
+        error: {
+          message: this.buildUnavailableMessage(),
+        },
+      });
+      return this.vecDiagnostic;
+    }
+    this.loadVecExtension(this.database as SqliteDatabase);
+    return this.vecDiagnostic;
   }
 
   /** True iff the underlying connection is open. */
@@ -385,6 +478,7 @@ export class SqliteConnectionService {
     this.database = null;
     this.migrationRunner = null;
     this.vecLoaded = false;
+    this.vecDiagnostic = buildBaseDiagnostic();
     this.unavailableReason = 'closed';
     this.unavailableDetail = null;
   }
@@ -489,35 +583,182 @@ export class SqliteConnectionService {
 
   private loadVecExtension(db: SqliteDatabase): void {
     if (typeof db.loadExtension !== 'function') {
+      this.vecLoaded = false;
+      this.vecDiagnostic = buildBaseDiagnostic({
+        ok: false,
+        reason: 'extensions-disabled',
+        error: {
+          message:
+            'better-sqlite3 was compiled without loadExtension support; sqlite-vec cannot be loaded',
+        },
+      });
       this.logger.warn(
         '[persistence-sqlite] loadExtension unavailable on this Database — vector search disabled',
       );
-      this.vecLoaded = false;
       return;
     }
     if (!this.vecPathResolver) {
+      this.vecLoaded = false;
+      this.vecDiagnostic = buildBaseDiagnostic({
+        ok: false,
+        reason: 'no-resolver',
+        error: {
+          message: 'no sqlite-vec path resolver configured',
+        },
+      });
       this.logger.warn(
         '[persistence-sqlite] no sqlite-vec path resolver — vector search disabled',
       );
-      this.vecLoaded = false;
       return;
     }
-    try {
-      const extPath = this.vecPathResolver();
-      db.loadExtension(extPath);
-      this.vecLoaded = true;
-      this.logger.info('[persistence-sqlite] sqlite-vec loaded', { extPath });
-    } catch (err: unknown) {
-      this.vecLoaded = false;
-      this.logger.warn(
-        '[persistence-sqlite] sqlite-vec load failed; vector search disabled',
-        {
-          error: stringifyError(err),
-        },
-      );
+
+    const strategies: ReadonlyArray<{
+      name: string;
+      resolve: () => string;
+    }> = [
+      { name: 'primary-resolver', resolve: this.vecPathResolver },
+      ...(this.vecPathPlatformResolver
+        ? [
+            {
+              name: 'require-resolve-platform-pkg',
+              resolve: this.vecPathPlatformResolver,
+            },
+          ]
+        : []),
+      ...(this.vecPathFallbackResolver
+        ? [
+            {
+              name: 'host-fallback',
+              resolve: this.vecPathFallbackResolver,
+            },
+          ]
+        : []),
+    ];
+
+    const errorChain: VecLoadAttemptError[] = [];
+    let lastAttemptedPath: string | undefined;
+    let lastFsExists: boolean | undefined;
+
+    for (const strategy of strategies) {
+      let candidatePath: string;
+      try {
+        candidatePath = strategy.resolve();
+      } catch (err: unknown) {
+        errorChain.push(buildAttemptError(strategy.name, err));
+        continue;
+      }
+      lastAttemptedPath = candidatePath;
+      lastFsExists = safeExistsSync(candidatePath);
+      try {
+        db.loadExtension(candidatePath);
+        this.vecLoaded = true;
+        this.vecDiagnostic = buildBaseDiagnostic({
+          ok: true,
+          reason: 'ok',
+          attemptedPath: candidatePath,
+          fsExists: lastFsExists,
+          packageName: resolveVecPackageName(),
+          errorChain: errorChain.length > 0 ? [...errorChain] : undefined,
+        });
+        this.logger.info('[persistence-sqlite] sqlite-vec loaded', {
+          strategy: strategy.name,
+          extPath: candidatePath,
+          fsExists: lastFsExists,
+          attemptedFallbacks: errorChain.length,
+        });
+        return;
+      } catch (err: unknown) {
+        errorChain.push({
+          ...buildAttemptError(strategy.name, err),
+          message: `loadExtension(${candidatePath}) -> ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        });
+      }
     }
+
+    this.vecLoaded = false;
+    const finalReason: VecLoadReason = computeFinalReason(errorChain);
+    const finalError = errorChain[errorChain.length - 1];
+    this.vecDiagnostic = buildBaseDiagnostic({
+      ok: false,
+      reason: finalReason,
+      attemptedPath: lastAttemptedPath,
+      fsExists: lastFsExists,
+      packageName: resolveVecPackageName(),
+      error: finalError
+        ? { code: finalError.code, message: finalError.message }
+        : { message: 'sqlite-vec load failed; no strategy succeeded' },
+      errorChain,
+    });
+    this.logger.warn(
+      '[persistence-sqlite] sqlite-vec load failed; vector search disabled',
+      {
+        reason: finalReason,
+        attemptedPath: lastAttemptedPath,
+        attempts: errorChain.length,
+        chain: errorChain,
+      },
+    );
   }
 }
+
+function buildAttemptError(
+  strategy: string,
+  err: unknown,
+): VecLoadAttemptError {
+  if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      strategy,
+      code: typeof code === 'string' ? code : undefined,
+      message: err.message,
+    };
+  }
+  return { strategy, message: String(err) };
+}
+
+function computeFinalReason(
+  chain: readonly VecLoadAttemptError[],
+): VecLoadReason {
+  if (chain.length === 0) return 'load-failed';
+  const allEnoent = chain.every(
+    (e) =>
+      e.code === 'ENOENT' ||
+      /not exist on disk|MODULE_NOT_FOUND|Cannot find module/i.test(e.message),
+  );
+  return allEnoent ? 'binary-missing' : 'load-failed';
+}
+
+function safeExistsSync(filePath: string): boolean {
+  try {
+    return fs.existsSync(filePath);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[persistence-sqlite] fs.existsSync threw for path=${filePath}: ${message}\n`,
+    );
+    return false;
+  }
+}
+
+const requireResolveVecPath: SqliteVecPathResolver = () => {
+  const packageName = resolveVecPackageName();
+  if (!packageName) {
+    throw new Error(
+      `unsupported platform/arch for sqlite-vec require.resolve probe: ${process.platform}/${process.arch}`,
+    );
+  }
+  const binaryName = resolveVecBinaryName();
+  const baseDir = path.dirname(require.resolve('sqlite-vec'));
+  const candidate = path.join(baseDir, '..', packageName, binaryName);
+  if (!fs.existsSync(candidate)) {
+    throw new Error(
+      `sqlite-vec platform binary does not exist on disk: ${candidate}`,
+    );
+  }
+  return candidate;
+};
 
 /** Lazy default factory that requires better-sqlite3 only when invoked. */
 const defaultBetterSqlite3Factory: SqliteDatabaseFactory = (

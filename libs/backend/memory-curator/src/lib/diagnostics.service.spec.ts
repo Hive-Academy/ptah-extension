@@ -4,10 +4,33 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   SqliteConnectionService,
   SqliteDatabase,
+  VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { MemoryDiagnosticsService } from './diagnostics.service';
 import type { MemoryCuratorService } from './memory-curator.service';
 import type { MemoryDecayJob } from './memory-decay.job';
+
+function makeVecStatus(available: boolean): VecStatusService {
+  const diagnostic = {
+    ok: available,
+    reason: available ? ('ok' as const) : ('binary-missing' as const),
+    electronVersion: '40.0.0',
+    processArch: 'x64' as NodeJS.Architecture,
+    processPlatform: 'linux' as NodeJS.Platform,
+  };
+  return {
+    available,
+    reason: diagnostic.reason,
+    diagnostic,
+    getStatus: () => ({
+      available,
+      reason: diagnostic.reason,
+      diagnostic,
+    }),
+    on: () => ({ dispose: () => undefined }),
+    refresh: () => undefined,
+  } as unknown as VecStatusService;
+}
 
 function makeLogger(): Logger {
   return {
@@ -112,6 +135,7 @@ describe('MemoryDiagnosticsService', () => {
       makeCurator(t, [{ kind: 'curator-run', timestamp: t }]),
       makeDecay(t),
       makeWorkspace(),
+      makeVecStatus(true),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.lastRunAt).toBe(t);
@@ -146,6 +170,7 @@ describe('MemoryDiagnosticsService', () => {
       makeCurator(),
       makeDecay(),
       makeWorkspace(),
+      makeVecStatus(true),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(true);
@@ -166,6 +191,7 @@ describe('MemoryDiagnosticsService', () => {
       makeCurator(),
       makeDecay(),
       makeWorkspace(),
+      makeVecStatus(true),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(false);
@@ -187,6 +213,7 @@ describe('MemoryDiagnosticsService', () => {
       makeCurator(),
       makeDecay(),
       makeWorkspace(),
+      makeVecStatus(false),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(true);

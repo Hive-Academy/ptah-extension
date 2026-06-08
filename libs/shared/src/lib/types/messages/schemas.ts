@@ -178,6 +178,24 @@ export const StrictChatMessageSchema = z.object({
   duration: z.number().nonnegative().optional(),
 });
 
+export const IpcBatchEnvelopeSchema = z
+  .object({
+    type: z.literal('batch'),
+    payload: z.object({
+      events: z
+        .array(
+          z.object({
+            type: z.string().min(1),
+            payload: z.unknown().optional(),
+          }),
+        )
+        .min(1),
+    }),
+  })
+  .strict();
+
+export type IpcBatchEnvelope = z.infer<typeof IpcBatchEnvelopeSchema>;
+
 export const StrictChatSessionSchema = z
   .object({
     id: SessionIdSchema,

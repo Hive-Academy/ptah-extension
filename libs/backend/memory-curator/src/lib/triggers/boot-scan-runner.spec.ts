@@ -22,7 +22,10 @@ interface WatermarkState {
   value: number;
 }
 
-function makeSqlite(state: WatermarkState): SqliteConnectionService {
+function makeSqlite(
+  state: WatermarkState,
+  isOpen = true,
+): SqliteConnectionService {
   const db = {
     prepare: jest.fn((sql: string) => {
       if (sql.includes('SELECT last_scanned_session_mtime')) {
@@ -43,7 +46,7 @@ function makeSqlite(state: WatermarkState): SqliteConnectionService {
       };
     }),
   } as unknown as SqliteDatabase;
-  return { db } as unknown as SqliteConnectionService;
+  return { db, isOpen } as unknown as SqliteConnectionService;
 }
 
 async function makeTempSessionsDir(
@@ -144,6 +147,32 @@ describe('BootScanRunner', () => {
     expect(Math.floor(state.value)).toBeGreaterThanOrEqual(now - 1000 - 1);
   });
 
+  it('skips the watermark write silently when the connection is closed', async () => {
+    const now = Date.now();
+    const dir = await makeTempSessionsDir([
+      { name: 'a.jsonl', mtime: now - 5000 },
+      { name: 'b.jsonl', mtime: now - 1000 },
+    ]);
+    const state: WatermarkState = { value: 0 };
+    const sqlite = makeSqlite(state, false);
+    const logger = makeLogger();
+    await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite,
+      logger,
+      run: jest.fn().mockResolvedValue(undefined),
+      throttleMs: 0,
+    });
+    expect(state.value).toBe(0);
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      '[boot-scan] watermark write failed',
+      expect.anything(),
+    );
+  });
+
   it('continues scan when per-session run throws', async () => {
     const now = Date.now();
     const dir = await makeTempSessionsDir([
@@ -240,6 +269,7 @@ describe('BootScanRunner', () => {
           };
         }),
       },
+      isOpen: true,
     } as unknown as SqliteConnectionService;
     await new BootScanRunner().run({
       pipeline: 'memory',

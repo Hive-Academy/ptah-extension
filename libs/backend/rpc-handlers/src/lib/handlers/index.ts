@@ -27,10 +27,14 @@ export { ProviderRpcHandlers } from './provider-rpc.handlers';
 export { WebSearchRpcHandlers } from './web-search-rpc.handlers';
 export { HarnessRpcHandlers } from './harness-rpc.handlers';
 export { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';
+export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
+export { SkillsShApiClient, SkillsApiError } from './skills-sh-api-client';
 export { GitRpcHandlers } from './git-rpc.handlers';
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 export { SettingsRpcHandlers } from './settings-rpc.handlers';
 export { MemoryRpcHandlers } from './memory-rpc.handlers';
+export { MemRpcHandlers } from './mem-rpc.handlers';
+export { CorpusRpcHandlers } from './corpus-rpc.handlers';
 export { IndexingRpcHandlers } from './indexing-rpc.handlers';
 export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 export { CronRpcHandlers } from './cron-rpc.handlers';
@@ -39,9 +43,16 @@ export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,
 } from './persistence-rpc.handlers';
+export {
+  SessionLifecycleNotifier,
+  type WebviewBroadcaster as SessionLifecycleWebviewBroadcaster,
+} from './session-lifecycle-notifier';
 export type {
   DbHealthResult,
   DbHealthParams,
   DbResetParams,
   DbResetResult,
+  DbReloadVecResult,
+  DbOpenBindingFolderResult,
 } from './persistence-rpc.handlers';
+export { EmbedderRpcHandlers } from './embedder-rpc.handlers';

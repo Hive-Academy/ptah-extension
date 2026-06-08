@@ -13,6 +13,10 @@ import {
   GATEWAY_TOKENS,
   type GatewayService,
 } from '@ptah-extension/messaging-gateway';
+import {
+  GATEWAY_CHAT_BRIDGE_TOKENS,
+  type GatewayChatBridge,
+} from '@ptah-extension/gateway-chat-bridge';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
@@ -43,11 +47,24 @@ export interface PostWindowResult {
    */
   updateCheckInterval: ReturnType<typeof setInterval> | null;
   /**
+   * The started UpdateManager instance, captured so will-quit can dispose it
+   * by reference instead of re-resolving the singleton from the container
+   * (a re-resolve reconstructs it and needs WEBVIEW_MANAGER, which may be
+   * gone during teardown). Null when resolution failed.
+   */
+  updateManager: UpdateManager | null;
+  /**
    * Messaging gateway service handle for orderly shutdown. Started after
    * window creation so adapters have a stable mainWindow for approval prompts.
    * Null when gateway.enabled is false or start() fails.
    */
   messagingGateway: GatewayService | null;
+  /**
+   * Gateway chat bridge handle for orderly shutdown. Started after the
+   * gateway so inbound events have a live subscriber. Null when the gateway
+   * failed to start or the bridge could not be resolved/started.
+   */
+  chatBridge: GatewayChatBridge | null;
 }
 
 export async function registerPostWindow(
@@ -65,7 +82,9 @@ export async function registerPostWindow(
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
   let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
+  let updateManager: UpdateManager | null = null;
   let messagingGateway: GatewayService | null = null;
+  let chatBridge: GatewayChatBridge | null = null;
   const baseStartupConfig = {
     initialView: startupInitialView,
     isLicensed: startupIsLicensed,
@@ -161,9 +180,23 @@ export async function registerPostWindow(
     );
     messagingGateway = null;
   }
+  if (messagingGateway) {
+    try {
+      chatBridge = container.resolve<GatewayChatBridge>(
+        GATEWAY_CHAT_BRIDGE_TOKENS.GATEWAY_CHAT_BRIDGE,
+      );
+      chatBridge.start();
+      console.log('[Ptah Electron] Gateway chat bridge started');
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Gateway chat bridge start skipped (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+      chatBridge = null;
+    }
+  }
   try {
-    const updateManager =
-      container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
+    updateManager = container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
     await updateManager.start();
     updateCheckInterval = updateManager.getCheckInterval();
     console.log('[Ptah Electron] UpdateManager started');
@@ -227,5 +260,11 @@ export async function registerPostWindow(
     );
   }
 
-  return { revalidationInterval, updateCheckInterval, messagingGateway };
+  return {
+    revalidationInterval,
+    updateCheckInterval,
+    updateManager,
+    messagingGateway,
+    chatBridge,
+  };
 }

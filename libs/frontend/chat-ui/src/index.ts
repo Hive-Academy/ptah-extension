@@ -5,6 +5,7 @@
  *   - Atoms: smallest reusable building blocks
  *   - Molecules: composed UI pieces
  */
+export { AwaitingBackgroundIndicatorComponent } from './lib/atoms/awaiting-background-indicator/awaiting-background-indicator.component';
 export { CopyButtonComponent } from './lib/atoms/copy-button.component';
 export { CostBadgeComponent } from './lib/atoms/cost-badge.component';
 export { DurationBadgeComponent } from './lib/atoms/duration-badge.component';
@@ -40,6 +41,7 @@ export { CompactSessionHeaderComponent } from './lib/molecules/compact-session/c
 export { CompactSessionInputComponent } from './lib/molecules/compact-session/compact-session-input.component';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
 export { CompactSessionTextComponent } from './lib/molecules/compact-session/compact-session-text.component';
+export { CompactionMarkerComponent } from './lib/molecules/notifications/compaction-marker.component';
 export { CompactionNotificationComponent } from './lib/molecules/notifications/compaction-notification.component';
 export { NotificationBellComponent } from './lib/molecules/notifications/notification-bell.component';
 export { DenyMessagePopoverComponent } from './lib/molecules/permissions/deny-message-popover.component';

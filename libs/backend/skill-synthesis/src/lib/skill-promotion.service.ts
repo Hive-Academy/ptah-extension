@@ -13,6 +13,7 @@
  * Materializes SKILL.md at the active root and updates `body_path` on the row.
  */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SkillCandidateStore } from './skill-candidate.store';
@@ -31,10 +32,6 @@ import type {
 } from './types';
 import { JUDGE_DEFAULT_MODEL_ID } from './types';
 
-/**
- * Default model for the SKILL.md polish LLM call — single source of truth
- * from types.ts; mirrors `TIER_TO_MODEL_ID.haiku` in agent-sdk.
- */
 const POLISH_MODEL_ID = JUDGE_DEFAULT_MODEL_ID;
 
 /** Hard cap on a single polish LLM call — protects the synchronous promote RPC from a hung provider. */
@@ -270,7 +267,7 @@ Skill description: ${description}`;
 
     try {
       const handle = await this.internalQuery.execute({
-        cwd: process.cwd(),
+        cwd: os.homedir(),
         model: POLISH_MODEL_ID,
         prompt: body,
         systemPromptAppend,

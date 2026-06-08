@@ -48,6 +48,7 @@ import type {
 import {
   MEMORY_CONTRACT_TOKENS,
   type IMemoryReader,
+  type IMemoryLister,
   type ISymbolSink,
 } from '@ptah-extension/memory-contracts';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -95,6 +96,7 @@ import {
   ProviderRpcHandlers,
   WebSearchRpcHandlers,
   WorkspaceRpcHandlers,
+  activateSessionLifecycleNotifier,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { CliOutputManagerAdapter, CliLoggerAdapter } from './cli-adapters';
@@ -461,6 +463,12 @@ export class CliDIContainer {
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
       useValue: noopMemoryReader,
     });
+    const noopMemoryLister: IMemoryLister = {
+      listAll: () => ({ memories: [], total: 0 }),
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
+      useValue: noopMemoryLister,
+    });
     const noopSymbolSink: ISymbolSink = {
       deleteSymbolsForFile: () => 0,
       insertSymbols: async () => undefined,
@@ -531,7 +539,7 @@ export class CliDIContainer {
 
     phaseEnd('3.5', phase3_5Start);
     try {
-      registerCliSettings(container);
+      registerCliSettings(container, userDataPath);
       logger.info(
         '[CLI DI] Settings repositories registered (SETTINGS_TOKENS)',
       );
@@ -573,6 +581,7 @@ export class CliDIContainer {
       container.registerSingleton(WebSearchRpcHandlers);
       container.registerSingleton(WorkspaceRpcHandlers);
       registerSharedRpcHandlers(container);
+      activateSessionLifecycleNotifier(container);
 
       logger.info('[CLI DI] Shared RPC handler classes registered (18)');
 

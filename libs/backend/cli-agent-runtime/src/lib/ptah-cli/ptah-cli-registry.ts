@@ -30,7 +30,6 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   buildSafeEnv,
-  TIER_TO_MODEL_ID,
   type AnthropicProvider,
   type ModelTier,
   type Options,
@@ -287,10 +286,14 @@ export class PtahCliRegistry {
     const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
     const tier: ModelTier = 'sonnet';
     const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
+    const resolvedFromTiers = effectiveTiers?.[tier];
     const resolvedModel =
-      agentConfig.selectedModel?.trim() ||
-      effectiveTiers?.[tier] ||
-      TIER_TO_MODEL_ID[tier];
+      agentConfig.selectedModel?.trim() || resolvedFromTiers || '';
+    if (!resolvedModel) {
+      this.logger.warn(
+        `[PtahCliRegistry] getProfile: no model resolved for provider '${provider.id}' (tier '${tier}') — provider has no defaultTiers and no selectedModel configured`,
+      );
+    }
     const cliJsPath = (await this.moduleLoader.getCliJsPath()) ?? undefined;
 
     return {
@@ -474,10 +477,13 @@ export class PtahCliRegistry {
     seedStaticModelPricing(agentConfig.providerId);
     const tier: ModelTier = options?.modelTier ?? 'sonnet';
     const spawnTiers = this.resolveEffectiveTiers(agentConfig, provider);
-    const model =
-      agentConfig.selectedModel?.trim() ||
-      spawnTiers?.[tier] ||
-      TIER_TO_MODEL_ID[tier];
+    const spawnFromTiers = spawnTiers?.[tier];
+    const model = agentConfig.selectedModel?.trim() || spawnFromTiers || '';
+    if (!model) {
+      this.logger.warn(
+        `[PtahCliRegistry] spawn: no model resolved for provider '${provider.id}' (tier '${tier}') — provider has no defaultTiers and no selectedModel configured`,
+      );
+    }
     const cwd = options?.workingDirectory || require('os').homedir();
     const assembly = await this.spawnOptionsService.assembleSpawnOptions(
       authEnv,

@@ -261,6 +261,61 @@ describe('SessionForkService', () => {
       );
     });
 
+    it("derives '(rewind)' suffix when kind === 'rewind' and no explicit title", async () => {
+      const h = makeService();
+      h.metadataStore.get.mockResolvedValueOnce({
+        sessionId: 'src' as SessionId,
+        workspaceId: '/ws',
+        name: 'Original Session',
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      getMockedForkSession().mockResolvedValueOnce({
+        sessionId: 'forked-rewind',
+      });
+
+      await h.service.forkSession({
+        sessionId: 'src' as SessionId,
+        kind: 'rewind',
+      });
+
+      expect(h.metadataStore.create).toHaveBeenCalledWith(
+        'forked-rewind',
+        '/ws',
+        'Original Session (rewind)',
+        'forked',
+      );
+    });
+
+    it("preserves '(fork)' suffix when kind is undefined (regression check)", async () => {
+      const h = makeService();
+      h.metadataStore.get.mockResolvedValueOnce({
+        sessionId: 'src' as SessionId,
+        workspaceId: '/ws',
+        name: 'Original Session',
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      getMockedForkSession().mockResolvedValueOnce({
+        sessionId: 'forked-default',
+      });
+
+      await h.service.forkSession({
+        sessionId: 'src' as SessionId,
+      });
+
+      expect(h.metadataStore.create).toHaveBeenCalledWith(
+        'forked-default',
+        '/ws',
+        'Original Session (fork)',
+        'forked',
+      );
+    });
+
     it('throws SdkError when source has no workspaceId and no active workspace folder', async () => {
       const h = makeService();
       h.workspaceProvider.getWorkspaceRoot.mockReturnValue(
@@ -412,6 +467,7 @@ describe('SessionForkService', () => {
             messageQueue: [],
             resolveNext: null,
             currentModel: 'claude-sonnet-4-20250514',
+            lastActivityAt: 0,
           };
         }
         return undefined;

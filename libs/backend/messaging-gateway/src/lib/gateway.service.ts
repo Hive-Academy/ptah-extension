@@ -55,6 +55,7 @@ import {
   DiscordAdapter,
   type DiscordClientFactory,
 } from './adapters/discord/discord.adapter';
+import { registerDiscordSlashCommands } from './adapters/discord/discord-command-registration';
 import {
   BoltSlackAdapter,
   type SlackAppFactory,
@@ -87,6 +88,7 @@ const SETTINGS_KEYS = {
     enabled: 'gateway.discord.enabled',
     token: 'gateway.discord.tokenCipher',
     allowed: 'gateway.discord.allowedGuildIds',
+    applicationId: 'gateway.discord.applicationId',
   },
   slack: {
     enabled: 'gateway.slack.enabled',
@@ -435,6 +437,106 @@ export class GatewayService extends EventEmitter {
     }
   }
 
+  /** Read the current allow-list for a platform from settings. */
+  getAllowList(platform: GatewayPlatform): string[] {
+    return this.cfgArray(this.allowedKeyFor(platform));
+  }
+
+  /**
+   * Persist a platform allow-list to settings and re-apply it to the live
+   * adapter so the change takes effect without a restart. Entries are trimmed,
+   * de-duplicated, and emptied of blanks.
+   */
+  async setAllowList(
+    platform: GatewayPlatform,
+    entries: ReadonlyArray<string>,
+  ): Promise<void> {
+    const cleaned = Array.from(
+      new Set(entries.map((e) => e.trim()).filter((e) => e.length > 0)),
+    );
+    await this.workspace.setConfiguration(
+      'ptah',
+      this.allowedKeyFor(platform),
+      cleaned,
+    );
+    if (platform === 'telegram') {
+      this.telegram.configure({ allowedUserIds: cleaned });
+    } else if (platform === 'discord') {
+      this.discord.configure({ allowedGuildIds: cleaned });
+    } else {
+      this.slack.configure({ allowedTeamIds: cleaned });
+    }
+  }
+
+  /** Servers the Discord bot is currently in — empty until connected. */
+  listDiscordGuilds(): Array<{ id: string; name: string }> {
+    return this.discord.listGuilds();
+  }
+
+  /** Read the persisted Discord application (client) id, or null if unset. */
+  getDiscordAppId(): string | null {
+    const value = this.workspace.getConfiguration<string>(
+      'ptah',
+      SETTINGS_KEYS.discord.applicationId,
+      '',
+    );
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  }
+
+  /** Persist the Discord application (client) id used for invite + registration. */
+  async setDiscordAppId(applicationId: string): Promise<void> {
+    await this.workspace.setConfiguration(
+      'ptah',
+      SETTINGS_KEYS.discord.applicationId,
+      applicationId.trim(),
+    );
+  }
+
+  /**
+   * Register the `/ptah` slash command with Discord using the stored bot token
+   * and application id. Registers per allow-listed guild (instant) or globally
+   * when the allow-list is empty. Returns a structured result so the UI can
+   * surface a precise reason without throwing.
+   */
+  async registerDiscordCommands(): Promise<
+    | { ok: true; registered: number; scope: 'guild' | 'global' }
+    | { ok: false; error: string }
+  > {
+    const applicationId = this.getDiscordAppId();
+    if (!applicationId) {
+      return { ok: false, error: 'missing-application-id' };
+    }
+    const token = await this.decryptToken('discord');
+    if (!token) {
+      return { ok: false, error: 'missing-token' };
+    }
+    const guildIds = this.cfgArray(SETTINGS_KEYS.discord.allowed);
+    try {
+      const result = await registerDiscordSlashCommands({
+        token,
+        applicationId,
+        guildIds,
+      });
+      this.logger.info('[gateway] discord slash commands registered', {
+        registered: result.registered,
+        scope: result.scope,
+      });
+      return { ok: true, registered: result.registered, scope: result.scope };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn('[gateway] discord command registration failed', {
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+  }
+
+  private allowedKeyFor(platform: GatewayPlatform): string {
+    if (platform === 'telegram') return SETTINGS_KEYS.telegram.allowed;
+    if (platform === 'discord') return SETTINGS_KEYS.discord.allowed;
+    return SETTINGS_KEYS.slack.allowed;
+  }
+
   /**
    * Append assistant text for a given conversation. The coalescer will
    * flush via {@link flushOutbound} which sends/edits via the adapter.
@@ -557,6 +659,7 @@ export class GatewayService extends EventEmitter {
       platform: msg.platform,
       externalChatId: msg.externalChatId,
       displayName: msg.displayName,
+      ...(msg.allowListId ? { allowListId: msg.allowListId } : {}),
     });
 
     if (binding.approvalStatus === 'pending') {

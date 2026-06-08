@@ -27,8 +27,12 @@ function makeLogger(): Logger {
   } as unknown as Logger;
 }
 
-function makeRegistry(): SubagentRegistryService {
-  return {} as unknown as SubagentRegistryService;
+function makeRegistry(
+  record: { agentType: string } | null = { agentType: 'Explore' },
+): SubagentRegistryService {
+  return {
+    get: jest.fn().mockReturnValue(record),
+  } as unknown as SubagentRegistryService;
 }
 
 /**
@@ -42,8 +46,9 @@ function makeLifecycleWithQuery(query: object): SessionLifecycleManager {
 
 function buildDispatcher(
   lifecycle: SessionLifecycleManager,
+  registry: SubagentRegistryService = makeRegistry(),
 ): SubagentMessageDispatcher {
-  return new SubagentMessageDispatcher(makeLogger(), lifecycle, makeRegistry());
+  return new SubagentMessageDispatcher(makeLogger(), lifecycle, registry);
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +109,74 @@ describe('SubagentMessageDispatcher.sendToSubagent — Fix 3', () => {
     expect(err).toBeInstanceOf(RpcUserError);
     expect((err as RpcUserError).errorCode).toBe('SESSION_ENDED');
     expect((err as RpcUserError).message).toContain('stream closed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendToSubagent — coordinator-nudge payload shape
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () => {
+  async function captureStreamedMessage(
+    registry: SubagentRegistryService,
+    parentToolUseId: string,
+    text: string,
+  ): Promise<Record<string, unknown>> {
+    let captured: Record<string, unknown> | undefined;
+    const streamInput = jest.fn(
+      async (stream: AsyncIterable<Record<string, unknown>>) => {
+        for await (const msg of stream) {
+          captured = msg;
+        }
+      },
+    );
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ streamInput }),
+      registry,
+    );
+    await dispatcher.sendToSubagent('sess-1', parentToolUseId, text);
+    if (!captured) throw new Error('streamInput never received a message');
+    return captured;
+  }
+
+  it('routes to the root coordinator with parent_tool_use_id=null and origin=human', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({ agentType: 'software-architect' }),
+      'toolu_abc',
+      'please pause and check the README',
+    );
+
+    expect(msg['parent_tool_use_id']).toBeNull();
+    expect(msg['origin']).toEqual({ kind: 'human' });
+    expect(msg['shouldQuery']).toBe(true);
+    expect(msg['session_id']).toBe('sess-1');
+  });
+
+  it('prefixes the user text with the agent type and toolUseId from the registry', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({ agentType: 'software-architect' }),
+      'toolu_abc',
+      'please pause and check the README',
+    );
+
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.role).toBe('user');
+    expect(wireMessage.content).toBe(
+      "Regarding the running 'software-architect' subagent (toolUseId=toolu_abc): please pause and check the README",
+    );
+  });
+
+  it("falls back to agentType='unknown' when the registry has no record", async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry(null),
+      'toolu_missing',
+      'check on this',
+    );
+
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe(
+      "Regarding the running 'unknown' subagent (toolUseId=toolu_missing): check on this",
+    );
   });
 });
 

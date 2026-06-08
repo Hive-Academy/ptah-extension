@@ -1,8 +1,12 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ClaudeRpcService, AppStateManager } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  AppStateManager,
+  ModelStateService,
+} from '@ptah-extension/core';
 import {
   SessionStatsEntry,
-  formatModelDisplayName,
+  resolveModelDisplayName,
 } from '@ptah-extension/shared';
 
 /**
@@ -18,7 +22,7 @@ export interface DashboardSessionEntry {
   readonly lastActivityAt: number;
   readonly model: string | null;
   readonly modelDisplayName: string;
-  readonly totalCost: number;
+  readonly totalCost: number | null;
   readonly tokens: {
     readonly input: number;
     readonly output: number;
@@ -36,7 +40,7 @@ export interface DashboardSessionEntry {
     readonly modelDisplayName: string;
     readonly inputTokens: number;
     readonly outputTokens: number;
-    readonly costUSD: number;
+    readonly costUSD: number | null;
   }>;
   /** Whether stats were successfully read from JSONL ('ok' | 'error' | 'empty'). */
   readonly status: 'ok' | 'error' | 'empty';
@@ -47,7 +51,7 @@ export interface DashboardSessionEntry {
  * Single-pass computation for efficiency.
  */
 export interface AggregateTotals {
-  readonly totalCost: number;
+  readonly totalCost: number | null;
   readonly totalTokens: number;
   readonly totalInput: number;
   readonly totalOutput: number;
@@ -56,7 +60,7 @@ export interface AggregateTotals {
   readonly totalMessages: number;
   readonly sessionCount: number;
   readonly totalSubagents: number;
-  readonly avgCostPerSession: number;
+  readonly avgCostPerSession: number | null;
 }
 
 /**
@@ -75,6 +79,7 @@ export interface AggregateTotals {
 export class SessionAnalyticsStateService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly appState = inject(AppStateManager);
+  private readonly modelState = inject(ModelStateService);
   private readonly _allSessions = signal<DashboardSessionEntry[]>([]);
   private readonly _displayCount = signal<5 | 10>(5);
   private readonly _isLoading = signal(false);
@@ -111,9 +116,13 @@ export class SessionAnalyticsStateService {
       totalCacheCreation = 0,
       totalMessages = 0,
       totalSubagents = 0;
+    let costContributorCount = 0;
 
     for (const s of sessions) {
-      totalCost += s.totalCost;
+      if (s.totalCost !== null) {
+        totalCost += s.totalCost;
+        costContributorCount++;
+      }
       totalInput += s.tokens.input;
       totalOutput += s.tokens.output;
       totalCacheRead += s.tokens.cacheRead;
@@ -123,7 +132,7 @@ export class SessionAnalyticsStateService {
     }
 
     return {
-      totalCost,
+      totalCost: costContributorCount > 0 ? totalCost : null,
       totalTokens:
         totalInput + totalOutput + totalCacheRead + totalCacheCreation,
       totalInput,
@@ -133,7 +142,8 @@ export class SessionAnalyticsStateService {
       totalMessages,
       sessionCount: sessions.length,
       totalSubagents,
-      avgCostPerSession: sessions.length > 0 ? totalCost / sessions.length : 0,
+      avgCostPerSession:
+        costContributorCount > 0 ? totalCost / costContributorCount : null,
     };
   });
 
@@ -204,9 +214,12 @@ export class SessionAnalyticsStateService {
           lastActivityAt: session.lastActivityAt,
           model: stats?.model ?? null,
           modelDisplayName: stats?.model
-            ? formatModelDisplayName(stats.model)
+            ? resolveModelDisplayName(
+                stats.model,
+                this.modelState.availableModels(),
+              )
             : 'Unknown',
-          totalCost: stats?.totalCost ?? 0,
+          totalCost: stats?.totalCost ?? null,
           tokens: stats?.tokens ?? {
             input: 0,
             output: 0,
@@ -218,7 +231,10 @@ export class SessionAnalyticsStateService {
           cliAgents: stats?.cliAgents ?? [],
           modelUsageList: (stats?.modelUsageList ?? []).map((m) => ({
             model: m.model,
-            modelDisplayName: formatModelDisplayName(m.model),
+            modelDisplayName: resolveModelDisplayName(
+              m.model,
+              this.modelState.availableModels(),
+            ),
             inputTokens: m.inputTokens,
             outputTokens: m.outputTokens,
             costUSD: m.costUSD,

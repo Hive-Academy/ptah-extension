@@ -24,6 +24,10 @@ import {
   FlatStreamEventUnion,
   MESSAGE_TYPES,
   PermissionRequestSchema,
+  SdkCompactionCompletePayloadSchema,
+  SdkSubagentEndedPayloadSchema,
+  SdkTurnEndedPayloadSchema,
+  SdkTurnFailedPayloadSchema,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { MessageSenderService } from './message-sender.service';
@@ -59,6 +63,7 @@ export class ChatMessageHandler implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
+    MESSAGE_TYPES.CHAT_COMPLETE,
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
@@ -70,12 +75,19 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
     MESSAGE_TYPES.SESSION_METADATA_CHANGED,
     MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT,
+    MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE,
+    MESSAGE_TYPES.SESSION_TURN_ENDED,
+    MESSAGE_TYPES.SESSION_TURN_FAILED,
+    MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
     switch (message.type) {
       case MESSAGE_TYPES.CHAT_CHUNK:
         this.handleChatChunk(message.payload);
+        break;
+      case MESSAGE_TYPES.CHAT_COMPLETE:
+        this.handleChatComplete(message.payload);
         break;
       case MESSAGE_TYPES.CHAT_ERROR:
         this.handleChatError(message.payload);
@@ -110,7 +122,108 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT:
         this.handleSetupWizardStartNewProjectChat(message.payload);
         break;
+      case MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE:
+        this.handleSessionCompactionComplete(message.payload);
+        break;
+      case MESSAGE_TYPES.SESSION_TURN_ENDED:
+        this.handleSessionTurnEnded(message.payload);
+        break;
+      case MESSAGE_TYPES.SESSION_TURN_FAILED:
+        this.handleSessionTurnFailed(message.payload);
+        break;
+      case MESSAGE_TYPES.SESSION_SUBAGENT_ENDED:
+        this.handleSessionSubagentEnded(message.payload);
+        break;
     }
+  }
+
+  /**
+   * CHAT_COMPLETE is intentionally NOT used to finalize streaming — it fires
+   * per-turn (on each message_complete) and SESSION_STATS is the authoritative
+   * end-of-turn signal (TASK_2025_101). The ONLY completion we action here is
+   * the native `/clear` command, which the backend signals via this channel
+   * with `command: 'clear'`. It wipes the target tab to a fresh, empty
+   * conversation; every other CHAT_COMPLETE is ignored.
+   */
+  private handleChatComplete(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as { command?: unknown; tabId?: unknown };
+    if (data.command !== 'clear') return;
+    if (typeof data.tabId !== 'string') return;
+    if (!this.tabManager.tabs().some((t) => t.id === data.tabId)) return;
+    this.tabManager.resetTabToFresh(data.tabId);
+  }
+
+  private handleSessionSubagentEnded(payload: unknown): void {
+    if (!payload) {
+      console.warn(
+        '[ChatMessageHandler] session:subagentEnded received but payload is undefined!',
+      );
+      return;
+    }
+    const parsed = SdkSubagentEndedPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid SdkSubagentEndedPayload — dropped',
+        parsed.error,
+      );
+      return;
+    }
+    this.chatStore.handleSubagentEndedNotification(parsed.data);
+  }
+
+  private handleSessionTurnEnded(payload: unknown): void {
+    if (!payload) {
+      console.warn(
+        '[ChatMessageHandler] session:turnEnded received but payload is undefined!',
+      );
+      return;
+    }
+    const parsed = SdkTurnEndedPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid SdkTurnEndedPayload — dropped',
+        parsed.error,
+      );
+      return;
+    }
+    this.chatStore.handleTurnEndedNotification(parsed.data);
+  }
+
+  private handleSessionTurnFailed(payload: unknown): void {
+    if (!payload) {
+      console.warn(
+        '[ChatMessageHandler] session:turnFailed received but payload is undefined!',
+      );
+      return;
+    }
+    const parsed = SdkTurnFailedPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid SdkTurnFailedPayload — dropped',
+        parsed.error,
+      );
+      return;
+    }
+    this.chatStore.handleTurnFailedNotification(parsed.data);
+  }
+
+  private handleSessionCompactionComplete(payload: unknown): void {
+    if (!payload) {
+      console.warn(
+        '[ChatMessageHandler] session:compactionComplete received but payload is undefined!',
+      );
+      return;
+    }
+    const parsed = SdkCompactionCompletePayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid SdkCompactionCompletePayload — dropped',
+        parsed.error,
+      );
+      return;
+    }
+    this.chatStore.handleCompactionCompleteNotification(parsed.data);
   }
 
   /**

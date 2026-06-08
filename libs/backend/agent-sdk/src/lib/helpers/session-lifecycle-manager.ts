@@ -156,12 +156,6 @@ export interface ExecuteQueryConfig {
    */
   forkSession?: boolean;
   /**
-   * When resuming, only replay messages up to (and including) the message
-   * with this UUID. Maps directly to SDK Options.resumeSessionAt. Forwarded
-   * to `SdkQueryOptionsBuilder.build()`.
-   */
-  resumeSessionAt?: string;
-  /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
    * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
@@ -238,11 +232,6 @@ export interface SlashCommandConfig {
    * they resume the existing session). Forwarded to the options builder.
    */
   forkSession?: boolean;
-  /**
-   * Mirrors `ExecuteQueryConfig.resumeSessionAt`. When set, the resumed
-   * transcript replay stops at this message UUID.
-   */
-  resumeSessionAt?: string;
   /**
    * Mirrors `ExecuteQueryConfig.enableFileCheckpointing`. Defaults to ON in
    * the builder when unspecified.
@@ -329,6 +318,11 @@ export class SessionLifecycleManager {
       this.modelResolver,
       this.sessionEndRegistry,
     );
+    this._registry.startEvictionSweep();
+  }
+
+  dispose(): void {
+    this._registry.stopEvictionSweep();
   }
 
   /**
@@ -504,7 +498,6 @@ export class SessionLifecycleManager {
       pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
       forkSession: config.forkSession,
-      resumeSessionAt: config.resumeSessionAt,
       enableFileCheckpointing: config.enableFileCheckpointing,
       includePartialMessages: config.includePartialMessages,
     });

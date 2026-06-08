@@ -40,8 +40,10 @@ export {
   CompactionHookHandler,
   type CompactionStartCallback,
   isPreCompactHook,
+  isPostCompactHook,
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+export { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 export {
   SessionEndCallbackRegistry,
   type SessionEndCallback,
@@ -64,6 +66,19 @@ export {
 } from './post-tool-use-callback-registry';
 export { PostToolUseHookHandler } from './post-tool-use-hook-handler';
 export {
+  PreToolUseCallbackRegistry,
+  type PreToolUseCallback,
+  type PreToolUsePayload,
+} from './pre-tool-use-callback-registry';
+export { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
+export {
+  SessionStartCallbackRegistry,
+  type SessionStartCallback,
+  type SessionStartPayload,
+  type SessionStartSource,
+} from './session-start-callback-registry';
+export { SessionStartHookHandler } from './session-start-hook-handler';
+export {
   UserPromptSubmitCallbackRegistry,
   type UserPromptSubmitCallback,
   type UserPromptSubmitPayload,
@@ -75,6 +90,13 @@ export {
   type StopPayload,
 } from './stop-callback-registry';
 export { StopHookHandler } from './stop-hook-handler';
+export { StopFailureHookHandler } from './stop-failure-hook-handler';
+export { SubagentStopHookHandler } from './subagent-stop-hook-handler';
+export {
+  isStopFailureHook,
+  isSubagentStopHook,
+  narrowTerminalReason,
+} from '../types/sdk-types/claude-sdk.types';
 export {
   SessionEndHookCallbackRegistry,
   type SessionEndHookCallback,
@@ -116,18 +138,19 @@ export {
 export { SdkModuleLoader } from './sdk-module-loader';
 export {
   SdkQueryRunner,
+  type OneShotAuthOverride,
   type OneShotRunInput,
   type OneShotRunResult,
   type InteractiveRunInput,
   type InteractiveRunResult,
 } from './sdk-query-runner.service';
 export { MemoryPromptInjector } from './memory-prompt-injector';
+export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
+export type { ICuratorAuthResolver } from '../curator-llm-adapter';
 export {
   SdkModelService,
-  TIER_TO_MODEL_ID,
   TIER_ENV_VAR_MAP,
-  DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
   type ModelTier,
   type EnvMappedTier,
@@ -164,6 +187,7 @@ export {
   type CallbackRegistryCallback,
 } from './callback-registry.base';
 
+export type { IPricingProvider } from '../pricing.port';
 export { SdkRuntimeStateService } from './sdk-runtime-state.service';
 export {
   SdkAdapterEvents,
@@ -172,4 +196,8 @@ export {
   type SdkAdapterDisposedEvent,
   type SdkAdapterConfigChangedEvent,
   type SdkAdapterAuthFileChangedEvent,
+  type SdkAdapterCompactionCompleteEvent,
+  type SdkAdapterTurnEndedEvent,
+  type SdkAdapterTurnFailedEvent,
+  type SdkAdapterSubagentEndedEvent,
 } from './sdk-adapter-events.service';

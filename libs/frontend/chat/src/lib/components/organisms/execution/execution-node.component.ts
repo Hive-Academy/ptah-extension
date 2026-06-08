@@ -225,20 +225,35 @@ export class ExecutionNodeComponent {
   readonly permissionResponded = output<PermissionResponse>();
   readonly InfoIcon = Info;
 
-  /**
-   * Memoize markdown rendering input. `<markdown [data]>` re-tokenizes
-   * whenever the bound expression returns a different reference. By caching
-   * the last seen string we guarantee identity stability when the content
-   * string is value-equal across rebuilds — eliminating one of the
-   * per-delta flicker sources during streaming. Stored on the instance so
-   * the same string reference is returned on every read with an unchanged
-   * value.
-   */
-  private _lastRenderedContent = '';
+  private static readonly RENDER_CACHE_MAX = 32;
+  private readonly _renderCache = new Map<string, string>();
+
+  private static fingerprint(s: string): string {
+    const len = s.length;
+    let hash = 0x811c9dc5;
+    const tailStart = Math.max(0, len - 64);
+    for (let i = tailStart; i < len; i++) {
+      hash ^= s.charCodeAt(i);
+      hash = (hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24))) >>> 0;
+    }
+    return `${len}:${hash.toString(16)}`;
+  }
+
   protected renderedContent = computed(() => {
-    const next = this.node().content ?? '';
-    if (next === this._lastRenderedContent) return this._lastRenderedContent;
-    this._lastRenderedContent = next;
+    const node = this.node();
+    const next = node.content ?? '';
+    const key = `${node.id}:${ExecutionNodeComponent.fingerprint(next)}`;
+    const cached = this._renderCache.get(key);
+    if (cached !== undefined) {
+      this._renderCache.delete(key);
+      this._renderCache.set(key, cached);
+      return cached;
+    }
+    if (this._renderCache.size >= ExecutionNodeComponent.RENDER_CACHE_MAX) {
+      const oldest = this._renderCache.keys().next().value;
+      if (oldest !== undefined) this._renderCache.delete(oldest);
+    }
+    this._renderCache.set(key, next);
     return next;
   });
 

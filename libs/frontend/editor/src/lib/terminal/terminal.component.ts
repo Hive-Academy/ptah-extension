@@ -56,6 +56,8 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
   private fitAddon: FitAddon | null = null;
   private webglAddon: WebglAddon | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private contextMenuHandler: ((event: MouseEvent) => void) | null = null;
+  private contextMenuTarget: HTMLDivElement | null = null;
 
   ngAfterViewInit(): void {
     this.ngZone.runOutsideAngular(() => {
@@ -66,6 +68,14 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.terminalService.unregisterXtermWriter(this.terminalId());
     this.resizeObserver?.disconnect();
+    if (this.contextMenuHandler && this.contextMenuTarget) {
+      this.contextMenuTarget.removeEventListener(
+        'contextmenu',
+        this.contextMenuHandler,
+      );
+    }
+    this.contextMenuHandler = null;
+    this.contextMenuTarget = null;
     this.webglAddon?.dispose();
     this.fitAddon?.dispose();
     this.terminal?.dispose();
@@ -182,10 +192,12 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
 
       return true;
     });
-    container.addEventListener('contextmenu', (event: MouseEvent) => {
+    this.contextMenuHandler = (event: MouseEvent): void => {
       event.preventDefault();
       this.pasteFromClipboard();
-    });
+    };
+    this.contextMenuTarget = container;
+    container.addEventListener('contextmenu', this.contextMenuHandler);
   }
 
   private copySelection(): void {

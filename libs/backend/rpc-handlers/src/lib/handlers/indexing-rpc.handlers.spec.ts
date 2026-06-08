@@ -29,6 +29,10 @@ function makeStatus(overrides: Partial<IndexingStatus> = {}): IndexingStatus {
     disclosureAcknowledgedAt: null,
     lastDismissedStaleSha: null,
     errorMessage: null,
+    codeSymbolCount: 0,
+    memoryChunkCount: 0,
+    vec: { ok: false, reason: 'binary-missing' },
+    embedder: { ready: true },
     ...overrides,
   };
 }

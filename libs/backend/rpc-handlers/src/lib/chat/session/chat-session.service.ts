@@ -24,7 +24,16 @@ import {
   LicenseService,
   isPremiumTier,
   type SentryService,
+  type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import {
+  SmitheryRegistrySource,
+  SmitheryConnectionResolver,
+  SmitheryInstalledManifestStore,
+  SmitheryOverrideResolver,
+  createSmitheryConfigSecretStore,
+} from '@ptah-extension/cli-agent-runtime';
+import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -33,11 +42,12 @@ import {
   SessionMetadataStore,
   SDK_TOKENS,
   SlashCommandInterceptor,
-  DEFAULT_FALLBACK_MODEL_ID,
   AuthRequiredError,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
+  isUnsafeWorkspacePath,
+  type IPlatformInfo,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type {
@@ -54,6 +64,7 @@ import type {
   ChatResumeParams,
   ChatResumeResult,
   CliSessionReference,
+  McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
@@ -68,6 +79,26 @@ import type { ChatSubagentContextInjectorService } from './chat-subagent-context
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import { hasStopIntent } from './chat-stop-intent';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
+
+/**
+ * Minimal shape consumed by {@link ChatSessionService.autoResumeIfInactive}.
+ *
+ * `chat:continue` passes the full {@link ChatContinueParams}; the rewind and
+ * `chat:resume activate:true` callsites synthesize a literal with only the
+ * fields the resume body actually reads (`model`, `thinking`, `effort` are all
+ * optional pass-throughs to `sdkAdapter.resumeSession`). Replacing the prior
+ * `as ChatContinueParams` cast with this honest internal type keeps the
+ * compiler honest if a future change reads `params.prompt` (the auto-resume
+ * path uses the separate `prompt` positional arg, not this field).
+ */
+interface AutoResumePreflight {
+  sessionId: SessionId;
+  tabId: string;
+  workspacePath?: string;
+  model?: ChatContinueParams['model'];
+  thinking?: ChatContinueParams['thinking'];
+  effort?: ChatContinueParams['effort'];
+}
 
 @injectable()
 export class ChatSessionService {
@@ -95,6 +126,8 @@ export class ChatSessionService {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo,
     @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
     private readonly premiumContext: ChatPremiumContextService,
     @inject(CHAT_TOKENS.PTAH_CLI)
@@ -107,7 +140,77 @@ export class ChatSessionService {
     private readonly slashCommandRouter: ChatSlashCommandRouterService,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecretsService: IAuthSecretsService,
   ) {}
+
+  /**
+   * Lazily-built resolver that rebuilds session-time Smithery MCP overrides
+   * from the encrypted install manifest. Built once and reused; reads the
+   * manifest on each `buildOverrides()` so installs/uninstalls take effect on
+   * the next session start without restarting.
+   */
+  private smitheryOverrideResolver?: SmitheryOverrideResolver;
+
+  private getSmitheryOverrideResolver(): SmitheryOverrideResolver {
+    if (!this.smitheryOverrideResolver) {
+      const getApiKey = async (): Promise<string | null> =>
+        (await this.authSecretsService.getProviderKey(
+          SMITHERY_API_KEY_SECRET_ID,
+        )) ?? null;
+
+      const registry = new SmitheryRegistrySource({
+        getApiKey,
+        logger: this.logger,
+      });
+      const connectionResolver = new SmitheryConnectionResolver(
+        getApiKey,
+        registry,
+      );
+      const manifest = new SmitheryInstalledManifestStore(
+        createSmitheryConfigSecretStore({
+          getProviderKey: (id) => this.authSecretsService.getProviderKey(id),
+          setProviderKey: (id, value) =>
+            this.authSecretsService.setProviderKey(id, value),
+          deleteProviderKey: (id) =>
+            this.authSecretsService.deleteProviderKey(id),
+        }),
+      );
+      this.smitheryOverrideResolver = new SmitheryOverrideResolver({
+        manifest,
+        resolver: connectionResolver,
+        logger: this.logger,
+      });
+    }
+    return this.smitheryOverrideResolver;
+  }
+
+  /**
+   * Merge manifest-resolved Smithery overrides UNDER any caller-supplied
+   * overrides (caller wins on key collision, matching the builder's
+   * `mergeMcpOverride` contract). Never throws — Smithery contributes nothing on
+   * empty manifest / missing key / resolution failure.
+   */
+  private async buildMcpServersOverride(
+    callerOverride: Record<string, McpHttpServerOverride> | undefined,
+  ): Promise<Record<string, McpHttpServerOverride> | undefined> {
+    let smithery: Record<string, McpHttpServerOverride> = {};
+    try {
+      smithery = await this.getSmitheryOverrideResolver().buildOverrides();
+    } catch (error: unknown) {
+      this.logger.warn('[RPC] chat:start - Smithery override build failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const hasSmithery = Object.keys(smithery).length > 0;
+    const hasCaller =
+      !!callerOverride && Object.keys(callerOverride).length > 0;
+    if (!hasSmithery && !hasCaller) {
+      return callerOverride;
+    }
+    return { ...smithery, ...(callerOverride ?? {}) };
+  }
 
   /**
    * chat:start - Start new SDK session. Uses tabId for frontend correlation;
@@ -131,6 +234,29 @@ export class ChatSessionService {
     return {};
   }
 
+  /**
+   * Refuse to spawn an SDK session when the resolved workspace path is
+   * unsafe (filesystem root, the Ptah install dir, app storage). This
+   * backstops the warm-query bug where a stale subprocess would otherwise
+   * run rooted at `process.cwd()` of the Electron main process (typically
+   * the install dir in production).
+   */
+  private rejectIfUnsafeWorkspace(
+    workspacePath: string,
+    rpcName: string,
+  ): { success: false; error: string } | null {
+    const safety = isUnsafeWorkspacePath(workspacePath, this.platformInfo);
+    if (safety.ok) return null;
+    this.logger.warn(
+      `[RPC] ${rpcName} - refused: resolved workspace path is unsafe — ${safety.reason}`,
+      { workspacePath },
+    );
+    return {
+      success: false,
+      error: `Cannot start a session in this folder: ${safety.reason}. Please open a real project folder.`,
+    };
+  }
+
   async startSession(params: ChatStartParams): Promise<ChatStartResult> {
     try {
       const { prompt, tabId, options, name } = params;
@@ -152,6 +278,11 @@ export class ChatSessionService {
           error: 'Access denied: workspace path is not an open folder.',
         };
       }
+      const unsafeStart = this.rejectIfUnsafeWorkspace(
+        workspacePath,
+        'chat:start',
+      );
+      if (unsafeStart) return unsafeStart;
       this.logger.debug('RPC: chat:start called', {
         tabId,
         workspacePath,
@@ -228,9 +359,7 @@ export class ChatSessionService {
       });
 
       const currentModel =
-        options?.model ||
-        this.modelSettings.selectedModel.get() ||
-        DEFAULT_FALLBACK_MODEL_ID;
+        options?.model || this.modelSettings.selectedModel.get() || 'default';
       const files = options?.files ?? [];
       if (files.length > 0) {
         this.logger.debug('RPC: chat:start received files', {
@@ -240,6 +369,9 @@ export class ChatSessionService {
         });
       }
       const images = options?.images ?? [];
+      const mcpServersOverride = await this.buildMcpServersOverride(
+        params.mcpServersOverride,
+      );
       const stream = await this.sdkAdapter.startChatSession({
         tabId,
         workspaceId: workspacePath,
@@ -257,7 +389,7 @@ export class ChatSessionService {
         thinking: options?.thinking,
         effort: options?.effort,
         includePartialMessages: options?.includePartialMessages,
-        mcpServersOverride: params.mcpServersOverride,
+        mcpServersOverride,
       });
       this.streamBroadcaster.streamEventsToWebview(
         tabId as SessionId,
@@ -307,6 +439,11 @@ export class ChatSessionService {
           error: 'Access denied: workspace path is not an open folder.',
         };
       }
+      const unsafeContinue = this.rejectIfUnsafeWorkspace(
+        workspacePath,
+        'chat:continue',
+      );
+      if (unsafeContinue) return unsafeContinue;
       this.logger.debug('RPC: chat:continue called', {
         sessionId,
         tabId,
@@ -426,6 +563,11 @@ export class ChatSessionService {
           error: 'Access denied: workspace path is not an open folder.',
         };
       }
+      const unsafeResume = this.rejectIfUnsafeWorkspace(
+        resolvedWorkspacePath,
+        'chat:resume',
+      );
+      if (unsafeResume) return unsafeResume;
       this.logger.info('RPC: chat:resume called', {
         sessionId,
         workspacePath: params.workspacePath || '(empty)',
@@ -489,25 +631,38 @@ export class ChatSessionService {
         cliSessionCount: cliSessions?.length ?? 0,
       });
       let activated = false;
-      const wantsTruncation = typeof params.resumeSessionAt === 'string';
+      let activationError: string | undefined;
+      let activationErrorCode: ChatResumeResult['activationErrorCode'];
       if (params.activate === true && params.tabId) {
-        if (wantsTruncation || !this.sdkAdapter.isSessionActive(sessionId)) {
+        if (!this.sdkAdapter.isSessionActive(sessionId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,
             resolvedWorkspacePath,
             '',
             {
-              sessionId: sessionId as string,
+              sessionId,
               tabId: params.tabId,
               workspacePath: resolvedWorkspacePath,
-            } as ChatContinueParams,
-            params.resumeSessionAt,
+            },
           );
           if ('justResumed' in activateResult) {
             activated =
               activateResult.justResumed ||
               this.sdkAdapter.isSessionActive(sessionId);
+          } else {
+            activationError =
+              activateResult.error.error ?? 'Auto-resume failed';
+            activationErrorCode = activateResult.error.errorCode;
+            this.logger.warn(
+              '[RPC] chat:resume activate:true — auto-resume failed',
+              {
+                sessionId,
+                tabId: params.tabId,
+                activationError,
+                activationErrorCode,
+              },
+            );
           }
         } else {
           activated = true;
@@ -522,6 +677,8 @@ export class ChatSessionService {
         resumableSubagents,
         cliSessions,
         activated,
+        ...(activationError ? { activationError } : {}),
+        ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
       this.logger.error(
@@ -662,8 +819,7 @@ export class ChatSessionService {
         sessionId,
         tabId,
         workspacePath,
-        prompt: '',
-      } as ChatContinueParams,
+      },
     );
 
     if ('error' in outcome) {
@@ -690,10 +846,9 @@ export class ChatSessionService {
     tabId: string,
     workspacePath: string,
     prompt: string,
-    params: ChatContinueParams,
-    resumeSessionAt?: string,
+    params: AutoResumePreflight,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
-    if (!resumeSessionAt && this.sdkAdapter.isSessionActive(sessionId)) {
+    if (this.sdkAdapter.isSessionActive(sessionId)) {
       return { justResumed: false };
     }
 
@@ -727,9 +882,7 @@ export class ChatSessionService {
     });
 
     const currentModel =
-      params.model ||
-      this.modelSettings.selectedModel.get() ||
-      DEFAULT_FALLBACK_MODEL_ID;
+      params.model || this.modelSettings.selectedModel.get() || 'default';
 
     try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
@@ -743,7 +896,6 @@ export class ChatSessionService {
         thinking: params.thinking,
         effort: params.effort,
         prompt,
-        resumeSessionAt,
       });
       this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);

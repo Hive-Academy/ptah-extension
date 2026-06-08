@@ -8,6 +8,8 @@ export const EXTENSION_LANGUAGE_MAP: Readonly<
   '.jsx': 'javascript',
   '.ts': 'typescript',
   '.tsx': 'typescript',
+  '.py': 'python',
+  '.go': 'go',
 };
 
 export interface LanguageQueries {
@@ -169,10 +171,71 @@ const JS_TS_EXPORT_QUERY = `
 `;
 
 /**
+ * Python queries. Methods are plain function_definition nodes inside a class
+ * body, so they are captured as functions too — consistent with Python's model.
+ * Reuses the JS/TS capture names so the extraction layer is shared.
+ */
+const PYTHON_FUNCTION_QUERY = `
+(function_definition
+  name: (identifier) @function.name
+  parameters: (parameters) @function.params) @function.declaration
+`;
+
+const PYTHON_CLASS_QUERY = `
+(class_definition
+  name: (identifier) @class.name) @class.declaration
+`;
+
+const PYTHON_IMPORT_QUERY = `
+; import x / import x.y
+(import_statement
+  name: (dotted_name) @import.source)
+
+; import x as y
+(import_statement
+  name: (aliased_import
+    name: (dotted_name) @import.source))
+
+; from x import a, b
+(import_from_statement
+  module_name: (dotted_name) @import.source
+  name: (dotted_name) @import.named)
+`;
+
+/**
+ * Go queries. Go has no classes; structs and interfaces are captured via
+ * type_spec under @class.* so they surface in the symbol index. Methods carry
+ * a receiver and use @method.* (extracted alongside functions). Visibility is
+ * by identifier capitalization, so there is no export query.
+ * Reuses the JS/TS capture names so the extraction layer is shared.
+ */
+const GO_FUNCTION_QUERY = `
+(function_declaration
+  name: (identifier) @function.name
+  parameters: (parameter_list) @function.params) @function.declaration
+
+(method_declaration
+  name: (field_identifier) @method.name
+  parameters: (parameter_list) @method.params) @method.declaration
+`;
+
+const GO_CLASS_QUERY = `
+(type_declaration
+  (type_spec
+    name: (type_identifier) @class.name)) @class.declaration
+`;
+
+const GO_IMPORT_QUERY = `
+(import_spec
+  path: (interpreted_string_literal) @import.source)
+`;
+
+/**
  * Language-specific query configurations.
- * Function/import/export queries are shared. Class queries differ because
- * tree-sitter-typescript wraps the base class in an extends_clause node
- * that does not exist in tree-sitter-javascript.
+ * Function/import/export queries are shared across JS/TS. Class queries differ
+ * because tree-sitter-typescript wraps the base class in an extends_clause node
+ * that does not exist in tree-sitter-javascript. Python and Go have no export
+ * statements, so their exportQuery is empty (skipped by analyzeSource).
  */
 export const LANGUAGE_QUERIES_MAP: Readonly<
   Record<SupportedLanguage, LanguageQueries>
@@ -188,5 +251,17 @@ export const LANGUAGE_QUERIES_MAP: Readonly<
     classQuery: TS_CLASS_QUERY,
     importQuery: JS_TS_IMPORT_QUERY,
     exportQuery: JS_TS_EXPORT_QUERY,
+  },
+  python: {
+    functionQuery: PYTHON_FUNCTION_QUERY,
+    classQuery: PYTHON_CLASS_QUERY,
+    importQuery: PYTHON_IMPORT_QUERY,
+    exportQuery: '',
+  },
+  go: {
+    functionQuery: GO_FUNCTION_QUERY,
+    classQuery: GO_CLASS_QUERY,
+    importQuery: GO_IMPORT_QUERY,
+    exportQuery: '',
   },
 };

@@ -162,7 +162,7 @@ describe('isFileBasedSettingKey', () => {
       'memory.triggers.userPromptSubmit.enabled': true,
       'memory.triggers.userPromptSubmit.minPromptLength': 20,
       'memory.triggers.postToolUse.enabled': true,
-      'memory.triggers.maxCuratesPerHour': 12,
+      'memory.triggers.maxCuratesPerHour': 20,
       'skillSynthesis.triggers.subagentStop.enabled': true,
       'skillSynthesis.triggers.postToolUse.enabled': true,
       'skillSynthesis.triggers.postToolUse.minEditCount': 3,
@@ -216,6 +216,25 @@ describe('isFileBasedSettingKey', () => {
       for (const key of allHookKeys) {
         expect(isFileBasedSettingKey(key)).toBe(true);
       }
+    });
+  });
+
+  describe('curator provider/model keys (TASK_2026_CURATOR_MODEL_CONFIG)', () => {
+    it('registers memory.curatorProvider with default ""', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('memory.curatorProvider')).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS['memory.curatorProvider']).toBe('');
+      expect(isFileBasedSettingKey('memory.curatorProvider')).toBe(true);
+    });
+
+    it('keeps memory.curatorModel with default ""', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('memory.curatorModel')).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS['memory.curatorModel']).toBe('');
+    });
+
+    it('declares maxCuratesPerHour default of 20', () => {
+      expect(
+        FILE_BASED_SETTINGS_DEFAULTS['memory.triggers.maxCuratesPerHour'],
+      ).toBe(20);
     });
   });
 });

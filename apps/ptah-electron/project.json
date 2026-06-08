@@ -26,11 +26,10 @@
         "esbuildConfig": "apps/ptah-electron/esbuild.config.cjs",
         "external": [
           "electron",
-          "electron-updater",
           "@anthropic-ai/claude-agent-sdk",
-          "@github/copilot-sdk",
           "@openai/codex-sdk",
           "@cursor/sdk",
+          "@sentry/node",
           "deepagents",
           "@langchain/core",
           "@langchain/langgraph",
@@ -55,8 +54,6 @@
           "tslib",
           "chokidar",
           "fast-glob",
-          "p-limit",
-          "p-queue",
           "axios",
           "node-pty",
           "exa-js",
@@ -169,6 +166,10 @@
       "options": {
         "commands": [
           {
+            "command": "node apps/ptah-electron/scripts/patch-sqlite3-tar.js",
+            "forwardAllArgs": false
+          },
+          {
             "command": "node scripts/copy-wasm.js dist/apps/ptah-electron",
             "forwardAllArgs": false
           }
@@ -230,9 +231,15 @@
     },
     "package": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build", "copy-renderer"],
+      "dependsOn": ["build", "copy-renderer", "rebuild-native"],
       "options": {
-        "command": "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron"
+        "commands": [
+          "node scripts/copy-wasm.js dist/apps/ptah-electron",
+          "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron",
+          "node apps/ptah-electron/scripts/verify-packed-native.js",
+          "node apps/ptah-electron/scripts/verify-packed-wasm.js"
+        ],
+        "parallel": false
       }
     },
     "typecheck": {

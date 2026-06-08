@@ -5,18 +5,18 @@ import { test, expect } from '../support/fixtures';
 import { launchPtah, resolveElectronEntry } from '../support/electron-launcher';
 
 /**
- * Auto-updater e2e specs.
+ * Update-detection e2e specs.
  *
- * The auto-updater path uses a dynamic `import('electron-updater')` --
- * intercepting the import from the test process is not generally possible
- * without modifying the bundle. The harness therefore tests *observable*
- * behavior:
- *   - In dev (NODE_ENV=test, the harness default), the updater is skipped.
- *   - In production NODE_ENV, the dynamic import either resolves or fails;
+ * Update detection queries the GitHub Releases API directly (no
+ * electron-updater) and broadcasts the result to the renderer. The harness
+ * tests *observable* behavior:
+ *   - In dev (NODE_ENV=development), detection is skipped.
+ *   - In production NODE_ENV, the GitHub check either resolves or fails;
  *     either way the app must not crash and the renderer must remain alive.
- *   - The bundled electron-builder.yml declares the GitHub publish provider.
+ *   - The bundled electron-builder.yml declares the GitHub publish provider
+ *     (the source the detector reads installers from).
  */
-test.describe('Auto-updater', () => {
+test.describe('Update detection', () => {
   test('dev mode: auto-updater is NOT invoked (no completion log)', async ({
     electronApp,
     mainWindow,
@@ -74,11 +74,11 @@ test.describe('Auto-updater', () => {
     }
   });
 
-  test('forced production NODE_ENV: app does not crash even when updater fails', async (// eslint-disable-next-line no-empty-pattern
+  test('forced production NODE_ENV: app does not crash even when the check fails', async (// eslint-disable-next-line no-empty-pattern
   {}, testInfo) => {
-    // In CI / sandboxes there's no GitHub release feed, so
-    // `checkForUpdatesAndNotify` will reject. The updater try/catch must
-    // swallow the error -- the app must still launch and load the
+    // In CI / sandboxes the GitHub Releases request fails (network blocked),
+    // so checkViaGitHub() broadcasts an error state. The try/catch in
+    // post-window must swallow it -- the app must still launch and load the
     // renderer. We block all network at the Electron session level via
     // the same evaluate so we don't accidentally hit github.com in CI.
     testInfo.setTimeout(60_000);
@@ -93,9 +93,8 @@ test.describe('Auto-updater', () => {
 
     try {
       // Block network from the default session as soon as the app is up.
-      // This is best-effort -- electron-updater's HTTP client lives in
-      // node land and may bypass session.webRequest. The dynamic import
-      // itself happens right after the window load.
+      // This is best-effort -- the detector's fetch() lives in node land and
+      // may bypass session.webRequest. The check runs right after start().
       await app.evaluate(({ session }) => {
         session.defaultSession.webRequest.onBeforeRequest(
           { urls: ['*://*/*'] },
@@ -129,9 +128,8 @@ test.describe('Auto-updater', () => {
 
   test('forced production: no native update dialog blocks app shutdown', async (// eslint-disable-next-line no-empty-pattern
   {}, testInfo) => {
-    // electron-updater's `checkForUpdatesAndNotify` only shows a dialog
-    // when an update is found. In CI there is no release server, so no
-    // dialog should appear; the app must close cleanly.
+    // Update detection surfaces results in the renderer banner only -- it
+    // never shows a native dialog. The app must always close cleanly.
     testInfo.setTimeout(45_000);
     const app = await launchPtah({ env: { NODE_ENV: 'production' } });
 
@@ -156,8 +154,8 @@ test.describe('Auto-updater', () => {
   });
 
   test('bundled electron-builder.yml declares github publish provider', async () => {
-    // Sanity check that the publish channel is wired to GitHub Releases,
-    // which is what electron-updater's default config consumes at runtime.
+    // Sanity check that releases publish to GitHub Releases, which is the
+    // source the update detector reads installers from.
     const distDir = path.dirname(resolveElectronEntry());
     const ymlPath = path.join(distDir, 'electron-builder.yml');
     expect(fs.existsSync(ymlPath)).toBe(true);

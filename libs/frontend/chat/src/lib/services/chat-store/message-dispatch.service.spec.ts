@@ -2,7 +2,8 @@
  * MessageDispatchService specs â€” send-vs-queue routing + slash-command guard.
  *
  * Coverage:
- *   - sendOrQueueMessage: slash-command guard blocks /compact for non-Anthropic
+ *   - sendOrQueueMessage: slash-command guard blocks /context for non-Anthropic
+ *   - sendOrQueueMessage: guard does NOT block /compact or /review (all providers)
  *   - sendOrQueueMessage: guard does NOT block when authState.isLoading()
  *   - sendOrQueueMessage: guard does NOT block for apiKey provider
  *   - sendOrQueueMessage: streaming auto-denies permissions with deny_with_message
@@ -125,32 +126,41 @@ describe('MessageDispatchService', () => {
   });
 
   describe('sendOrQueueMessage', () => {
-    it('blocks /compact slash command for non-Anthropic providers', async () => {
+    it('blocks /context slash command for non-Anthropic providers', async () => {
       persistedAuthMethod.set('copilot');
-      await service.sendOrQueueMessage('/compact');
+      await service.sendOrQueueMessage('/context');
       expect(sendMock).not.toHaveBeenCalled();
       expect(queueOrAppendMock).not.toHaveBeenCalled();
       // Warning message added via setMessages
       expect(setMessagesMock).toHaveBeenCalled();
     });
 
+    it('does NOT block /compact or /review for non-Anthropic providers', async () => {
+      persistedAuthMethod.set('copilot');
+      await service.sendOrQueueMessage('/compact');
+      expect(sendMock).toHaveBeenCalledWith('/compact', undefined);
+      sendMock.mockClear();
+      await service.sendOrQueueMessage('/review');
+      expect(sendMock).toHaveBeenCalledWith('/review', undefined);
+    });
+
     it('does NOT block when authState.isLoading() is true', async () => {
       persistedAuthMethod.set('copilot');
       isLoadingAuth.set(true);
-      await service.sendOrQueueMessage('/compact');
-      expect(sendMock).toHaveBeenCalledWith('/compact', undefined);
+      await service.sendOrQueueMessage('/context');
+      expect(sendMock).toHaveBeenCalledWith('/context', undefined);
     });
 
     it('does NOT block for apiKey provider', async () => {
       persistedAuthMethod.set('apiKey');
-      await service.sendOrQueueMessage('/compact');
-      expect(sendMock).toHaveBeenCalledWith('/compact', undefined);
+      await service.sendOrQueueMessage('/context');
+      expect(sendMock).toHaveBeenCalledWith('/context', undefined);
     });
 
     it('does NOT block for claudeCli provider', async () => {
       persistedAuthMethod.set('claudeCli');
-      await service.sendOrQueueMessage('/compact');
-      expect(sendMock).toHaveBeenCalledWith('/compact', undefined);
+      await service.sendOrQueueMessage('/context');
+      expect(sendMock).toHaveBeenCalledWith('/context', undefined);
     });
 
     it('when streaming, auto-denies active permissions with deny_with_message', async () => {

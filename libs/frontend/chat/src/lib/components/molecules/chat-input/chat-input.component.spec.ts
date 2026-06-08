@@ -81,8 +81,13 @@ describe('ChatInputComponent', () => {
     abortWithConfirmation: jest.fn().mockResolvedValue(true),
   };
 
+  const tabsSignal = signal<Array<{ id: string; status: string }>>([]);
+  const activeTabIdSignal = signal<string | null>(null);
   const mockTabManager = {
     isTabStreaming: jest.fn().mockReturnValue(false),
+    tabs: tabsSignal,
+    activeTabId: activeTabIdSignal,
+    activeTabQueuedContent: signal<string | null>(null),
   };
 
   const mockAutopilotState = {
@@ -121,6 +126,8 @@ describe('ChatInputComponent', () => {
   };
 
   beforeEach(() => {
+    tabsSignal.set([]);
+    activeTabIdSignal.set(null);
     mockVSCodeService = { isElectron: true };
     mockSessionActions = {
       actionInFlight: signal(false),
@@ -606,6 +613,37 @@ describe('ChatInputComponent', () => {
   // ============================================================================
   // SESSION ACTION BUTTONS (Save to memory, Extract skill)
   // ============================================================================
+
+  describe('inputEnabled per-status matrix', () => {
+    const matrix: Array<[string, boolean]> = [
+      ['fresh', true],
+      ['draft', true],
+      ['loaded', true],
+      ['awaiting-background', true],
+      ['streaming', false],
+      ['resuming', false],
+      ['switching', false],
+    ];
+
+    for (const [status, expected] of matrix) {
+      it(`returns ${expected} for status '${status}'`, () => {
+        tabsSignal.set([{ id: 'tab-x', status }]);
+        activeTabIdSignal.set('tab-x');
+        expect(component.inputEnabled()).toBe(expected);
+      });
+    }
+
+    it('returns true when no active tab is set', () => {
+      activeTabIdSignal.set(null);
+      expect(component.inputEnabled()).toBe(true);
+    });
+
+    it('returns true when active tab id has no matching tab', () => {
+      tabsSignal.set([]);
+      activeTabIdSignal.set('missing');
+      expect(component.inputEnabled()).toBe(true);
+    });
+  });
 
   describe('Session action buttons (Electron-only)', () => {
     it('isElectron() reflects VSCodeService.isElectron', () => {

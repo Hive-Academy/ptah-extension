@@ -1,6 +1,15 @@
 export { AUTH_PROVIDERS_TOKENS } from './lib/di/tokens';
 export type { AuthProvidersDIToken } from './lib/di/tokens';
-export { registerAuthProvidersServices } from './lib/di/register';
+export {
+  registerAuthProvidersServices,
+  registerCuratorAuthServices,
+} from './lib/di/register';
+export { CuratorAuthResolver } from './lib/auth/curator-auth-resolver';
+export {
+  CuratorProxyManager,
+  type CuratorProxyHandle,
+} from './lib/auth/curator-proxy-manager';
+export { CuratorAuthError } from './lib/auth/curator-auth.error';
 export {
   AuthManager,
   type AuthResult,
@@ -71,9 +80,13 @@ export type { ICodexAuthService, CodexAuthFile } from './lib/providers/codex';
 export {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
+  OpenRouterPricingService,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
 } from './lib/providers/openrouter';
-export type { IOpenRouterAuthService } from './lib/providers/openrouter';
+export type {
+  IOpenRouterAuthService,
+  OpenRouterModel,
+} from './lib/providers/openrouter';
 export {
   LmStudioTranslationProxy,
   OllamaModelDiscoveryService,

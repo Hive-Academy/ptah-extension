@@ -6,7 +6,8 @@
 /* Custom scrollbar for message container
    Uses VS Code variables when available (extension webview),
    falls back to Anubis theme (Electron desktop) via global styles.css */
-:host ::ng-deep .overflow-y-auto {
+:host ::ng-deep .overflow-y-auto,
+.chat-scroll-container {
   overflow-anchor: none;
   scrollbar-width: thin;
   scrollbar-color: var(
@@ -16,21 +17,49 @@
     var(--vscode-scrollbar-shadow, transparent);
 }
 
+.chat-scroll-container {
+  display: block;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.chat-scroll-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+/* Browser-native windowing: off-screen bubbles skip layout + paint, giving
+   virtual-scroll-class performance without a JS estimator. contain-intrinsic-
+   size: auto <fallback> lets the browser remember each bubble's last rendered
+   height so the scrollbar stays stable. */
+.chat-msg-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
 /* Webkit fallback */
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar,
+.chat-scroll-container::-webkit-scrollbar {
   width: 8px;
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-track {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-track,
+.chat-scroll-container::-webkit-scrollbar-track {
   background: var(--vscode-scrollbar-shadow, transparent);
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb,
+.chat-scroll-container::-webkit-scrollbar-thumb {
   background: var(--vscode-scrollbarSlider-background, oklch(var(--s) / 0.3));
   border-radius: 4px;
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb:hover,
+.chat-scroll-container::-webkit-scrollbar-thumb:hover {
   background: var(
     --vscode-scrollbarSlider-hoverBackground,
     oklch(var(--s) / 0.5)

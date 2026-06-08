@@ -8,7 +8,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, SessionId } from '@ptah-extension/shared';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -17,6 +17,7 @@ import { ChatStore } from './chat.store';
 import { MessageSenderService } from './message-sender.service';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
+const SESS_VALID = SessionId.create();
 
 function makeValidPermissionRequest() {
   return {
@@ -48,6 +49,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   let chatStore: {
     handlePermissionRequest: jest.Mock;
     handleQuestionRequest: jest.Mock;
+    handleTurnEndedNotification: jest.Mock;
+    handleTurnFailedNotification: jest.Mock;
+    handleSubagentEndedNotification: jest.Mock;
   };
   let streamRouter: {
     routePermissionPrompt: jest.Mock;
@@ -55,18 +59,29 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     refreshQuestionTargetsForSession: jest.Mock;
     routeStreamEvent: jest.Mock;
   };
+  let tabManager: {
+    tabs: jest.Mock;
+    resetTabToFresh: jest.Mock;
+  };
   let consoleWarnSpy: jest.SpyInstance;
 
   beforeEach(() => {
     chatStore = {
       handlePermissionRequest: jest.fn(),
       handleQuestionRequest: jest.fn(),
+      handleTurnEndedNotification: jest.fn(),
+      handleTurnFailedNotification: jest.fn(),
+      handleSubagentEndedNotification: jest.fn(),
     };
     streamRouter = {
       routePermissionPrompt: jest.fn(),
       routeQuestionPrompt: jest.fn(),
       refreshQuestionTargetsForSession: jest.fn(),
       routeStreamEvent: jest.fn(),
+    };
+    tabManager = {
+      tabs: jest.fn(() => [{ id: 'tab-1' }]),
+      resetTabToFresh: jest.fn(),
     };
 
     TestBed.configureTestingModule({
@@ -78,7 +93,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
           provide: AgentMonitorStore,
           useValue: { resolveParentSessionId: jest.fn() },
         },
-        { provide: TabManagerService, useValue: {} },
+        { provide: TabManagerService, useValue: tabManager },
         { provide: MessageSenderService, useValue: {} },
       ],
     });
@@ -157,5 +172,181 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
     expect(chatStore.handleQuestionRequest).toHaveBeenCalledTimes(1);
     expect(streamRouter.routeQuestionPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  // ----- SESSION_TURN_ENDED (Phase 2 Batch 3) -------------------------------
+
+  it('handleSessionTurnEnded forwards a well-formed payload to ChatStore', () => {
+    const payload = {
+      sessionId: SESS_VALID,
+      cwd: '/workspace',
+      lastAssistantMessage: 'done',
+      backgroundTasks: [],
+      sessionCrons: [],
+      terminalReason: 'completed',
+      timestamp: 1_700_000_000_000,
+    };
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+      payload,
+    });
+
+    expect(chatStore.handleTurnEndedNotification).toHaveBeenCalledTimes(1);
+    expect(chatStore.handleTurnEndedNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: SESS_VALID,
+        terminalReason: 'completed',
+      }),
+    );
+  });
+
+  it('handleSessionTurnEnded drops malformed payload with a single warn', () => {
+    const malformed = { sessionId: '', terminalReason: 'bogus' };
+
+    expect(() =>
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+        payload: malformed,
+      }),
+    ).not.toThrow();
+
+    expect(chatStore.handleTurnEndedNotification).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid SdkTurnEndedPayload'),
+      expect.anything(),
+    );
+  });
+
+  // ----- SESSION_TURN_FAILED (Phase 2 Batch 3) ------------------------------
+
+  it('handleSessionTurnFailed forwards a well-formed payload to ChatStore', () => {
+    const payload = {
+      sessionId: SESS_VALID,
+      cwd: '/workspace',
+      lastAssistantMessage: null,
+      error: 'rate_limit',
+      errorDetails: 'try again later',
+      terminalReason: 'blocking_limit',
+      timestamp: 1_700_000_000_000,
+    };
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_TURN_FAILED,
+      payload,
+    });
+
+    expect(chatStore.handleTurnFailedNotification).toHaveBeenCalledTimes(1);
+    expect(chatStore.handleTurnFailedNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: SESS_VALID,
+        error: 'rate_limit',
+      }),
+    );
+  });
+
+  it('handleSessionTurnFailed drops malformed payload with a single warn', () => {
+    const malformed = { sessionId: '', error: 'mystery' };
+
+    expect(() =>
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_TURN_FAILED,
+        payload: malformed,
+      }),
+    ).not.toThrow();
+
+    expect(chatStore.handleTurnFailedNotification).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid SdkTurnFailedPayload'),
+      expect.anything(),
+    );
+  });
+
+  // ----- SESSION_SUBAGENT_ENDED (Phase 3 Batch 4) ---------------------------
+
+  it('handleSessionSubagentEnded forwards a well-formed payload to ChatStore', () => {
+    const payload = {
+      sessionId: SESS_VALID,
+      cwd: '/workspace',
+      agentId: 'agent-a',
+      agentType: 'subagent',
+      lastAssistantMessage: 'sub done',
+      backgroundTasks: [],
+      timestamp: 1_700_000_000_000,
+    };
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
+      payload,
+    });
+
+    expect(chatStore.handleSubagentEndedNotification).toHaveBeenCalledTimes(1);
+    expect(chatStore.handleSubagentEndedNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: SESS_VALID,
+        agentId: 'agent-a',
+      }),
+    );
+  });
+
+  it('handleSessionSubagentEnded drops malformed payload with a single warn', () => {
+    const malformed = { sessionId: '', agentId: '' };
+
+    expect(() =>
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
+        payload: malformed,
+      }),
+    ).not.toThrow();
+
+    expect(chatStore.handleSubagentEndedNotification).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid SdkSubagentEndedPayload'),
+      expect.anything(),
+    );
+  });
+
+  // ----- CHAT_COMPLETE (/clear native command) ------------------------------
+
+  it('handleChatComplete resets the target tab on the clear command', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_COMPLETE,
+      payload: { tabId: 'tab-1', sessionId: VALID_UUID, command: 'clear' },
+    });
+
+    expect(tabManager.resetTabToFresh).toHaveBeenCalledTimes(1);
+    expect(tabManager.resetTabToFresh).toHaveBeenCalledWith('tab-1');
+  });
+
+  it('handleChatComplete ignores ordinary (per-turn) completions', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_COMPLETE,
+      payload: { tabId: 'tab-1', sessionId: VALID_UUID },
+    });
+
+    expect(tabManager.resetTabToFresh).not.toHaveBeenCalled();
+  });
+
+  it('handleChatComplete no-ops when the clear targets an unknown tab', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.CHAT_COMPLETE,
+      payload: { tabId: 'tab-gone', command: 'clear' },
+    });
+
+    expect(tabManager.resetTabToFresh).not.toHaveBeenCalled();
+  });
+
+  it('handleSessionSubagentEnded warns and no-ops on undefined payload', () => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
+      payload: undefined,
+    });
+
+    expect(chatStore.handleSubagentEndedNotification).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'session:subagentEnded received but payload is undefined',
+      ),
+    );
   });
 });

@@ -15,6 +15,8 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
+import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
+import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 import {
   AISessionConfig,
   AuthEnv,
@@ -38,8 +40,12 @@ import {
   type WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
+import { PreToolUseHookHandler } from './pre-tool-use-hook-handler';
+import { SessionStartHookHandler } from './session-start-hook-handler';
 import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 import { StopHookHandler } from './stop-hook-handler';
+import { StopFailureHookHandler } from './stop-failure-hook-handler';
+import { SubagentStopHookHandler } from './subagent-stop-hook-handler';
 import { SessionEndHookHandler } from './session-end-hook-handler';
 import { ToolFailureHookHandler } from './tool-failure-hook-handler';
 import {
@@ -55,6 +61,7 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
+  getModelContextWindow,
 } from '@ptah-extension/shared';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import {
@@ -336,11 +343,6 @@ export interface QueryOptionsInput {
    */
   forkSession?: boolean;
   /**
-   * When resuming, only replay messages up to (and including) the message with
-   * this UUID. Maps directly to SDK Options.resumeSessionAt.
-   */
-  resumeSessionAt?: string;
-  /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
    * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
@@ -441,10 +443,20 @@ export class SdkQueryOptionsBuilder {
     private readonly userPromptSubmitHookHandler: UserPromptSubmitHookHandler,
     @inject(SDK_TOKENS.SDK_STOP_HOOK_HANDLER)
     private readonly stopHookHandler: StopHookHandler,
+    @inject(SDK_TOKENS.SDK_STOP_FAILURE_HOOK_HANDLER)
+    private readonly stopFailureHookHandler: StopFailureHookHandler,
     @inject(SDK_TOKENS.SDK_SESSION_END_HOOK_HANDLER)
     private readonly sessionEndHookHandler: SessionEndHookHandler,
     @inject(SDK_TOKENS.SDK_TOOL_FAILURE_HOOK_HANDLER)
     private readonly toolFailureHookHandler: ToolFailureHookHandler,
+    @inject(SDK_TOKENS.SDK_PRE_TOOL_USE_HOOK_HANDLER)
+    private readonly preToolUseHookHandler: PreToolUseHookHandler,
+    @inject(SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER)
+    private readonly sessionStartHookHandler: SessionStartHookHandler,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
+    private readonly subagentStopHookHandler: SubagentStopHookHandler,
+    @inject(SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR, { isOptional: true })
+    private readonly codeSymbolPromptInjector?: CodeSymbolPromptInjector,
   ) {}
 
   /**
@@ -483,7 +495,6 @@ export class SdkQueryOptionsBuilder {
       pathToClaudeCodeExecutable,
       onProviderError,
       forkSession,
-      resumeSessionAt,
       enableFileCheckpointing,
       includePartialMessages,
       mcpServersOverride,
@@ -585,6 +596,10 @@ export class SdkQueryOptionsBuilder {
       mcpEnabled: isPremium,
       hasEnhancedPrompts: !!enhancedPromptsContent,
       pluginCount: pluginPaths?.length ?? 0,
+      mcpOverrideKeys: mcpServersOverride
+        ? Object.keys(mcpServersOverride)
+        : [],
+      mcpOverrides: redactMcpOverrideMap(mcpServersOverride),
     });
 
     return {
@@ -624,6 +639,10 @@ export class SdkQueryOptionsBuilder {
               ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
               : {};
           })(),
+          ...this.resolveContextWindowOverride(
+            model,
+            effectiveAuthEnv.ANTHROPIC_BASE_URL,
+          ),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
           if (data.includes('[ERROR]')) {
@@ -656,13 +675,40 @@ export class SdkQueryOptionsBuilder {
           : {}),
         agentProgressSummaries: true,
         forkSession: resumeSessionId ? forkSession : undefined,
-        resumeSessionAt: resumeSessionId ? resumeSessionAt : undefined,
       },
     };
   }
 
   /**
-   * Emit a structured warning when fork/resume-at are requested without a
+   * Resolve a `CLAUDE_CODE_MAX_CONTEXT_TOKENS` override for proxied providers.
+   *
+   * The SDK only auto-detects a model's context window for first-party
+   * Anthropic base URLs; behind a translation proxy it falls back to a
+   * hardcoded 200k window, so auto-compaction triggers at the wrong point
+   * (too late for smaller models, which then overflow). When the selected
+   * model's real window is known, pin it explicitly so the SDK's
+   * auto-compaction threshold tracks the actual model.
+   *
+   * Skipped for first-party Anthropic (native detection is correct), when the
+   * window is unknown (window === 0 → leave the SDK default), and when the
+   * value is already set upstream (respect an explicit override).
+   */
+  private resolveContextWindowOverride(
+    model: string,
+    baseUrl: string | undefined,
+  ): Record<string, string> {
+    if (process.env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']) return {};
+    const trimmed = baseUrl?.trim();
+    const isFirstPartyAnthropic =
+      !trimmed || /^https?:\/\/api\.anthropic\.com\/?$/i.test(trimmed);
+    if (isFirstPartyAnthropic) return {};
+    const window = getModelContextWindow(model);
+    if (window <= 0) return {};
+    return { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(window) };
+  }
+
+  /**
+   * Emit a structured warning when forkSession is requested without a
    * resumeSessionId. Behavior is intentionally preserved (silent drop into
    * `undefined`) â€” but observability is added so misconfigured callers
    * surface in logs instead of silently producing fresh sessions.
@@ -671,19 +717,15 @@ export class SdkQueryOptionsBuilder {
    * `build()` flow uncluttered.
    */
   private warnIfForkOptionsDroppedSilently(input: QueryOptionsInput): void {
-    const { resumeSessionId, forkSession, resumeSessionAt, sessionId } = input;
+    const { resumeSessionId, forkSession, sessionId } = input;
     if (resumeSessionId) return;
-    if (forkSession === undefined && resumeSessionAt === undefined) return;
+    if (forkSession === undefined) return;
     this.logger.warn(
-      '[SdkQueryOptionsBuilder] forkSession/resumeSessionAt were set without a resumeSessionId â€” both options will be dropped because they only apply to resumed sessions.',
+      '[SdkQueryOptionsBuilder] forkSession was set without a resumeSessionId â€” the option will be dropped because it only applies to resumed sessions.',
       {
         sessionId: sessionId ? `${sessionId.slice(0, 8)}...` : undefined,
         hasForkSession: forkSession !== undefined,
-        hasResumeSessionAt: resumeSessionAt !== undefined,
         forkSession,
-        resumeSessionAt: resumeSessionAt
-          ? `${resumeSessionAt.slice(0, 8)}...`
-          : undefined,
       },
     );
   }
@@ -866,6 +908,17 @@ export class SdkQueryOptionsBuilder {
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
     });
+    let sessionStartBlock = '';
+    if (isPremium && cwd) {
+      sessionStartBlock =
+        await this.memoryPromptInjector.buildSessionStartBlock(cwd);
+    }
+    let corpusPrimeBlock = '';
+    const corpusName = sessionConfig?.corpusName?.trim();
+    if (isPremium && corpusName) {
+      corpusPrimeBlock =
+        await this.memoryPromptInjector.buildCorpusBlock(corpusName);
+    }
     let memoryBlock = '';
     if (isPremium && initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
@@ -873,9 +926,28 @@ export class SdkQueryOptionsBuilder {
         cwd,
       );
     }
-    const finalContent = memoryBlock
-      ? memoryBlock + (result.content ? '\n\n' + result.content : '')
-      : result.content;
+    let codeSymbolBlock = '';
+    if (
+      isPremium &&
+      initialUserQuery?.trim() &&
+      this.codeSymbolPromptInjector
+    ) {
+      codeSymbolBlock = await this.codeSymbolPromptInjector.buildBlock(
+        initialUserQuery,
+        cwd,
+      );
+    }
+    const finalContentJoined = [
+      sessionStartBlock,
+      corpusPrimeBlock,
+      memoryBlock,
+      codeSymbolBlock,
+      result.content ?? '',
+    ]
+      .filter((p) => p.length > 0)
+      .join('\n\n');
+    const finalContent =
+      finalContentJoined.length > 0 ? finalContentJoined : undefined;
 
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
       isPremium,
@@ -886,8 +958,14 @@ export class SdkQueryOptionsBuilder {
       hasPtahCorePrompt: isPremium,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
+      hasSessionStartBlock: !!sessionStartBlock,
+      sessionStartBlockLength: sessionStartBlock.length,
+      hasCorpusPrimeBlock: !!corpusPrimeBlock,
+      corpusPrimeBlockLength: corpusPrimeBlock.length,
       hasMemoryBlock: !!memoryBlock,
       memoryBlockLength: memoryBlock.length,
+      hasCodeSymbolBlock: !!codeSymbolBlock,
+      codeSymbolBlockLength: codeSymbolBlock.length,
       totalAppendLength: finalContent?.length ?? 0,
     });
     return {
@@ -934,7 +1012,7 @@ export class SdkQueryOptionsBuilder {
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
       isPremium,
       mcpServerRunning,
-      mcpUrl: mcpConfig.ptah.url,
+      mcpUrl: redactMcpUrl(mcpConfig.ptah.url),
     });
     return mcpConfig;
   }
@@ -1006,11 +1084,27 @@ export class SdkQueryOptionsBuilder {
       cwd,
     );
     const stopHooks = this.stopHookHandler.createHooks(sessionId ?? '', cwd);
+    const stopFailureHooks = this.stopFailureHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
     const sessionEndHooks = this.sessionEndHookHandler.createHooks(
       sessionId ?? '',
       cwd,
     );
     const toolFailureHooks = this.toolFailureHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
+    const preToolUseHooks = this.preToolUseHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
+    const sessionStartHooks = this.sessionStartHookHandler.createHooks(
+      sessionId ?? '',
+      cwd,
+    );
+    const subagentStopHooks = this.subagentStopHookHandler.createHooks(
       sessionId ?? '',
       cwd,
     );
@@ -1022,8 +1116,12 @@ export class SdkQueryOptionsBuilder {
       postToolUseHooks,
       userPromptSubmitHooks,
       stopHooks,
+      stopFailureHooks,
       sessionEndHooks,
       toolFailureHooks,
+      preToolUseHooks,
+      sessionStartHooks,
+      subagentStopHooks,
     ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;

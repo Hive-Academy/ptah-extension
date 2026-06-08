@@ -42,6 +42,7 @@ import {
   BackgroundAgentStore,
   BatchedUpdateService,
   EventDeduplicationService,
+  ExecutionTreeBuilderService,
   PermissionHandlerService,
   SessionManager,
   StreamingAccumulatorCore,
@@ -69,6 +70,7 @@ export class StreamRouter {
   private readonly deduplication = inject(EventDeduplicationService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
+  private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
   constructor() {
     this.migratePersistedTabs();
@@ -753,10 +755,13 @@ export class StreamRouter {
   /**
    * Reactive cleanup driven by `TabManagerService.closedTab`. Performs:
    *   - cleanupSessionDeduplication (always, when sessionId present)
-   *   - clearSessionAgents (only on `kind === 'close'` — pop-out transfers
-   *     keep agents alive in the target panel)
+   *   - clearSessionAgents (on `kind === 'close'` or `'reset'` — pop-out
+   *     transfers keep agents alive in the target panel)
    *   - unbind the tab from its conversation
    *   - remove the conversation if no other tab still references it
+   *
+   * `reset` (the `/clear` command) shares all of `close`'s teardown; the tab
+   * itself survives — TabManager re-empties it rather than removing it.
    *
    * Wrapped in try/catch so a single defect can't wedge the effect runner
    * for subsequent close events.
@@ -766,9 +771,16 @@ export class StreamRouter {
       if (evt.sessionId) {
         const sid = evt.sessionId as ClaudeSessionId;
         this.streamingHandler.cleanupSessionDeduplication(sid);
-        if (evt.kind === 'close') {
-          this.agentMonitorStore.clearSessionAgents(sid);
+        if (evt.kind === 'close' || evt.kind === 'reset') {
+          this.agentMonitorStore.forceClearSessionAgents(sid);
+          this.backgroundAgentStore.clearSession(sid);
+          this.treeBuilder.clearForSession(sid);
         }
+      }
+
+      if (evt.kind === 'close' || evt.kind === 'reset') {
+        this.treeBuilder.clearForTab(evt.tabId);
+        this.batchedUpdate.clearPendingUpdates(evt.tabId);
       }
 
       const tabId = TabId.safeParse(evt.tabId);

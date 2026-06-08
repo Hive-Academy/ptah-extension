@@ -70,3 +70,8 @@ export {
   type SymbolSearchResult,
   type ReindexResult,
 } from './code-namespace.builder';
+export {
+  buildHarnessNamespace,
+  type HarnessNamespaceDependencies,
+  type HarnessNamespace,
+} from './harness-namespace.builder';

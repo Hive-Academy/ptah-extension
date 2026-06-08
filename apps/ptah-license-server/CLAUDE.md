@@ -48,7 +48,7 @@ NestJS 11 backend that issues and verifies Ptah licenses, manages subscriptions 
 - `FRONTEND_URL` (defaults to `https://ptah.live`)
 - `PORT` (default 3000)
 - WorkOS, Paddle, Resend, Sentry secrets (see corresponding modules)
-- `ADMIN_SECRET` for admin-triggered endpoints (consumed by `infra-test`)
+- `ADMIN_SECRET` for admin-triggered endpoints
 
 ## Guidelines
 

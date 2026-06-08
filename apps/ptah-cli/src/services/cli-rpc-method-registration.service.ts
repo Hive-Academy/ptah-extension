@@ -17,10 +17,13 @@ import {
   registerHarnessServices,
   verifyAndReportRpcRegistration,
   __debugAssertSharedHandlersDisjoint,
+  CorpusRpcHandlers,
   CronRpcHandlers,
+  EmbedderRpcHandlers,
   GatewayRpcHandlers,
   IndexingRpcHandlers,
   MemoryRpcHandlers,
+  MemRpcHandlers,
   PersistenceRpcHandlers,
   SkillsSynthesisRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
@@ -29,7 +32,6 @@ import {
   wireAgentEventListeners,
 } from '@ptah-extension/cli-agent-runtime';
 import { CliAgentRpcHandlers } from './rpc/handlers/cli-agent-rpc.handlers.js';
-import { SkillsShRpcHandlers } from './rpc/handlers/skills-sh-rpc.handlers.js';
 
 /**
  * RPC methods that have NO sensible CLI implementation — they all sit on top
@@ -89,6 +91,19 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'memory:forget',
   'memory:rebuildIndex',
   'memory:stats',
+  'mem:searchIndex',
+  'mem:timeline',
+  'mem:getObservations',
+  'embedder:status',
+  'embedder:retry',
+  'corpus:list',
+  'corpus:get',
+  'corpus:build',
+  'corpus:prime',
+  'corpus:query',
+  'corpus:reprime',
+  'corpus:rebuild',
+  'corpus:delete',
   'skillSynthesis:listCandidates',
   'skillSynthesis:getCandidate',
   'skillSynthesis:promote',
@@ -135,15 +150,16 @@ export class CliRpcMethodRegistrationService {
     registerAllRpcHandlers(c, {
       exclude: [
         CronRpcHandlers,
+        EmbedderRpcHandlers,
         GatewayRpcHandlers,
         MemoryRpcHandlers,
+        MemRpcHandlers,
+        CorpusRpcHandlers,
         SkillsSynthesisRpcHandlers,
         PersistenceRpcHandlers,
         IndexingRpcHandlers,
       ],
     });
-    c.registerSingleton(SkillsShRpcHandlers);
-    c.resolve(SkillsShRpcHandlers).register();
     c.registerSingleton(CliAgentRpcHandlers);
     c.resolve(CliAgentRpcHandlers).register();
 

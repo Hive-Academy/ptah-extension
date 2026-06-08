@@ -276,6 +276,16 @@ export async function execute(
   const drainTimeoutMs = hooks.drainTimeoutMs ?? 5_000;
   const version = hooks.version ?? '0.1.0';
 
+  if (hooks.stdin === undefined && process.stdin.isTTY === true) {
+    process.stderr.write(
+      '[ptah] interact: waiting for newline-delimited JSON-RPC 2.0 requests on stdin.\n' +
+        '[ptah] each request is one JSON object per line, e.g. ' +
+        '{"jsonrpc":"2.0","id":1,"method":"task.submit","params":{"task":"..."}}\n' +
+        '[ptah] exit with Ctrl-D (EOF) or Ctrl-C. For a one-shot human run prefer ' +
+        '`ptah session start --task "..." --once --human`.\n',
+    );
+  }
+
   let resolvedExitCode: number | null = null;
 
   try {
@@ -621,14 +631,18 @@ export async function execute(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
+    const ptahCode =
+      (err as { ptahCode?: string }).ptahCode ?? 'internal_failure';
 
     await formatter.writeNotification('task.error', {
-      ptah_code: 'internal_failure',
+      ptah_code: ptahCode,
       command: 'interact',
       message,
-      ...(stack ? { stack } : {}),
     });
+
+    if (globals.verbose === true && err instanceof Error && err.stack) {
+      process.stderr.write(`${err.stack}\n`);
+    }
     resolvedExitCode = ExitCode.InternalFailure;
   }
 

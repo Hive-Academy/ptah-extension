@@ -12,6 +12,7 @@ function getMockedStartup(): jest.Mock {
 }
 
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
   createMockLogger,
   type MockLogger,
@@ -23,6 +24,15 @@ function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
 }
 
+const SAFE_CWD = '/workspace/repo';
+
+const PLATFORM_INFO_STUB: IPlatformInfo = {
+  type: 'cli' as IPlatformInfo['type'],
+  extensionPath: '/opt/ptah-app',
+  globalStoragePath: '/opt/ptah-storage',
+  workspaceStoragePath: '/opt/ptah-workspace-storage',
+};
+
 interface Harness {
   manager: SdkWarmQueryManager;
   logger: MockLogger;
@@ -30,7 +40,7 @@ interface Harness {
 
 function makeManager(): Harness {
   const logger = createMockLogger();
-  const manager = new SdkWarmQueryManager(asLogger(logger));
+  const manager = new SdkWarmQueryManager(asLogger(logger), PLATFORM_INFO_STUB);
   return { manager, logger };
 }
 
@@ -45,7 +55,7 @@ describe('SdkWarmQueryManager', () => {
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close });
 
-      await h.manager.prewarm(null);
+      await h.manager.prewarm(null, SAFE_CWD);
 
       expect(getMockedStartup()).toHaveBeenCalledTimes(1);
       expect(close).not.toHaveBeenCalled();
@@ -59,9 +69,9 @@ describe('SdkWarmQueryManager', () => {
       const h = makeManager();
       getMockedStartup().mockResolvedValue({ close: jest.fn() });
 
-      await h.manager.prewarm(null);
-      await h.manager.prewarm(null);
-      await h.manager.prewarm(null);
+      await h.manager.prewarm(null, SAFE_CWD);
+      await h.manager.prewarm(null, SAFE_CWD);
+      await h.manager.prewarm(null, SAFE_CWD);
 
       expect(getMockedStartup()).toHaveBeenCalledTimes(1);
     });
@@ -71,7 +81,7 @@ describe('SdkWarmQueryManager', () => {
       const failure = new Error('subprocess spawn failed');
       getMockedStartup().mockRejectedValueOnce(failure);
 
-      await expect(h.manager.prewarm(null)).resolves.toBeUndefined();
+      await expect(h.manager.prewarm(null, SAFE_CWD)).resolves.toBeUndefined();
 
       expect(h.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('SDK prewarm failed'),
@@ -84,8 +94,8 @@ describe('SdkWarmQueryManager', () => {
         .mockRejectedValueOnce(new Error('boom'))
         .mockResolvedValueOnce({ close: jest.fn() });
 
-      await h.manager.prewarm(null);
-      await h.manager.prewarm(null);
+      await h.manager.prewarm(null, SAFE_CWD);
+      await h.manager.prewarm(null, SAFE_CWD);
 
       expect(getMockedStartup()).toHaveBeenCalledTimes(2);
     });
@@ -95,7 +105,7 @@ describe('SdkWarmQueryManager', () => {
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close });
 
-      await h.manager.prewarm('/bin/cli.js');
+      await h.manager.prewarm('/bin/cli.js', SAFE_CWD);
 
       expect(getMockedStartup()).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -114,7 +124,7 @@ describe('SdkWarmQueryManager', () => {
       const mcpServers = {
         ptah: { type: 'http', url: 'http://localhost:9999' },
       };
-      await h.manager.prewarm(null, mcpServers);
+      await h.manager.prewarm(null, SAFE_CWD, mcpServers);
 
       expect(getMockedStartup()).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -134,7 +144,7 @@ describe('SdkWarmQueryManager', () => {
         },
       });
 
-      await expect(h.manager.prewarm(null)).resolves.toBeUndefined();
+      await expect(h.manager.prewarm(null, SAFE_CWD)).resolves.toBeUndefined();
 
       (
         h.manager as unknown as { _warmQueryCreatedAt: number }
@@ -152,7 +162,7 @@ describe('SdkWarmQueryManager', () => {
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close });
 
-      await h.manager.prewarm(null);
+      await h.manager.prewarm(null, SAFE_CWD);
 
       (
         h.manager as unknown as { _warmQueryCreatedAt: number }
@@ -163,7 +173,7 @@ describe('SdkWarmQueryManager', () => {
       expect(close).toHaveBeenCalledTimes(1);
 
       getMockedStartup().mockResolvedValueOnce({ close: jest.fn() });
-      await h.manager.prewarm(null);
+      await h.manager.prewarm(null, SAFE_CWD);
       expect(getMockedStartup()).toHaveBeenCalledTimes(2);
     });
 
@@ -171,11 +181,12 @@ describe('SdkWarmQueryManager', () => {
       const h = makeManager();
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close, query: jest.fn() });
-      await h.manager.prewarm('/bin/cli.js');
+      await h.manager.prewarm('/bin/cli.js', SAFE_CWD);
 
       const consumed = h.manager.consumeWarmQuery({
         pathToClaudeCodeExecutable: '/different/cli.js',
         mcpServers: null,
+        cwd: SAFE_CWD,
       });
 
       expect(consumed).toBeNull();
@@ -190,13 +201,14 @@ describe('SdkWarmQueryManager', () => {
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close, query: jest.fn() });
 
-      await h.manager.prewarm(null, {
+      await h.manager.prewarm(null, SAFE_CWD, {
         x: { type: 'http', url: 'http://x' },
       });
 
       const consumed = h.manager.consumeWarmQuery({
         pathToClaudeCodeExecutable: null,
         mcpServers: null,
+        cwd: SAFE_CWD,
       });
 
       expect(consumed).toBeNull();
@@ -209,11 +221,12 @@ describe('SdkWarmQueryManager', () => {
       const warmQuery = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close, query: warmQuery });
 
-      await h.manager.prewarm(null);
+      await h.manager.prewarm(null, SAFE_CWD);
 
       const consumed = h.manager.consumeWarmQuery({
         pathToClaudeCodeExecutable: null,
         mcpServers: null,
+        cwd: SAFE_CWD,
       });
 
       expect(consumed).not.toBeNull();
@@ -235,12 +248,14 @@ describe('SdkWarmQueryManager', () => {
             mcpServers: null,
             baseUrl: null,
             authEnvHash: null,
+            cwd: SAFE_CWD,
           },
           {
             pathToClaudeCodeExecutable: '/cli.js',
             mcpServers: null,
             baseUrl: null,
             authEnvHash: null,
+            cwd: SAFE_CWD,
           },
         ),
       ).toBeNull();
@@ -252,11 +267,13 @@ describe('SdkWarmQueryManager', () => {
           pathToClaudeCodeExecutable: null,
           mcpServers: null,
           baseUrl: 'https://a.example',
+          cwd: SAFE_CWD,
         },
         {
           pathToClaudeCodeExecutable: null,
           mcpServers: null,
           baseUrl: 'https://b.example',
+          cwd: SAFE_CWD,
         },
       );
       expect(reason).toContain('baseUrl differs');
@@ -268,11 +285,13 @@ describe('SdkWarmQueryManager', () => {
           pathToClaudeCodeExecutable: null,
           mcpServers: null,
           authEnvHash: 'hash-a',
+          cwd: SAFE_CWD,
         },
         {
           pathToClaudeCodeExecutable: null,
           mcpServers: null,
           authEnvHash: 'hash-b',
+          cwd: SAFE_CWD,
         },
       );
       expect(reason).toContain('authEnv');
@@ -285,7 +304,7 @@ describe('SdkWarmQueryManager', () => {
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close });
 
-      await h.manager.prewarm(null);
+      await h.manager.prewarm(null, SAFE_CWD);
       h.manager.dispose();
 
       expect(close).toHaveBeenCalledTimes(1);
@@ -293,7 +312,7 @@ describe('SdkWarmQueryManager', () => {
 
       // Allows re-prewarm
       getMockedStartup().mockResolvedValueOnce({ close: jest.fn() });
-      await h.manager.prewarm(null);
+      await h.manager.prewarm(null, SAFE_CWD);
       expect(getMockedStartup()).toHaveBeenCalledTimes(2);
     });
   });

@@ -4,6 +4,7 @@ import {
   computed,
   input,
 } from '@angular/core';
+import { assertNever } from '@ptah-extension/shared';
 import type { MemoryCuratorEventWire } from '@ptah-extension/shared';
 
 interface FeedRow {
@@ -131,19 +132,30 @@ function formatRateLimited(stats: MemoryCuratorEventWire['stats']): string {
 }
 
 function toneFor(ev: MemoryCuratorEventWire): FeedRow['tone'] {
-  if (ev.kind === 'error') return 'error';
-  if (ev.kind === 'curator-run' || ev.kind === 'manual-run') return 'success';
-  if (
-    ev.kind === 'idle-trigger' ||
-    ev.kind === 'turn-trigger' ||
-    ev.kind === 'turn-complete-trigger' ||
-    ev.kind === 'episode-trigger' ||
-    ev.kind === 'session-end-trigger' ||
-    ev.kind === 'user-cue-trigger' ||
-    ev.kind === 'commit-detect'
-  )
-    return 'info';
-  if (ev.kind === 'rate-limited' || ev.kind === 'tool-failure')
-    return 'warning';
-  return 'warning';
+  switch (ev.kind) {
+    case 'error':
+    case 'curator-error':
+      return 'error';
+    case 'curator-run':
+    case 'manual-run':
+      return 'success';
+    case 'idle-trigger':
+    case 'turn-trigger':
+    case 'turn-complete-trigger':
+    case 'episode-trigger':
+    case 'session-end-trigger':
+    case 'user-cue-trigger':
+    case 'commit-detect':
+      return 'info';
+    case 'curator-skipped-no-data':
+    case 'decay-run':
+    case 'boot-scan':
+    case 'embedder-download':
+      return 'info';
+    case 'rate-limited':
+    case 'tool-failure':
+      return 'warning';
+    default:
+      return assertNever(ev.kind);
+  }
 }

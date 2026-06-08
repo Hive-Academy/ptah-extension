@@ -74,7 +74,7 @@ async function runStatus(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'license:getStatus',
@@ -96,7 +96,7 @@ async function runSet(
     stderr.write('ptah license set: --key is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const key = Array.isArray(opts.key) ? opts.key[0] : opts.key;
     const result = await callRpc<{
       success?: boolean;
@@ -104,8 +104,13 @@ async function runSet(
       plan?: { name?: string };
       error?: string;
     }>(ctx.transport, 'license:setKey', { licenseKey: key });
-    if (result?.success === false) {
-      throw new Error(result.error ?? 'license:setKey failed');
+    if (result?.success !== true) {
+      await formatter.writeNotification('task.error', {
+        success: false,
+        ptah_code: 'license_required',
+        message: result?.error ?? 'license:setKey returned success=false',
+      });
+      return ExitCode.LicenseRequired;
     }
     let expiryWarning: 'near_expiry' | 'critical' | null = null;
     let daysRemaining: number | null = null;
@@ -155,7 +160,7 @@ async function runClear(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<{ success?: boolean; error?: string }>(
       ctx.transport,
       'license:clearKey',

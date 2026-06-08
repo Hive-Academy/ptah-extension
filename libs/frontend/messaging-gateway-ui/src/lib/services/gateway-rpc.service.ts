@@ -4,9 +4,15 @@ import type {
   GatewayApprovalStatus,
   GatewayApproveBindingResult,
   GatewayBlockBindingResult,
+  GatewayGetAllowListResult,
+  GatewayGetDiscordAppIdResult,
   GatewayListBindingsResult,
+  GatewayListDiscordGuildsResult,
   GatewayListMessagesResult,
   GatewayPlatformId,
+  GatewayRegisterDiscordCommandsResult,
+  GatewaySetAllowListResult,
+  GatewaySetDiscordAppIdResult,
   GatewaySetTokenResult,
   GatewayStartResult,
   GatewayStatusResult,
@@ -28,6 +34,7 @@ const GATEWAY_RPC_TIMEOUTS = {
   SHORT_MS: 8_000,
   SET_TOKEN_MS: 15_000,
   TEST_MS: 20_000,
+  REGISTER_MS: 20_000,
 } as const;
 
 /**
@@ -217,5 +224,89 @@ export class GatewayRpcService {
       return result.data;
     }
     throw new Error(result.error || 'gateway:test failed');
+  }
+
+  public async getAllowList(
+    platform: GatewayPlatformId,
+  ): Promise<GatewayGetAllowListResult> {
+    const result = await this.rpc.call(
+      'gateway:getAllowList',
+      { platform },
+      { timeout: GATEWAY_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'gateway:getAllowList failed');
+  }
+
+  public async setAllowList(
+    platform: GatewayPlatformId,
+    entries: string[],
+  ): Promise<GatewaySetAllowListResult> {
+    const result = await this.rpc.call(
+      'gateway:setAllowList',
+      { platform, entries },
+      { timeout: GATEWAY_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'gateway:setAllowList failed');
+  }
+
+  public async getDiscordAppId(): Promise<GatewayGetDiscordAppIdResult> {
+    const result = await this.rpc.call(
+      'gateway:getDiscordAppId',
+      {},
+      { timeout: GATEWAY_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'gateway:getDiscordAppId failed');
+  }
+
+  public async setDiscordAppId(
+    applicationId: string,
+  ): Promise<GatewaySetDiscordAppIdResult> {
+    const result = await this.rpc.call(
+      'gateway:setDiscordAppId',
+      { applicationId },
+      { timeout: GATEWAY_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'gateway:setDiscordAppId failed');
+  }
+
+  /**
+   * Registers the `/ptah` command with Discord via the stored bot token.
+   * Returns a structured result so the UI can surface a precise failure
+   * reason (`missing-token`, `missing-application-id`, or a Discord API error).
+   */
+  public async registerDiscordCommands(): Promise<GatewayRegisterDiscordCommandsResult> {
+    const result = await this.rpc.call(
+      'gateway:registerDiscordCommands',
+      {},
+      { timeout: GATEWAY_RPC_TIMEOUTS.REGISTER_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'gateway:registerDiscordCommands failed');
+  }
+
+  public async listDiscordGuilds(): Promise<GatewayListDiscordGuildsResult> {
+    const result = await this.rpc.call(
+      'gateway:listDiscordGuilds',
+      {},
+      { timeout: GATEWAY_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'gateway:listDiscordGuilds failed');
   }
 }
