@@ -153,6 +153,8 @@ describe('TurnEndHandlerService', () => {
 
     const tabManagerMock = {
       findTabsBySessionId: findTabsBySessionIdMock,
+      findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
+      updateBackgroundTab: jest.fn(() => false),
       setTurnEndedFields: setTurnEndedFieldsMock,
       setLastTerminalReason: setLastTerminalReasonMock,
       setPendingBackgroundTasks: setPendingBackgroundTasksMock,
@@ -339,7 +341,7 @@ describe('TurnEndHandlerService', () => {
       });
     });
 
-    it('warns and no-ops when no tab is bound to the sessionId', () => {
+    it('warns and still routes the error once when no tab is bound to the sessionId', () => {
       tabs = [];
       service.handleTurnFailed(
         makeTurnFailedPayload({ sessionId: SESS_UNKNOWN }),
@@ -347,7 +349,7 @@ describe('TurnEndHandlerService', () => {
 
       expect(setLastTerminalReasonMock).not.toHaveBeenCalled();
       expect(finalizeCurrentMessageMock).not.toHaveBeenCalled();
-      expect(handleChatErrorMock).not.toHaveBeenCalled();
+      expect(handleChatErrorMock).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleTurnFailed: no tab bound to sessionId',
         expect.objectContaining({
@@ -489,14 +491,14 @@ describe('TurnEndHandlerService', () => {
       expect(markLoadedMock).toHaveBeenCalledWith('tab-1');
     });
 
-    it('warns and no-ops when no tab is bound to the sessionId', () => {
+    it('warns and still runs onStopped when no tab is bound to the sessionId', () => {
       tabs = [];
 
       service.handleSubagentEnded(
         makeSubagentEndedPayload({ sessionId: SESS_UNKNOWN }),
       );
 
-      expect(onStoppedMock).not.toHaveBeenCalled();
+      expect(onStoppedMock).toHaveBeenCalledTimes(1);
       expect(setPendingBackgroundTasksMock).not.toHaveBeenCalled();
       expect(markLoadedMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
