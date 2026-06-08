@@ -14,7 +14,6 @@
  * 2. Deterministic cleanup on premium expiry
  */
 
-import { homedir } from 'os';
 import { join } from 'path';
 import type { CliAgentTransformResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
@@ -35,7 +34,10 @@ import { transformAgentContent, extractAgentId } from './transform-rules';
 export class GeminiAgentTransformer implements ICliAgentTransformer {
   readonly target = 'gemini' as const;
 
-  transform(agent: GeneratedAgent): CliAgentTransformResult {
+  transform(
+    agent: GeneratedAgent,
+    workspaceRoot: string,
+  ): CliAgentTransformResult {
     const agentId = extractAgentId(agent.filePath);
     const description = agent.variables['description'] || `${agentId} agent`;
     const content = transformAgentContent(
@@ -44,7 +46,7 @@ export class GeminiAgentTransformer implements ICliAgentTransformer {
       agentId,
       description,
     );
-    const filePath = join(homedir(), '.gemini', 'agents', `ptah-${agentId}.md`);
+    const filePath = join(workspaceRoot, '.gemini', 'agents', `${agentId}.md`);
 
     return {
       cli: this.target,

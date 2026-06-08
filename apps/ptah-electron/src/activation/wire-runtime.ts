@@ -801,18 +801,6 @@ export async function wireRuntime(
   }
   try {
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
-    let pluginsPathForSync: string;
-    try {
-      const contentDownloadForSync = container.resolve<ContentDownloadService>(
-        PLATFORM_TOKENS.CONTENT_DOWNLOAD,
-      );
-      pluginsPathForSync = contentDownloadForSync.getPluginsPath();
-    } catch {
-      const os = await import('os');
-      const path = await import('path');
-      pluginsPathForSync = path.join(os.homedir(), '.ptah', 'plugins');
-    }
-
     const currentWorkspaceRoot = startupWorkspaceRoot;
 
     refs.licenseReactivityDisposable = bindLicenseReactivity({
@@ -831,7 +819,7 @@ export async function wireRuntime(
         }
       },
       syncCliSkills: () => {
-        syncCliSkillsOnActivation(container, pluginsPathForSync);
+        syncCliSkillsOnActivation(container, currentWorkspaceRoot);
       },
       syncCliAgents: () => {
         if (currentWorkspaceRoot) {
