@@ -10,7 +10,10 @@ import {
 } from 'fs/promises';
 import { join, relative, dirname } from 'path';
 import type { OriginSidecar } from './origin-sidecar.types';
-import { ORIGIN_SIDECAR_FILENAME } from './origin-sidecar.types';
+import {
+  DEFAULT_HISTORY_DIR,
+  ORIGIN_SIDECAR_FILENAME,
+} from './origin-sidecar.types';
 
 const MAX_HASH_RECURSION_DEPTH = 20;
 
@@ -48,6 +51,9 @@ async function collectFiles(
       continue;
     }
     if (entry.name === ORIGIN_SIDECAR_FILENAME) {
+      continue;
+    }
+    if (entry.isDirectory() && entry.name === DEFAULT_HISTORY_DIR) {
       continue;
     }
     const absPath = join(currentDir, entry.name);

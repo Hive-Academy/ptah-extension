@@ -11,6 +11,7 @@ export interface OriginSidecar {
   lastEnhancedAt: number | null;
   historyDir: string;
   currentContentHash?: string;
+  pendingSourceHash?: string;
   conflictsWith?: string;
 }
 

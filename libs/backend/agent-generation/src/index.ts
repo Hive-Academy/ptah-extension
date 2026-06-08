@@ -108,6 +108,8 @@ export type {
   MirrorSources,
   MirrorResult,
   CloneEntry,
+  ReconcileResult,
+  DivergedClone,
 } from './lib/services/user-layer/user-layer-mirror.service';
 export type {
   OriginSidecar,

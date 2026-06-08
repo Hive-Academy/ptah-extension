@@ -7,6 +7,7 @@ import {
   readFile,
   writeFile,
   rename,
+  rm,
   stat,
   lstat,
   unlink,
@@ -59,11 +60,28 @@ export interface CloneEntry {
   lastEnhancedAt: number | null;
 }
 
+export interface DivergedClone {
+  kind: OriginKind;
+  slug: string;
+  pendingSourceHash: string;
+}
+
+export interface ReconcileResult {
+  noop: number;
+  fastForwarded: number;
+  diverged: number;
+  missingSidecar: number;
+  errors: number;
+  divergedSlugs: DivergedClone[];
+}
+
 const MAX_COPY_RECURSION_DEPTH = 20;
 const SYNTH_CANDIDATES_DIR = '_candidates';
 
 @injectable()
 export class UserLayerMirrorService {
+  private readonly inflight = new Map<string, Promise<void>>();
+
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   getUserLayerRoots(): UserLayerRoots {
@@ -165,6 +183,446 @@ export class UserLayerMirrorService {
       }
     }
     return entries;
+  }
+
+  async reconcile(sources: MirrorSources): Promise<ReconcileResult> {
+    const result: ReconcileResult = {
+      noop: 0,
+      fastForwarded: 0,
+      diverged: 0,
+      missingSidecar: 0,
+      errors: 0,
+      divergedSlugs: [],
+    };
+    const roots = this.getUserLayerRoots();
+
+    for (const pluginPath of sources.pluginPaths) {
+      const pluginId = basename(pluginPath);
+      await this.reconcilePluginSkills(pluginPath, roots.skills, result);
+      await this.reconcilePluginCommands(
+        pluginPath,
+        pluginId,
+        roots.commands,
+        result,
+      );
+    }
+
+    if (sources.agentSourceDir) {
+      await this.reconcileAgents(sources.agentSourceDir, roots.agents, result);
+    }
+
+    this.logger.info('[UserLayerMirror] reconcile complete', {
+      noop: result.noop,
+      fastForwarded: result.fastForwarded,
+      diverged: result.diverged,
+      missingSidecar: result.missingSidecar,
+      errors: result.errors,
+    });
+    return result;
+  }
+
+  private async reconcilePluginSkills(
+    pluginPath: string,
+    skillsRoot: string,
+    result: ReconcileResult,
+  ): Promise<void> {
+    const sourceSkillsDir = join(pluginPath, 'skills');
+    let slugs: string[];
+    try {
+      slugs = await this.listSubdirectories(sourceSkillsDir);
+    } catch (error: unknown) {
+      if (!this.isEnoent(error)) {
+        result.errors += 1;
+        this.logger.warn(
+          '[UserLayerMirror] reconcile failed to read plugin skills',
+          {
+            sourceSkillsDir,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+      return;
+    }
+
+    for (const slug of slugs) {
+      const sourceDir = join(sourceSkillsDir, slug);
+      const cloneDir = join(skillsRoot, slug);
+      await this.withSlugLock('skill', slug, async () => {
+        await this.reconcileDirClone(
+          'skill',
+          slug,
+          sourceDir,
+          cloneDir,
+          result,
+        );
+      });
+    }
+  }
+
+  private async reconcilePluginCommands(
+    pluginPath: string,
+    pluginId: string,
+    commandsRoot: string,
+    result: ReconcileResult,
+  ): Promise<void> {
+    const sourceCommandsDir = join(pluginPath, 'commands');
+    let files: string[];
+    try {
+      files = (await readdir(sourceCommandsDir, { withFileTypes: true }))
+        .filter((e) => e.isFile() && e.name.endsWith('.md'))
+        .map((e) => e.name);
+    } catch (error: unknown) {
+      if (!this.isEnoent(error)) {
+        result.errors += 1;
+        this.logger.warn(
+          '[UserLayerMirror] reconcile failed to read plugin commands',
+          {
+            sourceCommandsDir,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+      return;
+    }
+
+    for (const fileName of files) {
+      const slug = fileName.replace(/\.md$/, '');
+      const sourceFile = join(sourceCommandsDir, fileName);
+      const cloneFile = join(commandsRoot, fileName);
+      await this.withSlugLock('command', slug, async () => {
+        await this.reconcileFileClone(
+          'command',
+          slug,
+          pluginId,
+          sourceFile,
+          cloneFile,
+          commandsRoot,
+          result,
+        );
+      });
+    }
+  }
+
+  private async reconcileAgents(
+    agentSourceDir: string,
+    agentsRoot: string,
+    result: ReconcileResult,
+  ): Promise<void> {
+    let files: string[];
+    try {
+      files = (await readdir(agentSourceDir, { withFileTypes: true }))
+        .filter((e) => e.isFile() && e.name.endsWith('.md'))
+        .map((e) => e.name);
+    } catch (error: unknown) {
+      if (!this.isEnoent(error)) {
+        result.errors += 1;
+        this.logger.warn(
+          '[UserLayerMirror] reconcile failed to read agent source',
+          {
+            agentSourceDir,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+      return;
+    }
+
+    for (const fileName of files) {
+      const slug = fileName.replace(/\.md$/, '');
+      const sourceFile = join(agentSourceDir, fileName);
+      const cloneFile = join(agentsRoot, fileName);
+      await this.withSlugLock('agent', slug, async () => {
+        await this.reconcileFileClone(
+          'agent',
+          slug,
+          null,
+          sourceFile,
+          cloneFile,
+          agentsRoot,
+          result,
+        );
+      });
+    }
+  }
+
+  private async reconcileDirClone(
+    kind: OriginKind,
+    slug: string,
+    sourceDir: string,
+    cloneDir: string,
+    result: ReconcileResult,
+  ): Promise<void> {
+    try {
+      if (!(await this.dirExists(cloneDir))) {
+        return;
+      }
+      this.assertUnderUserLayer(cloneDir);
+
+      const sidecar = await readSidecar(cloneDir);
+      if (!sidecar) {
+        await this.reconcileMissingSidecar(cloneDir, sourceDir, {
+          kind,
+          slug,
+          pluginId: null,
+        });
+        result.missingSidecar += 1;
+        return;
+      }
+
+      const liveSourceHash = await computeSourceHash(sourceDir);
+      if (liveSourceHash === sidecar.sourceHash) {
+        result.noop += 1;
+        return;
+      }
+
+      const liveCloneHash = await computeSourceHash(cloneDir);
+      if (liveCloneHash === sidecar.sourceHash) {
+        await this.snapshotDirToHistory(cloneDir);
+        await this.clearCloneTrackedContent(cloneDir);
+        await this.copyTree(sourceDir, cloneDir);
+        await this.refreshSidecarDir(cloneDir, sidecar, liveSourceHash);
+        result.fastForwarded += 1;
+        return;
+      }
+
+      await this.markDivergedDir(cloneDir, sidecar, liveSourceHash);
+      result.diverged += 1;
+      result.divergedSlugs.push({
+        kind,
+        slug,
+        pendingSourceHash: liveSourceHash,
+      });
+    } catch (error: unknown) {
+      result.errors += 1;
+      this.logger.warn('[UserLayerMirror] reconcile failed for skill', {
+        slug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async reconcileFileClone(
+    kind: OriginKind,
+    slug: string,
+    pluginId: string | null,
+    sourceFile: string,
+    cloneFile: string,
+    rootDir: string,
+    result: ReconcileResult,
+  ): Promise<void> {
+    try {
+      if (!(await this.fileExists(cloneFile))) {
+        return;
+      }
+      this.assertUnderUserLayer(cloneFile);
+
+      const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
+      const sidecar = await readSidecarAt(sidecarPath);
+      if (!sidecar) {
+        await this.reconcileMissingFileSidecar(rootDir, cloneFile, slug, {
+          kind,
+          slug,
+          pluginId,
+        });
+        result.missingSidecar += 1;
+        return;
+      }
+
+      const liveSourceHash = await computeSourceHash(sourceFile);
+      if (liveSourceHash === sidecar.sourceHash) {
+        result.noop += 1;
+        return;
+      }
+
+      const liveCloneHash = await computeSourceHash(cloneFile);
+      if (liveCloneHash === sidecar.sourceHash) {
+        await this.snapshotFileToHistory(rootDir, slug, cloneFile);
+        await this.copyFileAtomic(sourceFile, cloneFile);
+        await this.refreshSidecarAt(sidecarPath, sidecar, liveSourceHash);
+        result.fastForwarded += 1;
+        return;
+      }
+
+      await this.markDivergedAt(sidecarPath, sidecar, liveSourceHash);
+      result.diverged += 1;
+      result.divergedSlugs.push({
+        kind,
+        slug,
+        pendingSourceHash: liveSourceHash,
+      });
+    } catch (error: unknown) {
+      result.errors += 1;
+      this.logger.warn('[UserLayerMirror] reconcile failed for file clone', {
+        kind,
+        slug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async refreshSidecarDir(
+    cloneDir: string,
+    sidecar: OriginSidecar,
+    newSourceHash: string,
+  ): Promise<void> {
+    const updated: OriginSidecar = {
+      ...sidecar,
+      sourceHash: newSourceHash,
+      clonedAt: Date.now(),
+      currentContentHash: newSourceHash,
+      diverged: false,
+      pendingSourceHash: undefined,
+    };
+    this.assertUnderUserLayer(cloneDir);
+    await writeSidecarAtomic(cloneDir, updated);
+  }
+
+  private async refreshSidecarAt(
+    sidecarPath: string,
+    sidecar: OriginSidecar,
+    newSourceHash: string,
+  ): Promise<void> {
+    const updated: OriginSidecar = {
+      ...sidecar,
+      sourceHash: newSourceHash,
+      clonedAt: Date.now(),
+      currentContentHash: newSourceHash,
+      diverged: false,
+      pendingSourceHash: undefined,
+    };
+    this.assertUnderUserLayer(sidecarPath);
+    await writeSidecarAtomicAt(sidecarPath, updated);
+  }
+
+  private async markDivergedDir(
+    cloneDir: string,
+    sidecar: OriginSidecar,
+    pendingSourceHash: string,
+  ): Promise<void> {
+    const updated: OriginSidecar = {
+      ...sidecar,
+      diverged: true,
+      pendingSourceHash,
+    };
+    this.assertUnderUserLayer(cloneDir);
+    await writeSidecarAtomic(cloneDir, updated);
+  }
+
+  private async markDivergedAt(
+    sidecarPath: string,
+    sidecar: OriginSidecar,
+    pendingSourceHash: string,
+  ): Promise<void> {
+    const updated: OriginSidecar = {
+      ...sidecar,
+      diverged: true,
+      pendingSourceHash,
+    };
+    this.assertUnderUserLayer(sidecarPath);
+    await writeSidecarAtomicAt(sidecarPath, updated);
+  }
+
+  private async snapshotDirToHistory(cloneDir: string): Promise<string> {
+    const historyTsDir = await this.makeUniqueHistoryDir(
+      join(cloneDir, DEFAULT_HISTORY_DIR),
+      String(Date.now()),
+    );
+    await this.snapshotTreeRec(cloneDir, historyTsDir, 0);
+    return historyTsDir;
+  }
+
+  private async makeUniqueHistoryDir(
+    parentDir: string,
+    ts: string,
+  ): Promise<string> {
+    this.assertUnderUserLayer(parentDir);
+    await mkdir(parentDir, { recursive: true });
+    let candidate = join(parentDir, ts);
+    let counter = 0;
+    for (;;) {
+      this.assertUnderUserLayer(candidate);
+      try {
+        await mkdir(candidate, { recursive: false });
+        return candidate;
+      } catch (error: unknown) {
+        if (!isErrnoCode(error, 'EEXIST')) {
+          throw error;
+        }
+        counter += 1;
+        candidate = join(parentDir, `${ts}-${counter}`);
+      }
+    }
+  }
+
+  private async snapshotTreeRec(
+    sourceDir: string,
+    targetDir: string,
+    depth: number,
+  ): Promise<void> {
+    if (depth > MAX_COPY_RECURSION_DEPTH) {
+      this.logger.warn(
+        '[UserLayerMirror] snapshot recursion depth cutoff; history may be partial',
+        { sourceDir, maxDepth: MAX_COPY_RECURSION_DEPTH },
+      );
+      return;
+    }
+    await mkdir(targetDir, { recursive: true });
+    const entries = await readdir(sourceDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      if (entry.name === DEFAULT_HISTORY_DIR) {
+        continue;
+      }
+      if (entry.name === ORIGIN_SIDECAR_FILENAME) {
+        continue;
+      }
+      const sourcePath = join(sourceDir, entry.name);
+      const targetPath = join(targetDir, entry.name);
+      if (entry.isDirectory()) {
+        await this.snapshotTreeRec(sourcePath, targetPath, depth + 1);
+      } else if (entry.isFile()) {
+        await this.copyFileAtomic(sourcePath, targetPath);
+      }
+    }
+  }
+
+  private async snapshotFileToHistory(
+    rootDir: string,
+    slug: string,
+    cloneFile: string,
+  ): Promise<string> {
+    const historyTsDir = await this.makeUniqueHistoryDir(
+      join(rootDir, DEFAULT_HISTORY_DIR, slug),
+      String(Date.now()),
+    );
+    const targetFile = join(historyTsDir, basename(cloneFile));
+    await this.copyFileAtomic(cloneFile, targetFile);
+    return historyTsDir;
+  }
+
+  private async withSlugLock<T>(
+    kind: OriginKind,
+    slug: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${kind}/${slug}`;
+    const prior = this.inflight.get(key) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((res) => {
+      release = res;
+    });
+    this.inflight.set(key, gate);
+    await prior;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.inflight.get(key) === gate) {
+        this.inflight.delete(key);
+      }
+    }
   }
 
   private async mirrorPluginSkills(
@@ -558,6 +1016,22 @@ export class UserLayerMirrorService {
       throw new Error(
         `[UserLayerMirror] refusing to write under ~/.ptah/plugins/: ${resolved}`,
       );
+    }
+  }
+
+  private async clearCloneTrackedContent(cloneDir: string): Promise<void> {
+    this.assertUnderUserLayer(cloneDir);
+    const entries = await readdir(cloneDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === DEFAULT_HISTORY_DIR) {
+        continue;
+      }
+      if (entry.name === ORIGIN_SIDECAR_FILENAME) {
+        continue;
+      }
+      const entryPath = join(cloneDir, entry.name);
+      this.assertUnderUserLayer(entryPath);
+      await rm(entryPath, { recursive: true, force: true });
     }
   }
 
