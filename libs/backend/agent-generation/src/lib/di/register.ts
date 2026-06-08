@@ -41,6 +41,7 @@ import {
   PromptCacheService,
 } from '../services/prompt-designer';
 import { EnhancedPromptsService } from '../services/enhanced-prompts/enhanced-prompts.service';
+import { UserLayerMirrorService } from '../services/user-layer/user-layer-mirror.service';
 
 /**
  * Register all agent-generation services in DI container
@@ -151,6 +152,10 @@ export function registerAgentGenerationServices(
     { useClass: EnhancedPromptsService },
     { lifecycle: Lifecycle.Singleton },
   );
+  container.registerSingleton(UserLayerMirrorService);
+  container.register(AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE, {
+    useToken: UserLayerMirrorService,
+  });
 
   logger.info('[AgentGeneration] Agent-generation services registered', {
     services: [
@@ -171,6 +176,7 @@ export function registerAgentGenerationServices(
       'PROMPT_DESIGNER_AGENT',
       'PROMPT_CACHE_SERVICE',
       'ENHANCED_PROMPTS_SERVICE',
+      'USER_LAYER_MIRROR_SERVICE',
     ],
   });
 }

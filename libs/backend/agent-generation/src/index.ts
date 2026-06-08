@@ -102,3 +102,14 @@ export type {
   RegeneratePromptsResponse,
   IMultiPhaseAnalysisReader,
 } from './lib/services/enhanced-prompts';
+export { UserLayerMirrorService } from './lib/services/user-layer/user-layer-mirror.service';
+export type {
+  UserLayerRoots,
+  MirrorSources,
+  MirrorResult,
+  CloneEntry,
+} from './lib/services/user-layer/user-layer-mirror.service';
+export type {
+  OriginSidecar,
+  OriginKind,
+} from './lib/services/user-layer/origin-sidecar.types';
