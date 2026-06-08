@@ -237,4 +237,88 @@ describe('UserLayerMirrorService enhance/revert/history', () => {
       'agent body',
     );
   });
+
+  it('writeEnhancedFileClone (agent) snapshots prior body before atomic overwrite + refreshes sidecar', async () => {
+    const agentsRoot = service.getUserLayerRoots().agents;
+    await mkdir(agentsRoot, { recursive: true });
+    await writeFile(join(agentsRoot, 'my-agent.md'), 'original agent', 'utf8');
+    const sidecar: OriginSidecar = {
+      kind: 'agent',
+      slug: 'my-agent',
+      pluginId: null,
+      version: null,
+      sourceHash: 'sha256:orig',
+      clonedAt: 1,
+      diverged: false,
+      lastEnhancedAt: null,
+      historyDir: DEFAULT_HISTORY_DIR,
+      currentContentHash: 'sha256:orig',
+    };
+    await writeFile(
+      join(agentsRoot, `my-agent${'.ptah-origin.json'}`),
+      JSON.stringify(sidecar),
+      'utf8',
+    );
+
+    const result = await service.writeEnhancedFileClone({
+      kind: 'agent',
+      slug: 'my-agent',
+      newBody: 'enhanced agent',
+    });
+
+    expect(result.historyTs).not.toBeNull();
+    expect(await readFile(join(agentsRoot, 'my-agent.md'), 'utf8')).toBe(
+      'enhanced agent',
+    );
+    const historyFile = join(
+      agentsRoot,
+      DEFAULT_HISTORY_DIR,
+      'my-agent',
+      result.historyTs as string,
+      'my-agent.md',
+    );
+    expect(await readFile(historyFile, 'utf8')).toBe('original agent');
+    const refreshed = JSON.parse(
+      await readFile(
+        join(agentsRoot, `my-agent${'.ptah-origin.json'}`),
+        'utf8',
+      ),
+    ) as OriginSidecar;
+    expect(refreshed.lastEnhancedAt).not.toBeNull();
+    expect(refreshed.currentContentHash).toBe(result.currentContentHash);
+    const tmps = (await readdir(agentsRoot)).filter((n) => n.endsWith('.tmp'));
+    expect(tmps).toHaveLength(0);
+  });
+
+  it('writeEnhancedFileClone (command) writes clone + sidecar when absent (no prior snapshot)', async () => {
+    const commandsRoot = service.getUserLayerRoots().commands;
+    const result = await service.writeEnhancedFileClone({
+      kind: 'command',
+      slug: 'my-command',
+      newBody: 'command body without frontmatter',
+    });
+    expect(result.historyTs).toBeNull();
+    expect(await readFile(join(commandsRoot, 'my-command.md'), 'utf8')).toBe(
+      'command body without frontmatter',
+    );
+    const sidecar = JSON.parse(
+      await readFile(
+        join(commandsRoot, `my-command${'.ptah-origin.json'}`),
+        'utf8',
+      ),
+    ) as OriginSidecar;
+    expect(sidecar.kind).toBe('command');
+    expect(sidecar.currentContentHash).toBe(result.currentContentHash);
+  });
+
+  it('writeEnhancedFileClone THROWS via assertUnderUserLayer for an out-of-user-layer slug; no write', async () => {
+    const escapeSlug = join('..', '..', '..', 'escapee');
+    await expect(
+      service.writeEnhancedFileClone({
+        kind: 'agent',
+        slug: escapeSlug,
+        newBody: 'evil',
+      }),
+    ).rejects.toThrow(/outside ~\/\.ptah\/user/);
+  });
 });

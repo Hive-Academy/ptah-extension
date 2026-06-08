@@ -107,6 +107,12 @@ export interface WriteEnhancedSkillArgs {
   newBody: string;
 }
 
+export interface WriteEnhancedFileCloneArgs {
+  kind: 'agent' | 'command';
+  slug: string;
+  newBody: string;
+}
+
 export interface WriteEnhancedResult {
   slug: string;
   historyTs: string | null;
@@ -327,6 +333,50 @@ export class UserLayerMirrorService {
         args.slug,
         currentContentHash,
       );
+
+      return { slug: args.slug, historyTs, currentContentHash };
+    });
+  }
+
+  async writeEnhancedFileClone(
+    args: WriteEnhancedFileCloneArgs,
+  ): Promise<WriteEnhancedResult> {
+    return this.withSlugLock(args.kind, args.slug, async () => {
+      const roots = this.getUserLayerRoots();
+      const rootDir = args.kind === 'agent' ? roots.agents : roots.commands;
+      const cloneFile = join(rootDir, `${args.slug}.md`);
+      const sidecarPath = join(rootDir, `${args.slug}${ORIGIN_SIDECAR_SUFFIX}`);
+      this.assertUnderUserLayer(cloneFile);
+      this.assertUnderUserLayer(sidecarPath);
+
+      let historyTs: string | null = null;
+      if (await this.fileExists(cloneFile)) {
+        this.assertUnderUserLayer(cloneFile);
+        historyTs = basename(
+          await this.snapshotFileToHistory(rootDir, args.slug, cloneFile),
+        );
+      }
+
+      await this.writeTextAtomic(cloneFile, args.newBody);
+
+      const currentContentHash = await computeSourceHash(cloneFile);
+      const existing = await readSidecarAt(sidecarPath);
+      const sidecar: OriginSidecar = existing
+        ? {
+            ...existing,
+            currentContentHash,
+            lastEnhancedAt: Date.now(),
+          }
+        : {
+            ...this.buildSidecar(
+              args.kind,
+              args.slug,
+              null,
+              currentContentHash,
+            ),
+            lastEnhancedAt: Date.now(),
+          };
+      await writeSidecarAtomicAt(sidecarPath, sidecar);
 
       return { slug: args.slug, historyTs, currentContentHash };
     });

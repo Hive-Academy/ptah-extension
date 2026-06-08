@@ -115,6 +115,7 @@ export type {
   KeepCloneArgs,
   KeepResult,
   WriteEnhancedSkillArgs,
+  WriteEnhancedFileCloneArgs,
   WriteEnhancedResult,
   RevertCloneArgs,
   RevertResult,

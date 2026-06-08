@@ -23,7 +23,10 @@ import {
   USER_LAYER_MIRROR_SERVICE_TOKEN,
 } from './di/tokens';
 import { SkillCandidateStore } from './skill-candidate.store';
-import { SkillRegistryStore } from './skill-registry.store';
+import {
+  SkillRegistryStore,
+  type SkillRegistryKind,
+} from './skill-registry.store';
 import { SkillJudgeService } from './skill-judge.service';
 import { TrajectoryExtractor } from './trajectory-extractor';
 import { resolveJudgeModel } from './model-resolver';
@@ -40,6 +43,7 @@ const TRAJECTORY_MIN_TURNS = 5;
 
 export interface EnhanceOptions {
   readonly manual?: boolean;
+  readonly kind?: SkillRegistryKind;
 }
 
 export type EnhanceSkipReason =
@@ -56,7 +60,7 @@ export type EnhanceSkipReason =
 export interface EnhanceResult {
   changed: boolean;
   slug: string;
-  kind: 'skill';
+  kind: SkillRegistryKind;
   judgeScore: number | null;
   judgeReason: string | null;
   historyTs: string | null;
@@ -92,10 +96,14 @@ export class SkillEnhancerService {
     private readonly repropagation: SkillRepropagationPort | null,
   ) {}
 
-  isEligible(slug: string, settings: SkillSynthesisSettings): boolean {
+  isEligible(
+    slug: string,
+    settings: SkillSynthesisSettings,
+    kind: SkillRegistryKind = 'skill',
+  ): boolean {
     const stats = this.candidates.getInvocationStats(slug);
     if (stats.total < MIN_INVOCATIONS_TO_ENHANCE) return false;
-    return !this.isWithinCooldown(slug, settings);
+    return !this.isWithinCooldown(slug, settings, kind);
   }
 
   async enhance(
@@ -103,10 +111,11 @@ export class SkillEnhancerService {
     settings: SkillSynthesisSettings,
     options: EnhanceOptions = {},
   ): Promise<EnhanceResult> {
+    const kind: SkillRegistryKind = options.kind ?? 'skill';
     const base: EnhanceResult = {
       changed: false,
       slug,
-      kind: 'skill',
+      kind,
       judgeScore: null,
       judgeReason: null,
       historyTs: null,
@@ -117,9 +126,8 @@ export class SkillEnhancerService {
         return { ...base, skipReason: 'no-internal-query' };
       }
 
-      const roots = this.mirror.getUserLayerRoots();
-      const skillFile = join(roots.skills, slug, 'SKILL.md');
-      const currentBody = await this.readBody(skillFile);
+      const bodyPath = this.resolveBodyPath(kind, slug);
+      const currentBody = await this.readBody(bodyPath);
       if (currentBody === null) {
         return { ...base, skipReason: 'missing-clone' };
       }
@@ -128,7 +136,7 @@ export class SkillEnhancerService {
       if (!options.manual && stats.total < MIN_INVOCATIONS_TO_ENHANCE) {
         return { ...base, skipReason: 'below-threshold' };
       }
-      if (!options.manual && this.isWithinCooldown(slug, settings)) {
+      if (!options.manual && this.isWithinCooldown(slug, settings, kind)) {
         return { ...base, skipReason: 'cooldown' };
       }
 
@@ -138,6 +146,7 @@ export class SkillEnhancerService {
         currentBody,
         settings,
         cwd,
+        kind,
       );
       if (!candidateBody) {
         return { ...base, skipReason: 'empty-candidate' };
@@ -148,6 +157,7 @@ export class SkillEnhancerService {
           '[skill-enhancer] candidate identical to clone; skip',
           {
             slug,
+            kind,
           },
         );
         return { ...base, skipReason: 'no-change' };
@@ -167,6 +177,7 @@ export class SkillEnhancerService {
       if (!passedForWrite) {
         this.logger.info('[skill-enhancer] candidate not written', {
           slug,
+          kind,
           judgePassed: decision.passed,
           judgeReason: decision.reason,
           judgeScore: decision.score,
@@ -180,11 +191,15 @@ export class SkillEnhancerService {
         };
       }
 
-      if (!this.hasValidFrontmatter(candidateBody)) {
+      if (
+        this.requiresFrontmatter(kind) &&
+        !this.hasValidFrontmatter(candidateBody)
+      ) {
         this.logger.warn(
           '[skill-enhancer] candidate missing valid frontmatter; skip write',
           {
             slug,
+            kind,
             judgeScore: decision.score,
             judgeReason: decision.reason,
           },
@@ -197,24 +212,42 @@ export class SkillEnhancerService {
         };
       }
 
-      const written: WriteEnhancedResult = await this.mirror.writeEnhancedSkill(
-        {
-          slug,
-          newBody: candidateBody,
-        },
-      );
+      if (
+        !this.requiresFrontmatter(kind) &&
+        candidateBody.trim().length === 0
+      ) {
+        return {
+          ...base,
+          judgeScore: decision.score,
+          judgeReason: decision.reason,
+          skipReason: 'invalid-candidate',
+        };
+      }
+
+      const written: WriteEnhancedResult =
+        kind === 'skill'
+          ? await this.mirror.writeEnhancedSkill({
+              slug,
+              newBody: candidateBody,
+            })
+          : await this.mirror.writeEnhancedFileClone({
+              kind,
+              slug,
+              newBody: candidateBody,
+            });
 
       this.registry.markEnhanced(
-        'skill',
+        kind,
         slug,
         Date.now(),
         written.currentContentHash,
       );
 
-      await this.repropagate(slug);
+      await this.repropagate(slug, kind);
 
-      this.logger.info('[skill-enhancer] skill enhanced', {
+      this.logger.info('[skill-enhancer] clone enhanced', {
         slug,
+        kind,
         judgeScore: decision.score,
         judgeReason: decision.reason,
         historyTs: written.historyTs,
@@ -223,7 +256,7 @@ export class SkillEnhancerService {
       return {
         changed: true,
         slug,
-        kind: 'skill',
+        kind,
         judgeScore: decision.score,
         judgeReason: decision.reason,
         historyTs: written.historyTs,
@@ -231,6 +264,7 @@ export class SkillEnhancerService {
     } catch (error: unknown) {
       this.logger.warn('[skill-enhancer] enhance failed; fail-soft', {
         slug,
+        kind,
         error: error instanceof Error ? error.message : String(error),
       });
       return { ...base, skipReason: 'error' };
@@ -240,16 +274,17 @@ export class SkillEnhancerService {
   async revert(
     slug: string,
     historyTs: string,
+    kind: SkillRegistryKind = 'skill',
   ): Promise<RevertEnhancementResult> {
     try {
       const result = await this.mirror.revert({
-        kind: 'skill',
+        kind,
         slug,
         historyTs,
       });
       if (result.restored) {
-        this.registry.markEnhanced('skill', slug, Date.now());
-        await this.repropagate(slug);
+        this.registry.markEnhanced(kind, slug, Date.now());
+        await this.repropagate(slug, kind);
       }
       return {
         reverted: result.restored,
@@ -260,6 +295,7 @@ export class SkillEnhancerService {
     } catch (error: unknown) {
       this.logger.warn('[skill-enhancer] revert failed', {
         slug,
+        kind,
         historyTs,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -272,16 +308,31 @@ export class SkillEnhancerService {
     }
   }
 
-  private async repropagate(slug: string): Promise<void> {
+  private async repropagate(
+    slug: string,
+    kind: SkillRegistryKind = 'skill',
+  ): Promise<void> {
     if (!this.repropagation) return;
     try {
-      await this.repropagation.repropagate('skill', slug, this.resolveCwd());
+      await this.repropagation.repropagate(kind, slug, this.resolveCwd());
     } catch (error: unknown) {
       this.logger.warn('[skill-enhancer] re-propagation failed', {
         slug,
+        kind,
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private resolveBodyPath(kind: SkillRegistryKind, slug: string): string {
+    const roots = this.mirror.getUserLayerRoots();
+    if (kind === 'skill') return join(roots.skills, slug, 'SKILL.md');
+    if (kind === 'agent') return join(roots.agents, `${slug}.md`);
+    return join(roots.commands, `${slug}.md`);
+  }
+
+  private requiresFrontmatter(kind: SkillRegistryKind): boolean {
+    return kind === 'skill' || kind === 'agent';
   }
 
   private async generateCandidate(
@@ -289,6 +340,7 @@ export class SkillEnhancerService {
     currentBody: string,
     settings: SkillSynthesisSettings,
     cwd: string,
+    kind: SkillRegistryKind = 'skill',
   ): Promise<string | null> {
     if (!this.internalQuery) return null;
     const stats = this.candidates.getInvocationStats(slug);
@@ -298,22 +350,35 @@ export class SkillEnhancerService {
       this.workspaceProvider,
     );
 
-    const prompt = [
-      `You are improving an existing AI agent SKILL.md based on real usage signal.`,
-      `Rewrite the skill to be clearer, more actionable, and more robust against the observed failures.`,
-      `Preserve the YAML frontmatter (name, description) unless it is clearly wrong.`,
-      `Reply with ONLY the full improved SKILL.md content — no commentary, no code fences.`,
+    const artifactLabel =
+      kind === 'agent'
+        ? 'agent definition'
+        : kind === 'command'
+          ? 'command prompt'
+          : 'SKILL.md';
+    const promptLines = [
+      `You are improving an existing AI ${artifactLabel} based on real usage signal.`,
+      `Rewrite it to be clearer, more actionable, and more robust against the observed failures.`,
+    ];
+    if (this.requiresFrontmatter(kind)) {
+      promptLines.push(
+        `Preserve the YAML frontmatter (name, description) unless it is clearly wrong.`,
+      );
+    }
+    promptLines.push(
+      `Reply with ONLY the full improved ${artifactLabel} content — no commentary, no code fences.`,
       ``,
       `Usage stats: total=${stats.total}, succeeded=${stats.succeeded}, failed=${stats.failed}, distinctContexts=${stats.distinctContexts}.`,
       ``,
       `Recent trajectory signal:`,
       trajectorySignal || '(none available)',
       ``,
-      `Current SKILL.md:`,
+      `Current ${artifactLabel}:`,
       `---`,
       currentBody.slice(0, 8000),
       `---`,
-    ].join('\n');
+    );
+    const prompt = promptLines.join('\n');
 
     const abortController = new AbortController();
     const timeoutHandle = setTimeout(
@@ -421,8 +486,9 @@ export class SkillEnhancerService {
   private isWithinCooldown(
     slug: string,
     _settings: SkillSynthesisSettings,
+    kind: SkillRegistryKind = 'skill',
   ): boolean {
-    const row = this.registry.getBySlug('skill', slug);
+    const row = this.registry.getBySlug(kind, slug);
     if (!row || row.lastEnhancedAt === null) return false;
     return Date.now() - row.lastEnhancedAt < ENHANCE_COOLDOWN_MS;
   }

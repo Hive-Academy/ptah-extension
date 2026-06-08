@@ -56,6 +56,7 @@ interface Harness {
   mirror: {
     getUserLayerRoots: jest.Mock;
     writeEnhancedSkill: jest.Mock;
+    writeEnhancedFileClone: jest.Mock;
     revert: jest.Mock;
   };
   candidates: {
@@ -91,6 +92,11 @@ function makeHarness(opts: {
       commands: '/home/u/.ptah/user/commands',
     })),
     writeEnhancedSkill: jest.fn().mockResolvedValue({
+      slug: 'deep-research',
+      historyTs: '1700000000000',
+      currentContentHash: 'sha256:new',
+    }),
+    writeEnhancedFileClone: jest.fn().mockResolvedValue({
       slug: 'deep-research',
       historyTs: '1700000000000',
       currentContentHash: 'sha256:new',
@@ -345,5 +351,153 @@ describe('SkillEnhancerService', () => {
     });
     expect(h.registry.markEnhanced).toHaveBeenCalledTimes(1);
     expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+  });
+
+  it('kind=agent: judge PASS writes via writeEnhancedFileClone + markEnhanced/repropagate agent', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText:
+        '---\nname: deep-research\ndescription: Research deeply\n---\nImproved agent body',
+    });
+    const result = await h.svc.enhance('deep-research', makeSettings(), {
+      kind: 'agent',
+    });
+    expect(result.changed).toBe(true);
+    expect(result.kind).toBe('agent');
+    expect(h.mirror.writeEnhancedFileClone).toHaveBeenCalledTimes(1);
+    expect(h.mirror.writeEnhancedFileClone).toHaveBeenCalledWith({
+      kind: 'agent',
+      slug: 'deep-research',
+      newBody: expect.stringContaining('Improved agent body'),
+    });
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+    expect(h.registry.markEnhanced).toHaveBeenCalledWith(
+      'agent',
+      'deep-research',
+      expect.any(Number),
+      'sha256:new',
+    );
+    expect(h.repropagation.repropagate).toHaveBeenCalledWith(
+      'agent',
+      'deep-research',
+      expect.any(String),
+    );
+  });
+
+  it('kind=agent: candidate lacking frontmatter is rejected (invalid-candidate)', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 9, reason: 'judge-verdict' },
+      candidateText: 'agent body with no frontmatter',
+    });
+    const result = await h.svc.enhance('deep-research', makeSettings(), {
+      kind: 'agent',
+    });
+    expect(result.changed).toBe(false);
+    expect(result.skipReason).toBe('invalid-candidate');
+    expect(h.mirror.writeEnhancedFileClone).not.toHaveBeenCalled();
+  });
+
+  it('kind=command: frontmatter relaxed — writes even without name/description', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: 'Improved command prompt without any frontmatter',
+    });
+    const result = await h.svc.enhance('deep-research', makeSettings(), {
+      kind: 'command',
+    });
+    expect(result.changed).toBe(true);
+    expect(result.kind).toBe('command');
+    expect(h.mirror.writeEnhancedFileClone).toHaveBeenCalledWith({
+      kind: 'command',
+      slug: 'deep-research',
+      newBody: 'Improved command prompt without any frontmatter',
+    });
+    expect(h.registry.markEnhanced).toHaveBeenCalledWith(
+      'command',
+      'deep-research',
+      expect.any(Number),
+      'sha256:new',
+    );
+    expect(h.repropagation.repropagate).toHaveBeenCalledWith(
+      'command',
+      'deep-research',
+      expect.any(String),
+    );
+  });
+
+  it('kind=command: cooldown lookup uses the command registry row', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: 'Improved command body',
+      lastEnhancedAt: Date.now(),
+    });
+    const result = await h.svc.enhance('deep-research', makeSettings(), {
+      kind: 'command',
+    });
+    expect(result.skipReason).toBe('cooldown');
+    expect(h.registry.getBySlug).toHaveBeenCalledWith(
+      'command',
+      'deep-research',
+    );
+  });
+
+  it('revert kind=agent restores the flat clone and re-propagates as agent', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: 'x',
+    });
+    h.mirror.revert.mockResolvedValueOnce({
+      kind: 'agent',
+      slug: 'deep-research',
+      revertedFrom: '1700000000000',
+      newHistoryTs: '1800000000000',
+      restored: true,
+    });
+    const result = await h.svc.revert(
+      'deep-research',
+      '1700000000000',
+      'agent',
+    );
+    expect(result.reverted).toBe(true);
+    expect(h.mirror.revert).toHaveBeenCalledWith({
+      kind: 'agent',
+      slug: 'deep-research',
+      historyTs: '1700000000000',
+    });
+    expect(h.registry.markEnhanced).toHaveBeenCalledWith(
+      'agent',
+      'deep-research',
+      expect.any(Number),
+    );
+    expect(h.repropagation.repropagate).toHaveBeenCalledWith(
+      'agent',
+      'deep-research',
+      expect.any(String),
+    );
+  });
+
+  it('revert kind=command restores the flat clone', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: 'x',
+    });
+    h.mirror.revert.mockResolvedValueOnce({
+      kind: 'command',
+      slug: 'deep-research',
+      revertedFrom: '1700000000000',
+      newHistoryTs: '1800000000000',
+      restored: true,
+    });
+    const result = await h.svc.revert(
+      'deep-research',
+      '1700000000000',
+      'command',
+    );
+    expect(result.reverted).toBe(true);
+    expect(h.mirror.revert).toHaveBeenCalledWith({
+      kind: 'command',
+      slug: 'deep-research',
+      historyTs: '1700000000000',
+    });
   });
 });
