@@ -62,9 +62,7 @@ import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
-  VSCodeService,
 } from '@ptah-extension/core';
-import { SessionActionsService } from '../../../services/session-actions.service';
 import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
 
 describe('ChatInputComponent', () => {
@@ -117,24 +115,9 @@ describe('ChatInputComponent', () => {
     call: jest.fn().mockResolvedValue({ isSuccess: () => false, data: null }),
   };
 
-  let mockVSCodeService: { isElectron: boolean };
-  let mockSessionActions: {
-    actionInFlight: ReturnType<typeof signal<boolean>>;
-    hasActiveSession: ReturnType<typeof signal<boolean>>;
-    saveToMemory: jest.Mock;
-    extractSkill: jest.Mock;
-  };
-
   beforeEach(() => {
     tabsSignal.set([]);
     activeTabIdSignal.set(null);
-    mockVSCodeService = { isElectron: true };
-    mockSessionActions = {
-      actionInFlight: signal(false),
-      hasActiveSession: signal(true),
-      saveToMemory: jest.fn().mockResolvedValue(null),
-      extractSkill: jest.fn().mockResolvedValue(null),
-    };
     TestBed.configureTestingModule({
       providers: [
         { provide: ChatStore, useValue: mockChatStore },
@@ -143,8 +126,6 @@ describe('ChatInputComponent', () => {
         { provide: FilePickerService, useValue: mockFilePicker },
         { provide: CommandDiscoveryFacade, useValue: mockCommandDiscovery },
         { provide: ClaudeRpcService, useValue: mockRpcService },
-        { provide: VSCodeService, useValue: mockVSCodeService },
-        { provide: SessionActionsService, useValue: mockSessionActions },
       ],
     });
 
@@ -642,39 +623,6 @@ describe('ChatInputComponent', () => {
       tabsSignal.set([]);
       activeTabIdSignal.set('missing');
       expect(component.inputEnabled()).toBe(true);
-    });
-  });
-
-  describe('Session action buttons (Electron-only)', () => {
-    it('isElectron() reflects VSCodeService.isElectron', () => {
-      expect(component.isElectron()).toBe(true);
-
-      mockVSCodeService.isElectron = false;
-      const offlineComponent = TestBed.runInInjectionContext(
-        () => new ChatInputComponent(),
-      );
-      expect(offlineComponent.isElectron()).toBe(false);
-    });
-
-    it('canRunSessionAction() is false when no active session', () => {
-      mockSessionActions.hasActiveSession.set(false);
-      expect(component.canRunSessionAction()).toBe(false);
-    });
-
-    it('canRunSessionAction() is false when an action is in flight', () => {
-      mockSessionActions.hasActiveSession.set(true);
-      mockSessionActions.actionInFlight.set(true);
-      expect(component.canRunSessionAction()).toBe(false);
-    });
-
-    it('handleSaveToMemory() dispatches through SessionActionsService', async () => {
-      await component.handleSaveToMemory();
-      expect(mockSessionActions.saveToMemory).toHaveBeenCalledTimes(1);
-    });
-
-    it('handleExtractSkill() dispatches through SessionActionsService', async () => {
-      await component.handleExtractSkill();
-      expect(mockSessionActions.extractSkill).toHaveBeenCalledTimes(1);
     });
   });
 });
