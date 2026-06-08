@@ -245,10 +245,10 @@ export class SkillSynthesisRpcService {
     throw new Error(result.error || 'Failed to get clone');
   }
 
-  /** Manually trigger an enhancement pass for a slug (judge-gated). */
+  /** Manually trigger an enhancement pass for a clone (judge-gated). */
   public async enhanceNow(
+    kind: SkillCloneKind,
     slug: string,
-    kind: SkillCloneKind = 'skill',
   ): Promise<SkillSynthesisEnhanceNowResult> {
     const result = await this.rpcService.call(
       'skillSynthesis:enhanceNow',
@@ -263,9 +263,9 @@ export class SkillSynthesisRpcService {
 
   /** Revert an enhancement to a prior history snapshot. */
   public async revertEnhancement(
+    kind: SkillCloneKind,
     slug: string,
     historyTs: string,
-    kind: SkillCloneKind = 'skill',
   ): Promise<SkillSynthesisRevertEnhancementResult> {
     const result = await this.rpcService.call(
       'skillSynthesis:revertEnhancement',

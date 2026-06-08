@@ -202,7 +202,7 @@ describe('SkillClonesViewComponent', () => {
     expect(text).toContain('50%');
   });
 
-  it('calls enhanceNow and refreshes', async () => {
+  it('calls enhanceNow with the row kind and refreshes', async () => {
     const state = makeStateStub([clone()]);
     const rpc = makeRpcStub();
     const { fixture } = setup({ isElectron: true, state, rpc });
@@ -212,8 +212,34 @@ describe('SkillClonesViewComponent', () => {
       ) as HTMLButtonElement
     ).click();
     await fixture.whenStable();
-    expect(rpc.enhanceNow).toHaveBeenCalledWith('deep-research');
+    expect(rpc.enhanceNow).toHaveBeenCalledWith('skill', 'deep-research');
     expect(state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  it('calls enhanceNow with the agent kind for an agent clone', async () => {
+    const state = makeStateStub([clone({ kind: 'agent', slug: 'planner' })]);
+    const rpc = makeRpcStub();
+    const { fixture } = setup({ isElectron: true, state, rpc });
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="clones-enhance-btn"]',
+      ) as HTMLButtonElement
+    ).click();
+    await fixture.whenStable();
+    expect(rpc.enhanceNow).toHaveBeenCalledWith('agent', 'planner');
+  });
+
+  it('calls enhanceNow with the command kind for a command clone', async () => {
+    const state = makeStateStub([clone({ kind: 'command', slug: 'ship' })]);
+    const rpc = makeRpcStub();
+    const { fixture } = setup({ isElectron: true, state, rpc });
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="clones-enhance-btn"]',
+      ) as HTMLButtonElement
+    ).click();
+    await fixture.whenStable();
+    expect(rpc.enhanceNow).toHaveBeenCalledWith('command', 'ship');
   });
 
   it('opens the revert modal and loads detail', () => {
@@ -255,7 +281,36 @@ describe('SkillClonesViewComponent', () => {
     ).click();
     await fixture.whenStable();
     expect(rpc.revertEnhancement).toHaveBeenCalledWith(
+      'skill',
       'deep-research',
+      '20260101T000000',
+    );
+  });
+
+  it('reverts an agent clone forwarding the agent kind', async () => {
+    const state = makeStateStub([clone({ kind: 'agent', slug: 'planner' })]);
+    state.detail.set({
+      clone: clone({ kind: 'agent', slug: 'planner' }),
+      body: '# body',
+      history: [{ ts: '20260101T000000', hasBody: true }],
+    });
+    const rpc = makeRpcStub();
+    const { fixture } = setup({ isElectron: true, state, rpc });
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="clones-revert-btn"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="clones-history-revert-btn"]',
+      ) as HTMLButtonElement
+    ).click();
+    await fixture.whenStable();
+    expect(rpc.revertEnhancement).toHaveBeenCalledWith(
+      'agent',
+      'planner',
       '20260101T000000',
     );
   });

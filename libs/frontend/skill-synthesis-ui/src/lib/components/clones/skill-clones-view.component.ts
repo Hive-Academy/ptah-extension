@@ -259,7 +259,7 @@ export class SkillClonesViewComponent implements OnInit {
   protected async onEnhance(c: CloneSummary): Promise<void> {
     this.busySlug.set(c.slug);
     try {
-      const result = await this.rpc.enhanceNow(c.slug);
+      const result = await this.rpc.enhanceNow(c.kind, c.slug);
       if (result.changed) {
         this.showToast(
           `Enhanced "${c.slug}" (score ${result.judgeScore ?? '—'}).`,
@@ -295,7 +295,11 @@ export class SkillClonesViewComponent implements OnInit {
   ): Promise<void> {
     this.busySlug.set(c.slug);
     try {
-      const result = await this.rpc.revertEnhancement(c.slug, historyTs);
+      const result = await this.rpc.revertEnhancement(
+        c.kind,
+        c.slug,
+        historyTs,
+      );
       if (result.reverted) {
         this.showToast(`Reverted "${c.slug}".`, 'success');
       } else {
