@@ -27,6 +27,7 @@ import {
   activateSkillJunctions,
   initPluginLoader,
   mirrorUserLayer,
+  reconcileUserLayer,
   syncSkillRegistryCatalog,
 } from './plugin-activation';
 import {
@@ -527,19 +528,33 @@ export async function wireRuntime(
     const contentDownload = container.resolve<ContentDownloadService>(
       PLATFORM_TOKENS.CONTENT_DOWNLOAD,
     );
-    contentDownload.ensureContent().then((result) => {
-      if (!result.success) {
-        console.warn(
-          '[Ptah Electron] Content download failed (non-blocking):',
-          result.error ?? 'Unknown error',
-        );
-      }
-    });
     initPluginLoader(container, contentDownload.getPluginsPath());
     const userLayerRoots = await mirrorUserLayer(container, workspaceRoot);
-    if (refs.sqliteConnection !== null && refs.sqliteConnection.isOpen) {
+    const sqliteOpen =
+      refs.sqliteConnection !== null && refs.sqliteConnection.isOpen;
+    if (sqliteOpen) {
       void syncSkillRegistryCatalog(container);
     }
+    contentDownload
+      .ensureContent()
+      .then(async (result) => {
+        if (!result.success) {
+          console.warn(
+            '[Ptah Electron] Content download failed (non-blocking):',
+            result.error ?? 'Unknown error',
+          );
+        }
+        await mirrorUserLayer(container, workspaceRoot);
+        if (!result.fromCache) {
+          await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
+        }
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          '[Ptah Electron] Post-download reconcile failed (non-fatal):',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
     refs.skillJunctionRef = activateSkillJunctions(
       container,
       contentDownload.getPluginsPath(),

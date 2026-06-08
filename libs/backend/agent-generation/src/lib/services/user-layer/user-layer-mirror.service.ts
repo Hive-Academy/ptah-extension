@@ -87,6 +87,8 @@ export interface RebaseResult {
   slug: string;
   sourceHash: string;
   snapshotPath: string | null;
+  failed?: boolean;
+  reason?: string;
 }
 
 export interface KeepCloneArgs {
@@ -276,6 +278,20 @@ export class UserLayerMirrorService {
   ): Promise<RebaseResult> {
     const cloneDir = join(skillsRoot, slug);
     this.assertUnderUserLayer(cloneDir);
+    if (!(await this.dirExists(sourceDir))) {
+      this.logger.warn(
+        '[UserLayerMirror] rebase skipped: source backup missing',
+        { slug, sourceDir },
+      );
+      return {
+        kind: 'skill',
+        slug,
+        sourceHash: '',
+        snapshotPath: null,
+        failed: true,
+        reason: 'source-missing',
+      };
+    }
     let snapshotPath: string | null = null;
     if (await this.dirExists(cloneDir)) {
       snapshotPath = await this.snapshotDirToHistory(cloneDir);
@@ -308,6 +324,20 @@ export class UserLayerMirrorService {
     const cloneFile = join(rootDir, `${slug}.md`);
     const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
     this.assertUnderUserLayer(cloneFile);
+    if (!(await this.fileExists(sourceFile))) {
+      this.logger.warn(
+        '[UserLayerMirror] rebase skipped: source backup missing',
+        { kind, slug, sourceFile },
+      );
+      return {
+        kind,
+        slug,
+        sourceHash: '',
+        snapshotPath: null,
+        failed: true,
+        reason: 'source-missing',
+      };
+    }
     let snapshotPath: string | null = null;
     if (await this.fileExists(cloneFile)) {
       snapshotPath = await this.snapshotFileToHistory(rootDir, slug, cloneFile);

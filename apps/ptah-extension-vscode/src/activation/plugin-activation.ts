@@ -99,6 +99,55 @@ export async function mirrorUserLayer(
 }
 
 /**
+ * Reconcile cloned skills/commands/agents against freshly re-downloaded plugin
+ * sources. SQLite-free, so it runs in VS Code: divergence is recorded ONLY in
+ * the sidecar (no catalog, no UI here per the runtime split). Must run AFTER
+ * mirrorUserLayer and only when a download happened (caller gates on
+ * !fromCache). Non-fatal on failure.
+ */
+export async function reconcileUserLayer(
+  workspaceRoot: string | undefined,
+  logger: Logger,
+): Promise<void> {
+  try {
+    const mirror = DIContainer.resolve<UserLayerMirrorService>(
+      AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
+    );
+    const pluginLoader = DIContainer.resolve<PluginLoaderService>(
+      SDK_TOKENS.SDK_PLUGIN_LOADER,
+    );
+    const config = pluginLoader.getWorkspacePluginConfig();
+    const pluginPaths = pluginLoader.resolvePluginPaths(
+      config.enabledPluginIds,
+    );
+    const synthesizedSkillsRoot = path.join(os.homedir(), '.ptah', 'skills');
+
+    const result = await mirror.reconcile({
+      pluginPaths,
+      synthesizedSkillsRoot,
+      ...(workspaceRoot
+        ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
+        : {}),
+    });
+
+    logger.info('User-layer reconcile complete', {
+      noop: result.noop,
+      fastForwarded: result.fastForwarded,
+      diverged: result.diverged,
+      missingSidecar: result.missingSidecar,
+      errors: result.errors,
+    });
+  } catch (reconcileError) {
+    logger.warn('User-layer reconcile failed (non-fatal)', {
+      error:
+        reconcileError instanceof Error
+          ? reconcileError.message
+          : String(reconcileError),
+    });
+  }
+}
+
+/**
  * Create workspace skill junctions: project skill files from extension assets
  * into workspace .ptah/skills/ via junctions so third-party providers (Copilot,
  * Codex) can find skills via MCP workspace search. Non-fatal on failure.

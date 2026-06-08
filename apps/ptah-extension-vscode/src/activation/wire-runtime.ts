@@ -23,6 +23,7 @@ import {
   activateSkillJunctions,
   initPluginLoader,
   mirrorUserLayer,
+  reconcileUserLayer,
 } from './plugin-activation';
 
 /**
@@ -38,19 +39,29 @@ export async function wireRuntimeVscode(
   const contentDownload = DIContainer.resolve<ContentDownloadService>(
     PLATFORM_TOKENS.CONTENT_DOWNLOAD,
   );
-  contentDownload.ensureContent().then((result) => {
-    if (!result?.success) {
-      console.warn(
-        '[Activate] Content download failed (non-blocking):',
-        result?.error ?? 'Unknown error',
-      );
-    }
-  });
-
   initPluginLoader(contentDownload.getPluginsPath(), logger);
   const userLayerWorkspaceRoot =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const userLayerRoots = await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+  contentDownload
+    .ensureContent()
+    .then(async (result) => {
+      if (!result?.success) {
+        console.warn(
+          '[Activate] Content download failed (non-blocking):',
+          result?.error ?? 'Unknown error',
+        );
+      }
+      await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+      if (result && !result.fromCache) {
+        await reconcileUserLayer(userLayerWorkspaceRoot, logger);
+      }
+    })
+    .catch((err: unknown) => {
+      logger.warn('Post-download reconcile failed (non-fatal)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   activateSkillJunctions(
     contentDownload.getPluginsPath(),
     logger,

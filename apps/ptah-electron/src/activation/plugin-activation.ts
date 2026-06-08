@@ -16,6 +16,7 @@ import {
 import {
   SKILL_SYNTHESIS_TOKENS,
   type SkillRegistryCatalogService,
+  type SkillRegistryStore,
 } from '@ptah-extension/skill-synthesis';
 
 const USER_LAYER_MIRRORED_AT = 'user_layer_mirrored_at';
@@ -133,6 +134,71 @@ export async function syncSkillRegistryCatalog(
   } catch (error) {
     console.warn(
       '[Ptah Electron] Skill registry catalog sync failed (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+/**
+ * Reconcile cloned skills/commands/agents against the freshly re-downloaded
+ * plugin sources. Must run AFTER mirrorUserLayer (create-if-absent) and only
+ * when a download actually happened (caller gates on !fromCache). Fast-forwards
+ * untouched clones, flags diverged ones in their sidecars (the SQLite-free
+ * record VS Code also uses), and — Electron-only — persists the divergence into
+ * the skill_registry catalog. Non-fatal on failure.
+ */
+export async function reconcileUserLayer(
+  container: DependencyContainer,
+  workspaceRoot: string | undefined,
+  sqliteOpen: boolean,
+): Promise<void> {
+  try {
+    const mirror = container.resolve<UserLayerMirrorService>(
+      AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
+    );
+    const pluginLoader = container.resolve<PluginLoaderService>(
+      SDK_TOKENS.SDK_PLUGIN_LOADER,
+    );
+    const config = pluginLoader.getWorkspacePluginConfig();
+    const pluginPaths = pluginLoader.resolvePluginPaths(
+      config.enabledPluginIds,
+    );
+    const synthesizedSkillsRoot = path.join(os.homedir(), '.ptah', 'skills');
+
+    const result = await mirror.reconcile({
+      pluginPaths,
+      synthesizedSkillsRoot,
+      ...(workspaceRoot
+        ? { agentSourceDir: path.join(workspaceRoot, '.claude', 'agents') }
+        : {}),
+    });
+
+    console.log(
+      `[Ptah Electron] User-layer reconcile complete (noop: ${result.noop}, fastForwarded: ${result.fastForwarded}, diverged: ${result.diverged}, missingSidecar: ${result.missingSidecar}, errors: ${result.errors})`,
+    );
+
+    if (sqliteOpen && result.divergedSlugs.length > 0) {
+      if (container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE)) {
+        const registry = container.resolve<SkillRegistryStore>(
+          SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE,
+        );
+        for (const diverged of result.divergedSlugs) {
+          registry.setDiverged(diverged.kind, diverged.slug, true);
+          registry.setPending(
+            diverged.kind,
+            diverged.slug,
+            diverged.pendingSourceHash,
+          );
+        }
+      }
+    }
+
+    if (sqliteOpen && (result.fastForwarded > 0 || result.diverged > 0)) {
+      await syncSkillRegistryCatalog(container);
+    }
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] User-layer reconcile failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
   }

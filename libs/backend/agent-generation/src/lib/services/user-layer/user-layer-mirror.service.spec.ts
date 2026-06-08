@@ -14,7 +14,10 @@ jest.mock('os', () => {
 });
 
 import { UserLayerMirrorService } from './user-layer-mirror.service';
-import { ORIGIN_SIDECAR_FILENAME } from './origin-sidecar.types';
+import {
+  ORIGIN_SIDECAR_FILENAME,
+  DEFAULT_HISTORY_DIR,
+} from './origin-sidecar.types';
 import type { OriginSidecar } from './origin-sidecar.types';
 import { computeSourceHash } from './source-hash';
 
@@ -45,6 +48,11 @@ async function fileExists(p: string): Promise<boolean> {
 
 async function readSidecarJson(dir: string): Promise<OriginSidecar> {
   const raw = await readFile(join(dir, ORIGIN_SIDECAR_FILENAME), 'utf8');
+  return JSON.parse(raw) as OriginSidecar;
+}
+
+async function readSidecarFileJson(path: string): Promise<OriginSidecar> {
+  const raw = await readFile(path, 'utf8');
   return JSON.parse(raw) as OriginSidecar;
 }
 
@@ -506,5 +514,184 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
     expect(after.sourceHash).toBe(before.sourceHash);
     expect(after.diverged).toBe(false);
     expect(result.sourceHash).toBe(before.sourceHash);
+  });
+
+  it('rebaseClone is a no-op when the source backup is missing (clone untouched, diverged unchanged)', async () => {
+    const { sourceDir } = await seedAndMirrorSkill(
+      'plugin-a',
+      'deep-research',
+      '# original',
+    );
+    const roots = service.getUserLayerRoots();
+    const cloneDir = join(roots.skills, 'deep-research');
+    const cloneSkill = join(cloneDir, 'SKILL.md');
+
+    await writeFile(cloneSkill, '# user edits', 'utf8');
+    const divergedSidecar = await readSidecarJson(cloneDir);
+    await writeFile(
+      join(cloneDir, ORIGIN_SIDECAR_FILENAME),
+      JSON.stringify({
+        ...divergedSidecar,
+        diverged: true,
+        pendingSourceHash: 'sha256:upstream',
+      }),
+      'utf8',
+    );
+
+    await rm(sourceDir, { recursive: true, force: true });
+
+    const result = await service.rebaseClone({
+      kind: 'skill',
+      slug: 'deep-research',
+      sourceDir,
+    });
+
+    expect(result.failed).toBe(true);
+    expect(result.reason).toBe('source-missing');
+    expect(result.snapshotPath).toBeNull();
+
+    expect(await readFile(cloneSkill, 'utf8')).toBe('# user edits');
+    const sidecar = await readSidecarJson(cloneDir);
+    expect(sidecar.diverged).toBe(true);
+    expect(sidecar.pendingSourceHash).toBe('sha256:upstream');
+    expect(await fileExists(join(cloneDir, DEFAULT_HISTORY_DIR))).toBe(false);
+  });
+
+  async function seedAndMirrorCommand(
+    pluginId: string,
+    slug: string,
+    body: string,
+  ): Promise<{ pluginPath: string; sourceFile: string }> {
+    const pluginPath = join(pluginRoot, pluginId);
+    const commandsDir = join(pluginPath, 'commands');
+    await mkdir(commandsDir, { recursive: true });
+    const sourceFile = join(commandsDir, `${slug}.md`);
+    await writeFile(sourceFile, body, 'utf8');
+    await service.mirrorAll({
+      pluginPaths: [pluginPath],
+      synthesizedSkillsRoot: synthRoot,
+    });
+    return { pluginPath, sourceFile };
+  }
+
+  it('rebaseClone (command flat file) overwrites from backup, snapshots, clears diverged', async () => {
+    const { sourceFile } = await seedAndMirrorCommand(
+      'plugin-a',
+      'review',
+      '# review v1',
+    );
+    const roots = service.getUserLayerRoots();
+    const cloneFile = join(roots.commands, 'review.md');
+    const sidecarPath = join(roots.commands, 'review.ptah-origin.json');
+
+    await writeFile(cloneFile, '# user review edits', 'utf8');
+    const base = await readSidecarFileJson(sidecarPath);
+    await writeFile(
+      sidecarPath,
+      JSON.stringify({
+        ...base,
+        diverged: true,
+        pendingSourceHash: 'sha256:upstream',
+      }),
+      'utf8',
+    );
+
+    await writeFile(sourceFile, '# review v2 upstream', 'utf8');
+
+    const result = await service.rebaseClone({
+      kind: 'command',
+      slug: 'review',
+      sourceDir: sourceFile,
+    });
+
+    expect(result.kind).toBe('command');
+    expect(result.failed).toBeFalsy();
+    expect(await readFile(cloneFile, 'utf8')).toBe('# review v2 upstream');
+    const sidecar = await readSidecarFileJson(sidecarPath);
+    expect(sidecar.diverged).toBe(false);
+    expect(sidecar.pendingSourceHash).toBeUndefined();
+    expect(sidecar.sourceHash).toBe(result.sourceHash);
+
+    expect(result.snapshotPath).not.toBeNull();
+    const snapFile = join(result.snapshotPath as string, 'review.md');
+    expect(await readFile(snapFile, 'utf8')).toBe('# user review edits');
+  });
+
+  it('rebaseClone (command flat file) is a no-op when the source backup is missing', async () => {
+    const { sourceFile } = await seedAndMirrorCommand(
+      'plugin-a',
+      'review',
+      '# review v1',
+    );
+    const roots = service.getUserLayerRoots();
+    const cloneFile = join(roots.commands, 'review.md');
+    await writeFile(cloneFile, '# user review edits', 'utf8');
+
+    await rm(sourceFile, { force: true });
+
+    const result = await service.rebaseClone({
+      kind: 'command',
+      slug: 'review',
+      sourceDir: sourceFile,
+    });
+
+    expect(result.failed).toBe(true);
+    expect(result.reason).toBe('source-missing');
+    expect(await readFile(cloneFile, 'utf8')).toBe('# user review edits');
+  });
+
+  async function seedAndMirrorAgent(
+    slug: string,
+    body: string,
+  ): Promise<{ agentSourceDir: string; sourceFile: string }> {
+    const agentSourceDir = join(workRoot, 'ws', '.claude', 'agents');
+    await mkdir(agentSourceDir, { recursive: true });
+    const sourceFile = join(agentSourceDir, `${slug}.md`);
+    await writeFile(sourceFile, body, 'utf8');
+    await service.mirrorAll({
+      pluginPaths: [],
+      synthesizedSkillsRoot: synthRoot,
+      agentSourceDir,
+    });
+    return { agentSourceDir, sourceFile };
+  }
+
+  it('keepClone (agent flat file) leaves clone bytes unchanged and adopts pendingSourceHash', async () => {
+    const { sourceFile } = await seedAndMirrorAgent(
+      'backend-dev',
+      '# agent v1',
+    );
+    const roots = service.getUserLayerRoots();
+    const cloneFile = join(roots.agents, 'backend-dev.md');
+    const sidecarPath = join(roots.agents, 'backend-dev.ptah-origin.json');
+
+    await writeFile(cloneFile, '# user agent edits', 'utf8');
+
+    await writeFile(sourceFile, '# agent v2 upstream', 'utf8');
+    const upstreamHash = await computeSourceHash(sourceFile);
+
+    const base = await readSidecarFileJson(sidecarPath);
+    await writeFile(
+      sidecarPath,
+      JSON.stringify({
+        ...base,
+        diverged: true,
+        pendingSourceHash: upstreamHash,
+      }),
+      'utf8',
+    );
+
+    const result = await service.keepClone({
+      kind: 'agent',
+      slug: 'backend-dev',
+    });
+
+    expect(result.kind).toBe('agent');
+    expect(await readFile(cloneFile, 'utf8')).toBe('# user agent edits');
+    const sidecar = await readSidecarFileJson(sidecarPath);
+    expect(sidecar.diverged).toBe(false);
+    expect(sidecar.pendingSourceHash).toBeUndefined();
+    expect(sidecar.sourceHash).toBe(upstreamHash);
+    expect(result.sourceHash).toBe(upstreamHash);
   });
 });
