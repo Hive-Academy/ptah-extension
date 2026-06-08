@@ -254,6 +254,27 @@ export interface SessionRewindResult {
   deletions?: number;
 }
 
+/** Parameters for the `session:status` RPC method. */
+export interface SessionStatusParams {
+  /** Restored session UUID whose liveness the webview is probing. */
+  sessionId: string;
+}
+
+/**
+ * Response from the `session:status` RPC method.
+ *
+ * Lets a cold-loaded webview (panel hide→reshow, HMR/devtools reload)
+ * recover both whether the session process is alive and whether a turn is
+ * actively streaming right now — state that is otherwise lost across the
+ * webview recreation.
+ */
+export interface SessionStatusResponse {
+  /** Session is in the SDK lifecycle registry (process alive + known). */
+  isActive: boolean;
+  /** A turn is currently mid-stream to the webview for this session. */
+  isStreaming: boolean;
+}
+
 /** Catalog entry for an MCP-style tool advertised by `session.describe`. */
 export interface SessionDescribeToolEntry {
   /** Wire name as it appears in `tools/call` (e.g. `agent_spawn`). */

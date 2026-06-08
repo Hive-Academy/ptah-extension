@@ -68,6 +68,8 @@ import type {
   SessionForkResult,
   SessionRewindParams,
   SessionRewindResult,
+  SessionStatusParams,
+  SessionStatusResponse,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -490,6 +492,10 @@ export interface RpcMethodRegistry {
   'session:rewindFiles': {
     params: SessionRewindParams;
     result: SessionRewindResult;
+  };
+  'session:status': {
+    params: SessionStatusParams;
+    result: SessionStatusResponse;
   };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
@@ -1981,6 +1987,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:stats-batch': true,
   'session:forkSession': true,
   'session:rewindFiles': true,
+  'session:status': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,

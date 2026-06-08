@@ -415,6 +415,10 @@ export class TabManagerService {
     );
   }
 
+  updateBackgroundTab(tabId: string, updates: Partial<TabState>): boolean {
+    return this.workspacePartition.updateBackgroundTab(tabId, updates);
+  }
+
   // ============================================================================
   // INITIALIZATION
   // ============================================================================
@@ -1691,7 +1695,6 @@ export class TabManagerService {
         const sanitizedTabs = state.tabs.map((tab: TabState) => ({
           ...tab,
           streamingState: null,
-          claudeSessionId: null,
           status:
             tab.status === 'streaming' ||
             tab.status === 'resuming' ||

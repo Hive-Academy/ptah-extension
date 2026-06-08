@@ -147,6 +147,9 @@ export class StreamingHandlerService {
       }
 
       if (!primaryTab) {
+        if (this.routeBackgroundEvent(event)) {
+          return null;
+        }
         if (!this.warnedNoTargetSessions.has(event.sessionId)) {
           this.warnedNoTargetSessions.add(event.sessionId);
           console.warn(
@@ -306,6 +309,35 @@ export class StreamingHandlerService {
     }
 
     return null;
+  }
+
+  private routeBackgroundEvent(event: FlatStreamEventUnion): boolean {
+    const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+      event.sessionId,
+    );
+    if (!lookup) return false;
+
+    const { tab } = lookup;
+    let state: StreamingState =
+      tab.streamingState ?? createEmptyStreamingState();
+
+    const ctx: AccumulatorContext = {
+      sessionManager: this.sessionManager,
+      deduplication: this.deduplication,
+      batchedUpdate: this.batchedUpdate,
+      backgroundAgentStore: this.backgroundAgentStore,
+      agentMonitorStore: this.agentMonitorStore,
+    };
+
+    const result = this.accumulatorCore.process(state, event, ctx);
+    if (result.compactionComplete && result.replacementState) {
+      state = result.replacementState;
+    }
+
+    return this.tabManager.updateBackgroundTab(tab.id, {
+      streamingState: state,
+      status: 'streaming',
+    });
   }
 
   /**
