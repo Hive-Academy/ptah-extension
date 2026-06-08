@@ -21,6 +21,7 @@ export interface SkillRegistryEntry {
   readonly historyDir: string | null;
   readonly lastEnhancedAt: number | null;
   readonly candidateId: string | null;
+  readonly pendingSourceHash: string | null;
 }
 
 export interface SkillRegistryRow extends SkillRegistryEntry {
@@ -40,6 +41,7 @@ interface RawRegistryRow {
   history_dir: string | null;
   last_enhanced_at: number | null;
   candidate_id: string | null;
+  pending_source_hash: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -62,8 +64,8 @@ export class SkillRegistryStore {
       `INSERT INTO skill_registry (
          slug, kind, user_path, origin_plugin_id, origin_version, source_hash,
          clone_status, diverged, history_dir, last_enhanced_at, candidate_id,
-         created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         pending_source_hash, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(kind, slug) DO UPDATE SET
          user_path = excluded.user_path,
          origin_plugin_id = excluded.origin_plugin_id,
@@ -74,6 +76,7 @@ export class SkillRegistryStore {
          history_dir = excluded.history_dir,
          last_enhanced_at = excluded.last_enhanced_at,
          candidate_id = excluded.candidate_id,
+         pending_source_hash = excluded.pending_source_hash,
          updated_at = excluded.updated_at`,
     );
     stmt.run(
@@ -88,6 +91,7 @@ export class SkillRegistryStore {
       entry.historyDir,
       entry.lastEnhancedAt,
       entry.candidateId,
+      entry.pendingSourceHash,
       now,
       now,
     );
@@ -120,6 +124,19 @@ export class SkillRegistryStore {
     stmt.run(diverged ? 1 : 0, diverged ? 1 : 0, Date.now(), kind, slug);
   }
 
+  setPending(
+    kind: SkillRegistryKind,
+    slug: string,
+    pendingSourceHash: string | null,
+  ): void {
+    const stmt = this.db.prepare(
+      `UPDATE skill_registry
+         SET pending_source_hash = ?, updated_at = ?
+       WHERE kind = ? AND slug = ?`,
+    );
+    stmt.run(pendingSourceHash, Date.now(), kind, slug);
+  }
+
   linkCandidate(
     kind: SkillRegistryKind,
     slug: string,
@@ -146,6 +163,7 @@ export class SkillRegistryStore {
       historyDir: raw.history_dir,
       lastEnhancedAt: raw.last_enhanced_at,
       candidateId: raw.candidate_id,
+      pendingSourceHash: raw.pending_source_hash,
       createdAt: raw.created_at,
       updatedAt: raw.updated_at,
     };

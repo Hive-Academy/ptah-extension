@@ -65,6 +65,7 @@ export class SkillRegistryCatalogService {
         historyDir: null,
         lastEnhancedAt: clone.lastEnhancedAt,
         candidateId,
+        pendingSourceHash: clone.pendingSourceHash,
       };
       this.registry.upsert(entry);
       upserted += 1;

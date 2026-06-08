@@ -58,6 +58,7 @@ export interface CloneEntry {
   sourceHash: string;
   diverged: boolean;
   lastEnhancedAt: number | null;
+  pendingSourceHash: string | null;
 }
 
 export interface DivergedClone {
@@ -73,6 +74,30 @@ export interface ReconcileResult {
   missingSidecar: number;
   errors: number;
   divergedSlugs: DivergedClone[];
+}
+
+export interface RebaseCloneArgs {
+  kind: OriginKind;
+  slug: string;
+  sourceDir: string;
+}
+
+export interface RebaseResult {
+  kind: OriginKind;
+  slug: string;
+  sourceHash: string;
+  snapshotPath: string | null;
+}
+
+export interface KeepCloneArgs {
+  kind: OriginKind;
+  slug: string;
+}
+
+export interface KeepResult {
+  kind: OriginKind;
+  slug: string;
+  sourceHash: string;
 }
 
 const MAX_COPY_RECURSION_DEPTH = 20;
@@ -179,6 +204,7 @@ export class UserLayerMirrorService {
           sourceHash: sidecar.sourceHash,
           diverged: sidecar.diverged,
           lastEnhancedAt: sidecar.lastEnhancedAt,
+          pendingSourceHash: sidecar.pendingSourceHash ?? null,
         });
       }
     }
@@ -219,6 +245,158 @@ export class UserLayerMirrorService {
       errors: result.errors,
     });
     return result;
+  }
+
+  async rebaseClone(args: RebaseCloneArgs): Promise<RebaseResult> {
+    return this.withSlugLock(args.kind, args.slug, async () => {
+      const roots = this.getUserLayerRoots();
+      if (args.kind === 'skill') {
+        return this.rebaseDirClone(args.slug, args.sourceDir, roots.skills);
+      }
+      const root = args.kind === 'agent' ? roots.agents : roots.commands;
+      return this.rebaseFileClone(args.kind, args.slug, args.sourceDir, root);
+    });
+  }
+
+  async keepClone(args: KeepCloneArgs): Promise<KeepResult> {
+    return this.withSlugLock(args.kind, args.slug, async () => {
+      const roots = this.getUserLayerRoots();
+      if (args.kind === 'skill') {
+        return this.keepDirClone(args.slug, roots.skills);
+      }
+      const root = args.kind === 'agent' ? roots.agents : roots.commands;
+      return this.keepFileClone(args.kind, args.slug, root);
+    });
+  }
+
+  private async rebaseDirClone(
+    slug: string,
+    sourceDir: string,
+    skillsRoot: string,
+  ): Promise<RebaseResult> {
+    const cloneDir = join(skillsRoot, slug);
+    this.assertUnderUserLayer(cloneDir);
+    let snapshotPath: string | null = null;
+    if (await this.dirExists(cloneDir)) {
+      snapshotPath = await this.snapshotDirToHistory(cloneDir);
+      await this.clearCloneTrackedContent(cloneDir);
+    }
+    await this.copyTree(sourceDir, cloneDir);
+    const newSourceHash = await computeSourceHash(sourceDir);
+    const existing = await readSidecar(cloneDir);
+    const sidecar: OriginSidecar = existing
+      ? {
+          ...existing,
+          sourceHash: newSourceHash,
+          clonedAt: Date.now(),
+          currentContentHash: newSourceHash,
+          diverged: false,
+          pendingSourceHash: undefined,
+        }
+      : this.buildSidecar('skill', slug, null, newSourceHash);
+    this.assertUnderUserLayer(cloneDir);
+    await writeSidecarAtomic(cloneDir, sidecar);
+    return { kind: 'skill', slug, sourceHash: newSourceHash, snapshotPath };
+  }
+
+  private async rebaseFileClone(
+    kind: OriginKind,
+    slug: string,
+    sourceFile: string,
+    rootDir: string,
+  ): Promise<RebaseResult> {
+    const cloneFile = join(rootDir, `${slug}.md`);
+    const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
+    this.assertUnderUserLayer(cloneFile);
+    let snapshotPath: string | null = null;
+    if (await this.fileExists(cloneFile)) {
+      snapshotPath = await this.snapshotFileToHistory(rootDir, slug, cloneFile);
+    }
+    await mkdir(rootDir, { recursive: true });
+    await this.copyFileAtomic(sourceFile, cloneFile);
+    const newSourceHash = await computeSourceHash(sourceFile);
+    const existing = await readSidecarAt(sidecarPath);
+    const sidecar: OriginSidecar = existing
+      ? {
+          ...existing,
+          sourceHash: newSourceHash,
+          clonedAt: Date.now(),
+          currentContentHash: newSourceHash,
+          diverged: false,
+          pendingSourceHash: undefined,
+        }
+      : this.buildSidecar(kind, slug, null, newSourceHash);
+    this.assertUnderUserLayer(sidecarPath);
+    await writeSidecarAtomicAt(sidecarPath, sidecar);
+    return { kind, slug, sourceHash: newSourceHash, snapshotPath };
+  }
+
+  private async keepDirClone(
+    slug: string,
+    skillsRoot: string,
+  ): Promise<KeepResult> {
+    const cloneDir = join(skillsRoot, slug);
+    this.assertUnderUserLayer(cloneDir);
+    const sidecar = await readSidecar(cloneDir);
+    if (!sidecar) {
+      return { kind: 'skill', slug, sourceHash: '' };
+    }
+    const liveCloneHash = await computeSourceHash(cloneDir);
+    const newSourceHash = sidecar.pendingSourceHash ?? sidecar.sourceHash;
+    const updated: OriginSidecar = {
+      ...sidecar,
+      sourceHash: newSourceHash,
+      currentContentHash: liveCloneHash,
+      diverged: false,
+      pendingSourceHash: undefined,
+    };
+    await writeSidecarAtomic(cloneDir, updated);
+    return { kind: 'skill', slug, sourceHash: newSourceHash };
+  }
+
+  private async keepFileClone(
+    kind: OriginKind,
+    slug: string,
+    rootDir: string,
+  ): Promise<KeepResult> {
+    const cloneFile = join(rootDir, `${slug}.md`);
+    const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
+    this.assertUnderUserLayer(sidecarPath);
+    const sidecar = await readSidecarAt(sidecarPath);
+    if (!sidecar) {
+      return { kind, slug, sourceHash: '' };
+    }
+    const liveCloneHash = await computeSourceHash(cloneFile);
+    const newSourceHash = sidecar.pendingSourceHash ?? sidecar.sourceHash;
+    const updated: OriginSidecar = {
+      ...sidecar,
+      sourceHash: newSourceHash,
+      currentContentHash: liveCloneHash,
+      diverged: false,
+      pendingSourceHash: undefined,
+    };
+    await writeSidecarAtomicAt(sidecarPath, updated);
+    return { kind, slug, sourceHash: newSourceHash };
+  }
+
+  private buildSidecar(
+    kind: OriginKind,
+    slug: string,
+    pluginId: string | null,
+    sourceHash: string,
+  ): OriginSidecar {
+    return {
+      kind,
+      slug,
+      pluginId,
+      version: null,
+      sourceHash,
+      clonedAt: Date.now(),
+      diverged: false,
+      lastEnhancedAt: null,
+      historyDir: DEFAULT_HISTORY_DIR,
+      currentContentHash: sourceHash,
+    };
   }
 
   private async reconcilePluginSkills(

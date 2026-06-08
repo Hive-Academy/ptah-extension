@@ -5,6 +5,8 @@ import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 
 const sql0022SkillRegistry =
   MIGRATIONS.find((m) => m.version === 22)?.sql ?? '';
+const sql0023SkillRegistryPending =
+  MIGRATIONS.find((m) => m.version === 23)?.sql ?? '';
 
 interface BetterSqliteDb {
   exec(sql: string): void;
@@ -41,6 +43,7 @@ function createInMemoryDb(): BetterSqliteDb {
   if (!DatabaseCtor) throw new Error('native not available');
   const db = new DatabaseCtor(':memory:');
   db.exec(sql0022SkillRegistry);
+  db.exec(sql0023SkillRegistryPending);
   return db;
 }
 
@@ -76,6 +79,7 @@ function entry(
     historyDir: null,
     lastEnhancedAt: null,
     candidateId: null,
+    pendingSourceHash: null,
     ...overrides,
   };
 }
@@ -140,6 +144,47 @@ maybe('SkillRegistryStore', () => {
       const row = store.getBySlug('skill', 'deep-research');
       expect(row?.diverged).toBe(true);
       expect(row?.cloneStatus).toBe('diverged');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('upsert round-trips pendingSourceHash', () => {
+    const db = createInMemoryDb();
+    try {
+      const store = makeStore(db);
+      store.upsert(entry({ pendingSourceHash: 'sha256:pending' }));
+      const row = store.getBySlug('skill', 'deep-research');
+      expect(row?.pendingSourceHash).toBe('sha256:pending');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('setPending sets and clears pending_source_hash', () => {
+    const db = createInMemoryDb();
+    try {
+      const store = makeStore(db);
+      store.upsert(entry());
+      store.setPending('skill', 'deep-research', 'sha256:new-upstream');
+      let row = store.getBySlug('skill', 'deep-research');
+      expect(row?.pendingSourceHash).toBe('sha256:new-upstream');
+      store.setPending('skill', 'deep-research', null);
+      row = store.getBySlug('skill', 'deep-research');
+      expect(row?.pendingSourceHash).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('setPending is a no-op when the row is absent', () => {
+    const db = createInMemoryDb();
+    try {
+      const store = makeStore(db);
+      expect(() =>
+        store.setPending('skill', 'missing', 'sha256:x'),
+      ).not.toThrow();
+      expect(store.getBySlug('skill', 'missing')).toBeNull();
     } finally {
       db.close();
     }

@@ -16,6 +16,7 @@ jest.mock('os', () => {
 import { UserLayerMirrorService } from './user-layer-mirror.service';
 import { ORIGIN_SIDECAR_FILENAME } from './origin-sidecar.types';
 import type { OriginSidecar } from './origin-sidecar.types';
+import { computeSourceHash } from './source-hash';
 
 interface MockLogger {
   info: jest.Mock;
@@ -362,5 +363,148 @@ describe('UserLayerMirrorService.mirrorAll', () => {
 
     const clones = await service.listClones();
     expect(clones.map((c) => c.kind).sort()).toEqual(['agent', 'command']);
+  });
+});
+
+describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
+  let workRoot: string;
+  let pluginRoot: string;
+  let synthRoot: string;
+  let service: UserLayerMirrorService;
+  let logger: MockLogger;
+
+  beforeEach(async () => {
+    workRoot = await mkdtemp(join(tmpdir(), 'ptah-resolve-'));
+    fakeHome = join(workRoot, 'home');
+    pluginRoot = join(workRoot, 'plugins');
+    synthRoot = join(fakeHome, '.ptah', 'skills');
+    await mkdir(fakeHome, { recursive: true });
+    logger = makeLogger();
+    service = new UserLayerMirrorService(logger as never);
+  });
+
+  afterEach(async () => {
+    await rm(workRoot, { recursive: true, force: true });
+  });
+
+  async function seedAndMirrorSkill(
+    pluginId: string,
+    slug: string,
+    body: string,
+  ): Promise<{ pluginPath: string; sourceDir: string }> {
+    const pluginPath = join(pluginRoot, pluginId);
+    const sourceDir = join(pluginPath, 'skills', slug);
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), body, 'utf8');
+    await service.mirrorAll({
+      pluginPaths: [pluginPath],
+      synthesizedSkillsRoot: synthRoot,
+    });
+    return { pluginPath, sourceDir };
+  }
+
+  it('rebaseClone overwrites a diverged clone from the backup, snapshots prior content, clears diverged', async () => {
+    const { sourceDir } = await seedAndMirrorSkill(
+      'plugin-a',
+      'deep-research',
+      '# original',
+    );
+    const roots = service.getUserLayerRoots();
+    const cloneDir = join(roots.skills, 'deep-research');
+    const cloneSkill = join(cloneDir, 'SKILL.md');
+
+    await writeFile(cloneSkill, '# user edits', 'utf8');
+    const divergedSidecar = await readSidecarJson(cloneDir);
+    await writeFile(
+      join(cloneDir, ORIGIN_SIDECAR_FILENAME),
+      JSON.stringify({
+        ...divergedSidecar,
+        diverged: true,
+        pendingSourceHash: 'sha256:upstream',
+      }),
+      'utf8',
+    );
+
+    await writeFile(join(sourceDir, 'SKILL.md'), '# upstream v2', 'utf8');
+
+    const result = await service.rebaseClone({
+      kind: 'skill',
+      slug: 'deep-research',
+      sourceDir,
+    });
+
+    expect(await readFile(cloneSkill, 'utf8')).toBe('# upstream v2');
+    const sidecar = await readSidecarJson(cloneDir);
+    expect(sidecar.diverged).toBe(false);
+    expect(sidecar.pendingSourceHash).toBeUndefined();
+    expect(sidecar.sourceHash).toBe(result.sourceHash);
+    expect(sidecar.currentContentHash).toBe(result.sourceHash);
+
+    expect(result.snapshotPath).not.toBeNull();
+    const historySkill = join(result.snapshotPath as string, 'SKILL.md');
+    expect(await readFile(historySkill, 'utf8')).toBe('# user edits');
+  });
+
+  it('keepClone leaves clone bytes unchanged and adopts pendingSourceHash as the new baseline', async () => {
+    const { sourceDir } = await seedAndMirrorSkill(
+      'plugin-a',
+      'deep-research',
+      '# original',
+    );
+    const roots = service.getUserLayerRoots();
+    const cloneDir = join(roots.skills, 'deep-research');
+    const cloneSkill = join(cloneDir, 'SKILL.md');
+
+    await writeFile(cloneSkill, '# user edits', 'utf8');
+
+    await writeFile(sourceDir + '/SKILL.md', '# upstream v2', 'utf8');
+    const upstreamHash = await computeSourceHash(sourceDir);
+
+    const baseSidecar = await readSidecarJson(cloneDir);
+    await writeFile(
+      join(cloneDir, ORIGIN_SIDECAR_FILENAME),
+      JSON.stringify({
+        ...baseSidecar,
+        diverged: true,
+        pendingSourceHash: upstreamHash,
+      }),
+      'utf8',
+    );
+
+    const result = await service.keepClone({
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(await readFile(cloneSkill, 'utf8')).toBe('# user edits');
+    const sidecar = await readSidecarJson(cloneDir);
+    expect(sidecar.diverged).toBe(false);
+    expect(sidecar.pendingSourceHash).toBeUndefined();
+    expect(sidecar.sourceHash).toBe(upstreamHash);
+    expect(result.sourceHash).toBe(upstreamHash);
+
+    const reconcile = await service.reconcile({
+      pluginPaths: [join(pluginRoot, 'plugin-a')],
+      synthesizedSkillsRoot: synthRoot,
+    });
+    expect(reconcile.noop).toBe(1);
+    expect(reconcile.diverged).toBe(0);
+  });
+
+  it('keepClone is a safe no-op when the clone is not diverged', async () => {
+    await seedAndMirrorSkill('plugin-a', 'deep-research', '# original');
+    const roots = service.getUserLayerRoots();
+    const cloneDir = join(roots.skills, 'deep-research');
+    const before = await readSidecarJson(cloneDir);
+
+    const result = await service.keepClone({
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    const after = await readSidecarJson(cloneDir);
+    expect(after.sourceHash).toBe(before.sourceHash);
+    expect(after.diverged).toBe(false);
+    expect(result.sourceHash).toBe(before.sourceHash);
   });
 });

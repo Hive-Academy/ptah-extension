@@ -110,6 +110,10 @@ export type {
   CloneEntry,
   ReconcileResult,
   DivergedClone,
+  RebaseCloneArgs,
+  RebaseResult,
+  KeepCloneArgs,
+  KeepResult,
 } from './lib/services/user-layer/user-layer-mirror.service';
 export type {
   OriginSidecar,

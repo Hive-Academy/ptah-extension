@@ -48,6 +48,7 @@ import { vecSql as vecSql0019MemoryChunksVecCleanup } from './0019_memory_chunks
 import { sql as sql0020GatewayBindingAllowListId } from './0020_gateway_binding_allow_list_id';
 import { sql as sql0021SkillInvocationEvents } from './0021_skill_invocation_events';
 import { sql as sql0022SkillRegistry } from './0022_skill_registry';
+import { sql as sql0023SkillRegistryPending } from './0023_skill_registry_pending';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -202,5 +203,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 22,
     name: '0022_skill_registry',
     sql: sql0022SkillRegistry,
+  },
+  {
+    version: 23,
+    name: '0023_skill_registry_pending',
+    sql: sql0023SkillRegistryPending,
   },
 ];

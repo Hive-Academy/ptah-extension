@@ -53,6 +53,7 @@ function clone(overrides: Partial<CloneEntry> = {}): CloneEntry {
     sourceHash: 'sha256:abc',
     diverged: false,
     lastEnhancedAt: null,
+    pendingSourceHash: null,
     ...overrides,
   };
 }
@@ -109,6 +110,17 @@ describe('SkillRegistryCatalogService.syncFromClones', () => {
     service.syncFromClones([clone({ diverged: true })], roots);
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({ diverged: true, cloneStatus: 'diverged' }),
+    );
+  });
+
+  it('carries pendingSourceHash through to the upserted entry', () => {
+    const { service, upsert } = makeHarness();
+    service.syncFromClones(
+      [clone({ diverged: true, pendingSourceHash: 'sha256:pending' })],
+      roots,
+    );
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ pendingSourceHash: 'sha256:pending' }),
     );
   });
 
