@@ -1695,7 +1695,6 @@ export class TabManagerService {
         const sanitizedTabs = state.tabs.map((tab: TabState) => ({
           ...tab,
           streamingState: null,
-          claudeSessionId: null,
           status:
             tab.status === 'streaming' ||
             tab.status === 'resuming' ||
