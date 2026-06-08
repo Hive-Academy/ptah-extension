@@ -1168,6 +1168,7 @@ describe('SessionRpcHandlers', () => {
         VALID_USER_MESSAGE_ID,
         'Branch A',
         undefined,
+        undefined,
       );
       expect(result.newSessionId).toBe('forked-uuid');
     });
@@ -1189,6 +1190,7 @@ describe('SessionRpcHandlers', () => {
 
       expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
         VALID_SESSION_ID,
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -1278,6 +1280,7 @@ describe('SessionRpcHandlers', () => {
         undefined,
         'badnamewithillegalchars',
         undefined,
+        undefined,
       );
     });
 
@@ -1305,6 +1308,7 @@ describe('SessionRpcHandlers', () => {
         VALID_USER_MESSAGE_ID,
         undefined,
         'rewind',
+        undefined,
       );
     });
 
@@ -1410,6 +1414,7 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         VALID_USER_MESSAGE_ID,
         true,
+        undefined,
       );
       expect(result.canRewind).toBe(true);
       expect(result.filesChanged).toEqual(['/a.ts', '/b.ts']);

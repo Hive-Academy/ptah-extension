@@ -192,12 +192,39 @@ export interface SessionStatsBatchResult {
   readonly sessionStats: SessionStatsEntry[];
 }
 
+/**
+ * Resolution hint for mapping a frontend message id to the transcript line
+ * UUID that the SDK's `forkSession`/`rewindFiles` require.
+ *
+ * A live user bubble carries an optimistic, client-only id
+ * (`msg_<timestamp>_<random>`) that is never written to the session
+ * transcript. When the anchor id is not itself a transcript line UUID, the
+ * backend uses this hint to locate the owning user-prompt line by its verbatim
+ * text and recover the real UUID. History-loaded messages already carry the
+ * real UUID, so the hint is unused for them.
+ */
+export interface MessageAnchorHint {
+  /** Verbatim text of the user prompt the anchor refers to. */
+  text: string;
+  /**
+   * Zero-based index among user prompts sharing the identical `text`,
+   * disambiguating duplicates (e.g. two separate "commit" messages).
+   * Defaults to `0`.
+   */
+  occurrence?: number;
+}
+
 /** Parameters for session:forkSession RPC method */
 export interface SessionForkParams {
   /** Source session UUID to fork from */
   sessionId: SessionId;
   /** Optional message UUID to slice the transcript at (inclusive) */
   upToMessageId?: string;
+  /**
+   * Optional fallback hint used when `upToMessageId` is a client-only
+   * optimistic id rather than a transcript line UUID. See {@link MessageAnchorHint}.
+   */
+  anchorHint?: MessageAnchorHint;
   /** Optional title for the new fork (defaults to "<original> (fork)") */
   title?: string;
   /**
@@ -226,6 +253,11 @@ export interface SessionRewindParams {
   sessionId: SessionId;
   /** UUID of the user message to rewind file state to */
   userMessageId: string;
+  /**
+   * Optional fallback hint used when `userMessageId` is a client-only
+   * optimistic id rather than a transcript line UUID. See {@link MessageAnchorHint}.
+   */
+  anchorHint?: MessageAnchorHint;
   /**
    * When true, returns the planned changes without modifying files on disk.
    * Useful for previewing the rewind diff before committing.

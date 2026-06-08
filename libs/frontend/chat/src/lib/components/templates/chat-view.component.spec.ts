@@ -192,7 +192,9 @@ function makeHarness(
   const rewindFilesMock = jest.fn();
   const rpcCallMock = jest.fn();
   const forkSessionMock = jest.fn();
-  const deleteSessionMock = jest.fn().mockResolvedValue(rpcOk({ success: true }));
+  const deleteSessionMock = jest
+    .fn()
+    .mockResolvedValue(rpcOk({ success: true }));
   const rpcStub = {
     rewindFiles: rewindFilesMock,
     call: rpcCallMock,
@@ -201,9 +203,10 @@ function makeHarness(
   } as unknown as ClaudeRpcService;
 
   const confirmMock = jest.fn().mockResolvedValue(confirmResult);
-  const confirmWithCheckboxesMock = jest
-    .fn()
-    .mockResolvedValue({ confirmed: true, checkboxes: { deleteOriginal: false } });
+  const confirmWithCheckboxesMock = jest.fn().mockResolvedValue({
+    confirmed: true,
+    checkboxes: { deleteOriginal: false },
+  });
   const confirmDialogStub = {
     confirm: confirmMock,
     confirmWithCheckboxes: confirmWithCheckboxesMock,
@@ -392,10 +395,20 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
   function primeHappyPath(h: ReturnType<typeof makeHarness>): void {
     h.rewindFilesMock
       .mockResolvedValueOnce(
-        rpcOk({ canRewind: true, filesChanged: ['a.ts'], insertions: 1, deletions: 0 }),
+        rpcOk({
+          canRewind: true,
+          filesChanged: ['a.ts'],
+          insertions: 1,
+          deletions: 0,
+        }),
       )
       .mockResolvedValueOnce(
-        rpcOk({ canRewind: true, filesChanged: ['a.ts'], insertions: 1, deletions: 0 }),
+        rpcOk({
+          canRewind: true,
+          filesChanged: ['a.ts'],
+          insertions: 1,
+          deletions: 0,
+        }),
       );
     h.forkSessionMock.mockResolvedValueOnce(
       rpcOk({ newSessionId: 'new-session-uuid-999' }),
@@ -415,12 +428,14 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
       expect.objectContaining({ id: 'deleteOriginal', defaultChecked: false }),
     ]);
 
-    // Fork called with kind: 'rewind'
+    // Fork called with kind: 'rewind' (anchorHint undefined — message not in
+    // the resolved list for this harness, so no text hint is built).
     expect(h.forkSessionMock).toHaveBeenCalledWith(
       'session-uuid-123',
       'msg-happy',
       undefined,
       'rewind',
+      undefined,
     );
 
     // Tab swap to new session
@@ -565,7 +580,9 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
           deletions: 0,
         }),
       )
-      .mockResolvedValueOnce(rpcFail('session-not-active: backend re-resume gave up'));
+      .mockResolvedValueOnce(
+        rpcFail('session-not-active: backend re-resume gave up'),
+      );
     h.forkSessionMock.mockResolvedValueOnce(
       rpcOk({ newSessionId: 'should-not-be-used' }),
     );
@@ -658,10 +675,20 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     const h = makeHarness();
     h.rewindFilesMock
       .mockResolvedValueOnce(
-        rpcOk({ canRewind: true, filesChanged: [], insertions: 0, deletions: 0 }),
+        rpcOk({
+          canRewind: true,
+          filesChanged: [],
+          insertions: 0,
+          deletions: 0,
+        }),
       )
       .mockResolvedValueOnce(
-        rpcOk({ canRewind: true, filesChanged: [], insertions: 0, deletions: 0 }),
+        rpcOk({
+          canRewind: true,
+          filesChanged: [],
+          insertions: 0,
+          deletions: 0,
+        }),
       );
     h.forkSessionMock.mockResolvedValueOnce(rpcFail('SDK fork failed'));
     h.confirmWithCheckboxesMock.mockResolvedValueOnce({
@@ -684,13 +711,26 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     const h = makeHarness();
     h.rewindFilesMock
       .mockResolvedValueOnce(
-        rpcOk({ canRewind: true, filesChanged: [], insertions: 0, deletions: 0 }),
+        rpcOk({
+          canRewind: true,
+          filesChanged: [],
+          insertions: 0,
+          deletions: 0,
+        }),
       )
       .mockResolvedValueOnce(
-        rpcOk({ canRewind: true, filesChanged: [], insertions: 0, deletions: 0 }),
+        rpcOk({
+          canRewind: true,
+          filesChanged: [],
+          insertions: 0,
+          deletions: 0,
+        }),
       );
     h.forkSessionMock.mockResolvedValueOnce(
-      rpcFailWithCode('msg-x not found in session history', 'MESSAGE_ID_NOT_FOUND'),
+      rpcFailWithCode(
+        'msg-x not found in session history',
+        'MESSAGE_ID_NOT_FOUND',
+      ),
     );
 
     await h.component.onRewindRequested('msg-not-found');
