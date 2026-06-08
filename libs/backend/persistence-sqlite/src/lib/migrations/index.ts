@@ -46,6 +46,7 @@ import { sql as sql0017MemorySchemaV2 } from './0017_memory_schema_v2';
 import { sql as sql0018Corpora } from './0018_corpora';
 import { vecSql as vecSql0019MemoryChunksVecCleanup } from './0019_memory_chunks_vec_cleanup';
 import { sql as sql0020GatewayBindingAllowListId } from './0020_gateway_binding_allow_list_id';
+import { sql as sql0021SkillInvocationEvents } from './0021_skill_invocation_events';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -190,5 +191,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 20,
     name: '0020_gateway_binding_allow_list_id',
     sql: sql0020GatewayBindingAllowListId,
+  },
+  {
+    version: 21,
+    name: '0021_skill_invocation_events',
+    sql: sql0021SkillInvocationEvents,
   },
 ];
