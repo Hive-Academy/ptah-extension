@@ -98,4 +98,73 @@ describe('SessionLivenessRegistry', () => {
       expect(svc.statuses().size).toBe(0);
     });
   });
+
+  describe('liveWorkspaces()', () => {
+    it('records workspacePath on mark and reports a streaming workspace', () => {
+      svc.markStreaming('s1', '/ws/a');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(true);
+    });
+
+    it('reports an awaiting-background workspace', () => {
+      svc.markAwaitingBackground('s1', '/ws/a');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(true);
+    });
+
+    it('excludes the workspace once the session goes idle', () => {
+      svc.markStreaming('s1', '/ws/a');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(true);
+      svc.markIdle('s1');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(false);
+    });
+
+    it('excludes the workspace once the session fails', () => {
+      svc.markStreaming('s1', '/ws/a');
+      svc.markFailed('s1');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(false);
+    });
+
+    it('excludes the workspace once the session is cleared', () => {
+      svc.markStreaming('s1', '/ws/a');
+      svc.clear('s1');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(false);
+      expect(svc.liveWorkspaces().size).toBe(0);
+    });
+
+    it('is reactive — re-derives when status flips', () => {
+      const sig = svc.liveWorkspaces;
+      svc.markStreaming('s1', '/ws/a');
+      expect(sig().has('/ws/a')).toBe(true);
+      svc.markIdle('s1');
+      expect(sig().has('/ws/a')).toBe(false);
+      svc.markAwaitingBackground('s1');
+      expect(sig().has('/ws/a')).toBe(true);
+    });
+
+    it('keeps a workspace live while any of its sessions is live', () => {
+      svc.markStreaming('s1', '/ws/a');
+      svc.markStreaming('s2', '/ws/a');
+      svc.markIdle('s1');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(true);
+      svc.markIdle('s2');
+      expect(svc.liveWorkspaces().has('/ws/a')).toBe(false);
+    });
+
+    it('omits a live session that has no recorded workspace', () => {
+      svc.markStreaming('s1');
+      expect(svc.liveWorkspaces().size).toBe(0);
+    });
+
+    it('mark* stays callable with only a sessionId (no workspace)', () => {
+      svc.markStreaming('s1');
+      expect(svc.statuses().get('s1')).toBe('streaming');
+      expect(svc.liveWorkspaces().size).toBe(0);
+    });
+
+    it('is identity-stable when re-marking same status + workspace', () => {
+      svc.markStreaming('s1', '/ws/a');
+      const before = svc.liveWorkspaces();
+      svc.markStreaming('s1', '/ws/a');
+      expect(svc.liveWorkspaces()).toBe(before);
+    });
+  });
 });
