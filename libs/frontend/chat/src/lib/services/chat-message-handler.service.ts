@@ -139,6 +139,11 @@ export class ChatMessageHandler implements MessageHandler {
     }
   }
 
+  private workspaceFor(sessionId: string): string | undefined {
+    return this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)
+      ?.workspacePath;
+  }
+
   /**
    * CHAT_COMPLETE is intentionally NOT used to finalize streaming — it fires
    * per-turn (on each message_complete) and SESSION_STATS is the authoritative
@@ -155,7 +160,10 @@ export class ChatMessageHandler implements MessageHandler {
     const target = this.tabManager.tabs().find((t) => t.id === data.tabId);
     if (!target) return;
     if (target.claudeSessionId) {
-      this.liveness.markIdle(target.claudeSessionId);
+      this.liveness.markIdle(
+        target.claudeSessionId,
+        this.workspaceFor(target.claudeSessionId),
+      );
     }
     this.tabManager.resetTabToFresh(data.tabId);
   }
@@ -176,7 +184,10 @@ export class ChatMessageHandler implements MessageHandler {
       return;
     }
     if (parsed.data.backgroundTasks.length === 0) {
-      this.liveness.markIdle(parsed.data.sessionId);
+      this.liveness.markIdle(
+        parsed.data.sessionId,
+        this.workspaceFor(parsed.data.sessionId),
+      );
     }
     this.chatStore.handleSubagentEndedNotification(parsed.data);
   }
@@ -196,10 +207,11 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
+    const ws = this.workspaceFor(parsed.data.sessionId);
     if (parsed.data.backgroundTasks.length > 0) {
-      this.liveness.markAwaitingBackground(parsed.data.sessionId);
+      this.liveness.markAwaitingBackground(parsed.data.sessionId, ws);
     } else {
-      this.liveness.markIdle(parsed.data.sessionId);
+      this.liveness.markIdle(parsed.data.sessionId, ws);
     }
     this.chatStore.handleTurnEndedNotification(parsed.data);
   }
@@ -219,7 +231,10 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.liveness.markFailed(parsed.data.sessionId);
+    this.liveness.markFailed(
+      parsed.data.sessionId,
+      this.workspaceFor(parsed.data.sessionId),
+    );
     this.chatStore.handleTurnFailedNotification(parsed.data);
   }
 
@@ -280,7 +295,10 @@ export class ChatMessageHandler implements MessageHandler {
     };
 
     if (event?.sessionId) {
-      this.liveness.markStreaming(event.sessionId);
+      this.liveness.markStreaming(
+        event.sessionId,
+        this.workspaceFor(event.sessionId),
+      );
     }
     this.chatStore.processStreamEvent(event, tabId, sessionId);
     const originTabId = tabId ? TabId.safeParse(tabId) : null;

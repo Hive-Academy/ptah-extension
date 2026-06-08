@@ -54,6 +54,11 @@ import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
+import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
+import type {
+  SessionStatusParams,
+  SessionStatusResponse,
+} from '@ptah-extension/shared';
 
 /**
  * Minimal schema for JSONL first-line entries in agent session files.
@@ -62,6 +67,15 @@ import type { ChatSessionService } from '../chat/session/chat-session.service';
  */
 export const AgentJsonlFirstLineSchema = z.object({
   sessionId: z.string(),
+});
+
+/**
+ * Boundary schema for `session:status` params. A cold-loaded webview asks
+ * the backend whether a restored session is still alive / mid-stream, so
+ * `sessionId` is the only required field.
+ */
+export const SessionStatusParamsSchema = z.object({
+  sessionId: z.string().min(1),
 });
 
 /**
@@ -84,6 +98,7 @@ export class SessionRpcHandlers {
     'session:stats-batch',
     'session:forkSession',
     'session:rewindFiles',
+    'session:status',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -101,6 +116,8 @@ export class SessionRpcHandlers {
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(CHAT_TOKENS.SESSION)
     private readonly chatSession: ChatSessionService,
+    @inject(CHAT_TOKENS.STREAM_BROADCASTER)
+    private readonly streamBroadcaster: ChatStreamBroadcaster,
   ) {}
 
   /**
@@ -212,6 +229,7 @@ export class SessionRpcHandlers {
     this.registerSessionStatsBatch();
     this.registerForkSession();
     this.registerRewindFiles();
+    this.registerSessionStatus();
 
     this.logger.debug('Session RPC handlers registered', {
       methods: [
@@ -224,6 +242,7 @@ export class SessionRpcHandlers {
         'session:stats-batch',
         'session:forkSession',
         'session:rewindFiles',
+        'session:status',
       ],
     });
   }
@@ -1013,6 +1032,45 @@ export class SessionRpcHandlers {
             errorSource: 'SessionRpcHandlers.registerRewindFiles',
           });
           throw new Error(`Failed to rewind files: ${errorObj.message}`);
+        }
+      },
+    );
+  }
+
+  /**
+   * session:status - Read-only liveness probe for a restored session.
+   *
+   * A freshly cold-loaded webview (VS Code recreates the webview when its
+   * panel is hidden→reshown; HMR/devtools reload) cannot observe in-flight
+   * streaming state. This returns both whether the session process is alive
+   * (`isActive`, from the SDK lifecycle registry) and whether a turn is
+   * actively streaming right now (`isStreaming`, from the broadcaster's
+   * in-flight set). Unexpected errors degrade to `{ false, false }` rather
+   * than leaking raw error text to the client.
+   */
+  private registerSessionStatus(): void {
+    this.rpcHandler.registerMethod<SessionStatusParams, SessionStatusResponse>(
+      'session:status',
+      async (params: SessionStatusParams) => {
+        try {
+          const { sessionId } = SessionStatusParamsSchema.parse(params);
+
+          return {
+            isActive: this.sdkAdapter.isSessionActive(
+              SessionId.from(sessionId),
+            ),
+            isStreaming: this.streamBroadcaster.isStreaming(sessionId),
+          };
+        } catch (error) {
+          this.logger.error(
+            'RPC: session:status failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'SessionRpcHandlers.registerSessionStatus' },
+          );
+          return { isActive: false, isStreaming: false };
         }
       },
     );

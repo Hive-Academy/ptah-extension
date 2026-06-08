@@ -12,6 +12,7 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
+import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { TabState } from '@ptah-extension/chat-types';
 
 /**
@@ -39,6 +40,9 @@ export class ChatLifecycleService {
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
+  private readonly livenessReconciler = inject(
+    SessionLivenessReconcilerService,
+  );
   private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
     null,
   );
@@ -58,6 +62,12 @@ export class ChatLifecycleService {
         });
         this.sessionLoader.restoreCliSessionsForActiveTab().catch((err) => {
           console.warn('[ChatStore] Failed to restore CLI sessions:', err);
+        });
+        this.livenessReconciler.reconcileRestoredTabs().catch((err) => {
+          console.warn(
+            '[ChatStore] Failed to reconcile session liveness:',
+            err,
+          );
         });
       }
       this.authState.loadAuthStatus().catch((err) => {
