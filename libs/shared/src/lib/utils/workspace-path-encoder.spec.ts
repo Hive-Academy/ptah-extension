@@ -132,14 +132,14 @@ describe('WorkspacePathEncoder', () => {
 
       // Act & Assert
       expect(() => WorkspacePathEncoder.encode(maliciousPath)).toThrow(
-        'Path traversal detected'
+        'Path traversal detected',
       );
     });
 
     it('should reject empty path', () => {
       // Act & Assert
       expect(() => WorkspacePathEncoder.encode('')).toThrow(
-        'Path cannot be empty'
+        'Path cannot be empty',
       );
     });
 
@@ -149,7 +149,7 @@ describe('WorkspacePathEncoder', () => {
 
       // Act & Assert
       expect(() => WorkspacePathEncoder.encode(longPath)).toThrow(
-        'Path too long'
+        'Path too long',
       );
     });
   });
@@ -283,19 +283,19 @@ describe('WorkspacePathEncoder', () => {
       // Test Case 1: Windows path (from research-report.md:54-62)
       // D:\projects\ptah-extension → d--projects-ptah-extension
       expect(WorkspacePathEncoder.encode('D:\\projects\\ptah-extension')).toBe(
-        'd--projects-ptah-extension'
+        'd--projects-ptah-extension',
       );
 
       // Test Case 2: Linux path
       // /home/user/project → -home-user-project
       expect(WorkspacePathEncoder.encode('/home/user/project')).toBe(
-        '-home-user-project'
+        '-home-user-project',
       );
 
       // Test Case 3: macOS path
       // /Users/agent/app → -users-agent-app
       expect(WorkspacePathEncoder.encode('/Users/agent/app')).toBe(
-        '-users-agent-app'
+        '-users-agent-app',
       );
     });
 
@@ -313,17 +313,32 @@ describe('WorkspacePathEncoder', () => {
   });
 
   describe('Performance', () => {
+    // Measure the per-call average over many warm iterations instead of a
+    // single cold call. One cold invocation is dominated by JIT warmup, GC,
+    // and scheduler jitter (seconds-of-ms on a loaded CI runner), which made
+    // the prior single-shot `< 1ms` assertion flaky. The average reflects the
+    // steady-state cost and stays well under the budget on any machine.
+    const ITERATIONS = 1000;
+    const WARMUP = 100;
+
+    function averageDurationMs(run: () => void): number {
+      for (let i = 0; i < WARMUP; i++) run();
+      const startTime = performance.now();
+      for (let i = 0; i < ITERATIONS; i++) run();
+      return (performance.now() - startTime) / ITERATIONS;
+    }
+
     it('should encode path in under 1ms', () => {
       // Arrange
       const workspacePath = 'D:\\projects\\ptah-extension';
 
       // Act
-      const startTime = performance.now();
-      WorkspacePathEncoder.encode(workspacePath);
-      const duration = performance.now() - startTime;
+      const averageDuration = averageDurationMs(() =>
+        WorkspacePathEncoder.encode(workspacePath),
+      );
 
       // Assert
-      expect(duration).toBeLessThan(1); // < 1ms requirement
+      expect(averageDuration).toBeLessThan(1); // < 1ms per call
     });
 
     it('should validate path in under 1ms', () => {
@@ -331,12 +346,12 @@ describe('WorkspacePathEncoder', () => {
       const workspacePath = 'D:\\projects\\ptah-extension';
 
       // Act
-      const startTime = performance.now();
-      WorkspacePathEncoder.validate(workspacePath);
-      const duration = performance.now() - startTime;
+      const averageDuration = averageDurationMs(() =>
+        WorkspacePathEncoder.validate(workspacePath),
+      );
 
       // Assert
-      expect(duration).toBeLessThan(1); // < 1ms requirement
+      expect(averageDuration).toBeLessThan(1); // < 1ms per call
     });
   });
 });

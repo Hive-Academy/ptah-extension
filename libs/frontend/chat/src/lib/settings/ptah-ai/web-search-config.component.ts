@@ -102,6 +102,7 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
             class="select select-bordered select-xs w-full"
             [value]="selectedProvider()"
             (change)="onProviderChange($event)"
+            data-testid="settings-toggle-web-search-provider"
           >
             @for (opt of providerOptions; track opt.value) {
               <option

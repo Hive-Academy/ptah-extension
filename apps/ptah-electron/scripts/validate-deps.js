@@ -123,27 +123,87 @@ function validateNativeDeps() {
 // stays trapped inside app.asar → memory/skills tables never created).
 validateNativeDeps();
 
-// Step 1: Build if needed
-if (!fs.existsSync(DIST_MAIN)) {
-  console.log('Building electron main process...');
-  execSync('npx nx build-main ptah-electron', { cwd: ROOT, stdio: 'inherit' });
+// Step 1: Ensure the bundle on disk is the PRODUCTION (minified) artifact.
+//
+// `build-main --configuration=development` (what the e2e harness runs) is NOT
+// minified and keeps JSDoc comments; the production build that actually ships IS
+// minified. Both write to the same main.mjs, so after an e2e run the dev bundle
+// sits on disk. Scanning it makes comment prose like
+// `'typescript' from 'typescript-explicit-any'` look like a phantom dependency.
+// Only the minified production artifact reflects what ships, so rebuild it when the
+// on-disk bundle is missing or unminified. Normal commits already hold the minified
+// bundle and skip the rebuild (fast); the rebuild happens once after an e2e run.
+function looksUnminified(src) {
+  const newlines = (src.match(/\n/g) || []).length;
+  const avgLineLength = src.length / (newlines + 1);
+  return avgLineLength < 200;
+}
+
+if (
+  !fs.existsSync(DIST_MAIN) ||
+  looksUnminified(fs.readFileSync(DIST_MAIN, 'utf8'))
+) {
+  console.log(
+    'Building production electron main bundle for an accurate dependency scan...',
+  );
+  execSync('npx nx run ptah-electron:build-main:production --skip-nx-cache', {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
 }
 
 // Step 2: Read the bundle and find external imports
 const bundle = fs.readFileSync(DIST_MAIN, 'utf8');
 
-// Match all import patterns (handles minified code with no spaces):
-//   - Static ESM: from"package" or from "package"
-//   - Dynamic import: import("package")
-//   - Dynamic require via wrapper: Fc("package")
+// esbuild emits CommonJS require shims with UNSTABLE minified names when it
+// targets ESM output. Their identifier changes every build (historically `Fc`,
+// now `ve` / `yD` / `require`), so hardcoding one name silently misses external
+// `require()` calls — packages like chokidar, grammy, croner, better-sqlite3
+// are loaded this way and were being false-flagged as "unused". Discover the
+// shim identifiers from the bundle instead.
+function discoverRequireShims(src) {
+  const shims = new Set(['require', '__require']);
+  const patterns = [
+    // Banner / aliased createRequire result: `const X = <alias>(import.meta.url)`
+    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\(import\.meta\.url\)/g,
+    // esbuild __require helper: `var X=(i=>typeof require<"u"?require:...`
+    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\(\s*[A-Za-z_$][\w$]*\s*=>\s*typeof require/g,
+  ];
+  for (const re of patterns) {
+    let m;
+    while ((m = re.exec(src)) !== null) shims.add(m[1]);
+  }
+  return shims;
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const requireShims = discoverRequireShims(bundle);
+
+// Match all import/require forms (handles minified code with no spaces):
+//   - Static ESM:       from"pkg" / from 'pkg'
+//   - Dynamic import:   import("pkg")   (how the in-process SDKs + jsonrepair load)
+//   - Bare side-effect: import"pkg"     (e.g. reflect-metadata)
+//   - Require shims:    require("pkg") / ve("pkg") / yD("pkg") — names discovered above
 const importPatterns = [
   /\bfrom\s*"([^"./][^"]*)"/g,
   /\bfrom\s*'([^'./][^']*)'/g,
   /\bimport\s*\(\s*"([^"./][^"]*)"\s*\)/g,
   /\bimport\s*\(\s*'([^'./][^']*)'\s*\)/g,
-  /\bFc\(\s*"([^"./][^"]*)"\s*\)/g,
-  /\bFc\(\s*'([^'./][^']*)'\s*\)/g,
+  // Bare side-effect import — must NOT be preceded by an identifier char (avoids
+  // matching the tail of tokens like `SETTINGS_IMPORT"`) and excludes `import(`.
+  /(?<![\w$.])import\s*"([^"(./][^"]*)"/g,
+  /(?<![\w$.])import\s*'([^'(./][^']*)'/g,
 ];
+for (const shim of requireShims) {
+  const s = escapeRegExp(shim);
+  importPatterns.push(
+    new RegExp(`(?<![\\w$])${s}\\(\\s*"([^"./][^"]*)"\\s*\\)`, 'g'),
+    new RegExp(`(?<![\\w$])${s}\\(\\s*'([^'./][^']*)'\\s*\\)`, 'g'),
+  );
+}
 
 const externalImports = new Set();
 for (const pattern of importPatterns) {

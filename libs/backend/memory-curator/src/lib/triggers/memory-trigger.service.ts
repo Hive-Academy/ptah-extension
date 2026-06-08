@@ -392,12 +392,15 @@ export class MemoryTriggerService {
         payload.toolName,
       );
       if (recovered && this.readEpisodeEnabled()) {
-        this.tryEpisodeCurate(
-          payload.sessionId,
-          payload.workspaceRoot,
-          'episode',
-          'episode-trigger',
-        );
+        const snap = this.episodes.snapshot(payload.sessionId);
+        if (snap.hasCriticalLearning && snap.turnCount > 0) {
+          this.tryEpisodeCurate(
+            payload.sessionId,
+            payload.workspaceRoot,
+            'episode',
+            'episode-trigger',
+          );
+        }
         return;
       }
     }

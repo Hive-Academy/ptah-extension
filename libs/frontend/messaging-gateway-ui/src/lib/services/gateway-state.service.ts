@@ -9,7 +9,9 @@ import { type MessageHandler } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
   type GatewayBindingDto,
+  type GatewayDiscordGuildDto,
   type GatewayPlatformId,
+  type GatewayRegisterDiscordCommandsResult,
   type GatewayStatusChangedPayload,
   type GatewayStatusResult,
   type GatewayTestPlatform,
@@ -114,6 +116,16 @@ export class GatewayStateService implements MessageHandler {
     maxConcurrent: 2,
   });
   public readonly whisperModel = signal<string>('base.en');
+  /** Persisted allow-list per platform (mirror of settings.json). */
+  public readonly allowLists = signal<Record<GatewayPlatformId, string[]>>({
+    telegram: [],
+    discord: [],
+    slack: [],
+  });
+  /** Persisted Discord application (client) id, or null if unset. */
+  public readonly discordAppId = signal<string | null>(null);
+  /** Servers the connected Discord bot is in (empty until started + refreshed). */
+  public readonly discordGuilds = signal<readonly GatewayDiscordGuildDto[]>([]);
   /**
    * Voice-model download progress signal — currently inert.
    *
@@ -150,7 +162,97 @@ export class GatewayStateService implements MessageHandler {
    * (GATEWAY_STATUS_CHANGED push events from the backend).
    */
   public async initialize(): Promise<void> {
-    await Promise.all([this.refreshStatus(), this.listBindings()]);
+    await Promise.all([
+      this.refreshStatus(),
+      this.listBindings(),
+      this.loadAllowLists(),
+      this.loadDiscordAppId(),
+      this.loadDiscordGuilds(),
+    ]);
+  }
+
+  /** Refresh the list of servers the Discord bot is in (no-op list if stopped). */
+  public async loadDiscordGuilds(): Promise<void> {
+    try {
+      const { guilds } = await this.rpc.listDiscordGuilds();
+      this.discordGuilds.set(guilds);
+    } catch (err) {
+      this.recordGlobalError(err);
+    }
+  }
+
+  private async loadAllowLists(): Promise<void> {
+    await Promise.all(ALL_PLATFORMS.map((p) => this.loadAllowList(p)));
+  }
+
+  public async loadAllowList(platform: GatewayPlatformId): Promise<void> {
+    try {
+      const { entries } = await this.rpc.getAllowList(platform);
+      this.allowLists.update((current) => ({
+        ...current,
+        [platform]: entries,
+      }));
+    } catch (err) {
+      this.recordGlobalError(err);
+    }
+  }
+
+  /**
+   * Persist a platform allow-list, then re-read it so the signal reflects the
+   * trimmed/de-duplicated server-side value.
+   */
+  public async saveAllowList(
+    platform: GatewayPlatformId,
+    entries: string[],
+  ): Promise<{ ok: boolean; error?: string }> {
+    this.clearError(platform);
+    try {
+      await this.rpc.setAllowList(platform, entries);
+      await this.loadAllowList(platform);
+      return { ok: true };
+    } catch (err) {
+      this.recordPlatformError(platform, err);
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  public async loadDiscordAppId(): Promise<void> {
+    try {
+      const { applicationId } = await this.rpc.getDiscordAppId();
+      this.discordAppId.set(applicationId);
+    } catch (err) {
+      this.recordGlobalError(err);
+    }
+  }
+
+  public async saveDiscordAppId(
+    applicationId: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await this.rpc.setDiscordAppId(applicationId);
+      this.discordAppId.set(applicationId.trim() || null);
+      return { ok: true };
+    } catch (err) {
+      this.recordPlatformError('discord', err);
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  public async registerDiscordCommands(): Promise<GatewayRegisterDiscordCommandsResult> {
+    try {
+      return await this.rpc.registerDiscordCommands();
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /**

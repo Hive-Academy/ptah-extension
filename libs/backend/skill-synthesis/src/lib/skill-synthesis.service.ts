@@ -18,6 +18,7 @@ import * as path from 'node:path';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
+  VecStatusService,
   type IEmbedder,
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
@@ -99,6 +100,8 @@ export class SkillSynthesisService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: SqliteConnectionService,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
@@ -201,7 +204,7 @@ export class SkillSynthesisService {
     }
 
     this.logger.info('[skill-synthesis] started', {
-      vecExtensionLoaded: this.connection.vecExtensionLoaded,
+      vecExtensionLoaded: this.vecStatus.available,
     });
   }
 

@@ -161,6 +161,90 @@ describe('HumanFormatter', () => {
     const fmt = new HumanFormatter(cap.writer, { noColor: true });
     await expect(fmt.close()).resolves.toBeUndefined();
   });
+
+  it('renders a provider mutation confirmation with a success glyph + field', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('provider.default.updated', {
+      provider: 'anthropic',
+    });
+    const text = await cap.read();
+    expect(text).toContain('✓ provider.default.updated');
+    expect(text).toContain('provider=anthropic');
+    // No raw JSON dash-prefixed fallback.
+    expect(text).not.toMatch(/^- provider\.default\.updated/m);
+  });
+
+  it('renders a tier confirmation with tier + model fields', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('provider.tier.updated', {
+      tier: 'opus',
+      model: 'claude-opus-4',
+    });
+    const text = await cap.read();
+    expect(text).toContain('✓ provider.tier.updated');
+    expect(text).toContain('tier=opus');
+    expect(text).toContain('model=claude-opus-4');
+  });
+
+  it('renders a base_url cleared confirmation', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('provider.base_url.cleared', {
+      provider: 'ollama',
+    });
+    const text = await cap.read();
+    expect(text).toContain('✓ provider.base_url.cleared');
+    expect(text).toContain('provider=ollama');
+  });
+
+  it('renders the license.status family with reused License fields', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('license.status', {
+      tier: 'pro',
+      valid: true,
+      daysRemaining: 30,
+    });
+    const text = await cap.read();
+    expect(text).toContain('✓ license.status');
+    expect(text).toContain('tier:           pro');
+    expect(text).toContain('valid:          yes');
+    expect(text).toContain('daysRemaining:  30');
+  });
+
+  it('renders license.cleared / license.updated as success', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('license.cleared', { valid: false });
+    await fmt.writeNotification('license.updated', {
+      tier: 'team',
+      valid: true,
+    });
+    const text = await cap.read();
+    expect(text).toContain('✓ license.cleared');
+    expect(text).toContain('✓ license.updated');
+    expect(text).toContain('tier:           team');
+  });
+
+  it('prefixes unhandled confirmation-suffix methods with a success glyph', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('something.custom.completed.set', {});
+    const text = await cap.read();
+    expect(text.trimEnd().startsWith('✓')).toBe(true);
+    expect(text).not.toMatch(/^- /);
+  });
+
+  it('emits no ANSI for confirmations under --no-color', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('provider.key.set', { provider: 'anthropic' });
+    const text = await cap.read();
+    // eslint-disable-next-line no-control-regex
+    expect(text).not.toMatch(/\x1b\[/);
+  });
 });
 
 describe('shouldUseColor', () => {

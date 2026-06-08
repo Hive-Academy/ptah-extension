@@ -237,16 +237,14 @@ describe('ptah auth status', () => {
     const methods = formatterTrace.notifications.map((n) => n.method);
     expect(methods).toEqual(['auth.status']);
 
-    // Redaction: the literal apiKey field (and any key matching the
-    // sensitive pattern, including `hasApiKey`) must be masked when
-    // --reveal is off. The redactor uses a substring match on
-    // /apikey|api_key|token|secret|password/i.
+    // Redaction: the literal apiKey credential string must be masked when
+    // --reveal is off, but the `hasApiKey` capability boolean survives.
     const status = formatterTrace.notifications[0]?.params as Record<
       string,
       unknown
     >;
     expect(status?.['apiKey']).toBe('<redacted>');
-    expect(status?.['hasApiKey']).toBe('<redacted>');
+    expect(status?.['hasApiKey']).toBe(true);
     // Non-sensitive fields pass through untouched.
     expect(status?.['authMethod']).toBe('apiKey');
     // Coalesced shape: nested health + (renamed) apiKey fields are present.

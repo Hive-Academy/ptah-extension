@@ -3,6 +3,7 @@ import {
   inject,
   signal,
   computed,
+  effect,
   OnInit,
   OnDestroy,
   ChangeDetectionStrategy,
@@ -128,6 +129,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
 
           <button
             class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
+            data-testid="editor-terminal-toggle"
             [class.text-primary]="editorService.terminalVisible()"
             [title]="
               editorService.terminalVisible()
@@ -502,12 +504,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     }
   };
 
-  ngOnInit(): void {
+  private readonly _workspaceBinding = effect(() => {
     const workspaceRoot = this.vscodeService.config().workspaceRoot;
     if (workspaceRoot) {
       this.editorService.switchWorkspace(workspaceRoot);
     }
+  });
 
+  ngOnInit(): void {
     this.gitStatus.startListening();
     this.editorService.startFileTreeWatcher();
     void this.vimModeService.loadPreference();

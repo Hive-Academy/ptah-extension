@@ -9,3 +9,7 @@ export {
   TIMELINE_PAGE_SIZE,
   TimelineStateService,
 } from './lib/services/timeline-state.service';
+export {
+  VecEmbedderRecoveryService,
+  type RecoveryToast,
+} from './lib/services/vec-embedder-recovery.service';

@@ -15,6 +15,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from './tokens';
 import { SqliteConnectionService } from '../sqlite-connection.service';
 import { SqliteBackupService } from '../backup.service';
+import { VecStatusService } from '../vec-status.service';
 
 /**
  * Register persistence-sqlite services in the supplied container.
@@ -41,6 +42,7 @@ export function registerPersistenceSqliteServices(
     PERSISTENCE_TOKENS.BACKUP_SERVICE,
     SqliteBackupService,
   );
+  container.registerSingleton(PERSISTENCE_TOKENS.VEC_STATUS, VecStatusService);
   const connection = container.resolve<SqliteConnectionService>(
     PERSISTENCE_TOKENS.SQLITE_CONNECTION,
   );

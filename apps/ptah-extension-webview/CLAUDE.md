@@ -44,5 +44,5 @@ Angular 21 single-page application that renders inside the VS Code webview and t
 - Do not import features directly across cycles — register them via the inversion tokens in `app.config.ts`.
 - Any new push-event consumer service should be added to `MESSAGE_HANDLERS` as `useExisting` so it joins the router's broadcast.
 - The webview has no `pushState`/`replaceState` — never use Angular Router here (note: route inside via signals; `WebviewErrorHandler` proves the constraint).
-- Keep `provideMonacoEditor`'s worker shim intact — Electron 35+ Chromium 135+ breaks the default data-URL worker.
+- Do NOT re-add a custom `MonacoEnvironment.getWorker` shim to `provideMonacoEditor`. monaco-editor 0.55+ ships its own Blob-based worker factory that resolves the hashed worker bundle (`assets/editor.worker-*.js`) itself; overriding it with a hardcoded `base/worker/workerMain.js` path 404s the editor worker, which silently kills diff computation (the diff view renders text but no add/remove highlighting).
 - Component-level styles must stay under 10kb warn / 20kb error.

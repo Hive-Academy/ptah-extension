@@ -86,6 +86,8 @@ export const MemoryTriggersSchema = z.object({
     })
     .optional(),
   maxCuratesPerHour: z.number().int().min(0).max(1000).optional(),
+  curatorProvider: z.string().max(200).optional(),
+  curatorModel: z.string().max(200).optional(),
 });
 
 export const MemorySetTriggersParamsSchema = z.object({

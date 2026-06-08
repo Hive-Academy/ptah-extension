@@ -12,7 +12,13 @@ export type {
   ResolvedMemoryDraft,
   MemoryType,
 } from './lib/curator-llm.port';
+export type {
+  CodeSymbolHit,
+  CodeSymbolHitPage,
+  ICodeSymbolReader,
+} from './lib/code-symbol-reader.port';
 export type { ICompactionCallbackRegistry } from './lib/compaction-callback.port';
 export type { ISymbolSink, SymbolChunkInsert } from './lib/symbol-sink.port';
 export type { ITranscriptReader } from './lib/transcript-reader.port';
+export type { EmbedderDownloadPhase } from './lib/embedder-download.port';
 export { MEMORY_CONTRACT_TOKENS } from './lib/tokens';

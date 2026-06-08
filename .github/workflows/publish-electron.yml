@@ -231,20 +231,207 @@ jobs:
           _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
           CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
 
+      # CRITICAL: re-copy the tree-sitter WASM immediately before packing.
+      # `nx build` runs copy-wasm.js, but the intervening `nx validate-deps`
+      # and `nx copy-renderer` steps depend on build-main, whose cached output
+      # is the whole dist/apps/ptah-electron dir snapshotted BEFORE copy-wasm
+      # ran — a cache restore wipes wasm/ from dist. Re-running copy-wasm here
+      # (idempotent) guarantees the runtime + grammars are present for the asar.
+      # Without it the workspace indexer and every AST feature silently no-op
+      # (web-tree-sitter.wasm not found in app.asar).
+      - name: Copy tree-sitter WASM (re-copy pre-pack)
+        run: node scripts/copy-wasm.js dist/apps/ptah-electron
+
+      # macOS / Linux: single-shot package (build app + distributable together).
+      # Windows is split below into dir-build -> sign-internals -> repack-NSIS so
+      # every internal binary (Ptah.exe, *.dll, and the asarUnpacked
+      # better_sqlite3.node) carries the SSL.com IV signature, not just the
+      # outer installer. SAC/WDAC evaluate each native module at load time, so
+      # an unsigned better_sqlite3.node is blocked even when the installer is
+      # signed — taking SQLite (Memory/Skills/Schedules/Messaging) offline.
       - name: Package for platform
+        if: runner.os != 'Windows'
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never ${{ matrix.build-args }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # tree-sitter 0.21.x binding.gyp forces C++17, but Electron 35 V8 headers require C++20
-          # _CL_ is for MSVC (Windows), CXXFLAGS is for GCC/Clang (Linux/macOS)
-          _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
-          CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
+          # tree-sitter 0.21.x binding.gyp forces C++17, but Electron V8 headers require C++20
+          CXXFLAGS: '-std=c++20'
 
-      # Post-pack gate: prove the binary electron-builder actually placed inside
-      # the app carries the Electron ABI. Fails the job loudly instead of
-      # shipping a broken installer (the recurring Sentry 124004638 regression).
-      - name: Verify packed better-sqlite3 ABI
+      # Post-pack gates for macOS/Linux (Windows runs its own copies inside the
+      # split signing flow below). Prove the packed better-sqlite3 ABI and the
+      # tree-sitter WASM assets are present before shipping.
+      - name: Verify packed better-sqlite3 ABI (macOS/Linux)
+        if: runner.os != 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-native.js
+
+      - name: Verify packed tree-sitter WASM (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: node apps/ptah-electron/scripts/verify-packed-wasm.js
+
+      # ---- Windows packaging + signing (split into 3 phases) ----------------
+      # Phase 1: build win-unpacked ONLY (--dir). No NSIS yet. The win-unpacked
+      # tree is real on-disk files we can sign before the installer wraps them.
+      - name: Package Windows (win-unpacked only, no installer)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never --win --dir
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          _CL_: /std:c++20
+
+      # Phase 1 gates: prove the packed better-sqlite3 ABI + tree-sitter WASM are
+      # correct in win-unpacked BEFORE we sign and repack. verify-packed-native
+      # scans dist/release recursively and finds win-unpacked/.../app.asar.unpacked
+      # /node_modules/better-sqlite3/build/Release/better_sqlite3.node. WASM lives
+      # inside win-unpacked/resources/app.asar (verify-packed-wasm scans for that).
+      - name: Verify packed better-sqlite3 ABI (win-unpacked, pre-sign)
+        if: runner.os == 'Windows'
+        run: node apps/ptah-electron/scripts/verify-packed-native.js
+
+      - name: Verify packed tree-sitter WASM (win-unpacked, pre-sign)
+        if: runner.os == 'Windows'
+        run: node apps/ptah-electron/scripts/verify-packed-wasm.js
+
+      # Phase 2a: collect EVERY signable binary in win-unpacked and flat-stage it
+      # into dist/sign-stage. We sign via a single batch_sign call (one OTP for
+      # up to 100 files) instead of per-file `sign` (one OTP each — TOTP rate
+      # limits + N round-trips). CodeSignTool only recognizes Authenticode
+      # extensions (.exe/.dll/.sys/...) and does NOT recognize ".node", so each
+      # .node is staged with a ".dll" extension. Authenticode signatures live in
+      # the PE overlay, independent of extension, so the signature survives the
+      # rename back to .node and SAC/WDAC read it correctly at load time.
+      # A JSON manifest records staged-name -> original-path for copy-back.
+      - name: Stage Windows binaries for batch signing
+        if: runner.os == 'Windows'
+        id: stage-sign
+        shell: pwsh
+        run: |
+          $unpacked = "dist\release\win-unpacked"
+          if (-not (Test-Path $unpacked)) { throw "win-unpacked not found at $unpacked" }
+          $stage = "dist\sign-stage"
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          # CodeSignTool batch_sign writes signed files to output_path and does
+          # NOT overwrite input in place — output_path MUST differ from dir_path,
+          # otherwise the originals stay unsigned (Get-AuthenticodeSignature ->
+          # NotSigned). Sign into a separate dir and copy back from there.
+          $signedDir = "dist\sign-out"
+          Remove-Item -Recurse -Force $signedDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $signedDir | Out-Null
+
+          # Extension alone is not enough: node_modules ships cross-platform native
+          # addons, so a Linux (.node = ELF) or macOS (.node = Mach-O) binary can
+          # carry a .node/.dll name yet not be a Windows PE. CodeSignTool's
+          # batch_sign hashes every file as a PE and aborts on the first one
+          # without an "MZ" DOS header ("DOS header signature not found"). Filter
+          # to real PE files by reading the first two magic bytes (0x4D 0x5A).
+          $candidates = Get-ChildItem -Path $unpacked -Recurse -File |
+            Where-Object { $_.Extension -in '.exe', '.dll', '.node' }
+          $binaries = @()
+          $skipped = @()
+          foreach ($c in $candidates) {
+            $fs = [System.IO.File]::OpenRead($c.FullName)
+            try { $b0 = $fs.ReadByte(); $b1 = $fs.ReadByte() } finally { $fs.Dispose() }
+            if ($b0 -eq 0x4D -and $b1 -eq 0x5A) { $binaries += $c } else { $skipped += $c }
+          }
+          if ($skipped.Count -gt 0) {
+            Write-Host "Skipping $($skipped.Count) non-PE file(s) (no MZ header — not Windows binaries):"
+            $skipped | ForEach-Object { Write-Host "  SKIP $($_.FullName)" }
+          }
+          if ($binaries.Count -eq 0) { throw "No Windows PE (.exe/.dll/.node) binaries found under $unpacked" }
+          if ($binaries.Count -gt 100) {
+            throw "Found $($binaries.Count) binaries — CodeSignTool batch_sign caps at 100 per OTP. Split into batches."
+          }
+
+          $manifest = @()
+          $i = 0
+          foreach ($b in $binaries) {
+            $i++
+            # CodeSignTool rejects unknown extensions; map .node -> .dll for signing.
+            $signExt = if ($b.Extension -eq '.node') { '.dll' } else { $b.Extension }
+            # Flat, collision-free staged name (the tree has many better_sqlite3.node etc.).
+            $stagedName = "{0:D3}_{1}{2}" -f $i, $b.BaseName, $signExt
+            $stagedPath = Join-Path $stage $stagedName
+            Copy-Item -LiteralPath $b.FullName -Destination $stagedPath -Force
+            $manifest += [pscustomobject]@{ staged = $stagedName; original = $b.FullName }
+          }
+
+          $manifestPath = "dist\sign-manifest.json"
+          $manifest | ConvertTo-Json -Depth 3 | Out-File -FilePath $manifestPath -Encoding utf8
+          Write-Host "Staged $($binaries.Count) binaries into $stage for batch signing:"
+          $binaries | ForEach-Object { Write-Host "  $($_.FullName)" }
+          echo "stage_dir=$stage" >> $env:GITHUB_OUTPUT
+          echo "signed_dir=$signedDir" >> $env:GITHUB_OUTPUT
+          echo "manifest=$manifestPath" >> $env:GITHUB_OUTPUT
+          echo "count=$($binaries.Count)" >> $env:GITHUB_OUTPUT
+
+      # Phase 2b: ONE batch_sign call signs every staged binary in place (output
+      # written back into the same staging dir). Single OTP for the whole batch.
+      - name: Batch-sign Windows internal binaries with SSL.com eSigner
+        if: runner.os == 'Windows'
+        uses: sslcom/esigner-codesign@v1.3.2
+        with:
+          command: batch_sign
+          username: ${{ secrets.SSL_COM_USERNAME }}
+          password: ${{ secrets.SSL_COM_PASSWORD }}
+          credential_id: ${{ secrets.SSL_COM_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.SSL_COM_TOTP_SECRET }}
+          dir_path: ${{ steps.stage-sign.outputs.stage_dir }}
+          output_path: ${{ steps.stage-sign.outputs.signed_dir }}
+          override: true
+          environment_name: PROD
+          # SSL.com PROD requires each hash to be malware-scanned before it will
+          # sign ("hash needs to be scanned first before submitting for signing").
+          # malware_block: true makes CodeSignTool submit the scan and wait.
+          malware_block: true
+
+      # Phase 2c: copy each signed binary back over its original nested location
+      # (restoring the .node extension). Fail loudly if a staged file is missing
+      # or did not actually receive an Authenticode signature.
+      - name: Copy signed binaries back into win-unpacked
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $signedDir = "${{ steps.stage-sign.outputs.signed_dir }}"
+          $manifest = Get-Content "${{ steps.stage-sign.outputs.manifest }}" -Raw | ConvertFrom-Json
+          $missing = @()
+          $unsigned = @()
+          foreach ($entry in $manifest) {
+            $signed = Join-Path $signedDir $entry.staged
+            if (-not (Test-Path $signed)) { $missing += $entry.staged; continue }
+            $sig = Get-AuthenticodeSignature -LiteralPath $signed
+            if ($sig.Status -ne 'Valid') { $unsigned += "$($entry.staged) [$($sig.Status)]" }
+            Copy-Item -LiteralPath $signed -Destination $entry.original -Force
+            Write-Host "Signed -> $($entry.original)  [$($sig.Status)]"
+          }
+          if ($missing.Count -gt 0) { throw "batch_sign did not produce: $($missing -join ', ')" }
+          if ($unsigned.Count -gt 0) { throw "Binaries lack a Valid signature after batch_sign: $($unsigned -join ', ')" }
+          Write-Host "All $($manifest.Count) internal binaries signed and copied back."
+
+      # Phase 3: build the NSIS installer FROM the now-signed win-unpacked dir.
+      # --prepackaged packs the distributable from the existing app dir without
+      # re-running asar packing or re-copying node_modules, so the signed
+      # internal binaries are carried verbatim into the installer.
+      # NOTE: --prepackaged is resolved relative to --project, so a relative
+      # "dist/release/win-unpacked" becomes dist/apps/ptah-electron/dist/release/
+      # win-unpacked (does not exist). Pass an ABSOLUTE workspace path so it
+      # points at the real output dir where phase 1's --dir build emitted it.
+      - name: Package Windows installer from signed app (NSIS)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never --win --prepackaged "${{ github.workspace }}/dist/release/win-unpacked"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Post-repack gates: re-prove ABI + WASM survived the NSIS repack. (The
+      # installer embeds win-unpacked verbatim; these now also see the signed
+      # better_sqlite3.node — its sha256 changed vs the root node_modules copy,
+      # but the ABI-marker check still passes, which is the contract that matters.)
+      - name: Verify packed better-sqlite3 ABI (post-repack)
+        if: runner.os == 'Windows'
+        run: node apps/ptah-electron/scripts/verify-packed-native.js
+
+      - name: Verify packed tree-sitter WASM (post-repack)
+        if: runner.os == 'Windows'
+        run: node apps/ptah-electron/scripts/verify-packed-wasm.js
 
       - name: Find Windows installer
         if: runner.os == 'Windows'

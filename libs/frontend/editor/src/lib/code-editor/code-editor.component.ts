@@ -73,7 +73,7 @@ import { EditorService } from '../services/editor.service';
             }
           </div>
         </div>
-        <div class="flex-1 min-h-0">
+        <div class="flex-1 min-h-0" data-testid="editor-monaco">
           @if (showPreview() && isMarkdownFile()) {
             <div
               class="h-full overflow-y-auto bg-base-100 p-6 prose prose-invert max-w-none"

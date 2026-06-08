@@ -11,6 +11,11 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
   let registry: ConversationRegistry;
 
   beforeEach(() => {
+    try {
+      globalThis.localStorage?.clear();
+    } catch {
+      // ignore
+    }
     TestBed.configureTestingModule({});
     registry = TestBed.inject(ConversationRegistry);
   });
@@ -187,6 +192,159 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
       const completed = registry.compactionStateFor(id);
       expect(completed?.inFlight).toBe(false);
       expect(typeof completed?.lastCompactionAt).toBe('number');
+    });
+  });
+
+  describe('compaction marker merge', () => {
+    it('token-then-summary yields a fully-merged marker', () => {
+      const id = registry.create(sid());
+      registry.setCompactionMarkerTokens(id, {
+        preTokens: 5000,
+        postTokens: 1200,
+        durationMs: 800,
+        completedAt: 100,
+      });
+      registry.setCompactionMarkerSummary(id, {
+        summary: 'recap',
+        completedAt: 200,
+      });
+      const m = registry.compactionMarkerFor(id);
+      expect(m).toEqual({
+        summary: 'recap',
+        preTokens: 5000,
+        postTokens: 1200,
+        durationMs: 800,
+        completedAt: 200,
+      });
+    });
+
+    it('summary-then-token yields a fully-merged marker', () => {
+      const id = registry.create(sid());
+      registry.setCompactionMarkerSummary(id, {
+        summary: 'recap',
+        completedAt: 200,
+      });
+      registry.setCompactionMarkerTokens(id, {
+        preTokens: 5000,
+        postTokens: 1200,
+        durationMs: 800,
+        completedAt: 100,
+      });
+      const m = registry.compactionMarkerFor(id);
+      expect(m).toEqual({
+        summary: 'recap',
+        preTokens: 5000,
+        postTokens: 1200,
+        durationMs: 800,
+        completedAt: 200,
+      });
+    });
+
+    it('either-missing writer yields a partial marker', () => {
+      const id = registry.create(sid());
+      registry.setCompactionMarkerTokens(id, {
+        preTokens: 5000,
+        postTokens: 1200,
+        durationMs: null,
+        completedAt: 100,
+      });
+      const m = registry.compactionMarkerFor(id);
+      expect(m?.summary).toBeNull();
+      expect(m?.preTokens).toBe(5000);
+      expect(m?.postTokens).toBe(1200);
+      expect(m?.durationMs).toBeNull();
+    });
+
+    it('a later null never clobbers an already-set field', () => {
+      const id = registry.create(sid());
+      registry.setCompactionMarkerTokens(id, {
+        preTokens: 5000,
+        postTokens: 1200,
+        durationMs: 800,
+        completedAt: 100,
+      });
+      registry.setCompactionMarkerTokens(id, {
+        preTokens: null,
+        postTokens: null,
+        durationMs: null,
+        completedAt: 50,
+      });
+      const m = registry.compactionMarkerFor(id);
+      expect(m?.preTokens).toBe(5000);
+      expect(m?.postTokens).toBe(1200);
+      expect(m?.durationMs).toBe(800);
+      expect(m?.completedAt).toBe(100);
+    });
+
+    it('no-ops on unknown conversation id', () => {
+      const orphan = ConversationId.create();
+      expect(() =>
+        registry.setCompactionMarkerTokens(orphan, {
+          preTokens: 1,
+          postTokens: 1,
+          durationMs: 1,
+          completedAt: 1,
+        }),
+      ).not.toThrow();
+      expect(registry.compactionMarkerFor(orphan)).toBeNull();
+    });
+
+    it('persists to localStorage and lazily rehydrates when in-memory is null', () => {
+      const id = registry.create(sid());
+      registry.setCompactionMarkerSummary(id, {
+        summary: 'persisted recap',
+        completedAt: 300,
+      });
+      const raw = globalThis.localStorage.getItem(
+        `ptah:compaction-marker:${id}`,
+      );
+      expect(raw).toBeTruthy();
+
+      const fresh = registry.create();
+      const key = `ptah:compaction-marker:${fresh}`;
+      globalThis.localStorage.setItem(
+        key,
+        JSON.stringify({
+          summary: 'from-disk',
+          preTokens: 42,
+          postTokens: 7,
+          durationMs: null,
+          completedAt: 900,
+        }),
+      );
+      const rehydrated = registry.compactionMarkerFor(fresh);
+      expect(rehydrated).toEqual({
+        summary: 'from-disk',
+        preTokens: 42,
+        postTokens: 7,
+        durationMs: null,
+        completedAt: 900,
+      });
+    });
+
+    it('merges across a localStorage round-trip when in-memory record is stale', () => {
+      const id = registry.create(sid());
+      const key = `ptah:compaction-marker:${id}`;
+      globalThis.localStorage.setItem(
+        key,
+        JSON.stringify({
+          summary: 'disk-summary',
+          preTokens: null,
+          postTokens: null,
+          durationMs: null,
+          completedAt: 10,
+        }),
+      );
+      registry.setCompactionMarkerTokens(id, {
+        preTokens: 999,
+        postTokens: 100,
+        durationMs: 50,
+        completedAt: 20,
+      });
+      const m = registry.compactionMarkerFor(id);
+      expect(m?.summary).toBe('disk-summary');
+      expect(m?.preTokens).toBe(999);
+      expect(m?.completedAt).toBe(20);
     });
   });
 

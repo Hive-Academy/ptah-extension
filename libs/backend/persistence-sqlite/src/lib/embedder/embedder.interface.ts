@@ -23,4 +23,11 @@ export interface IEmbedder {
   embed(texts: readonly string[]): Promise<Float32Array[]>;
   /** Release any underlying resources (worker threads, native handles). */
   dispose(): Promise<void>;
+  /**
+   * Optional pre-warm hook. Implementations that download / JIT-compile a
+   * model on first use can expose this so callers (e.g. EmbedderStatusService)
+   * can trigger and observe the load explicitly. Implementations without
+   * a meaningful warmup may omit this method.
+   */
+  warmup?(): Promise<void>;
 }

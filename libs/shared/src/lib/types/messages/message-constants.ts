@@ -162,6 +162,10 @@ export const MESSAGE_TYPES = {
   MEMORY_EXTRACTED: 'memory:extracted',
   /** Backend → Frontend: session-start injection block emitted (for UI badge). */
   MEMORY_SESSION_START_INJECTED: 'memory:sessionStartInjected',
+  /** Backend → Frontend: sqlite-vec load state transitioned (Electron only). */
+  VEC_STATUS_CHANGED: 'db:vecStatusChanged',
+  /** Backend → Frontend: embedder readiness/progress/error changed (Electron only). */
+  EMBEDDER_STATUS_CHANGED: 'embedder:statusChanged',
 } as const;
 
 /**

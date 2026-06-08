@@ -1,6 +1,6 @@
 {
   "name": "@hive-academy/ptah-cli",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Headless agent-to-agent (A2A) CLI bridge for the Ptah coding orchestra. Drives the same DI graph as the Ptah VS Code extension and Electron app over JSON-RPC 2.0 stdio.",
   "license": "FSL-1.1-MIT",
   "author": "Ptah Extensions",
@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.150",
+    "@clack/prompts": "^1.4.0",
     "@openai/codex-sdk": "^0.133.0",
     "@tavily/core": "^0.7.2",
     "axios": "^1.15.0",

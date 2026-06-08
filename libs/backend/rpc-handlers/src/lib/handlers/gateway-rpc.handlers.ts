@@ -39,6 +39,18 @@ import type {
   GatewayStopResult,
   GatewayTestParams,
   GatewayTestResult,
+  GatewayGetAllowListParams,
+  GatewayGetAllowListResult,
+  GatewaySetAllowListParams,
+  GatewaySetAllowListResult,
+  GatewayGetDiscordAppIdParams,
+  GatewayGetDiscordAppIdResult,
+  GatewaySetDiscordAppIdParams,
+  GatewaySetDiscordAppIdResult,
+  GatewayRegisterDiscordCommandsParams,
+  GatewayRegisterDiscordCommandsResult,
+  GatewayListDiscordGuildsParams,
+  GatewayListDiscordGuildsResult,
 } from '@ptah-extension/shared';
 import {
   GATEWAY_TOKENS,
@@ -63,6 +75,12 @@ export class GatewayRpcHandlers {
     'gateway:blockBinding',
     'gateway:listMessages',
     'gateway:test',
+    'gateway:getAllowList',
+    'gateway:setAllowList',
+    'gateway:getDiscordAppId',
+    'gateway:setDiscordAppId',
+    'gateway:registerDiscordCommands',
+    'gateway:listDiscordGuilds',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -86,6 +104,12 @@ export class GatewayRpcHandlers {
     this.registerBlockBinding();
     this.registerListMessages();
     this.registerTest();
+    this.registerGetAllowList();
+    this.registerSetAllowList();
+    this.registerGetDiscordAppId();
+    this.registerSetDiscordAppId();
+    this.registerRegisterDiscordCommands();
+    this.registerListDiscordGuilds();
 
     this.logger.debug('Gateway RPC handlers registered', {
       methods: GatewayRpcHandlers.METHODS,
@@ -314,6 +338,88 @@ export class GatewayRpcHandlers {
       },
     );
   }
+
+  private registerGetAllowList(): void {
+    this.rpcHandler.registerMethod<
+      GatewayGetAllowListParams,
+      GatewayGetAllowListResult
+    >('gateway:getAllowList', async (params) => {
+      const platform = requirePlatform(params?.platform);
+      return { entries: this.gateway.getAllowList(platform) };
+    });
+  }
+
+  private registerSetAllowList(): void {
+    this.rpcHandler.registerMethod<
+      GatewaySetAllowListParams,
+      GatewaySetAllowListResult
+    >('gateway:setAllowList', async (params) => {
+      const platform = requirePlatform(params?.platform);
+      const entries = params?.entries;
+      if (
+        !Array.isArray(entries) ||
+        !entries.every((e) => typeof e === 'string')
+      ) {
+        throw new Error('gateway:setAllowList: entries must be a string array');
+      }
+      await this.gateway.setAllowList(platform, entries);
+      return { ok: true };
+    });
+  }
+
+  private registerGetDiscordAppId(): void {
+    this.rpcHandler.registerMethod<
+      GatewayGetDiscordAppIdParams,
+      GatewayGetDiscordAppIdResult
+    >('gateway:getDiscordAppId', async () => ({
+      applicationId: this.gateway.getDiscordAppId(),
+    }));
+  }
+
+  private registerSetDiscordAppId(): void {
+    this.rpcHandler.registerMethod<
+      GatewaySetDiscordAppIdParams,
+      GatewaySetDiscordAppIdResult
+    >('gateway:setDiscordAppId', async (params) => {
+      if (
+        typeof params?.applicationId !== 'string' ||
+        params.applicationId.trim().length === 0
+      ) {
+        throw new Error('gateway:setDiscordAppId requires applicationId');
+      }
+      await this.gateway.setDiscordAppId(params.applicationId);
+      return { ok: true };
+    });
+  }
+
+  private registerRegisterDiscordCommands(): void {
+    this.rpcHandler.registerMethod<
+      GatewayRegisterDiscordCommandsParams,
+      GatewayRegisterDiscordCommandsResult
+    >('gateway:registerDiscordCommands', async () =>
+      this.gateway.registerDiscordCommands(),
+    );
+  }
+
+  private registerListDiscordGuilds(): void {
+    this.rpcHandler.registerMethod<
+      GatewayListDiscordGuildsParams,
+      GatewayListDiscordGuildsResult
+    >('gateway:listDiscordGuilds', async () => ({
+      guilds: this.gateway.listDiscordGuilds(),
+    }));
+  }
+}
+
+function requirePlatform(platform: unknown): GatewayPlatform {
+  if (
+    platform !== 'telegram' &&
+    platform !== 'discord' &&
+    platform !== 'slack'
+  ) {
+    throw new Error(`gateway: unknown platform '${String(platform)}'`);
+  }
+  return platform;
 }
 
 function toBindingDto(b: GatewayBinding): GatewayBindingDto {
@@ -321,6 +427,7 @@ function toBindingDto(b: GatewayBinding): GatewayBindingDto {
     id: String(b.id),
     platform: b.platform as GatewayPlatformId,
     externalChatId: b.externalChatId,
+    allowListId: b.allowListId,
     displayName: b.displayName,
     approvalStatus: b.approvalStatus as GatewayApprovalStatus,
     ptahSessionId: b.ptahSessionId,

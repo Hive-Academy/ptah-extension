@@ -269,16 +269,6 @@ export class ChatStore {
     this.turnEndHandler.handleSubagentEnded(payload);
   }
 
-  /**
-   * Public accessor for marking a tab idle from external handlers.
-   * Used by ChatMessageHandler for CHAT_COMPLETE fallback. Only removes the
-   * visual streaming indicator â€” full state reset is handled by
-   * finalizeCurrentMessage / handleError / handleCompaction.
-   */
-  markTabIdle(tabId: string): void {
-    this.tabManager.markTabIdle(tabId);
-  }
-
   findTabBySessionId(sessionId: string): TabState | null {
     return this.tabManager.findTabBySessionId(sessionId);
   }
@@ -366,6 +356,9 @@ export class ChatStore {
       this.compaction.handleCompactionComplete({
         tabId: result.tabId,
         compactionSessionId: result.compactionSessionId,
+        preTokens: result.preTokens,
+        postTokens: result.postTokens,
+        durationMs: result.durationMs,
       });
       return;
     }

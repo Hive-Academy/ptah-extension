@@ -294,6 +294,7 @@ describe('ptah session start', () => {
         withEngine: e.withEngine,
         randomUUID: () => 'tab-A',
         installSigint: () => () => undefined,
+        exit: () => undefined,
       },
     );
     // Drain microtasks + a macrotask so listeners are attached and rpcCall
@@ -319,6 +320,53 @@ describe('ptah session start', () => {
     expect(e.pushAdapter.listenerCount('chat:error')).toBe(0);
   });
 
+  it('auto-exits via the exit hook when --task is given without --once', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    e.scripted.set('chat:start', { success: true });
+    const exitCalls: number[] = [];
+
+    const promise = execute(
+      { subcommand: 'start', task: 'do the thing' },
+      baseGlobals,
+      {
+        formatter: f.formatter,
+        withEngine: e.withEngine,
+        randomUUID: () => 'tab-AX',
+        installSigint: () => () => undefined,
+        exit: (code: number) => {
+          exitCalls.push(code);
+        },
+        drainTimeoutMs: 50,
+      },
+    );
+    await flushAsync();
+    e.pushAdapter.emit('chat:complete', {
+      tabId: 'tab-AX',
+      sessionId: 'sdk-ax',
+    });
+    const exit = await promise;
+    expect(exit).toBe(ExitCode.Success);
+    expect(exitCalls).toEqual([ExitCode.Success]);
+  });
+
+  it('does NOT auto-exit when start has no task (persistent session)', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    const exitCalls: number[] = [];
+    const exit = await execute({ subcommand: 'start' }, baseGlobals, {
+      formatter: f.formatter,
+      withEngine: e.withEngine,
+      randomUUID: () => 'tab-PERSIST',
+      installSigint: () => () => undefined,
+      exit: (code: number) => {
+        exitCalls.push(code);
+      },
+    });
+    expect(exit).toBe(ExitCode.Success);
+    expect(exitCalls).toEqual([]);
+  });
+
   it('emits task.error and exits 1 when chat:error fires', async () => {
     const f = makeFormatter();
     const e = makeEngine();
@@ -327,6 +375,7 @@ describe('ptah session start', () => {
       withEngine: e.withEngine,
       randomUUID: () => 'tab-B',
       installSigint: () => () => undefined,
+      exit: () => undefined,
     });
     await flushAsync();
     e.pushAdapter.emit('chat:error', {
@@ -354,6 +403,7 @@ describe('ptah session start', () => {
         sigintHandler = handler;
         return () => undefined;
       },
+      exit: () => undefined,
     });
     await flushAsync();
     expect(sigintHandler).toBeDefined();
@@ -380,6 +430,7 @@ describe('ptah session start', () => {
       withEngine: e.withEngine,
       randomUUID: () => 'tab-NA',
       installSigint: () => () => undefined,
+      exit: () => undefined,
     });
     await flushAsync();
     e.pushAdapter.emit('chat:complete', {

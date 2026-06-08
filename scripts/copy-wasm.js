@@ -40,6 +40,8 @@ const wasmFiles = [
   { src: runtimeWasmSource, name: 'web-tree-sitter.wasm' },
   { src: grammarWasmSource, name: 'tree-sitter-javascript.wasm' },
   { src: grammarWasmSource, name: 'tree-sitter-typescript.wasm' },
+  { src: grammarWasmSource, name: 'tree-sitter-python.wasm' },
+  { src: grammarWasmSource, name: 'tree-sitter-go.wasm' },
 ];
 
 fs.mkdirSync(wasmDest, { recursive: true });

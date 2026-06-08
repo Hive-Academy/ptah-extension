@@ -15,6 +15,7 @@ import { ulid } from 'ulid';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
+  VecStatusService,
   type SqliteConnectionService,
   type SqliteDatabase,
   type SqliteStatement,
@@ -69,6 +70,8 @@ export class SkillCandidateStore {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: SqliteConnectionService,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
   ) {}
 
   private get db(): SqliteDatabase {
@@ -88,7 +91,7 @@ export class SkillCandidateStore {
 
     const id = this.generateCandidateId();
     let embeddingRowid: number | null = null;
-    if (input.embedding && this.connection.vecExtensionLoaded) {
+    if (input.embedding && this.vecStatus.available) {
       embeddingRowid = this.insertEmbedding(input.embedding);
     }
 
@@ -369,7 +372,7 @@ export class SkillCandidateStore {
    * loaded or the rowid does not exist.
    */
   getEmbedding(rowid: number): Float32Array | null {
-    if (!this.connection.vecExtensionLoaded) return null;
+    if (!this.vecStatus.available) return null;
     return this.readEmbedding(rowid);
   }
 
@@ -382,7 +385,7 @@ export class SkillCandidateStore {
     embedding: Float32Array,
     limit = 5,
   ): Array<{ row: SkillCandidateRow; similarity: number }> {
-    if (!this.connection.vecExtensionLoaded) return [];
+    if (!this.vecStatus.available) return [];
     const promoted = this.listByStatus('promoted');
     if (promoted.length === 0) return [];
     const scored: Array<{ row: SkillCandidateRow; similarity: number }> = [];

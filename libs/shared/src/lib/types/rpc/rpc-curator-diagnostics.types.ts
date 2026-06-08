@@ -13,7 +13,15 @@ export type MemoryCuratorEventKind =
   | 'session-end-trigger'
   | 'tool-failure'
   | 'rate-limited'
-  | 'error';
+  | 'error'
+  | 'curator-error'
+  | 'embedder-download';
+
+export type EmbedderDownloadPhaseWire =
+  | 'starting'
+  | 'downloading'
+  | 'ready'
+  | 'failed';
 
 export interface MemoryCuratorEventWire {
   readonly kind: MemoryCuratorEventKind;
@@ -21,6 +29,8 @@ export interface MemoryCuratorEventWire {
   readonly sessionId?: string;
   readonly stats?: Readonly<Record<string, number | string | boolean | null>>;
   readonly error?: string;
+  readonly phase?: EmbedderDownloadPhaseWire;
+  readonly progress?: number;
 }
 
 export type SkillSynthesisEventKind =
@@ -66,6 +76,8 @@ export interface MemoryTriggersDto {
     readonly enabled: boolean;
   };
   readonly maxCuratesPerHour?: number;
+  readonly curatorProvider?: string;
+  readonly curatorModel?: string;
 }
 
 export interface SkillTriggersDto {

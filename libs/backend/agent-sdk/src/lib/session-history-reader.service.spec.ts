@@ -437,26 +437,52 @@ describe('SessionHistoryReaderService', () => {
   // -------------------------------------------------------------------------
 
   describe('resolveNativeMessageId', () => {
-    const NATIVE_ID = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz';
+    const LINE_UUID = '7bca7123-f9f4-4981-ad04-3b982ee225e1';
+    const LINE_UUID_2 = '72a17af6-3e28-450a-90c3-f5082b343d6b';
+    const ANTHROPIC_ID = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz';
     const PTAH_ID = 'msg_1778055502540_cegogbr';
 
-    it('returns a native Anthropic UUID unchanged without reading JSONL (fast path)', async () => {
+    it('returns a transcript line UUID unchanged without reading JSONL (fast path)', async () => {
       const stubs = makeStubs();
       const service = makeService(stubs);
 
       const result = await service.resolveNativeMessageId(
         'valid-session',
         '/workspace',
-        NATIVE_ID,
+        LINE_UUID,
       );
 
-      expect(result).toBe(NATIVE_ID);
+      expect(result).toBe(LINE_UUID);
       // Fast path â€” no I/O
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
       expect(stubs.jsonlReader.readJsonlMessages).not.toHaveBeenCalled();
     });
 
-    it('throws SdkError when Ptah ID is at index 0 and no preceding native UUID exists', async () => {
+    it('maps an Anthropic message id (msg_01...) to its owning line UUID', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/home/user/.claude/projects/workspace',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'assistant',
+          uuid: LINE_UUID,
+          timestamp: '2026-01-01T00:00:00Z',
+          message: { role: 'assistant', id: ANTHROPIC_ID },
+        } as SessionHistoryMessage,
+      ]);
+
+      const service = makeService(stubs);
+      const result = await service.resolveNativeMessageId(
+        'valid-session',
+        '/workspace',
+        ANTHROPIC_ID,
+      );
+
+      expect(result).toBe(LINE_UUID);
+    });
+
+    it('throws SdkError when a Ptah ID is at index 0 and no preceding line UUID exists', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
         '/home/user/.claude/projects/workspace',
@@ -479,7 +505,7 @@ describe('SessionHistoryReaderService', () => {
       });
     });
 
-    it('walks backward and returns nearest preceding native UUID for Ptah ID', async () => {
+    it('walks backward and returns nearest preceding line UUID for a Ptah ID', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
         '/home/user/.claude/projects/workspace',
@@ -487,7 +513,7 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'user',
-          uuid: NATIVE_ID,
+          uuid: LINE_UUID_2,
           timestamp: '2026-01-01T00:00:00Z',
         } as SessionHistoryMessage,
         {
@@ -504,8 +530,8 @@ describe('SessionHistoryReaderService', () => {
         PTAH_ID,
       );
 
-      // PTAH_ID is at index 1; walking backward hits NATIVE_ID at index 0.
-      expect(result).toBe(NATIVE_ID);
+      // PTAH_ID is at index 1; walking backward hits LINE_UUID_2 at index 0.
+      expect(result).toBe(LINE_UUID_2);
     });
 
     it('throws SdkError when the ID is not found in JSONL at all', async () => {
@@ -516,7 +542,7 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'user',
-          uuid: 'msg_01OtherNative',
+          uuid: LINE_UUID,
           timestamp: '2026-01-01T00:00:00Z',
         } as SessionHistoryMessage,
       ]);

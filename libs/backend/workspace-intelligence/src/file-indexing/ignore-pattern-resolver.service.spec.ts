@@ -156,9 +156,7 @@ dist/**/`;
   });
 
   describe('parseWorkspaceIgnoreFiles', () => {
-    // These tests require VS Code environment (dynamic import of vscode.Uri)
-    // They are integration tests that should run in Extension Development Host
-    it.skip('should parse multiple ignore files', async () => {
+    it('should parse multiple ignore files', async () => {
       mockFileSystem.exists.mockImplementation(async (filePath: string) => {
         return (
           filePath.endsWith('.gitignore') ||
@@ -184,7 +182,7 @@ dist/**/`;
       expect(result[1].patterns).toHaveLength(2); // .prettierignore
     });
 
-    it.skip('should skip non-existent files', async () => {
+    it('should skip non-existent files', async () => {
       mockFileSystem.exists.mockResolvedValue(false);
 
       const workspaceUri = '/workspace';
@@ -193,7 +191,7 @@ dist/**/`;
       expect(result).toHaveLength(0);
     });
 
-    it.skip('should handle malformed ignore files gracefully', async () => {
+    it('should handle malformed ignore files gracefully', async () => {
       mockFileSystem.exists.mockResolvedValue(true);
       mockFileSystem.readFile.mockRejectedValue(new Error('Read error'));
 
@@ -235,7 +233,7 @@ dist/**/`;
       const result1 = await service.isIgnored(
         'node_modules/pkg/index.js',
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
       expect(result1.ignored).toBe(true);
       expect(result1.matchedPattern?.pattern).toBe('node_modules/**');
@@ -243,7 +241,7 @@ dist/**/`;
       const result2 = await service.isIgnored(
         'debug.log',
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
       expect(result2.ignored).toBe(true);
       expect(result2.matchedPattern?.pattern).toBe('*.log');
@@ -251,7 +249,7 @@ dist/**/`;
       const result3 = await service.isIgnored(
         'src/app.ts',
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
       expect(result3.ignored).toBe(false);
     });
@@ -281,14 +279,14 @@ dist/**/`;
       const result1 = await service.isIgnored(
         'debug.log',
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
       expect(result1.ignored).toBe(true);
 
       const result2 = await service.isIgnored(
         'important.log',
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
       expect(result2.ignored).toBe(false);
       expect(result2.matchedPattern?.isNegation).toBe(true);
@@ -326,7 +324,7 @@ dist/**/`;
       const result = await service.isIgnored(
         'debug.log',
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
 
       // Last matching pattern wins (line 3: ignore debug.log)
@@ -352,7 +350,7 @@ dist/**/`;
       const result = await service.isIgnored(
         'node_modules\\pkg\\index.js',
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
 
       expect(result.ignored).toBe(true);
@@ -391,7 +389,7 @@ dist/**/`;
       const results = await service.testFiles(
         files,
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
 
       expect(results).toHaveLength(3);
@@ -434,7 +432,7 @@ dist/**/`;
       const included = await service.filterIgnored(
         files,
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
 
       expect(included).toHaveLength(2);
@@ -520,7 +518,7 @@ src/**/test/**
       const result = await service.isIgnored(
         'src/app.ts',
         [ignoreFile],
-        '/workspace'
+        '/workspace',
       );
 
       expect(result.ignored).toBe(false);

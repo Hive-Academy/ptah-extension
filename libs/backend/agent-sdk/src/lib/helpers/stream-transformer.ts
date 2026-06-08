@@ -248,6 +248,7 @@ export class StreamTransformer {
         let effectiveSessionId = sessionId;
         const lastTurnContextByModel = new Map<string, number>();
         let firstMessageReceived = false;
+        let loggedEagerMcpTools = false;
         const baseUrlForError = authEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
         const timeoutHandle: NodeJS.Timeout | null = abortController
           ? setTimeout(() => {
@@ -322,6 +323,21 @@ export class StreamTransformer {
               effectiveSessionId = realSessionId as SessionId;
               if (onSessionIdResolved) {
                 onSessionIdResolved(tabId, realSessionId);
+              }
+              if (!loggedEagerMcpTools) {
+                loggedEagerMcpTools = true;
+                const eagerPtahTools = sdkMessage.tools.filter((name) =>
+                  name.startsWith('mcp__ptah'),
+                );
+                logger.info(
+                  `[StreamTransformer] Eager-loaded ptah MCP tools (${eagerPtahTools.length})`,
+                  {
+                    sessionId: realSessionId,
+                    eagerPtahTools,
+                    eagerPtahToolCount: eagerPtahTools.length,
+                    mcpServers: sdkMessage.mcp_servers,
+                  },
+                );
               }
             }
             if (isResultMessage(sdkMessage)) {

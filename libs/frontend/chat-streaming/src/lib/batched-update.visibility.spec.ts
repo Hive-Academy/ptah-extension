@@ -7,7 +7,7 @@ import type { StreamingState } from '@ptah-extension/chat-types';
 
 type TabManagerSlice = Pick<
   TabManagerService,
-  'setStreamingState' | 'activeTabId'
+  'setStreamingState' | 'activeTabId' | 'visibleTabIds'
 >;
 
 interface VisibilityHandle {
@@ -40,25 +40,27 @@ function installVisibility(initial: 'visible' | 'hidden'): VisibilityHandle {
   });
   const originalAdd = document.addEventListener.bind(document);
   const originalRemove = document.removeEventListener.bind(document);
-  jest
-    .spyOn(document, 'addEventListener')
-    .mockImplementation(((type: string, l: EventListenerOrEventListenerObject) => {
-      if (type === 'visibilitychange') {
-        handle.listeners.push(l);
-      } else {
-        originalAdd(type as keyof DocumentEventMap, l as never);
-      }
-    }) as typeof document.addEventListener);
-  jest
-    .spyOn(document, 'removeEventListener')
-    .mockImplementation(((type: string, l: EventListenerOrEventListenerObject) => {
-      if (type === 'visibilitychange') {
-        const idx = handle.listeners.indexOf(l);
-        if (idx >= 0) handle.listeners.splice(idx, 1);
-      } else {
-        originalRemove(type as keyof DocumentEventMap, l as never);
-      }
-    }) as typeof document.removeEventListener);
+  jest.spyOn(document, 'addEventListener').mockImplementation(((
+    type: string,
+    l: EventListenerOrEventListenerObject,
+  ) => {
+    if (type === 'visibilitychange') {
+      handle.listeners.push(l);
+    } else {
+      originalAdd(type as keyof DocumentEventMap, l as never);
+    }
+  }) as typeof document.addEventListener);
+  jest.spyOn(document, 'removeEventListener').mockImplementation(((
+    type: string,
+    l: EventListenerOrEventListenerObject,
+  ) => {
+    if (type === 'visibilitychange') {
+      const idx = handle.listeners.indexOf(l);
+      if (idx >= 0) handle.listeners.splice(idx, 1);
+    } else {
+      originalRemove(type as keyof DocumentEventMap, l as never);
+    }
+  }) as typeof document.removeEventListener);
   return handle;
 }
 
@@ -66,6 +68,7 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
   let service: BatchedUpdateService;
   let tabManager: jest.Mocked<TabManagerSlice>;
   let activeTabSignal: WritableSignal<string | null>;
+  let visibleTabSignal: WritableSignal<ReadonlySet<string>>;
   let rafCallbacks: Array<FrameRequestCallback>;
   let originalRaf: typeof requestAnimationFrame;
   let originalCancel: typeof cancelAnimationFrame;
@@ -100,9 +103,11 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     visibility = installVisibility('visible');
 
     activeTabSignal = signal<string | null>(null);
+    visibleTabSignal = signal<ReadonlySet<string>>(new Set());
     tabManager = {
       setStreamingState: jest.fn(),
       activeTabId: activeTabSignal.asReadonly(),
+      visibleTabIds: visibleTabSignal.asReadonly(),
     } as unknown as jest.Mocked<TabManagerSlice>;
 
     TestBed.configureTestingModule({
@@ -212,6 +217,63 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     expect(visibility.listeners.length).toBeGreaterThan(0);
     TestBed.resetTestingModule();
     expect(visibility.listeners.length).toBe(0);
+  });
+
+  it('canvas: flushes a non-active tab that is in the visible set', () => {
+    visibleTabSignal.set(new Set(['tab-active', 'tab-tile-2']));
+    TestBed.flushEffects();
+
+    service.scheduleUpdate('tab-tile-2', makeState('m1'));
+    runRaf();
+
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-tile-2',
+      expect.any(Object),
+    );
+  });
+
+  it('canvas: still defers a tab that is neither active nor in the visible set', () => {
+    visibleTabSignal.set(new Set(['tab-active', 'tab-tile-2']));
+    TestBed.flushEffects();
+
+    service.scheduleUpdate('tab-offscreen', makeState('m1'));
+    runRaf();
+
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    expect(service.hasPendingUpdates('tab-offscreen')).toBe(true);
+  });
+
+  it('canvas: drains ALL visible tiles (not just active) when document becomes visible', () => {
+    visibleTabSignal.set(new Set(['tab-active', 'tab-tile-2']));
+    TestBed.flushEffects();
+
+    visibility.setVisibility('hidden');
+    service.scheduleUpdate('tab-active', makeState('m1'));
+    service.scheduleUpdate('tab-tile-2', makeState('m2'));
+    runRaf();
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+
+    visibility.setVisibility('visible');
+    runRaf();
+
+    const tabIds = tabManager.setStreamingState.mock.calls.map((c) => c[0]);
+    expect(new Set(tabIds)).toEqual(new Set(['tab-active', 'tab-tile-2']));
+  });
+
+  it('canvas: drains a tile when it joins the visible set after deferring', () => {
+    service.scheduleUpdate('tab-tile-2', makeState('m1'));
+    runRaf();
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    expect(service.hasPendingUpdates('tab-tile-2')).toBe(true);
+
+    visibleTabSignal.set(new Set(['tab-active', 'tab-tile-2']));
+    TestBed.flushEffects();
+    runRaf();
+
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-tile-2',
+      expect.any(Object),
+    );
   });
 
   it('perf-regression: 100 stream events targeting a hidden tab result in 0 setStreamingState calls', () => {

@@ -24,6 +24,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './tokens';
 import { EmbedderWorkerClient } from '../embedder/embedder-worker-client';
+import { EmbedderStatusService } from '../embedder/embedder-status.service';
 import { SalienceScorer } from '../salience-scorer';
 import { MemoryStore } from '../memory.store';
 import { MemorySearchService } from '../memory-search.service';
@@ -73,6 +74,9 @@ export function registerMemoryCuratorServices(
     { useClass: CodeSymbolStore },
     { lifecycle: Lifecycle.Singleton },
   );
+  container.register(MEMORY_CONTRACT_TOKENS.CODE_SYMBOL_READER, {
+    useToken: MEMORY_TOKENS.CODE_SYMBOL_STORE,
+  });
   container.register(
     PLATFORM_TOKENS.MEMORY_WRITER,
     { useClass: MemoryWriterAdapter },
@@ -133,6 +137,12 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.MEMORY_DIAGNOSTICS_SERVICE,
     { useClass: MemoryDiagnosticsService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    MEMORY_TOKENS.EMBEDDER_STATUS,
+    { useClass: EmbedderStatusService },
     { lifecycle: Lifecycle.Singleton },
   );
 

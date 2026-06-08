@@ -113,15 +113,6 @@
     "prisma:resolve": {
       "executor": "@nx-tools/nx-prisma:resolve"
     },
-    "prisma:seed": {
-      "executor": "@nx-tools/nx-prisma:seed",
-      "options": {
-        "script": {
-          "type": "string",
-          "description": "path to the seed script file"
-        }
-      }
-    },
     "prisma:status": {
       "executor": "@nx-tools/nx-prisma:status"
     },

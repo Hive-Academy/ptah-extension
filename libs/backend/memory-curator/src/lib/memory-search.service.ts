@@ -16,6 +16,7 @@ import {
 import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
+  VecStatusService,
   type IEmbedder,
 } from '@ptah-extension/persistence-sqlite';
 import { MEMORY_TOKENS } from './di/tokens';
@@ -29,6 +30,7 @@ import {
 } from './memory.types';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 import { ObservationQueueStore } from './observation-queue.store';
+import { escapeFtsQuery } from './fts-query.util';
 
 export interface MemSearchIndexFilter {
   readonly query?: string;
@@ -193,6 +195,8 @@ export class MemorySearchService implements IMemoryReader {
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
     @inject(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)
     private readonly observationQueue: ObservationQueueStore,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
     @inject(PLATFORM_TOKENS.TRACER)
     private readonly tracer: ITracer = new NoopTracer(),
   ) {}
@@ -275,8 +279,7 @@ export class MemorySearchService implements IMemoryReader {
   ): Promise<MemorySearchResponse> {
     const limit = Math.max(1, Math.min(50, topK));
     const trimmed = query.trim();
-    if (!trimmed)
-      return { hits: [], bm25Only: !this.connection.vecExtensionLoaded };
+    if (!trimmed) return { hits: [], bm25Only: !this.vecStatus.available };
     const cacheKey = this.makeCacheKey(trimmed, workspaceRoot);
     const cached = this.cache.get(cacheKey);
     if (cached) {
@@ -286,7 +289,7 @@ export class MemorySearchService implements IMemoryReader {
 
     const bm25Rows = this.bm25Search(trimmed, limit * 4, workspaceRoot);
     let vecRows: Array<FtsRow & { distance: number }> = [];
-    let bm25Only = !this.connection.vecExtensionLoaded;
+    let bm25Only = !this.vecStatus.available;
     if (!bm25Only) {
       try {
         vecRows = await this.vecSearch(trimmed, limit * 4, workspaceRoot);
@@ -377,19 +380,23 @@ export class MemorySearchService implements IMemoryReader {
     limit: number,
     workspaceRoot?: string,
   ): FtsRow[] {
-    const workspaceFilter = workspaceRoot ? 'AND mc.workspace_root IS ?' : '';
+    const workspaceJoin = workspaceRoot
+      ? 'JOIN memories m ON m.id = mc.memory_id'
+      : '';
+    const workspaceFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
              mc.created_at AS created_at
       FROM memory_chunks_fts fts
       JOIN memory_chunks mc ON mc.rowid = fts.rowid
+      ${workspaceJoin}
       WHERE memory_chunks_fts MATCH ?
       ${workspaceFilter}
       ORDER BY bm25(memory_chunks_fts) ASC
       LIMIT ?
     `;
-    const params: unknown[] = [this.escapeFtsQuery(query)];
+    const params: unknown[] = [escapeFtsQuery(query)];
     if (workspaceRoot) params.push(workspaceRoot);
     params.push(limit);
     try {
@@ -430,7 +437,7 @@ export class MemorySearchService implements IMemoryReader {
       .all(buf, limit) as VecRow[];
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
-    const workspaceFilter = workspaceRoot ? 'AND mc.workspace_root IS ?' : '';
+    const workspaceFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
@@ -518,45 +525,6 @@ export class MemorySearchService implements IMemoryReader {
 
   private lookupMemory(id: string) {
     return this.store.getById(memoryId(id));
-  }
-
-  /**
-   * Build an FTS5 MATCH expression from raw user query text.
-   *
-   * - Strips ALL FTS5 metacharacters so user input cannot break out of the
-   *   query expression or trigger column-qualifier injection:
-   *     " * ( ) ^ : + - ~
-   * - FTS5 boolean keywords (NEAR AND OR NOT) are neutralised by wrapping
-   *   each surviving token in double-quotes; the quoting turns them into
-   *   literal phrase tokens. An explicit keyword-drop filter is added as
-   *   defence-in-depth for any version where quoting behaviour might differ.
-   * - Drops single-character tokens (low signal, high noise).
-   * - Prefix-matches the LAST token: "<token>"* — accommodates partial words
-   *   the user is mid-typing.
-   * - Joins all tokens with OR for recall (RAG context injection prefers
-   *   recall over precision; reranker handles precision in a later step).
-   * - Empty-after-stripping -> returns '""' which won't match anything.
-   *
-   * Security: this is NOT classical SQL injection — the query is fed to
-   * prepare().all() as a bound parameter. This strips FTS5-grammar-level
-   * operators only (F-H1 from security review).
-   */
-  private escapeFtsQuery(rawQuery: string): string {
-    /** FTS5 boolean keywords that must not survive into the final expression. */
-    const FTS5_KEYWORDS = new Set(['near', 'and', 'or', 'not']);
-
-    const tokens = rawQuery
-      .toLowerCase()
-      .replace(/["*()^:+\-~]/g, ' ')
-      .split(/\s+/)
-      .filter((t) => t.length > 1)
-      .filter((t) => !FTS5_KEYWORDS.has(t));
-
-    if (tokens.length === 0) return '""';
-
-    return tokens
-      .map((t, i) => (i === tokens.length - 1 ? `"${t}"*` : `"${t}"`))
-      .join(' OR ');
   }
 
   /**
@@ -904,7 +872,7 @@ export class MemorySearchService implements IMemoryReader {
       ORDER BY rank ASC
       LIMIT ?
     `;
-    const params: unknown[] = [this.escapeFtsQuery(query)];
+    const params: unknown[] = [escapeFtsQuery(query)];
     if (workspaceRoot) params.push(workspaceRoot);
     params.push(limit);
     try {

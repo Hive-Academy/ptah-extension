@@ -281,6 +281,7 @@ describe('StreamingHandlerService', () => {
       }),
       markTabIdle: jest.fn(),
       markTabStreaming: jest.fn(),
+      isTabStreaming: jest.fn().mockReturnValue(false),
     } as unknown as jest.Mocked<
       Pick<
         TabManagerService,
@@ -293,6 +294,7 @@ describe('StreamingHandlerService', () => {
         | 'setMessages'
         | 'markTabIdle'
         | 'markTabStreaming'
+        | 'isTabStreaming'
       >
     > & { tabs: ReturnType<typeof computed<TabState[]>> };
 
@@ -577,6 +579,76 @@ describe('StreamingHandlerService', () => {
     it('delegates to BatchedUpdateService.flushSync', () => {
       service.flushUpdatesSync();
       expect(batchedUpdate.flushSync).toHaveBeenCalled();
+    });
+  });
+
+  // Visual streaming-flag self-heal. A turn-end (Stop hook / result / a
+  // background-task pause) clears `_streamingTabIds` via markTabIdle — hiding
+  // the stop button + tab spinner — while the SDK later resumes streaming on
+  // its own. The execution-tree bubble re-enters 'streaming' from those events;
+  // the flag must be re-asserted too, regardless of the tab's lifecycle status.
+  describe('streaming-flag re-assertion when the SDK pauses then resumes', () => {
+    it('re-marks the tab when content resumes and the flag was cleared', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
+    });
+
+    it('does NOT re-mark when the flag is already set (steady-state streaming is a no-op)', () => {
+      tabManager.isTabStreaming.mockReturnValue(true);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('re-marks an awaiting-background tab when the agent resumes after a background command finishes', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([makeTab({ status: 'awaiting-background' })]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
+    });
+
+    // Regression: clicking Stop ends the turn (markTabIdle clears the flag and
+    // stamps an aborted terminal reason), then the SDK emits a trailing
+    // "[Request interrupted by user]" message. That content must NOT self-heal
+    // the spinner back on — otherwise the stop button reappears and the user
+    // has to click it twice. A clean completion still self-heals (above).
+    it('does NOT re-mark when the last turn ended in aborted_streaming (post-abort interrupt content)', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'aborted_streaming' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('does NOT re-mark when the last turn ended in aborted_tools', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'aborted_tools' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('still self-heals when the last turn completed cleanly (background resume path)', () => {
+      tabManager.isTabStreaming.mockReturnValue(false);
+      tabsSignal.set([
+        makeTab({ status: 'loaded', lastTerminalReason: 'completed' }),
+      ]);
+
+      service.processStreamEvent(textDelta(), TAB_ID);
+
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith(TAB_ID);
     });
   });
 

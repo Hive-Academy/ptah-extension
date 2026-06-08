@@ -18,6 +18,10 @@ import {
 } from './memory-trigger-toggle.component';
 import { DbHealthPanelComponent } from './db-health-panel.component';
 import { EventFeedComponent } from './event-feed.component';
+import {
+  CuratorModelPickerComponent,
+  type CuratorModelChange,
+} from './curator-model-picker.component';
 
 @Component({
   selector: 'ptah-memory-diagnostics-accordion',
@@ -27,6 +31,7 @@ import { EventFeedComponent } from './event-feed.component';
     MemoryTriggerToggleComponent,
     DbHealthPanelComponent,
     EventFeedComponent,
+    CuratorModelPickerComponent,
   ],
   template: `
     <div class="flex flex-col gap-3 p-3">
@@ -146,6 +151,14 @@ import { EventFeedComponent } from './event-feed.component';
           </div>
         }
       </section>
+
+      @if (triggers(); as t) {
+        <ptah-curator-model-picker
+          [curatorProvider]="t.curatorProvider ?? ''"
+          [curatorModel]="t.curatorModel ?? ''"
+          (curatorChange)="onCuratorModelChange($event)"
+        />
+      }
 
       <ptah-event-feed [events]="recentEvents()" [now]="now()" />
 
@@ -293,6 +306,13 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
       ? (c.value ?? this.triggers()?.maxCuratesPerHour ?? 0)
       : 0;
     void this.state.setTriggers({ maxCuratesPerHour: value });
+  }
+
+  protected onCuratorModelChange(change: CuratorModelChange): void {
+    void this.state.setTriggers({
+      curatorProvider: change.curatorProvider,
+      curatorModel: change.curatorModel,
+    });
   }
 }
 

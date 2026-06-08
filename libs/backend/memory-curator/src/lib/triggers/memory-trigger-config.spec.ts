@@ -30,7 +30,10 @@ describe('memory-trigger-config', () => {
       expect(out.maxCuratesPerHour).toBe(
         MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour,
       );
+      expect(MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour).toBe(20);
       expect(out.sessionStart).toEqual(MEMORY_TRIGGER_DEFAULTS.sessionStart);
+      expect(out.curatorProvider).toBe('');
+      expect(out.curatorModel).toBe('');
     });
 
     it('reads seeded values across all keys', () => {
@@ -53,6 +56,9 @@ describe('memory-trigger-config', () => {
           [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.injectionEnabled}`]: false,
           [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.observationCount}`]: 3,
           [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.corpusCount}`]: 2,
+          [`ptah.${MEMORY_TRIGGER_KEYS.curatorProvider}`]: 'anthropic',
+          [`ptah.${MEMORY_TRIGGER_KEYS.curatorModel}`]:
+            'claude-haiku-4-5-20251001',
         },
       });
       const out = readMemoryTriggers(ws);
@@ -76,6 +82,8 @@ describe('memory-trigger-config', () => {
           observationCount: 3,
           corpusCount: 2,
         },
+        curatorProvider: 'anthropic',
+        curatorModel: 'claude-haiku-4-5-20251001',
       });
     });
 
@@ -123,6 +131,21 @@ describe('memory-trigger-config', () => {
         [MEMORY_TRIGGER_KEYS.idleMs, 99],
         [MEMORY_TRIGGER_KEYS.maxCuratesPerHour, 50],
       ]);
+    });
+
+    it('flattens curatorProvider/curatorModel to flat memory.* keys', () => {
+      const out = flattenMemoryTriggers({
+        curatorProvider: 'anthropic',
+        curatorModel: 'claude-haiku-4-5-20251001',
+      });
+      expect(out).toEqual([
+        [MEMORY_TRIGGER_KEYS.curatorProvider, 'anthropic'],
+        [MEMORY_TRIGGER_KEYS.curatorModel, 'claude-haiku-4-5-20251001'],
+      ]);
+      expect(MEMORY_TRIGGER_KEYS.curatorProvider).toBe(
+        'memory.curatorProvider',
+      );
+      expect(MEMORY_TRIGGER_KEYS.curatorModel).toBe('memory.curatorModel');
     });
 
     it('skips undefined entries', () => {

@@ -112,7 +112,7 @@ interface TierChip {
           @switch (banner.kind) {
             @case ('never-indexed') {
               <div
-                class="alert alert-info shadow-sm"
+                class="alert alert-warning shadow-sm"
                 role="status"
                 data-testid="memory-banner-never-indexed"
               >
@@ -138,6 +138,26 @@ interface TierChip {
                   }
                   Index now
                 </button>
+              </div>
+            }
+            @case ('code-only-no-memory') {
+              <div
+                class="alert alert-info shadow-sm"
+                role="status"
+                data-testid="memory-banner-code-only"
+              >
+                <div class="flex flex-1 flex-col gap-1">
+                  <span class="text-sm font-semibold">
+                    Code index ready — chat to populate memory
+                  </span>
+                  <span class="text-xs">
+                    Your codebase is indexed for symbol search ({{
+                      banner.codeSymbolCount
+                    }}
+                    symbols). Memory entries will appear here after your next
+                    qualifying conversation (5+ turns).
+                  </span>
+                </div>
               </div>
             }
             @case ('indexing') {
@@ -268,6 +288,7 @@ interface TierChip {
           <div class="flex flex-col gap-2 md:flex-row md:items-center">
             <input
               type="search"
+              data-testid="memory-search-input"
               class="input input-sm input-bordered w-full md:max-w-md"
               placeholder="Search memory (BM25 + vector hybrid)..."
               [value]="searchInput()"
@@ -425,19 +446,28 @@ interface TierChip {
           >
             <div class="rounded-lg bg-base-200 p-3">
               <div class="text-xs uppercase text-base-content/60">Core</div>
-              <div class="text-2xl font-semibold text-base-content">
+              <div
+                class="text-2xl font-semibold text-base-content"
+                data-testid="memory-stat-core"
+              >
                 {{ statCounts().core }}
               </div>
             </div>
             <div class="rounded-lg bg-base-200 p-3">
               <div class="text-xs uppercase text-base-content/60">Recall</div>
-              <div class="text-2xl font-semibold text-base-content">
+              <div
+                class="text-2xl font-semibold text-base-content"
+                data-testid="memory-stat-recall"
+              >
                 {{ statCounts().recall }}
               </div>
             </div>
             <div class="rounded-lg bg-base-200 p-3">
               <div class="text-xs uppercase text-base-content/60">Archival</div>
-              <div class="text-2xl font-semibold text-base-content">
+              <div
+                class="text-2xl font-semibold text-base-content"
+                data-testid="memory-stat-archival"
+              >
                 {{ statCounts().archival }}
               </div>
             </div>
@@ -448,7 +478,10 @@ interface TierChip {
               <div class="text-xs uppercase text-base-content/60">
                 Code index
               </div>
-              <div class="text-2xl font-semibold text-base-content">
+              <div
+                class="text-2xl font-semibold text-base-content"
+                data-testid="memory-stat-code-index"
+              >
                 {{ statCounts().codeIndex }}
               </div>
             </div>
@@ -478,6 +511,7 @@ interface TierChip {
               <ul class="flex flex-col gap-2">
                 @for (entry of filteredEntries(); track entry.id) {
                   <li
+                    data-testid="memory-entry-row"
                     class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-3 md:flex-row md:items-start"
                   >
                     <div class="flex-1">
@@ -515,6 +549,7 @@ interface TierChip {
                       @if (entry.pinned) {
                         <button
                           type="button"
+                          data-testid="memory-entry-unpin"
                           class="btn btn-xs btn-ghost"
                           (click)="onUnpin(entry.id)"
                           [attr.aria-label]="'Unpin entry ' + entry.id"
@@ -524,6 +559,7 @@ interface TierChip {
                       } @else {
                         <button
                           type="button"
+                          data-testid="memory-entry-pin"
                           class="btn btn-xs btn-ghost"
                           (click)="onPin(entry.id)"
                           [attr.aria-label]="'Pin entry ' + entry.id"
@@ -533,6 +569,7 @@ interface TierChip {
                       }
                       <button
                         type="button"
+                        data-testid="memory-entry-forget"
                         class="btn btn-xs btn-ghost text-error"
                         (click)="onForget(entry.id)"
                         [attr.aria-label]="'Forget entry ' + entry.id"

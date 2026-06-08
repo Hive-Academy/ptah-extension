@@ -437,7 +437,10 @@ export class SessionLoaderService {
    * The backend returns FlatStreamEventUnion[] which we process exactly
    * like live streaming events, building the same execution tree.
    */
-  async switchSession(sessionId: SessionId): Promise<void> {
+  async switchSession(
+    sessionId: SessionId,
+    opts?: { reason?: 'compaction' },
+  ): Promise<void> {
     if (this._inFlightSessions.has(sessionId)) {
       console.debug(
         '[SessionLoaderService] Skipping duplicate switchSession for:',
@@ -447,7 +450,7 @@ export class SessionLoaderService {
     }
 
     const existingTab = this.tabManager.findTabBySessionId(sessionId);
-    if (existingTab?.hasLiveSession) {
+    if (opts?.reason !== 'compaction' && existingTab?.hasLiveSession) {
       const inActiveWorkspace = this.tabManager
         .tabs()
         .some((t) => t.id === existingTab.id);
@@ -552,6 +555,7 @@ export class SessionLoaderService {
             event as FlatStreamEventUnion,
             activeTabId,
             sessionId,
+            { isReplay: true },
           );
         }
         this.streamingHandler.finalizeSessionHistory(
