@@ -2,7 +2,10 @@
  * Workspace fingerprint — stable identity for a workspace across rename/move.
  *
  * Strategy (first non-empty wins):
- *   1. Git remote URL + HEAD SHA  → most stable across renames, moves, forks-at-snapshot
+ *   1. Git `origin` remote URL  → stable across renames, moves, and commits.
+ *      HEAD SHA is intentionally NOT part of the identity — staleness is tracked
+ *      separately via the `git_head_sha` column in `indexing_state`, so the row
+ *      survives commits instead of being re-keyed on every HEAD change.
  *   2. package.json `name + repository.url`
  *   3. Absolute path (fallback) — fp will not survive moves; caller logs an info line
  *
@@ -35,25 +38,6 @@ export async function deriveWorkspaceFingerprint(
   const cfg = await safeReadText(fs, join(workspaceRoot, '.git', 'config'));
   if (cfg) {
     const remoteMatch = /\[remote "origin"\][\s\S]*?url\s*=\s*(.+)/.exec(cfg);
-    const headRaw = await safeReadText(fs, join(workspaceRoot, '.git', 'HEAD'));
-    const refMatch = headRaw && /ref:\s*(refs\/heads\/.+)/.exec(headRaw.trim());
-    let headSha: string | null = null;
-    if (refMatch) {
-      const refContent = await safeReadText(
-        fs,
-        join(workspaceRoot, '.git', refMatch[1].trim()),
-      );
-      headSha = refContent?.trim().slice(0, 40) ?? null;
-    } else if (headRaw && /^[a-f0-9]{40}$/i.test(headRaw.trim())) {
-      headSha = headRaw.trim();
-    }
-    if (remoteMatch && headSha) {
-      const url = remoteMatch[1]
-        .trim()
-        .toLowerCase()
-        .replace(/\.git$/, '');
-      return { fp: HEX16(`git:${url}:${headSha}`), source: 'git' };
-    }
     if (remoteMatch) {
       const url = remoteMatch[1]
         .trim()
