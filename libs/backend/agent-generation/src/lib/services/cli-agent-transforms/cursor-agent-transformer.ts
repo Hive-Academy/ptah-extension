@@ -4,17 +4,8 @@
  * Transforms Claude-format agent content to Cursor CLI format.
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
- *
- * Target: ~/.cursor/agents/ptah-{agent-id}.md
- * Cursor CLI auto-discovers agents from ~/.cursor/agents/ directory.
- * Invoked via `cursor agent --agent ptah-backend-developer`.
- *
- * Agent files are prefixed with `ptah-` for:
- * 1. Namespace separation from user-created agents
- * 2. Deterministic cleanup on premium expiry
  */
 
-import { homedir } from 'os';
 import { join } from 'path';
 import type { CliAgentTransformResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
@@ -35,7 +26,10 @@ import { transformAgentContent, extractAgentId } from './transform-rules';
 export class CursorAgentTransformer implements ICliAgentTransformer {
   readonly target = 'cursor' as const;
 
-  transform(agent: GeneratedAgent): CliAgentTransformResult {
+  transform(
+    agent: GeneratedAgent,
+    workspaceRoot: string,
+  ): CliAgentTransformResult {
     const agentId = extractAgentId(agent.filePath);
     const description = agent.variables['description'] || `${agentId} agent`;
     const content = transformAgentContent(
@@ -44,7 +38,7 @@ export class CursorAgentTransformer implements ICliAgentTransformer {
       agentId,
       description,
     );
-    const filePath = join(homedir(), '.cursor', 'agents', `ptah-${agentId}.md`);
+    const filePath = join(workspaceRoot, '.cursor', 'agents', `${agentId}.md`);
 
     return {
       cli: this.target,

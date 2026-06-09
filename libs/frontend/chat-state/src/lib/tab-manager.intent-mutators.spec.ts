@@ -188,6 +188,56 @@ describe('TabManagerService — intent-named mutators', () => {
     });
   });
 
+  describe('reconcileUserMessageNativeUuid', () => {
+    const UUID = 'ee01a4e6-3ca4-43f1-9e3f-6ff56a227fbb';
+    const userMsg = (id: string): ExecutionChatMessage =>
+      ({
+        id,
+        role: 'user',
+        timestamp: 1,
+        streamingState: null,
+        rawContent: 'hi',
+      }) as unknown as ExecutionChatMessage;
+
+    it('stamps nativeUuid onto the optimistic bubble without changing its id', () => {
+      const id = service.createTab('rec');
+      service.setMessages(id, [userMsg('msg_1780940558448_oekdvwh')]);
+      service.reconcileUserMessageNativeUuid(id, UUID);
+      const msg = service.tabs().find((t) => t.id === id)?.messages[0];
+      expect(msg?.id).toBe('msg_1780940558448_oekdvwh'); // id unchanged (no remount)
+      expect(msg?.nativeUuid).toBe(UUID);
+    });
+
+    it('is idempotent and a no-op once stamped', () => {
+      const id = service.createTab('rec2');
+      service.setMessages(id, [userMsg('msg_1_a')]);
+      service.reconcileUserMessageNativeUuid(id, UUID);
+      const before = service.tabs().find((t) => t.id === id)?.messages;
+      service.reconcileUserMessageNativeUuid(id, UUID);
+      const after = service.tabs().find((t) => t.id === id)?.messages;
+      expect(after).toBe(before); // same array reference — no write
+    });
+
+    it('ignores messages whose id is already a real uuid (history-loaded)', () => {
+      const id = service.createTab('rec3');
+      service.setMessages(id, [userMsg(UUID)]);
+      service.reconcileUserMessageNativeUuid(
+        id,
+        '11111111-2222-4333-8444-555555555555',
+      );
+      const msg = service.tabs().find((t) => t.id === id)?.messages[0];
+      expect(msg?.nativeUuid).toBeUndefined();
+    });
+
+    it('rejects a non-uuid value', () => {
+      const id = service.createTab('rec4');
+      service.setMessages(id, [userMsg('msg_1_a')]);
+      service.reconcileUserMessageNativeUuid(id, 'not-a-uuid');
+      const msg = service.tabs().find((t) => t.id === id)?.messages[0];
+      expect(msg?.nativeUuid).toBeUndefined();
+    });
+  });
+
   describe('finalization', () => {
     it('applyFinalizedTurn drops streamingState and switches to loaded', async () => {
       const id = service.createTab('final');

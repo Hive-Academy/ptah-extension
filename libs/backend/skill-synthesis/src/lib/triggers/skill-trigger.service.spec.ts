@@ -17,10 +17,14 @@ import type {
   SubagentStopCallback,
   SubagentStopCallbackRegistry,
   SubagentStopPayload,
+  UserPromptExpansionCallback,
+  UserPromptExpansionCallbackRegistry,
+  UserPromptExpansionPayload,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { SkillTriggerService } from './skill-trigger.service';
 import type { SkillSynthesisService } from '../skill-synthesis.service';
+import type { SkillInvocationRecorder } from '../skill-invocation-recorder';
 
 function makeLogger(): Logger {
   return {
@@ -128,6 +132,40 @@ function makePostToolUseRegistry(): PostToolUseHarness {
   };
 }
 
+interface ExpansionHarness {
+  fire: (payload: UserPromptExpansionPayload) => void;
+  registry: UserPromptExpansionCallbackRegistry;
+}
+
+function makeUserPromptExpansionRegistry(): ExpansionHarness {
+  const subscribers = new Set<UserPromptExpansionCallback>();
+  return {
+    fire: (payload) => {
+      for (const cb of subscribers) cb(payload);
+    },
+    registry: {
+      register: jest.fn((cb: UserPromptExpansionCallback) => {
+        subscribers.add(cb);
+        return () => {
+          subscribers.delete(cb);
+        };
+      }),
+      notifyAll: jest.fn((payload: UserPromptExpansionPayload) => {
+        for (const cb of subscribers) cb(payload);
+      }),
+      get size() {
+        return subscribers.size;
+      },
+    } as unknown as UserPromptExpansionCallbackRegistry,
+  };
+}
+
+function makeRecorder(): SkillInvocationRecorder {
+  return {
+    recordSkillEvent: jest.fn(),
+  } as unknown as SkillInvocationRecorder;
+}
+
 function makeWorkspace(
   overrides: Partial<Record<string, unknown>> = {},
 ): IWorkspaceProvider {
@@ -202,6 +240,8 @@ function buildService(opts?: {
   sessionEnd: SessionEndHarness;
   subagentStop: SubagentStopHarness;
   postToolUse: PostToolUseHarness;
+  expansion: ExpansionHarness;
+  recorder: SkillInvocationRecorder;
   synthesis: SkillSynthesisService;
   workspace: IWorkspaceProvider;
   rateLimiter: CuratorRateLimitService;
@@ -210,6 +250,8 @@ function buildService(opts?: {
   const sessionEnd = makeSessionEndRegistry();
   const subagentStop = makeSubagentStopRegistry();
   const postToolUse = makePostToolUseRegistry();
+  const expansion = makeUserPromptExpansionRegistry();
+  const recorder = makeRecorder();
   const synthesis = opts?.synthesis ?? makeSynthesis();
   const workspace = opts?.workspace ?? makeWorkspace();
   const rateLimiter =
@@ -226,6 +268,8 @@ function buildService(opts?: {
     subagentStop.registry,
     postToolUse.registry,
     rateLimiter,
+    expansion.registry,
+    recorder,
   );
   return {
     service,
@@ -233,6 +277,8 @@ function buildService(opts?: {
     sessionEnd,
     subagentStop,
     postToolUse,
+    expansion,
+    recorder,
     synthesis,
     workspace,
     rateLimiter,
@@ -783,6 +829,200 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
     );
     await Promise.resolve();
     expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('SkillTriggerService — Skill invocation telemetry', () => {
+  beforeEach(() => {
+    jest.useRealTimers();
+  });
+
+  async function flush(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it('Skill tool with args records slug stripped of args and source tool-use', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Skill',
+        toolInput: { command: 'deep-research budget=5' },
+        success: true,
+        timestamp: 1000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledTimes(1);
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'deep-research',
+        sessionId: 's1',
+        succeeded: true,
+        invokedAt: 1000,
+        source: 'tool-use',
+      }),
+    );
+  });
+
+  it('Skill tool with leading-slash command strips the slash', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Skill',
+        toolInput: { command: '/caveman' },
+        timestamp: 1000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: 'caveman', source: 'tool-use' }),
+    );
+  });
+
+  it('Skill tool with success:false records succeeded false', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Skill',
+        toolInput: { command: 'deep-research' },
+        success: false,
+        exitCode: 1,
+        timestamp: 1000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: 'deep-research', succeeded: false }),
+    );
+  });
+
+  it('Skill tool with empty command does not record', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Skill',
+        toolInput: { command: '   ' },
+        timestamp: 1000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('Skill tool with missing command does not record', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Skill',
+        toolInput: {},
+        timestamp: 1000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('non-Skill tools (Bash) do not route to the skill recorder', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Bash',
+        toolInput: { command: 'npm test' },
+        timestamp: 1000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('non-Skill tools (Edit) do not route to the skill recorder', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(postToolUsePayload({ toolName: 'Edit', timestamp: 1000 }));
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('telemetry disabled suppresses the Skill recorder', async () => {
+    const { service, postToolUse, recorder } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.skillInvocationTelemetry.enabled': false,
+      }),
+    });
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Skill',
+        toolInput: { command: 'deep-research' },
+        timestamp: 1000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('UserPromptExpansion records slug from payload with source prompt-expansion', async () => {
+    const { service, expansion, recorder } = buildService();
+    service.start();
+    expansion.fire({
+      skillSlug: 'my-task',
+      expansionType: 'slash_command',
+      commandArgs: '',
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 2000,
+    });
+    await flush();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'my-task',
+        sessionId: 's1',
+        succeeded: true,
+        source: 'prompt-expansion',
+      }),
+    );
+  });
+
+  it('UserPromptExpansion with empty slug does not record', async () => {
+    const { service, expansion, recorder } = buildService();
+    service.start();
+    expansion.fire({
+      skillSlug: '',
+      expansionType: 'slash_command',
+      commandArgs: '',
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 2000,
+    });
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('UserPromptExpansion suppressed when telemetry disabled', async () => {
+    const { service, expansion, recorder } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.skillInvocationTelemetry.enabled': false,
+      }),
+    });
+    service.start();
+    expansion.fire({
+      skillSlug: 'my-task',
+      expansionType: 'slash_command',
+      commandArgs: '',
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 2000,
+    });
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
   });
 });
 

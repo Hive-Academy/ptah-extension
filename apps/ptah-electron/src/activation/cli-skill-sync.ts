@@ -1,77 +1,54 @@
-
-import * as os from 'os';
-import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
-  SDK_TOKENS,
-  type PluginLoaderService,
-} from '@ptah-extension/agent-sdk';
+  AGENT_GENERATION_TOKENS,
+  type UserLayerMirrorService,
+} from '@ptah-extension/agent-generation';
 
+/**
+ * Propagate user-layer skills/commands to installed rival CLIs at the
+ * WORKSPACE level. Source = ~/.ptah/user/; skipped entirely when no workspace
+ * is open. Fire-and-forget, non-fatal.
+ */
 export function syncCliSkillsOnActivation(
   container: DependencyContainer,
-  pluginsPath: string,
+  workspaceRoot: string | undefined,
 ): void {
   try {
     const cliPluginSync = container.resolve(TOKENS.CLI_PLUGIN_SYNC_SERVICE) as {
-      initialize: (
-        globalState: IStateStorage,
-        extensionPath: string,
-        pluginPathResolver?: (ids: string[]) => string[],
-      ) => void;
-      syncOnActivation: (enabledPluginIds: string[]) => Promise<unknown[]>;
-      syncSynthesizedSkillsOnActivation: (
-        synthesizedSkillsRoot: string,
+      initialize: (globalState: IStateStorage) => void;
+      syncOnActivation: (
+        sources: { skillsRoot: string; commandsRoot: string },
+        workspaceRoot: string | undefined,
       ) => Promise<unknown[]>;
     };
-
-    const pluginLoaderForSync = container.resolve<PluginLoaderService>(
-      SDK_TOKENS.SDK_PLUGIN_LOADER,
-    );
 
     const globalStateForSync = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
     );
-    cliPluginSync.initialize(globalStateForSync, pluginsPath, (ids: string[]) =>
-      pluginLoaderForSync.resolvePluginPaths(ids),
+    cliPluginSync.initialize(globalStateForSync);
+
+    const mirror = container.resolve<UserLayerMirrorService>(
+      AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
     );
+    const roots = mirror.getUserLayerRoots();
 
-    const syncPluginConfig = pluginLoaderForSync.getWorkspacePluginConfig();
-    const enabledPluginIds = syncPluginConfig.enabledPluginIds || [];
-
-    if (enabledPluginIds.length > 0) {
-      cliPluginSync
-        .syncOnActivation(enabledPluginIds)
-        .then((results) => {
-          console.log(
-            `[Ptah Electron] CLI skill sync complete (${results.length} results)`,
-          );
-        })
-        .catch((syncError) => {
-          console.warn(
-            '[Ptah Electron] CLI skill sync failed (non-blocking):',
-            syncError instanceof Error ? syncError.message : String(syncError),
-          );
-        });
-    } else {
-      console.log(
-        '[Ptah Electron] CLI skill sync skipped (no enabled plugins)',
-      );
-    }
-    const synthesizedRoot = path.join(os.homedir(), '.ptah', 'skills');
     cliPluginSync
-      .syncSynthesizedSkillsOnActivation(synthesizedRoot)
+      .syncOnActivation(
+        { skillsRoot: roots.skills, commandsRoot: roots.commands },
+        workspaceRoot,
+      )
       .then((results) => {
         console.log(
-          `[Ptah Electron] Synthesized skill CLI sync complete (${results.length} results)`,
+          `[Ptah Electron] CLI skill sync complete (${results.length} results)`,
         );
       })
-      .catch((err: unknown) => {
+      .catch((syncError) => {
         console.warn(
-          '[Ptah Electron] Synthesized skill CLI sync failed (non-blocking):',
-          err instanceof Error ? err.message : String(err),
+          '[Ptah Electron] CLI skill sync failed (non-blocking):',
+          syncError instanceof Error ? syncError.message : String(syncError),
         );
       });
   } catch (cliSyncError) {

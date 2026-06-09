@@ -44,6 +44,7 @@ import {
   SessionForkResult,
   SessionRewindParams,
   SessionRewindResult,
+  MessageAnchorHint,
   UUID_REGEX,
 } from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
@@ -192,6 +193,28 @@ export class SessionRpcHandlers {
     const stripped = title.replace(/[\\/:*?"<>|]/g, '').trim();
     if (stripped.length === 0) return undefined;
     return stripped.length > 200 ? stripped.substring(0, 200) : stripped;
+  }
+
+  /**
+   * Sanitize the optional fork/rewind anchor hint. The `text` is matched
+   * verbatim against a user prompt in the transcript to recover the real line
+   * UUID when the frontend supplied a client-only optimistic id. It is never
+   * used as a path or id, so the only guards are type + a generous length cap
+   * (prompts can be long). `occurrence` is coerced to a non-negative integer.
+   */
+  private sanitizeAnchorHint(hint: unknown): MessageAnchorHint | undefined {
+    if (hint === null || typeof hint !== 'object') return undefined;
+    const text = (hint as { text?: unknown }).text;
+    if (typeof text !== 'string' || text.trim().length === 0) return undefined;
+    const cappedText = text.length > 200_000 ? text.slice(0, 200_000) : text;
+    const rawOccurrence = (hint as { occurrence?: unknown }).occurrence;
+    const occurrence =
+      typeof rawOccurrence === 'number' &&
+      Number.isInteger(rawOccurrence) &&
+      rawOccurrence >= 0
+        ? rawOccurrence
+        : 0;
+    return { text: cappedText, occurrence };
   }
 
   /**
@@ -861,6 +884,7 @@ export class SessionRpcHandlers {
             params.kind === 'rewind' || params.kind === 'branch'
               ? params.kind
               : undefined;
+          const anchorHint = this.sanitizeAnchorHint(params.anchorHint);
           await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:forkSession called', {
@@ -868,6 +892,7 @@ export class SessionRpcHandlers {
             upToMessageId,
             title,
             kind,
+            hasAnchorHint: !!anchorHint,
           });
 
           const result = await this.sdkAdapter.forkSession(
@@ -875,6 +900,7 @@ export class SessionRpcHandlers {
             upToMessageId,
             title,
             kind,
+            anchorHint,
           );
           return { newSessionId: result.sessionId as SessionId };
         } catch (error) {
@@ -926,6 +952,7 @@ export class SessionRpcHandlers {
           const userMessageId = this.validateUserMessageId(
             params.userMessageId,
           );
+          const anchorHint = this.sanitizeAnchorHint(params.anchorHint);
           const dryRun = params.dryRun;
           await this.authorizeSessionAccess(sessionId);
 
@@ -933,6 +960,7 @@ export class SessionRpcHandlers {
             sessionId,
             userMessageId,
             dryRun: dryRun ?? false,
+            hasAnchorHint: !!anchorHint,
           });
 
           if (!this.sdkAdapter.isSessionActive(sessionId as SessionId)) {
@@ -961,6 +989,7 @@ export class SessionRpcHandlers {
             sessionId as SessionId,
             userMessageId,
             dryRun,
+            anchorHint,
           );
           if (
             dryRun !== true &&

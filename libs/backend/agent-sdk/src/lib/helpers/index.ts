@@ -85,6 +85,12 @@ export {
 } from './user-prompt-submit-callback-registry';
 export { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 export {
+  UserPromptExpansionCallbackRegistry,
+  type UserPromptExpansionCallback,
+  type UserPromptExpansionPayload,
+} from './user-prompt-expansion-callback-registry';
+export { UserPromptExpansionHookHandler } from './user-prompt-expansion-hook-handler';
+export {
   StopCallbackRegistry,
   type StopCallback,
   type StopPayload,

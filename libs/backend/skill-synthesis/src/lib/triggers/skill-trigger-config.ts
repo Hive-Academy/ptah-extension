@@ -14,6 +14,9 @@ export const SKILL_TRIGGER_KEYS = {
     enabled: 'skillSynthesis.triggers.postToolUse.enabled',
     minEditCount: 'skillSynthesis.triggers.postToolUse.minEditCount',
   },
+  skillInvocationTelemetry: {
+    enabled: 'skillSynthesis.triggers.skillInvocationTelemetry.enabled',
+  },
   maxAnalyzesPerHour: 'skillSynthesis.triggers.maxAnalyzesPerHour',
 } as const;
 
@@ -27,6 +30,9 @@ export const SKILL_TRIGGER_DEFAULTS = {
   postToolUse: {
     enabled: true,
     minEditCount: 3,
+  },
+  skillInvocationTelemetry: {
+    enabled: true,
   },
   maxAnalyzesPerHour: 6,
 } as const;

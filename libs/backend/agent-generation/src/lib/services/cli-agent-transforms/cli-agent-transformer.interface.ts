@@ -34,14 +34,15 @@ export interface ICliAgentTransformer {
   readonly target: CliTarget;
 
   /**
-   * Transform a Claude-format GeneratedAgent into CLI-specific format.
-   *
-   * Rewrites frontmatter, tool references, slash commands, and
-   * CLI-specific constructs. Returns the transformed content and
-   * the target file path where it should be written.
+   * Transform a Claude-format GeneratedAgent into CLI-specific format,
+   * targeting the workspace-level agents directory for `workspaceRoot`.
    *
    * @param agent - Claude-format GeneratedAgent from orchestrator Phase 3
+   * @param workspaceRoot - Workspace root the agent file is written under
    * @returns Transformed content and target file path
    */
-  transform(agent: GeneratedAgent): CliAgentTransformResult;
+  transform(
+    agent: GeneratedAgent,
+    workspaceRoot: string,
+  ): CliAgentTransformResult;
 }
