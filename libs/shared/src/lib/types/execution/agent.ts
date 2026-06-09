@@ -102,6 +102,17 @@ export interface ExecutionChatMessage {
   /** Raw text content (for user messages) */
   readonly rawContent?: string;
 
+  /**
+   * Real transcript line UUID for this message, captured from the SDK's
+   * user `message_start` event during streaming (the same id file
+   * checkpointing and `forkSession` use). A live user bubble is created with
+   * an optimistic client-only `id`; this field carries the SDK's real id so
+   * fork/rewind can anchor on it without reconstructing it. Absent until the
+   * SDK echoes the user message; for history-loaded messages `id` is already
+   * the real uuid so this is unset.
+   */
+  readonly nativeUuid?: string;
+
   /** Attached file paths (for user messages with @ syntax) */
   readonly files?: readonly string[];
 

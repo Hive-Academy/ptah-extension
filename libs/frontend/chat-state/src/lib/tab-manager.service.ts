@@ -81,6 +81,14 @@ export interface ClosedTabEvent {
  */
 @Injectable({ providedIn: 'root' })
 export class TabManagerService {
+  /**
+   * Standard v4 transcript line UUID — the id shape `forkSession` and file
+   * checkpointing use. Distinguishes a real SDK id from a client-only
+   * optimistic id (`msg_<ts>_<rand>`) when reconciling native uuids.
+   */
+  private static readonly LINE_UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   // ============================================================================
   // DEPENDENCIES
   // ============================================================================
@@ -1080,6 +1088,37 @@ export class TabManagerService {
       currentMessageId: null,
       streamingState: null,
     });
+  }
+
+  /**
+   * Stamp the real transcript line UUID (captured from the SDK user
+   * `message_start` event) onto the current optimistic user bubble, so
+   * fork/rewind can anchor on the SDK's own id instead of reconstructing it.
+   *
+   * Targets the first user message that has a client-only optimistic id (not a
+   * UUID) and no `nativeUuid` yet — for a live turn that is the bubble just
+   * sent. `id` is left unchanged (no `@for` remount / no flicker); the uuid
+   * lives in the sidecar `nativeUuid` field. Idempotent: no-op if already
+   * stamped, if the uuid is already a message id, or if there is no optimistic
+   * candidate (e.g. a history-loaded session whose ids are already uuids).
+   */
+  reconcileUserMessageNativeUuid(tabId: string, uuid: string): void {
+    if (!TabManagerService.LINE_UUID_PATTERN.test(uuid)) return;
+    const tab = this._tabs().find((t) => t.id === tabId);
+    if (!tab) return;
+    const messages = tab.messages;
+    if (messages.some((m) => m.nativeUuid === uuid || m.id === uuid)) return;
+    const index = messages.findIndex(
+      (m) =>
+        m.role === 'user' &&
+        !m.nativeUuid &&
+        !TabManagerService.LINE_UUID_PATTERN.test(m.id),
+    );
+    if (index === -1) return;
+    const updated = messages.map((m, i) =>
+      i === index ? { ...m, nativeUuid: uuid } : m,
+    );
+    this.updateTabInternal(tabId, { messages: updated });
   }
 
   /**

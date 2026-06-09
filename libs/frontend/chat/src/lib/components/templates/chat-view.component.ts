@@ -920,6 +920,20 @@ export class ChatViewComponent {
    * Returns `undefined` for non-user messages or empty text — history-loaded
    * messages already carry the real UUID as their id, so the hint is unused.
    */
+  /**
+   * Resolve the fork/rewind anchor for a clicked message to the SDK's real
+   * transcript line UUID. A live user bubble renders under an optimistic
+   * client-only id, but `StreamingHandlerService` stamps the real uuid (from
+   * the SDK user `message_start`) onto `nativeUuid` during the turn. Prefer
+   * that; fall back to the message id (already the real uuid for
+   * history-loaded messages). This is the documented checkpoint/fork id — no
+   * reconstruction needed.
+   */
+  private resolveAnchorId(messageId: string): string {
+    const message = this.resolvedMessages().find((m) => m.id === messageId);
+    return message?.nativeUuid ?? messageId;
+  }
+
   private buildAnchorHint(messageId: string): MessageAnchorHint | undefined {
     const messages = this.resolvedMessages();
     const index = messages.findIndex((m) => m.id === messageId);
@@ -960,7 +974,7 @@ export class ChatViewComponent {
     try {
       const result = await this._claudeRpc.forkSession(
         sessionId,
-        messageId,
+        this.resolveAnchorId(messageId),
         undefined,
         undefined,
         this.buildAnchorHint(messageId),
@@ -1019,10 +1033,11 @@ export class ChatViewComponent {
     sessionId: SessionId,
     messageId: string,
   ): Promise<void> {
+    const anchorId = this.resolveAnchorId(messageId);
     const anchorHint = this.buildAnchorHint(messageId);
     const dryRun = await this._claudeRpc.rewindFiles(
       sessionId,
-      messageId,
+      anchorId,
       true,
       anchorHint,
     );
@@ -1084,7 +1099,7 @@ export class ChatViewComponent {
     } else {
       const commit = await this._claudeRpc.rewindFiles(
         sessionId,
-        messageId,
+        anchorId,
         false,
         anchorHint,
       );
@@ -1104,7 +1119,7 @@ export class ChatViewComponent {
 
     const forkResult = await this._claudeRpc.forkSession(
       sessionId,
-      messageId,
+      anchorId,
       undefined,
       'rewind',
       anchorHint,
