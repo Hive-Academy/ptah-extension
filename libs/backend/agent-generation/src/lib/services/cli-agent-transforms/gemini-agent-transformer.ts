@@ -4,14 +4,6 @@
  * Transforms Claude-format agent content to Gemini CLI format.
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
- *
- * Target: ~/.gemini/agents/ptah-{agent-id}.md
- * Gemini CLI auto-discovers agents from ~/.gemini/agents/ directory.
- * Invoked via `gemini --agent ptah-backend-developer` or `gemini -a ptah-backend-developer`.
- *
- * Agent files are prefixed with `ptah-` for:
- * 1. Namespace separation from user-created agents
- * 2. Deterministic cleanup on premium expiry
  */
 
 import { join } from 'path';

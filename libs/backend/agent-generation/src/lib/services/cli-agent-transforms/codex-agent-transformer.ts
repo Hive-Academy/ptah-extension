@@ -4,13 +4,6 @@
  *
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
- *
- * Target: ~/.codex/agents/ptah-{agent-id}.md
- * Codex CLI auto-discovers agents from ~/.codex/agents/ directory.
- *
- * Agent files are prefixed with `ptah-` for:
- * 1. Namespace separation from user-created agents
- * 2. Deterministic cleanup on premium expiry
  */
 
 import { join } from 'path';
