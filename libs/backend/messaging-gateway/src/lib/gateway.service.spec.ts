@@ -1,29 +1,3 @@
-/**
- * GatewayService — unit tests.
- *
- * Suites (TASK_2026_139 B2 + the original sendTest contract):
- *
- *   - sendTest: structured results for the "Send test" RPC path.
- *   - handleInbound attach gate: `'attach'` messages with no/non-approved
- *     binding are dropped with a debug log — never `upsertPending`, never a
- *     pairing prompt (AC 1.11).
- *   - Conversation resolution: Discord `'attach'` → `resolveOrAdopt`;
- *     everything else → `resolveOrCreate(binding.id, conversationId ?? 'default')`;
- *     the emitted GatewayInboundEvent carries the conversation row, and
- *     Slack/Telegram keep today's byte-identical 2-segment key (AC 1.14).
- *   - flushOutbound: routes via payload fields (no positional key parsing),
- *     passing `{ conversationId }` through to `adapter.sendMessage` (AC 1.5).
- *   - Revoke cascade: stream handles + coalescer state discarded for every
- *     conversation key, then rows deleted via `deleteByBinding` (AC 1.15).
- *   - Item 2 flags: enabled flags persisted only on successful start
- *     (AC 2.1/2.6), `stopPlatform` clears per-platform first and the master
- *     flag only when no sibling stays enabled (AC 2.2), boot auto-start with
- *     persisted flags (AC 2.3), missing/undecryptable token degrades without
- *     blocking the sibling platform (AC 2.4).
- *
- * Adapters are injected via `configureForTest` so we never construct grammy /
- * discord / slack clients. Other dependencies are minimal jest mocks.
- */
 import 'reflect-metadata';
 
 import { GatewayService, type GatewayInboundEvent } from './gateway.service';
@@ -523,6 +497,37 @@ describe('GatewayService.handleInbound — conversation resolution (AC 1.13/1.14
     expect(ConversationKey.for('telegram', 'chat-1')).toBe('telegram:chat-1');
   });
 
+  it('slack open inbound resolves the default row and keeps the 2-segment key byte-identical', async () => {
+    const suite = buildSuite();
+    const slackAdapter = createAdapter('slack');
+    suite.service.configureForTest({ slack: slackAdapter });
+    const binding = makeBinding({
+      platform: 'slack',
+      externalChatId: 'C123',
+      id: 'binding-s',
+    });
+    const conversation = makeConversation({
+      bindingId: binding.id,
+      externalConversationId: 'default',
+    });
+    suite.bindings.upsertPending.mockReturnValue(binding);
+    suite.conversations.resolveOrCreate.mockReturnValue(conversation);
+    suite.messages.insert.mockReturnValue({} as never);
+
+    const msg = makeInbound({ platform: 'slack', externalChatId: 'C123' });
+    await dispatchInbound(suite.service, msg);
+
+    expect(suite.conversations.resolveOrCreate).toHaveBeenCalledWith(
+      binding.id,
+      'default',
+    );
+    expect(suite.conversations.resolveOrAdopt).not.toHaveBeenCalled();
+    expect(suite.events).toHaveLength(1);
+    expect(suite.events[0].conversation).toBe(conversation);
+    expect(suite.events[0].message.conversationKey).toBe('slack:C123');
+    expect(ConversationKey.for('slack', 'C123')).toBe('slack:C123');
+  });
+
   it('discord open mention with a conversationId resolves via resolveOrCreate — never claims the default row', async () => {
     const suite = buildSuite();
     const binding = makeBinding({
@@ -804,5 +809,30 @@ describe('GatewayService — enabled-flag persistence (Item 2)', () => {
       (a) => a.platform === 'telegram',
     );
     expect(telegramStatus?.lastError).toContain('decrypt failed');
+  });
+
+  it('startPlatform preserves sibling discord settings keys and writes only the enabled flags (AC 2.5)', async () => {
+    const suite = buildSuite({
+      settings: {
+        'gateway.discord.allowedGuildIds': ['guild-1'],
+        'gateway.discord.applicationId': '999',
+      },
+      ciphers: { discord: 'cipher-d' },
+    });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    suite.discordAdapter.isRunning.mockReturnValue(true);
+
+    await suite.service.startPlatform('discord');
+
+    expect(
+      suite.workspace.settings.get('gateway.discord.allowedGuildIds'),
+    ).toEqual(['guild-1']);
+    expect(suite.workspace.settings.get('gateway.discord.applicationId')).toBe(
+      '999',
+    );
+    const writtenKeys = suite.workspace.setConfiguration.mock.calls.map(
+      (call) => call[1],
+    );
+    expect(writtenKeys).toEqual(['gateway.discord.enabled', 'gateway.enabled']);
   });
 });

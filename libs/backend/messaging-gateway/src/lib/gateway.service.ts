@@ -273,11 +273,6 @@ export class GatewayService extends EventEmitter {
   }
 
   async stopPlatform(platform: GatewayPlatform): Promise<void> {
-    await this.workspace.setConfiguration(
-      'ptah',
-      this.enabledKeyFor(platform),
-      false,
-    );
     const adapter = this.adapters.get(platform);
     if (adapter) {
       try {
@@ -289,6 +284,11 @@ export class GatewayService extends EventEmitter {
         );
       }
     }
+    await this.workspace.setConfiguration(
+      'ptah',
+      this.enabledKeyFor(platform),
+      false,
+    );
     const siblings = (
       ['telegram', 'discord', 'slack'] as GatewayPlatform[]
     ).filter((p) => p !== platform);
@@ -747,9 +747,9 @@ export class GatewayService extends EventEmitter {
               await adapter.sendMessage(msg.externalChatId, reply);
             }
             this.pairingPromptSent.add(binding.id);
-          } catch (err) {
+          } catch (error: unknown) {
             this.logger.warn('[gateway] failed to send pairing prompt', {
-              error: err instanceof Error ? err.message : String(err),
+              error: error instanceof Error ? error.message : String(error),
             });
           }
         }
@@ -774,16 +774,11 @@ export class GatewayService extends EventEmitter {
     });
     if (!persisted) return; // duplicate
 
+    const conversationId = msg.conversationId ? msg.conversationId : 'default';
     const conversation =
       msg.conversationMode === 'attach' && msg.platform === 'discord'
-        ? this.conversations.resolveOrAdopt(
-            binding.id,
-            msg.conversationId ?? 'default',
-          )
-        : this.conversations.resolveOrCreate(
-            binding.id,
-            msg.conversationId ?? 'default',
-          );
+        ? this.conversations.resolveOrAdopt(binding.id, conversationId)
+        : this.conversations.resolveOrCreate(binding.id, conversationId);
     this.conversations.touch(conversation.id);
 
     this.bindings.touch(binding.id);

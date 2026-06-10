@@ -1,11 +1,3 @@
-/**
- * StreamCoalescer — structured-routing unit tests (TASK_2026_139 D6).
- *
- * Locks the OutboundRoute contract: buffers are keyed on
- * `route.conversationKey`, and every FlushPayload carries the full route
- * (`platform` / `externalChatId` / `conversationId?`) so no consumer ever
- * re-parses the key positionally.
- */
 import {
   StreamCoalescer,
   type FlushPayload,

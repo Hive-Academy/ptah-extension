@@ -15,6 +15,7 @@ export interface DiscordInteractionLike {
   guildId: string | null;
   user: { id: string; username?: string };
   options: { getString(name: string): string | null };
+  channel?: { isThread(): boolean; parentId: string | null } | null;
   deferReply(): Promise<unknown>;
   editReply(payload: string | { content: string }): Promise<unknown>;
 }
@@ -274,27 +275,72 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
     await interaction.deferReply();
     const prompt = interaction.options.getString('prompt') ?? '';
-    const externalChatId = interaction.channelId;
-    const thread = await this.createThread(externalChatId, prompt);
-    await interaction.editReply({
-      content: `Working in thread <#${thread.id}>`,
-    });
-    const inbound: InboundMessage = {
-      platform: 'discord',
-      externalChatId,
-      displayName: interaction.user.username,
-      externalMsgId: interaction.id,
-      body: prompt,
-      conversationKey: ConversationKey.for(
-        'discord',
+    try {
+      if (interaction.channel?.isThread()) {
+        const parentId = interaction.channel.parentId;
+        if (parentId === null) {
+          await interaction.editReply({
+            content: 'Ptah could not open a thread here.',
+          });
+          this.logger.warn(
+            '[gateway] discord interaction dropped: thread parent unknown',
+            { threadId: interaction.channelId },
+          );
+          return;
+        }
+        const threadId = interaction.channelId;
+        await interaction.editReply({ content: 'On it.' });
+        const inbound: InboundMessage = {
+          platform: 'discord',
+          externalChatId: parentId,
+          displayName: interaction.user.username,
+          externalMsgId: interaction.id,
+          body: prompt,
+          conversationKey: ConversationKey.for('discord', parentId, threadId),
+          allowListId: interaction.guildId ?? undefined,
+          conversationId: threadId,
+          conversationMode: 'attach',
+        };
+        await this.listener(inbound);
+        return;
+      }
+
+      const externalChatId = interaction.channelId;
+      const thread = await this.createThread(externalChatId, prompt);
+      await interaction.editReply({
+        content: `Working in thread <#${thread.id}>`,
+      });
+      const inbound: InboundMessage = {
+        platform: 'discord',
         externalChatId,
-        thread.id,
-      ),
-      allowListId: interaction.guildId ?? undefined,
-      conversationId: thread.id,
-      conversationMode: 'open',
-    };
-    await this.listener(inbound);
+        displayName: interaction.user.username,
+        externalMsgId: interaction.id,
+        body: prompt,
+        conversationKey: ConversationKey.for(
+          'discord',
+          externalChatId,
+          thread.id,
+        ),
+        allowListId: interaction.guildId ?? undefined,
+        conversationId: thread.id,
+        conversationMode: 'open',
+      };
+      await this.listener(inbound);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] discord interaction dispatch failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      try {
+        await interaction.editReply({
+          content: 'Ptah could not open a thread here.',
+        });
+      } catch (editError: unknown) {
+        this.logger.warn('[gateway] discord editReply after failure failed', {
+          error:
+            editError instanceof Error ? editError.message : String(editError),
+        });
+      }
+    }
   }
 
   private async handleIncomingMessage(

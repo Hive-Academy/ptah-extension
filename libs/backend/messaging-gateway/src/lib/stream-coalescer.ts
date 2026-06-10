@@ -27,12 +27,6 @@ export interface CoalescerOptions {
   maxAgeMs?: number;
 }
 
-/**
- * Structured outbound routing captured at the source (the bridge knows the
- * `InboundMessage`). Buffers are keyed on `conversationKey`; the remaining
- * fields travel through to {@link FlushPayload} so no consumer ever re-parses
- * the key positionally.
- */
 export interface OutboundRoute {
   readonly conversationKey: ConversationKey;
   readonly platform: GatewayPlatform;

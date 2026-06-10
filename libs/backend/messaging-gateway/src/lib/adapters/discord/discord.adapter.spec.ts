@@ -166,12 +166,21 @@ function fakeIncomingMessage(
 function fakeInteraction(
   overrides: Partial<DiscordInteractionLike> & {
     prompt?: string;
+    isThread?: boolean;
+    parentId?: string | null;
   } = {},
 ): DiscordInteractionLike & {
   deferReply: jest.Mock;
   editReply: jest.Mock;
 } {
   const prompt = overrides.prompt ?? 'do the thing';
+  const channel =
+    overrides.isThread !== undefined
+      ? {
+          isThread: () => overrides.isThread ?? false,
+          parentId: overrides.parentId ?? null,
+        }
+      : overrides.channel;
   return {
     commandName: overrides.commandName ?? 'ptah',
     id: overrides.id ?? 'interaction-1',
@@ -179,6 +188,7 @@ function fakeInteraction(
     guildId: overrides.guildId ?? 'guild-1',
     user: overrides.user ?? { id: 'u1', username: 'alice' },
     options: { getString: () => prompt },
+    channel,
     deferReply: jest.fn().mockResolvedValue(undefined),
     editReply: jest.fn().mockResolvedValue(undefined),
   };
@@ -265,6 +275,52 @@ describe('DiscordAdapter — inbound thread lifecycle', () => {
     expect(inbound[1].conversationId).toBe(channel.createdThreads[1].id);
     expect(inbound[0].conversationId).not.toBe(inbound[1].conversationId);
     expect(channel.createdThreads[0].setArchived).not.toHaveBeenCalled();
+  });
+
+  it('/ptah inside an existing thread never creates a nested thread and dispatches attach', async () => {
+    const { client, channel, inbound } = await startAdapter();
+    const interaction = fakeInteraction({
+      id: 'interaction-thread',
+      channelId: 'thread-55',
+      isThread: true,
+      parentId: 'chan-1',
+      prompt: 'follow up in thread',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
+    expect(channel.threadCreate).not.toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledTimes(1);
+    expect(inbound).toHaveLength(1);
+    expect(inbound[0]).toEqual(
+      expect.objectContaining({
+        externalChatId: 'chan-1',
+        externalMsgId: 'interaction-thread',
+        body: 'follow up in thread',
+        conversationId: 'thread-55',
+        conversationMode: 'attach',
+        conversationKey: 'discord:chan-1:thread-55',
+      }),
+    );
+  });
+
+  it('/ptah editReplies a user-facing error and emits nothing when thread creation fails (no hanging interaction)', async () => {
+    const { client, channel, inbound, logger } = await startAdapter();
+    channel.threadCreate.mockRejectedValueOnce(new Error('missing permission'));
+    const interaction = fakeInteraction({ id: 'interaction-fail' });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'Ptah could not open a thread here.',
+    });
+    expect(inbound).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord interaction dispatch failed',
+      expect.objectContaining({ error: expect.stringContaining('permission') }),
+    );
   });
 
   it('@mention in a channel creates a thread, posts a pointer, emits open-mode inbound with the mention stripped', async () => {
