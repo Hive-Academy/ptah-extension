@@ -23,6 +23,7 @@ export type {
   CoalescerOptions,
   FlushPayload,
   FlushCallback,
+  OutboundRoute,
 } from './lib/stream-coalescer';
 
 export type { ITokenVault } from './lib/token-vault.interface';

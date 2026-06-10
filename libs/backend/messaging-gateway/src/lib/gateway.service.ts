@@ -40,8 +40,13 @@ import {
 import { GATEWAY_TOKENS } from './di/tokens';
 import type { ITokenVault } from './token-vault.interface';
 import { BindingStore } from './binding.store';
+import { ConversationStore } from './conversation.store';
 import { MessageStore } from './message.store';
-import { StreamCoalescer, type FlushPayload } from './stream-coalescer';
+import {
+  StreamCoalescer,
+  type FlushPayload,
+  type OutboundRoute,
+} from './stream-coalescer';
 import { FfmpegDecoder } from './voice/ffmpeg-decoder';
 import {
   WhisperTranscriber,
@@ -69,6 +74,7 @@ import {
   BindingId,
   ConversationKey,
   GatewayBinding,
+  GatewayConversation,
   GatewayPlatform,
 } from './types';
 
@@ -103,6 +109,7 @@ const INBOUND_ABUSE_LIMIT_PER_MIN = 60;
 
 export interface GatewayInboundEvent {
   binding: GatewayBinding;
+  conversation: GatewayConversation;
   message: InboundMessage;
 }
 
@@ -130,14 +137,7 @@ export class GatewayService extends EventEmitter {
   private coalescer: StreamCoalescer | null = null;
   private inboundCounters = new Map<string, number[]>();
   /** Map conversationKey → first outbound externalMsgId (for editMessage). */
-  private streamHandles = new Map<
-    ConversationKey,
-    {
-      platform: GatewayPlatform;
-      externalChatId: string;
-      externalMsgId: string;
-    }
-  >();
+  private streamHandles = new Map<ConversationKey, { externalMsgId: string }>();
 
   /** Ciphertext-decrypt-failure flag — surfaced via gateway:status. */
   private decryptFailures = new Set<GatewayPlatform>();
@@ -158,6 +158,8 @@ export class GatewayService extends EventEmitter {
     private readonly vault: ITokenVault,
     @inject(GATEWAY_TOKENS.GATEWAY_BINDING_STORE)
     private readonly bindings: BindingStore,
+    @inject(GATEWAY_TOKENS.GATEWAY_CONVERSATION_STORE)
+    private readonly conversations: ConversationStore,
     @inject(GATEWAY_TOKENS.GATEWAY_MESSAGE_STORE)
     private readonly messages: MessageStore,
     @inject(GrammyTelegramAdapter)
@@ -255,17 +257,49 @@ export class GatewayService extends EventEmitter {
     if (platform === 'telegram') await this.maybeStartTelegram(true);
     else if (platform === 'discord') await this.maybeStartDiscord(true);
     else await this.maybeStartSlack(true);
+
+    if (this.adapters.get(platform)?.isRunning() === true) {
+      await this.workspace.setConfiguration(
+        'ptah',
+        this.enabledKeyFor(platform),
+        true,
+      );
+      await this.workspace.setConfiguration(
+        'ptah',
+        SETTINGS_KEYS.enabled,
+        true,
+      );
+    }
   }
 
   async stopPlatform(platform: GatewayPlatform): Promise<void> {
+    await this.workspace.setConfiguration(
+      'ptah',
+      this.enabledKeyFor(platform),
+      false,
+    );
     const adapter = this.adapters.get(platform);
-    if (!adapter) return;
-    try {
-      await adapter.stop();
-    } catch (err) {
-      this.lastErrors.set(
-        platform,
-        err instanceof Error ? err.message : String(err),
+    if (adapter) {
+      try {
+        await adapter.stop();
+      } catch (error: unknown) {
+        this.lastErrors.set(
+          platform,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    const siblings = (
+      ['telegram', 'discord', 'slack'] as GatewayPlatform[]
+    ).filter((p) => p !== platform);
+    const anyEnabled = siblings.some((p) =>
+      this.cfgBool(this.enabledKeyFor(p), false),
+    );
+    if (!anyEnabled) {
+      await this.workspace.setConfiguration(
+        'ptah',
+        SETTINGS_KEYS.enabled,
+        false,
       );
     }
   }
@@ -354,10 +388,24 @@ export class GatewayService extends EventEmitter {
     const binding = this.bindings.setStatus(id, status);
     this.pairingPromptSent.delete(id);
     if (status === 'revoked' || status === 'rejected') {
-      const handleKey =
-        `${binding.platform}:${binding.externalChatId}` as ConversationKey;
-      this.streamHandles.delete(handleKey);
-      this.coalescer?.discard(handleKey);
+      const conversations = this.conversations.listByBinding(id);
+      const keys = new Set<ConversationKey>([
+        ConversationKey.for(binding.platform, binding.externalChatId),
+      ]);
+      for (const conversation of conversations) {
+        keys.add(
+          ConversationKey.for(
+            binding.platform,
+            binding.externalChatId,
+            conversation.externalConversationId,
+          ),
+        );
+      }
+      for (const key of keys) {
+        this.streamHandles.delete(key);
+        this.coalescer?.discard(key);
+      }
+      this.conversations.deleteByBinding(id);
     }
     return binding;
   }
@@ -537,17 +585,23 @@ export class GatewayService extends EventEmitter {
     return SETTINGS_KEYS.slack.allowed;
   }
 
+  private enabledKeyFor(platform: GatewayPlatform): string {
+    if (platform === 'telegram') return SETTINGS_KEYS.telegram.enabled;
+    if (platform === 'discord') return SETTINGS_KEYS.discord.enabled;
+    return SETTINGS_KEYS.slack.enabled;
+  }
+
   /**
    * Append assistant text for a given conversation. The coalescer will
    * flush via {@link flushOutbound} which sends/edits via the adapter.
    */
-  appendOutboundChunk(conversationKey: ConversationKey, chunk: string): void {
+  appendOutboundChunk(route: OutboundRoute, chunk: string): void {
     if (!this.coalescer) {
       this.coalescer = new StreamCoalescer((payload) =>
         this.flushOutbound(payload),
       );
     }
-    this.coalescer.append(conversationKey, chunk);
+    this.coalescer.append(route, chunk);
   }
 
   async drainOutbound(conversationKey: ConversationKey): Promise<void> {
@@ -655,41 +709,62 @@ export class GatewayService extends EventEmitter {
         });
       }
     }
-    const binding = this.bindings.upsertPending({
-      platform: msg.platform,
-      externalChatId: msg.externalChatId,
-      displayName: msg.displayName,
-      ...(msg.allowListId ? { allowListId: msg.allowListId } : {}),
-    });
-
-    if (binding.approvalStatus === 'pending') {
-      if (!this.pairingPromptSent.has(binding.id)) {
-        const code = binding.pairingCode ?? '------';
-        const reply =
-          `Ptah pairing required. Approve this binding in Ptah using code: ${code}\n` +
-          `(I will not respond to messages until approved.)`;
-        try {
-          const adapter = this.adapters.get(msg.platform);
-          if (adapter) {
-            await adapter.sendMessage(msg.externalChatId, reply);
-          }
-          this.pairingPromptSent.add(binding.id);
-        } catch (err) {
-          this.logger.warn('[gateway] failed to send pairing prompt', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+    let binding: GatewayBinding;
+    if (msg.conversationMode === 'attach') {
+      const existing = this.bindings.findByExternal(
+        msg.platform,
+        msg.externalChatId,
+      );
+      if (!existing || existing.approvalStatus !== 'approved') {
+        this.logger.debug(
+          '[gateway] dropping attach inbound — no approved binding',
+          {
+            platform: msg.platform,
+            externalChatId: msg.externalChatId,
+            status: existing?.approvalStatus ?? 'none',
+          },
+        );
+        return;
       }
-      return;
+      binding = existing;
+    } else {
+      binding = this.bindings.upsertPending({
+        platform: msg.platform,
+        externalChatId: msg.externalChatId,
+        displayName: msg.displayName,
+        ...(msg.allowListId ? { allowListId: msg.allowListId } : {}),
+      });
+
+      if (binding.approvalStatus === 'pending') {
+        if (!this.pairingPromptSent.has(binding.id)) {
+          const code = binding.pairingCode ?? '------';
+          const reply =
+            `Ptah pairing required. Approve this binding in Ptah using code: ${code}\n` +
+            `(I will not respond to messages until approved.)`;
+          try {
+            const adapter = this.adapters.get(msg.platform);
+            if (adapter) {
+              await adapter.sendMessage(msg.externalChatId, reply);
+            }
+            this.pairingPromptSent.add(binding.id);
+          } catch (err) {
+            this.logger.warn('[gateway] failed to send pairing prompt', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        return;
+      }
+
+      if (binding.approvalStatus !== 'approved') {
+        this.logger.debug('[gateway] dropping inbound — binding not approved', {
+          bindingId: binding.id,
+          status: binding.approvalStatus,
+        });
+        return;
+      }
     }
 
-    if (binding.approvalStatus !== 'approved') {
-      this.logger.debug('[gateway] dropping inbound — binding not approved', {
-        bindingId: binding.id,
-        status: binding.approvalStatus,
-      });
-      return;
-    }
     const persisted = this.messages.insert({
       bindingId: binding.id,
       direction: 'inbound',
@@ -699,9 +774,22 @@ export class GatewayService extends EventEmitter {
     });
     if (!persisted) return; // duplicate
 
+    const conversation =
+      msg.conversationMode === 'attach' && msg.platform === 'discord'
+        ? this.conversations.resolveOrAdopt(
+            binding.id,
+            msg.conversationId ?? 'default',
+          )
+        : this.conversations.resolveOrCreate(
+            binding.id,
+            msg.conversationId ?? 'default',
+          );
+    this.conversations.touch(conversation.id);
+
     this.bindings.touch(binding.id);
     const event: GatewayInboundEvent = {
       binding,
+      conversation,
       message: { ...msg, body },
     };
     this.emit('inbound', event);
@@ -709,26 +797,29 @@ export class GatewayService extends EventEmitter {
 
   private async flushOutbound(payload: FlushPayload): Promise<void> {
     const handle = this.streamHandles.get(payload.conversationKey);
-    const [platform, externalChatId] = payload.conversationKey.split(':') as [
-      GatewayPlatform,
-      string,
-    ];
-    const adapter = this.adapters.get(platform);
+    const adapter = this.adapters.get(payload.platform);
     if (!adapter) {
       this.logger.warn('[gateway] flushOutbound: no adapter for platform', {
-        platform,
+        platform: payload.platform,
       });
       return;
     }
     try {
       if (payload.isFirstFlush || !handle) {
-        const res = await adapter.sendMessage(externalChatId, payload.body);
+        const res = await adapter.sendMessage(
+          payload.externalChatId,
+          payload.body,
+          payload.conversationId !== undefined
+            ? { conversationId: payload.conversationId }
+            : undefined,
+        );
         this.streamHandles.set(payload.conversationKey, {
-          platform,
-          externalChatId,
           externalMsgId: res.externalMsgId,
         });
-        const binding = this.bindings.findByExternal(platform, externalChatId);
+        const binding = this.bindings.findByExternal(
+          payload.platform,
+          payload.externalChatId,
+        );
         if (binding) {
           this.messages.insert({
             bindingId: binding.id,
@@ -739,15 +830,15 @@ export class GatewayService extends EventEmitter {
         }
       } else {
         await adapter.editMessage(
-          externalChatId,
+          payload.externalChatId,
           handle.externalMsgId,
           payload.body,
         );
       }
-    } catch (err) {
+    } catch (error: unknown) {
       this.logger.warn('[gateway] flushOutbound failed', {
-        platform,
-        error: err instanceof Error ? err.message : String(err),
+        platform: payload.platform,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
