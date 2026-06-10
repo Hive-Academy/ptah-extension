@@ -5,13 +5,14 @@ import { MemoryRpcService } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui';
 import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
 import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui';
-import type {
-  GatewayListBindingsResult,
-  GatewayStatusResult,
-  CronListResult,
-  MemoryStatsResult,
-  ScheduledJobDto,
-  SkillSynthesisCandidateSummary,
+import {
+  MESSAGE_TYPES,
+  type GatewayListBindingsResult,
+  type GatewayStatusResult,
+  type CronListResult,
+  type MemoryStatsResult,
+  type ScheduledJobDto,
+  type SkillSynthesisCandidateSummary,
 } from '@ptah-extension/shared';
 
 import { ThothStatusService } from './thoth-status.service';
@@ -214,6 +215,190 @@ describe('ThothStatusService', () => {
 
     expect(memoryRpc.stats).toHaveBeenCalledTimes(1);
     expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(1);
+  });
+
+  it('derives running state even when the master enabled flag is false', async () => {
+    vscode.config.set({ isElectron: true });
+
+    memoryRpc.stats.mockResolvedValue({
+      core: 0,
+      recall: 0,
+      archival: 0,
+      codeIndex: 0,
+      lastCuratedAt: null,
+    });
+    skillsRpc.listCandidates.mockResolvedValue([]);
+    cronRpc.list.mockResolvedValue({ jobs: [] });
+    gatewayRpc.status.mockResolvedValue({
+      enabled: false,
+      adapters: [
+        { platform: 'discord', running: true },
+        { platform: 'telegram', running: false },
+      ],
+    });
+    gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
+
+    const service = TestBed.inject(ThothStatusService);
+    await service.refresh();
+
+    const summary = service.summary();
+    expect(summary.gateway.available).toBe(true);
+    if (summary.gateway.available) {
+      const discord = summary.gateway.platforms.find(
+        (p) => p.platform === 'discord',
+      );
+      const telegram = summary.gateway.platforms.find(
+        (p) => p.platform === 'telegram',
+      );
+      const slack = summary.gateway.platforms.find(
+        (p) => p.platform === 'slack',
+      );
+      expect(discord?.state).toBe('running');
+      expect(telegram?.state).toBe('enabled');
+      expect(slack?.state).toBe('disabled');
+    }
+  });
+
+  describe('handleMessage', () => {
+    it('declares GATEWAY_STATUS_CHANGED as its handled message type', () => {
+      const service = TestBed.inject(ThothStatusService);
+      expect(service.handledMessageTypes).toEqual([
+        MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+      ]);
+    });
+
+    it('updates platform state live and preserves the last pending count', async () => {
+      vscode.config.set({ isElectron: true });
+
+      memoryRpc.stats.mockResolvedValue({
+        core: 0,
+        recall: 0,
+        archival: 0,
+        codeIndex: 0,
+        lastCuratedAt: null,
+      });
+      skillsRpc.listCandidates.mockResolvedValue([]);
+      cronRpc.list.mockResolvedValue({ jobs: [] });
+      gatewayRpc.status.mockResolvedValue({
+        enabled: false,
+        adapters: [{ platform: 'discord', running: false }],
+      });
+      gatewayRpc.listBindings.mockResolvedValue({
+        bindings: [
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { id: 'b1' } as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { id: 'b2' } as any,
+        ],
+      });
+
+      const service = TestBed.inject(ThothStatusService);
+      await service.refresh();
+
+      service.handleMessage({
+        type: MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+        payload: {
+          status: {
+            enabled: true,
+            adapters: [{ platform: 'discord', running: true }],
+          },
+          origin: 'user-action',
+        },
+      });
+
+      const summary = service.summary();
+      expect(summary.gateway.available).toBe(true);
+      if (summary.gateway.available) {
+        expect(summary.gateway.pendingBindings).toBe(2);
+        const discord = summary.gateway.platforms.find(
+          (p) => p.platform === 'discord',
+        );
+        expect(discord?.state).toBe('running');
+      }
+    });
+
+    it('applies a status event that arrives before the first refresh', () => {
+      const service = TestBed.inject(ThothStatusService);
+
+      service.handleMessage({
+        type: MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+        payload: {
+          status: {
+            enabled: false,
+            adapters: [{ platform: 'discord', running: true }],
+          },
+          origin: null,
+        },
+      });
+
+      const summary = service.summary();
+      expect(summary.gateway).toEqual({
+        available: true,
+        pendingBindings: 0,
+        platforms: [
+          { platform: 'telegram', state: 'disabled' },
+          { platform: 'discord', state: 'running' },
+          { platform: 'slack', state: 'disabled' },
+        ],
+      });
+    });
+
+    it('surfaces adapter errors and clears a stale gateway error', async () => {
+      vscode.config.set({ isElectron: true });
+
+      memoryRpc.stats.mockResolvedValue({
+        core: 0,
+        recall: 0,
+        archival: 0,
+        codeIndex: 0,
+        lastCuratedAt: null,
+      });
+      skillsRpc.listCandidates.mockResolvedValue([]);
+      cronRpc.list.mockResolvedValue({ jobs: [] });
+      gatewayRpc.status.mockRejectedValue(new Error('gateway boom'));
+      gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
+
+      const service = TestBed.inject(ThothStatusService);
+      await service.refresh();
+      expect(service.summary().errors.gateway).toBe('gateway boom');
+
+      service.handleMessage({
+        type: MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+        payload: {
+          status: {
+            enabled: true,
+            adapters: [
+              { platform: 'discord', running: false, lastError: 'token bad' },
+            ],
+          },
+          origin: null,
+        },
+      });
+
+      const summary = service.summary();
+      expect(summary.errors.gateway).toBeNull();
+      expect(summary.gateway.available).toBe(true);
+      if (summary.gateway.available) {
+        const discord = summary.gateway.platforms.find(
+          (p) => p.platform === 'discord',
+        );
+        expect(discord?.state).toBe('error');
+        expect(discord?.lastError).toBe('token bad');
+      }
+    });
+
+    it('ignores events without a status payload', () => {
+      const service = TestBed.inject(ThothStatusService);
+      const before = service.summary().gateway;
+
+      service.handleMessage({ type: MESSAGE_TYPES.GATEWAY_STATUS_CHANGED });
+      service.handleMessage({
+        type: MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+        payload: {},
+      });
+
+      expect(service.summary().gateway).toEqual(before);
+    });
   });
 
   it('isolates a failing pillar from the others', async () => {

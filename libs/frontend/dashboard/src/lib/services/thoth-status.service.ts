@@ -1,12 +1,14 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { VSCodeService, type MessageHandler } from '@ptah-extension/core';
 import { MemoryRpcService } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui';
 import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
 import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui';
-import type {
-  GatewayPlatformId,
-  GatewayStatusResult,
+import {
+  MESSAGE_TYPES,
+  type GatewayPlatformId,
+  type GatewayStatusChangedPayload,
+  type GatewayStatusResult,
 } from '@ptah-extension/shared';
 
 /**
@@ -16,7 +18,7 @@ import type {
  * - `'running'`   — adapter is started and healthy
  * - `'enabled'`   — adapter has token but is not currently running
  * - `'error'`     — adapter reported `lastError`
- * - `'disabled'`  — gateway not enabled / no adapter row
+ * - `'disabled'`  — no adapter row for the platform
  */
 export type ThothGatewayBadge = 'running' | 'enabled' | 'error' | 'disabled';
 
@@ -93,12 +95,16 @@ const PLATFORMS: readonly GatewayPlatformId[] = [
  * No polling — re-call `refresh()` on user interaction (e.g. window focus).
  */
 @Injectable({ providedIn: 'root' })
-export class ThothStatusService {
+export class ThothStatusService implements MessageHandler {
   private readonly vscode = inject(VSCodeService);
   private readonly memoryRpc = inject(MemoryRpcService);
   private readonly skillsRpc = inject(SkillSynthesisRpcService);
   private readonly cronRpc = inject(CronRpcService);
   private readonly gatewayRpc = inject(GatewayRpcService);
+
+  public readonly handledMessageTypes = [
+    MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+  ] as const;
 
   private readonly _isLoading = signal<boolean>(false);
   private readonly _lastUpdatedAt = signal<number | null>(null);
@@ -183,6 +189,19 @@ export class ThothStatusService {
     await this.refresh();
   }
 
+  public handleMessage(msg: { type: string; payload?: unknown }): void {
+    const payload = msg.payload as GatewayStatusChangedPayload | undefined;
+    if (!payload?.status) return;
+
+    const platforms = this.derivePlatformSummaries(payload.status);
+    const current = this._gateway();
+    const pendingBindings =
+      current?.available === true ? current.pendingBindings : 0;
+
+    this._gateway.set({ available: true, platforms, pendingBindings });
+    this.clearError('gateway');
+  }
+
   private async loadMemory(): Promise<void> {
     try {
       const stats = await this.memoryRpc.stats();
@@ -263,7 +282,7 @@ export class ThothStatusService {
 
     return PLATFORMS.map((platform) => {
       const adapter = adaptersByPlatform.get(platform);
-      if (!status.enabled || !adapter) {
+      if (!adapter) {
         return { platform, state: 'disabled' as ThothGatewayBadge };
       }
       if (adapter.lastError) {

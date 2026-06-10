@@ -170,11 +170,17 @@ export class ThothStatusCardComponent implements OnInit {
               available: false,
             };
           }
+          const runningCount = g.platforms.filter(
+            (p) => p.state === 'running',
+          ).length;
           return {
             ...base,
-            value: formatCompact(g.pendingBindings),
-            unit: 'pending',
-            desc: `binding${g.pendingBindings === 1 ? '' : 's'} awaiting approval`,
+            value: formatCompact(runningCount),
+            unit: 'running',
+            desc:
+              g.pendingBindings > 0
+                ? `${formatCompact(g.pendingBindings)} pending approval`
+                : 'no pending approvals',
             available: true,
             platforms: g.platforms,
           };
