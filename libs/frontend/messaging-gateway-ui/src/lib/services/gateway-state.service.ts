@@ -106,6 +106,7 @@ export class GatewayStateService implements MessageHandler {
    * renders it.
    */
   private readonly _pendingOrigins = new Set<string>();
+  public readonly globalError = signal<string | null>(null);
   public readonly enabled = signal<boolean>(false);
   public readonly platforms = signal<PlatformStatusMap>(emptyStatusMap());
   public readonly bindings = signal<readonly GatewayBindingDto[]>([]);
@@ -177,7 +178,7 @@ export class GatewayStateService implements MessageHandler {
       const { guilds } = await this.rpc.listDiscordGuilds();
       this.discordGuilds.set(guilds);
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError('discord', err);
     }
   }
 
@@ -193,7 +194,7 @@ export class GatewayStateService implements MessageHandler {
         [platform]: entries,
       }));
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError(platform, err);
     }
   }
 
@@ -224,7 +225,7 @@ export class GatewayStateService implements MessageHandler {
       const { applicationId } = await this.rpc.getDiscordAppId();
       this.discordAppId.set(applicationId);
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError('discord', err);
     }
   }
 
@@ -365,6 +366,7 @@ export class GatewayStateService implements MessageHandler {
   public async approveBinding(
     bindingId: string,
     code: string,
+    platform: GatewayPlatformId,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
       const result = await this.rpc.approveBinding(bindingId, code);
@@ -374,27 +376,33 @@ export class GatewayStateService implements MessageHandler {
       await this.listBindings();
       return { ok: true };
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError(platform, err);
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, error: message };
     }
   }
 
-  public async rejectBinding(bindingId: string): Promise<void> {
+  public async rejectBinding(
+    bindingId: string,
+    platform: GatewayPlatformId,
+  ): Promise<void> {
     try {
       await this.rpc.blockBinding(bindingId, 'rejected');
       await this.listBindings();
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError(platform, err);
     }
   }
 
-  public async revokeBinding(bindingId: string): Promise<void> {
+  public async revokeBinding(
+    bindingId: string,
+    platform: GatewayPlatformId,
+  ): Promise<void> {
     try {
       await this.rpc.blockBinding(bindingId, 'revoked');
       await this.listBindings();
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError(platform, err);
     }
   }
 
@@ -493,11 +501,10 @@ export class GatewayStateService implements MessageHandler {
   }
   private recordGlobalError(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
-    this.lastError.update((current) => ({
-      ...current,
-      telegram: current.telegram ?? message,
-      discord: current.discord ?? message,
-      slack: current.slack ?? message,
-    }));
+    this.globalError.set(message);
+  }
+
+  public clearGlobalError(): void {
+    this.globalError.set(null);
   }
 }

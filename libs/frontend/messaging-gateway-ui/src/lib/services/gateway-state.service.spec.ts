@@ -39,20 +39,26 @@ import { GatewayStateService } from './gateway-state.service';
 // so they only need to be defined (never called during these tests).
 // ---------------------------------------------------------------------------
 
-function buildMockRpc(): jest.Mocked<
-  Pick<
-    GatewayRpcService,
-    | 'status'
-    | 'listBindings'
-    | 'start'
-    | 'stop'
-    | 'setToken'
-    | 'approveBinding'
-    | 'blockBinding'
-    | 'listMessages'
-    | 'test'
-  >
-> {
+type MockedRpcSurface = Pick<
+  GatewayRpcService,
+  | 'status'
+  | 'listBindings'
+  | 'start'
+  | 'stop'
+  | 'setToken'
+  | 'approveBinding'
+  | 'blockBinding'
+  | 'listMessages'
+  | 'test'
+  | 'getAllowList'
+  | 'setAllowList'
+  | 'getDiscordAppId'
+  | 'setDiscordAppId'
+  | 'listDiscordGuilds'
+  | 'registerDiscordCommands'
+>;
+
+function buildMockRpc(): jest.Mocked<MockedRpcSurface> {
   return {
     status: jest.fn().mockReturnValue(new Promise(() => undefined)),
     listBindings: jest.fn().mockReturnValue(new Promise(() => undefined)),
@@ -63,20 +69,15 @@ function buildMockRpc(): jest.Mocked<
     blockBinding: jest.fn().mockResolvedValue({ ok: true }),
     listMessages: jest.fn().mockResolvedValue({ messages: [] }),
     test: jest.fn().mockResolvedValue({ ok: true }),
-  } as unknown as jest.Mocked<
-    Pick<
-      GatewayRpcService,
-      | 'status'
-      | 'listBindings'
-      | 'start'
-      | 'stop'
-      | 'setToken'
-      | 'approveBinding'
-      | 'blockBinding'
-      | 'listMessages'
-      | 'test'
-    >
-  >;
+    getAllowList: jest.fn().mockResolvedValue({ entries: [] }),
+    setAllowList: jest.fn().mockResolvedValue({ ok: true }),
+    getDiscordAppId: jest.fn().mockResolvedValue({ applicationId: null }),
+    setDiscordAppId: jest.fn().mockResolvedValue({ ok: true }),
+    listDiscordGuilds: jest.fn().mockResolvedValue({ guilds: [] }),
+    registerDiscordCommands: jest
+      .fn()
+      .mockResolvedValue({ ok: true, registered: 1, scope: 'guild' }),
+  } as unknown as jest.Mocked<MockedRpcSurface>;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,5 +319,141 @@ describe('GatewayStateService — MessageHandler migration', () => {
     service.handleMessage({ type: MESSAGE_TYPES.GATEWAY_STATUS_CHANGED });
 
     expect(applyStatusSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('GatewayStateService — error attribution (no smear)', () => {
+  let service: GatewayStateService;
+  let mockRpc: ReturnType<typeof buildMockRpc>;
+
+  beforeEach(() => {
+    mockRpc = buildMockRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        GatewayStateService,
+        { provide: GatewayRpcService, useValue: mockRpc },
+      ],
+    });
+
+    service = TestBed.inject(GatewayStateService);
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('refreshStatus failure sets globalError without smearing platform lastError', async () => {
+    mockRpc.status.mockRejectedValue(new Error('status-down'));
+
+    await service.refreshStatus();
+
+    expect(service.globalError()).toBe('status-down');
+    expect(service.lastError()).toEqual({
+      telegram: null,
+      discord: null,
+      slack: null,
+    });
+  });
+
+  it('listBindings failure sets globalError without smearing platform lastError', async () => {
+    mockRpc.listBindings.mockRejectedValue(new Error('bindings-down'));
+
+    await service.listBindings();
+
+    expect(service.globalError()).toBe('bindings-down');
+    expect(service.lastError()).toEqual({
+      telegram: null,
+      discord: null,
+      slack: null,
+    });
+  });
+
+  it('clearGlobalError resets the globalError signal', async () => {
+    mockRpc.status.mockRejectedValue(new Error('status-down'));
+    await service.refreshStatus();
+    expect(service.globalError()).toBe('status-down');
+
+    service.clearGlobalError();
+    expect(service.globalError()).toBeNull();
+  });
+
+  it('loadDiscordGuilds failure lands on discord only', async () => {
+    mockRpc.listDiscordGuilds.mockRejectedValue(new Error('guilds-fail'));
+
+    await service.loadDiscordGuilds();
+
+    expect(service.lastError()).toEqual({
+      telegram: null,
+      discord: 'guilds-fail',
+      slack: null,
+    });
+    expect(service.globalError()).toBeNull();
+  });
+
+  it('loadDiscordAppId failure lands on discord only', async () => {
+    mockRpc.getDiscordAppId.mockRejectedValue(new Error('appid-fail'));
+
+    await service.loadDiscordAppId();
+
+    expect(service.lastError()).toEqual({
+      telegram: null,
+      discord: 'appid-fail',
+      slack: null,
+    });
+    expect(service.globalError()).toBeNull();
+  });
+
+  it('loadAllowList(platform) failure lands on that platform only', async () => {
+    mockRpc.getAllowList.mockRejectedValue(new Error('allowlist-fail'));
+
+    await service.loadAllowList('slack');
+
+    expect(service.lastError()).toEqual({
+      telegram: null,
+      discord: null,
+      slack: 'allowlist-fail',
+    });
+    expect(service.globalError()).toBeNull();
+  });
+
+  it('approveBinding failure lands on the caller-supplied platform only', async () => {
+    mockRpc.approveBinding.mockRejectedValue(new Error('approve-fail'));
+
+    const result = await service.approveBinding('b1', '123456', 'telegram');
+
+    expect(result).toEqual({ ok: false, error: 'approve-fail' });
+    expect(service.lastError()).toEqual({
+      telegram: 'approve-fail',
+      discord: null,
+      slack: null,
+    });
+    expect(service.globalError()).toBeNull();
+  });
+
+  it('rejectBinding failure lands on the caller-supplied platform only', async () => {
+    mockRpc.blockBinding.mockRejectedValue(new Error('reject-fail'));
+
+    await service.rejectBinding('b1', 'discord');
+
+    expect(service.lastError()).toEqual({
+      telegram: null,
+      discord: 'reject-fail',
+      slack: null,
+    });
+    expect(service.globalError()).toBeNull();
+  });
+
+  it('revokeBinding failure lands on the caller-supplied platform only', async () => {
+    mockRpc.blockBinding.mockRejectedValue(new Error('revoke-fail'));
+
+    await service.revokeBinding('b1', 'slack');
+
+    expect(service.lastError()).toEqual({
+      telegram: null,
+      discord: null,
+      slack: 'revoke-fail',
+    });
+    expect(service.globalError()).toBeNull();
   });
 });

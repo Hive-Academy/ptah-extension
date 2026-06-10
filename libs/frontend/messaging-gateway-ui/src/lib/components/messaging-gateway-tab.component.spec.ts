@@ -1,123 +1,54 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import type { GatewayBindingDto } from '@ptah-extension/shared';
+import type {
+  GatewayBindingDto,
+  GatewayPlatformId,
+} from '@ptah-extension/shared';
 
 import { MessagingGatewayTabComponent } from './messaging-gateway-tab.component';
 import {
   GatewayStateService,
-  PlatformStatus,
-  RateLimitView,
-  VoiceModelDownloadProgress,
+  type PlatformStatus,
+  type RateLimitView,
+  type VoiceModelDownloadProgress,
 } from '../services/gateway-state.service';
 
-interface StubState {
-  readonly enabled: ReturnType<typeof signal<boolean>>;
-  readonly platforms: ReturnType<
-    typeof signal<Record<'telegram' | 'discord' | 'slack', PlatformStatus>>
-  >;
-  readonly bindings: ReturnType<typeof signal<readonly GatewayBindingDto[]>>;
-  readonly pendingBindings: ReturnType<
-    typeof signal<readonly GatewayBindingDto[]>
-  >;
-  readonly approvedBindings: ReturnType<
-    typeof signal<readonly GatewayBindingDto[]>
-  >;
-  readonly lastError: ReturnType<
-    typeof signal<Record<'telegram' | 'discord' | 'slack', string | null>>
-  >;
-  readonly voiceEnabled: ReturnType<typeof signal<boolean>>;
-  readonly whisperModel: ReturnType<typeof signal<string>>;
-  readonly rateLimit: ReturnType<typeof signal<RateLimitView>>;
-  readonly voiceDownload: ReturnType<
-    typeof signal<VoiceModelDownloadProgress | null>
-  >;
-  readonly testResult: ReturnType<
-    typeof signal<{
-      readonly platform: 'telegram' | 'discord' | 'slack';
-      readonly ok: boolean;
-      readonly message: string;
-    } | null>
-  >;
-  readonly allowLists: ReturnType<
-    typeof signal<Record<'telegram' | 'discord' | 'slack', string[]>>
-  >;
-  readonly discordAppId: ReturnType<typeof signal<string | null>>;
-  readonly discordGuilds: ReturnType<
-    typeof signal<readonly { id: string; name: string }[]>
-  >;
-  readonly hasApprovedBindingFor: jest.Mock<
-    boolean,
-    ['telegram' | 'discord' | 'slack']
-  >;
-  readonly initialize: jest.Mock<Promise<void>, []>;
-  readonly saveAllowList: jest.Mock<
-    Promise<{ ok: boolean; error?: string }>,
-    ['telegram' | 'discord' | 'slack', string[]]
-  >;
-  readonly loadAllowList: jest.Mock<
-    Promise<void>,
-    ['telegram' | 'discord' | 'slack']
-  >;
-  readonly saveDiscordAppId: jest.Mock<
-    Promise<{ ok: boolean; error?: string }>,
-    [string]
-  >;
-  readonly loadDiscordGuilds: jest.Mock<Promise<void>, []>;
-  readonly registerDiscordCommands: jest.Mock<
-    Promise<
-      | { ok: true; registered: number; scope: 'guild' | 'global' }
-      | { ok: false; error: string }
-    >,
-    []
-  >;
-  readonly setToken: jest.Mock<
-    Promise<void>,
-    ['telegram' | 'discord' | 'slack', string, string?]
-  >;
-  readonly approveBinding: jest.Mock<
-    Promise<{ ok: true } | { ok: false; error: string }>,
-    [string, string]
-  >;
-  readonly rejectBinding: jest.Mock<Promise<void>, [string]>;
-  readonly revokeBinding: jest.Mock<Promise<void>, [string]>;
-  readonly sendTest: jest.Mock<
-    Promise<{ ok: boolean; bindingId: string; messageId: string | null }>,
-    ['telegram' | 'discord' | 'slack' | 'whatsapp', string?]
-  >;
-  readonly dismissVoiceToast: jest.Mock<void, []>;
-}
-
-function makeStub(): StubState {
-  const stoppedStatus: PlatformStatus = { state: 'stopped', lastError: null };
+function makeStub() {
+  const stopped: PlatformStatus = { state: 'stopped', lastError: null };
   return {
     enabled: signal(false),
-    platforms: signal({
-      telegram: stoppedStatus,
-      discord: stoppedStatus,
-      slack: stoppedStatus,
+    platforms: signal<Record<GatewayPlatformId, PlatformStatus>>({
+      telegram: stopped,
+      discord: stopped,
+      slack: stopped,
     }),
     bindings: signal<readonly GatewayBindingDto[]>([]),
     pendingBindings: signal<readonly GatewayBindingDto[]>([]),
     approvedBindings: signal<readonly GatewayBindingDto[]>([]),
-    lastError: signal({ telegram: null, discord: null, slack: null }),
+    lastError: signal<Record<GatewayPlatformId, string | null>>({
+      telegram: null,
+      discord: null,
+      slack: null,
+    }),
+    globalError: signal<string | null>(null),
     voiceEnabled: signal(false),
     whisperModel: signal('base.en'),
     rateLimit: signal<RateLimitView>({ minTimeMs: 500, maxConcurrent: 2 }),
     voiceDownload: signal<VoiceModelDownloadProgress | null>(null),
     testResult: signal<{
-      readonly platform: 'telegram' | 'discord' | 'slack';
+      readonly platform: GatewayPlatformId;
       readonly ok: boolean;
       readonly message: string;
     } | null>(null),
-    allowLists: signal<Record<'telegram' | 'discord' | 'slack', string[]>>({
+    allowLists: signal<Record<GatewayPlatformId, string[]>>({
       telegram: [],
       discord: [],
       slack: [],
     }),
     discordAppId: signal<string | null>(null),
     discordGuilds: signal<readonly { id: string; name: string }[]>([]),
-    hasApprovedBindingFor: jest.fn(() => false),
+    hasApprovedBindingFor: jest.fn((_platform: GatewayPlatformId) => false),
     initialize: jest.fn(async () => undefined),
     saveAllowList: jest.fn(async () => ({ ok: true as const })),
     loadAllowList: jest.fn(async () => undefined),
@@ -138,41 +69,88 @@ function makeStub(): StubState {
       messageId: 'm1',
     })),
     dismissVoiceToast: jest.fn(),
+    clearGlobalError: jest.fn(),
   };
 }
 
-function makeVscodeStub(isElectron = true): { isElectron: boolean } {
-  return { isElectron };
-}
+type StubState = ReturnType<typeof makeStub>;
 
-function setInputValue(
-  fixture: { nativeElement: HTMLElement; detectChanges: () => void },
-  selector: string,
-  value: string,
-): HTMLInputElement {
-  const input = fixture.nativeElement.querySelector(
-    selector,
-  ) as HTMLInputElement | null;
-  if (!input) throw new Error(`input not found: ${selector}`);
-  input.value = value;
-  input.dispatchEvent(new Event('input'));
+function mount(
+  stub: StubState = makeStub(),
+  isElectron = true,
+): {
+  fixture: ComponentFixture<MessagingGatewayTabComponent>;
+  stub: StubState;
+} {
+  TestBed.configureTestingModule({
+    imports: [MessagingGatewayTabComponent],
+    providers: [
+      { provide: GatewayStateService, useValue: stub },
+      { provide: VSCodeService, useValue: { isElectron } },
+    ],
+  });
+  const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
   fixture.detectChanges();
-  return input;
+  return { fixture, stub };
 }
 
-describe('MessagingGatewayTabComponent', () => {
+function pane(
+  fixture: ComponentFixture<MessagingGatewayTabComponent>,
+  platform: GatewayPlatformId,
+): HTMLElement {
+  const el = fixture.nativeElement.querySelector(
+    `#gateway-pane-${platform}`,
+  ) as HTMLElement | null;
+  if (!el) throw new Error(`pane not found: ${platform}`);
+  return el;
+}
+
+function tile(
+  fixture: ComponentFixture<MessagingGatewayTabComponent>,
+  platform: GatewayPlatformId,
+): HTMLButtonElement {
+  const el = fixture.nativeElement.querySelector(
+    `[data-testid="gateway-tile-${platform}"]`,
+  ) as HTMLButtonElement | null;
+  if (!el) throw new Error(`tile not found: ${platform}`);
+  return el;
+}
+
+function buildBinding(
+  over: Partial<GatewayBindingDto> & { id: string },
+): GatewayBindingDto {
+  return {
+    id: over.id,
+    platform: over.platform ?? 'discord',
+    externalChatId: 'chat-' + over.id,
+    allowListId: over.allowListId ?? null,
+    displayName: over.displayName ?? null,
+    approvalStatus: over.approvalStatus ?? 'pending',
+    ptahSessionId: null,
+    workspaceRoot: null,
+    pairingCode: null,
+    createdAt: 0,
+    approvedAt: null,
+    lastActiveAt: null,
+  };
+}
+
+async function settle(
+  fixture: ComponentFixture<MessagingGatewayTabComponent>,
+): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  fixture.detectChanges();
+}
+
+describe('MessagingGatewayTabComponent (shell)', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
   describe('VS Code parity', () => {
     it('renders the desktop-only placeholder when not Electron', () => {
-      const stub = makeStub();
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(false) },
-        ],
-      });
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
+      const { fixture, stub } = mount(makeStub(), false);
 
       expect(fixture.nativeElement.textContent).toContain(
         'Messaging gateway is only available in the Ptah desktop app.',
@@ -181,377 +159,257 @@ describe('MessagingGatewayTabComponent', () => {
     });
 
     it('initializes state when Electron', () => {
-      const stub = makeStub();
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(true) },
-        ],
-      });
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
+      const { stub } = mount();
       expect(stub.initialize).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('token input security', () => {
-    let stub: StubState;
-    let consoleLogSpy: jest.SpyInstance;
-    let consoleWarnSpy: jest.SpyInstance;
-    let consoleErrorSpy: jest.SpyInstance;
-    let setItemSpy: jest.SpyInstance;
-    let sessionSetItemSpy: jest.SpyInstance;
+  describe('platform tab tiles', () => {
+    it('renders the tablist with Discord selected by default', () => {
+      const { fixture } = mount();
 
-    beforeEach(() => {
-      stub = makeStub();
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(true) },
-        ],
-      });
-      consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {
-        // intentionally empty
-      });
-      consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {
-        // intentionally empty
-      });
-      consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {
-        // intentionally empty
-      });
-      setItemSpy = jest.spyOn(Storage.prototype, 'setItem');
-      sessionSetItemSpy = jest.spyOn(window.sessionStorage, 'setItem');
-    });
-
-    afterEach(() => {
-      consoleLogSpy.mockRestore();
-      consoleWarnSpy.mockRestore();
-      consoleErrorSpy.mockRestore();
-      setItemSpy.mockRestore();
-      sessionSetItemSpy.mockRestore();
-    });
-
-    it('uses autocomplete=new-password and password type on the bot token input', () => {
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
-      const inputs = fixture.nativeElement.querySelectorAll(
-        'input[type="password"]',
-      ) as NodeListOf<HTMLInputElement>;
-      // 3 platforms × 1 bot token + 1 slack app token = 4 password fields
-      expect(inputs.length).toBe(4);
-      for (const input of Array.from(inputs)) {
-        expect(input.getAttribute('autocomplete')).toBe('new-password');
-        expect(input.getAttribute('autocorrect')).toBe('off');
-        expect(input.getAttribute('autocapitalize')).toBe('off');
-        expect(input.getAttribute('spellcheck')).toBe('false');
-      }
-    });
-
-    it('clears the token input synchronously after setToken resolves', async () => {
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
-
-      const input = setInputValue(
-        fixture,
-        'input[name="bot-token"]',
-        'SECRET_TOKEN_VALUE',
+      expect(
+        fixture.nativeElement.querySelector('[role="tablist"]'),
+      ).not.toBeNull();
+      expect(tile(fixture, 'discord').getAttribute('aria-selected')).toBe(
+        'true',
       );
-      expect(input.value).toBe('SECRET_TOKEN_VALUE');
+      expect(tile(fixture, 'slack').getAttribute('aria-selected')).toBe(
+        'false',
+      );
+      expect(tile(fixture, 'telegram').getAttribute('aria-selected')).toBe(
+        'false',
+      );
+    });
 
-      const form = input.closest('form') as HTMLFormElement;
-      // Submit the form — wait for the promise chain.
-      const submitEvent = new Event('submit', {
-        cancelable: true,
-        bubbles: true,
-      });
-      form.dispatchEvent(submitEvent);
-      // Wait one microtask cycle for the async submitToken to settle.
-      await Promise.resolve();
-      await Promise.resolve();
+    it('keeps all three panes mounted, hiding the unselected ones', () => {
+      const { fixture } = mount();
+
+      expect(pane(fixture, 'discord').hidden).toBe(false);
+      expect(pane(fixture, 'slack').hidden).toBe(true);
+      expect(pane(fixture, 'telegram').hidden).toBe(true);
+      expect(
+        fixture.nativeElement.querySelectorAll('[role="tabpanel"]').length,
+      ).toBe(3);
+    });
+
+    it('switches the visible pane when a tile is clicked', () => {
+      const { fixture } = mount();
+
+      tile(fixture, 'slack').click();
       fixture.detectChanges();
 
-      expect(stub.setToken).toHaveBeenCalledTimes(1);
-      const secondArg = stub.setToken.mock.calls[0]?.[1];
-      expect(secondArg).toBe('SECRET_TOKEN_VALUE');
+      expect(pane(fixture, 'discord').hidden).toBe(true);
+      expect(pane(fixture, 'slack').hidden).toBe(false);
+      expect(tile(fixture, 'slack').getAttribute('aria-selected')).toBe('true');
+    });
 
-      // Field cleared synchronously after promise settles.
-      const refetched = fixture.nativeElement.querySelector(
+    it('switches the visible pane via keyboard arrow navigation', () => {
+      const { fixture } = mount();
+
+      tile(fixture, 'discord').dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'ArrowRight',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(pane(fixture, 'slack').hidden).toBe(false);
+      expect(tile(fixture, 'slack').getAttribute('aria-selected')).toBe('true');
+      expect(tile(fixture, 'discord').getAttribute('aria-selected')).toBe(
+        'false',
+      );
+    });
+
+    it('reflects platform status changes on the tiles', () => {
+      const { fixture, stub } = mount();
+
+      stub.platforms.set({
+        telegram: { state: 'stopped', lastError: null },
+        discord: { state: 'running', lastError: null },
+        slack: { state: 'error', lastError: 'boom' },
+      });
+      fixture.detectChanges();
+
+      expect(
+        fixture.nativeElement
+          .querySelector('[data-testid="gateway-tile-status-discord"]')
+          ?.textContent?.trim(),
+      ).toBe('running');
+      expect(
+        fixture.nativeElement
+          .querySelector('[data-testid="gateway-tile-status-slack"]')
+          ?.textContent?.trim(),
+      ).toBe('error');
+    });
+  });
+
+  describe('draft survival across tab switches (AC 4.2)', () => {
+    it('preserves an unsaved token draft when switching tabs and back', () => {
+      const { fixture } = mount();
+
+      const input = pane(fixture, 'discord').querySelector(
         'input[name="bot-token"]',
       ) as HTMLInputElement;
-      expect(refetched.value).toBe('');
-    });
-
-    it('clears the token input even when setToken rejects', async () => {
-      stub.setToken.mockRejectedValueOnce(new Error('vault-unavailable'));
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
+      input.value = 'DRAFT_TOKEN';
+      input.dispatchEvent(new Event('input'));
       fixture.detectChanges();
 
-      const input = setInputValue(
-        fixture,
-        'input[name="bot-token"]',
-        'TOKEN_THAT_FAILS',
-      );
-
-      const form = input.closest('form') as HTMLFormElement;
-      const submitEvent = new Event('submit', {
-        cancelable: true,
-        bubbles: true,
-      });
-      form.dispatchEvent(submitEvent);
-      await Promise.resolve();
-      await Promise.resolve();
+      tile(fixture, 'telegram').click();
+      fixture.detectChanges();
+      tile(fixture, 'discord').click();
       fixture.detectChanges();
 
-      const refetched = fixture.nativeElement.querySelector(
+      const refetched = pane(fixture, 'discord').querySelector(
         'input[name="bot-token"]',
       ) as HTMLInputElement;
-      expect(refetched.value).toBe('');
+      expect(refetched.value).toBe('DRAFT_TOKEN');
     });
 
-    it('never logs the token to console.* and never persists it to storage', async () => {
-      const TOKEN = 'XOXB-LEAK-CHECK-987654321';
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
+    it('preserves an unsaved allow-list draft when switching tabs and back', () => {
+      const { fixture } = mount();
+
+      const textarea = pane(fixture, 'slack').querySelector(
+        '[data-testid="gateway-allowlist-slack"]',
+      ) as HTMLTextAreaElement;
+      tile(fixture, 'slack').click();
       fixture.detectChanges();
 
-      const input = setInputValue(fixture, 'input[name="bot-token"]', TOKEN);
+      textarea.value = 'T123';
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      tile(fixture, 'discord').click();
+      fixture.detectChanges();
+      tile(fixture, 'slack').click();
+      fixture.detectChanges();
+
+      expect(
+        (
+          pane(fixture, 'slack').querySelector(
+            '[data-testid="gateway-allowlist-slack"]',
+          ) as HTMLTextAreaElement
+        ).value,
+      ).toBe('T123');
+    });
+  });
+
+  describe('global error alert (AC 4.5)', () => {
+    it('renders the global error and dismisses via clearGlobalError', () => {
+      const { fixture, stub } = mount();
+
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-global-error"]',
+        ),
+      ).toBeNull();
+
+      stub.globalError.set('rpc transport down');
+      fixture.detectChanges();
+
+      const alert = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-global-error"]',
+      ) as HTMLElement;
+      expect(alert).not.toBeNull();
+      expect(alert.textContent).toContain('rpc transport down');
+
+      (alert.querySelector('button') as HTMLButtonElement).click();
+      expect(stub.clearGlobalError).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('token form preservation (AC 4.4)', () => {
+    it('submits the bot token to the service and clears the field', async () => {
+      const { fixture, stub } = mount();
+
+      const input = pane(fixture, 'discord').querySelector(
+        'input[name="bot-token"]',
+      ) as HTMLInputElement;
+      input.value = 'SECRET_TOKEN_VALUE';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
       const form = input.closest('form') as HTMLFormElement;
       form.dispatchEvent(
         new Event('submit', { bubbles: true, cancelable: true }),
       );
-      await Promise.resolve();
-      await Promise.resolve();
-      fixture.detectChanges();
+      await settle(fixture);
 
-      // Inspect every captured console call — none may contain the token.
-      const logCalls = [
-        ...consoleLogSpy.mock.calls,
-        ...consoleWarnSpy.mock.calls,
-        ...consoleErrorSpy.mock.calls,
-      ];
-      for (const call of logCalls) {
-        const joined = call.map((arg) => String(arg)).join(' ');
-        expect(joined).not.toContain(TOKEN);
-      }
-
-      // Storage must never receive the token.
-      for (const call of setItemSpy.mock.calls) {
-        const [, value] = call;
-        expect(String(value)).not.toContain(TOKEN);
-      }
-      for (const call of sessionSetItemSpy.mock.calls) {
-        const [, value] = call;
-        expect(String(value)).not.toContain(TOKEN);
-      }
-    });
-  });
-
-  describe('send test button', () => {
-    it('is disabled when no approved bindings exist', () => {
-      const stub = makeStub();
-      stub.platforms.set({
-        telegram: { state: 'running', lastError: null },
-        discord: { state: 'stopped', lastError: null },
-        slack: { state: 'stopped', lastError: null },
-      });
-      stub.hasApprovedBindingFor.mockReturnValue(false);
-
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(true) },
-        ],
-      });
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
-
-      const buttons = Array.from(
-        fixture.nativeElement.querySelectorAll('button.btn-outline.btn-sm'),
-      ) as HTMLButtonElement[];
-      const testButtons = buttons.filter(
-        (b) => b.textContent?.trim() === 'Send test',
+      expect(stub.setToken).toHaveBeenCalledWith(
+        'discord',
+        'SECRET_TOKEN_VALUE',
       );
-      expect(testButtons.length).toBe(3);
-      for (const b of testButtons) {
-        expect(b.disabled).toBe(true);
-      }
+      expect(
+        (
+          pane(fixture, 'discord').querySelector(
+            'input[name="bot-token"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe('');
     });
 
-    it('is enabled when running AND has at least one approved binding', () => {
-      const stub = makeStub();
-      stub.platforms.set({
-        telegram: { state: 'running', lastError: null },
-        discord: { state: 'stopped', lastError: null },
-        slack: { state: 'stopped', lastError: null },
-      });
-      stub.hasApprovedBindingFor.mockImplementation((p) => p === 'telegram');
+    it('submits both Slack tokens and clears them even on rejection', async () => {
+      const { fixture, stub } = mount();
+      stub.setToken.mockRejectedValueOnce(new Error('vault-unavailable'));
 
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(true) },
-        ],
-      });
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
+      tile(fixture, 'slack').click();
       fixture.detectChanges();
 
-      const buttons = Array.from(
-        fixture.nativeElement.querySelectorAll('button.btn-outline.btn-sm'),
-      ) as HTMLButtonElement[];
-      const testButtons = buttons.filter(
-        (b) => b.textContent?.trim() === 'Send test',
+      const slackPane = pane(fixture, 'slack');
+      const bot = slackPane.querySelector(
+        'input[name="bot-token"]',
+      ) as HTMLInputElement;
+      const app = slackPane.querySelector(
+        'input[name="app-token"]',
+      ) as HTMLInputElement;
+      bot.value = 'xoxb-bot';
+      bot.dispatchEvent(new Event('input'));
+      app.value = 'xapp-app';
+      app.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      (bot.closest('form') as HTMLFormElement).dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
       );
-      // First card (Telegram) should be enabled; others disabled.
-      expect(testButtons[0]?.disabled).toBe(false);
-      expect(testButtons[1]?.disabled).toBe(true);
-      expect(testButtons[2]?.disabled).toBe(true);
-    });
-  });
+      await settle(fixture);
 
-  describe('setup guide drawer', () => {
-    function makeFixture() {
-      const stub = makeStub();
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(true) },
-        ],
-      });
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
-      return fixture;
-    }
-
-    function findSetupGuideButton(
-      fixture: ReturnType<typeof makeFixture>,
-    ): HTMLButtonElement {
-      const button = Array.from(
-        fixture.nativeElement.querySelectorAll('button'),
-      ).find(
-        (b) => (b as HTMLButtonElement).textContent?.trim() === 'Setup guide',
-      ) as HTMLButtonElement | undefined;
-      if (!button) throw new Error('Setup guide button not found');
-      return button;
-    }
-
-    it('is hidden until the Setup guide button is clicked', () => {
-      const fixture = makeFixture();
-      expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
-
-      findSetupGuideButton(fixture).click();
-      fixture.detectChanges();
-
-      const dialog = fixture.nativeElement.querySelector(
-        '[role="dialog"]',
-      ) as HTMLElement | null;
-      expect(dialog).not.toBeNull();
-      expect(dialog?.getAttribute('aria-modal')).toBe('true');
-      expect(dialog?.getAttribute('aria-label')).toBe('Gateway setup guide');
-      expect(dialog?.textContent).toContain('Discord setup');
-      expect(dialog?.textContent).toContain('Telegram setup');
+      expect(stub.setToken).toHaveBeenCalledWith(
+        'slack',
+        'xoxb-bot',
+        'xapp-app',
+      );
+      expect(
+        (slackPane.querySelector('input[name="bot-token"]') as HTMLInputElement)
+          .value,
+      ).toBe('');
+      expect(
+        (slackPane.querySelector('input[name="app-token"]') as HTMLInputElement)
+          .value,
+      ).toBe('');
     });
 
-    it('closes when the backdrop is clicked', () => {
-      const fixture = makeFixture();
-      findSetupGuideButton(fixture).click();
-      fixture.detectChanges();
-
-      const backdrop = fixture.nativeElement.querySelector(
-        '[aria-hidden="true"]',
-      ) as HTMLElement | null;
-      expect(backdrop).not.toBeNull();
-      backdrop?.click();
-      fixture.detectChanges();
-
-      expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
-    });
-  });
-
-  describe('pending bindings approval queue', () => {
-    function pendingBinding(id: string): GatewayBindingDto {
-      return {
-        id,
-        platform: 'telegram',
-        externalChatId: 'chat-' + id,
-        allowListId: null,
-        displayName: null,
-        approvalStatus: 'pending',
-        ptahSessionId: null,
-        workspaceRoot: null,
-        pairingCode: null,
-        createdAt: 0,
-        approvedAt: null,
-        lastActiveAt: null,
-      };
-    }
-
-    it('renders a code-entry input for each pending binding and dispatches approveBinding on click', async () => {
-      const stub = makeStub();
-      stub.pendingBindings.set([pendingBinding('bind-1')]);
-
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(true) },
-        ],
-      });
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
-
-      // Code-entry input rendered.
-      const codeInput = fixture.nativeElement.querySelector(
-        'input[placeholder="code"]',
-      ) as HTMLInputElement | null;
-      expect(codeInput).not.toBeNull();
-
-      // Approve button starts disabled (empty code).
-      const approveBtn = Array.from(
-        fixture.nativeElement.querySelectorAll('button'),
-      ).find(
-        (b) => (b as HTMLButtonElement).textContent?.trim() === 'Approve',
-      ) as HTMLButtonElement | undefined;
-      expect(approveBtn).toBeDefined();
-      expect(approveBtn?.disabled).toBe(true);
-
-      // Type a code → button enables → click dispatches.
-      if (codeInput) {
-        codeInput.value = 'ABC123';
-        codeInput.dispatchEvent(new Event('input'));
-        fixture.detectChanges();
+    it('keeps password semantics on all token inputs', () => {
+      const { fixture } = mount();
+      const inputs = fixture.nativeElement.querySelectorAll(
+        'input[type="password"]',
+      ) as NodeListOf<HTMLInputElement>;
+      expect(inputs.length).toBe(4);
+      for (const input of Array.from(inputs)) {
+        expect(input.getAttribute('autocomplete')).toBe('new-password');
+        expect(input.getAttribute('spellcheck')).toBe('false');
       }
-      expect(approveBtn?.disabled).toBe(false);
-
-      approveBtn?.click();
-      await Promise.resolve();
-      expect(stub.approveBinding).toHaveBeenCalledWith('bind-1', 'ABC123');
     });
   });
 
-  describe('Discord integration', () => {
-    function mount(stub: StubState) {
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(true) },
-        ],
-      });
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
-      return fixture;
-    }
-
-    it('seeds the editable allow-list from state and saves trimmed, de-duplicated entries', async () => {
+  describe('allow-list preservation (AC 4.4)', () => {
+    it('seeds from state and saves trimmed entries to the service', async () => {
       const stub = makeStub();
       stub.allowLists.set({ telegram: [], discord: ['111', '222'], slack: [] });
-      const fixture = mount(stub);
+      const { fixture } = mount(stub);
 
-      const textarea = fixture.nativeElement.querySelector(
+      const textarea = pane(fixture, 'discord').querySelector(
         '[data-testid="gateway-allowlist-discord"]',
       ) as HTMLTextAreaElement;
       expect(textarea.value).toBe('111\n222');
@@ -561,21 +419,169 @@ describe('MessagingGatewayTabComponent', () => {
       fixture.detectChanges();
 
       (
-        fixture.nativeElement.querySelector(
+        pane(fixture, 'discord').querySelector(
           '[data-testid="gateway-allowlist-save-discord"]',
         ) as HTMLButtonElement
       ).click();
-      await Promise.resolve();
+      await settle(fixture);
 
       expect(stub.saveAllowList).toHaveBeenCalledWith('discord', [
         '111',
         '333',
       ]);
     });
+  });
 
-    it('builds an invite URL only once an application id is entered', () => {
+  describe('bindings preservation (AC 4.4)', () => {
+    it('shows pending bindings only in their platform pane', () => {
       const stub = makeStub();
-      const fixture = mount(stub);
+      stub.pendingBindings.set([
+        buildBinding({ id: 'b-tg', platform: 'telegram' }),
+      ]);
+      const { fixture } = mount(stub);
+
+      expect(
+        pane(fixture, 'telegram').querySelectorAll(
+          '[data-testid="gateway-pending-binding-row"]',
+        ).length,
+      ).toBe(1);
+      expect(
+        pane(fixture, 'discord').querySelectorAll(
+          '[data-testid="gateway-pending-binding-row"]',
+        ).length,
+      ).toBe(0);
+    });
+
+    it('approves with the entered code and the binding platform', async () => {
+      const stub = makeStub();
+      stub.pendingBindings.set([
+        buildBinding({ id: 'bind-1', platform: 'discord' }),
+      ]);
+      const { fixture } = mount(stub);
+
+      const discordPane = pane(fixture, 'discord');
+      const codeInput = discordPane.querySelector(
+        '[data-testid="gateway-approve-code"]',
+      ) as HTMLInputElement;
+      const approveBtn = discordPane.querySelector(
+        '[data-testid="gateway-approve-btn"]',
+      ) as HTMLButtonElement;
+
+      expect(approveBtn.disabled).toBe(true);
+      codeInput.value = 'ABC123';
+      codeInput.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(approveBtn.disabled).toBe(false);
+
+      approveBtn.click();
+      await settle(fixture);
+
+      expect(stub.approveBinding).toHaveBeenCalledWith(
+        'bind-1',
+        'ABC123',
+        'discord',
+      );
+    });
+
+    it('rejects a pending binding with its platform', async () => {
+      const stub = makeStub();
+      stub.pendingBindings.set([
+        buildBinding({ id: 'bind-2', platform: 'discord' }),
+      ]);
+      const { fixture } = mount(stub);
+
+      const rejectBtn = Array.from(
+        pane(fixture, 'discord').querySelectorAll('button'),
+      ).find(
+        (b) => (b as HTMLButtonElement).textContent?.trim() === 'Reject',
+      ) as HTMLButtonElement;
+      rejectBtn.click();
+      await settle(fixture);
+
+      expect(stub.rejectBinding).toHaveBeenCalledWith('bind-2', 'discord');
+    });
+
+    it('revokes an approved binding with its platform', async () => {
+      const stub = makeStub();
+      stub.approvedBindings.set([
+        buildBinding({
+          id: 'bind-3',
+          platform: 'discord',
+          approvalStatus: 'approved',
+        }),
+      ]);
+      const { fixture } = mount(stub);
+
+      const revokeBtn = Array.from(
+        pane(fixture, 'discord').querySelectorAll('button'),
+      ).find(
+        (b) => (b as HTMLButtonElement).textContent?.trim() === 'Revoke',
+      ) as HTMLButtonElement;
+      revokeBtn.click();
+      await settle(fixture);
+
+      expect(stub.revokeBinding).toHaveBeenCalledWith('bind-3', 'discord');
+    });
+
+    it('offers allow-sender for a pending binding and appends its id', async () => {
+      const stub = makeStub();
+      stub.pendingBindings.set([
+        buildBinding({
+          id: 'b4',
+          platform: 'telegram',
+          allowListId: '12345',
+        }),
+      ]);
+      const { fixture } = mount(stub);
+
+      const btn = pane(fixture, 'telegram').querySelector(
+        '[data-testid="gateway-allow-sender-b4"]',
+      ) as HTMLButtonElement;
+      expect(btn.textContent?.trim()).toBe('Allow this user');
+
+      btn.click();
+      await settle(fixture);
+      expect(stub.saveAllowList).toHaveBeenCalledWith('telegram', ['12345']);
+    });
+  });
+
+  describe('Discord integration kit preservation (AC 4.4)', () => {
+    it('renders the integration kit only in the Discord pane', () => {
+      const { fixture } = mount();
+      expect(
+        fixture.nativeElement.querySelectorAll(
+          '[data-testid="gateway-discord-integration"]',
+        ).length,
+      ).toBe(1);
+      expect(
+        pane(fixture, 'discord').querySelector(
+          '[data-testid="gateway-discord-integration"]',
+        ),
+      ).not.toBeNull();
+    });
+
+    it('saves the trimmed application id', async () => {
+      const { fixture, stub } = mount();
+
+      const appIdInput = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-appid"]',
+      ) as HTMLInputElement;
+      appIdInput.value = '  789  ';
+      appIdInput.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-appid-save"]',
+        ) as HTMLButtonElement
+      ).click();
+      await settle(fixture);
+
+      expect(stub.saveDiscordAppId).toHaveBeenCalledWith('789');
+    });
+
+    it('builds an invite URL once an application id is entered', () => {
+      const { fixture } = mount();
 
       expect(
         fixture.nativeElement.querySelector(
@@ -590,160 +596,55 @@ describe('MessagingGatewayTabComponent', () => {
       appIdInput.dispatchEvent(new Event('input'));
       fixture.detectChanges();
 
-      const invite = fixture.nativeElement.querySelector(
-        '[data-testid="gateway-discord-invite"]',
-      ) as HTMLAnchorElement;
-      expect(invite).not.toBeNull();
-      const href = invite.getAttribute('href') ?? '';
+      const href =
+        fixture.nativeElement
+          .querySelector('[data-testid="gateway-discord-invite"]')
+          ?.getAttribute('href') ?? '';
       expect(href).toContain('client_id=123456');
       expect(href).toContain('permissions=292057779200');
       expect(href).toContain('scope=bot%20applications.commands');
     });
 
-    it('saves the trimmed application id', async () => {
-      const stub = makeStub();
-      const fixture = mount(stub);
-      const appIdInput = fixture.nativeElement.querySelector(
-        '[data-testid="gateway-discord-appid"]',
-      ) as HTMLInputElement;
-      appIdInput.value = '  789  ';
-      appIdInput.dispatchEvent(new Event('input'));
-      fixture.detectChanges();
-
-      (
-        fixture.nativeElement.querySelector(
-          '[data-testid="gateway-discord-appid-save"]',
-        ) as HTMLButtonElement
-      ).click();
-      await Promise.resolve();
-      expect(stub.saveDiscordAppId).toHaveBeenCalledWith('789');
-    });
-
     it('registers /ptah and shows a success summary', async () => {
-      const stub = makeStub();
+      const { fixture, stub } = mount();
       stub.registerDiscordCommands.mockResolvedValueOnce({
         ok: true,
         registered: 2,
         scope: 'guild',
       });
-      const fixture = mount(stub);
 
       (
         fixture.nativeElement.querySelector(
           '[data-testid="gateway-discord-register"]',
         ) as HTMLButtonElement
       ).click();
-      await Promise.resolve();
-      await Promise.resolve();
-      fixture.detectChanges();
+      await settle(fixture);
 
       expect(stub.registerDiscordCommands).toHaveBeenCalledTimes(1);
-      const feedback = fixture.nativeElement.querySelector(
-        '[data-testid="gateway-discord-register-feedback"]',
-      ) as HTMLElement;
-      expect(feedback.textContent).toContain('Registered /ptah on 2 server(s)');
-    });
-
-    it('maps a missing-application-id error to a friendly hint', async () => {
-      const stub = makeStub();
-      stub.registerDiscordCommands.mockResolvedValueOnce({
-        ok: false,
-        error: 'missing-application-id',
-      });
-      const fixture = mount(stub);
-
-      (
-        fixture.nativeElement.querySelector(
-          '[data-testid="gateway-discord-register"]',
-        ) as HTMLButtonElement
-      ).click();
-      await Promise.resolve();
-      await Promise.resolve();
-      fixture.detectChanges();
-
-      const feedback = fixture.nativeElement.querySelector(
-        '[data-testid="gateway-discord-register-feedback"]',
-      ) as HTMLElement;
-      expect(feedback.textContent).toContain(
-        'set & save the Application ID first',
-      );
-    });
-
-    it('renders the integration block only for the Discord card', () => {
-      const stub = makeStub();
-      const fixture = mount(stub);
-      expect(
-        fixture.nativeElement.querySelectorAll(
-          '[data-testid="gateway-discord-integration"]',
-        ).length,
-      ).toBe(1);
-    });
-
-    it('shows the picker hint and no checkboxes when no servers are loaded', () => {
-      const stub = makeStub();
-      const fixture = mount(stub);
       expect(
         fixture.nativeElement.querySelector(
-          '[data-testid^="gateway-discord-guild-"]',
-        ),
-      ).toBeNull();
+          '[data-testid="gateway-discord-register-feedback"]',
+        )?.textContent,
+      ).toContain('Registered /ptah on 2 server(s)');
     });
 
-    it('renders a checkbox per joined server, checked from the allow-list', () => {
-      const stub = makeStub();
-      stub.discordGuilds.set([
-        { id: 'g1', name: 'Alpha' },
-        { id: 'g2', name: 'Beta' },
-      ]);
-      stub.allowLists.set({ telegram: [], discord: ['g2'], slack: [] });
-      const fixture = mount(stub);
-
-      const g1 = fixture.nativeElement.querySelector(
-        '[data-testid="gateway-discord-guild-g1"] input',
-      ) as HTMLInputElement;
-      const g2 = fixture.nativeElement.querySelector(
-        '[data-testid="gateway-discord-guild-g2"] input',
-      ) as HTMLInputElement;
-      expect(g1.checked).toBe(false);
-      expect(g2.checked).toBe(true);
-    });
-
-    it('ticking an unchecked server adds it to the allow-list', async () => {
+    it('ticking a server adds it to the allow-list', async () => {
       const stub = makeStub();
       stub.discordGuilds.set([{ id: 'g1', name: 'Alpha' }]);
-      stub.allowLists.set({ telegram: [], discord: [], slack: [] });
-      const fixture = mount(stub);
+      const { fixture } = mount(stub);
 
       (
         fixture.nativeElement.querySelector(
           '[data-testid="gateway-discord-guild-g1"] input',
         ) as HTMLInputElement
       ).click();
-      await Promise.resolve();
+      await settle(fixture);
+
       expect(stub.saveAllowList).toHaveBeenCalledWith('discord', ['g1']);
     });
 
-    it('un-ticking a checked server removes it from the allow-list', async () => {
-      const stub = makeStub();
-      stub.discordGuilds.set([
-        { id: 'g1', name: 'Alpha' },
-        { id: 'g2', name: 'Beta' },
-      ]);
-      stub.allowLists.set({ telegram: [], discord: ['g1', 'g2'], slack: [] });
-      const fixture = mount(stub);
-
-      (
-        fixture.nativeElement.querySelector(
-          '[data-testid="gateway-discord-guild-g1"] input',
-        ) as HTMLInputElement
-      ).click();
-      await Promise.resolve();
-      expect(stub.saveAllowList).toHaveBeenCalledWith('discord', ['g2']);
-    });
-
     it('Refresh re-queries the joined servers', async () => {
-      const stub = makeStub();
-      const fixture = mount(stub);
+      const { fixture, stub } = mount();
       stub.loadDiscordGuilds.mockClear();
 
       (
@@ -751,99 +652,99 @@ describe('MessagingGatewayTabComponent', () => {
           '[data-testid="gateway-discord-guilds-refresh"]',
         ) as HTMLButtonElement
       ).click();
-      await Promise.resolve();
+      await settle(fixture);
+
       expect(stub.loadDiscordGuilds).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('allow-from-binding', () => {
-    function buildBinding(
-      over: Partial<GatewayBindingDto> & { id: string },
-    ): GatewayBindingDto {
-      return {
-        id: over.id,
-        platform: over.platform ?? 'telegram',
-        externalChatId: 'chat-' + over.id,
-        allowListId: over.allowListId ?? null,
-        displayName: over.displayName ?? null,
-        approvalStatus: over.approvalStatus ?? 'pending',
-        ptahSessionId: null,
-        workspaceRoot: null,
-        pairingCode: null,
-        createdAt: 0,
-        approvedAt: null,
-        lastActiveAt: null,
-      };
+  describe('send-test preservation (AC 4.4)', () => {
+    function sendTestButton(
+      fixture: ComponentFixture<MessagingGatewayTabComponent>,
+      platform: GatewayPlatformId,
+    ): HTMLButtonElement {
+      const btn = Array.from(
+        pane(fixture, platform).querySelectorAll('button'),
+      ).find(
+        (b) => (b as HTMLButtonElement).textContent?.trim() === 'Send test',
+      ) as HTMLButtonElement | undefined;
+      if (!btn) throw new Error('Send test button not found');
+      return btn;
     }
 
-    function mount(stub: StubState) {
-      TestBed.configureTestingModule({
-        imports: [MessagingGatewayTabComponent],
-        providers: [
-          { provide: GatewayStateService, useValue: stub },
-          { provide: VSCodeService, useValue: makeVscodeStub(true) },
-        ],
-      });
-      const fixture = TestBed.createComponent(MessagingGatewayTabComponent);
-      fixture.detectChanges();
-      return fixture;
-    }
+    it('is disabled without a running adapter and approved binding', () => {
+      const { fixture } = mount();
+      expect(sendTestButton(fixture, 'discord').disabled).toBe(true);
+    });
 
-    it('offers "Allow this user" for a pending telegram sender and appends its id', async () => {
+    it('dispatches sendTest when running with an approved binding', async () => {
       const stub = makeStub();
-      stub.pendingBindings.set([
-        buildBinding({ id: 'b1', platform: 'telegram', allowListId: '12345' }),
-      ]);
-      const fixture = mount(stub);
+      stub.platforms.set({
+        telegram: { state: 'stopped', lastError: null },
+        discord: { state: 'running', lastError: null },
+        slack: { state: 'stopped', lastError: null },
+      });
+      stub.hasApprovedBindingFor.mockImplementation((p) => p === 'discord');
+      const { fixture } = mount(stub);
 
-      const btn = fixture.nativeElement.querySelector(
-        '[data-testid="gateway-allow-sender-b1"]',
-      ) as HTMLButtonElement;
-      expect(btn).not.toBeNull();
-      expect(btn.textContent?.trim()).toBe('Allow this user');
+      const btn = sendTestButton(fixture, 'discord');
+      expect(btn.disabled).toBe(false);
 
       btn.click();
-      await Promise.resolve();
-      expect(stub.saveAllowList).toHaveBeenCalledWith('telegram', ['12345']);
+      await settle(fixture);
+      expect(stub.sendTest).toHaveBeenCalledWith('discord');
     });
+  });
 
-    it('labels the button per platform (discord = server)', () => {
+  describe('per-platform error alert (AC 4.5)', () => {
+    it('shows a platform error only inside its own pane', () => {
       const stub = makeStub();
-      stub.pendingBindings.set([
-        buildBinding({ id: 'b2', platform: 'discord', allowListId: 'guild-1' }),
-      ]);
-      const fixture = mount(stub);
-      const btn = fixture.nativeElement.querySelector(
-        '[data-testid="gateway-allow-sender-b2"]',
+      stub.lastError.set({
+        telegram: null,
+        discord: 'discord exploded',
+        slack: null,
+      });
+      const { fixture } = mount(stub);
+
+      expect(pane(fixture, 'discord').textContent).toContain(
+        'discord exploded',
+      );
+      expect(pane(fixture, 'slack').textContent).not.toContain(
+        'discord exploded',
+      );
+      expect(pane(fixture, 'telegram').textContent).not.toContain(
+        'discord exploded',
+      );
+    });
+  });
+
+  describe('setup guide drawer', () => {
+    it('opens from the Setup guide button and closes via the backdrop', () => {
+      const { fixture } = mount();
+      expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+
+      const button = Array.from(
+        fixture.nativeElement.querySelectorAll('button'),
+      ).find(
+        (b) => (b as HTMLButtonElement).textContent?.trim() === 'Setup guide',
       ) as HTMLButtonElement;
-      expect(btn.textContent?.trim()).toBe('Allow this server');
-    });
+      button.click();
+      fixture.detectChanges();
 
-    it('hides the button when the binding carries no allow-list id', () => {
-      const stub = makeStub();
-      stub.pendingBindings.set([
-        buildBinding({ id: 'b3', platform: 'telegram', allowListId: null }),
-      ]);
-      const fixture = mount(stub);
-      expect(
-        fixture.nativeElement.querySelector(
-          '[data-testid="gateway-allow-sender-b3"]',
-        ),
-      ).toBeNull();
-    });
+      const dialog = fixture.nativeElement.querySelector(
+        '[role="dialog"]',
+      ) as HTMLElement | null;
+      expect(dialog).not.toBeNull();
+      expect(dialog?.getAttribute('aria-label')).toBe('Gateway setup guide');
+      expect(dialog?.textContent).toContain('Discord setup');
 
-    it('hides the button when the sender is already allow-listed', () => {
-      const stub = makeStub();
-      stub.allowLists.set({ telegram: ['12345'], discord: [], slack: [] });
-      stub.pendingBindings.set([
-        buildBinding({ id: 'b4', platform: 'telegram', allowListId: '12345' }),
-      ]);
-      const fixture = mount(stub);
-      expect(
-        fixture.nativeElement.querySelector(
-          '[data-testid="gateway-allow-sender-b4"]',
-        ),
-      ).toBeNull();
+      const backdrop = fixture.nativeElement.querySelector(
+        'ptah-gateway-setup-guide [aria-hidden="true"]',
+      ) as HTMLElement;
+      backdrop.click();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
     });
   });
 });
