@@ -16,6 +16,7 @@ export type {
 } from './lib/gateway.service';
 
 export { BindingStore } from './lib/binding.store';
+export { ConversationStore } from './lib/conversation.store';
 export { MessageStore } from './lib/message.store';
 export { StreamCoalescer } from './lib/stream-coalescer';
 export type {
@@ -67,6 +68,8 @@ export type {
   ApprovalStatus,
   Direction,
   GatewayBinding,
+  GatewayConversation,
+  GatewayConversationId,
   GatewayMessage,
   GatewayPlatform,
 } from './lib/types';

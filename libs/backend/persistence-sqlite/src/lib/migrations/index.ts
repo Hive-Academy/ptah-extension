@@ -49,6 +49,7 @@ import { sql as sql0020GatewayBindingAllowListId } from './0020_gateway_binding_
 import { sql as sql0021SkillInvocationEvents } from './0021_skill_invocation_events';
 import { sql as sql0022SkillRegistry } from './0022_skill_registry';
 import { sql as sql0023SkillRegistryPending } from './0023_skill_registry_pending';
+import { sql as sql0024GatewayConversations } from './0024_gateway_conversations';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -208,5 +209,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 23,
     name: '0023_skill_registry_pending',
     sql: sql0023SkillRegistryPending,
+  },
+  {
+    version: 24,
+    name: '0024_gateway_conversations',
+    sql: sql0024GatewayConversations,
   },
 ];
