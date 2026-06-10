@@ -121,6 +121,8 @@ export class SkillJunctionService {
   private pluginsBasePath: string | null = null;
   private synthesizedSkillsRoot: string | null = null;
   private workspaceRoot: string | null = null;
+  private userSkillsRoot: string | null = null;
+  private userCommandsRoot: string | null = null;
 
   /** Track which junction paths we created, for cleanup */
   private managedJunctions = new Set<string>();
@@ -151,6 +153,30 @@ export class SkillJunctionService {
       synthesizedSkillsRoot: this.synthesizedSkillsRoot,
       workspaceRoot: this.workspaceRoot,
     });
+  }
+
+  /**
+   * Point junction creation at the user layer (~/.ptah/user/) instead of the
+   * plugin directories. When set, buildSkillsMap reads skills from skillsRoot
+   * as the sole source (ignoring pluginPaths + synthesizedSkillsRoot, since the
+   * mirror has already unified plugin + synth skills under the user layer), and
+   * command sync reads from commandsRoot.
+   *
+   * Driven from the activation layer (which owns UserLayerMirrorService); this
+   * service takes plain string paths so agent-sdk never imports agent-generation.
+   * Leaving these unset preserves the original plugin-path behavior for
+   * backward-compatible / migration callers.
+   */
+  setSourceRoots(skillsRoot: string, commandsRoot?: string): void {
+    this.userSkillsRoot = skillsRoot;
+    this.userCommandsRoot = commandsRoot ?? null;
+    this.logger.debug(
+      '[SkillJunctionService] Source roots swapped to user layer',
+      {
+        userSkillsRoot: this.userSkillsRoot,
+        userCommandsRoot: this.userCommandsRoot,
+      },
+    );
   }
 
   /**
@@ -373,6 +399,13 @@ export class SkillJunctionService {
   ): Map<string, string> {
     const skillsMap = new Map<string, string>();
 
+    if (this.userSkillsRoot) {
+      return this.buildSkillsMapFromUserLayer(
+        this.userSkillsRoot,
+        disabledSkillIds,
+      );
+    }
+
     for (const pluginPath of pluginPaths) {
       const skillsDir = join(pluginPath, 'skills');
       let entries: string[];
@@ -456,6 +489,53 @@ export class SkillJunctionService {
   }
 
   /**
+   * Build the skill map from the user layer (~/.ptah/user/skills/). This is the
+   * SOLE source when source roots have been swapped: the mirror has already
+   * unified plugin + synthesized skills here, so pluginPaths and the
+   * synthesizedSkillsRoot append are intentionally ignored. disabledSkillIds
+   * filtering is preserved.
+   */
+  private buildSkillsMapFromUserLayer(
+    userSkillsRoot: string,
+    disabledSkillIds: Set<string>,
+  ): Map<string, string> {
+    const skillsMap = new Map<string, string>();
+
+    let entries: string[];
+    try {
+      entries = readdirSync(userSkillsRoot);
+    } catch {
+      return skillsMap; // User layer not yet populated — non-fatal
+    }
+
+    for (const entry of entries) {
+      const entryPath = join(userSkillsRoot, entry);
+      try {
+        const stat = statSync(entryPath);
+        if (!stat.isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      const skillMdPath = join(entryPath, 'SKILL.md');
+      try {
+        accessSync(skillMdPath, fsConstants.R_OK);
+      } catch {
+        continue; // No SKILL.md, not a skill directory
+      }
+      if (disabledSkillIds.has(entry)) {
+        this.logger.debug(
+          `[SkillJunctionService] Skipping disabled skill: "${entry}"`,
+        );
+        continue;
+      }
+
+      skillsMap.set(entry, entryPath);
+    }
+
+    return skillsMap;
+  }
+
+  /**
    * Sync command .md files from plugin commands/ directories into
    * {workspace}/.claude/commands/.
    *
@@ -496,8 +576,10 @@ export class SkillJunctionService {
       this.managedJunctions.add(join(commandsDir, filename));
     }
     const currentCommandSources = new Map<string, string>(); // filename -> sourcePath
-    for (const pluginPath of pluginPaths) {
-      const pluginCommandsDir = join(pluginPath, 'commands');
+    const commandSourceDirs = this.userCommandsRoot
+      ? [this.userCommandsRoot]
+      : pluginPaths.map((pluginPath) => join(pluginPath, 'commands'));
+    for (const pluginCommandsDir of commandSourceDirs) {
       let entries: string[];
       try {
         entries = readdirSync(pluginCommandsDir);
@@ -507,9 +589,8 @@ export class SkillJunctionService {
       for (const entry of entries) {
         if (!entry.endsWith('.md')) continue;
         if (currentCommandSources.has(entry)) {
-          const pluginId = basename(pluginPath);
           this.logger.warn(
-            `[SkillJunctionService] Command name collision: "${entry}" already registered, skipping from ${pluginId}`,
+            `[SkillJunctionService] Command name collision: "${entry}" already registered, skipping from ${pluginCommandsDir}`,
           );
         } else {
           currentCommandSources.set(entry, join(pluginCommandsDir, entry));
@@ -722,6 +803,10 @@ export class SkillJunctionService {
           this.synthesizedSkillsRoot,
         );
         if (normalizedTarget.startsWith(normalizedSynthPath)) return true;
+      }
+      if (this.userSkillsRoot !== null) {
+        const normalizedUserPath = this.normalizePath(this.userSkillsRoot);
+        if (normalizedTarget.startsWith(normalizedUserPath)) return true;
       }
 
       return false;

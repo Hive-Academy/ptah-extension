@@ -16,6 +16,7 @@ import {
   PostToolUseHookHandler,
   UserPromptSubmitCallbackRegistry,
   UserPromptSubmitHookHandler,
+  UserPromptExpansionCallbackRegistry,
   StopCallbackRegistry,
   ToolFailureCallbackRegistry,
   SessionEndHookCallbackRegistry,
@@ -152,6 +153,13 @@ function buildTestContainer(): DependencyContainer {
     { lifecycle: Lifecycle.Singleton },
   );
   c.register(
+    SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY,
+    {
+      useClass: UserPromptExpansionCallbackRegistry,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  c.register(
     SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY,
     {
       useClass: StopCallbackRegistry,
@@ -241,6 +249,11 @@ function buildTestContainer(): DependencyContainer {
     },
     { lifecycle: Lifecycle.Singleton },
   );
+  c.register(SKILL_SYNTHESIS_TOKENS.SKILL_INVOCATION_RECORDER, {
+    useValue: {
+      recordSkillEvent: jest.fn(),
+    },
+  });
   c.register(
     SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
     {

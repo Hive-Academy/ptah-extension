@@ -15,6 +15,17 @@ import {
 import { TabState } from '@ptah-extension/chat-types';
 
 /**
+ * Subset of session liveness surfaced as a tab dot. Mirrors
+ * `@ptah-extension/chat-state` `LivenessStatus` without importing it (chat-ui
+ * is a leaf UI lib and must not depend on chat-state).
+ */
+export type TabLivenessStatus =
+  | 'streaming'
+  | 'awaiting-background'
+  | 'idle'
+  | 'failed';
+
+/**
  * TabItemComponent - Chrome-style individual tab
  *
  * Patterns: Signal-based inputs/outputs, DaisyUI styling
@@ -44,6 +55,18 @@ import { TabState } from '@ptah-extension/chat-types';
       <span class="truncate text-xs flex-1" [title]="tab().title">
         {{ tab().title || 'New Chat' }}
       </span>
+
+      @if (livenessDot(); as dot) {
+        <span
+          class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          [class.bg-primary]="dot === 'streaming'"
+          [class.animate-pulse]="dot === 'streaming'"
+          [class.bg-error]="dot === 'failed'"
+          [attr.data-test]="'tab-item-liveness-dot'"
+          [attr.data-liveness]="dot"
+          [title]="dot === 'streaming' ? 'Still running' : 'Run failed'"
+        ></span>
+      }
 
       <!-- View mode toggle (hover-reveal) -->
       <button
@@ -76,6 +99,12 @@ export class TabItemComponent {
   readonly isActive = input.required<boolean>();
   /** Visual streaming indicator - isolated from tab.status state machine */
   readonly isStreaming = input<boolean>(false);
+  /**
+   * Cross-workspace session liveness from SessionLivenessRegistry, keyed by the
+   * tab's claudeSessionId. Surfaces a subtle dot for sessions that keep running
+   * (or fail) while their workspace is in the background.
+   */
+  readonly livenessStatus = input<TabLivenessStatus | undefined>(undefined);
 
   readonly tabSelect = output<string>();
   readonly tabClose = output<string>();
@@ -93,6 +122,19 @@ export class TabItemComponent {
   readonly isAwaitingBackground = computed(
     () => this.tab().status === 'awaiting-background',
   );
+
+  readonly livenessDot = computed<'streaming' | 'failed' | null>(() => {
+    const status = this.livenessStatus();
+    if (status === 'failed') return 'failed';
+    if (
+      status === 'streaming' &&
+      !this.isStreaming() &&
+      !this.isAwaitingBackground()
+    ) {
+      return 'streaming';
+    }
+    return null;
+  });
 
   protected onClose(event: Event): void {
     event.stopPropagation();

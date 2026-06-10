@@ -69,7 +69,7 @@ import {
   ExecutionChatMessage,
   SessionId,
 } from '@ptah-extension/shared';
-import type { SubagentRecord } from '@ptah-extension/shared';
+import type { SubagentRecord, MessageAnchorHint } from '@ptah-extension/shared';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 
@@ -913,6 +913,54 @@ export class ChatViewComponent {
   }
 
   /**
+   * Build the fork/rewind anchor hint for a clicked message.
+   *
+   * A live user bubble carries a client-only optimistic id that was never
+   * written to the session transcript, so the backend cannot map it to the
+   * SDK line UUID that `forkSession`/`rewindFiles` require. The hint lets the
+   * backend recover that UUID by matching the prompt's verbatim text.
+   * `occurrence` disambiguates identical repeated prompts (e.g. two "commit"
+   * messages) by counting how many earlier user messages share the same text.
+   *
+   * Returns `undefined` for non-user messages or empty text — history-loaded
+   * messages already carry the real UUID as their id, so the hint is unused.
+   */
+  /**
+   * Resolve the fork/rewind anchor for a clicked message to the SDK's real
+   * transcript line UUID. A live user bubble renders under an optimistic
+   * client-only id, but `StreamingHandlerService` stamps the real uuid (from
+   * the SDK user `message_start`) onto `nativeUuid` during the turn. Prefer
+   * that; fall back to the message id (already the real uuid for
+   * history-loaded messages). This is the documented checkpoint/fork id — no
+   * reconstruction needed.
+   */
+  private resolveAnchorId(messageId: string): string {
+    const message = this.resolvedMessages().find((m) => m.id === messageId);
+    return message?.nativeUuid ?? messageId;
+  }
+
+  private buildAnchorHint(messageId: string): MessageAnchorHint | undefined {
+    const messages = this.resolvedMessages();
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index === -1) return undefined;
+    const message = messages[index];
+    if (message.role !== 'user') return undefined;
+    const text = (message.rawContent ?? '').trim();
+    if (!text) return undefined;
+    let occurrence = 0;
+    for (let i = 0; i < index; i++) {
+      const earlier = messages[i];
+      if (
+        earlier.role === 'user' &&
+        (earlier.rawContent ?? '').trim() === text
+      ) {
+        occurrence++;
+      }
+    }
+    return { text, occurrence };
+  }
+
+  /**
    * "Branch from here" — fork the current session at the given user message
    * into a new tab. The backend slices the JSONL transcript up to and
    * including `messageId` and returns a fresh session UUID, which we then
@@ -931,8 +979,10 @@ export class ChatViewComponent {
     try {
       const result = await this._claudeRpc.forkSession(
         sessionId,
-        messageId,
+        this.resolveAnchorId(messageId),
         undefined,
+        undefined,
+        this.buildAnchorHint(messageId),
       );
 
       if (result.isSuccess()) {
@@ -988,10 +1038,13 @@ export class ChatViewComponent {
     sessionId: SessionId,
     messageId: string,
   ): Promise<void> {
+    const anchorId = this.resolveAnchorId(messageId);
+    const anchorHint = this.buildAnchorHint(messageId);
     const dryRun = await this._claudeRpc.rewindFiles(
       sessionId,
-      messageId,
+      anchorId,
       true,
+      anchorHint,
     );
 
     if (!dryRun.isSuccess()) {
@@ -1051,8 +1104,9 @@ export class ChatViewComponent {
     } else {
       const commit = await this._claudeRpc.rewindFiles(
         sessionId,
-        messageId,
+        anchorId,
         false,
+        anchorHint,
       );
       if (!commit.isSuccess()) {
         const errMsg = commit.error ?? 'unknown error';
@@ -1070,9 +1124,10 @@ export class ChatViewComponent {
 
     const forkResult = await this._claudeRpc.forkSession(
       sessionId,
-      messageId,
+      anchorId,
       undefined,
       'rewind',
+      anchorHint,
     );
 
     if (!forkResult.isSuccess()) {

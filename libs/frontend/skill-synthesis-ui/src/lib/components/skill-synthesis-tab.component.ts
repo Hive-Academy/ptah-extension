@@ -27,6 +27,7 @@ import {
 } from '../services/skill-synthesis-state.service';
 import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 import { SkillDiagnosticsAccordionComponent } from './diagnostics/skill-diagnostics-accordion.component';
+import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
 
 type ActionKind = 'promote' | 'reject';
 
@@ -59,6 +60,7 @@ interface ActionDialogState {
     FormsModule,
     ReactiveFormsModule,
     SkillDiagnosticsAccordionComponent,
+    SkillClonesViewComponent,
   ],
   template: `
     @if (!isElectron()) {
@@ -611,6 +613,16 @@ interface ActionDialogState {
             </div>
           </section>
         }
+
+        <details
+          class="collapse collapse-arrow bg-base-200"
+          data-test="clones-accordion"
+        >
+          <summary class="collapse-title text-sm font-medium">Clones</summary>
+          <div class="collapse-content p-2">
+            <ptah-skill-clones-view />
+          </div>
+        </details>
 
         <details
           class="collapse collapse-arrow bg-base-200"

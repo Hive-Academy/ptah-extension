@@ -137,6 +137,14 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
+  findByName(name: string): SkillCandidateRow | null {
+    const stmt = this.db.prepare(
+      `SELECT * FROM skill_candidates WHERE name = ? ORDER BY created_at DESC LIMIT 1`,
+    );
+    const raw = stmt.get(name) as RawCandidateRow | undefined;
+    return raw ? this.toCandidateRow(raw) : null;
+  }
+
   listByStatus(status: SkillStatus): SkillCandidateRow[] {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates
@@ -354,6 +362,78 @@ export class SkillCandidateStore {
       notes: input.notes ?? null,
       contextId: input.contextId ?? null,
     };
+  }
+
+  recordSkillEvent(input: {
+    skillSlug: string;
+    sessionId: string;
+    contextId: string | null;
+    source: string;
+    succeeded: boolean;
+    isError: boolean;
+    invokedAt: number;
+  }): void {
+    const stmt = this.db.prepare(
+      `INSERT INTO skill_invocation_events
+         (id, skill_slug, session_id, context_id, source, succeeded, is_error, invoked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    stmt.run(
+      ulid(),
+      input.skillSlug,
+      input.sessionId,
+      input.contextId,
+      input.source,
+      input.succeeded ? 1 : 0,
+      input.isError ? 1 : 0,
+      input.invokedAt,
+    );
+  }
+
+  getInvocationStats(slug: string): {
+    total: number;
+    succeeded: number;
+    failed: number;
+    distinctContexts: number;
+  } {
+    const row = this.db
+      .prepare(
+        `SELECT
+           COUNT(*) AS total,
+           COALESCE(SUM(succeeded), 0) AS succeeded,
+           COALESCE(SUM(CASE WHEN succeeded = 0 THEN 1 ELSE 0 END), 0) AS failed,
+           COUNT(DISTINCT context_id) AS distinctContexts
+         FROM skill_invocation_events
+         WHERE skill_slug = ?`,
+      )
+      .get(slug) as
+      | {
+          total: number;
+          succeeded: number;
+          failed: number;
+          distinctContexts: number;
+        }
+      | undefined;
+    return {
+      total: row?.total ?? 0,
+      succeeded: row?.succeeded ?? 0,
+      failed: row?.failed ?? 0,
+      distinctContexts: row?.distinctContexts ?? 0,
+    };
+  }
+
+  getRecentSessionsForSlug(slug: string, limit = 5): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT session_id, MAX(invoked_at) AS last_at
+         FROM skill_invocation_events
+         WHERE skill_slug = ?
+         GROUP BY session_id
+         ORDER BY last_at DESC
+         LIMIT ?`,
+      )
+      .all(slug, limit) as Array<{ session_id: string }>;
+    return rows.map((r) => r.session_id).filter((id) => id.length > 0);
   }
 
   listInvocations(skillId: CandidateId, limit = 100): SkillInvocationRow[] {

@@ -128,6 +128,16 @@ function createMockChatSession(): MockChatSession {
   };
 }
 
+type MockStreamBroadcaster = {
+  isStreaming: jest.Mock<boolean, [string]>;
+};
+
+function createMockStreamBroadcaster(): MockStreamBroadcaster {
+  return {
+    isStreaming: jest.fn<boolean, [string]>().mockReturnValue(false),
+  };
+}
+
 /** Factory for minimal metadata fixtures — only fields the handler reads. */
 interface MetadataFixture {
   sessionId: string;
@@ -187,6 +197,7 @@ interface Harness {
   sentry: MockSentryService;
   sdkAdapter: MockSdkAdapter;
   chatSession: MockChatSession;
+  streamBroadcaster: MockStreamBroadcaster;
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -200,6 +211,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const sentry = createMockSentryService();
   const sdkAdapter = createMockSdkAdapter();
   const chatSession = createMockChatSession();
+  const streamBroadcaster = createMockStreamBroadcaster();
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -210,6 +222,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     workspace as unknown as IWorkspaceProvider,
     sdkAdapter as unknown as SdkAgentAdapter,
     chatSession as never,
+    streamBroadcaster as never,
   );
 
   return {
@@ -222,6 +235,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     sentry,
     sdkAdapter,
     chatSession,
+    streamBroadcaster,
   };
 }
 
@@ -278,6 +292,7 @@ describe('SessionRpcHandlers', () => {
           'session:rename',
           'session:rewindFiles',
           'session:stats-batch',
+          'session:status',
           'session:validate',
         ].sort(),
       );
@@ -1168,6 +1183,7 @@ describe('SessionRpcHandlers', () => {
         VALID_USER_MESSAGE_ID,
         'Branch A',
         undefined,
+        undefined,
       );
       expect(result.newSessionId).toBe('forked-uuid');
     });
@@ -1189,6 +1205,7 @@ describe('SessionRpcHandlers', () => {
 
       expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
         VALID_SESSION_ID,
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -1278,6 +1295,7 @@ describe('SessionRpcHandlers', () => {
         undefined,
         'badnamewithillegalchars',
         undefined,
+        undefined,
       );
     });
 
@@ -1305,6 +1323,7 @@ describe('SessionRpcHandlers', () => {
         VALID_USER_MESSAGE_ID,
         undefined,
         'rewind',
+        undefined,
       );
     });
 
@@ -1410,6 +1429,7 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         VALID_USER_MESSAGE_ID,
         true,
+        undefined,
       );
       expect(result.canRewind).toBe(true);
       expect(result.filesChanged).toEqual(['/a.ts', '/b.ts']);
@@ -1690,6 +1710,76 @@ describe('SessionRpcHandlers', () => {
 
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/unauthorized-path-rewrite/);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:status
+  // -------------------------------------------------------------------------
+
+  describe('session:status', () => {
+    it('reports active + streaming when both sources are true', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.streamBroadcaster.isStreaming.mockReturnValue(true);
+      h.handlers.register();
+
+      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
+        h,
+        'session:status',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result).toEqual({ isActive: true, isStreaming: true });
+      expect(h.sdkAdapter.isSessionActive).toHaveBeenCalled();
+      expect(h.streamBroadcaster.isStreaming).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+      );
+    });
+
+    it('reports active + idle when the session is alive but not streaming', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.streamBroadcaster.isStreaming.mockReturnValue(false);
+      h.handlers.register();
+
+      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
+        h,
+        'session:status',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result).toEqual({ isActive: true, isStreaming: false });
+    });
+
+    it('reports inactive when the session is not in the lifecycle registry', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(false);
+      h.streamBroadcaster.isStreaming.mockReturnValue(false);
+      h.handlers.register();
+
+      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
+        h,
+        'session:status',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result).toEqual({ isActive: false, isStreaming: false });
+    });
+
+    it('rejects a missing sessionId at the Zod boundary (degrades to false/false)', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
+        h,
+        'session:status',
+        {},
+      );
+
+      expect(result).toEqual({ isActive: false, isStreaming: false });
+      expect(h.sdkAdapter.isSessionActive).not.toHaveBeenCalled();
+      expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
 

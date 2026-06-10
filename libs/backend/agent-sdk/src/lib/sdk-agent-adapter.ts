@@ -24,6 +24,7 @@ import {
   FlatStreamEventUnion,
   type McpHttpServerOverride,
   type ProviderProfile,
+  type MessageAnchorHint,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import type { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
@@ -764,6 +765,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     upToMessageId?: string,
     title?: string,
     kind?: 'rewind' | 'branch',
+    anchorHint?: MessageAnchorHint,
   ): Promise<ForkSessionResult> {
     if (!this.initialized) {
       throw this.notInitializedError();
@@ -771,6 +773,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.forkService.forkSession({
       sessionId,
       upToMessageId,
+      anchorHint,
       title,
       kind,
     });
@@ -780,11 +783,17 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     userMessageId: string,
     dryRun?: boolean,
+    anchorHint?: MessageAnchorHint,
   ): Promise<RewindFilesResult> {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
-    return this.forkService.rewindFiles({ sessionId, userMessageId, dryRun });
+    return this.forkService.rewindFiles({
+      sessionId,
+      userMessageId,
+      anchorHint,
+      dryRun,
+    });
   }
 
   async setSessionPermissionLevel(
