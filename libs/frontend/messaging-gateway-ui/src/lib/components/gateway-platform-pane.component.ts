@@ -108,7 +108,7 @@ export class GatewayPlatformPaneComponent {
   public readonly config = input.required<PlatformCardConfig>();
 
   protected status(): PlatformAdapterState {
-    return this.state.platforms()[this.config().id].state;
+    return this.state.platforms()[this.config().id]?.state ?? 'stopped';
   }
 
   protected errorMessage(): string | null {

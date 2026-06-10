@@ -7,6 +7,7 @@ import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
 import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui';
 import {
   MESSAGE_TYPES,
+  type GatewayBindingDto,
   type GatewayListBindingsResult,
   type GatewayStatusResult,
   type CronListResult,
@@ -283,13 +284,12 @@ describe('ThothStatusService', () => {
         enabled: false,
         adapters: [{ platform: 'discord', running: false }],
       });
+      const stubBinding = (id: string): GatewayBindingDto =>
+        ({ id }) as Partial<GatewayBindingDto> & {
+          id: string;
+        } as GatewayBindingDto;
       gatewayRpc.listBindings.mockResolvedValue({
-        bindings: [
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          { id: 'b1' } as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          { id: 'b2' } as any,
-        ],
+        bindings: [stubBinding('b1'), stubBinding('b2')],
       });
 
       const service = TestBed.inject(ThothStatusService);

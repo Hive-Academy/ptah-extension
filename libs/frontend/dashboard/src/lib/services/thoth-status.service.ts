@@ -276,6 +276,12 @@ export class ThothStatusService implements MessageHandler {
   private derivePlatformSummaries(
     status: GatewayStatusResult,
   ): readonly ThothGatewayPlatformSummary[] {
+    if (!Array.isArray(status?.adapters)) {
+      return PLATFORMS.map((platform) => ({
+        platform,
+        state: 'disabled' as ThothGatewayBadge,
+      }));
+    }
     const adaptersByPlatform = new Map(
       status.adapters.map((a) => [a.platform, a]),
     );
