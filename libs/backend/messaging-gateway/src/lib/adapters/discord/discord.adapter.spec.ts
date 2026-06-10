@@ -1,23 +1,3 @@
-/**
- * DiscordAdapter — durable thread-per-conversation outbound model.
- *
- * Locks the contracts that replaced the interaction-bound outbound path:
- *
- *   (a) first `/ptah` in a channel creates a public thread, `editReply`s a
- *       pointer to it, and emits inbound unchanged (externalChatId =
- *       channelId, externalMsgId = interaction.id, conversationKey + allowListId);
- *   (b) `sendMessage` posts to the thread and returns the thread message id;
- *   (c) `editMessage` edits the right stored Message by id;
- *   (d) a second `/ptah` in the same channel REUSES the thread (no 2nd create,
- *       unarchives first);
- *   (e) `sendMessage` falls back to `channel.send` when no thread exists
- *       (sendTest / pairing-prompt path);
- *   (f) the per-channel edit rate-limit still waits once the burst window fills.
- *
- * The discord.js client is injected via `configure({ factory })`, so no real
- * client is constructed. Fakes implement only the `*Like` surface the adapter
- * touches.
- */
 import 'reflect-metadata';
 
 import { DiscordAdapter } from './discord.adapter';
@@ -26,7 +6,7 @@ import type {
   DiscordIncomingMessageLike,
   DiscordInteractionLike,
   DiscordMessageLike,
-  DiscordTextChannelLike,
+  DiscordSendableChannelLike,
   DiscordThreadLike,
 } from './discord.adapter';
 import type { InboundMessage } from '../adapter.interface';
@@ -34,13 +14,20 @@ import type { Logger } from '@ptah-extension/vscode-core';
 
 const PER_CHANNEL_WINDOW_MS = 5_000;
 
-function createLogger(): Logger {
+type FakeLogger = Logger & {
+  debug: jest.Mock;
+  info: jest.Mock;
+  warn: jest.Mock;
+  error: jest.Mock;
+};
+
+function createLogger(): FakeLogger {
   return {
     debug: jest.fn(),
     info: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
-  } as unknown as Logger;
+  } as unknown as FakeLogger;
 }
 
 let msgSeq = 0;
@@ -52,40 +39,48 @@ function fakeMessage(): DiscordMessageLike & { edit: jest.Mock } {
   };
 }
 
+type ChannelRegistry = Map<string, DiscordSendableChannelLike>;
+
 interface FakeThread extends DiscordThreadLike {
   send: jest.Mock;
   setArchived: jest.Mock;
 }
 
-interface FakeChannel extends DiscordTextChannelLike {
+interface FakeChannel extends DiscordSendableChannelLike {
+  id: string;
   send: jest.Mock;
   threadCreate: jest.Mock;
   createdThreads: FakeThread[];
 }
 
 let threadSeq = 0;
-function fakeThread(): FakeThread {
+function fakeThread(byId: ChannelRegistry): FakeThread {
   threadSeq += 1;
-  return {
+  const thread: FakeThread = {
     id: `thread-${threadSeq}`,
     send: jest.fn().mockImplementation(async () => fakeMessage()),
     setArchived: jest.fn().mockResolvedValue(undefined),
   };
+  byId.set(thread.id, thread);
+  return thread;
 }
 
-function fakeChannel(): FakeChannel {
+function fakeChannel(byId: ChannelRegistry, id = 'chan-1'): FakeChannel {
   const createdThreads: FakeThread[] = [];
   const threadCreate = jest.fn().mockImplementation(async () => {
-    const t = fakeThread();
+    const t = fakeThread(byId);
     createdThreads.push(t);
     return t;
   });
-  return {
+  const channel: FakeChannel = {
+    id,
     send: jest.fn().mockImplementation(async () => fakeMessage()),
     threads: { create: threadCreate },
     threadCreate,
     createdThreads,
   };
+  byId.set(id, channel);
+  return channel;
 }
 
 interface FakeClient extends DiscordClientLike {
@@ -95,14 +90,16 @@ interface FakeClient extends DiscordClientLike {
 }
 
 function fakeClient(
-  channel: FakeChannel,
+  byId: ChannelRegistry,
   guilds: { id: string; name: string }[] = [],
 ): FakeClient {
   const handlers: {
     interactionCreate?: (i: DiscordInteractionLike) => void | Promise<void>;
     messageCreate?: (m: DiscordIncomingMessageLike) => void | Promise<void>;
   } = {};
-  const channelsFetch = jest.fn().mockResolvedValue(channel);
+  const channelsFetch = jest
+    .fn()
+    .mockImplementation(async (id: string) => byId.get(id) ?? null);
   return {
     user: { id: 'bot-1' },
     guilds: {
@@ -187,31 +184,41 @@ function fakeInteraction(
   };
 }
 
-async function startAdapter(): Promise<{
+async function startAdapter(
+  opts: { allowedGuildIds?: string[] } = {},
+): Promise<{
   adapter: DiscordAdapter;
   client: FakeClient;
   channel: FakeChannel;
+  byId: ChannelRegistry;
   inbound: InboundMessage[];
+  logger: FakeLogger;
 }> {
-  const channel = fakeChannel();
-  const client = fakeClient(channel);
-  const adapter = new DiscordAdapter(createLogger());
-  adapter.configure({ factory: () => client });
+  const byId: ChannelRegistry = new Map();
+  const channel = fakeChannel(byId);
+  const client = fakeClient(byId);
+  const logger = createLogger();
+  const adapter = new DiscordAdapter(logger);
+  adapter.configure({
+    factory: () => client,
+    allowedGuildIds: opts.allowedGuildIds,
+  });
   const inbound: InboundMessage[] = [];
   adapter.on('inbound', (msg) => {
     inbound.push(msg);
   });
   await adapter.start('token');
-  return { adapter, client, channel, inbound };
+  return { adapter, client, channel, byId, inbound, logger };
 }
 
-describe('DiscordAdapter — thread-per-conversation', () => {
+describe('DiscordAdapter — inbound thread lifecycle', () => {
   beforeEach(() => {
     msgSeq = 0;
     threadSeq = 0;
+    inMsgSeq = 0;
   });
 
-  it('(a) first /ptah creates a thread, editReplies a pointer, emits inbound unchanged', async () => {
+  it('/ptah creates a thread, editReplies a pointer, emits open-mode inbound with the thread conversationId', async () => {
     const { client, channel, inbound } = await startAdapter();
     const interaction = fakeInteraction({ prompt: 'hello world' });
 
@@ -237,132 +244,30 @@ describe('DiscordAdapter — thread-per-conversation', () => {
         externalChatId: 'chan-1',
         externalMsgId: 'interaction-1',
         body: 'hello world',
-        conversationKey: 'discord:chan-1',
+        conversationId: threadId,
+        conversationMode: 'open',
+        conversationKey: `discord:chan-1:${threadId}`,
         allowListId: 'guild-1',
         displayName: 'alice',
       }),
     );
   });
 
-  it('(b) sendMessage posts to the thread and returns the thread message id', async () => {
-    const { adapter, client, channel } = await startAdapter();
-    await client.emitInteraction(fakeInteraction());
+  it('every /ptah in the same channel creates a fresh thread and conversationId', async () => {
+    const { client, channel, inbound } = await startAdapter();
 
-    const res = await adapter.sendMessage('chan-1', 'streamed body');
-
-    const thread = channel.createdThreads[0];
-    expect(thread.send).toHaveBeenCalledWith({ content: 'streamed body' });
-    expect(channel.send).not.toHaveBeenCalled();
-    expect(res.externalMsgId).toMatch(/^msg-/);
-  });
-
-  it('(c) editMessage edits the right stored message by id', async () => {
-    const { adapter, client, channel } = await startAdapter();
-    await client.emitInteraction(fakeInteraction());
-
-    const first = await adapter.sendMessage('chan-1', 'one');
-    const second = await adapter.sendMessage('chan-1', 'two');
-    expect(first.externalMsgId).not.toBe(second.externalMsgId);
-
-    await adapter.editMessage('chan-1', second.externalMsgId, 'two-edited');
-
-    const thread = channel.createdThreads[0];
-    const sentMessages = thread.send.mock.results.map(
-      (r) => r.value as Promise<DiscordMessageLike>,
-    );
-    const resolved = await Promise.all(sentMessages);
-    const editedHandle = resolved.find((m) => m.id === second.externalMsgId);
-    const otherHandle = resolved.find((m) => m.id === first.externalMsgId);
-    expect(
-      (editedHandle as DiscordMessageLike & { edit: jest.Mock }).edit,
-    ).toHaveBeenCalledWith({ content: 'two-edited' });
-    expect(
-      (otherHandle as DiscordMessageLike & { edit: jest.Mock }).edit,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('editMessage throws when message id is unknown', async () => {
-    const { adapter } = await startAdapter();
-    await expect(adapter.editMessage('chan-1', 'nope', 'x')).rejects.toThrow(
-      /no message recorded/,
-    );
-  });
-
-  it('(d) second /ptah in the same channel reuses the thread and unarchives it', async () => {
-    const { client, channel } = await startAdapter();
     await client.emitInteraction(fakeInteraction({ id: 'interaction-1' }));
     await client.emitInteraction(fakeInteraction({ id: 'interaction-2' }));
 
-    expect(channel.threadCreate).toHaveBeenCalledTimes(1);
-    const thread = channel.createdThreads[0];
-    expect(thread.setArchived).toHaveBeenCalledWith(false);
+    expect(channel.threadCreate).toHaveBeenCalledTimes(2);
+    expect(inbound).toHaveLength(2);
+    expect(inbound[0].conversationId).toBe(channel.createdThreads[0].id);
+    expect(inbound[1].conversationId).toBe(channel.createdThreads[1].id);
+    expect(inbound[0].conversationId).not.toBe(inbound[1].conversationId);
+    expect(channel.createdThreads[0].setArchived).not.toHaveBeenCalled();
   });
 
-  it('(e) sendMessage falls back to channel.send when no thread exists (sendTest path)', async () => {
-    const { adapter, channel } = await startAdapter();
-
-    const res = await adapter.sendMessage('chan-1', 'pairing prompt');
-
-    expect(channel.send).toHaveBeenCalledWith({ content: 'pairing prompt' });
-    expect(channel.threadCreate).not.toHaveBeenCalled();
-    expect(res.externalMsgId).toMatch(/^msg-/);
-
-    await adapter.editMessage('chan-1', res.externalMsgId, 'edited');
-  });
-
-  it('(f) per-channel edit rate-limit waits once the burst window fills', async () => {
-    jest.useFakeTimers();
-    try {
-      const { adapter, client } = await startAdapter();
-      await client.emitInteraction(fakeInteraction());
-
-      const ids: string[] = [];
-      for (let i = 0; i < 5; i += 1) {
-        const r = await adapter.sendMessage('chan-1', `b${i}`);
-        ids.push(r.externalMsgId);
-      }
-
-      const sixth = adapter.sendMessage('chan-1', 'b5');
-      let settled = false;
-      void sixth.then(() => {
-        settled = true;
-      });
-
-      await Promise.resolve();
-      expect(settled).toBe(false);
-
-      await jest.advanceTimersByTimeAsync(PER_CHANNEL_WINDOW_MS);
-      await sixth;
-      expect(settled).toBe(true);
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('stop() clears thread + message maps', async () => {
-    const { adapter, client, channel } = await startAdapter();
-    await client.emitInteraction(fakeInteraction());
-    const sent = await adapter.sendMessage('chan-1', 'x');
-
-    await adapter.stop();
-    expect(adapter.isRunning()).toBe(false);
-
-    await adapter.start('token');
-    await expect(
-      adapter.editMessage('chan-1', sent.externalMsgId, 'y'),
-    ).rejects.toThrow(/no message recorded/);
-    void channel;
-  });
-});
-
-describe('DiscordAdapter — free-form inbound', () => {
-  beforeEach(() => {
-    msgSeq = 0;
-    threadSeq = 0;
-    inMsgSeq = 0;
-  });
-
-  it('@mention in a channel opens a thread, posts a pointer, and emits inbound with the mention stripped', async () => {
+  it('@mention in a channel creates a thread, posts a pointer, emits open-mode inbound with the mention stripped', async () => {
     const { client, channel, inbound } = await startAdapter();
 
     await client.emitMessage(
@@ -386,11 +291,132 @@ describe('DiscordAdapter — free-form inbound', () => {
         externalChatId: 'chan-1',
         externalMsgId: 'in-1',
         body: 'build me a thing',
-        conversationKey: 'discord:chan-1',
+        conversationId: threadId,
+        conversationMode: 'open',
+        conversationKey: `discord:chan-1:${threadId}`,
         allowListId: 'guild-1',
         displayName: 'alice',
       }),
     );
+  });
+
+  it('every parent-channel mention creates a fresh thread and conversationId', async () => {
+    const { client, channel, inbound } = await startAdapter();
+
+    await client.emitMessage(
+      fakeIncomingMessage({ content: '<@bot-1> first', mentionsBot: true }),
+    );
+    await client.emitMessage(
+      fakeIncomingMessage({ content: '<@bot-1> second', mentionsBot: true }),
+    );
+
+    expect(channel.threadCreate).toHaveBeenCalledTimes(2);
+    expect(inbound).toHaveLength(2);
+    expect(inbound[0].conversationId).not.toBe(inbound[1].conversationId);
+  });
+
+  it('mention inside a thread never spawns a nested thread and dispatches attach', async () => {
+    const { client, channel, inbound } = await startAdapter();
+
+    await client.emitMessage(
+      fakeIncomingMessage({
+        id: 'in-7',
+        content: '<@bot-1> follow up',
+        channelId: 'thread-77',
+        isThread: true,
+        parentId: 'chan-1',
+        mentionsBot: true,
+      }),
+    );
+
+    expect(channel.threadCreate).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(1);
+    expect(inbound[0]).toEqual(
+      expect.objectContaining({
+        externalChatId: 'chan-1',
+        externalMsgId: 'in-7',
+        body: 'follow up',
+        conversationId: 'thread-77',
+        conversationMode: 'attach',
+        conversationKey: 'discord:chan-1:thread-77',
+      }),
+    );
+  });
+
+  it('plain message in a never-seen thread on a fresh adapter emits attach with zero map dependency', async () => {
+    const { client, inbound } = await startAdapter();
+
+    await client.emitMessage(
+      fakeIncomingMessage({
+        id: 'in-9',
+        content: 'resumed after restart',
+        channelId: 'thread-resumed',
+        isThread: true,
+        parentId: 'chan-9',
+      }),
+    );
+
+    expect(client.channelsFetch).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(1);
+    expect(inbound[0]).toEqual(
+      expect.objectContaining({
+        externalChatId: 'chan-9',
+        externalMsgId: 'in-9',
+        body: 'resumed after restart',
+        conversationId: 'thread-resumed',
+        conversationMode: 'attach',
+        conversationKey: 'discord:chan-9:thread-resumed',
+      }),
+    );
+  });
+
+  it('thread message with a null parent warns and drops', async () => {
+    const { client, inbound, logger } = await startAdapter();
+
+    await client.emitMessage(
+      fakeIncomingMessage({
+        content: 'orphaned',
+        channelId: 'thread-orphan',
+        isThread: true,
+        parentId: null,
+      }),
+    );
+
+    expect(inbound).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('parent channel unknown'),
+      expect.objectContaining({ threadId: 'thread-orphan' }),
+    );
+  });
+
+  it('channel fetch failure during mention handling warns without throwing into the message loop', async () => {
+    const { client, inbound, logger } = await startAdapter();
+
+    await expect(
+      client.emitMessage(
+        fakeIncomingMessage({
+          content: '<@bot-1> hi',
+          channelId: 'chan-missing',
+          mentionsBot: true,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(inbound).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord message handler failed',
+      expect.objectContaining({
+        error: expect.stringContaining('chan-missing'),
+      }),
+    );
+  });
+});
+
+describe('DiscordAdapter — guards', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+    inMsgSeq = 0;
   });
 
   it('ignores a plain channel message that does not mention the bot', async () => {
@@ -402,35 +428,6 @@ describe('DiscordAdapter — free-form inbound', () => {
 
     expect(inbound).toHaveLength(0);
     expect(channel.threadCreate).not.toHaveBeenCalled();
-  });
-
-  it('continues the conversation when a user types in the Ptah thread (no mention needed)', async () => {
-    const { client, channel, inbound } = await startAdapter();
-    await client.emitInteraction(fakeInteraction({ prompt: 'start' }));
-    const threadId = channel.createdThreads[0].id;
-    inbound.length = 0;
-
-    await client.emitMessage(
-      fakeIncomingMessage({
-        id: 'in-2',
-        content: 'and now the follow-up',
-        channelId: threadId,
-        isThread: true,
-        parentId: 'chan-1',
-        mentionsBot: false,
-      }),
-    );
-
-    expect(channel.threadCreate).toHaveBeenCalledTimes(1);
-    expect(inbound).toHaveLength(1);
-    expect(inbound[0]).toEqual(
-      expect.objectContaining({
-        externalChatId: 'chan-1',
-        externalMsgId: 'in-2',
-        body: 'and now the follow-up',
-        conversationKey: 'discord:chan-1',
-      }),
-    );
   });
 
   it('ignores messages authored by bots (no self-trigger loop)', async () => {
@@ -447,34 +444,10 @@ describe('DiscordAdapter — free-form inbound', () => {
     expect(inbound).toHaveLength(0);
   });
 
-  it('ignores messages in a thread the adapter does not own', async () => {
-    const { client, inbound } = await startAdapter();
-
-    await client.emitMessage(
-      fakeIncomingMessage({
-        content: 'hi',
-        channelId: 'thread-unknown',
-        isThread: true,
-        parentId: 'chan-unknown',
-      }),
-    );
-
-    expect(inbound).toHaveLength(0);
-  });
-
   it('rejects mention messages from a guild not on the allow-list', async () => {
-    const channel = fakeChannel();
-    const client = fakeClient(channel);
-    const adapter = new DiscordAdapter(createLogger());
-    adapter.configure({
-      factory: () => client,
+    const { client, channel, inbound } = await startAdapter({
       allowedGuildIds: ['guild-allowed'],
     });
-    const inbound: InboundMessage[] = [];
-    adapter.on('inbound', (m) => {
-      inbound.push(m);
-    });
-    await adapter.start('token');
 
     await client.emitMessage(
       fakeIncomingMessage({
@@ -487,12 +460,145 @@ describe('DiscordAdapter — free-form inbound', () => {
     expect(inbound).toHaveLength(0);
     expect(channel.threadCreate).not.toHaveBeenCalled();
   });
+
+  it('rejects /ptah interactions from a guild not on the allow-list', async () => {
+    const { client, channel, inbound } = await startAdapter({
+      allowedGuildIds: ['guild-allowed'],
+    });
+    const interaction = fakeInteraction({ guildId: 'guild-other' });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(0);
+    expect(channel.threadCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('DiscordAdapter — outbound', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+    inMsgSeq = 0;
+  });
+
+  it('sendMessage with conversationId fetches the thread by id and sends there', async () => {
+    const { adapter, client, channel, byId } = await startAdapter();
+    const thread = fakeThread(byId);
+
+    const res = await adapter.sendMessage('chan-1', 'streamed body', {
+      conversationId: thread.id,
+    });
+
+    expect(client.channelsFetch).toHaveBeenCalledWith(thread.id);
+    expect(thread.send).toHaveBeenCalledWith({ content: 'streamed body' });
+    expect(channel.send).not.toHaveBeenCalled();
+    expect(res.externalMsgId).toMatch(/^msg-/);
+  });
+
+  it('sendMessage without conversationId sends to the channel (pairing-prompt / sendTest path)', async () => {
+    const { adapter, channel } = await startAdapter();
+
+    const res = await adapter.sendMessage('chan-1', 'pairing prompt');
+
+    expect(channel.send).toHaveBeenCalledWith({ content: 'pairing prompt' });
+    expect(channel.threadCreate).not.toHaveBeenCalled();
+    expect(res.externalMsgId).toMatch(/^msg-/);
+
+    await adapter.editMessage('chan-1', res.externalMsgId, 'edited');
+  });
+
+  it('sendMessage throws when the routing target cannot be fetched', async () => {
+    const { adapter } = await startAdapter();
+
+    await expect(
+      adapter.sendMessage('chan-1', 'x', { conversationId: 'thread-gone' }),
+    ).rejects.toThrow(/thread-gone not found/);
+    await expect(adapter.sendMessage('chan-gone', 'x')).rejects.toThrow(
+      /chan-gone not found/,
+    );
+  });
+
+  it('editMessage edits the right stored message by id', async () => {
+    const { adapter, channel } = await startAdapter();
+
+    const first = await adapter.sendMessage('chan-1', 'one');
+    const second = await adapter.sendMessage('chan-1', 'two');
+    expect(first.externalMsgId).not.toBe(second.externalMsgId);
+
+    await adapter.editMessage('chan-1', second.externalMsgId, 'two-edited');
+
+    const sentMessages = channel.send.mock.results.map(
+      (r) => r.value as Promise<DiscordMessageLike>,
+    );
+    const resolved = await Promise.all(sentMessages);
+    const editedHandle = resolved.find((m) => m.id === second.externalMsgId);
+    const otherHandle = resolved.find((m) => m.id === first.externalMsgId);
+    expect(
+      (editedHandle as DiscordMessageLike & { edit: jest.Mock }).edit,
+    ).toHaveBeenCalledWith({ content: 'two-edited' });
+    expect(
+      (otherHandle as DiscordMessageLike & { edit: jest.Mock }).edit,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('editMessage throws when message id is unknown', async () => {
+    const { adapter } = await startAdapter();
+    await expect(adapter.editMessage('chan-1', 'nope', 'x')).rejects.toThrow(
+      /no message recorded/,
+    );
+  });
+
+  it('per-target rate-limit window keys on conversationId and waits once the burst fills', async () => {
+    jest.useFakeTimers();
+    try {
+      const { adapter, byId } = await startAdapter();
+      const thread = fakeThread(byId);
+
+      for (let i = 0; i < 5; i += 1) {
+        await adapter.sendMessage('chan-1', `b${i}`, {
+          conversationId: thread.id,
+        });
+      }
+
+      const sixth = adapter.sendMessage('chan-1', 'b5', {
+        conversationId: thread.id,
+      });
+      let settled = false;
+      void sixth.then(() => {
+        settled = true;
+      });
+
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      await jest.advanceTimersByTimeAsync(PER_CHANNEL_WINDOW_MS);
+      await sixth;
+      expect(settled).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stop() clears the message map', async () => {
+    const { adapter } = await startAdapter();
+    const sent = await adapter.sendMessage('chan-1', 'x');
+
+    await adapter.stop();
+    expect(adapter.isRunning()).toBe(false);
+
+    await adapter.start('token');
+    await expect(
+      adapter.editMessage('chan-1', sent.externalMsgId, 'y'),
+    ).rejects.toThrow(/no message recorded/);
+  });
 });
 
 describe('DiscordAdapter — listGuilds', () => {
   it('returns [] before start and the mapped guilds once connected', async () => {
-    const channel = fakeChannel();
-    const client = fakeClient(channel, [
+    const byId: ChannelRegistry = new Map();
+    fakeChannel(byId);
+    const client = fakeClient(byId, [
       { id: 'g1', name: 'Alpha' },
       { id: 'g2', name: 'Beta' },
     ]);
