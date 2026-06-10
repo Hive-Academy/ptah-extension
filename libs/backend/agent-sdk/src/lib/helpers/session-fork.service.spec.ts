@@ -154,6 +154,7 @@ describe('SessionForkService', () => {
       expect(getMockedForkSession()).toHaveBeenCalledWith('source-uuid', {
         upToMessageId: 'msg-uuid-50',
         title: 'My Fork',
+        dir: '/fake/workspace',
       });
     });
 
@@ -166,6 +167,7 @@ describe('SessionForkService', () => {
       expect(getMockedForkSession()).toHaveBeenCalledWith('src', {
         upToMessageId: undefined,
         title: undefined,
+        dir: '/fake/workspace',
       });
     });
 
@@ -208,10 +210,12 @@ describe('SessionForkService', () => {
         'source-session-id',
         expect.any(String),
         ptahId,
+        undefined,
       );
       expect(getMockedForkSession()).toHaveBeenCalledWith('source-session-id', {
         upToMessageId: nativeId,
         title: 'Branch',
+        dir: '/fake/workspace',
       });
     });
 
@@ -230,10 +234,11 @@ describe('SessionForkService', () => {
       expect(getMockedForkSession()).toHaveBeenCalledWith('src-session', {
         upToMessageId: nativeId,
         title: undefined,
+        dir: '/fake/workspace',
       });
     });
 
-    it('throws SdkError (not the raw SDK error) when historyReader cannot resolve the Ptah ID', async () => {
+    it('throws SdkError but does NOT report to Sentry when the anchor is unresolvable (expected user condition)', async () => {
       const h = makeService();
       const ptahId = 'msg_1778055502540_notfound';
       h.historyReader.resolveNativeMessageId.mockRejectedValueOnce(
@@ -255,9 +260,30 @@ describe('SessionForkService', () => {
       });
 
       expect(getMockedForkSession()).not.toHaveBeenCalled();
-      expect(h.sentry.captureException).toHaveBeenCalledWith(
-        expect.any(Error),
-        expect.objectContaining({ errorSource: 'SdkAgentAdapter.forkSession' }),
+      // "not found in session history" is an expected user-facing condition;
+      // it is surfaced to the user (RPC maps it to MESSAGE_ID_NOT_FOUND) but
+      // must not pollute Sentry.
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    it('forwards the anchorHint to resolveNativeMessageId for both fork and rewind anchors', async () => {
+      const h = makeService();
+      h.historyReader.resolveNativeMessageId.mockResolvedValueOnce(
+        'ee01a4e6-3ca4-43f1-9e3f-6ff56a227fbb',
+      );
+      getMockedForkSession().mockResolvedValueOnce({ sessionId: 'forked' });
+
+      await h.service.forkSession({
+        sessionId: 'src' as SessionId,
+        upToMessageId: 'msg_1780940558448_oekdvwh',
+        anchorHint: { text: 'commit', occurrence: 1 },
+      });
+
+      expect(h.historyReader.resolveNativeMessageId).toHaveBeenCalledWith(
+        'src',
+        expect.any(String),
+        'msg_1780940558448_oekdvwh',
+        { text: 'commit', occurrence: 1 },
       );
     });
 

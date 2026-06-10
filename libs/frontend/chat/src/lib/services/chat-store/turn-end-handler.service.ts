@@ -10,6 +10,7 @@ import {
   TabManagerService,
   type BackgroundAgentId,
 } from '@ptah-extension/chat-state';
+import type { TabState } from '@ptah-extension/chat-types';
 import {
   BackgroundAgentStore,
   MessageFinalizationService,
@@ -71,7 +72,22 @@ export class TurnEndHandlerService {
     const tabs = this.tabManager.findTabsBySessionId(
       SessionId.from(payload.sessionId),
     );
+    const isAborted =
+      payload.terminalReason !== 'completed' && payload.terminalReason !== null;
+    const hasBackgroundWork = payload.backgroundTasks.length > 0;
     if (tabs.length === 0) {
+      const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+        payload.sessionId,
+      );
+      if (lookup) {
+        this.tabManager.updateBackgroundTab(lookup.tab.id, {
+          pendingBackgroundTasks: payload.backgroundTasks,
+          pendingSessionCrons: payload.sessionCrons,
+          lastTerminalReason: payload.terminalReason,
+          status: hasBackgroundWork ? 'awaiting-background' : 'loaded',
+        });
+        return;
+      }
       console.warn('[ChatStore] handleTurnEnded: no tab bound to sessionId', {
         sessionId: payload.sessionId,
         terminalReason: payload.terminalReason,
@@ -80,9 +96,6 @@ export class TurnEndHandlerService {
       });
       return;
     }
-    const isAborted =
-      payload.terminalReason !== 'completed' && payload.terminalReason !== null;
-    const hasBackgroundWork = payload.backgroundTasks.length > 0;
     for (const tab of tabs) {
       this.tabManager.setTurnEndedFields(tab.id, {
         pendingBackgroundTasks: payload.backgroundTasks,
@@ -112,13 +125,6 @@ export class TurnEndHandlerService {
   handleSubagentEnded(payload: SdkSubagentEndedPayload): void {
     const sessionId = SessionId.from(payload.sessionId);
     const tabs = this.tabManager.findTabsBySessionId(sessionId);
-    if (tabs.length === 0) {
-      console.warn(
-        '[ChatStore] handleSubagentEnded: no tab bound to sessionId',
-        { sessionId: payload.sessionId, agentId: payload.agentId },
-      );
-      return;
-    }
     const agentKey = payload.agentId as BackgroundAgentId;
     const knownEntry = this.backgroundAgents.findByAgentId(agentKey);
     const resolvedToolCallId = knownEntry?.toolCallId ?? '';
@@ -133,6 +139,26 @@ export class TurnEndHandlerService {
       agentType: payload.agentType,
     });
     const remaining = payload.backgroundTasks.length;
+    if (tabs.length === 0) {
+      const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+        payload.sessionId,
+      );
+      if (lookup) {
+        const updates: Partial<TabState> = {
+          pendingBackgroundTasks: payload.backgroundTasks,
+        };
+        if (lookup.tab.status === 'awaiting-background' && remaining === 0) {
+          updates.status = 'loaded';
+        }
+        this.tabManager.updateBackgroundTab(lookup.tab.id, updates);
+        return;
+      }
+      console.warn(
+        '[ChatStore] handleSubagentEnded: no tab bound to sessionId',
+        { sessionId: payload.sessionId, agentId: payload.agentId },
+      );
+      return;
+    }
     for (const tab of tabs) {
       this.tabManager.setPendingBackgroundTasks(
         tab.id,
@@ -146,15 +172,32 @@ export class TurnEndHandlerService {
 
   /**
    * Handle the `session:turnFailed` push (backend `StopFailure` SDK hook).
-   * Always finalizes as aborted and routes the SDK error through the
-   * existing `ChatLifecycleService.handleChatError` channel so the error
-   * surface, reset semantics, and session refresh stay co-located.
+   *
+   * When a foreground tab is bound to the session, finalizes as aborted and
+   * routes the SDK error through `ChatLifecycleService.handleChatError` so the
+   * error surface, reset semantics, and session refresh stay co-located.
+   *
+   * When no foreground tab is bound, the failure belongs to a background
+   * workspace (or no tab at all): stamp the background tab's terminal state via
+   * `updateBackgroundTab` and return. The foreground `handleChatError` channel
+   * is intentionally skipped — its active-tab fallback would otherwise reset an
+   * unrelated foreground tab for a failure that is not its own.
    */
   handleTurnFailed(payload: SdkTurnFailedPayload): void {
     const tabs = this.tabManager.findTabsBySessionId(
       SessionId.from(payload.sessionId),
     );
     if (tabs.length === 0) {
+      const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+        payload.sessionId,
+      );
+      if (lookup) {
+        this.tabManager.updateBackgroundTab(lookup.tab.id, {
+          lastTerminalReason: payload.terminalReason,
+          status: 'loaded',
+        });
+        return;
+      }
       console.warn('[ChatStore] handleTurnFailed: no tab bound to sessionId', {
         sessionId: payload.sessionId,
         terminalReason: payload.terminalReason,

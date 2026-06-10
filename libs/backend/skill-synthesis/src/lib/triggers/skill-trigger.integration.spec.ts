@@ -12,9 +12,11 @@ import {
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
   SubagentStopCallbackRegistry,
+  UserPromptExpansionCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { SkillTriggerService } from './skill-trigger.service';
 import type { SkillSynthesisService } from '../skill-synthesis.service';
+import type { SkillInvocationRecorder } from '../skill-invocation-recorder';
 
 function makeLogger(): Logger {
   return {
@@ -113,6 +115,12 @@ function buildHarness(opts?: {
   const sessionEndRegistry = new SessionEndCallbackRegistry(makeLogger());
   const subagentStopRegistry = new SubagentStopCallbackRegistry(makeLogger());
   const postToolUseRegistry = new PostToolUseCallbackRegistry(makeLogger());
+  const userPromptExpansionRegistry = new UserPromptExpansionCallbackRegistry(
+    makeLogger(),
+  );
+  const recorder = {
+    recordSkillEvent: jest.fn(),
+  } as unknown as SkillInvocationRecorder;
   const service = new SkillTriggerService(
     logger,
     synthesis,
@@ -125,6 +133,8 @@ function buildHarness(opts?: {
     subagentStopRegistry,
     postToolUseRegistry,
     rateLimiter,
+    userPromptExpansionRegistry,
+    recorder,
   );
   return {
     service,

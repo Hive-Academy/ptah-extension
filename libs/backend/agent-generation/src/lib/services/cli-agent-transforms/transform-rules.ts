@@ -107,10 +107,9 @@ function normalizeCrlf(content: string): string {
  */
 export function stripInternalReferences(content: string): string {
   const patterns = createClaudePatterns();
-  return content.replace(patterns.internalImport, '').replace(
-    /\n{3,}/g,
-    '\n\n',
-  );
+  return content
+    .replace(patterns.internalImport, '')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 /**
@@ -134,12 +133,11 @@ export function rewriteFrontmatter(
   description: string,
 ): string {
   const normalized = normalizeCrlf(content);
-  const prefixedName = `ptah-${agentId}`;
   const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
-    return `---\nname: ${prefixedName}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---\n\n${normalized}`;
+    return `---\nname: ${agentId}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---\n\n${normalized}`;
   }
-  const newFrontmatter = `---\nname: ${prefixedName}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---`;
+  const newFrontmatter = `---\nname: ${agentId}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---`;
   return normalized.replace(frontmatterMatch[0], newFrontmatter);
 }
 

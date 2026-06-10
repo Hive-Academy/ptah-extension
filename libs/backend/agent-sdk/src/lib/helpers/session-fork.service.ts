@@ -1,12 +1,13 @@
 import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { SessionId } from '@ptah-extension/shared';
+import type { SessionId, MessageAnchorHint } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkError, SessionNotActiveError } from '../errors';
 import { SessionMetadataStore } from '../session-metadata-store';
+import { MESSAGE_ID_NOT_FOUND_PHRASE } from '../session-history-reader.service';
 import type { SessionHistoryReaderService } from '../session-history-reader.service';
 import type {
   ForkSessionResult,
@@ -17,6 +18,11 @@ import type { SessionLifecycleManager } from './session-lifecycle-manager';
 export interface ForkSessionParams {
   sessionId: SessionId;
   upToMessageId?: string;
+  /**
+   * Fallback hint for resolving `upToMessageId` to a transcript line UUID when
+   * the frontend passed a client-only optimistic id. See {@link MessageAnchorHint}.
+   */
+  anchorHint?: MessageAnchorHint;
   title?: string;
   /**
    * Semantic hint that drives the auto-derived fork title when no explicit
@@ -29,6 +35,11 @@ export interface ForkSessionParams {
 export interface RewindFilesParams {
   sessionId: SessionId;
   userMessageId: string;
+  /**
+   * Fallback hint for resolving `userMessageId` to a transcript line UUID when
+   * the frontend passed a client-only optimistic id. See {@link MessageAnchorHint}.
+   */
+  anchorHint?: MessageAnchorHint;
   dryRun?: boolean;
 }
 
@@ -49,7 +60,7 @@ export class SessionForkService {
   ) {}
 
   async forkSession(params: ForkSessionParams): Promise<ForkSessionResult> {
-    const { sessionId, upToMessageId, title, kind } = params;
+    const { sessionId, upToMessageId, anchorHint, title, kind } = params;
 
     this.logger.info(`[SessionForkService] Forking session: ${sessionId}`, {
       upToMessageId,
@@ -60,7 +71,7 @@ export class SessionForkService {
       const sdkModule = (await import('@anthropic-ai/claude-agent-sdk')) as {
         forkSession?: (
           sessionId: string,
-          options?: { upToMessageId?: string; title?: string },
+          options?: { upToMessageId?: string; title?: string; dir?: string },
         ) => Promise<ForkSessionResult>;
       };
       const fork = sdkModule.forkSession;
@@ -71,34 +82,35 @@ export class SessionForkService {
       }
 
       const sourceMetadata = await this.metadataStore.get(sessionId);
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      const forkWorkspacePath = sourceMetadata?.workspaceId ?? workspaceRoot;
 
       let resolvedUpToMessageId: string | undefined = upToMessageId;
-      if (upToMessageId !== undefined) {
-        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-        const forkWorkspacePath = sourceMetadata?.workspaceId ?? workspaceRoot;
-        if (forkWorkspacePath) {
-          resolvedUpToMessageId =
-            await this.historyReader.resolveNativeMessageId(
+      if (upToMessageId !== undefined && forkWorkspacePath) {
+        resolvedUpToMessageId = await this.historyReader.resolveNativeMessageId(
+          sessionId,
+          forkWorkspacePath,
+          upToMessageId,
+          anchorHint,
+        );
+        if (resolvedUpToMessageId !== upToMessageId) {
+          this.logger.info(
+            '[SessionForkService] Resolved Ptah message ID to native SDK UUID for fork',
+            {
               sessionId,
-              forkWorkspacePath,
-              upToMessageId,
-            );
-          if (resolvedUpToMessageId !== upToMessageId) {
-            this.logger.info(
-              '[SessionForkService] Resolved Ptah message ID to native SDK UUID for fork',
-              {
-                sessionId,
-                originalUpToMessageId: upToMessageId,
-                resolvedUpToMessageId,
-              },
-            );
-          }
+              originalUpToMessageId: upToMessageId,
+              resolvedUpToMessageId,
+            },
+          );
         }
       }
 
       const result = await fork(sessionId, {
         upToMessageId: resolvedUpToMessageId,
         title,
+        // Pin the project directory so the SDK reads the same transcript the
+        // resolver validated against, instead of relying on a global scan.
+        ...(forkWorkspacePath ? { dir: forkWorkspacePath } : {}),
       });
 
       const suffix = kind === 'rewind' ? '(rewind)' : '(fork)';
@@ -135,9 +147,17 @@ export class SessionForkService {
     } catch (error) {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
-      this.sentryService.captureException(errorObj, {
-        errorSource: 'SdkAgentAdapter.forkSession',
-      });
+      // An unresolvable anchor is an expected user-facing condition (e.g. the
+      // message could not be located in the transcript), not an infrastructure
+      // fault — surface it without polluting Sentry.
+      const isUnresolvableAnchor = errorObj.message.includes(
+        MESSAGE_ID_NOT_FOUND_PHRASE,
+      );
+      if (!isUnresolvableAnchor) {
+        this.sentryService.captureException(errorObj, {
+          errorSource: 'SdkAgentAdapter.forkSession',
+        });
+      }
       this.logger.error(
         '[SessionForkService] Failed to fork session',
         errorObj,
@@ -149,7 +169,7 @@ export class SessionForkService {
   }
 
   async rewindFiles(params: RewindFilesParams): Promise<RewindFilesResult> {
-    const { sessionId, userMessageId, dryRun } = params;
+    const { sessionId, userMessageId, anchorHint, dryRun } = params;
 
     this.logger.info(`[SessionForkService] Rewinding files for session`, {
       sessionId,
@@ -166,13 +186,50 @@ export class SessionForkService {
       );
     }
 
+    // `Query.rewindFiles` expects the user message's transcript line UUID. A
+    // live user bubble carries a client-only optimistic id, so resolve it the
+    // same way fork does. Best-effort: if resolution fails (e.g. the line is
+    // not yet flushed), fall back to the raw id rather than blocking the rewind.
+    const sourceMetadata = await this.metadataStore.get(sessionId);
+    const rewindWorkspacePath =
+      sourceMetadata?.workspaceId ?? this.workspaceProvider.getWorkspaceRoot();
+    let resolvedUserMessageId = userMessageId;
+    if (rewindWorkspacePath) {
+      try {
+        resolvedUserMessageId = await this.historyReader.resolveNativeMessageId(
+          sessionId,
+          rewindWorkspacePath,
+          userMessageId,
+          anchorHint,
+        );
+        if (resolvedUserMessageId !== userMessageId) {
+          this.logger.info(
+            '[SessionForkService] Resolved rewind userMessageId to native SDK UUID',
+            { sessionId, userMessageId, resolvedUserMessageId },
+          );
+        }
+      } catch (resolveError) {
+        this.logger.warn(
+          '[SessionForkService] Could not resolve rewind userMessageId; using raw id',
+          {
+            sessionId,
+            userMessageId,
+            reason:
+              resolveError instanceof Error
+                ? resolveError.message
+                : String(resolveError),
+          },
+        );
+      }
+    }
+
     try {
-      const result = await rec.query.rewindFiles(userMessageId, {
+      const result = await rec.query.rewindFiles(resolvedUserMessageId, {
         dryRun,
       });
       this.logger.info('[SessionForkService] rewindFiles completed', {
         sessionId,
-        userMessageId,
+        userMessageId: resolvedUserMessageId,
         canRewind: result.canRewind,
         filesChanged: result.filesChanged?.length ?? 0,
         insertions: result.insertions,

@@ -12,6 +12,7 @@ import {
   SessionLoadResult,
   SessionForkResult,
   SessionRewindResult,
+  MessageAnchorHint,
   FileOpenResult,
   MESSAGE_TYPES,
   SubagentQueryResult,
@@ -397,10 +398,11 @@ export class ClaudeRpcService implements MessageHandler {
     upToMessageId?: string,
     title?: string,
     kind?: 'rewind' | 'branch',
+    anchorHint?: MessageAnchorHint,
   ): Promise<RpcResult<SessionForkResult>> {
     return this.call(
       'session:forkSession',
-      { sessionId, upToMessageId, title, kind },
+      { sessionId, upToMessageId, title, kind, anchorHint },
       { timeout: 15000 },
     );
   }
@@ -423,17 +425,20 @@ export class ClaudeRpcService implements MessageHandler {
    * @param sessionId - Active session whose tracked files should be rewound
    * @param userMessageId - UUID of the user message to rewind file state to
    * @param dryRun - When true, returns planned changes without touching disk
+   * @param anchorHint - Fallback to resolve a client-only optimistic id to the
+   *   transcript line UUID (verbatim prompt text + duplicate occurrence index).
    * @returns RpcResult with rewind plan/outcome (filesChanged, insertions, deletions)
    */
   async rewindFiles(
     sessionId: SessionId,
     userMessageId: string,
     dryRun?: boolean,
+    anchorHint?: MessageAnchorHint,
   ): Promise<RpcResult<SessionRewindResult>> {
     const timeout = dryRun === true ? 15000 : 60000;
     return this.call(
       'session:rewindFiles',
-      { sessionId, userMessageId, dryRun },
+      { sessionId, userMessageId, dryRun, anchorHint },
       { timeout },
     );
   }

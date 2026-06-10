@@ -62,6 +62,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   let tabManager: {
     tabs: jest.Mock;
     resetTabToFresh: jest.Mock;
+    findTabBySessionIdAcrossWorkspaces: jest.Mock;
   };
   let consoleWarnSpy: jest.SpyInstance;
 
@@ -82,6 +83,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     tabManager = {
       tabs: jest.fn(() => [{ id: 'tab-1' }]),
       resetTabToFresh: jest.fn(),
+      findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
     };
 
     TestBed.configureTestingModule({

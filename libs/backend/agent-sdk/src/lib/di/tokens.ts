@@ -92,9 +92,15 @@ export const SDK_TOKENS = {
   SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY: Symbol.for(
     'SdkUserPromptSubmitCallbackRegistry',
   ),
+  SDK_USER_PROMPT_EXPANSION_REGISTRY: Symbol.for(
+    'SdkUserPromptExpansionRegistry',
+  ),
   SDK_POST_TOOL_USE_HOOK_HANDLER: Symbol.for('SdkPostToolUseHookHandler'),
   SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER: Symbol.for(
     'SdkUserPromptSubmitHookHandler',
+  ),
+  SDK_USER_PROMPT_EXPANSION_HOOK_HANDLER: Symbol.for(
+    'SdkUserPromptExpansionHookHandler',
   ),
   SDK_STOP_CALLBACK_REGISTRY: Symbol.for('SdkStopCallbackRegistry'),
   SDK_STOP_HOOK_HANDLER: Symbol.for('SdkStopHookHandler'),

@@ -4,16 +4,8 @@
  *
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
- *
- * Target: ~/.codex/agents/ptah-{agent-id}.md
- * Codex CLI auto-discovers agents from ~/.codex/agents/ directory.
- *
- * Agent files are prefixed with `ptah-` for:
- * 1. Namespace separation from user-created agents
- * 2. Deterministic cleanup on premium expiry
  */
 
-import { homedir } from 'os';
 import { join } from 'path';
 import type { CliAgentTransformResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
@@ -34,16 +26,19 @@ import { transformAgentContent, extractAgentId } from './transform-rules';
 export class CodexAgentTransformer implements ICliAgentTransformer {
   readonly target = 'codex' as const;
 
-  transform(agent: GeneratedAgent): CliAgentTransformResult {
+  transform(
+    agent: GeneratedAgent,
+    workspaceRoot: string,
+  ): CliAgentTransformResult {
     const agentId = extractAgentId(agent.filePath);
     const description = agent.variables['description'] || `${agentId} agent`;
     const content = transformAgentContent(
       agent.content,
       'codex',
       agentId,
-      description
+      description,
     );
-    const filePath = join(homedir(), '.codex', 'agents', `ptah-${agentId}.md`);
+    const filePath = join(workspaceRoot, 'AGENTS.md');
 
     return {
       cli: this.target,

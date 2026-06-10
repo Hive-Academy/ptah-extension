@@ -27,6 +27,8 @@ export * from './rpc/rpc-indexing.types';
 
 export * from './rpc/rpc-update.types';
 
+export * from './rpc/rpc-skill-clone.types';
+
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
@@ -68,6 +70,8 @@ import type {
   SessionForkResult,
   SessionRewindParams,
   SessionRewindResult,
+  SessionStatusParams,
+  SessionStatusResponse,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -336,6 +340,23 @@ import type {
 } from './rpc/rpc-indexing.types';
 
 import type {
+  SkillSynthesisListClonesParams,
+  SkillSynthesisListClonesResult,
+  SkillSynthesisGetCloneParams,
+  SkillSynthesisGetCloneResult,
+  SkillSynthesisEnhanceNowParams,
+  SkillSynthesisEnhanceNowResult,
+  SkillSynthesisRevertEnhancementParams,
+  SkillSynthesisRevertEnhancementResult,
+  SkillSynthesisRebaseCloneParams,
+  SkillSynthesisRebaseCloneResult,
+  SkillSynthesisKeepCloneParams,
+  SkillSynthesisKeepCloneResult,
+  SkillSynthesisInvocationStatsParams,
+  SkillSynthesisInvocationStatsResult,
+} from './rpc/rpc-skill-clone.types';
+
+import type {
   HarnessInitializeParams,
   HarnessInitializeResponse,
   HarnessSuggestConfigParams,
@@ -490,6 +511,10 @@ export interface RpcMethodRegistry {
   'session:rewindFiles': {
     params: SessionRewindParams;
     result: SessionRewindResult;
+  };
+  'session:status': {
+    params: SessionStatusParams;
+    result: SessionStatusResponse;
   };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
@@ -1389,6 +1414,34 @@ export interface RpcMethodRegistry {
     params: SkillGetTriggersParams;
     result: SkillGetTriggersResult;
   };
+  'skillSynthesis:listClones': {
+    params: SkillSynthesisListClonesParams;
+    result: SkillSynthesisListClonesResult;
+  };
+  'skillSynthesis:getClone': {
+    params: SkillSynthesisGetCloneParams;
+    result: SkillSynthesisGetCloneResult;
+  };
+  'skillSynthesis:enhanceNow': {
+    params: SkillSynthesisEnhanceNowParams;
+    result: SkillSynthesisEnhanceNowResult;
+  };
+  'skillSynthesis:revertEnhancement': {
+    params: SkillSynthesisRevertEnhancementParams;
+    result: SkillSynthesisRevertEnhancementResult;
+  };
+  'skillSynthesis:rebaseClone': {
+    params: SkillSynthesisRebaseCloneParams;
+    result: SkillSynthesisRebaseCloneResult;
+  };
+  'skillSynthesis:keepClone': {
+    params: SkillSynthesisKeepCloneParams;
+    result: SkillSynthesisKeepCloneResult;
+  };
+  'skillSynthesis:invocationStats': {
+    params: SkillSynthesisInvocationStatsParams;
+    result: SkillSynthesisInvocationStatsResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1981,6 +2034,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:stats-batch': true,
   'session:forkSession': true,
   'session:rewindFiles': true,
+  'session:status': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,
@@ -2201,6 +2255,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:analyzeNow': true,
   'skillSynthesis:setTriggers': true,
   'skillSynthesis:getTriggers': true,
+  'skillSynthesis:listClones': true,
+  'skillSynthesis:getClone': true,
+  'skillSynthesis:enhanceNow': true,
+  'skillSynthesis:revertEnhancement': true,
+  'skillSynthesis:rebaseClone': true,
+  'skillSynthesis:keepClone': true,
+  'skillSynthesis:invocationStats': true,
 
   'cron:list': true,
   'cron:get': true,

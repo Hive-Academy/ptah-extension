@@ -1,34 +1,46 @@
-
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import {
+  AGENT_GENERATION_TOKENS,
+  type UserLayerMirrorService,
+} from '@ptah-extension/agent-generation';
+
+const RIVAL_HOME_REAPED_AT = 'rival_home_reaped_at';
+const LEGACY_PREFIXES = ['ptah-', 'ptahsynth-'];
 
 /**
- * Distribute existing .claude/agents/*.md to all installed CLI targets.
- * Ensures agents are present after fresh install without re-running the wizard.
- * Pro/trial_pro-only, fire-and-forget. Caller is responsible for the license-tier gate.
+ * Distribute user-layer agents (~/.ptah/user/agents) to all installed rival
+ * CLIs at the WORKSPACE level. Pro/trial_pro-only, fire-and-forget. Also runs a
+ * one-time reap of stale Ptah-managed home copies so they don't shadow the new
+ * workspace copies.
  */
 export function syncCliAgentsOnActivation(
   container: DependencyContainer,
   startupWorkspaceRoot: string,
 ): void {
   (async () => {
-    const { readdir, readFile } = await import('fs/promises');
+    const { readdir, readFile, rm } = await import('fs/promises');
     const { join } = await import('path');
+    const { homedir } = await import('os');
     const { createHash } = await import('crypto');
 
-    const agentsDir = join(startupWorkspaceRoot, '.claude', 'agents');
+    await reapStaleHomeAgents(container, { readdir, rm, join, homedir });
+
+    const mirror = container.resolve<UserLayerMirrorService>(
+      AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
+    );
+    const agentsDir = mirror.getUserLayerRoots().agents;
     let agentFileNames: string[];
     try {
       const entries = await readdir(agentsDir);
       agentFileNames = entries
-        .filter((f) => f.endsWith('.md') && !f.startsWith('.backup-'))
+        .filter((f) => f.endsWith('.md') && !f.startsWith('.'))
         .sort();
     } catch {
       console.log(
-        '[Ptah Electron] CLI agent sync skipped (no .claude/agents/)',
+        '[Ptah Electron] CLI agent sync skipped (no ~/.ptah/user/agents)',
       );
       return;
     }
@@ -44,9 +56,6 @@ export function syncCliAgentsOnActivation(
             const content = await readFile(filePath, 'utf8');
             return { name, filePath, content };
           } catch {
-            console.log(
-              `[Ptah Electron] CLI agent sync: skipping unreadable file ${name}`,
-            );
             return null;
           }
         }),
@@ -65,7 +74,7 @@ export function syncCliAgentsOnActivation(
 
     const combinedContent = agentFiles.map((f) => f.content).join('\n---\n');
     const contentHash = createHash('sha1')
-      .update(combinedContent)
+      .update(`${startupWorkspaceRoot}|${combinedContent}`)
       .digest('hex');
 
     const cliDetection = container.resolve(TOKENS.CLI_DETECTION_SERVICE) as {
@@ -126,6 +135,7 @@ export function syncCliAgentsOnActivation(
       writeForClis: (
         agents: unknown[],
         targetClis: string[],
+        workspaceRoot: string,
       ) => Promise<
         Array<{ cli: string; agentsWritten: number; agentsFailed: number }>
       >;
@@ -134,6 +144,7 @@ export function syncCliAgentsOnActivation(
     const writeResults = await multiCliWriter.writeForClis(
       agents,
       staleTargets,
+      startupWorkspaceRoot,
     );
     const successfulClis = writeResults
       .filter((r) => r.agentsFailed === 0)
@@ -156,4 +167,62 @@ export function syncCliAgentsOnActivation(
         : String(agentSyncError),
     );
   });
+}
+
+async function reapStaleHomeAgents(
+  container: DependencyContainer,
+  fns: {
+    readdir: (p: string) => Promise<string[]>;
+    rm: (
+      p: string,
+      opts: { recursive?: boolean; force?: boolean },
+    ) => Promise<void>;
+    join: (...parts: string[]) => string;
+    homedir: () => string;
+  },
+): Promise<void> {
+  try {
+    const stateStorage = container.resolve<IStateStorage>(
+      PLATFORM_TOKENS.STATE_STORAGE,
+    );
+    if (stateStorage.get<number>(RIVAL_HOME_REAPED_AT) !== undefined) {
+      return;
+    }
+    const home = fns.homedir();
+    const dirs = [
+      fns.join(home, '.gemini', 'agents'),
+      fns.join(home, '.codex', 'agents'),
+      fns.join(home, '.copilot', 'agents'),
+      fns.join(home, '.cursor', 'agents'),
+      fns.join(home, '.gemini', 'skills'),
+      fns.join(home, '.codex', 'skills'),
+      fns.join(home, '.agents', 'skills'),
+      fns.join(home, '.copilot', 'skills'),
+      fns.join(home, '.cursor', 'skills'),
+    ];
+    let removed = 0;
+    for (const dir of dirs) {
+      let entries: string[];
+      try {
+        entries = await fns.readdir(dir);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (LEGACY_PREFIXES.some((p) => entry.startsWith(p))) {
+          await fns.rm(fns.join(dir, entry), { recursive: true, force: true });
+          removed++;
+        }
+      }
+    }
+    await stateStorage.update(RIVAL_HOME_REAPED_AT, Date.now());
+    console.log(
+      `[Ptah Electron] Stale rival home copies reaped (${removed} entries)`,
+    );
+  } catch (reapError) {
+    console.warn(
+      '[Ptah Electron] Stale home reap failed (non-fatal):',
+      reapError instanceof Error ? reapError.message : String(reapError),
+    );
+  }
 }

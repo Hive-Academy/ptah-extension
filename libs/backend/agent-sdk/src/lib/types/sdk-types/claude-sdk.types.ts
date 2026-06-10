@@ -128,6 +128,8 @@ export type {
   ThinkingDisabled,
   ThinkingEnabled,
   ToolConfig,
+  UserPromptExpansionHookInput,
+  UserPromptExpansionHookSpecificOutput,
   UserPromptSubmitHookInput,
   UserPromptSubmitHookSpecificOutput,
   WorktreeCreateHookInput,
@@ -170,6 +172,7 @@ import type {
   SessionStartHookInput,
   SessionEndHookInput,
   SetupHookInput,
+  UserPromptExpansionHookInput,
   UserPromptSubmitHookInput,
   WorktreeCreateHookInput,
   WorktreeRemoveHookInput,
@@ -549,6 +552,12 @@ export function isUserPromptSubmitHook(
   input: HookInput,
 ): input is UserPromptSubmitHookInput {
   return input.hook_event_name === 'UserPromptSubmit';
+}
+
+export function isUserPromptExpansionHook(
+  input: HookInput,
+): input is UserPromptExpansionHookInput {
+  return input.hook_event_name === 'UserPromptExpansion';
 }
 
 export function isSessionStartHook(

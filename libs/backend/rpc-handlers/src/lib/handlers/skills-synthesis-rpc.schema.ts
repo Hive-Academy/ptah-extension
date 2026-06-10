@@ -100,3 +100,51 @@ export const SkillSetTriggersParamsSchema = z.object({
 });
 
 export const SkillGetTriggersParamsSchema = z.object({}).strict().optional();
+
+const SkillCloneKindSchema = z.enum(['skill', 'agent', 'command']);
+
+const SlugSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/i, 'invalid slug')
+  .refine(
+    (s) => !s.includes('..') && !s.includes('/') && !s.includes('\\'),
+    'invalid slug',
+  );
+
+const HistoryTsSchema = z
+  .string()
+  .regex(/^\d+(-\d+)?$/, 'invalid history timestamp');
+
+export const SkillListClonesParamsSchema = z.object({}).strict().optional();
+
+export const SkillGetCloneParamsSchema = z.object({
+  slug: SlugSchema,
+  kind: SkillCloneKindSchema,
+});
+
+export const SkillEnhanceNowParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+});
+
+export const SkillRevertEnhancementParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+  historyTs: HistoryTsSchema,
+});
+
+export const SkillRebaseCloneParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+});
+
+export const SkillKeepCloneParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+});
+
+export const SkillInvocationStatsParamsSchema = z.object({
+  slug: SlugSchema,
+});

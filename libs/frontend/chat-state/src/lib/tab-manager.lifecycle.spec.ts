@@ -396,8 +396,9 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(TabId.validate(id)).toBe(true);
     });
 
-    it('loadTabState restores persisted tabs and clears streamingState', () => {
+    it('loadTabState restores persisted tabs, clears streamingState, preserves claudeSessionId', () => {
       const persistedId = TabId.create();
+      const persistedSessionId = SessionId.create();
       localStorage.setItem(
         'ptah.tabs',
         JSON.stringify({
@@ -406,7 +407,7 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
           tabs: [
             {
               id: persistedId,
-              claudeSessionId: SessionId.create(),
+              claudeSessionId: persistedSessionId,
               name: 'persisted',
               title: 'persisted',
               order: 0,
@@ -422,7 +423,7 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       service.loadTabState();
       const tab = service.tabs()[0];
       expect(tab?.streamingState).toBeNull();
-      expect(tab?.claudeSessionId).toBeNull();
+      expect(tab?.claudeSessionId).toBe(persistedSessionId);
       expect(tab?.status).toBe('loaded');
     });
 

@@ -16,14 +16,34 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import {
+  SDK_TOKENS,
+  type CuratorRateLimitService,
+} from '@ptah-extension/agent-sdk';
 import { SkillCandidateStore } from './skill-candidate.store';
+import {
+  SkillRegistryStore,
+  type SkillRegistryKind,
+} from './skill-registry.store';
+import { SkillEnhancerService } from './skill-enhancer.service';
 import type { IInternalQuery } from './internal-query.interface';
 import type { SkillSynthesisSettings } from './types';
-import { INTERNAL_QUERY_SERVICE_TOKEN } from './di/tokens';
+import {
+  INTERNAL_QUERY_SERVICE_TOKEN,
+  SKILL_SYNTHESIS_TOKENS,
+} from './di/tokens';
 import { resolveJudgeModel } from './model-resolver';
 
 /** Timeout for a single Curator LLM pass (60s — lists all promoted skills). */
 const CURATOR_TIMEOUT_MS = 60_000;
+
+/** Minimum total invocations before a clone becomes enhancement-eligible. */
+const ENHANCE_MIN_INVOCATIONS = 5;
+
+/** Rate-limit bucket key + cap for auto-enhancement passes. */
+const ENHANCE_RATE_LIMIT_KEY = 'skill.enhance';
+const ENHANCE_MAX_PER_HOUR = 3;
+const ENHANCE_MAX_SLUGS_PER_PASS = 3;
 
 export interface CuratorOverlap {
   skillIdA: string;
@@ -64,6 +84,12 @@ export class SkillCuratorService {
     private readonly internalQuery: IInternalQuery | null,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT)
+    private readonly rateLimiter: CuratorRateLimitService,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, { isOptional: true })
+    private readonly registry: SkillRegistryStore | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE, { isOptional: true })
+    private readonly enhancer: SkillEnhancerService | null,
   ) {}
 
   start(
@@ -223,6 +249,8 @@ export class SkillCuratorService {
       skippedPinned,
     );
 
+    await this.runEnhancementPass(settings);
+
     try {
       this.onPassComplete?.(Date.now());
     } catch (err: unknown) {
@@ -232,6 +260,92 @@ export class SkillCuratorService {
     }
 
     return { reportPath, changesQueued, skippedPinned, overlaps };
+  }
+
+  private async runEnhancementPass(
+    settings: SkillSynthesisSettings,
+  ): Promise<void> {
+    if (!this.registry || !this.enhancer) {
+      return;
+    }
+
+    let eligible: Array<{
+      slug: string;
+      kind: SkillRegistryKind;
+      failed: number;
+      total: number;
+    }>;
+    try {
+      eligible = this.selectEnhancementCandidates(settings);
+    } catch (err: unknown) {
+      this.logger.warn('[skill-curator] enhancement selection failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+
+    let enhancedThisPass = 0;
+    for (const candidate of eligible) {
+      if (enhancedThisPass >= ENHANCE_MAX_SLUGS_PER_PASS) break;
+      const decision = this.rateLimiter.tryAcquire(
+        ENHANCE_RATE_LIMIT_KEY,
+        ENHANCE_MAX_PER_HOUR,
+      );
+      if (!decision.allowed) {
+        this.logger.info('[skill-curator] enhancement rate-limited', {
+          resetAt: decision.resetAt,
+        });
+        break;
+      }
+      try {
+        const result = await this.enhancer.enhance(candidate.slug, settings, {
+          kind: candidate.kind,
+        });
+        if (result.changed) {
+          enhancedThisPass += 1;
+          this.logger.info('[skill-curator] auto-enhanced clone', {
+            slug: candidate.slug,
+            judgeScore: result.judgeScore,
+          });
+        }
+      } catch (err: unknown) {
+        this.logger.warn('[skill-curator] enhance threw', {
+          slug: candidate.slug,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  private selectEnhancementCandidates(
+    settings: SkillSynthesisSettings,
+  ): Array<{
+    slug: string;
+    kind: SkillRegistryKind;
+    failed: number;
+    total: number;
+  }> {
+    if (!this.registry || !this.enhancer) return [];
+    const rows = this.registry.listAll();
+    const selected: Array<{
+      slug: string;
+      kind: SkillRegistryKind;
+      failed: number;
+      total: number;
+    }> = [];
+    for (const row of rows) {
+      const stats = this.store.getInvocationStats(row.slug);
+      if (stats.total < ENHANCE_MIN_INVOCATIONS) continue;
+      if (!this.enhancer.isEligible(row.slug, settings, row.kind)) continue;
+      selected.push({
+        slug: row.slug,
+        kind: row.kind,
+        failed: stats.failed,
+        total: stats.total,
+      });
+    }
+    selected.sort((a, b) => b.failed - a.failed || b.total - a.total);
+    return selected;
   }
 
   private parseFindings(raw: string): CuratorFinding[] {
