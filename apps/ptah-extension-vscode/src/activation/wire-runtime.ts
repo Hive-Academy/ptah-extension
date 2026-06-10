@@ -19,7 +19,12 @@ import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { DIContainer } from '../di/container';
 import { SettingsCommands } from '../commands/settings-commands';
-import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
+import {
+  activateSkillJunctions,
+  initPluginLoader,
+  mirrorUserLayer,
+  reconcileUserLayer,
+} from './plugin-activation';
 
 /**
  * Runtime wiring after license verification: content download, plugin
@@ -34,17 +39,36 @@ export async function wireRuntimeVscode(
   const contentDownload = DIContainer.resolve<ContentDownloadService>(
     PLATFORM_TOKENS.CONTENT_DOWNLOAD,
   );
-  contentDownload.ensureContent().then((result) => {
-    if (!result?.success) {
-      console.warn(
-        '[Activate] Content download failed (non-blocking):',
-        result?.error ?? 'Unknown error',
-      );
-    }
-  });
-
   initPluginLoader(contentDownload.getPluginsPath(), logger);
-  activateSkillJunctions(contentDownload.getPluginsPath(), logger);
+  const userLayerWorkspaceRoot =
+    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const userLayerRoots = await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+  contentDownload
+    .ensureContent()
+    .then(async (result) => {
+      if (!result?.success) {
+        console.warn(
+          '[Activate] Content download failed (non-blocking):',
+          result?.error ?? 'Unknown error',
+        );
+      }
+      await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+      if (result && !result.fromCache) {
+        await reconcileUserLayer(userLayerWorkspaceRoot, logger);
+      }
+    })
+    .catch((err: unknown) => {
+      logger.warn('Post-download reconcile failed (non-fatal)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  activateSkillJunctions(
+    contentDownload.getPluginsPath(),
+    logger,
+    userLayerRoots
+      ? { skills: userLayerRoots.skills, commands: userLayerRoots.commands }
+      : undefined,
+  );
   void licenseStatus;
   try {
     const providerModels = DIContainer.getContainer().resolve(

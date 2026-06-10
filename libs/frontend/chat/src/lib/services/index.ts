@@ -51,7 +51,6 @@ export {
   ActionBannerService,
   type ActionBannerState,
 } from './action-banner.service';
-export { SessionActionsService } from './session-actions.service';
 export { AgentMonitorTreeBuilderService } from './agent-monitor-tree-builder.service';
 /** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {

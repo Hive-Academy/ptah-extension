@@ -24,6 +24,14 @@ import { SkillJudgeService } from '../skill-judge.service';
 import { SkillCuratorService } from '../skill-curator.service';
 import { SkillTriggerService } from '../triggers/skill-trigger.service';
 import { SkillSynthesisDiagnosticsService } from '../diagnostics.service';
+import { SkillInvocationRecorder } from '../skill-invocation-recorder';
+import { SkillRegistryStore } from '../skill-registry.store';
+import { SkillRegistryCatalogService } from '../skill-registry-catalog.service';
+import { SkillEnhancerService } from '../skill-enhancer.service';
+import {
+  NoOpSkillRepropagation,
+  SKILL_REPROPAGATION_TOKEN,
+} from '../skill-repropagation.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
 
 export function registerSkillSynthesisServices(
@@ -42,6 +50,10 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillSynthesisService);
   container.registerSingleton(SkillTriggerService);
   container.registerSingleton(SkillSynthesisDiagnosticsService);
+  container.registerSingleton(SkillInvocationRecorder);
+  container.registerSingleton(SkillRegistryStore);
+  container.registerSingleton(SkillRegistryCatalogService);
+  container.registerSingleton(SkillEnhancerService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });
@@ -68,6 +80,21 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE, {
     useToken: SkillSynthesisDiagnosticsService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_INVOCATION_RECORDER, {
+    useToken: SkillInvocationRecorder,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, {
+    useToken: SkillRegistryStore,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_CATALOG_SERVICE, {
+    useToken: SkillRegistryCatalogService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE, {
+    useToken: SkillEnhancerService,
+  });
+  container.register(SKILL_REPROPAGATION_TOKEN, {
+    useClass: NoOpSkillRepropagation,
   });
 
   logger.info('[skill-synthesis] services registered', {

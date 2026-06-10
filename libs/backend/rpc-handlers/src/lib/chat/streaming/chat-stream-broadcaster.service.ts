@@ -61,6 +61,12 @@ export class ChatStreamBroadcaster {
     private readonly ptahCli: ChatPtahCliService,
   ) {}
 
+  private readonly streamingSessionIds = new Set<string>();
+
+  isStreaming(sessionId: string): boolean {
+    return this.streamingSessionIds.has(sessionId);
+  }
+
   /**
    * Stream flat events to webview
    * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages.
@@ -86,6 +92,7 @@ export class ChatStreamBroadcaster {
     const isPtahCliSession = this.ptahCli.hasSession(tabId);
     let streamExitedNormally = false;
 
+    this.streamingSessionIds.add(sessionId as string);
     try {
       for await (const event of stream) {
         eventCount++;
@@ -221,6 +228,7 @@ export class ChatStreamBroadcaster {
         });
       }
     } finally {
+      this.streamingSessionIds.delete(sessionId as string);
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);
       if (streamExitedNormally && this.sdkAdapter.isSessionActive(sessionId)) {

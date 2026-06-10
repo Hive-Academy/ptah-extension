@@ -17,6 +17,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, FolderOpen, FolderPlus, X } from 'lucide-angular';
 import { ElectronLayoutService } from '@ptah-extension/core';
+import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
 
 @Component({
   selector: 'ptah-workspace-sidebar',
@@ -49,45 +50,55 @@ import { ElectronLayoutService } from '@ptah-extension/core';
 
       <!-- Folder list -->
       <div class="flex-1 overflow-y-auto px-2">
-        @for (folder of layout.workspaceFolders(); track folder.path; let i =
-        $index) {
-        <div
-          class="sidebar-item group relative flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer transition-colors duration-150 mb-0.5 hover:bg-base-300"
-          [class.bg-base-300]="i === layout.activeWorkspaceIndex()"
-          [class.text-primary]="i === layout.activeWorkspaceIndex()"
-          (click)="layout.switchWorkspace(i)"
-          [title]="folder.path"
-        >
-          <lucide-angular
-            [img]="FolderOpenIcon"
-            class="w-4 h-4 flex-shrink-0"
+        @for (
+          folder of layout.workspaceFolders();
+          track folder.path;
+          let i = $index
+        ) {
+          <div
+            class="sidebar-item group relative flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer transition-colors duration-150 mb-0.5 hover:bg-base-300"
+            [class.bg-base-300]="i === layout.activeWorkspaceIndex()"
             [class.text-primary]="i === layout.activeWorkspaceIndex()"
-            [class.opacity-50]="i !== layout.activeWorkspaceIndex()"
-          />
-          <span class="text-sm truncate flex-1">{{ folder.name }}</span>
-          <!-- Remove button (hover reveal) -->
-          <button
-            class="remove-btn opacity-0 btn btn-ghost btn-xs btn-square p-0 min-h-0 w-5 h-5 text-base-content/30 hover:text-error transition-opacity duration-200"
-            (click)="onRemoveFolder($event, i)"
-            title="Remove workspace"
-            aria-label="Remove workspace"
+            (click)="layout.switchWorkspace(i)"
+            [title]="folder.path"
           >
-            <lucide-angular [img]="XIcon" class="w-3 h-3" />
-          </button>
-        </div>
+            <lucide-angular
+              [img]="FolderOpenIcon"
+              class="w-4 h-4 flex-shrink-0"
+              [class.text-primary]="i === layout.activeWorkspaceIndex()"
+              [class.opacity-50]="i !== layout.activeWorkspaceIndex()"
+            />
+            <span class="text-sm truncate flex-1">{{ folder.name }}</span>
+            @if (liveness.liveWorkspaces().has(folder.path)) {
+              <span
+                class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0"
+                [attr.data-test]="'workspace-sidebar-liveness-dot'"
+                title="Session running"
+              ></span>
+            }
+            <!-- Remove button (hover reveal) -->
+            <button
+              class="remove-btn opacity-0 btn btn-ghost btn-xs btn-square p-0 min-h-0 w-5 h-5 text-base-content/30 hover:text-error transition-opacity duration-200"
+              (click)="onRemoveFolder($event, i)"
+              title="Remove workspace"
+              aria-label="Remove workspace"
+            >
+              <lucide-angular [img]="XIcon" class="w-3 h-3" />
+            </button>
+          </div>
         } @empty {
-        <div
-          class="flex flex-col items-center justify-center py-8 text-center px-4"
-        >
-          <lucide-angular
-            [img]="FolderOpenIcon"
-            class="w-10 h-10 opacity-15 mb-2"
-          />
-          <span class="text-xs opacity-40">No workspaces open</span>
-          <span class="text-[10px] opacity-25 mt-1">
-            Add a folder to get started
-          </span>
-        </div>
+          <div
+            class="flex flex-col items-center justify-center py-8 text-center px-4"
+          >
+            <lucide-angular
+              [img]="FolderOpenIcon"
+              class="w-10 h-10 opacity-15 mb-2"
+            />
+            <span class="text-xs opacity-40">No workspaces open</span>
+            <span class="text-[10px] opacity-25 mt-1">
+              Add a folder to get started
+            </span>
+          </div>
         }
       </div>
 
@@ -107,6 +118,7 @@ import { ElectronLayoutService } from '@ptah-extension/core';
 })
 export class WorkspaceSidebarComponent {
   protected readonly layout = inject(ElectronLayoutService);
+  protected readonly liveness = inject(SessionLivenessRegistry);
 
   /** Sidebar width in pixels (controlled by parent via resize handle) */
   readonly width = input<number>(220);

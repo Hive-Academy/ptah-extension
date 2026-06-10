@@ -19,6 +19,8 @@ import {
   type PostToolUseCallbackRegistry,
   type PostToolUsePayload,
   type CuratorRateLimitService,
+  type UserPromptExpansionCallbackRegistry,
+  type UserPromptExpansionPayload,
 } from '@ptah-extension/agent-sdk';
 import {
   BootScanRunner,
@@ -26,6 +28,7 @@ import {
 } from '@ptah-extension/memory-curator';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import { SkillSynthesisService } from '../skill-synthesis.service';
+import { SkillInvocationRecorder } from '../skill-invocation-recorder';
 import {
   SKILL_TRIGGER_DEFAULTS,
   SKILL_TRIGGER_KEYS,
@@ -56,6 +59,7 @@ export class SkillTriggerService {
   private sessionEndDisposer: (() => void) | null = null;
   private subagentStopDisposer: (() => void) | null = null;
   private postToolUseDisposer: (() => void) | null = null;
+  private userPromptExpansionDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private readonly editTestStates = new Map<string, EditTestState>();
   private bootScanController: AbortController | null = null;
@@ -82,6 +86,10 @@ export class SkillTriggerService {
     private readonly postToolUseRegistry: PostToolUseCallbackRegistry,
     @inject(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT)
     private readonly rateLimiter: CuratorRateLimitService,
+    @inject(SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY)
+    private readonly userPromptExpansionRegistry: UserPromptExpansionCallbackRegistry,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_INVOCATION_RECORDER)
+    private readonly recorder: SkillInvocationRecorder,
   ) {}
 
   start(): void {
@@ -102,6 +110,10 @@ export class SkillTriggerService {
     this.postToolUseDisposer = this.postToolUseRegistry.register((payload) => {
       this.onPostToolUse(payload);
     });
+    this.userPromptExpansionDisposer =
+      this.userPromptExpansionRegistry.register((payload) => {
+        this.onUserPromptExpansion(payload);
+      });
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
@@ -117,10 +129,12 @@ export class SkillTriggerService {
     this.sessionEndDisposer?.();
     this.subagentStopDisposer?.();
     this.postToolUseDisposer?.();
+    this.userPromptExpansionDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
     this.subagentStopDisposer = null;
     this.postToolUseDisposer = null;
+    this.userPromptExpansionDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
@@ -213,6 +227,23 @@ export class SkillTriggerService {
     const minEditCount = this.readPostToolUseMinEditCount();
     const now = payload.timestamp;
 
+    if (payload.toolName === 'Skill') {
+      if (this.readSkillInvocationTelemetryEnabled()) {
+        const slug = this.extractSkillSlug(payload.toolInput);
+        if (slug) {
+          void this.recordInvocation({
+            slug,
+            sessionId: payload.sessionId,
+            workspaceRoot: payload.workspaceRoot,
+            succeeded: payload.success,
+            invokedAt: payload.timestamp,
+            source: 'tool-use',
+          });
+        }
+      }
+      return;
+    }
+
     if (EDIT_TOOL_NAMES.has(payload.toolName)) {
       let state = this.editTestStates.get(payload.sessionId);
       if (!state || now - state.windowStartAt > EDIT_WINDOW_MS) {
@@ -274,6 +305,76 @@ export class SkillTriggerService {
       'edit-then-test',
     );
     this.editTestStates.delete(payload.sessionId);
+  }
+
+  private onUserPromptExpansion(payload: UserPromptExpansionPayload): void {
+    if (!this.readSkillInvocationTelemetryEnabled()) return;
+    if (!payload.skillSlug || payload.skillSlug.length === 0) return;
+    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    void this.recordInvocation({
+      slug: payload.skillSlug,
+      sessionId: payload.sessionId,
+      workspaceRoot: payload.workspaceRoot,
+      succeeded: true,
+      invokedAt: payload.timestamp,
+      source: 'prompt-expansion',
+    });
+  }
+
+  private async recordInvocation(input: {
+    slug: string;
+    sessionId: string;
+    workspaceRoot: string;
+    succeeded: boolean;
+    invokedAt: number;
+    source: 'tool-use' | 'prompt-expansion';
+  }): Promise<void> {
+    try {
+      let contextId: string | null = null;
+      try {
+        const { fp } = await deriveWorkspaceFingerprint(
+          input.workspaceRoot,
+          this.fs,
+        );
+        contextId = fp;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          '[skill-synthesis] fingerprint failed for skill event',
+          { source: input.source, error: message },
+        );
+      }
+      this.recorder.recordSkillEvent({
+        slug: input.slug,
+        sessionId: input.sessionId,
+        workspaceRoot: input.workspaceRoot,
+        contextId,
+        succeeded: input.succeeded,
+        invokedAt: input.invokedAt,
+        source: input.source,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn('[skill-synthesis] recordInvocation failed', {
+        source: input.source,
+        error: message,
+      });
+    }
+  }
+
+  private extractSkillSlug(toolInput: unknown): string | null {
+    if (
+      typeof toolInput !== 'object' ||
+      toolInput === null ||
+      !('command' in toolInput)
+    ) {
+      return null;
+    }
+    const command = (toolInput as { command?: unknown }).command;
+    if (typeof command !== 'string') return null;
+    const first = command.trim().split(/\s+/)[0] ?? '';
+    const slug = first.startsWith('/') ? first.slice(1) : first;
+    return slug.length > 0 ? slug : null;
   }
 
   private extractBashCommand(toolInput: unknown): string | null {
@@ -406,6 +507,17 @@ export class SkillTriggerService {
     return typeof v === 'boolean'
       ? v
       : SKILL_TRIGGER_DEFAULTS.postToolUse.enabled;
+  }
+
+  private readSkillInvocationTelemetryEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.skillInvocationTelemetry.enabled,
+      SKILL_TRIGGER_DEFAULTS.skillInvocationTelemetry.enabled,
+    );
+    return typeof v === 'boolean'
+      ? v
+      : SKILL_TRIGGER_DEFAULTS.skillInvocationTelemetry.enabled;
   }
 
   private readPostToolUseMinEditCount(): number {

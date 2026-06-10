@@ -153,6 +153,8 @@ describe('TurnEndHandlerService', () => {
 
     const tabManagerMock = {
       findTabsBySessionId: findTabsBySessionIdMock,
+      findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
+      updateBackgroundTab: jest.fn(() => false),
       setTurnEndedFields: setTurnEndedFieldsMock,
       setLastTerminalReason: setLastTerminalReasonMock,
       setPendingBackgroundTasks: setPendingBackgroundTasksMock,
@@ -489,14 +491,14 @@ describe('TurnEndHandlerService', () => {
       expect(markLoadedMock).toHaveBeenCalledWith('tab-1');
     });
 
-    it('warns and no-ops when no tab is bound to the sessionId', () => {
+    it('warns and still runs onStopped when no tab is bound to the sessionId', () => {
       tabs = [];
 
       service.handleSubagentEnded(
         makeSubagentEndedPayload({ sessionId: SESS_UNKNOWN }),
       );
 
-      expect(onStoppedMock).not.toHaveBeenCalled();
+      expect(onStoppedMock).toHaveBeenCalledTimes(1);
       expect(setPendingBackgroundTasksMock).not.toHaveBeenCalled();
       expect(markLoadedMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(

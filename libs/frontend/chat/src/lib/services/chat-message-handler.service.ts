@@ -33,6 +33,7 @@ import { ChatStore } from './chat.store';
 import { MessageSenderService } from './message-sender.service';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import {
+  SessionLivenessRegistry,
   TabId,
   TabManagerService,
   type ClaudeSessionId,
@@ -44,6 +45,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
+  private readonly liveness = inject(SessionLivenessRegistry);
   private readonly messageSender = inject(MessageSenderService);
   /**
    * Authoritative StreamRouter.
@@ -137,6 +139,11 @@ export class ChatMessageHandler implements MessageHandler {
     }
   }
 
+  private workspaceFor(sessionId: string): string | undefined {
+    return this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)
+      ?.workspacePath;
+  }
+
   /**
    * CHAT_COMPLETE is intentionally NOT used to finalize streaming — it fires
    * per-turn (on each message_complete) and SESSION_STATS is the authoritative
@@ -150,7 +157,14 @@ export class ChatMessageHandler implements MessageHandler {
     const data = payload as { command?: unknown; tabId?: unknown };
     if (data.command !== 'clear') return;
     if (typeof data.tabId !== 'string') return;
-    if (!this.tabManager.tabs().some((t) => t.id === data.tabId)) return;
+    const target = this.tabManager.tabs().find((t) => t.id === data.tabId);
+    if (!target) return;
+    if (target.claudeSessionId) {
+      this.liveness.markIdle(
+        target.claudeSessionId,
+        this.workspaceFor(target.claudeSessionId),
+      );
+    }
     this.tabManager.resetTabToFresh(data.tabId);
   }
 
@@ -168,6 +182,12 @@ export class ChatMessageHandler implements MessageHandler {
         parsed.error,
       );
       return;
+    }
+    if (parsed.data.backgroundTasks.length === 0) {
+      this.liveness.markIdle(
+        parsed.data.sessionId,
+        this.workspaceFor(parsed.data.sessionId),
+      );
     }
     this.chatStore.handleSubagentEndedNotification(parsed.data);
   }
@@ -187,6 +207,12 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
+    const ws = this.workspaceFor(parsed.data.sessionId);
+    if (parsed.data.backgroundTasks.length > 0) {
+      this.liveness.markAwaitingBackground(parsed.data.sessionId, ws);
+    } else {
+      this.liveness.markIdle(parsed.data.sessionId, ws);
+    }
     this.chatStore.handleTurnEndedNotification(parsed.data);
   }
 
@@ -205,6 +231,10 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
+    this.liveness.markFailed(
+      parsed.data.sessionId,
+      this.workspaceFor(parsed.data.sessionId),
+    );
     this.chatStore.handleTurnFailedNotification(parsed.data);
   }
 
@@ -264,6 +294,12 @@ export class ChatMessageHandler implements MessageHandler {
       event: FlatStreamEventUnion;
     };
 
+    if (event?.sessionId) {
+      this.liveness.markStreaming(
+        event.sessionId,
+        this.workspaceFor(event.sessionId),
+      );
+    }
     this.chatStore.processStreamEvent(event, tabId, sessionId);
     const originTabId = tabId ? TabId.safeParse(tabId) : null;
     this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
