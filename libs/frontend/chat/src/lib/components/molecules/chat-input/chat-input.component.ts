@@ -21,6 +21,7 @@ import {
   ImagePlus,
   File as FileIcon,
   Folder as FolderIcon,
+  Mic,
 } from 'lucide-angular';
 import {
   InlineImageAttachment,
@@ -35,7 +36,9 @@ import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
+  VSCodeService,
 } from '@ptah-extension/core';
+import { VoiceInputService } from '../../../services/voice-input.service';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
 import {
@@ -200,6 +203,40 @@ interface PastedImage {
             >
               <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
             </button>
+            @if (isElectron) {
+              @if (isRecording()) {
+                <span class="text-[10px] text-error tabular-nums px-0.5">{{
+                  voiceElapsedLabel()
+                }}</span>
+              }
+              <button
+                [class]="
+                  'btn btn-ghost btn-xs btn-square ' +
+                  (isRecording()
+                    ? 'text-error animate-pulse'
+                    : 'text-base-content/50 hover:text-base-content/80')
+                "
+                [disabled]="isTranscribing()"
+                (click)="handleVoiceButton()"
+                [title]="
+                  isRecording()
+                    ? 'Stop recording'
+                    : isTranscribing()
+                      ? 'Transcribing...'
+                      : 'Record voice'
+                "
+                type="button"
+                data-testid="chat-voice-btn"
+              >
+                @if (isTranscribing()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                } @else if (isRecording()) {
+                  <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" />
+                } @else {
+                  <lucide-angular [img]="MicIcon" class="w-3.5 h-3.5" />
+                }
+              </button>
+            }
           </div>
           <textarea
             #inputElement
@@ -335,7 +372,19 @@ export class ChatInputComponent implements OnInit {
   });
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly vscodeService = inject(VSCodeService);
+  readonly voiceInput = inject(VoiceInputService);
   readonly filePicker = inject(FilePickerService);
+
+  readonly isElectron = this.vscodeService.isElectron;
+  readonly isRecording = this.voiceInput.isRecording;
+  readonly isTranscribing = this.voiceInput.isTranscribing;
+  readonly voiceElapsedLabel = computed(() => {
+    const total = this.voiceInput.elapsedSeconds();
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  });
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
   readonly authMethodLabel = signal<string | null>(null);
 
@@ -420,6 +469,7 @@ export class ChatInputComponent implements OnInit {
   readonly ImageIconRef = ImageIcon;
   readonly PaperclipIcon = Paperclip;
   readonly ImagePlusIcon = ImagePlus;
+  readonly MicIcon = Mic;
   private _lastSessionId: string | null = null;
   private readonly _currentMessage = signal('');
   private readonly _showSuggestions = signal(false);
@@ -705,6 +755,60 @@ export class ChatInputComponent implements OnInit {
     } finally {
       this._isPickingImages.set(false);
     }
+  }
+
+  async handleVoiceButton(): Promise<void> {
+    if (this.isTranscribing()) return;
+
+    if (this.isRecording()) {
+      const result = await this.voiceInput.stopRecording();
+      if (!result) return;
+      if (result.ok && result.transcript) {
+        this.insertTranscript(result.transcript);
+      } else if (!result.ok && result.error) {
+        this.showImageAttachmentError(result.error);
+      }
+      return;
+    }
+
+    await this.voiceInput.startRecording();
+    const error = this.voiceInput.error();
+    if (error) {
+      this.showImageAttachmentError(error);
+    }
+  }
+
+  private insertTranscript(transcript: string): void {
+    const text = transcript.trim();
+    if (!text) return;
+
+    const textarea = this.textareaRef()?.nativeElement;
+    const currentValue = this._currentMessage();
+
+    if (!textarea) {
+      const needsSpace =
+        currentValue.length > 0 && !currentValue.endsWith(' ') ? ' ' : '';
+      this._currentMessage.set(currentValue + needsSpace + text);
+      return;
+    }
+
+    const cursorStart = textarea.selectionStart ?? currentValue.length;
+    const cursorEnd = textarea.selectionEnd ?? currentValue.length;
+    const before = currentValue.substring(0, cursorStart);
+    const after = currentValue.substring(cursorEnd);
+    const atEndAfterText =
+      cursorStart === currentValue.length && before.length > 0;
+    const leadingSpace = atEndAfterText && !before.endsWith(' ') ? ' ' : '';
+    const insertion = leadingSpace + text;
+    const newValue = before + insertion + after;
+
+    this._currentMessage.set(newValue);
+    textarea.value = newValue;
+    const newCursorPos = cursorStart + insertion.length;
+    textarea.focus();
+    textarea.setSelectionRange(newCursorPos, newCursorPos);
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
   }
 
   /**

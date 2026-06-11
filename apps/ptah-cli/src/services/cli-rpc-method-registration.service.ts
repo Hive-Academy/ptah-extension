@@ -26,6 +26,7 @@ import {
   MemRpcHandlers,
   PersistenceRpcHandlers,
   SkillsSynthesisRpcHandlers,
+  VoiceRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import {
   wireSdkCallbacks,
@@ -83,6 +84,9 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'gateway:blockBinding',
   'gateway:listMessages',
   'gateway:test',
+  'voice:transcribe',
+  'voice:getConfig',
+  'voice:setConfig',
   'memory:list',
   'memory:search',
   'memory:get',
@@ -152,6 +156,7 @@ export class CliRpcMethodRegistrationService {
         CronRpcHandlers,
         EmbedderRpcHandlers,
         GatewayRpcHandlers,
+        VoiceRpcHandlers,
         MemoryRpcHandlers,
         MemRpcHandlers,
         CorpusRpcHandlers,

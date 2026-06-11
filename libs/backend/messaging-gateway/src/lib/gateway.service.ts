@@ -52,6 +52,7 @@ import {
   WhisperTranscriber,
   type WhisperDownloadEvent,
 } from './voice/whisper-transcriber';
+import { resolveWhisperModel } from './voice/resolve-whisper-model';
 import {
   GrammyTelegramAdapter,
   type TelegramBotFactory,
@@ -82,7 +83,6 @@ const SETTINGS_KEYS = {
   enabled: 'gateway.enabled',
   coalesceMs: 'gateway.coalesceMs',
   voiceEnabled: 'gateway.voice.enabled',
-  whisperModel: 'gateway.voice.whisperModel',
   rateLimitMinTimeMs: 'gateway.rateLimit.minTimeMs',
   rateLimitMaxConcurrent: 'gateway.rateLimit.maxConcurrent',
   telegram: {
@@ -941,12 +941,8 @@ export class GatewayService extends EventEmitter {
   bridgeWhisperEvents(): void {
     if (this.whisperEventsBridged) return;
     this.whisperEventsBridged = true;
-    const modelName = this.workspace.getConfiguration<string>(
-      'ptah',
-      SETTINGS_KEYS.whisperModel,
-      'base.en',
-    );
-    if (typeof modelName === 'string' && modelName.length > 0) {
+    const modelName = resolveWhisperModel(this.workspace);
+    if (modelName.length > 0) {
       this.whisper.configure({ modelName });
     }
     this.whisper.on('download', (evt: WhisperDownloadEvent) => {

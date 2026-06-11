@@ -116,7 +116,6 @@ export class GatewayStateService implements MessageHandler {
     minTimeMs: 500,
     maxConcurrent: 2,
   });
-  public readonly whisperModel = signal<string>('base.en');
   /** Persisted allow-list per platform (mirror of settings.json). */
   public readonly allowLists = signal<Record<GatewayPlatformId, string[]>>({
     telegram: [],
@@ -447,10 +446,6 @@ export class GatewayStateService implements MessageHandler {
 
   public setVoiceEnabled(enabled: boolean): void {
     this.voiceEnabled.set(enabled);
-  }
-
-  public setWhisperModel(name: string): void {
-    this.whisperModel.set(name);
   }
 
   public dismissVoiceToast(): void {

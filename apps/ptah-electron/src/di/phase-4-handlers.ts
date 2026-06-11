@@ -39,6 +39,7 @@ import {
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
   GatewayRpcHandlers,
+  VoiceRpcHandlers,
   IndexingRpcHandlers,
   SkillsShRpcHandlers,
   registerHarnessServices,
@@ -108,6 +109,7 @@ export function registerPhase4Handlers(
   container.registerSingleton(SkillsSynthesisRpcHandlers);
   container.registerSingleton(CronRpcHandlers);
   container.registerSingleton(GatewayRpcHandlers);
+  container.registerSingleton(VoiceRpcHandlers);
   container.registerSingleton(IndexingRpcHandlers);
 
   logger.info(

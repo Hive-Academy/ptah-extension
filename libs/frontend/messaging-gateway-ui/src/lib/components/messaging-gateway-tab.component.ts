@@ -184,10 +184,6 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                 <span class="text-base-content/70">{{ voiceEnabled() }}</span>
               </li>
               <li class="font-mono">
-                gateway.voice.whisperModel =
-                <span class="text-base-content/70">{{ whisperModel() }}</span>
-              </li>
-              <li class="font-mono">
                 gateway.rateLimit.minTimeMs =
                 <span class="text-base-content/70">
                   {{ rateLimit().minTimeMs }}
@@ -200,6 +196,12 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                 </span>
               </li>
             </ul>
+            <p
+              class="mt-2 text-xs text-base-content/50"
+              data-testid="gateway-voice-model-hint"
+            >
+              The Whisper voice model is configured in Settings.
+            </p>
           </div>
         </section>
       </div>
@@ -219,7 +221,6 @@ export class MessagingGatewayTabComponent implements OnInit {
   protected readonly platforms = this.state.platforms;
   protected readonly globalError = this.state.globalError;
   protected readonly voiceEnabled = this.state.voiceEnabled;
-  protected readonly whisperModel = this.state.whisperModel;
   protected readonly rateLimit = this.state.rateLimit;
   protected readonly voiceDownload = this.state.voiceDownload;
 

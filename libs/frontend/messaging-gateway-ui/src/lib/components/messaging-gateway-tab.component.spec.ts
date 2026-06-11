@@ -33,7 +33,6 @@ function makeStub() {
     }),
     globalError: signal<string | null>(null),
     voiceEnabled: signal(false),
-    whisperModel: signal('base.en'),
     rateLimit: signal<RateLimitView>({ minTimeMs: 500, maxConcurrent: 2 }),
     voiceDownload: signal<VoiceModelDownloadProgress | null>(null),
     testResult: signal<{
@@ -715,6 +714,24 @@ describe('MessagingGatewayTabComponent (shell)', () => {
       expect(pane(fixture, 'telegram').textContent).not.toContain(
         'discord exploded',
       );
+    });
+  });
+
+  describe('voice & rate-limit card', () => {
+    it('no longer renders the whisperModel row and points to Settings', () => {
+      const { fixture } = mount();
+
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'gateway.voice.whisperModel',
+      );
+      expect(fixture.nativeElement.textContent).toContain(
+        'gateway.voice.enabled',
+      );
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-voice-model-hint"]',
+        )?.textContent,
+      ).toContain('configured in Settings');
     });
   });
 

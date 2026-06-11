@@ -38,6 +38,7 @@ export { IndexingRpcHandlers } from './indexing-rpc.handlers';
 export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 export { CronRpcHandlers } from './cron-rpc.handlers';
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';
+export { VoiceRpcHandlers } from './voice-rpc.handlers';
 export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,

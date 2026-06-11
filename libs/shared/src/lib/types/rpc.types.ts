@@ -1506,6 +1506,19 @@ export interface RpcMethodRegistry {
     result: GatewayListDiscordGuildsResult;
   };
 
+  'voice:transcribe': {
+    params: VoiceTranscribeParams;
+    result: VoiceTranscribeResult;
+  };
+  'voice:getConfig': {
+    params: VoiceGetConfigParams;
+    result: VoiceGetConfigResult;
+  };
+  'voice:setConfig': {
+    params: VoiceSetConfigParams;
+    result: VoiceSetConfigResult;
+  };
+
   'db:health': {
     params: { fullCheck?: boolean };
     result: DbHealthResult;
@@ -1886,6 +1899,33 @@ export type GatewayListDiscordGuildsParams = Record<string, never>;
 export interface GatewayListDiscordGuildsResult {
   guilds: GatewayDiscordGuildDto[];
 }
+
+export interface VoiceTranscribeParams {
+  /** Base64-encoded audio recording from the renderer (MediaRecorder output). */
+  audioBase64: string;
+  /** MIME type of the recording, e.g. 'audio/webm' or 'audio/webm;codecs=opus'. */
+  mimeType: string;
+}
+
+export type VoiceTranscribeResult =
+  | { ok: true; transcript: string }
+  | { ok: false; error: string };
+
+export interface VoiceConfigDto {
+  whisperModel: string;
+}
+
+export type VoiceGetConfigParams = Record<string, never>;
+
+export type VoiceGetConfigResult =
+  | { ok: true; config: VoiceConfigDto }
+  | { ok: false; error: string };
+
+export interface VoiceSetConfigParams {
+  whisperModel: string;
+}
+
+export type VoiceSetConfigResult = { ok: true } | { ok: false; error: string };
 
 export interface ScheduledJobDto {
   id: string;
@@ -2281,6 +2321,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:setDiscordAppId': true,
   'gateway:registerDiscordCommands': true,
   'gateway:listDiscordGuilds': true,
+
+  'voice:transcribe': true,
+  'voice:getConfig': true,
+  'voice:setConfig': true,
 
   'db:health': true,
   'db:reset': true,

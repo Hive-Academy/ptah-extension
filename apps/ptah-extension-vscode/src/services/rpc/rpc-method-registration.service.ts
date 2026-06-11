@@ -32,6 +32,7 @@ import {
   PersistenceRpcHandlers,
   SkillsSynthesisRpcHandlers,
   IndexingRpcHandlers,
+  VoiceRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
 import { wireSessionMetadataEvents } from '@ptah-extension/agent-sdk';
@@ -94,6 +95,7 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   ...CronRpcHandlers.METHODS,
   ...EmbedderRpcHandlers.METHODS,
   ...GatewayRpcHandlers.METHODS,
+  ...VoiceRpcHandlers.METHODS,
   ...MemoryRpcHandlers.METHODS,
   ...MemRpcHandlers.METHODS,
   ...CorpusRpcHandlers.METHODS,
@@ -135,6 +137,7 @@ export class RpcMethodRegistrationService {
         CronRpcHandlers,
         EmbedderRpcHandlers,
         GatewayRpcHandlers,
+        VoiceRpcHandlers,
         MemoryRpcHandlers,
         MemRpcHandlers,
         CorpusRpcHandlers,

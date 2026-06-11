@@ -63,6 +63,13 @@ export type {
   NodejsWhisperApi,
   NodejsWhisperLoader,
 } from './lib/voice/whisper-transcriber';
+export {
+  resolveWhisperModel,
+  VOICE_WHISPER_MODEL_KEY,
+  LEGACY_GATEWAY_WHISPER_MODEL_KEY,
+  DEFAULT_WHISPER_MODEL,
+} from './lib/voice/resolve-whisper-model';
+export type { WhisperModelConfigReader } from './lib/voice/resolve-whisper-model';
 
 export { BindingId, ConversationKey, GatewayMessageId } from './lib/types';
 export type {
