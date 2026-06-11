@@ -13,6 +13,7 @@ import * as agentCliCmd from './commands/agent-cli.js';
 import * as analyzeCmd from './commands/analyze.js';
 import * as authCmd from './commands/auth.js';
 import * as configCmd from './commands/config.js';
+import * as cronCmd from './commands/cron.js';
 import * as doctorCmd from './commands/doctor.js';
 import * as executeSpecCmd from './commands/execute-spec.js';
 import * as gitCmd from './commands/git.js';
@@ -21,6 +22,7 @@ import * as initCmd from './commands/init.js';
 import * as interactCmd from './commands/interact.js';
 import * as licenseCmd from './commands/license.js';
 import * as mcpCmd from './commands/mcp.js';
+import * as memoryCmd from './commands/memory.js';
 import * as mcpServeCmd from './commands/mcp-serve.js';
 import * as pluginCmd from './commands/plugin.js';
 import * as promptsCmd from './commands/prompts.js';
@@ -135,6 +137,15 @@ function collectCsv(raw: string): string[] {
     .split(',')
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0);
+}
+
+/**
+ * Commander value coercer for boolean flags that take an explicit value
+ * (`--enabled true|false`). Accepts `true|1|yes|on` (case-insensitive) as
+ * truthy; everything else is false. Used by `cron create|update|toggle`.
+ */
+function parseBoolFlag(raw: string): boolean {
+  return ['true', '1', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
 
 /**
@@ -2345,6 +2356,284 @@ export function buildRouter(): Command {
     .action(async (opts: { allowTools?: string[] }) => {
       const exit = await mcpServeCmd.execute(
         opts.allowTools !== undefined ? { allowTools: opts.allowTools } : {},
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah memory -----------------------------------------------------------
+  // Backed by shared MemoryRpcHandlers over the `memory:*` namespace. Runs
+  // under the Thoth one-shot tier so the SQLite store opens + migrates for the
+  // duration of the command and exits cleanly. Read verbs attach a `degraded`
+  // field derived from db:health + embedder:status.
+  const memory = program
+    .command('memory')
+    .description(
+      'inspect and curate Memory Curator entries (list / search / get / stats / pin / unpin / forget)',
+    );
+
+  memory
+    .command('list')
+    .description('emit memory.list via memory:list')
+    .option('--tier <tier>', 'filter by tier (core|recall|archival)')
+    .option('--limit <n>', 'max entries to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .option('--offset <n>', 'page offset', (raw) => Number.parseInt(raw, 10))
+    .action(
+      async (opts: { tier?: string; limit?: number; offset?: number }) => {
+        const exit = await memoryCmd.execute(
+          {
+            subcommand: 'list',
+            tier: opts.tier,
+            limit: opts.limit,
+            offset: opts.offset,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  memory
+    .command('search <query>')
+    .description('hybrid BM25+vec search via memory:search')
+    .option('--top-k <n>', 'max hits to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (query: string, opts: { topK?: number }) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'search', query, topK: opts.topK },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('get <id>')
+    .description('emit memory.entry (memory + chunks) via memory:get')
+    .action(async (id: string) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'get', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('stats')
+    .description(
+      'emit memory.stats (per-tier counts + lastCuratedAt) via memory:stats',
+    )
+    .action(async () => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'stats' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('pin <id>')
+    .description('pin a memory via memory:pin and emit memory.pinned')
+    .action(async (id: string) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'pin', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('unpin <id>')
+    .description('unpin a memory via memory:unpin and emit memory.pinned')
+    .action(async (id: string) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'unpin', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('forget <id>')
+    .description('delete a memory via memory:forget and emit memory.forgotten')
+    .action(async (id: string) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'forget', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah cron -------------------------------------------------------------
+  // Backed by shared CronRpcHandlers over the `cron:*` namespace. Runs under
+  // the Thoth one-shot tier — store-backed verbs only; the scheduler loop
+  // itself runs in the long-running `runtime` tier (ptah interact / session).
+  const cron = program
+    .command('cron')
+    .description(
+      'manage scheduled jobs (list / get / create / update / delete / toggle / run-now / runs / next-fire)',
+    );
+
+  cron
+    .command('list')
+    .description('emit cron.list via cron:list')
+    .option('--enabled-only', 'only include enabled jobs', false)
+    .action(async (opts: { enabledOnly?: boolean }) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'list', enabledOnly: opts.enabledOnly === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('get <id>')
+    .description('emit cron.job via cron:get')
+    .action(async (id: string) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'get', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('create')
+    .description('create a scheduled job via cron:create and emit cron.created')
+    .requiredOption('--name <name>', 'job name')
+    .requiredOption('--cron-expr <expr>', 'cron expression (e.g. "0 9 * * *")')
+    .requiredOption('--prompt <text>', 'prompt to run on each fire')
+    .option('--timezone <tz>', 'IANA timezone (defaults to backend default)')
+    .option('--workspace-root <dir>', 'workspace root scope for the job')
+    .option('--enabled <bool>', 'initial enabled state', parseBoolFlag)
+    .action(
+      async (opts: {
+        name: string;
+        cronExpr: string;
+        prompt: string;
+        timezone?: string;
+        workspaceRoot?: string;
+        enabled?: boolean;
+      }) => {
+        const exit = await cronCmd.execute(
+          {
+            subcommand: 'create',
+            name: opts.name,
+            cronExpr: opts.cronExpr,
+            prompt: opts.prompt,
+            timezone: opts.timezone,
+            workspaceRoot: opts.workspaceRoot,
+            enabled: opts.enabled,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  cron
+    .command('update <id>')
+    .description(
+      'patch a scheduled job via cron:update (any subset of fields) and emit cron.updated',
+    )
+    .option('--name <name>', 'new job name')
+    .option('--cron-expr <expr>', 'new cron expression')
+    .option('--prompt <text>', 'new prompt')
+    .option('--timezone <tz>', 'new IANA timezone')
+    .option('--workspace-root <dir>', 'new workspace root scope')
+    .option('--enabled <bool>', 'new enabled state', parseBoolFlag)
+    .action(
+      async (
+        id: string,
+        opts: {
+          name?: string;
+          cronExpr?: string;
+          prompt?: string;
+          timezone?: string;
+          workspaceRoot?: string;
+          enabled?: boolean;
+        },
+      ) => {
+        const exit = await cronCmd.execute(
+          {
+            subcommand: 'update',
+            id,
+            name: opts.name,
+            cronExpr: opts.cronExpr,
+            prompt: opts.prompt,
+            timezone: opts.timezone,
+            workspaceRoot: opts.workspaceRoot,
+            enabled: opts.enabled,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  cron
+    .command('delete <id>')
+    .description('delete a scheduled job via cron:delete and emit cron.deleted')
+    .action(async (id: string) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'delete', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('toggle <id>')
+    .description('enable/disable a job via cron:toggle and emit cron.toggled')
+    .requiredOption(
+      '--enabled <bool>',
+      'enabled state (true|false)',
+      parseBoolFlag,
+    )
+    .action(async (id: string, opts: { enabled: boolean }) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'toggle', id, enabled: opts.enabled },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('run-now <id>')
+    .description('trigger an immediate run via cron:runNow and emit cron.run')
+    .action(async (id: string) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'run-now', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('runs <id>')
+    .description('emit cron.runs (run history) via cron:runs')
+    .option('--limit <n>', 'max runs to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .option('--offset <n>', 'page offset', (raw) => Number.parseInt(raw, 10))
+    .action(async (id: string, opts: { limit?: number; offset?: number }) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'runs', id, limit: opts.limit, offset: opts.offset },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('next-fire <id>')
+    .description(
+      'emit cron.next_fire (next scheduled timestamp) via cron:nextFire',
+    )
+    .action(async (id: string) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'next-fire', id },
         resolveGlobals(program),
       );
       process.exitCode = exit;
