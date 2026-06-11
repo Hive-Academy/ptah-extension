@@ -82,6 +82,7 @@ export class ChatStreamBroadcaster {
     sessionId: SessionId,
     stream: AsyncIterable<FlatStreamEventUnion>,
     tabId: string,
+    surfaceMode?: boolean,
   ): Promise<void> {
     this.logger.info(
       `[RPC] streamExecutionNodesToWebview STARTED for session ${sessionId}, tabId ${tabId}`,
@@ -138,6 +139,7 @@ export class ChatStreamBroadcaster {
           tabId, // For frontend tab routing
           sessionId: event.sessionId, // Real SDK UUID from the event
           event,
+          ...(surfaceMode ? { surfaceMode: true } : {}),
         });
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
@@ -162,6 +164,7 @@ export class ChatStreamBroadcaster {
               tabId,
               sessionId,
               code: 0,
+              ...(surfaceMode ? { surfaceMode: true } : {}),
             },
           );
         }
@@ -174,6 +177,7 @@ export class ChatStreamBroadcaster {
             tabId,
             sessionId,
             code: 0,
+            ...(surfaceMode ? { surfaceMode: true } : {}),
           },
         );
       }
@@ -225,6 +229,7 @@ export class ChatStreamBroadcaster {
           error: isCorruptedResume
             ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
             : errorMessage,
+          ...(surfaceMode ? { surfaceMode: true } : {}),
         });
       }
     } finally {

@@ -1,9 +1,11 @@
 /**
- * HarnessRpcHandlers — thin facade specs. Locks four invariants:
- *   1. `register()` wires exactly the sixteen `METHODS` entries, in order.
+ * HarnessRpcHandlers — thin facade specs. Locks these invariants:
+ *   1. `register()` wires exactly the `METHODS` entries, in order.
  *   2. Each method delegates to the expected service on the happy path.
  *   3. `runRpc` funnels thrown errors into Sentry + re-throws (via design-agents).
- *   4. `harness:chat` swallows service errors and returns the fallback reply.
+ *   4. `harness:start-new-project` enables the SaaS plugin, focuses chat,
+ *      broadcasts the workflow-open message, and is best-effort on soft fails.
+ *   5. `harness:workflow-prompt` delegates to HarnessWorkflowPromptService.
  * Service-level behaviour (LLM, streams, fs I/O) lives in per-service specs.
  */
 
@@ -23,9 +25,17 @@ import type {
   PluginLoaderService,
   SkillJunctionService,
 } from '@ptah-extension/agent-sdk';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
+import type {
+  IWorkspaceProvider,
+  IPlatformCommands,
+} from '@ptah-extension/platform-core';
+import {
+  createMockWorkspaceProvider,
+  createMockPlatformCommands,
+  type MockPlatformCommands,
+} from '@ptah-extension/platform-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
+import type { DependencyContainer } from 'tsyringe';
 
 import { HarnessRpcHandlers } from './harness-rpc.handlers';
 import type { HarnessWorkspaceContextService } from '../harness/workspace/harness-workspace-context.service';
@@ -35,16 +45,55 @@ import type { HarnessSkillGenerationService } from '../harness/ai/harness-skill-
 import type { HarnessDocumentGenerationService } from '../harness/ai/harness-document-generation.service';
 import type { HarnessPromptBuilderService } from '../harness/config/harness-prompt-builder.service';
 import type { HarnessConfigStore } from '../harness/config/harness-config-store.service';
-import type { HarnessChatService } from '../harness/ai/harness-chat.service';
+import type { HarnessAgentFileWriterService } from '../harness/config/harness-agent-file-writer.service';
+import type { HarnessWorkflowPromptService } from '../harness/ai/harness-workflow-prompt.service';
 import type { HarnessFsService } from '../harness/io/harness-fs.service';
 
 type Mocked<T> = jest.Mocked<T>;
+
+interface MockContainer extends jest.Mocked<
+  Pick<DependencyContainer, 'resolve'>
+> {
+  __register(token: symbol | string, service: unknown): void;
+}
+
+function createMockContainer(): MockContainer {
+  const services = new Map<symbol | string, unknown>();
+  const mock = {
+    resolve: jest.fn((token: symbol | string): unknown => {
+      if (services.has(token)) {
+        return services.get(token);
+      }
+      throw new Error(
+        `MockContainer: no service registered for token ${String(token)}`,
+      );
+    }),
+    __register(token: symbol | string, service: unknown): void {
+      services.set(token, service);
+    },
+  } as unknown as MockContainer;
+  return mock;
+}
 
 interface Suite {
   handlers: HarnessRpcHandlers;
   rpc: MockRpcHandler;
   sentry: ReturnType<typeof createMockSentryService>;
   logger: ReturnType<typeof createMockLogger>;
+  pluginLoader: jest.Mocked<
+    Pick<
+      PluginLoaderService,
+      | 'getWorkspacePluginConfig'
+      | 'resolvePluginPaths'
+      | 'saveWorkspacePluginConfig'
+      | 'resolveCurrentPluginPaths'
+      | 'discoverSkillsForPlugins'
+      | 'getDisabledSkillIds'
+    >
+  >;
+  skillJunction: Mocked<SkillJunctionService>;
+  platformCommands: MockPlatformCommands;
+  container: MockContainer;
   workspaceContext: Mocked<HarnessWorkspaceContextService>;
   suggestion: Mocked<HarnessSuggestionService>;
   subagentDesign: Mocked<HarnessSubagentDesignService>;
@@ -52,7 +101,8 @@ interface Suite {
   documentGeneration: Mocked<HarnessDocumentGenerationService>;
   promptBuilder: Mocked<HarnessPromptBuilderService>;
   configStore: Mocked<HarnessConfigStore>;
-  chat: Mocked<HarnessChatService>;
+  agentFileWriter: Mocked<HarnessAgentFileWriterService>;
+  workflowPrompt: Mocked<HarnessWorkflowPromptService>;
   fsService: Mocked<HarnessFsService>;
 }
 
@@ -65,13 +115,23 @@ function buildSuite(): Suite {
     resolveCurrentPluginPaths: jest.fn().mockReturnValue([]),
     discoverSkillsForPlugins: jest.fn().mockReturnValue([]),
     getDisabledSkillIds: jest.fn().mockReturnValue([]),
-  } as unknown as PluginLoaderService;
+    getWorkspacePluginConfig: jest.fn().mockReturnValue({
+      enabledPluginIds: [],
+      disabledSkillIds: [],
+    }),
+    resolvePluginPaths: jest.fn().mockReturnValue([]),
+    saveWorkspacePluginConfig: jest.fn().mockResolvedValue(undefined),
+  } as unknown as Suite['pluginLoader'];
   const skillJunction = {
-    createJunctions: jest.fn(),
-  } as unknown as SkillJunctionService;
+    createJunctions: jest
+      .fn()
+      .mockReturnValue({ created: 0, skipped: 0, removed: 0, errors: [] }),
+  } as unknown as Mocked<SkillJunctionService>;
   const workspaceProvider = createMockWorkspaceProvider({
     folders: ['/ws'],
   }) as unknown as IWorkspaceProvider;
+  const platformCommands = createMockPlatformCommands();
+  const container = createMockContainer();
 
   const workspaceContext = {
     requireWorkspaceRoot: jest.fn().mockReturnValue('/ws'),
@@ -141,11 +201,15 @@ function buildSuite(): Suite {
     { settingsPath: '/ptah/settings.json' },
   ) as unknown as Mocked<HarnessConfigStore>;
 
-  const chat = {
-    buildIntelligentChatReply: jest.fn().mockResolvedValue({ reply: 'hi' }),
-    converseWithUser: jest.fn().mockResolvedValue({ reply: 'ok' }),
-    buildChatReplyFallback: jest.fn().mockReturnValue('fallback reply'),
-  } as unknown as Mocked<HarnessChatService>;
+  const agentFileWriter = {
+    writeSubagentFiles: jest
+      .fn()
+      .mockResolvedValue({ writtenPaths: [], warnings: [] }),
+  } as unknown as Mocked<HarnessAgentFileWriterService>;
+
+  const workflowPrompt = {
+    composePrompt: jest.fn().mockResolvedValue({ prompt: 'WORKFLOW PROMPT' }),
+  } as unknown as Mocked<HarnessWorkflowPromptService>;
 
   const fsService = {
     createSkillPlugin: jest.fn().mockResolvedValue({
@@ -153,6 +217,7 @@ function buildSuite(): Suite {
       skillPath:
         '/home/user/.ptah/plugins/ptah-harness-demo-skill/skills/demo-skill/SKILL.md',
     }),
+    discoverHarnessPluginPaths: jest.fn().mockResolvedValue([]),
     discoverMcpServers: jest.fn().mockResolvedValue({
       servers: [
         {
@@ -169,9 +234,11 @@ function buildSuite(): Suite {
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
     sentry as unknown as SentryService,
-    pluginLoader,
+    pluginLoader as unknown as PluginLoaderService,
     skillJunction,
     workspaceProvider,
+    platformCommands as unknown as IPlatformCommands,
+    container as unknown as DependencyContainer,
     workspaceContext,
     suggestion,
     subagentDesign,
@@ -179,7 +246,8 @@ function buildSuite(): Suite {
     documentGeneration,
     promptBuilder,
     configStore,
-    chat,
+    agentFileWriter,
+    workflowPrompt,
     fsService,
   );
 
@@ -188,6 +256,10 @@ function buildSuite(): Suite {
     rpc,
     sentry,
     logger,
+    pluginLoader,
+    skillJunction,
+    platformCommands,
+    container,
     workspaceContext,
     suggestion,
     subagentDesign,
@@ -195,7 +267,8 @@ function buildSuite(): Suite {
     documentGeneration,
     promptBuilder,
     configStore,
-    chat,
+    agentFileWriter,
+    workflowPrompt,
     fsService,
   };
 }
@@ -215,8 +288,8 @@ function getHandler(
 const persona = { label: 'L', description: 'D', goals: [] };
 const config = { name: 'x' } as unknown as Record<string, unknown>;
 
-describe('HarnessRpcHandlers (Wave C7d thin facade)', () => {
-  it('register() wires exactly the sixteen METHODS tuple entries, in order', () => {
+describe('HarnessRpcHandlers (thin facade)', () => {
+  it('register() wires exactly the METHODS tuple entries, in order', () => {
     const { handlers, rpc } = buildSuite();
     handlers.register();
     const registered = (rpc.registerMethod as jest.Mock).mock.calls.map(
@@ -322,13 +395,12 @@ describe('HarnessRpcHandlers (Wave C7d thin facade)', () => {
           expect(s.configStore.loadPresetsFromDisk).toHaveBeenCalled(),
       },
       {
-        method: 'harness:converse',
-        params: { message: 'hi', history: [], config: {} },
+        method: 'harness:workflow-prompt',
+        params: { mode: 'configure-harness', intent: 'build a CRM harness' },
         assert: (s) =>
-          expect(s.chat.converseWithUser).toHaveBeenCalledWith({
-            message: 'hi',
-            history: [],
-            config: {},
+          expect(s.workflowPrompt.composePrompt).toHaveBeenCalledWith({
+            mode: 'configure-harness',
+            intent: 'build a CRM harness',
           }),
       },
       {
@@ -414,24 +486,298 @@ describe('HarnessRpcHandlers (Wave C7d thin facade)', () => {
     );
   });
 
-  it('harness:chat returns the fallback reply when the chat service rejects', async () => {
-    const suite = buildSuite();
-    const err = new Error('llm unavailable');
-    suite.chat.buildIntelligentChatReply.mockRejectedValueOnce(err);
-    suite.handlers.register();
-
-    const result = await getHandler(
-      suite.rpc,
-      'harness:chat',
-    )({ step: 'persona', message: 'hello', context: {} });
-
-    expect(result).toEqual({ reply: 'fallback reply' });
-    expect(suite.chat.buildChatReplyFallback).toHaveBeenCalledWith(
-      'persona',
-      'hello',
+  describe('harness:start-new-project', () => {
+    const WEBVIEW_MANAGER = Symbol.for('WebviewManager');
+    const WIZARD_WEBVIEW_LIFECYCLE = Symbol.for(
+      'WizardWebviewLifecycleService',
     );
-    expect(suite.sentry.captureException).toHaveBeenCalledWith(err, {
-      errorSource: 'HarnessRpcHandlers.registerChat',
+
+    it('enables the SaaS plugin, refreshes junctions, focuses chat, broadcasts, and disposes the wizard panel', async () => {
+      const suite = buildSuite();
+      suite.pluginLoader.resolvePluginPaths.mockReturnValue([
+        '/plugins/ptah-nx-saas',
+      ]);
+      const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+      const disposeWebview = jest.fn();
+      suite.container.__register(WEBVIEW_MANAGER, { broadcastMessage });
+      suite.container.__register(WIZARD_WEBVIEW_LIFECYCLE, { disposeWebview });
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({});
+
+      expect(result).toEqual({ success: true });
+      expect(suite.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalledWith(
+        {
+          enabledPluginIds: ['ptah-nx-saas'],
+          disabledSkillIds: [],
+        },
+      );
+      expect(suite.skillJunction.createJunctions).toHaveBeenCalled();
+      expect(suite.platformCommands.focusChat).toHaveBeenCalled();
+      expect(broadcastMessage).toHaveBeenCalledWith(
+        'harness:open-workflow',
+        expect.objectContaining({
+          mode: 'new-project',
+          seedPrompt: expect.stringContaining('saas-workspace-initializer'),
+        }),
+      );
+      expect(disposeWebview).toHaveBeenCalledWith('ptah.setupWizard');
+    });
+
+    it('skips plugin enablement + junction refresh when ptah-nx-saas is already enabled', async () => {
+      const suite = buildSuite();
+      suite.pluginLoader.getWorkspacePluginConfig.mockReturnValue({
+        enabledPluginIds: ['ptah-nx-saas'],
+        disabledSkillIds: [],
+      });
+      suite.container.__register(WEBVIEW_MANAGER, {
+        broadcastMessage: jest.fn().mockResolvedValue(undefined),
+      });
+      suite.container.__register(WIZARD_WEBVIEW_LIFECYCLE, {
+        disposeWebview: jest.fn(),
+      });
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({});
+
+      expect(result).toEqual({ success: true });
+      expect(
+        suite.pluginLoader.saveWorkspacePluginConfig,
+      ).not.toHaveBeenCalled();
+      expect(suite.skillJunction.createJunctions).not.toHaveBeenCalled();
+    });
+
+    it('returns success even when broadcast / dispose services are missing (best-effort)', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({});
+
+      expect(result).toEqual({ success: true });
+      expect(suite.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalled();
+    });
+
+    it('returns a structured error + captures Sentry when plugin save throws', async () => {
+      const suite = buildSuite();
+      const boom = new Error('save failed');
+      suite.pluginLoader.saveWorkspacePluginConfig.mockRejectedValueOnce(boom);
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({});
+
+      expect(result).toEqual({ success: false, error: 'save failed' });
+      expect(suite.sentry.captureException).toHaveBeenCalledWith(boom, {
+        errorSource: 'HarnessRpcHandlers.registerStartNewProject',
+      });
+    });
+  });
+
+  describe('harness:apply', () => {
+    function normalizedConfig(
+      overrides: Record<string, unknown> = {},
+    ): Record<string, unknown> {
+      return {
+        name: 'demo-harness',
+        persona: { label: '', description: '', goals: [] },
+        agents: { enabledAgents: {}, harnessSubagents: [] },
+        skills: { selectedSkills: [], createdSkills: [] },
+        prompt: { systemPrompt: '', enhancedSections: {} },
+        mcp: { servers: [], enabledTools: {} },
+        claudeMd: {
+          generateProjectClaudeMd: true,
+          customSections: {},
+          previewContent: '',
+        },
+        createdAt: 'now',
+        updatedAt: 'now',
+        ...overrides,
+      };
+    }
+
+    function applyWith(
+      suite: Suite,
+      config: Record<string, unknown>,
+    ): Promise<unknown> {
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+      return getHandler(
+        suite.rpc,
+        'harness:apply',
+      )({ config, outputFormat: 'json' });
+    }
+
+    it('materializes subagent files and includes written paths in appliedPaths', async () => {
+      const suite = buildSuite();
+      suite.agentFileWriter.writeSubagentFiles.mockResolvedValue({
+        writtenPaths: ['/ws/.claude/agents/sentiment-watchdog.md'],
+        warnings: [],
+      });
+      const subagents = [
+        {
+          id: 'sentiment-watchdog',
+          name: 'Sentiment Watchdog',
+          description: 'watches sentiment',
+          role: 'monitor',
+          tools: ['Read'],
+          executionMode: 'background',
+          instructions: 'do the thing',
+        },
+      ];
+      const config = normalizedConfig({
+        agents: { enabledAgents: {}, harnessSubagents: subagents },
+      });
+
+      const result = (await applyWith(suite, config)) as {
+        appliedPaths: string[];
+        warnings: string[];
+      };
+
+      expect(suite.agentFileWriter.writeSubagentFiles).toHaveBeenCalledWith(
+        '/ws',
+        subagents,
+      );
+      expect(result.appliedPaths).toContain(
+        '/ws/.claude/agents/sentiment-watchdog.md',
+      );
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('surfaces per-agent failures as warnings', async () => {
+      const suite = buildSuite();
+      suite.agentFileWriter.writeSubagentFiles.mockResolvedValue({
+        writtenPaths: [],
+        warnings: ['Failed to write agent broken.md: disk full'],
+      });
+      const config = normalizedConfig({
+        agents: {
+          enabledAgents: {},
+          harnessSubagents: [
+            {
+              id: 'broken',
+              name: 'Broken',
+              description: 'd',
+              role: 'r',
+              tools: [],
+              executionMode: 'on-demand',
+              instructions: 'i',
+            },
+          ],
+        },
+      });
+
+      const result = (await applyWith(suite, config)) as {
+        warnings: string[];
+      };
+
+      expect(result.warnings).toContain(
+        'Failed to write agent broken.md: disk full',
+      );
+    });
+
+    it('skips subagent materialization with a warning when no workspace is open', async () => {
+      const suite = buildSuite();
+      (
+        suite.handlers as unknown as {
+          workspaceProvider: { getWorkspaceRoot: jest.Mock };
+        }
+      ).workspaceProvider = {
+        getWorkspaceRoot: jest.fn().mockReturnValue(undefined),
+      };
+      const config = normalizedConfig({
+        claudeMd: {
+          generateProjectClaudeMd: false,
+          customSections: {},
+          previewContent: '',
+        },
+        agents: {
+          enabledAgents: {},
+          harnessSubagents: [
+            {
+              id: 'a',
+              name: 'A',
+              description: 'd',
+              role: 'r',
+              tools: [],
+              executionMode: 'on-demand',
+              instructions: 'i',
+            },
+          ],
+        },
+      });
+
+      const result = (await applyWith(suite, config)) as {
+        warnings: string[];
+      };
+
+      expect(suite.agentFileWriter.writeSubagentFiles).not.toHaveBeenCalled();
+      expect(result.warnings).toContain(
+        'No workspace folder open. Subagent files were not generated.',
+      );
+    });
+
+    it('junctions harness plugin skills when created skills exist', async () => {
+      const suite = buildSuite();
+      suite.pluginLoader.resolveCurrentPluginPaths.mockReturnValue([
+        '/plugins/ptah-core',
+      ]);
+      suite.fsService.discoverHarnessPluginPaths.mockResolvedValue([
+        '/home/user/.ptah/plugins/ptah-harness-demo-skill',
+      ]);
+      const config = normalizedConfig({
+        skills: {
+          selectedSkills: [],
+          createdSkills: [
+            { name: 'demo-skill', description: 'd', content: 'c' },
+          ],
+        },
+      });
+
+      await applyWith(suite, config);
+
+      expect(suite.fsService.discoverHarnessPluginPaths).toHaveBeenCalled();
+      expect(suite.skillJunction.createJunctions).toHaveBeenCalledWith(
+        [
+          '/plugins/ptah-core',
+          '/home/user/.ptah/plugins/ptah-harness-demo-skill',
+        ],
+        [],
+      );
+    });
+  });
+
+  describe('harness:workflow-prompt', () => {
+    it('returns the prompt composed by HarnessWorkflowPromptService', async () => {
+      const suite = buildSuite();
+      suite.workflowPrompt.composePrompt.mockResolvedValueOnce({
+        prompt: 'Project: demo (node)\nproposeConfig\nbuild a CRM harness',
+      });
+      suite.handlers.register();
+
+      const result = (await getHandler(
+        suite.rpc,
+        'harness:workflow-prompt',
+      )({ mode: 'configure-harness', intent: 'build a CRM harness' })) as {
+        prompt: string;
+      };
+
+      expect(result.prompt).toContain('proposeConfig');
+      expect(result.prompt).toContain('build a CRM harness');
+      expect(suite.workflowPrompt.composePrompt).toHaveBeenCalledWith({
+        mode: 'configure-harness',
+        intent: 'build a CRM harness',
+      });
     });
   });
 });
