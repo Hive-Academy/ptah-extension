@@ -26,6 +26,13 @@ import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manag
 import { emitFatalError } from '../output/stderr-json.js';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
+import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  activateThoth,
+  disposeThoth,
+  type ThothRefs,
+  type ThothTier,
+} from './thoth-runtime.js';
 
 /**
  * Lightweight contract for the SDK agent adapter as resolved out of the DI
@@ -94,6 +101,15 @@ interface SdkPermissionHandlerLifecycle {
 const WORKSPACE_PROVIDER_TOKEN = Symbol.for('WorkspaceProvider');
 
 /**
+ * Symbol token for the Logger binding registered by `CliDIContainer.setup`
+ * (`TOKENS.LOGGER` from `@ptah-extension/vscode-core`). Resolved by
+ * `Symbol.for('Logger')` to keep `with-engine.ts` dependency-light, matching
+ * `AGENT_ADAPTER_TOKEN`. Passed into `activateThoth`/`disposeThoth` for the
+ * structured per-subsystem degradation warnings.
+ */
+const LOGGER_TOKEN = Symbol.for('Logger');
+
+/**
  * Lightweight read/write contract for the workspace provider as resolved out
  * of the DI container. Mirrors the slice used by the auth + config commands
  * without pulling in the full `IWorkspaceProvider` interface, which carries
@@ -150,6 +166,14 @@ export interface WithEngineOptions {
    */
   requireSdk?: boolean;
   /**
+   * Thoth activation tier (default `'off'`). `'off'` opens no SQLite handle —
+   * plain commands pay nothing. `'oneshot'` runs `openAndMigrate()` only so
+   * store-backed commands and memory injection work. `'runtime'` additionally
+   * starts triggers, the cron loop, and gateway adapters for long-running
+   * hosts (`ptah interact`, interactive `ptah session start`).
+   */
+  thoth?: 'off' | 'oneshot' | 'runtime';
+  /**
    * Override hook for tests — replaces `CliDIContainer.setup`. Production
    * callers omit this; the default invokes the real bootstrap.
    */
@@ -167,6 +191,12 @@ export interface EngineContext {
   container: DependencyContainer;
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
+  /**
+   * Thoth lifecycle handles populated when `opts.thoth !== 'off'`. Undefined
+   * for plain commands. Disposed LIFO in `withEngine`'s `finally` before the
+   * container teardown.
+   */
+  thothRefs?: ThothRefs;
 }
 
 /**
@@ -308,9 +338,43 @@ export async function withEngine<T>(
     }
   }
 
+  const thothTier = opts.thoth ?? 'off';
+  if (thothTier !== 'off') {
+    try {
+      const logger = ctx.container.resolve<Logger>(LOGGER_TOKEN);
+      ctx.thothRefs = await activateThoth(
+        ctx.container,
+        thothTier as ThothTier,
+        logger,
+      );
+    } catch (activationErr) {
+      process.stderr.write(
+        `[ptah] withEngine: Thoth activation failed (non-fatal): ${
+          activationErr instanceof Error
+            ? activationErr.message
+            : String(activationErr)
+        }\n`,
+      );
+    }
+  }
+
   try {
     return await fn(ctx);
   } finally {
+    if (ctx.thothRefs) {
+      try {
+        const logger = ctx.container.resolve<Logger>(LOGGER_TOKEN);
+        await disposeThoth(ctx.thothRefs, logger);
+      } catch (thothDisposeErr) {
+        process.stderr.write(
+          `[ptah] withEngine: Thoth dispose failed (non-fatal): ${
+            thothDisposeErr instanceof Error
+              ? thothDisposeErr.message
+              : String(thothDisposeErr)
+          }\n`,
+        );
+      }
+    }
     if (sdkAdapter && typeof sdkAdapter.dispose === 'function') {
       try {
         await sdkAdapter.dispose();
