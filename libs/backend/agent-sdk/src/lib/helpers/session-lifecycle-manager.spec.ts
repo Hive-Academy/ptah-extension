@@ -161,10 +161,15 @@ function createMockMessageFactory(): jest.Mocked<
 }
 
 function createMockSubagentRegistry(): jest.Mocked<
-  Pick<SubagentRegistryService, 'markAllInterrupted'>
+  Pick<
+    SubagentRegistryService,
+    'markAllInterrupted' | 'beginSessionTeardown' | 'endSessionTeardown'
+  >
 > {
   return {
     markAllInterrupted: jest.fn(),
+    beginSessionTeardown: jest.fn(),
+    endSessionTeardown: jest.fn(),
   };
 }
 

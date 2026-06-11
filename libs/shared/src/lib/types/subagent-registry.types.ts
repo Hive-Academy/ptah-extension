@@ -37,7 +37,8 @@ export interface SubagentRecord {
    * The session ID from the SubagentStart hook (input.session_id).
    * NOTE: This is actually the PARENT session ID, not the subagent's own session.
    * The SDK hook does not expose the subagent's own session ID.
-   * For subagent resumption, use `agentId` (short hex) with the Task tool's resume parameter.
+   * For subagent resumption, instruct the model to "Resume agent <agentId>"
+   * within the same (resumed) session — the Agent tool has no resume parameter.
    * @deprecated Use parentSessionId for parent session lookups. This field is redundant.
    */
   readonly sessionId: string;

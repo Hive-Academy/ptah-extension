@@ -47,6 +47,12 @@ export interface ChatStartParams {
   workspacePath?: string;
   /** Ptah CLI agent instance ID (routes to Ptah CLI agent adapter) */
   ptahCliId?: string;
+  /**
+   * When `true`, this session drives an in-surface workflow (setup wizard /
+   * harness builder) rather than the standard chat surface. Threaded through
+   * streaming payloads so the consuming surface can route events to its own UI.
+   */
+  surfaceMode?: boolean;
   /** Additional options */
   options?: {
     model?: string;
@@ -128,6 +134,12 @@ export interface ChatContinueParams {
   thinking?: ThinkingConfig;
   /** Effort level for reasoning depth */
   effort?: EffortLevel;
+  /**
+   * When `true`, this session drives an in-surface workflow (setup wizard /
+   * harness builder) rather than the standard chat surface. Threaded through
+   * streaming payloads so the consuming surface can route events to its own UI.
+   */
+  surfaceMode?: boolean;
 }
 
 /** Response from chat:continue RPC method */
@@ -151,6 +163,12 @@ export interface ChatAbortParams {
 export interface ChatAbortResult {
   success: boolean;
   error?: string;
+  /**
+   * Subagents that were interrupted by this abort and can be resumed.
+   * Populated from SubagentRegistryService.getResumableBySession() so the
+   * frontend can surface the resume banner without reloading the session.
+   */
+  resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
 }
 
 /** Parameters for chat:running-agents RPC method */

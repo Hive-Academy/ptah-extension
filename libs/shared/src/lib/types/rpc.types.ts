@@ -170,8 +170,6 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
-  WizardStartNewProjectChatParams,
-  WizardStartNewProjectChatResult,
 } from './rpc/rpc-setup.types';
 
 import type {
@@ -377,8 +375,6 @@ import type {
   HarnessSavePresetResponse,
   HarnessLoadPresetsParams,
   HarnessLoadPresetsResponse,
-  HarnessChatParams,
-  HarnessChatResponse,
   HarnessDesignAgentsParams,
   HarnessDesignAgentsResponse,
   HarnessGenerateSkillsParams,
@@ -387,8 +383,10 @@ import type {
   HarnessGenerateDocumentResponse,
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
-  HarnessConverseParams,
-  HarnessConverseResponse,
+  HarnessStartNewProjectParams,
+  HarnessStartNewProjectResult,
+  HarnessWorkflowPromptParams,
+  HarnessWorkflowPromptResponse,
 } from './rpc/rpc-harness.types';
 
 import type {
@@ -654,10 +652,6 @@ export interface RpcMethodRegistry {
   'wizard:install-pack-agents': {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
-  };
-  'wizard:start-new-project-chat': {
-    params: WizardStartNewProjectChatParams;
-    result: WizardStartNewProjectChatResult;
   };
   'license:getStatus': {
     params: LicenseGetStatusParams;
@@ -1247,10 +1241,6 @@ export interface RpcMethodRegistry {
     params: HarnessLoadPresetsParams;
     result: HarnessLoadPresetsResponse;
   };
-  'harness:chat': {
-    params: HarnessChatParams;
-    result: HarnessChatResponse;
-  };
   'harness:design-agents': {
     params: HarnessDesignAgentsParams;
     result: HarnessDesignAgentsResponse;
@@ -1267,9 +1257,13 @@ export interface RpcMethodRegistry {
     params: HarnessAnalyzeIntentParams;
     result: HarnessAnalyzeIntentResponse;
   };
-  'harness:converse': {
-    params: HarnessConverseParams;
-    result: HarnessConverseResponse;
+  'harness:start-new-project': {
+    params: HarnessStartNewProjectParams;
+    result: HarnessStartNewProjectResult;
+  };
+  'harness:workflow-prompt': {
+    params: HarnessWorkflowPromptParams;
+    result: HarnessWorkflowPromptResponse;
   };
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
@@ -2069,7 +2063,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'wizard:load-analysis': true,
   'wizard:list-agent-packs': true,
   'wizard:install-pack-agents': true,
-  'wizard:start-new-project-chat': true,
   'license:getStatus': true,
   'license:setKey': true,
   'license:clearKey': true,
@@ -2204,12 +2197,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:apply': true,
   'harness:save-preset': true,
   'harness:load-presets': true,
-  'harness:chat': true,
   'harness:design-agents': true,
   'harness:generate-skills': true,
   'harness:generate-document': true,
   'harness:analyze-intent': true,
-  'harness:converse': true,
+  'harness:start-new-project': true,
+  'harness:workflow-prompt': true,
 
   'memory:list': true,
   'memory:search': true,
