@@ -925,14 +925,16 @@ export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
   return {
     name: 'ptah_harness_search_skills',
     description:
-      'Harness-builder tool: search the skills provided by installed Ptah plugins ' +
-      '(SKILL.md files under ~/.ptah/plugins for the workspace-enabled plugins). ' +
+      'Harness-builder tool: search both the locally installed Ptah plugin skills ' +
+      '(SKILL.md files under ~/.ptah/plugins, including harness-authored ptah-harness-* plugins) ' +
+      'AND the skills.sh marketplace. Each result is tagged with source: "local" or "skills.sh"; ' +
+      'skills.sh entries carry their install source (owner/repo) and installs count. ' +
       'Returns skill IDs, names, descriptions, plugin IDs, and per-skill enabled/disabled status. ' +
-      'Use this when authoring or configuring a harness to discover which plugin skills exist and ' +
-      'whether they are enabled. NOTE: this is the on-disk plugin inventory, NOT the set of skills ' +
-      'you can invoke right now via the Skill tool — those are already listed in your context. ' +
-      'Pass an optional query to filter by name or description (case-insensitive substring); ' +
-      'omit it to list every installed plugin skill.',
+      'Use this when authoring or configuring a harness to discover which skills exist. NOTE: local ' +
+      'results are the on-disk plugin inventory, NOT the set of skills you can invoke right now via ' +
+      'the Skill tool. A query is required to reach skills.sh; omit it to list only local plugin skills. ' +
+      'To install a skills.sh skill, run `npx skills add <owner/repo> --skill <id> -y` via Bash — it ' +
+      'lands in ~/.claude/skills and is then natively discovered.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -998,7 +1000,8 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
     name: 'ptah_harness_search_mcp_registry',
     description:
       'Harness-builder tool: search the official MCP Server Registry ' +
-      '(registry.modelcontextprotocol.io) for servers matching a query. ' +
+      '(registry.modelcontextprotocol.io) AND, when a Smithery API key is configured, the Smithery ' +
+      'registry for servers matching a query. Each result is tagged with source: "official" or "smithery". ' +
       'Returns server names and descriptions. Use specific technology keywords ' +
       '(e.g., "github", "postgresql", "slack") for best results. Pair with ' +
       'harness_list_installed_mcp to see which servers are already configured before adding more.',

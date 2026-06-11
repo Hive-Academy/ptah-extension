@@ -12,13 +12,55 @@
 
 import * as path from 'path';
 import { existsSync } from 'fs';
-import { mkdir, writeFile, readFile } from 'fs/promises';
+import { mkdir, writeFile, readFile, readdir, stat } from 'fs/promises';
 import * as os from 'os';
 import {
   HarnessConfigUpdatesSchema,
   MESSAGE_TYPES,
   type HarnessConfig,
+  type SkillShEntry,
 } from '@ptah-extension/shared';
+
+/**
+ * Minimal skills.sh client surface the harness namespace consumes.
+ */
+export interface HarnessSkillsDirectory {
+  hasKey(): Promise<boolean>;
+  search(query: string, limit?: number): Promise<SkillShEntry[]>;
+}
+
+/**
+ * Minimal MCP registry source surface (official or Smithery).
+ */
+export interface HarnessMcpRegistrySource {
+  listServers(options?: { query?: string; limit?: number }): Promise<{
+    servers: Array<{ name: string; description?: string }>;
+    next_cursor?: string;
+  }>;
+}
+
+/**
+ * A skill returned by searchSkills, tagged with its origin.
+ */
+export interface HarnessSkillResult {
+  skillId: string;
+  displayName: string;
+  description: string;
+  pluginId: string;
+  isDisabled: boolean;
+  source: 'local' | 'skills.sh';
+  installSource?: string;
+  installs?: number;
+}
+
+/**
+ * An MCP server returned by searchMcpRegistry, tagged with its registry source.
+ */
+export interface HarnessMcpServerResult {
+  name: string;
+  description?: string;
+  source: 'official' | 'smithery';
+}
 
 /**
  * Dependencies required to build the harness namespace.
@@ -34,12 +76,9 @@ export interface HarnessNamespaceDependencies {
     }>;
     getDisabledSkillIds(): string[];
   };
-  mcpRegistry: {
-    listServers(options?: { query?: string; limit?: number }): Promise<{
-      servers: Array<{ name: string; description?: string }>;
-      next_cursor?: string;
-    }>;
-  };
+  mcpRegistry: HarnessMcpRegistrySource;
+  skillsDirectory?: HarnessSkillsDirectory;
+  smitheryRegistry?: HarnessMcpRegistrySource;
   getWorkspaceRoot: () => string;
   broadcast: (type: string, payload: unknown) => void;
   logger: {
@@ -53,15 +92,7 @@ export interface HarnessNamespaceDependencies {
  * Harness namespace shape exposed on ptah.harness
  */
 export interface HarnessNamespace {
-  searchSkills(query?: string): Promise<
-    Array<{
-      skillId: string;
-      displayName: string;
-      description: string;
-      pluginId: string;
-      isDisabled: boolean;
-    }>
-  >;
+  searchSkills(query?: string): Promise<HarnessSkillResult[]>;
   createSkill(
     name: string,
     description: string,
@@ -72,7 +103,7 @@ export interface HarnessNamespace {
     query: string,
     limit?: number,
   ): Promise<{
-    servers: Array<{ name: string; description?: string }>;
+    servers: HarnessMcpServerResult[];
     next_cursor?: string;
   }>;
   listInstalledMcpServers(): Promise<
@@ -98,6 +129,40 @@ function sanitizeName(name: string): string {
   );
 }
 
+async function discoverHarnessPluginPaths(logger: {
+  warn(msg: string): void;
+}): Promise<string[]> {
+  const pluginsBase = path.join(os.homedir(), '.ptah', 'plugins');
+  let entries: string[];
+  try {
+    entries = await readdir(pluginsBase);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger.warn(
+        `[Harness] Failed to read plugins directory: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return [];
+  }
+
+  const paths: string[] = [];
+  for (const entry of entries) {
+    if (!entry.startsWith('ptah-harness-')) continue;
+    const pluginPath = path.join(pluginsBase, entry);
+    try {
+      if ((await stat(pluginPath)).isDirectory()) {
+        paths.push(pluginPath);
+      }
+    } catch (error: unknown) {
+      logger.warn(
+        `[Harness] Skipping unreadable harness plugin dir ${pluginPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  return paths;
+}
+
 /**
  * Build the harness namespace with 4 MCP-accessible methods.
  *
@@ -107,34 +172,73 @@ function sanitizeName(name: string): string {
 export function buildHarnessNamespace(
   deps: HarnessNamespaceDependencies,
 ): HarnessNamespace {
-  const { pluginLoader, mcpRegistry, getWorkspaceRoot, broadcast, logger } =
-    deps;
+  const {
+    pluginLoader,
+    mcpRegistry,
+    skillsDirectory,
+    smitheryRegistry,
+    getWorkspaceRoot,
+    broadcast,
+    logger,
+  } = deps;
 
   return {
-    async searchSkills(query?: string) {
-      const pluginPaths = pluginLoader.resolveCurrentPluginPaths();
-      const allSkills = pluginLoader.discoverSkillsForPlugins(pluginPaths);
+    async searchSkills(query?: string): Promise<HarnessSkillResult[]> {
+      const enabledPaths = pluginLoader.resolveCurrentPluginPaths();
+      const harnessPaths = await discoverHarnessPluginPaths(logger);
+      const mergedPaths = Array.from(
+        new Set([...enabledPaths, ...harnessPaths]),
+      );
+      const allSkills = pluginLoader.discoverSkillsForPlugins(mergedPaths);
       const disabledIds = new Set(pluginLoader.getDisabledSkillIds());
 
-      const results = allSkills.map((skill) => ({
+      const localResults: HarnessSkillResult[] = allSkills.map((skill) => ({
         skillId: skill.skillId,
         displayName: skill.displayName,
         description: skill.description,
         pluginId: skill.pluginId,
         isDisabled: disabledIds.has(skill.skillId),
+        source: 'local',
       }));
 
-      if (!query || query.trim().length === 0) {
-        return results;
+      const trimmedQuery = query?.trim() ?? '';
+      const filteredLocal =
+        trimmedQuery.length === 0
+          ? localResults
+          : localResults.filter((skill) => {
+              const lowerQuery = trimmedQuery.toLowerCase();
+              return (
+                skill.skillId.toLowerCase().includes(lowerQuery) ||
+                skill.displayName.toLowerCase().includes(lowerQuery) ||
+                skill.description.toLowerCase().includes(lowerQuery)
+              );
+            });
+
+      if (trimmedQuery.length === 0 || !skillsDirectory) {
+        return filteredLocal;
       }
 
-      const lowerQuery = query.toLowerCase();
-      return results.filter(
-        (skill) =>
-          skill.skillId.toLowerCase().includes(lowerQuery) ||
-          skill.displayName.toLowerCase().includes(lowerQuery) ||
-          skill.description.toLowerCase().includes(lowerQuery),
-      );
+      let remoteResults: HarnessSkillResult[] = [];
+      try {
+        const entries = await skillsDirectory.search(trimmedQuery);
+        remoteResults = entries.map((entry) => ({
+          skillId: entry.skillId,
+          displayName: entry.name,
+          description: entry.description,
+          pluginId: entry.source,
+          isDisabled: false,
+          source: 'skills.sh',
+          installSource: entry.source,
+          installs: entry.installs,
+        }));
+      } catch (error: unknown) {
+        logger.warn(
+          `[Harness] skills.sh search failed, returning local skills only: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return filteredLocal;
+      }
+
+      return [...filteredLocal, ...remoteResults];
     },
 
     async createSkill(
@@ -194,11 +298,43 @@ export function buildHarnessNamespace(
     },
 
     async searchMcpRegistry(query: string, limit?: number) {
-      const result = await mcpRegistry.listServers({
+      const effectiveLimit = limit ?? 10;
+
+      const official = await mcpRegistry.listServers({
         query,
-        limit: limit ?? 10,
+        limit: effectiveLimit,
       });
-      return result;
+      const officialServers: HarnessMcpServerResult[] = official.servers.map(
+        (server) => ({
+          name: server.name,
+          description: server.description,
+          source: 'official',
+        }),
+      );
+
+      let smitheryServers: HarnessMcpServerResult[] = [];
+      if (smitheryRegistry) {
+        try {
+          const smithery = await smitheryRegistry.listServers({
+            query,
+            limit: effectiveLimit,
+          });
+          smitheryServers = smithery.servers.map((server) => ({
+            name: server.name,
+            description: server.description,
+            source: 'smithery',
+          }));
+        } catch (error: unknown) {
+          logger.warn(
+            `[Harness] Smithery registry search failed, returning official results only: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      return {
+        servers: [...officialServers, ...smitheryServers],
+        next_cursor: official.next_cursor,
+      };
     },
 
     async listInstalledMcpServers() {

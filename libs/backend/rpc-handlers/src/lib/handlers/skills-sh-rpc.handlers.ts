@@ -43,7 +43,7 @@ import {
   SECRET_KEY,
   sanitizeSearchQuery,
 } from './skills-sh-rpc.schema';
-import { SkillsShApiClient } from './skills-sh-api-client';
+import { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
 
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
   {

@@ -12,8 +12,12 @@ import 'reflect-metadata';
 
 import { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 import { SECRET_KEY } from './skills-sh-rpc.schema';
-import type { SkillsShApiClient } from './skills-sh-api-client';
+import type { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
 import type { SkillShEntry } from '@ptah-extension/shared';
+
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  SkillsShApiClient: class {},
+}));
 
 jest.mock('child_process', () => ({
   spawn: jest.fn(),

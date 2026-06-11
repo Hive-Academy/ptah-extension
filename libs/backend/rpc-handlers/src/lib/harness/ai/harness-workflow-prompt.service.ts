@@ -45,8 +45,8 @@ Languages: ${workspaceContext.languages.join(', ') || '(none detected)'}`;
 
     const toolsBlock = `## Tools
 Use the ptah.harness MCP tools to ground your recommendations:
-- searchSkills(query?) — find existing skills relevant to the user's needs.
-- searchMcpRegistry(query, limit?) — search the MCP Registry for relevant servers.
+- searchSkills(query?) — find existing skills relevant to the user's needs across local plugin skills (incl. harness-authored) and the skills.sh marketplace; results are tagged source: 'local' | 'skills.sh'. A skills.sh skill can be installed by running \`npx skills add <owner/repo> --skill <id> -y\` via Bash — it lands in ~/.claude/skills and is then natively discovered.
+- searchMcpRegistry(query, limit?) — search the official MCP Registry plus Smithery (when a Smithery key is configured) for relevant servers; results are tagged source: 'official' | 'smithery'.
 - listInstalledMcpServers() — check what MCP servers are already installed in the workspace.
 - createSkill(name, description, content, allowedTools?) — author custom skills.
 - proposeConfig(configUpdates, isConfigComplete?) — push partial HarnessConfig updates to the configuration surface. Call proposeConfig whenever configuration decisions firm up (persona, agents, skills, system prompt, MCP servers); configUpdates is a partial HarnessConfig — only include fields you are changing. Call it again with isConfigComplete=true once the configuration is ready to apply.`;

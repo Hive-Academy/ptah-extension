@@ -22,6 +22,8 @@ jest.mock('fs/promises', () => ({
   mkdir: jest.fn(),
   writeFile: jest.fn(),
   readFile: jest.fn(),
+  readdir: jest.fn(),
+  stat: jest.fn(),
 }));
 jest.mock('os', () => ({ homedir: jest.fn(() => 'D:/home') }));
 
@@ -31,12 +33,17 @@ const fsp = require('fs/promises') as {
   mkdir: jest.Mock;
   writeFile: jest.Mock;
   readFile: jest.Mock;
+  readdir: jest.Mock;
+  stat: jest.Mock;
 };
 
 import {
   buildHarnessNamespace,
   type HarnessNamespaceDependencies,
+  type HarnessSkillsDirectory,
+  type HarnessMcpRegistrySource,
 } from './harness-namespace.builder';
+import type { SkillShEntry } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,17 +66,30 @@ interface McpRegistryMock {
   listServers: jest.Mock;
 }
 
+interface SkillsDirectoryMock extends HarnessSkillsDirectory {
+  hasKey: jest.Mock;
+  search: jest.Mock;
+}
+
+interface SmitheryRegistryMock extends HarnessMcpRegistrySource {
+  listServers: jest.Mock;
+}
+
 function makeDeps(
   overrides: {
     skills?: DiscoveredSkill[];
     disabled?: string[];
     servers?: { servers: Array<{ name: string }>; next_cursor?: string };
     workspaceRoot?: string;
+    skillsDirectory?: SkillsDirectoryMock;
+    smitheryRegistry?: SmitheryRegistryMock;
   } = {},
 ): {
   deps: HarnessNamespaceDependencies;
   pluginLoader: PluginLoaderMock;
   mcpRegistry: McpRegistryMock;
+  skillsDirectory?: SkillsDirectoryMock;
+  smitheryRegistry?: SmitheryRegistryMock;
   broadcast: jest.Mock;
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
 } {
@@ -94,11 +114,40 @@ function makeDeps(
   const deps: HarnessNamespaceDependencies = {
     pluginLoader,
     mcpRegistry,
+    skillsDirectory: overrides.skillsDirectory,
+    smitheryRegistry: overrides.smitheryRegistry,
     getWorkspaceRoot: () => overrides.workspaceRoot ?? 'D:/ws',
     broadcast,
     logger,
   };
-  return { deps, pluginLoader, mcpRegistry, broadcast, logger };
+  return {
+    deps,
+    pluginLoader,
+    mcpRegistry,
+    skillsDirectory: overrides.skillsDirectory,
+    smitheryRegistry: overrides.smitheryRegistry,
+    broadcast,
+    logger,
+  };
+}
+
+function makeSkillShEntry(
+  over: Partial<SkillShEntry> & { skillId: string },
+): SkillShEntry {
+  return {
+    source: over.source ?? 'owner/repo',
+    skillId: over.skillId,
+    name: over.name ?? over.skillId,
+    description: over.description ?? '',
+    installs: over.installs ?? 0,
+    isInstalled: over.isInstalled ?? false,
+  };
+}
+
+function enoent(): NodeJS.ErrnoException {
+  const err = new Error('ENOENT') as NodeJS.ErrnoException;
+  err.code = 'ENOENT';
+  return err;
 }
 
 beforeEach(() => {
@@ -106,6 +155,8 @@ beforeEach(() => {
   fsp.mkdir.mockReset().mockResolvedValue(undefined);
   fsp.writeFile.mockReset().mockResolvedValue(undefined);
   fsp.readFile.mockReset();
+  fsp.readdir.mockReset().mockRejectedValue(enoent());
+  fsp.stat.mockReset().mockResolvedValue({ isDirectory: () => true } as never);
 });
 
 // ---------------------------------------------------------------------------
@@ -209,6 +260,86 @@ describe('buildHarnessNamespace — searchSkills', () => {
     const out = await buildHarnessNamespace(deps).searchSkills('   ');
     expect(out).toHaveLength(2);
   });
+
+  it('tags local skills with source="local"', async () => {
+    const { deps } = makeDeps({ skills: sample });
+    const out = await buildHarnessNamespace(deps).searchSkills();
+    expect(out.every((s) => s.source === 'local')).toBe(true);
+  });
+
+  it('merges harness-authored ptah-harness-* plugin dirs with enabled paths', async () => {
+    fsp.readdir.mockResolvedValueOnce([
+      'ptah-harness-foo',
+      'some-other-plugin',
+      'ptah-harness-bar',
+    ] as never);
+    const { deps, pluginLoader } = makeDeps({ skills: sample });
+
+    await buildHarnessNamespace(deps).searchSkills();
+
+    const passedPaths = pluginLoader.discoverSkillsForPlugins.mock
+      .calls[0][0] as string[];
+    expect(passedPaths).toContain('/p/one');
+    expect(passedPaths.some((p) => p.includes('ptah-harness-foo'))).toBe(true);
+    expect(passedPaths.some((p) => p.includes('ptah-harness-bar'))).toBe(true);
+    expect(passedPaths.some((p) => p.includes('some-other-plugin'))).toBe(
+      false,
+    );
+    expect(new Set(passedPaths).size).toBe(passedPaths.length);
+  });
+
+  it('merges skills.sh results tagged source="skills.sh" with install metadata', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      hasKey: jest.fn(async () => true),
+      search: jest.fn(async () => [
+        makeSkillShEntry({
+          skillId: 'react-best-practices',
+          name: 'React Best Practices',
+          source: 'vercel-labs/agent-skills',
+          installs: 1000,
+        }),
+      ]),
+    };
+    const { deps } = makeDeps({ skills: sample, skillsDirectory });
+
+    const out = await buildHarnessNamespace(deps).searchSkills('react');
+
+    const remote = out.find((s) => s.source === 'skills.sh');
+    expect(remote).toBeDefined();
+    expect(remote?.skillId).toBe('react-best-practices');
+    expect(remote?.installSource).toBe('vercel-labs/agent-skills');
+    expect(remote?.installs).toBe(1000);
+    expect(out.some((s) => s.source === 'local')).toBe(false);
+    expect(skillsDirectory.search).toHaveBeenCalledWith('react');
+  });
+
+  it('does not call skills.sh when query is empty', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      hasKey: jest.fn(async () => true),
+      search: jest.fn(async () => []),
+    };
+    const { deps } = makeDeps({ skills: sample, skillsDirectory });
+
+    await buildHarnessNamespace(deps).searchSkills();
+
+    expect(skillsDirectory.search).not.toHaveBeenCalled();
+  });
+
+  it('degrades to local-only when skills.sh search throws', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      hasKey: jest.fn(async () => true),
+      search: jest.fn(async () => {
+        throw new Error('network down');
+      }),
+    };
+    const { deps, logger } = makeDeps({ skills: sample, skillsDirectory });
+
+    const out = await buildHarnessNamespace(deps).searchSkills('lint');
+
+    expect(out.every((s) => s.source === 'local')).toBe(true);
+    expect(out.map((s) => s.skillId)).toEqual(['lint']);
+    expect(logger.warn).toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -265,7 +396,7 @@ describe('buildHarnessNamespace — createSkill', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildHarnessNamespace — searchMcpRegistry', () => {
-  it('forwards query + limit with default=10', async () => {
+  it('forwards query + limit with default=10 and tags official source', async () => {
     const { deps, mcpRegistry } = makeDeps({
       servers: { servers: [{ name: 'a' }] },
     });
@@ -275,6 +406,7 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
       limit: 10,
     });
     expect(out.servers[0].name).toBe('a');
+    expect(out.servers[0].source).toBe('official');
   });
 
   it('respects explicit limit', async () => {
@@ -284,6 +416,50 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
       query: 'a',
       limit: 25,
     });
+  });
+
+  it('returns official-only when no Smithery registry is configured', async () => {
+    const { deps } = makeDeps({ servers: { servers: [{ name: 'off' }] } });
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('x');
+    expect(out.servers.map((s) => s.source)).toEqual(['official']);
+  });
+
+  it('merges Smithery results tagged source="smithery" when configured', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'smithery/srv' }] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      smitheryRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db', 5);
+
+    expect(smitheryRegistry.listServers).toHaveBeenCalledWith({
+      query: 'db',
+      limit: 5,
+    });
+    expect(out.servers).toEqual([
+      { name: 'official/srv', description: undefined, source: 'official' },
+      { name: 'smithery/srv', description: undefined, source: 'smithery' },
+    ]);
+  });
+
+  it('degrades to official-only when Smithery search throws', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest.fn().mockRejectedValue(new Error('missing key')),
+    };
+    const { deps, logger } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      smitheryRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.servers.map((s) => s.source)).toEqual(['official']);
+    expect(logger.warn).toHaveBeenCalled();
   });
 });
 

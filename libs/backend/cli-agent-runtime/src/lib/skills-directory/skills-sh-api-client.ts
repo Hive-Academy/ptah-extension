@@ -11,7 +11,7 @@ import {
   SkillsApiLeaderboardResponseSchema,
   SkillsApiCuratedResponseSchema,
   type SkillsApiSkill,
-} from './skills-sh-rpc.schema';
+} from './skills-sh-api.schema';
 
 export class SkillsApiError extends Error {
   constructor(
