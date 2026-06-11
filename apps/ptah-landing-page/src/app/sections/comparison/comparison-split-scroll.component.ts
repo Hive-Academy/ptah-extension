@@ -3,26 +3,17 @@ import {
   ViewportAnimationConfig,
   ViewportAnimationDirective,
 } from '@hive-academy/angular-gsap';
+import { Check, LucideAngularModule, X } from 'lucide-angular';
+import {
+  FloatingGlyph,
+  FloatingGlyphsComponent,
+} from '../../components/floating-glyphs.component';
 
-/**
- * Pain point data interface for "Before Ptah" section
- */
-interface PainPoint {
+interface ComparisonPoint {
   text: string;
   detail: string;
 }
 
-/**
- * Benefit data interface for "With Ptah" section
- */
-interface Benefit {
-  text: string;
-  detail: string;
-}
-
-/**
- * Performance metric data interface
- */
 interface PerformanceMetric {
   name: string;
   before: string;
@@ -30,189 +21,169 @@ interface PerformanceMetric {
   improvement: string;
 }
 
-/**
- * ComparisonSplitScrollComponent - Simplified comparison showcase
- *
- * Replaced complex ParallaxSplitScrollComponent with simple viewport animations
- * to fix display issues and overflow problems.
- */
 @Component({
   selector: 'ptah-comparison-split-scroll',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective],
+  imports: [
+    ViewportAnimationDirective,
+    LucideAngularModule,
+    FloatingGlyphsComponent,
+  ],
   template: `
     <section
       id="comparison"
-      class="relative py-24 bg-gradient-to-b from-slate-900 to-slate-950"
+      aria-label="The Ptah Difference"
+      class="relative py-32 sm:py-44 bg-gradient-to-b from-slate-900 to-slate-950 overflow-hidden"
     >
-      <!-- Section Header -->
-      <div class="text-center mb-16 md:mb-20 px-4 sm:px-6 lg:px-8">
-        <h2
-          viewportAnimation
-          [viewportConfig]="headerConfig"
-          class="text-3xl sm:text-4xl md:text-5xl font-bold text-white"
-        >
-          The Ptah Difference
-        </h2>
-        <p
-          viewportAnimation
-          [viewportConfig]="subheaderConfig"
-          class="mt-4 text-xl text-slate-400 max-w-2xl mx-auto"
-        >
-          From juggling AI providers to unified orchestration. See how Ptah
-          transforms your coding workflow.
-        </p>
-      </div>
+      <ptah-floating-glyphs [glyphs]="glyphs" />
 
-      <!-- Comparison Grid -->
-      <div class="container mx-auto px-4 max-w-7xl">
-        <div class="grid md:grid-cols-2 gap-6 md:gap-8 lg:gap-12">
-          <!-- Before Ptah Column -->
+      <div class="relative z-10 max-w-7xl mx-auto px-6 sm:px-10 lg:px-16">
+        <div class="text-center mb-20 sm:mb-28">
           <div
-            class="relative rounded-3xl bg-slate-800/40 border border-red-500/20 p-6 md:p-8 lg:p-12"
+            viewportAnimation
+            [viewportConfig]="headerConfig"
+            class="mx-auto mb-10 h-px w-24 bg-gradient-to-r from-transparent via-[#d4af37]/70 to-transparent"
+            aria-hidden="true"
+          ></div>
+          <h2
+            viewportAnimation
+            [viewportConfig]="headerConfig"
+            class="font-display text-3xl md:text-4xl lg:text-5xl font-semibold text-white leading-tight mb-8"
+          >
+            The Ptah Difference
+          </h2>
+          <p
+            viewportAnimation
+            [viewportConfig]="subheaderConfig"
+            class="text-base sm:text-lg text-gray-400 max-w-2xl mx-auto leading-relaxed"
+          >
+            From juggling AI providers to unified orchestration. See how Ptah
+            transforms your coding workflow.
+          </p>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-10 lg:gap-14">
+          <div
+            class="relative rounded-2xl border border-white/5 bg-slate-900/50 p-8 md:p-10 lg:p-12"
             viewportAnimation
             [viewportConfig]="{ animation: 'slideRight', duration: 0.6 }"
           >
-            <!-- Red accent glow -->
-            <div
-              class="absolute inset-0 rounded-3xl bg-gradient-to-br from-red-500/5 to-transparent pointer-events-none"
-            ></div>
-
             <h3
-              class="text-2xl md:text-3xl font-bold text-red-400/80 mb-8 flex items-center gap-3"
+              class="text-lg font-semibold text-gray-400 mb-10 flex items-center gap-3"
             >
               <span
-                class="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center text-red-400"
+                class="w-9 h-9 rounded-full bg-[#b22222]/15 border border-[#b22222]/25 flex items-center justify-center"
               >
-                ✕
+                <lucide-angular
+                  [img]="XIcon"
+                  class="w-4 h-4 text-[#b22222]"
+                  aria-hidden="true"
+                />
               </span>
               Before Ptah
             </h3>
 
-            <!-- Pain Points -->
-            <ul class="space-y-6" role="list">
+            <ul class="space-y-8" role="list">
               @for (pain of painPoints; track pain.text; let i = $index) {
-              <li
-                viewportAnimation
-                [viewportConfig]="getPainConfig(i)"
-                class="flex items-start gap-4"
-              >
-                <span
-                  class="flex-shrink-0 w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 font-bold text-sm"
-                  aria-hidden="true"
+                <li
+                  viewportAnimation
+                  [viewportConfig]="getPainConfig(i)"
+                  class="flex items-start gap-4"
                 >
-                  ✕
-                </span>
-                <div>
-                  <p class="text-lg text-slate-200 font-medium">
-                    {{ pain.text }}
-                  </p>
-                  <p class="text-sm text-slate-500 mt-1">{{ pain.detail }}</p>
-                </div>
-              </li>
+                  <lucide-angular
+                    [img]="XIcon"
+                    class="w-4 h-4 text-[#b22222]/70 mt-1.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <div>
+                    <p class="text-base text-gray-300 font-medium">
+                      {{ pain.text }}
+                    </p>
+                    <p class="text-sm text-gray-500 mt-1.5 leading-relaxed">
+                      {{ pain.detail }}
+                    </p>
+                  </div>
+                </li>
               }
             </ul>
           </div>
 
-          <!-- With Ptah Column -->
           <div
-            class="relative rounded-3xl bg-slate-800/40 border border-emerald-500/20 p-6 md:p-8 lg:p-12"
+            class="relative rounded-2xl border border-[#d4af37]/25 bg-slate-900/70 p-8 md:p-10 lg:p-12 shadow-glow-gold"
             viewportAnimation
             [viewportConfig]="{ animation: 'slideLeft', duration: 0.6 }"
           >
-            <!-- Green accent glow -->
             <div
-              class="absolute inset-0 rounded-3xl bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none"
+              class="absolute inset-0 rounded-2xl bg-gradient-to-b from-[#d4af37]/5 to-transparent pointer-events-none"
+              aria-hidden="true"
             ></div>
-
             <h3
-              class="text-2xl md:text-3xl font-bold mb-8 flex items-center gap-3"
+              class="relative text-lg font-semibold text-[#f4d47c] mb-10 flex items-center gap-3"
             >
               <span
-                class="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400"
+                class="w-9 h-9 rounded-full bg-[#d4af37]/15 border border-[#d4af37]/30 flex items-center justify-center"
               >
-                ✓
+                <lucide-angular
+                  [img]="CheckIcon"
+                  class="w-4 h-4 text-[#d4af37]"
+                  aria-hidden="true"
+                />
               </span>
-              <span
-                class="bg-gradient-to-r from-emerald-400 to-green-300 bg-clip-text text-transparent"
-              >
-                With Ptah
-              </span>
+              With Ptah
             </h3>
 
-            <!-- Benefits -->
-            <ul class="space-y-6" role="list">
+            <ul class="relative space-y-8" role="list">
               @for (benefit of benefits; track benefit.text; let i = $index) {
-              <li
-                viewportAnimation
-                [viewportConfig]="getBenefitConfig(i)"
-                class="flex items-start gap-4"
-              >
-                <span
-                  class="flex-shrink-0 w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-400 font-bold"
-                  aria-hidden="true"
+                <li
+                  viewportAnimation
+                  [viewportConfig]="getBenefitConfig(i)"
+                  class="flex items-start gap-4"
                 >
-                  ✓
-                </span>
-                <div>
-                  <p class="text-lg text-white font-medium">
-                    {{ benefit.text }}
-                  </p>
-                  <p class="text-sm text-slate-400 mt-1">
-                    {{ benefit.detail }}
-                  </p>
-                </div>
-              </li>
+                  <lucide-angular
+                    [img]="CheckIcon"
+                    class="w-4 h-4 text-[#d4af37] mt-1.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <div>
+                    <p class="text-base text-white font-medium">
+                      {{ benefit.text }}
+                    </p>
+                    <p class="text-sm text-gray-400 mt-1.5 leading-relaxed">
+                      {{ benefit.detail }}
+                    </p>
+                  </div>
+                </li>
               }
             </ul>
           </div>
         </div>
 
-        <!-- Performance Metrics -->
-        <div class="mt-16">
-          <h3
-            viewportAnimation
-            [viewportConfig]="{ animation: 'slideUp', duration: 0.6 }"
-            class="text-2xl md:text-3xl font-bold text-white text-center mb-12"
-          >
-            Performance That Speaks
-          </h3>
-
+        <div class="mt-24 sm:mt-32">
           <div
-            class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6"
+            class="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/5 border-y border-white/5"
           >
             @for (metric of metrics; track metric.name; let i = $index) {
-            <div
-              viewportAnimation
-              [viewportConfig]="getMetricConfig(i)"
-              class="p-4 sm:p-6 rounded-2xl bg-slate-800/60 border border-slate-700/50 backdrop-blur-sm text-center"
-            >
               <div
-                class="text-sm text-slate-400 mb-4 font-medium uppercase tracking-wide"
+                viewportAnimation
+                [viewportConfig]="getMetricConfig(i)"
+                class="py-10 px-6 text-center"
               >
-                {{ metric.name }}
+                <p class="text-sm text-gray-500 mb-3">{{ metric.name }}</p>
+                <p class="flex items-baseline justify-center gap-3 flex-wrap">
+                  <span
+                    class="text-gray-600 line-through text-base font-mono"
+                    >{{ metric.before }}</span
+                  >
+                  <span class="text-gray-600" aria-hidden="true">→</span>
+                  <span
+                    class="text-3xl font-semibold text-[#f4d47c] font-mono"
+                    >{{ metric.after }}</span
+                  >
+                </p>
+                <p class="mt-3 text-sm font-medium text-[#d4af37]">
+                  {{ metric.improvement }}
+                </p>
               </div>
-              <div class="flex items-baseline justify-center gap-3 flex-wrap">
-                <span
-                  class="text-slate-500 line-through text-lg"
-                  aria-label="Before value"
-                >
-                  {{ metric.before }}
-                </span>
-                <span class="text-slate-600" aria-hidden="true">→</span>
-                <span
-                  class="text-3xl font-bold text-green-400"
-                  aria-label="With Ptah value"
-                >
-                  {{ metric.after }}
-                </span>
-              </div>
-              <span
-                class="inline-block mt-4 text-sm font-semibold text-green-400 bg-green-500/10 px-4 py-2 rounded-full"
-              >
-                {{ metric.improvement }}
-              </span>
-            </div>
             }
           </div>
         </div>
@@ -228,7 +199,29 @@ interface PerformanceMetric {
   ],
 })
 export class ComparisonSplitScrollComponent {
-  public readonly painPoints: PainPoint[] = [
+  public readonly XIcon = X;
+  public readonly CheckIcon = Check;
+
+  public readonly glyphs: FloatingGlyph[] = [
+    {
+      src: '/assets/icons/glyphs/feather-maat.png',
+      size: 120,
+      top: '8%',
+      right: '6%',
+      delay: 0,
+      duration: 11,
+    },
+    {
+      src: '/assets/icons/glyphs/ankh.png',
+      size: 85,
+      bottom: '12%',
+      left: '5%',
+      delay: 2,
+      duration: 9,
+    },
+  ];
+
+  public readonly painPoints: ComparisonPoint[] = [
     {
       text: 'Fragmented AI provider experience',
       detail:
@@ -245,12 +238,13 @@ export class ComparisonSplitScrollComponent {
         'No understanding of your specific project structure or conventions',
     },
     {
-      text: 'Limited workspace awareness',
-      detail: 'Manual context management required for every conversation',
+      text: 'No memory between sessions',
+      detail:
+        'Every conversation starts cold — no recall of past decisions, project context, or repeated workflows',
     },
   ];
 
-  public readonly benefits: Benefit[] = [
+  public readonly benefits: ComparisonPoint[] = [
     {
       text: 'One harness for all AI providers',
       detail:
@@ -266,8 +260,9 @@ export class ComparisonSplitScrollComponent {
         'Agents customized to your codebase, stack, and coding conventions',
     },
     {
-      text: 'Full workspace intelligence',
-      detail: 'Automatic context from 13+ project types and 6 monorepo tools',
+      text: 'Persistent memory that grows with you',
+      detail:
+        'Thoth remembers decisions, patterns, and context across every session (Electron desktop)',
     },
   ];
 
@@ -285,10 +280,10 @@ export class ComparisonSplitScrollComponent {
       improvement: '10x faster',
     },
     {
-      name: 'Memory Usage',
-      before: '50MB',
-      after: '20MB',
-      improvement: '60% less',
+      name: 'Concurrent Agents',
+      before: '1',
+      after: '9',
+      improvement: '9x parallelism',
     },
   ];
 
@@ -319,17 +314,15 @@ export class ComparisonSplitScrollComponent {
       animation: 'slideLeft',
       duration: 0.5,
       delay: 0.1 + index * 0.1,
-      ease: 'back.out(1.4)',
       threshold: 0.2,
     };
   }
 
   public getMetricConfig(index: number): ViewportAnimationConfig {
     return {
-      animation: 'scaleIn',
-      duration: 0.5,
-      delay: index * 0.15,
-      ease: 'back.out(1.7)',
+      animation: 'fadeIn',
+      duration: 0.6,
+      delay: 0.1 + index * 0.15,
       threshold: 0.2,
     };
   }
