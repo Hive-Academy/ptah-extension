@@ -85,13 +85,14 @@ describe('DbHealthPanelComponent', () => {
     expect(root.textContent ?? '').toContain('true');
   });
 
-  it('renders ✗ MISMATCH glyph when counts disagree', () => {
+  it('renders ✗ MISMATCH glyph when the wire reports a mismatch', () => {
     const fixture = TestBed.createComponent(DbHealthPanelComponent);
     fixture.componentRef.setInput('health', {
       ...baseHealth,
       memory_chunks: 614,
       memory_chunks_vec: 613,
       coherent: false,
+      mismatches: ['memory_chunks/memory_chunks_vec'],
     });
     fixture.detectChanges();
 
@@ -100,6 +101,30 @@ describe('DbHealthPanelComponent', () => {
     expect(mismatch.length).toBeGreaterThan(0);
     expect(mismatch[0].textContent ?? '').toContain('✗ MISMATCH');
     expect(root.textContent ?? '').toContain('false');
+  });
+
+  it('renders read-failed state instead of mismatch when a count errored', () => {
+    const fixture = TestBed.createComponent(DbHealthPanelComponent);
+    fixture.componentRef.setInput('health', {
+      ...baseHealth,
+      memory_chunks_fts: 0,
+      countErrors: ['memory_chunks_fts_docsize: no such column: T.chunk_id'],
+    });
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(
+      root.querySelectorAll('[data-testid="health-read-error"]').length,
+    ).toBeGreaterThan(0);
+    expect(
+      root.querySelectorAll('[data-testid="health-mismatch"]'),
+    ).toHaveLength(0);
+    const errorsBlock = root.querySelector(
+      '[data-testid="health-count-errors"]',
+    );
+    expect(errorsBlock?.textContent ?? '').toContain(
+      'memory_chunks_fts_docsize',
+    );
   });
 
   it('renders vec panel offline badge by default and surfaces a retry button', () => {

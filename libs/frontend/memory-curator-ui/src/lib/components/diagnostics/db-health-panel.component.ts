@@ -19,6 +19,7 @@ interface HealthRow {
   readonly secondary: number;
   readonly secondaryLabel: string;
   readonly mismatch: boolean;
+  readonly readError: boolean;
 }
 
 const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
@@ -53,7 +54,14 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
                     <span class="ml-1">{{ row.secondaryLabel }}</span>
                   </td>
                   <td class="px-3 py-1.5 text-right">
-                    @if (row.mismatch) {
+                    @if (row.readError) {
+                      <span
+                        class="font-medium text-warning"
+                        data-testid="health-read-error"
+                      >
+                        ⚠ read failed
+                      </span>
+                    } @else if (row.mismatch) {
                       <span
                         class="font-bold text-error"
                         data-testid="health-mismatch"
@@ -82,6 +90,24 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
               </tr>
             </tfoot>
           </table>
+          @if (countErrors().length > 0) {
+            <div
+              class="border-t border-base-300 px-3 py-2"
+              data-testid="health-count-errors"
+            >
+              <p class="text-xs font-medium text-warning">
+                Some health counts could not be read — values shown for those
+                tables are incomplete, not necessarily wrong.
+              </p>
+              <ul class="mt-1 list-disc space-y-0.5 pl-5">
+                @for (err of countErrors(); track err) {
+                  <li class="font-mono text-[10px] text-base-content/70">
+                    {{ err }}
+                  </li>
+                }
+              </ul>
+            </div>
+          }
         } @else {
           <div class="px-3 py-3 text-xs text-base-content/60">
             No DB health data yet.
@@ -325,30 +351,40 @@ export class DbHealthPanelComponent implements OnInit {
   protected readonly rows = computed<readonly HealthRow[]>(() => {
     const h = this.health();
     if (!h) return [];
+    const errors = h.countErrors ?? [];
+    const hasReadError = (...tables: string[]): boolean =>
+      errors.some((e) => tables.some((t) => e.startsWith(t)));
     return [
       {
         label: 'memory_chunks',
         primary: h.memory_chunks,
         secondary: h.memory_chunks_vec,
         secondaryLabel: 'vec',
-        mismatch: h.memory_chunks !== h.memory_chunks_vec,
+        mismatch: h.mismatches.includes('memory_chunks/memory_chunks_vec'),
+        readError: hasReadError('memory_chunks_vec', 'memory_chunks:'),
       },
       {
         label: 'memory_chunks',
         primary: h.memory_chunks,
         secondary: h.memory_chunks_fts,
         secondaryLabel: 'fts',
-        mismatch: h.memory_chunks !== h.memory_chunks_fts,
+        mismatch: h.mismatches.includes('memory_chunks/memory_chunks_fts'),
+        readError: hasReadError('memory_chunks_fts', 'memory_chunks:'),
       },
       {
         label: 'code_symbols',
         primary: h.code_symbols,
         secondary: h.code_symbols_vec,
         secondaryLabel: 'vec',
-        mismatch: h.code_symbols !== h.code_symbols_vec,
+        mismatch: h.mismatches.includes('code_symbols/code_symbols_vec'),
+        readError: hasReadError('code_symbols'),
       },
     ];
   });
+
+  protected readonly countErrors = computed<readonly string[]>(
+    () => this.health()?.countErrors ?? [],
+  );
 
   ngOnInit(): void {
     void this.recovery.prime();

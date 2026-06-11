@@ -131,6 +131,25 @@ describe('EventFeedComponent', () => {
     expect(text).toContain('commit abc1234');
   });
 
+  it('renders tool-failure with tool name and error snippet', () => {
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [
+      {
+        kind: 'tool-failure',
+        timestamp: 0,
+        sessionId: 'sess-1',
+        stats: { tool: 'Bash', error: 'command exited with code 1' },
+      } satisfies MemoryCuratorEventWire,
+    ]);
+    fixture.componentRef.setInput('now', 1_000);
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain(
+      'observed Bash failure during session — command exited with code 1',
+    );
+  });
+
   it('renders rate-limited event with reset time', () => {
     const resetAt = new Date('2026-05-21T14:30:00Z').getTime();
     const fixture = TestBed.createComponent(EventFeedComponent);

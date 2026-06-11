@@ -102,6 +102,14 @@ function buildOutcome(ev: MemoryCuratorEventWire): string {
     const sha = ev.stats?.['sha'];
     if (typeof sha === 'string' && sha.length > 0) return `commit ${sha}`;
   }
+  if (ev.kind === 'tool-failure') {
+    const tool = ev.stats?.['tool'];
+    const error = ev.stats?.['error'];
+    const toolText = typeof tool === 'string' ? tool : 'tool';
+    const errorText =
+      typeof error === 'string' && error.length > 0 ? ` — ${error}` : '';
+    return `observed ${toolText} failure during session${errorText}`;
+  }
   const stats = ev.stats;
   if (stats) {
     const entries = Object.entries(stats)
