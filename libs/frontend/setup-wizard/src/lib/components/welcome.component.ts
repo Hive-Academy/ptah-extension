@@ -17,6 +17,7 @@ import {
   Zap,
 } from 'lucide-angular';
 import type { SavedAnalysisMetadata } from '@ptah-extension/shared';
+import { ModelStateService } from '@ptah-extension/core';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
@@ -136,6 +137,49 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
               </div>
             </div>
           </div>
+
+          <!-- Model Selection -->
+          @if (modelState.availableModels().length > 0) {
+            <div class="max-w-sm mx-auto mb-4 text-left">
+              <label
+                for="wizard-model-select"
+                class="text-xs font-semibold text-base-content/70 mb-1.5 block"
+              >
+                Analysis model
+              </label>
+              <select
+                id="wizard-model-select"
+                class="select select-bordered select-sm w-full text-xs"
+                [value]="modelState.currentModel()"
+                [disabled]="modelState.isPending()"
+                (change)="onModelChange($event)"
+                aria-label="Select the model used for analysis"
+              >
+                @for (model of modelState.availableModels(); track model.id) {
+                  <option [value]="model.id">
+                    {{ model.name
+                    }}{{ model.isRecommended ? ' (Recommended)' : '' }}
+                  </option>
+                }
+              </select>
+              @if (modelState.currentModelInfo(); as info) {
+                <div
+                  class="mt-2 rounded-md border border-base-300 bg-base-200/40 px-3 py-2"
+                >
+                  @if (info.description) {
+                    <p class="text-xs text-base-content/70">
+                      {{ info.description }}
+                    </p>
+                  }
+                  @if (info.providerModelId) {
+                    <p class="text-[11px] font-mono text-accent mt-1 truncate">
+                      {{ info.providerModelId }}
+                    </p>
+                  }
+                </div>
+              }
+            </div>
+          }
 
           <!-- CTA Button -->
           <div class="text-center mb-4">
@@ -260,6 +304,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 export class WelcomeComponent implements OnInit {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+  protected readonly modelState = inject(ModelStateService);
 
   protected readonly SearchIcon = Search;
   protected readonly BotIcon = Bot;
@@ -296,6 +341,12 @@ export class WelcomeComponent implements OnInit {
 
   protected onStartSetup(): void {
     this.wizardState.setCurrentStep('scan');
+  }
+
+  protected onModelChange(event: Event): void {
+    const model = (event.target as HTMLSelectElement).value;
+    if (!model) return;
+    void this.modelState.switchModel(model);
   }
 
   protected async onUseAnalysis(

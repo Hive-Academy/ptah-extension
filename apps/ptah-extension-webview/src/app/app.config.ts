@@ -34,6 +34,7 @@ import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 import {
   WizardViewComponent,
   provideWizardInternalState,
+  SetupWizardStateService,
 } from '@ptah-extension/setup-wizard';
 import {
   provideEditorInternalState,
@@ -149,6 +150,11 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: HarnessWorkflowMessageHandler,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: SetupWizardStateService,
       multi: true,
     },
     provideMonacoEditor({
