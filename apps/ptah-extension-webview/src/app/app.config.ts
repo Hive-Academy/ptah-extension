@@ -45,6 +45,7 @@ import { ThothStatusService } from '@ptah-extension/dashboard';
 import {
   HarnessBuilderViewComponent,
   SetupHubComponent,
+  HarnessWorkflowMessageHandler,
 } from '@ptah-extension/harness-builder';
 import { MarketplaceHubComponent } from '@ptah-extension/marketplace';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui';
@@ -143,6 +144,11 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: VecEmbedderRecoveryService,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: HarnessWorkflowMessageHandler,
       multi: true,
     },
     provideMonacoEditor({

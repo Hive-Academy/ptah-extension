@@ -1095,7 +1095,9 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     );
     expect(backgroundAgentStore.clearSession).toHaveBeenCalledWith(SESSION_A);
     expect(treeBuilder.clearForSession).toHaveBeenCalledWith(SESSION_A);
-    expect(treeBuilder.clearForTab).toHaveBeenCalledWith(tab as unknown as string);
+    expect(treeBuilder.clearForTab).toHaveBeenCalledWith(
+      tab as unknown as string,
+    );
     expect(batchedUpdate.clearPendingUpdates).toHaveBeenCalledWith(
       tab as unknown as string,
     );
@@ -1141,7 +1143,9 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     expect(agentMonitorStore.forceClearSessionAgents).not.toHaveBeenCalled();
     expect(backgroundAgentStore.clearSession).not.toHaveBeenCalled();
     expect(treeBuilder.clearForSession).not.toHaveBeenCalled();
-    expect(treeBuilder.clearForTab).toHaveBeenCalledWith(tab as unknown as string);
+    expect(treeBuilder.clearForTab).toHaveBeenCalledWith(
+      tab as unknown as string,
+    );
     expect(binding.conversationFor(tab)).toBeNull();
   });
 
@@ -1862,6 +1866,95 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       expect(targets).toEqual([]);
       expect(warnSpy).not.toHaveBeenCalled();
       expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ---- interactive surface routing ---------------------------------------
+
+  describe('interactive surface routing (claimed workflow session)', () => {
+    function makeInteractiveSurfaceProbe(): {
+      surfaceId: SurfaceId;
+      state: StreamingState;
+      setState: jest.Mock;
+      getState: jest.Mock;
+    } {
+      const probe = {
+        surfaceId: SurfaceId.create(),
+        state: createEmptyStreamingState(),
+        getState: jest.fn<StreamingState, []>(),
+        setState: jest.fn<void, [StreamingState]>(),
+      };
+      probe.getState.mockImplementation(() => probe.state);
+      probe.setState.mockImplementation((next) => {
+        probe.state = next;
+      });
+      surfaceRegistry.register(
+        probe.surfaceId,
+        probe.getState,
+        probe.setState,
+        { interactive: true },
+      );
+      return probe;
+    }
+
+    it('attaches surface targets and SKIPS auto-deny when the bound surface is interactive', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const targets = router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-interactive-1' }),
+      );
+
+      expect(targets).toEqual([]);
+      expect(permissionHandler.attachPromptTargets).toHaveBeenCalledWith(
+        'perm-interactive-1',
+        [probe.surfaceId],
+      );
+      expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        'prompt.received.no-tab-surface-only',
+        expect.anything(),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('attaches question surface targets and SKIPS auto-answer when interactive', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routeQuestionPrompt(
+        makeQuestion({
+          id: 'q-interactive-1',
+          sessionId: SESSION_A as unknown as string,
+        }),
+      );
+
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-interactive-1',
+        [probe.surfaceId],
+      );
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('non-interactive surface keeps auto-deny behavior unchanged', () => {
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-noninteractive-1' }),
+      );
+
+      expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
+      expect(permissionHandler.handlePermissionResponse).toHaveBeenCalledWith({
+        id: 'perm-noninteractive-1',
+        decision: 'deny',
+        reason: expect.stringContaining('auto-deny'),
+      });
       warnSpy.mockRestore();
     });
   });

@@ -648,6 +648,17 @@ export class SessionLoaderService {
   }
 
   /**
+   * Replace the resumable subagents signal for a session.
+   *
+   * Called after a live abort (chat:abort) returns the subagents it
+   * interrupted, so the resume banner appears without reloading the session.
+   */
+  setResumableSubagents(agents: SubagentRecord[], sessionId: string): void {
+    this._resumableSubagents.set(agents);
+    this._resumableSubagentsSessionId = sessionId;
+  }
+
+  /**
    * Remove a single resumable subagent by toolCallId.
    *
    * Called when the user resumes one specific agent so that only that

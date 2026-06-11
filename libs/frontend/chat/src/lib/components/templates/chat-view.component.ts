@@ -878,7 +878,7 @@ export class ChatViewComponent {
    * This prevents creating a new session when the tab is in streaming status.
    */
   handleResumeAgent(agent: SubagentRecord): void {
-    const prompt = `Resume the interrupted ${agent.agentType} agent (agentId: ${agent.agentId}) using the Task tool with resume parameter set to "${agent.agentId}".`;
+    const prompt = `Resume agent ${agent.agentId} (the interrupted ${agent.agentType} agent) and have it continue its previous work from where it was interrupted.`;
     const tabId = this._sessionContext?.() ?? undefined;
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
     this.chatStore.removeResumableSubagent(agent.toolCallId);
@@ -897,9 +897,9 @@ export class ChatViewComponent {
     }
 
     const agentList = agents
-      .map((a) => `- ${a.agentType} (agentId: ${a.agentId})`)
+      .map((a) => `- Resume agent ${a.agentId} (${a.agentType})`)
       .join('\n');
-    const prompt = `Resume all ${agents.length} interrupted agents using the Task tool with resume parameter for each:\n${agentList}`;
+    const prompt = `Resume all ${agents.length} interrupted agents and have each continue its previous work from where it was interrupted:\n${agentList}`;
     const tabId = this._sessionContext?.() ?? undefined;
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
     for (const agent of agents) {

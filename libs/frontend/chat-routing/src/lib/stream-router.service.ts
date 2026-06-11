@@ -428,6 +428,13 @@ export class StreamRouter {
     if (containing) {
       const surfaces = this.binding.surfacesFor(containing.id);
       if (surfaces.length > 0) {
+        const interactive = surfaces.filter((s) =>
+          this.surfaceRegistry.isInteractive(s),
+        );
+        if (interactive.length > 0) {
+          this.permissionHandler.attachPromptTargets(prompt.id, interactive);
+          return tabs;
+        }
         console.warn('prompt.received.no-tab-surface-only', {
           promptId: prompt.id,
           sessionId: prompt.sessionId,
@@ -492,6 +499,16 @@ export class StreamRouter {
     if (containing) {
       const surfaces = this.binding.surfacesFor(containing.id);
       if (surfaces.length > 0) {
+        const interactive = surfaces.filter((s) =>
+          this.surfaceRegistry.isInteractive(s),
+        );
+        if (interactive.length > 0) {
+          this.permissionHandler.attachQuestionTargets(
+            question.id,
+            interactive,
+          );
+          return tabs;
+        }
         console.warn('question.received.no-tab-surface-only', {
           questionId: question.id,
           sessionId: question.sessionId,

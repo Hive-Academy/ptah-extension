@@ -266,6 +266,7 @@ export class PermissionHandlerService {
     const toolIdsInTree = this.toolIdsInExecutionTree();
 
     return sessionPermissions.filter((req) => {
+      if (this.hasSurfaceTargets(req.id)) return false;
       if (!req.toolUseId) return true;
       return !toolIdsInTree.has(req.toolUseId);
     });
@@ -339,6 +340,21 @@ export class PermissionHandlerService {
    */
   targetTabsFor(promptId: string): readonly string[] {
     return this._promptTargetTabs.get(promptId) ?? [];
+  }
+
+  /**
+   * Leak-guard predicate for chat-side fallbacks. Returns `true` when the
+   * prompt has attached targets AND none of them parses as a known `TabId`
+   * — i.e. every target is a non-tab surface (the harness workflow surface).
+   * The chat UI uses this to suppress prompt cards that belong to a surface
+   * workflow on tabs/sessions that have no tab targets of their own.
+   */
+  hasSurfaceTargets(promptId: string): boolean {
+    const targets = this._promptTargetTabs.get(promptId);
+    if (!targets || targets.length === 0) return false;
+    return targets.every(
+      (id) => !this.tabManager.tabs().some((t) => t.id === id),
+    );
   }
 
   /**
