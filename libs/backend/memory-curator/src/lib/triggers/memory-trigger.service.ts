@@ -53,6 +53,7 @@ const COMMIT_PATTERN = /^\s*git\s+commit(?:\s|$)/;
 const RATE_LIMIT_KEY = 'memory.curate';
 const MAX_CUE_PATTERN_LENGTH = 200;
 const COALESCE_WINDOW_MS = 5000;
+const TOOL_FAILURE_SNIPPET = 140;
 
 type CurateSource =
   | 'idle'
@@ -287,7 +288,10 @@ export class MemoryTriggerService {
       kind: 'tool-failure',
       timestamp: payload.timestamp,
       sessionId: payload.sessionId,
-      stats: { tool: payload.toolName },
+      stats: {
+        tool: payload.toolName,
+        error: snippetOneLine(payload.error, TOOL_FAILURE_SNIPPET),
+      },
     });
   }
 
@@ -826,6 +830,12 @@ const USER_PROMPT_PREVIEW = 1000;
 function truncate(text: string | null | undefined, max: number): string {
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function snippetOneLine(text: string | null | undefined, max: number): string {
+  if (!text) return '';
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  return collapsed.length > max ? `${collapsed.slice(0, max)}…` : collapsed;
 }
 
 function safeStringify(value: unknown): string | null {

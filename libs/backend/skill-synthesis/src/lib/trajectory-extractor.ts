@@ -25,6 +25,9 @@ const SUCCESS_MARKERS = [
   /\bsuccessfully\s+(completed|implemented|fixed|resolved)\b/i,
   /\ball\s+tests?\s+pass/i,
   /\b✅\b/,
+  /\ball\s+\d*\s*(tests?|checks?)\s+pass(ing|ed)?\b/i,
+  /\bimplementation\s+(is\s+)?complete\b/i,
+  /\b(build|typecheck|lint)\s+(succeeded|passes|passing|green)\b/i,
 ];
 
 export interface ExtractedTrajectory {
@@ -59,22 +62,32 @@ export class TrajectoryExtractor {
    * @param workspaceRoot  Used to locate the JSONL file and normalize paths.
    * @param minTurns       Minimum qualifying turns required. Defaults to
    *                       {@link MIN_TURNS_FOR_TRAJECTORY} when not supplied.
+   * @param transcriptPath When provided, the JSONL at this exact path is read
+   *                       instead of resolving the file by session id. Required
+   *                       for subagent transcripts which live under
+   *                       `<parentSessionId>/subagents/agent-<id>.jsonl`.
    */
   async extract(
     sessionId: string,
     workspaceRoot: string,
     minTurns: number = MIN_TURNS_FOR_TRAJECTORY,
+    transcriptPath?: string,
   ): Promise<ExtractedTrajectory | null> {
-    const sessionsDir =
-      await this.jsonlReader.findSessionsDirectory(workspaceRoot);
-    if (!sessionsDir) {
-      this.logger.debug('[skill-synthesis] no sessions dir for workspace', {
-        workspaceRoot,
-        sessionId,
-      });
-      return null;
+    let filePath: string;
+    if (transcriptPath && transcriptPath.length > 0) {
+      filePath = transcriptPath;
+    } else {
+      const sessionsDir =
+        await this.jsonlReader.findSessionsDirectory(workspaceRoot);
+      if (!sessionsDir) {
+        this.logger.debug('[skill-synthesis] no sessions dir for workspace', {
+          workspaceRoot,
+          sessionId,
+        });
+        return null;
+      }
+      filePath = `${sessionsDir}/${sessionId}.jsonl`;
     }
-    const filePath = `${sessionsDir}/${sessionId}.jsonl`;
     let messages;
     try {
       messages = await this.jsonlReader.readJsonlMessages(filePath);

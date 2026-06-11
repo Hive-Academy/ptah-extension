@@ -1077,6 +1077,32 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     );
   });
 
+  it('tool-failure event carries a single-line truncated error snippet', async () => {
+    const { service, toolFailure, curator } = buildService();
+    service.start();
+    const rawError = `TypeError: x is undefined\n    at foo (bar.ts:1)\n${'y'.repeat(300)}`;
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: rawError,
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    const call = (curator.pushEvent as jest.Mock).mock.calls.find(
+      ([e]: [{ kind: string }]) => e.kind === 'tool-failure',
+    );
+    expect(call).toBeDefined();
+    const snippet = call[0].stats.error as string;
+    expect(snippet).toContain('TypeError: x is undefined');
+    expect(snippet).not.toContain('\n');
+    expect(snippet.length).toBeLessThanOrEqual(141);
+    expect(snippet.endsWith('…')).toBe(true);
+  });
+
   it('recovery-only episode (turnCount === 0) does NOT fire episode-trigger', async () => {
     const { service, toolFailure, postToolUse, curator } = buildService({
       workspace: makeWorkspace({

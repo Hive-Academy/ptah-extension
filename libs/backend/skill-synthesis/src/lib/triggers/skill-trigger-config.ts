@@ -10,6 +10,9 @@ export const SKILL_TRIGGER_KEYS = {
   subagentStop: {
     enabled: 'skillSynthesis.triggers.subagentStop.enabled',
   },
+  turnComplete: {
+    enabled: 'skillSynthesis.triggers.turnComplete.enabled',
+  },
   postToolUse: {
     enabled: 'skillSynthesis.triggers.postToolUse.enabled',
     minEditCount: 'skillSynthesis.triggers.postToolUse.minEditCount',
@@ -27,6 +30,9 @@ export const SKILL_TRIGGER_DEFAULTS = {
   subagentStop: {
     enabled: true,
   },
+  turnComplete: {
+    enabled: true,
+  },
   postToolUse: {
     enabled: true,
     minEditCount: 3,
@@ -42,6 +48,7 @@ export const SKILL_TRIGGER_PREFIXES: Record<keyof SkillTriggersDto, string> = {
   idleMs: SKILL_TRIGGER_KEYS.idleMs,
   bootScan: SKILL_TRIGGER_KEYS.bootScan,
   subagentStop: 'skillSynthesis.triggers.subagentStop',
+  turnComplete: 'skillSynthesis.triggers.turnComplete',
   postToolUse: 'skillSynthesis.triggers.postToolUse',
   maxAnalyzesPerHour: SKILL_TRIGGER_KEYS.maxAnalyzesPerHour,
 };
@@ -51,6 +58,9 @@ export interface PopulatedSkillTriggers {
   readonly idleMs: number;
   readonly bootScan: boolean;
   readonly subagentStop: {
+    readonly enabled: boolean;
+  };
+  readonly turnComplete: {
     readonly enabled: boolean;
   };
   readonly postToolUse: {
@@ -87,6 +97,12 @@ export function readSkillTriggers(
       SKILL_TRIGGER_KEYS.subagentStop.enabled,
       SKILL_TRIGGER_DEFAULTS.subagentStop.enabled,
     ) ?? SKILL_TRIGGER_DEFAULTS.subagentStop.enabled;
+  const turnCompleteEnabled =
+    ws.getConfiguration<boolean>(
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.turnComplete.enabled,
+      SKILL_TRIGGER_DEFAULTS.turnComplete.enabled,
+    ) ?? SKILL_TRIGGER_DEFAULTS.turnComplete.enabled;
   const postToolUseEnabled =
     ws.getConfiguration<boolean>(
       SKILL_TRIGGER_SECTION,
@@ -111,6 +127,9 @@ export function readSkillTriggers(
     bootScan,
     subagentStop: {
       enabled: subagentStopEnabled,
+    },
+    turnComplete: {
+      enabled: turnCompleteEnabled,
     },
     postToolUse: {
       enabled: postToolUseEnabled,
