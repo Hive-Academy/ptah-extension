@@ -2,9 +2,10 @@
  * Harness Namespace Builder
  *
  * Harness-specific MCP tools for the harness builder agent.
- * Provides 4 tools that the harness builder agent can use during its multi-turn
- * execution to search skills, create skills, search the MCP registry, and
- * list installed MCP servers.
+ * Provides the tools the harness builder agent uses during its multi-turn
+ * execution to search skills, create skills, search the MCP registry, list
+ * installed MCP servers, and propose configuration updates to the surface via
+ * proposeConfig.
  *
  * Pattern: namespace-builders/json-namespace.builder.ts
  */
@@ -13,6 +14,11 @@ import * as path from 'path';
 import { existsSync } from 'fs';
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import * as os from 'os';
+import {
+  HarnessConfigUpdatesSchema,
+  MESSAGE_TYPES,
+  type HarnessConfig,
+} from '@ptah-extension/shared';
 
 /**
  * Dependencies required to build the harness namespace.
@@ -35,6 +41,7 @@ export interface HarnessNamespaceDependencies {
     }>;
   };
   getWorkspaceRoot: () => string;
+  broadcast: (type: string, payload: unknown) => void;
   logger: {
     info(msg: string): void;
     warn(msg: string): void;
@@ -71,6 +78,10 @@ export interface HarnessNamespace {
   listInstalledMcpServers(): Promise<
     Array<{ name: string; config: Record<string, unknown>; source: string }>
   >;
+  proposeConfig(
+    configUpdates: Partial<HarnessConfig>,
+    isConfigComplete?: boolean,
+  ): Promise<string>;
 }
 
 /**
@@ -96,7 +107,8 @@ function sanitizeName(name: string): string {
 export function buildHarnessNamespace(
   deps: HarnessNamespaceDependencies,
 ): HarnessNamespace {
-  const { pluginLoader, mcpRegistry, getWorkspaceRoot, logger } = deps;
+  const { pluginLoader, mcpRegistry, getWorkspaceRoot, broadcast, logger } =
+    deps;
 
   return {
     async searchSkills(query?: string) {
@@ -250,6 +262,33 @@ export function buildHarnessNamespace(
       }
 
       return servers;
+    },
+
+    async proposeConfig(
+      configUpdates: Partial<HarnessConfig>,
+      isConfigComplete?: boolean,
+    ) {
+      const parsed = HarnessConfigUpdatesSchema.safeParse(configUpdates);
+      if (!parsed.success) {
+        const issues = parsed.error.issues
+          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .join('; ');
+        throw new Error(`Invalid configUpdates: ${issues}`);
+      }
+
+      broadcast(MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED, {
+        configUpdates: parsed.data,
+        isConfigComplete: isConfigComplete ?? false,
+      });
+
+      const fieldCount = Object.keys(parsed.data).length;
+      logger.info(
+        `[Harness] proposeConfig applied ${fieldCount} field(s), complete=${isConfigComplete ?? false}`,
+      );
+
+      return isConfigComplete
+        ? 'Configuration marked complete and pushed to the surface.'
+        : `Proposed ${fieldCount} configuration field(s) to the surface.`;
     },
   };
 }

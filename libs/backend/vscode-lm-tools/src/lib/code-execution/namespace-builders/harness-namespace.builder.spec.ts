@@ -70,6 +70,7 @@ function makeDeps(
   deps: HarnessNamespaceDependencies;
   pluginLoader: PluginLoaderMock;
   mcpRegistry: McpRegistryMock;
+  broadcast: jest.Mock;
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
 } {
   const skills = overrides.skills ?? [];
@@ -84,6 +85,7 @@ function makeDeps(
   const mcpRegistry: McpRegistryMock = {
     listServers: jest.fn().mockResolvedValue(servers),
   };
+  const broadcast = jest.fn();
   const logger = {
     info: jest.fn(),
     warn: jest.fn(),
@@ -93,9 +95,10 @@ function makeDeps(
     pluginLoader,
     mcpRegistry,
     getWorkspaceRoot: () => overrides.workspaceRoot ?? 'D:/ws',
+    broadcast,
     logger,
   };
-  return { deps, pluginLoader, mcpRegistry, logger };
+  return { deps, pluginLoader, mcpRegistry, broadcast, logger };
 }
 
 beforeEach(() => {
@@ -110,13 +113,60 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('buildHarnessNamespace — shape', () => {
-  it('exposes searchSkills/createSkill/searchMcpRegistry/listInstalledMcpServers', () => {
+  it('exposes searchSkills/createSkill/searchMcpRegistry/listInstalledMcpServers/proposeConfig', () => {
     const { deps } = makeDeps();
     const ns = buildHarnessNamespace(deps);
     expect(typeof ns.searchSkills).toBe('function');
     expect(typeof ns.createSkill).toBe('function');
     expect(typeof ns.searchMcpRegistry).toBe('function');
     expect(typeof ns.listInstalledMcpServers).toBe('function');
+    expect(typeof ns.proposeConfig).toBe('function');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// proposeConfig
+// ---------------------------------------------------------------------------
+
+describe('buildHarnessNamespace — proposeConfig', () => {
+  it('rejects invalid configUpdates without broadcasting', async () => {
+    const { deps, broadcast } = makeDeps();
+    await expect(
+      buildHarnessNamespace(deps).proposeConfig({
+        persona: { goals: 'not-an-array' },
+      } as never),
+    ).rejects.toThrow(/Invalid configUpdates/);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts validated config updates and returns an ack', async () => {
+    const { deps, broadcast } = makeDeps();
+    const result = await buildHarnessNamespace(deps).proposeConfig({
+      persona: { label: 'Backend Dev', description: 'd', goals: ['ship'] },
+    });
+    expect(broadcast).toHaveBeenCalledWith(
+      'harness:config-proposed',
+      expect.objectContaining({
+        configUpdates: expect.objectContaining({
+          persona: expect.objectContaining({ label: 'Backend Dev' }),
+        }),
+        isConfigComplete: false,
+      }),
+    );
+    expect(typeof result).toBe('string');
+  });
+
+  it('marks the configuration complete when isConfigComplete=true', async () => {
+    const { deps, broadcast } = makeDeps();
+    const result = await buildHarnessNamespace(deps).proposeConfig(
+      { name: 'My Harness' },
+      true,
+    );
+    expect(broadcast).toHaveBeenCalledWith(
+      'harness:config-proposed',
+      expect.objectContaining({ isConfigComplete: true }),
+    );
+    expect(result).toMatch(/complete/i);
   });
 });
 

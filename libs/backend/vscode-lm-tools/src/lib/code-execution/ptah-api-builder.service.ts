@@ -589,10 +589,20 @@ export class PtahAPIBuilder {
             'SDK_PLUGIN_LOADER not registered — harness namespace requires the plugin loader',
           );
         }
+        const webviewManager = this.webviewManager;
         return buildHarnessNamespace({
           pluginLoader: this.pluginLoader,
           mcpRegistry: new McpRegistryProvider(this.logger),
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
+          broadcast: (type, payload) => {
+            if (!webviewManager) {
+              this.logger.debug(
+                '[PtahAPIBuilder] WebviewManager not registered, skipping harness broadcast',
+              );
+              return;
+            }
+            void webviewManager.broadcastMessage(type, payload);
+          },
           logger: this.logger,
         });
       }),
