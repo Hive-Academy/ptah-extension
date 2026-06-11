@@ -14,9 +14,9 @@ import { GatewayStateService } from '../services/gateway-state.service';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <form class="mt-3 flex flex-col gap-2" (submit)="onSubmit($event)">
-      <label class="form-control w-full">
-        <span class="label-text text-xs">Bot token</span>
+    <form class="flex flex-col gap-3" (submit)="onSubmit($event)">
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-base-content/60">Bot token</span>
         <input
           type="password"
           autocomplete="new-password"
@@ -24,7 +24,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
           autocapitalize="off"
           spellcheck="false"
           name="bot-token"
-          class="input input-bordered input-sm font-mono"
+          class="input input-sm input-bordered font-mono"
           [placeholder]="tokenPlaceholder()"
           [value]="botToken()"
           (input)="onTokenInput('bot', $event)"
@@ -33,8 +33,10 @@ import { GatewayStateService } from '../services/gateway-state.service';
       </label>
 
       @if (hasAppToken()) {
-        <label class="form-control w-full">
-          <span class="label-text text-xs"> App-level token (xapp-...) </span>
+        <label class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/60">
+            App-level token (xapp-...)
+          </span>
           <input
             type="password"
             autocomplete="new-password"
@@ -42,7 +44,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
             autocapitalize="off"
             spellcheck="false"
             name="app-token"
-            class="input input-bordered input-sm font-mono"
+            class="input input-sm input-bordered font-mono"
             placeholder="Paste app-level token (xapp-...)"
             [value]="appToken()"
             (input)="onTokenInput('app', $event)"
@@ -52,13 +54,13 @@ import { GatewayStateService } from '../services/gateway-state.service';
       }
 
       <div class="flex items-center justify-between gap-2">
-        <span class="text-xs text-base-content/60">
+        <span class="text-xs text-base-content/50">
           Tokens are encrypted by the OS keychain and never persisted in the
           renderer.
         </span>
         <button
           type="submit"
-          class="btn btn-primary btn-sm"
+          class="btn btn-sm btn-primary"
           [disabled]="submitting() || !canSubmit()"
         >
           @if (submitting()) {

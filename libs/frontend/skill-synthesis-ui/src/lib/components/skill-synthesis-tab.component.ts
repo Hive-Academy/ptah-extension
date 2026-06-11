@@ -14,6 +14,7 @@ import {
   FormGroup,
 } from '@angular/forms';
 import { VSCodeService } from '@ptah-extension/core';
+import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisSettingsDto,
@@ -39,6 +40,8 @@ import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 
 type ActionKind = 'promote' | 'reject';
 
+type SkillSubView = 'candidates' | 'activity' | 'clones' | 'settings';
+
 interface ActionDialogState {
   readonly kind: ActionKind;
   readonly candidate: SkillSynthesisCandidateSummary;
@@ -52,6 +55,7 @@ interface ActionDialogState {
     CommonModule,
     FormsModule,
     ReactiveFormsModule,
+    LucideAngularModule,
     SkillDiagnosticsAccordionComponent,
     SkillClonesViewComponent,
     SkillStatsStripComponent,
@@ -62,40 +66,54 @@ interface ActionDialogState {
   ],
   template: `
     @if (!isElectron()) {
-      <div role="alert" class="alert alert-info">
-        <span class="text-sm">
+      <div
+        class="flex flex-col items-center gap-2 px-6 py-16 text-center"
+        role="alert"
+      >
+        <lucide-angular
+          [img]="SparklesIcon"
+          class="size-8 text-base-content/30"
+          aria-hidden="true"
+        />
+        <p class="text-sm font-medium">
           Skill synthesis is only available in the Ptah desktop app.
-          <a
-            class="link link-primary ml-1"
-            href="https://github.com/HiveAcademy/ptah-extension/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Download Ptah desktop</a
-          >.
-        </span>
+        </p>
+        <p class="text-xs text-base-content/60">
+          Download Ptah desktop to let Thoth synthesize reusable skills from
+          your sessions.
+        </p>
+        <a
+          class="link link-primary text-xs"
+          href="https://github.com/HiveAcademy/ptah-extension/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Download Ptah desktop</a
+        >
       </div>
     } @else {
-      <div class="flex h-full w-full flex-col gap-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <nav role="tablist" aria-label="Status filter" class="join">
-            @for (f of filters; track f.id) {
-              <button
-                type="button"
-                role="tab"
-                class="join-item btn btn-sm"
-                [attr.data-testid]="'skills-filter-' + f.id"
-                [class.btn-primary]="statusFilter() === f.id"
-                [attr.aria-selected]="statusFilter() === f.id"
-                (click)="onFilterChange(f.id)"
-              >
-                {{ f.label }}
-              </button>
-            }
-          </nav>
-          <div class="ml-auto flex gap-1">
+      <div class="space-y-6">
+        <header class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <span
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-secondary"
+            >
+              <lucide-angular
+                [img]="SparklesIcon"
+                class="w-5 h-5"
+                aria-hidden="true"
+              />
+            </span>
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">Skills</h1>
+              <p class="mt-0.5 text-sm text-base-content/60">
+                Reusable skills Thoth synthesizes from successful sessions.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
             <button
               type="button"
-              class="btn btn-sm btn-outline"
+              class="btn btn-primary btn-sm transition-colors duration-150"
               [disabled]="curatorRunning() || loading()"
               (click)="onRunCurator()"
             >
@@ -105,93 +123,128 @@ interface ActionDialogState {
               Run Curator
             </button>
           </div>
-        </div>
+        </header>
 
         <ptah-skill-stats-strip [stats]="stats()" />
 
-        <ptah-skill-pipeline-status
-          [lastAnalyzeRunAt]="lastAnalyzeRunAt()"
-          [histogram]="eligibilityHistogram()"
-          [recentEvents]="recentEvents()"
-        />
-
-        @if (error(); as msg) {
-          <div role="alert" class="alert alert-error py-2 text-sm">
-            <span>{{ msg }}</span>
-          </div>
-        }
-
-        <ptah-skill-candidates-table
-          [candidates]="candidates()"
-          [selectedCandidateId]="selectedCandidateId()"
-          [loading]="loading()"
-          (selectRow)="onSelectRow($event)"
-          (promote)="onOpenAction('promote', $event)"
-          (reject)="onOpenAction('reject', $event)"
-          (togglePin)="onTogglePin($event)"
-        />
-
-        @if (selectedCandidate(); as sc) {
-          <ptah-skill-invocations-panel
-            [candidate]="sc"
-            [invocations]="invocations()"
-            (closed)="onClearSelection()"
-          />
-        }
-
-        @if (toast(); as t) {
-          <div
-            role="alert"
-            class="alert py-2 text-sm"
-            [class.alert-success]="t.kind === 'success'"
-            [class.alert-error]="t.kind === 'error'"
-          >
-            <span>{{ t.message }}</span>
-          </div>
-        }
-
-        <ptah-skill-settings-panel
-          [form]="settingsForm"
-          [loaded]="settingsLoaded()"
-          [saving]="loading()"
-          (save)="onSaveSettings()"
-        />
-
-        <details
-          class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100"
-          data-test="clones-accordion"
-          [open]="clonesOpen()"
-          (toggle)="onClonesToggle($event)"
+        <div
+          role="tablist"
+          aria-label="Skills views"
+          class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
         >
-          <summary
-            class="collapse-title min-h-0 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-base-content/70"
-          >
-            Clones
-          </summary>
-          <div class="collapse-content">
-            @if (clonesOpen()) {
-              <ptah-skill-clones-view />
-            }
-          </div>
-        </details>
+          @for (v of subViews; track v.id) {
+            <button
+              type="button"
+              role="tab"
+              class="tab transition-colors duration-150"
+              [class.tab-active]="subView() === v.id"
+              [attr.aria-selected]="subView() === v.id"
+              (click)="setSubView(v.id)"
+            >
+              {{ v.label }}
+            </button>
+          }
+        </div>
 
-        <details
-          class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100"
-          data-test="diagnostics-accordion"
-          [open]="diagnosticsOpen()"
-          (toggle)="onDiagnosticsToggle($event)"
-        >
-          <summary
-            class="collapse-title min-h-0 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-base-content/70"
-          >
-            Diagnostics
-          </summary>
-          <div class="collapse-content">
-            @if (diagnosticsOpen()) {
+        @switch (subView()) {
+          @case ('candidates') {
+            <div class="space-y-4">
+              <nav
+                role="tablist"
+                aria-label="Status filter"
+                class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+              >
+                @for (f of filters; track f.id) {
+                  <button
+                    type="button"
+                    role="tab"
+                    class="tab transition-colors duration-150"
+                    [attr.data-testid]="'skills-filter-' + f.id"
+                    [class.tab-active]="statusFilter() === f.id"
+                    [attr.aria-selected]="statusFilter() === f.id"
+                    (click)="onFilterChange(f.id)"
+                  >
+                    {{ f.label }}
+                  </button>
+                }
+              </nav>
+
+              @if (ineligibleHint(); as hint) {
+                <p class="text-xs text-base-content/60">{{ hint }}</p>
+              }
+
+              @if (error(); as msg) {
+                <div role="alert" class="alert alert-error py-2 text-sm">
+                  <span>{{ msg }}</span>
+                </div>
+              }
+
+              <ptah-skill-candidates-table
+                [candidates]="candidates()"
+                [selectedCandidateId]="selectedCandidateId()"
+                [loading]="loading()"
+                (selectRow)="onSelectRow($event)"
+                (promote)="onOpenAction('promote', $event)"
+                (reject)="onOpenAction('reject', $event)"
+                (togglePin)="onTogglePin($event)"
+              />
+
+              @if (selectedCandidate(); as sc) {
+                <ptah-skill-invocations-panel
+                  [candidate]="sc"
+                  [invocations]="invocations()"
+                  (closed)="onClearSelection()"
+                />
+              }
+
+              @if (toast(); as t) {
+                <div
+                  role="alert"
+                  class="alert py-2 text-sm"
+                  [class.alert-success]="t.kind === 'success'"
+                  [class.alert-error]="t.kind === 'error'"
+                >
+                  <span>{{ t.message }}</span>
+                </div>
+              }
+            </div>
+          }
+          @case ('activity') {
+            <div class="space-y-4">
+              <ptah-skill-pipeline-status
+                [lastAnalyzeRunAt]="lastAnalyzeRunAt()"
+                [histogram]="eligibilityHistogram()"
+                [recentEvents]="recentEvents()"
+              />
               <ptah-skill-diagnostics-accordion />
-            }
-          </div>
-        </details>
+            </div>
+          }
+          @case ('clones') {
+            <div class="space-y-4">
+              <ptah-skill-clones-view />
+            </div>
+          }
+          @case ('settings') {
+            <div class="space-y-4">
+              <ptah-skill-settings-panel
+                [form]="settingsForm"
+                [loaded]="settingsLoaded()"
+                [saving]="loading()"
+                (save)="onSaveSettings()"
+              />
+              @if (toast(); as t) {
+                <div
+                  role="alert"
+                  class="alert py-2 text-sm"
+                  [class.alert-success]="t.kind === 'success'"
+                  [class.alert-error]="t.kind === 'error'"
+                >
+                  <span>{{ t.message }}</span>
+                </div>
+              }
+            </div>
+          }
+        }
 
         @if (curatorReport(); as report) {
           <dialog
@@ -201,24 +254,24 @@ interface ActionDialogState {
             aria-label="Curator report"
           >
             <div class="modal-box">
-              <h3 class="text-base font-semibold">Curator Report</h3>
-              <div class="mt-2 text-sm space-y-1">
-                <p class="font-mono text-xs break-all">
+              <h3 class="text-base font-semibold">Curator report</h3>
+              <div class="mt-2 space-y-1 text-sm">
+                <p class="break-all font-mono text-xs">
                   {{ report.reportPath || '(no report path)' }}
                 </p>
                 <p>
-                  <span class="font-semibold">Changes queued:</span>
+                  <span class="font-medium">Changes queued:</span>
                   {{ report.changesQueued }}
                 </p>
                 <p>
-                  <span class="font-semibold">Skipped (pinned):</span>
+                  <span class="font-medium">Skipped (pinned):</span>
                   {{ report.skippedPinned }}
                 </p>
               </div>
               @if (report.overlaps && report.overlaps.length > 0) {
                 <div class="mt-3">
-                  <p class="text-xs font-semibold mb-1">Overlaps:</p>
-                  <ul class="text-xs space-y-1 list-disc list-inside">
+                  <p class="mb-1 text-xs font-medium">Overlaps:</p>
+                  <ul class="list-inside list-disc space-y-1 text-xs">
                     @for (o of report.overlaps; track o.skillIdA) {
                       <li>
                         {{ o.skillIdA }} ↔ {{ o.skillIdB }}: {{ o.reason }}
@@ -256,13 +309,13 @@ interface ActionDialogState {
               <span class="font-mono">{{ dlg.candidate.name }}</span>
             </p>
 
-            <label class="form-control mt-3 w-full">
-              <span class="label-text text-xs">
+            <label class="mt-3 flex flex-col gap-1">
+              <span class="text-xs text-base-content/60">
                 Reason
                 <span class="text-base-content/50">(optional)</span>
               </span>
               <textarea
-                class="textarea textarea-bordered textarea-sm mt-1 w-full"
+                class="textarea textarea-bordered textarea-sm w-full"
                 rows="3"
                 [(ngModel)]="actionReason"
                 [attr.aria-label]="dlg.kind + ' reason'"
@@ -281,7 +334,7 @@ interface ActionDialogState {
               <button
                 type="button"
                 data-testid="skills-action-confirm"
-                class="btn btn-sm"
+                class="btn btn-sm transition-colors duration-150"
                 [class.btn-success]="dlg.kind === 'promote'"
                 [class.btn-error]="dlg.kind === 'reject'"
                 [disabled]="loading()"
@@ -303,6 +356,8 @@ export class SkillSynthesisTabComponent implements OnInit {
   private readonly diagnostics = inject(SkillDiagnosticsStateService);
   private readonly fb = inject(FormBuilder);
 
+  protected readonly SparklesIcon = Sparkles;
+
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
   );
@@ -319,6 +374,19 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly lastAnalyzeRunAt = this.diagnostics.lastAnalyzeRunAt;
   public readonly eligibilityHistogram = this.diagnostics.eligibilityHistogram;
   public readonly recentEvents = this.diagnostics.recentEvents;
+
+  public readonly ineligibleHint = computed<string | null>(() => {
+    const events = this.recentEvents();
+    if (events.length === 0) return null;
+    const latest = events[0];
+    if (latest.kind === 'ineligible') {
+      return 'Recent sessions were marked ineligible — see Activity for the breakdown.';
+    }
+    if (latest.kind === 'rate-limited') {
+      return 'Analysis was rate-limited — see Activity for details.';
+    }
+    return null;
+  });
 
   public readonly settingsForm: FormGroup = this.fb.group({
     enabled: [true],
@@ -363,14 +431,22 @@ export class SkillSynthesisTabComponent implements OnInit {
     { id: 'all', label: 'All' },
   ];
 
+  protected readonly subViews: ReadonlyArray<{
+    readonly id: SkillSubView;
+    readonly label: string;
+  }> = [
+    { id: 'candidates', label: 'Candidates' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'clones', label: 'Clones' },
+    { id: 'settings', label: 'Settings' },
+  ];
+
+  private readonly _subView = signal<SkillSubView>('candidates');
+  protected readonly subView = this._subView.asReadonly();
+
   public readonly actionDialog = signal<ActionDialogState | null>(null);
 
   public actionReason = '';
-
-  private readonly _clonesOpen = signal<boolean>(false);
-  protected readonly clonesOpen = this._clonesOpen.asReadonly();
-  private readonly _diagnosticsOpen = signal<boolean>(false);
-  protected readonly diagnosticsOpen = this._diagnosticsOpen.asReadonly();
 
   public ngOnInit(): void {
     if (!this.isElectron()) return;
@@ -378,6 +454,10 @@ export class SkillSynthesisTabComponent implements OnInit {
     void this.state.loadStats();
     void this.diagnostics.refresh();
     void this.loadSettings();
+  }
+
+  protected setSubView(view: SkillSubView): void {
+    this._subView.set(view);
   }
 
   private async loadSettings(): Promise<void> {
@@ -433,20 +513,6 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   protected onCloseCuratorModal(): void {
     this.curatorReport.set(null);
-  }
-
-  protected onClonesToggle(event: Event): void {
-    const target = event.target as HTMLDetailsElement | null;
-    if (target) {
-      this._clonesOpen.set(target.open);
-    }
-  }
-
-  protected onDiagnosticsToggle(event: Event): void {
-    const target = event.target as HTMLDetailsElement | null;
-    if (target) {
-      this._diagnosticsOpen.set(target.open);
-    }
   }
 
   private showToast(message: string, kind: 'success' | 'error'): void {

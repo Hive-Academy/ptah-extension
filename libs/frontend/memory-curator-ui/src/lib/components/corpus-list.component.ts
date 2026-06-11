@@ -80,41 +80,57 @@ export const CORPUS_CHAT_NAVIGATOR = new InjectionToken<CorpusChatNavigator>(
       </header>
 
       @if (error()) {
-        <div role="alert" class="alert alert-error">
-          <span class="text-sm">{{ error() }}</span>
+        <div
+          class="rounded-xl border border-error/40 bg-error/5 px-4 py-2"
+          role="alert"
+        >
+          <span class="text-sm text-error">{{ error() }}</span>
         </div>
       }
       @if (info()) {
-        <div role="status" class="alert alert-success">
-          <span class="text-sm">{{ info() }}</span>
+        <div
+          class="rounded-xl border border-success/40 bg-success/5 px-4 py-2"
+          role="status"
+        >
+          <span class="text-sm text-success">{{ info() }}</span>
         </div>
       }
 
       @if (loading() && corpora().length === 0) {
-        <div class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+        <div
+          class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+        >
+          <div class="divide-y divide-base-300/70">
+            @for (n of skeletonRows; track n) {
+              <div class="flex items-center gap-3 px-4 py-3">
+                <div class="skeleton h-3 w-40"></div>
+                <div class="skeleton h-3 flex-1"></div>
+              </div>
+            }
+          </div>
         </div>
       } @else if (corpora().length === 0) {
-        <div
-          class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
-        >
-          No corpora yet. Click <strong>Build corpus</strong> to snapshot a
-          memory filter into a named, primeable bundle.
+        <div class="flex flex-col items-center gap-2 px-6 py-12 text-center">
+          <p class="text-sm font-medium">No corpora yet</p>
+          <p class="text-xs text-base-content/60">
+            Click Build corpus to snapshot a memory filter into a named,
+            primeable bundle.
+          </p>
         </div>
       } @else {
-        <ul class="flex flex-col gap-2">
+        <ul
+          class="divide-y divide-base-300/70 overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+        >
           @for (corpus of corpora(); track corpus.id) {
             <li
-              class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-3 md:flex-row md:items-center"
+              class="group flex flex-col gap-2 px-4 py-3 transition-colors duration-150 hover:bg-base-300/30 md:flex-row md:items-center"
             >
-              <div class="flex-1">
-                <div class="flex flex-wrap items-center gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span class="text-sm font-medium">{{ corpus.name }}</span>
-                  <span class="badge badge-sm badge-ghost">
-                    {{ corpus.count }} memories
-                  </span>
                   <span class="text-xs text-base-content/60">
-                    built {{ formatTimestamp(corpus.builtAt) }}
+                    {{ corpus.count }} memories · built
+                    {{ formatTimestamp(corpus.builtAt) }}
                   </span>
                   @if (corpus.rebuiltAt !== null) {
                     <span class="text-xs text-base-content/60">
@@ -123,10 +139,12 @@ export const CORPUS_CHAT_NAVIGATOR = new InjectionToken<CorpusChatNavigator>(
                   }
                 </div>
               </div>
-              <div class="flex shrink-0 flex-wrap gap-1">
+              <div
+                class="flex shrink-0 flex-wrap gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              >
                 <button
                   type="button"
-                  class="btn btn-xs btn-primary"
+                  class="btn btn-xs btn-ghost"
                   [disabled]="busyName() === corpus.name"
                   (click)="onPrimeInNewChat(corpus)"
                   [attr.aria-label]="
@@ -191,6 +209,7 @@ export class CorpusListComponent implements OnInit {
   protected readonly info = signal<string | null>(null);
   protected readonly buildOpen = signal<boolean>(false);
   protected readonly busyName = signal<string | null>(null);
+  protected readonly skeletonRows = [0, 1, 2] as const;
 
   public ngOnInit(): void {
     void this.refresh();

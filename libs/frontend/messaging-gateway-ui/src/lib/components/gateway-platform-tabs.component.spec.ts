@@ -43,6 +43,18 @@ function tabs(
   ) as HTMLButtonElement[];
 }
 
+function dotFor(
+  fixture: ComponentFixture<GatewayPlatformTabsComponent>,
+  platform: GatewayPlatformId,
+): HTMLElement {
+  const word = fixture.nativeElement.querySelector(
+    `[data-testid="gateway-tile-status-${platform}"]`,
+  ) as HTMLElement;
+  const dot = word.previousElementSibling as HTMLElement | null;
+  if (!dot) throw new Error(`status dot not found: ${platform}`);
+  return dot;
+}
+
 function keydown(target: HTMLElement, key: string): void {
   target.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
@@ -78,7 +90,7 @@ describe('GatewayPlatformTabsComponent', () => {
       }
     });
 
-    it('renders a status chip per tile reflecting the platforms map', () => {
+    it('renders a status word + dot per tile reflecting the platforms map', () => {
       const { fixture } = mount(
         statusMap({
           discord: { state: 'running', lastError: null },
@@ -97,11 +109,13 @@ describe('GatewayPlatformTabsComponent', () => {
       ) as HTMLElement;
 
       expect(discordChip.textContent?.trim()).toBe('running');
-      expect(discordChip.classList).toContain('badge-success');
+      expect(dotFor(fixture, 'discord').classList).toContain('bg-success');
       expect(slackChip.textContent?.trim()).toBe('error');
-      expect(slackChip.classList).toContain('badge-error');
+      expect(dotFor(fixture, 'slack').classList).toContain('bg-error');
       expect(telegramChip.textContent?.trim()).toBe('stopped');
-      expect(telegramChip.classList).toContain('badge-ghost');
+      expect(dotFor(fixture, 'telegram').classList).toContain(
+        'bg-base-content/30',
+      );
     });
 
     it('reacts when the platforms input changes', () => {
@@ -116,7 +130,7 @@ describe('GatewayPlatformTabsComponent', () => {
         '[data-testid="gateway-tile-status-telegram"]',
       ) as HTMLElement;
       expect(chip.textContent?.trim()).toBe('running');
-      expect(chip.classList).toContain('badge-success');
+      expect(dotFor(fixture, 'telegram').classList).toContain('bg-success');
     });
   });
 

@@ -5,6 +5,13 @@ import {
   output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import {
+  Brain,
+  LucideAngularModule,
+  Pin,
+  PinOff,
+  Trash2,
+} from 'lucide-angular';
 
 import type { MemoryWire } from '@ptah-extension/shared';
 
@@ -12,83 +19,124 @@ import type { MemoryWire } from '@ptah-extension/shared';
   selector: 'ptah-memory-entry-list',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule],
+  imports: [CommonModule, LucideAngularModule],
   template: `
-    <section class="flex-1 overflow-auto" aria-label="Memory entries">
+    <section aria-label="Memory entries">
       @if (loading() && entries().length === 0) {
-        <div class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+        <div
+          class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+        >
+          <div class="divide-y divide-base-300/70">
+            @for (n of skeletonRows; track n) {
+              <div class="flex items-start gap-3 px-4 py-3">
+                <div class="skeleton mt-1.5 size-1.5 rounded-full"></div>
+                <div class="flex flex-1 flex-col gap-2">
+                  <div class="skeleton h-3 w-40"></div>
+                  <div class="skeleton h-3 w-full"></div>
+                </div>
+              </div>
+            }
+          </div>
         </div>
       } @else if (entries().length === 0) {
-        <div
-          class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
-        >
-          No memory entries match the current filter.
+        <div class="flex flex-col items-center gap-2 px-6 py-12 text-center">
+          <lucide-angular
+            [img]="BrainIcon"
+            class="size-8 text-base-content/30"
+            aria-hidden="true"
+          />
+          <p class="text-sm font-medium">No memories yet</p>
+          <p class="text-xs text-base-content/60">
+            Thoth captures facts and decisions as you chat. Keep working and
+            they'll appear here.
+          </p>
         </div>
       } @else {
-        <ul class="flex flex-col gap-2">
+        <ul
+          class="divide-y divide-base-300/70 overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+        >
           @for (entry of entries(); track entry.id) {
             <li
               data-testid="memory-entry-row"
-              class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-3 md:flex-row md:items-start"
+              class="group flex items-start gap-3 px-4 py-3 transition-colors duration-150 hover:bg-base-300/30"
             >
-              <div class="flex-1">
-                <div class="flex flex-wrap items-center gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-1.5">
                   <span
-                    class="badge badge-sm"
-                    [class]="tierBadgeClass(entry.tier)"
-                  >
-                    {{ entry.tier }}
-                  </span>
-                  <span class="badge badge-sm badge-ghost">
-                    {{ entry.kind }}
+                    class="inline-block size-1.5 rounded-full"
+                    [class.bg-primary]="entry.tier === 'core'"
+                    [class.bg-info]="entry.tier === 'recall'"
+                    [class.bg-base-content/30]="entry.tier === 'archival'"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="text-xs text-base-content/60">
+                    {{ entry.tier }} · {{ entry.kind }} ·
+                    {{ entry.salience.toFixed(2) }}
                   </span>
                   @if (entry.pinned) {
-                    <span class="badge badge-sm badge-warning">pinned</span>
+                    <span class="inline-flex items-center gap-1 text-warning">
+                      <lucide-angular
+                        [img]="PinIcon"
+                        class="size-3"
+                        aria-hidden="true"
+                      />
+                      <span class="text-xs">pinned</span>
+                    </span>
                   }
-                  <span class="text-xs text-base-content/60">
-                    score {{ entry.salience.toFixed(2) }}
-                  </span>
                 </div>
                 @if (entry.subject) {
                   <div class="mt-1 text-sm font-medium text-base-content">
                     {{ entry.subject }}
                   </div>
                 }
-                <div class="mt-1 line-clamp-3 text-sm text-base-content/80">
+                <div class="mt-0.5 line-clamp-2 text-sm text-base-content/70">
                   {{ entry.content }}
                 </div>
               </div>
-              <div class="flex shrink-0 gap-1">
+              <div
+                class="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              >
                 @if (entry.pinned) {
                   <button
                     type="button"
                     data-testid="memory-entry-unpin"
-                    class="btn btn-xs btn-ghost"
+                    class="btn btn-ghost btn-xs btn-square text-base-content/50"
                     (click)="unpin.emit(entry.id)"
                     [attr.aria-label]="'Unpin entry ' + entry.id"
                   >
-                    Unpin
+                    <lucide-angular
+                      [img]="PinOffIcon"
+                      class="size-3.5"
+                      aria-hidden="true"
+                    />
                   </button>
                 } @else {
                   <button
                     type="button"
                     data-testid="memory-entry-pin"
-                    class="btn btn-xs btn-ghost"
+                    class="btn btn-ghost btn-xs btn-square text-base-content/50"
                     (click)="pin.emit(entry.id)"
                     [attr.aria-label]="'Pin entry ' + entry.id"
                   >
-                    Pin
+                    <lucide-angular
+                      [img]="PinIcon"
+                      class="size-3.5"
+                      aria-hidden="true"
+                    />
                   </button>
                 }
                 <button
                   type="button"
                   data-testid="memory-entry-forget"
-                  class="btn btn-xs btn-ghost text-error"
+                  class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-error"
                   (click)="forget.emit(entry.id)"
                   [attr.aria-label]="'Forget entry ' + entry.id"
                 >
-                  Forget
+                  <lucide-angular
+                    [img]="Trash2Icon"
+                    class="size-3.5"
+                    aria-hidden="true"
+                  />
                 </button>
               </div>
             </li>
@@ -106,14 +154,9 @@ export class MemoryEntryListComponent {
   public readonly unpin = output<string>();
   public readonly forget = output<string>();
 
-  protected tierBadgeClass(tier: MemoryWire['tier']): string {
-    switch (tier) {
-      case 'core':
-        return 'badge-primary';
-      case 'recall':
-        return 'badge-info';
-      case 'archival':
-        return 'badge-neutral';
-    }
-  }
+  protected readonly BrainIcon = Brain;
+  protected readonly PinIcon = Pin;
+  protected readonly PinOffIcon = PinOff;
+  protected readonly Trash2Icon = Trash2;
+  protected readonly skeletonRows = [0, 1, 2, 3] as const;
 }

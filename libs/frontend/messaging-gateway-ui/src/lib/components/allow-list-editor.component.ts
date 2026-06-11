@@ -14,25 +14,25 @@ import { GatewayStateService } from '../services/gateway-state.service';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <label class="form-control mt-3 w-full">
-      <span class="label-text text-xs">
+    <label class="flex flex-col gap-1.5">
+      <span class="text-xs text-base-content/60">
         Allow-list ({{ label() }})
-        <span class="text-base-content/50">
+        <span class="text-base-content/40">
           — one ID per line. Empty = accept any sender it can see.
         </span>
       </span>
       <textarea
-        class="textarea textarea-bordered textarea-sm mt-1 w-full font-mono"
+        class="textarea textarea-bordered textarea-sm w-full font-mono"
         rows="3"
         [attr.data-testid]="'gateway-allowlist-' + platform()"
         [attr.aria-label]="label() + ' allow-list'"
         [value]="allowListValue()"
         (input)="onAllowListInput($event)"
       ></textarea>
-      <div class="mt-1 flex items-center gap-2">
+      <div class="flex items-center gap-2">
         <button
           type="button"
-          class="btn btn-outline btn-xs"
+          class="btn btn-sm btn-outline"
           [attr.data-testid]="'gateway-allowlist-save-' + platform()"
           (click)="onSave()"
         >

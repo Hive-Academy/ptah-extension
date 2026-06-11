@@ -34,7 +34,7 @@ const DEFAULT_MODEL_LABEL = 'Default (claude-haiku-4-5-20251001)';
   template: `
     <section class="rounded-md border border-base-300 bg-base-100">
       <header
-        class="border-b border-base-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-base-content/70"
+        class="border-b border-base-300 px-3 py-2 text-sm font-semibold text-base-content"
       >
         Curator model
       </header>

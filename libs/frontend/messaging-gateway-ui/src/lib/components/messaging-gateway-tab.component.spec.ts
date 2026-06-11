@@ -152,7 +152,7 @@ describe('MessagingGatewayTabComponent (shell)', () => {
       const { fixture, stub } = mount(makeStub(), false);
 
       expect(fixture.nativeElement.textContent).toContain(
-        'Messaging gateway is only available in the Ptah desktop app.',
+        'Messaging is desktop-only',
       );
       expect(stub.initialize).not.toHaveBeenCalled();
     });

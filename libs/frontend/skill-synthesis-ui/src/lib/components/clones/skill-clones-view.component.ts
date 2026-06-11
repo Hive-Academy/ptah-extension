@@ -26,21 +26,23 @@ interface ClonesToast {
   template: `
     @if (!isElectron()) {
       <div
+        class="flex flex-col items-center gap-2 px-6 py-16 text-center"
         role="alert"
-        class="alert alert-info"
         data-testid="clones-desktop-notice"
       >
-        <span class="text-sm">
+        <p class="text-sm font-medium">
           Skill clones are only available in the Ptah desktop app.
-        </span>
+        </p>
       </div>
     } @else {
-      <div class="flex flex-col gap-3" data-testid="clones-view">
+      <div class="space-y-4" data-testid="clones-view">
         <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold">Clones</h2>
+          <p class="text-sm text-base-content/60">
+            Local copies of skills, enhanced from your usage.
+          </p>
           <button
             type="button"
-            class="btn btn-xs btn-ghost"
+            class="btn btn-ghost btn-xs transition-colors duration-150"
             data-testid="clones-refresh"
             [disabled]="loading()"
             (click)="onRefresh()"
@@ -68,32 +70,39 @@ interface ClonesToast {
           </div>
         }
 
-        <div class="overflow-x-auto">
+        <section
+          class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+        >
           <table class="table table-sm">
             <thead>
-              <tr>
-                <th scope="col">Name</th>
-                <th scope="col">Kind</th>
-                <th scope="col">Status</th>
-                <th scope="col" class="text-right">Invocations</th>
-                <th scope="col" class="text-right">Success</th>
-                <th scope="col">Last enhanced</th>
-                <th scope="col" class="text-right">History</th>
-                <th scope="col" class="w-1">Actions</th>
+              <tr class="text-xs text-base-content/50">
+                <th scope="col" class="font-normal">Name</th>
+                <th scope="col" class="font-normal">Kind</th>
+                <th scope="col" class="font-normal">Status</th>
+                <th scope="col" class="text-right font-normal">Invocations</th>
+                <th scope="col" class="text-right font-normal">Success</th>
+                <th scope="col" class="font-normal">Last enhanced</th>
+                <th scope="col" class="text-right font-normal">History</th>
+                <th scope="col" class="w-1 font-normal">Actions</th>
               </tr>
             </thead>
             <tbody>
               @for (c of clones(); track c.kind + ':' + c.slug) {
-                <tr data-testid="clones-row">
+                <tr data-testid="clones-row" class="hover:bg-base-300/20">
                   <td class="font-medium">{{ c.slug }}</td>
                   <td class="text-xs">{{ c.kind }}</td>
                   <td>
-                    <span
-                      class="badge badge-sm"
-                      data-testid="clones-status-badge"
-                      [class]="statusClass(c)"
-                    >
-                      {{ statusLabel(c) }}
+                    <span class="inline-flex items-center gap-1.5">
+                      <span
+                        class="inline-block size-1.5 rounded-full"
+                        [class]="statusDotClass(c)"
+                        aria-hidden="true"
+                      ></span>
+                      <span
+                        class="text-xs text-base-content/70"
+                        data-testid="clones-status-badge"
+                        >{{ statusLabel(c) }}</span
+                      >
                     </span>
                   </td>
                   <td class="text-right tabular-nums">
@@ -110,7 +119,7 @@ interface ClonesToast {
                     <div class="flex justify-end gap-1">
                       <button
                         type="button"
-                        class="btn btn-xs btn-primary"
+                        class="btn btn-ghost btn-xs transition-colors duration-150"
                         data-testid="clones-enhance-btn"
                         [disabled]="busySlug() === c.slug"
                         (click)="onEnhance(c)"
@@ -119,7 +128,7 @@ interface ClonesToast {
                       </button>
                       <button
                         type="button"
-                        class="btn btn-xs btn-outline"
+                        class="btn btn-ghost btn-xs transition-colors duration-150"
                         data-testid="clones-revert-btn"
                         [disabled]="busySlug() === c.slug"
                         (click)="onOpenRevert(c)"
@@ -129,7 +138,7 @@ interface ClonesToast {
                       @if (c.diverged) {
                         <button
                           type="button"
-                          class="btn btn-xs btn-warning"
+                          class="btn btn-ghost btn-xs text-warning transition-colors duration-150"
                           data-testid="clones-rebase-btn"
                           [disabled]="busySlug() === c.slug"
                           (click)="onRebase(c)"
@@ -138,7 +147,7 @@ interface ClonesToast {
                         </button>
                         <button
                           type="button"
-                          class="btn btn-xs btn-outline btn-warning"
+                          class="btn btn-ghost btn-xs text-warning transition-colors duration-150"
                           data-testid="clones-keep-btn"
                           [disabled]="busySlug() === c.slug"
                           (click)="onKeep(c)"
@@ -165,7 +174,7 @@ interface ClonesToast {
               }
             </tbody>
           </table>
-        </div>
+        </section>
 
         @if (revertTarget(); as target) {
           <dialog
@@ -351,17 +360,17 @@ export class SkillClonesViewComponent implements OnInit {
     return c.diverged ? 'diverged' : c.cloneStatus;
   }
 
-  protected statusClass(c: CloneSummary): string {
-    if (c.diverged) return 'badge-warning';
+  protected statusDotClass(c: CloneSummary): string {
+    if (c.diverged) return 'bg-warning';
     switch (c.cloneStatus) {
       case 'authored':
-        return 'badge-info';
+        return 'bg-info';
       case 'synth':
-        return 'badge-secondary';
+        return 'bg-secondary';
       case 'diverged':
-        return 'badge-warning';
+        return 'bg-warning';
       default:
-        return 'badge-ghost';
+        return 'bg-base-content/40';
     }
   }
 

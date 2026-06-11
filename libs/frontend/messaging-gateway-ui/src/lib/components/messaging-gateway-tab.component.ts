@@ -2,9 +2,18 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
+import {
+  LucideAngularModule,
+  Mic,
+  MessagesSquare,
+  RadioTower,
+  UserCheck,
+  UserPlus,
+} from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import type { GatewayPlatformId } from '@ptah-extension/shared';
 
@@ -42,56 +51,82 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    LucideAngularModule,
     GatewayPlatformTabsComponent,
     GatewayPlatformPaneComponent,
     GatewaySetupGuideComponent,
   ],
   template: `
     @if (!isElectron) {
-      <div role="alert" class="alert alert-info">
-        <span>
-          Messaging gateway is only available in the Ptah desktop app.
-          <a
-            class="link link-primary ml-1"
-            href="https://github.com/ptah-extensions/ptah-extension/releases"
-            rel="noopener noreferrer"
-            target="_blank"
-            >Download Ptah desktop</a
-          >
-        </span>
+      <div
+        class="flex flex-col items-center gap-2 px-6 py-16 text-center"
+        role="alert"
+      >
+        <lucide-angular
+          [img]="MessagesSquareIcon"
+          class="size-8 text-base-content/30"
+          aria-hidden="true"
+        />
+        <p class="text-sm font-medium">Messaging is desktop-only</p>
+        <p class="text-xs text-base-content/60">
+          The gateway runs adapters locally, so it needs the Ptah desktop app.
+        </p>
+        <a
+          class="link link-primary text-xs"
+          href="https://github.com/ptah-extensions/ptah-extension/releases"
+          rel="noopener noreferrer"
+          target="_blank"
+          >Download Ptah desktop</a
+        >
       </div>
     } @else {
-      <div class="flex h-full w-full flex-col gap-4">
-        <section
-          class="card bg-base-200 shadow-sm"
-          aria-label="Gateway master toggle"
-        >
-          <div class="card-body flex-row items-center justify-between p-4">
+      <div class="space-y-6">
+        <header class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <span
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-secondary"
+            >
+              <lucide-angular
+                [img]="RadioTowerIcon"
+                class="w-5 h-5"
+                aria-hidden="true"
+              />
+            </span>
             <div>
-              <h2 class="card-title text-sm">Messaging gateway</h2>
-              <p class="text-xs text-base-content/60">
+              <h1 class="text-xl font-semibold tracking-tight">Messaging</h1>
+              <p class="mt-0.5 text-sm text-base-content/60">
+                Drive Ptah agents from Telegram, Discord, and Slack.
+              </p>
+              <p class="mt-0.5 text-xs text-base-content/50">
                 {{
                   enabled()
-                    ? 'Gateway running. Per-platform adapters managed below.'
-                    : 'Gateway stopped. Add a token to a platform to start it.'
+                    ? 'Gateway running — per-platform adapters managed below.'
+                    : 'Gateway stopped — add a token to a platform to start it.'
                 }}
               </p>
             </div>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs"
-                (click)="toggleHelp()"
-                aria-label="Open gateway setup guide"
-              >
-                Setup guide
-              </button>
-              <div class="badge badge-sm" [class.badge-success]="enabled()">
-                {{ enabled() ? 'enabled' : 'disabled' }}
-              </div>
-            </div>
           </div>
-        </section>
+          <div class="flex items-center gap-2">
+            <span
+              class="inline-flex items-center gap-1.5 text-xs text-base-content/70"
+            >
+              <span
+                class="inline-block size-1.5 rounded-full"
+                [class.bg-success]="enabled()"
+                [class.bg-base-content/30]="!enabled()"
+              ></span>
+              {{ enabled() ? 'Running' : 'Stopped' }}
+            </span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              (click)="toggleHelp()"
+              aria-label="Open gateway setup guide"
+            >
+              Setup guide
+            </button>
+          </div>
+        </header>
 
         @if (globalError(); as msg) {
           <div
@@ -114,42 +149,129 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           <div
             role="status"
             aria-live="polite"
-            class="alert"
-            [class.alert-info]="!v.error"
-            [class.alert-error]="!!v.error"
+            class="rounded-xl border p-3"
+            [class.border-base-300]="!v.error"
+            [class.bg-base-200/40]="!v.error"
+            [class.border-error/40]="!!v.error"
+            [class.bg-error/10]="!!v.error"
           >
-            <div class="flex flex-1 flex-col gap-1">
-              <span class="text-sm">
-                @if (v.error) {
-                  Failed to download Whisper model
-                  <span class="font-mono">{{ v.modelName }}</span
-                  >: {{ v.error }}
-                } @else if (v.done) {
-                  Whisper model
-                  <span class="font-mono">{{ v.modelName }}</span> ready.
-                } @else {
-                  Downloading Whisper model
-                  <span class="font-mono">{{ v.modelName }}</span> &mdash;
-                  {{ v.percent.toFixed(0) }}%
+            <div class="flex items-start gap-3">
+              <div class="flex flex-1 flex-col gap-1.5">
+                <span class="text-xs">
+                  @if (v.error) {
+                    Failed to download Whisper model
+                    <span class="font-mono">{{ v.modelName }}</span
+                    >: {{ v.error }}
+                  } @else if (v.done) {
+                    Whisper model
+                    <span class="font-mono">{{ v.modelName }}</span> ready.
+                  } @else {
+                    Downloading Whisper model
+                    <span class="font-mono">{{ v.modelName }}</span> &mdash;
+                    {{ v.percent.toFixed(0) }}%
+                  }
+                </span>
+                @if (!v.error && !v.done) {
+                  <progress
+                    class="progress progress-primary w-full"
+                    [value]="v.percent"
+                    max="100"
+                  ></progress>
                 }
-              </span>
-              @if (!v.error && !v.done) {
-                <progress
-                  class="progress progress-primary w-full"
-                  [value]="v.percent"
-                  max="100"
-                ></progress>
-              }
+              </div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                (click)="onDismissVoiceToast()"
+              >
+                Dismiss
+              </button>
             </div>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs"
-              (click)="onDismissVoiceToast()"
-            >
-              Dismiss
-            </button>
           </div>
         }
+
+        <div
+          class="grid grid-cols-2 gap-3 xl:grid-cols-4"
+          aria-label="Gateway statistics"
+        >
+          <div
+            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+          >
+            <div class="stat p-4">
+              <div class="stat-figure text-success">
+                <lucide-angular
+                  [img]="RadioTowerIcon"
+                  class="w-6 h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="stat-title text-base-content/60">
+                Adapters running
+              </div>
+              <div class="stat-value text-2xl text-success">
+                {{ runningCount() }}
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+          >
+            <div class="stat p-4">
+              <div class="stat-figure text-warning">
+                <lucide-angular
+                  [img]="UserPlusIcon"
+                  class="w-6 h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="stat-title text-base-content/60">
+                Pending approvals
+              </div>
+              <div class="stat-value text-2xl text-warning">
+                {{ pendingCount() }}
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+          >
+            <div class="stat p-4">
+              <div class="stat-figure text-primary">
+                <lucide-angular
+                  [img]="UserCheckIcon"
+                  class="w-6 h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="stat-title text-base-content/60">
+                Approved senders
+              </div>
+              <div class="stat-value text-2xl text-primary">
+                {{ approvedCount() }}
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+          >
+            <div class="stat p-4">
+              <div class="stat-figure text-info">
+                <lucide-angular
+                  [img]="MicIcon"
+                  class="w-6 h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="stat-title text-base-content/60">Voice</div>
+              <div class="stat-value text-sm font-medium text-info">
+                {{ voiceEnabled() ? 'On' : 'Off' }}
+              </div>
+            </div>
+          </div>
+        </div>
 
         <ptah-gateway-platform-tabs
           [platforms]="platforms()"
@@ -168,36 +290,33 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
         }
 
-        <section
-          class="card bg-base-200 shadow-sm"
-          aria-label="Voice and rate-limit settings"
-        >
-          <div class="card-body p-4">
-            <h3 class="card-title text-sm">Voice & rate-limit (read-only)</h3>
-            <p class="text-xs text-base-content/60">
-              Configure these in
-              <span class="font-mono">~/.ptah/settings.json</span>.
+        <section class="space-y-1" aria-label="Voice and rate-limit settings">
+          <h2 class="text-sm font-semibold">Voice & rate limits</h2>
+          <p class="text-xs text-base-content/60">
+            Read-only — configure these in
+            <span class="font-mono">~/.ptah/settings.json</span>.
+          </p>
+          <div
+            class="mt-2 space-y-1 rounded-xl border border-base-300 bg-base-200/40 p-4"
+          >
+            <p class="font-mono text-xs">
+              gateway.voice.enabled =
+              <span class="text-base-content/70">{{ voiceEnabled() }}</span>
             </p>
-            <ul class="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
-              <li class="font-mono">
-                gateway.voice.enabled =
-                <span class="text-base-content/70">{{ voiceEnabled() }}</span>
-              </li>
-              <li class="font-mono">
-                gateway.rateLimit.minTimeMs =
-                <span class="text-base-content/70">
-                  {{ rateLimit().minTimeMs }}
-                </span>
-              </li>
-              <li class="font-mono">
-                gateway.rateLimit.maxConcurrent =
-                <span class="text-base-content/70">
-                  {{ rateLimit().maxConcurrent }}
-                </span>
-              </li>
-            </ul>
+            <p class="font-mono text-xs">
+              gateway.rateLimit.minTimeMs =
+              <span class="text-base-content/70">{{
+                rateLimit().minTimeMs
+              }}</span>
+            </p>
+            <p class="font-mono text-xs">
+              gateway.rateLimit.maxConcurrent =
+              <span class="text-base-content/70">{{
+                rateLimit().maxConcurrent
+              }}</span>
+            </p>
             <p
-              class="mt-2 text-xs text-base-content/50"
+              class="pt-1 text-xs text-base-content/50"
               data-testid="gateway-voice-model-hint"
             >
               The Whisper voice model is configured in Settings.
@@ -216,6 +335,12 @@ export class MessagingGatewayTabComponent implements OnInit {
   private readonly state = inject(GatewayStateService);
   private readonly vscode = inject(VSCodeService);
 
+  protected readonly MessagesSquareIcon = MessagesSquare;
+  protected readonly RadioTowerIcon = RadioTower;
+  protected readonly UserPlusIcon = UserPlus;
+  protected readonly UserCheckIcon = UserCheck;
+  protected readonly MicIcon = Mic;
+
   protected readonly platformCards = PLATFORM_CARDS;
   protected readonly enabled = this.state.enabled;
   protected readonly platforms = this.state.platforms;
@@ -223,6 +348,18 @@ export class MessagingGatewayTabComponent implements OnInit {
   protected readonly voiceEnabled = this.state.voiceEnabled;
   protected readonly rateLimit = this.state.rateLimit;
   protected readonly voiceDownload = this.state.voiceDownload;
+
+  protected readonly runningCount = computed(
+    () =>
+      Object.values(this.platforms()).filter((p) => p.state === 'running')
+        .length,
+  );
+  protected readonly pendingCount = computed(
+    () => this.state.pendingBindings().length,
+  );
+  protected readonly approvedCount = computed(
+    () => this.state.approvedBindings().length,
+  );
 
   protected readonly selectedPlatform = signal<GatewayPlatformId>('discord');
   protected readonly helpOpen = signal(false);

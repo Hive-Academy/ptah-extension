@@ -16,13 +16,32 @@ import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-stat
 
 interface DiagnosticsStub {
   readonly lastAnalyzeRunAt: ReturnType<typeof signal<number | null>>;
+  readonly lastCuratorPassAt: ReturnType<typeof signal<number | null>>;
   readonly eligibilityHistogram: ReturnType<
     typeof signal<EligibilityHistogramDto>
   >;
   readonly recentEvents: ReturnType<
     typeof signal<readonly SkillSynthesisEventWire[]>
   >;
+  readonly triggers: ReturnType<typeof signal<Record<string, unknown>>>;
+  readonly byStatus: ReturnType<
+    typeof signal<{
+      totalCandidates: number;
+      totalPromoted: number;
+      totalRejected: number;
+      activeSkills: number;
+      totalInvocations: number;
+    }>
+  >;
+  readonly loading: ReturnType<typeof signal<boolean>>;
+  readonly error: ReturnType<typeof signal<string | null>>;
+  readonly sessionsAnalyzedToday: ReturnType<typeof signal<number>>;
+  readonly hasActiveSession: ReturnType<typeof signal<boolean>>;
   readonly refresh: jest.Mock<Promise<void>, []>;
+  readonly startPolling: jest.Mock<void, []>;
+  readonly stopPolling: jest.Mock<void, []>;
+  readonly analyzeNow: jest.Mock<Promise<void>, []>;
+  readonly setTriggers: jest.Mock<Promise<void>, [Record<string, unknown>]>;
 }
 
 function makeDiagnosticsStub(
@@ -34,6 +53,7 @@ function makeDiagnosticsStub(
 ): DiagnosticsStub {
   return {
     lastAnalyzeRunAt: signal<number | null>(overrides.lastAnalyzeRunAt ?? null),
+    lastCuratorPassAt: signal<number | null>(null),
     eligibilityHistogram: signal<EligibilityHistogramDto>(
       overrides.eligibilityHistogram ?? {
         tooFewTurns: 0,
@@ -45,8 +65,43 @@ function makeDiagnosticsStub(
     recentEvents: signal<readonly SkillSynthesisEventWire[]>(
       overrides.recentEvents ?? [],
     ),
+    triggers: signal<Record<string, unknown>>({
+      sessionEnd: true,
+      idleMs: 600_000,
+      bootScan: true,
+    }),
+    byStatus: signal({
+      totalCandidates: 0,
+      totalPromoted: 0,
+      totalRejected: 0,
+      activeSkills: 0,
+      totalInvocations: 0,
+    }),
+    loading: signal<boolean>(false),
+    error: signal<string | null>(null),
+    sessionsAnalyzedToday: signal<number>(0),
+    hasActiveSession: signal<boolean>(false),
     refresh: jest.fn(async () => undefined),
+    startPolling: jest.fn(),
+    stopPolling: jest.fn(),
+    analyzeNow: jest.fn(async () => undefined),
+    setTriggers: jest.fn(async () => undefined),
   };
+}
+
+function openActivity(
+  fixture: ReturnType<typeof TestBed.createComponent>,
+): void {
+  const root = fixture.nativeElement as HTMLElement;
+  const subViewNav = root.querySelector('[aria-label="Skills views"]');
+  const tabs = subViewNav?.querySelectorAll(
+    '[role="tab"]',
+  ) as NodeListOf<HTMLButtonElement>;
+  const activity = Array.from(tabs).find(
+    (t) => t.textContent?.trim() === 'Activity',
+  );
+  activity?.click();
+  fixture.detectChanges();
 }
 
 const tabManagerStub: Pick<TabManagerService, 'activeTab'> = {
@@ -133,15 +188,57 @@ describe('SkillSynthesisTabComponent', () => {
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
     fixture.detectChanges();
 
-    const tabs = fixture.nativeElement.querySelectorAll(
+    const root = fixture.nativeElement as HTMLElement;
+    const filterNav = root.querySelector('nav[aria-label="Status filter"]');
+    const filterTabs = filterNav?.querySelectorAll(
       '[role="tab"]',
     ) as NodeListOf<HTMLButtonElement>;
-    const labels = Array.from(tabs).map((t) => t.textContent?.trim());
+    const labels = Array.from(filterTabs).map((t) => t.textContent?.trim());
     expect(labels).toEqual(['Pending', 'Promoted', 'Rejected', 'All']);
+
+    const subViewNav = root.querySelector('[aria-label="Skills views"]');
+    const subViewTabs = subViewNav?.querySelectorAll(
+      '[role="tab"]',
+    ) as NodeListOf<HTMLButtonElement>;
+    expect(Array.from(subViewTabs).map((t) => t.textContent?.trim())).toEqual([
+      'Candidates',
+      'Activity',
+      'Clones',
+      'Settings',
+    ]);
 
     expect(stub.refreshCandidates).toHaveBeenCalledTimes(1);
     expect(stub.loadStats).toHaveBeenCalledTimes(1);
     expect(diag.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('switches to the Activity sub-view when its tab is clicked', () => {
+    const stub = makeStub();
+    const diag = makeDiagnosticsStub();
+
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: SkillDiagnosticsStateService, useValue: diag },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(
+      root.querySelector('[data-testid="skills-pipeline-status"]'),
+    ).toBeNull();
+
+    openActivity(fixture);
+
+    expect(
+      root.querySelector('[data-testid="skills-pipeline-status"]'),
+    ).toBeTruthy();
   });
 
   it('renders the pipeline status strip from diagnostics state', () => {
@@ -171,6 +268,7 @@ describe('SkillSynthesisTabComponent', () => {
 
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
     fixture.detectChanges();
+    openActivity(fixture);
 
     const root = fixture.nativeElement as HTMLElement;
     const strip = root.querySelector('[data-testid="skills-pipeline-status"]');
@@ -204,6 +302,7 @@ describe('SkillSynthesisTabComponent', () => {
 
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
     fixture.detectChanges();
+    openActivity(fixture);
 
     const strip = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="skills-pipeline-status"]',

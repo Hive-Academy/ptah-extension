@@ -22,11 +22,11 @@ interface TierChip {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule],
   template: `
-    <div class="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
+    <div class="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
       <input
         type="search"
         data-testid="memory-search-input"
-        class="input input-sm input-bordered w-full md:max-w-xs"
+        class="input input-sm input-bordered w-full max-w-sm"
         placeholder="Search memory (BM25 + vector hybrid)..."
         [value]="searchValue()"
         (input)="onSearchInput($event)"
@@ -35,15 +35,14 @@ interface TierChip {
       <div
         role="tablist"
         aria-label="Memory tier filter"
-        class="flex flex-wrap gap-1"
+        class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
       >
         @for (chip of tierChips; track chip.id) {
           <button
             type="button"
             role="tab"
-            class="btn btn-xs"
-            [class.btn-primary]="tier() === chip.id"
-            [class.btn-ghost]="tier() !== chip.id"
+            class="tab"
+            [class.tab-active]="tier() === chip.id"
             [attr.aria-selected]="tier() === chip.id"
             (click)="tierChange.emit(chip.id)"
           >

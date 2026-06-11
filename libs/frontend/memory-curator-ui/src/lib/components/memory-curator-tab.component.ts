@@ -9,6 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Brain, LucideAngularModule } from 'lucide-angular';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import {
@@ -36,7 +37,12 @@ import {
   type MemoryPurgeRequest,
 } from './memory-danger-zone.component';
 
-export type MemoryTabView = 'list' | 'timeline' | 'corpus';
+export type MemoryTabView =
+  | 'memories'
+  | 'timeline'
+  | 'corpus'
+  | 'code'
+  | 'maintenance';
 
 interface ViewChip {
   readonly id: MemoryTabView;
@@ -51,6 +57,7 @@ const SEARCH_DEBOUNCE_MS = 300;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule,
+    LucideAngularModule,
     WorkspaceIndexingComponent,
     MemoryDiagnosticsAccordionComponent,
     TimelineViewComponent,
@@ -64,40 +71,52 @@ const SEARCH_DEBOUNCE_MS = 300;
   ],
   template: `
     @if (!isElectron()) {
-      <div role="alert" class="alert alert-info">
-        <span class="text-sm">
-          Memory curation is only available in the Ptah desktop app.
-          <a
-            class="link link-primary ml-1"
-            href="https://github.com/HiveAcademy/ptah-extension/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Download Ptah desktop</a
-          >.
-        </span>
+      <div
+        class="flex flex-col items-center gap-2 px-6 py-16 text-center"
+        role="status"
+      >
+        <lucide-angular
+          [img]="BrainIcon"
+          class="size-8 text-base-content/30"
+          aria-hidden="true"
+        />
+        <p class="text-sm font-medium">Memory lives in the desktop app</p>
+        <p class="text-xs text-base-content/60">
+          Memory curation needs the local index and runs only in Ptah desktop.
+        </p>
+        <a
+          class="btn btn-sm btn-primary mt-1"
+          href="https://github.com/HiveAcademy/ptah-extension/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Download Ptah desktop</a
+        >
       </div>
     } @else {
-      <div class="flex h-full w-full flex-col gap-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <nav role="tablist" aria-label="Memory tab view" class="join">
-            @for (chip of viewChips; track chip.id) {
+      <div class="space-y-6">
+        <header class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <span
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-primary"
+            >
+              <lucide-angular
+                [img]="BrainIcon"
+                class="w-5 h-5"
+                aria-hidden="true"
+              />
+            </span>
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">Memory</h1>
+              <p class="mt-0.5 text-sm text-base-content/60">
+                Facts, events, and code Thoth has learned across sessions.
+              </p>
+            </div>
+          </div>
+          @if (view() === 'code') {
+            <div class="flex items-center gap-2">
               <button
                 type="button"
-                role="tab"
-                class="join-item btn btn-sm"
-                [class.btn-primary]="view() === chip.id"
-                [attr.aria-selected]="view() === chip.id"
-                (click)="onViewChange(chip.id)"
-              >
-                {{ chip.label }}
-              </button>
-            }
-          </nav>
-          @if (view() === 'list') {
-            <div class="ml-auto flex gap-1">
-              <button
-                type="button"
-                class="btn btn-sm btn-outline"
+                class="btn btn-sm btn-ghost"
                 [disabled]="purgingJunk() || !hasWorkspace()"
                 [attr.title]="
                   !hasWorkspace()
@@ -114,7 +133,7 @@ const SEARCH_DEBOUNCE_MS = 300;
               </button>
               <button
                 type="button"
-                class="btn btn-sm btn-outline"
+                class="btn btn-sm btn-ghost"
                 [disabled]="loading()"
                 (click)="onRebuildIndex()"
               >
@@ -125,111 +144,132 @@ const SEARCH_DEBOUNCE_MS = 300;
               </button>
             </div>
           }
-        </div>
+        </header>
 
-        @if (view() === 'timeline') {
-          <ptah-timeline-view />
-        } @else if (view() === 'corpus') {
-          <ptah-corpus-list />
-        } @else {
-          <ptah-memory-indexing-banner
-            [state]="indexingUiState()"
-            [hasWorkspace]="hasWorkspace()"
-            [busy]="indexingBusy()"
-            (indexNow)="onIndexNow()"
-            (resumeIndex)="onResumeIndex()"
-            (cancelIndex)="onCancelIndex()"
-          />
+        <ptah-memory-stats-strip
+          [counts]="statCounts()"
+          [lastCuratedLabel]="lastCuratedAtLabel()"
+        />
 
-          <ptah-memory-stats-strip
-            [counts]="statCounts()"
-            [lastCuratedLabel]="lastCuratedAtLabel()"
-          />
+        <nav
+          role="tablist"
+          aria-label="Memory views"
+          class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+        >
+          @for (chip of viewChips; track chip.id) {
+            <button
+              type="button"
+              role="tab"
+              class="tab"
+              [class.tab-active]="view() === chip.id"
+              [attr.aria-selected]="view() === chip.id"
+              (click)="onViewChange(chip.id)"
+            >
+              {{ chip.label }}
+            </button>
+          }
+        </nav>
 
-          <ptah-memory-search-bar
-            [searchValue]="searchInput()"
-            [tier]="tierFilter()"
-            [scope]="scopeFilter()"
-            (searchInput)="onSearchInput($event)"
-            (tierChange)="onTierChipClick($event)"
-            (scopeChange)="onScopeFilterChange($event)"
-          />
-
-          @if (error()) {
-            <div role="alert" class="alert alert-error">
-              <span class="text-sm">{{ error() }}</span>
+        @switch (view()) {
+          @case ('timeline') {
+            <div class="space-y-4">
+              <ptah-timeline-view />
             </div>
           }
+          @case ('corpus') {
+            <div class="space-y-4">
+              <ptah-corpus-list />
+            </div>
+          }
+          @case ('code') {
+            <div class="space-y-6">
+              <ptah-memory-indexed-code
+                [searchValue]="symbolInput()"
+                [items]="state.symbolItems()"
+                [total]="state.symbolTotal()"
+                [loading]="state.symbolLoading()"
+                [error]="state.symbolError()"
+                [offset]="state.symbolOffset()"
+                [prevDisabled]="symbolPrevDisabled()"
+                [nextDisabled]="symbolNextDisabled()"
+                [workspaceRoot]="workspaceRoot()"
+                (searchInput)="onSymbolSearchInput($event)"
+                (reload)="onSymbolReload()"
+                (prev)="onSymbolPrev()"
+                (next)="onSymbolNext()"
+              />
 
-          <ptah-memory-entry-list
-            [entries]="filteredEntries()"
-            [loading]="loading()"
-            (pin)="onPin($event)"
-            (unpin)="onUnpin($event)"
-            (forget)="onForget($event)"
-          />
-
-          <details
-            class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100"
-            [open]="diagnosticsOpen()"
-            (toggle)="onDiagnosticsToggle($event)"
-            data-testid="memory-diagnostics-details"
-          >
-            <summary
-              class="collapse-title min-h-0 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-base-content/70"
-            >
-              Diagnostics
-            </summary>
-            <div class="collapse-content">
-              @if (diagnosticsOpen()) {
+              <section class="space-y-2">
+                <h2 class="text-sm font-medium text-base-content/80">
+                  Advanced indexing
+                </h2>
+                <ptah-workspace-indexing />
+              </section>
+            </div>
+          }
+          @case ('maintenance') {
+            <div class="space-y-6">
+              <section
+                class="space-y-2"
+                data-testid="memory-diagnostics-details"
+              >
+                <h2 class="text-sm font-medium text-base-content/80">
+                  Diagnostics
+                </h2>
                 <ptah-memory-diagnostics-accordion />
+              </section>
+
+              <ptah-memory-danger-zone
+                [purging]="purging()"
+                [error]="purgeError()"
+                [info]="purgeInfo()"
+                [hasWorkspace]="hasWorkspace()"
+                [scopeIsAll]="scopeFilter() === 'all'"
+                (purge)="onPurge($event)"
+                (inputChanged)="onPurgeInputChanged()"
+                (switchScope)="onScopeFilterChange('workspace')"
+              />
+            </div>
+          }
+          @default {
+            <div class="space-y-4">
+              <ptah-memory-indexing-banner
+                [state]="indexingUiState()"
+                [hasWorkspace]="hasWorkspace()"
+                [busy]="indexingBusy()"
+                (indexNow)="onIndexNow()"
+                (resumeIndex)="onResumeIndex()"
+                (cancelIndex)="onCancelIndex()"
+              />
+
+              <ptah-memory-search-bar
+                [searchValue]="searchInput()"
+                [tier]="tierFilter()"
+                [scope]="scopeFilter()"
+                (searchInput)="onSearchInput($event)"
+                (tierChange)="onTierChipClick($event)"
+                (scopeChange)="onScopeFilterChange($event)"
+              />
+
+              @if (error()) {
+                <div
+                  class="rounded-xl border border-error/40 bg-error/5 px-4 py-3"
+                  role="alert"
+                >
+                  <span class="text-sm text-error">{{ error() }}</span>
+                </div>
               }
+
+              <ptah-memory-entry-list
+                class="mt-1 block"
+                [entries]="filteredEntries()"
+                [loading]="loading()"
+                (pin)="onPin($event)"
+                (unpin)="onUnpin($event)"
+                (forget)="onForget($event)"
+              />
             </div>
-          </details>
-
-          <details
-            class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100"
-            [open]="advancedIndexingOpen()"
-            (toggle)="onAdvancedToggle($event)"
-          >
-            <summary
-              class="collapse-title min-h-0 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-base-content/70"
-            >
-              Advanced indexing
-            </summary>
-            <div class="collapse-content">
-              <ptah-workspace-indexing />
-            </div>
-          </details>
-
-          <ptah-memory-indexed-code
-            [open]="indexedCodeOpen()"
-            [searchValue]="symbolInput()"
-            [items]="state.symbolItems()"
-            [total]="state.symbolTotal()"
-            [loading]="state.symbolLoading()"
-            [error]="state.symbolError()"
-            [offset]="state.symbolOffset()"
-            [prevDisabled]="symbolPrevDisabled()"
-            [nextDisabled]="symbolNextDisabled()"
-            [workspaceRoot]="workspaceRoot()"
-            (toggled)="onIndexedCodeToggle($event)"
-            (searchInput)="onSymbolSearchInput($event)"
-            (reload)="onSymbolReload()"
-            (prev)="onSymbolPrev()"
-            (next)="onSymbolNext()"
-          />
-
-          <ptah-memory-danger-zone
-            [purging]="purging()"
-            [error]="purgeError()"
-            [info]="purgeInfo()"
-            [hasWorkspace]="hasWorkspace()"
-            [scopeIsAll]="scopeFilter() === 'all'"
-            (purge)="onPurge($event)"
-            (inputChanged)="onPurgeInputChanged()"
-            (switchScope)="onScopeFilterChange('workspace')"
-          />
+          }
         }
       </div>
     }
@@ -244,16 +284,13 @@ export class MemoryCuratorTabComponent implements OnInit {
 
   private readonly dangerZone = viewChild(MemoryDangerZoneComponent);
 
+  protected readonly BrainIcon = Brain;
+
   protected readonly indexingUiState = this.indexingService.uiState;
   protected readonly indexingBusy = computed(() => {
     const kind = this.indexingUiState().kind;
     return kind === 'indexing' || kind === 'loading';
   });
-  private readonly _advancedIndexingOpen = signal<boolean>(false);
-  protected readonly advancedIndexingOpen =
-    this._advancedIndexingOpen.asReadonly();
-  private readonly _diagnosticsOpen = signal<boolean>(false);
-  protected readonly diagnosticsOpen = this._diagnosticsOpen.asReadonly();
   protected readonly purgingJunk = signal<boolean>(false);
 
   public readonly isElectron = computed(
@@ -261,12 +298,14 @@ export class MemoryCuratorTabComponent implements OnInit {
   );
 
   protected readonly viewChips: readonly ViewChip[] = [
-    { id: 'list', label: 'List' },
+    { id: 'memories', label: 'Memories' },
     { id: 'timeline', label: 'Timeline' },
     { id: 'corpus', label: 'Corpus' },
+    { id: 'code', label: 'Code index' },
+    { id: 'maintenance', label: 'Maintenance' },
   ];
 
-  private readonly _view = signal<MemoryTabView>('list');
+  private readonly _view = signal<MemoryTabView>('memories');
   public readonly view = this._view.asReadonly();
 
   protected readonly searchInput = signal<string>('');
@@ -318,8 +357,6 @@ export class MemoryCuratorTabComponent implements OnInit {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private symbolDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly symbolInput = signal<string>('');
-  protected readonly _indexedCodeOpen = signal<boolean>(false);
-  protected readonly indexedCodeOpen = this._indexedCodeOpen.asReadonly();
   protected readonly symbolPrevDisabled = computed(
     () => this.state.symbolOffset() === 0,
   );
@@ -363,20 +400,6 @@ export class MemoryCuratorTabComponent implements OnInit {
     const root = this.appState.workspaceInfo()?.path;
     if (root) {
       void this.indexingService.loadStatus(root).catch(() => undefined);
-    }
-  }
-
-  protected onAdvancedToggle(event: Event): void {
-    const target = event.target as HTMLDetailsElement | null;
-    if (target) {
-      this._advancedIndexingOpen.set(target.open);
-    }
-  }
-
-  protected onDiagnosticsToggle(event: Event): void {
-    const target = event.target as HTMLDetailsElement | null;
-    if (target) {
-      this._diagnosticsOpen.set(target.open);
     }
   }
 
@@ -519,13 +542,6 @@ export class MemoryCuratorTabComponent implements OnInit {
       this.purgeError.set(message);
     } finally {
       this.purging.set(false);
-    }
-  }
-
-  protected onIndexedCodeToggle(event: Event): void {
-    const target = event.target as HTMLDetailsElement | null;
-    if (target) {
-      this._indexedCodeOpen.set(target.open);
     }
   }
 

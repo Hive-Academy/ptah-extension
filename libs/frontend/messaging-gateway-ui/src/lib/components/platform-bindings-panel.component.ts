@@ -31,126 +31,113 @@ import { GatewayStateService } from '../services/gateway-state.service';
       </div>
     }
 
-    <section class="card bg-base-200 shadow-sm" aria-label="Pending bindings">
-      <div class="card-body p-4">
-        <h3 class="card-title text-sm">Pending bindings</h3>
-        @if (pending().length === 0) {
-          <p
-            class="text-xs text-base-content/60"
-            data-testid="gateway-binding-empty"
-          >
-            No pending requests. New bindings appear here after a user messages
-            the bot.
-          </p>
-        } @else {
-          <ul class="mt-2 flex flex-col gap-2">
-            @for (b of pending(); track b.id) {
-              <li
-                data-testid="gateway-pending-binding-row"
-                class="flex flex-col gap-2 rounded border border-base-300 p-2 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div class="flex flex-col">
-                  <span class="text-sm font-medium">
-                    {{ b.platform }}
-                  </span>
-                  <span class="text-xs text-base-content/60">
-                    Awaiting code from bot — paste the code the bot sent you.
-                  </span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <input
-                    type="text"
-                    autocomplete="off"
-                    data-testid="gateway-approve-code"
-                    class="input input-bordered input-xs w-24 font-mono"
-                    placeholder="code"
-                    [value]="bindingCodeFor(b.id)"
-                    (input)="onBindingCodeInput(b.id, $event)"
-                    [attr.aria-label]="
-                      'Pairing code for ' + b.platform + ' binding'
-                    "
-                  />
+    <section class="space-y-1.5" aria-label="Pending bindings">
+      <h3 class="text-xs font-semibold">Pending requests</h3>
+      @if (pending().length === 0) {
+        <p
+          class="text-xs text-base-content/50"
+          data-testid="gateway-binding-empty"
+        >
+          No pending requests — send <span class="font-mono">/ptah bind</span>
+          from your platform to start.
+        </p>
+      } @else {
+        <ul class="divide-y divide-base-300/70">
+          @for (b of pending(); track b.id) {
+            <li
+              data-testid="gateway-pending-binding-row"
+              class="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div class="flex flex-col">
+                <span class="font-mono text-xs">{{ b.platform }}</span>
+                <span class="text-xs text-base-content/60">
+                  Awaiting code from bot — paste the code the bot sent you.
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <input
+                  type="text"
+                  autocomplete="off"
+                  data-testid="gateway-approve-code"
+                  class="input input-xs input-bordered w-24 font-mono"
+                  placeholder="code"
+                  [value]="bindingCodeFor(b.id)"
+                  (input)="onBindingCodeInput(b.id, $event)"
+                  [attr.aria-label]="
+                    'Pairing code for ' + b.platform + ' binding'
+                  "
+                />
+                <button
+                  type="button"
+                  data-testid="gateway-approve-btn"
+                  class="btn btn-xs btn-success btn-outline"
+                  [disabled]="!bindingCodeFor(b.id)"
+                  (click)="onApprove(b)"
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost hover:text-error"
+                  (click)="onReject(b)"
+                >
+                  Reject
+                </button>
+                @if (canAllowSender(b)) {
                   <button
                     type="button"
-                    data-testid="gateway-approve-btn"
-                    class="btn btn-success btn-xs"
-                    [disabled]="!bindingCodeFor(b.id)"
-                    (click)="onApprove(b)"
+                    class="btn btn-xs btn-ghost"
+                    [attr.data-testid]="'gateway-allow-sender-' + b.id"
+                    (click)="onAllowSender(b)"
                   >
-                    Approve
+                    {{ allowSenderLabel(b.platform) }}
                   </button>
-                  <button
-                    type="button"
-                    class="btn btn-error btn-outline btn-xs"
-                    (click)="onReject(b)"
-                  >
-                    Reject
-                  </button>
-                  @if (canAllowSender(b)) {
-                    <button
-                      type="button"
-                      class="btn btn-outline btn-xs"
-                      [attr.data-testid]="'gateway-allow-sender-' + b.id"
-                      (click)="onAllowSender(b)"
-                    >
-                      {{ allowSenderLabel(b.platform) }}
-                    </button>
-                  }
-                </div>
-              </li>
-            }
-          </ul>
-        }
-      </div>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+      }
     </section>
 
     @if (approved().length > 0) {
-      <section
-        class="card bg-base-200 shadow-sm"
-        aria-label="Approved bindings"
-      >
-        <div class="card-body p-4">
-          <h3 class="card-title text-sm">Approved bindings</h3>
-          <ul class="mt-2 flex flex-col gap-2">
-            @for (b of approved(); track b.id) {
-              <li
-                class="flex items-center justify-between rounded border border-base-300 p-2"
-              >
-                <div class="flex flex-col">
-                  <span class="text-sm font-medium">
-                    {{ b.platform }}
-                  </span>
-                  <span class="text-xs text-base-content/60">
-                    {{ b.displayName ?? '—' }}
-                    @if (b.lastActiveAt) {
-                      · last active
-                      {{ formatTime(b.lastActiveAt) }}
-                    }
-                  </span>
-                </div>
-                <div class="flex items-center gap-2">
-                  @if (canAllowSender(b)) {
-                    <button
-                      type="button"
-                      class="btn btn-outline btn-xs"
-                      [attr.data-testid]="'gateway-allow-sender-' + b.id"
-                      (click)="onAllowSender(b)"
-                    >
-                      {{ allowSenderLabel(b.platform) }}
-                    </button>
+      <section class="space-y-1.5" aria-label="Approved bindings">
+        <h3 class="text-xs font-semibold">Approved</h3>
+        <ul class="divide-y divide-base-300/70">
+          @for (b of approved(); track b.id) {
+            <li class="flex items-center justify-between px-3 py-2">
+              <div class="flex flex-col">
+                <span class="font-mono text-xs">{{ b.platform }}</span>
+                <span class="text-xs text-base-content/60">
+                  {{ b.displayName ?? '—' }}
+                  @if (b.lastActiveAt) {
+                    · last active
+                    {{ formatTime(b.lastActiveAt) }}
                   }
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                @if (canAllowSender(b)) {
                   <button
                     type="button"
-                    class="btn btn-ghost btn-xs"
-                    (click)="onRevoke(b)"
+                    class="btn btn-xs btn-ghost"
+                    [attr.data-testid]="'gateway-allow-sender-' + b.id"
+                    (click)="onAllowSender(b)"
                   >
-                    Revoke
+                    {{ allowSenderLabel(b.platform) }}
                   </button>
-                </div>
-              </li>
-            }
-          </ul>
-        </div>
+                }
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost hover:text-error"
+                  (click)="onRevoke(b)"
+                >
+                  Revoke
+                </button>
+              </div>
+            </li>
+          }
+        </ul>
       </section>
     }
   `,

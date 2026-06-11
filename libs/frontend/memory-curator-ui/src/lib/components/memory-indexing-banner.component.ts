@@ -18,7 +18,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
     @switch (banner.kind) {
       @case ('never-indexed') {
         <div
-          class="alert alert-warning shadow-sm py-2"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3"
           role="status"
           data-testid="memory-banner-never-indexed"
         >
@@ -26,7 +26,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
             <span class="text-sm font-semibold">
               Your workspace isn't indexed yet
             </span>
-            <span class="text-xs">
+            <span class="text-xs text-base-content/60">
               Memory search and code navigation need a local index. Files are
               read on your machine; nothing is uploaded.
             </span>
@@ -47,43 +47,41 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('code-only-no-memory') {
         <div
-          class="alert alert-info shadow-sm py-2"
+          class="flex flex-col gap-0.5 rounded-xl border border-info/40 bg-info/5 px-4 py-3"
           role="status"
           data-testid="memory-banner-code-only"
         >
-          <div class="flex flex-1 flex-col gap-0.5">
-            <span class="text-sm font-semibold">
-              Code index ready — chat to populate memory
-            </span>
-            <span class="text-xs">
-              Your codebase is indexed for symbol search ({{
-                banner.codeSymbolCount
-              }}
-              symbols). Memory entries will appear here after your next
-              qualifying conversation (5+ turns).
-            </span>
-          </div>
+          <span class="text-sm font-semibold">
+            Code index ready — chat to populate memory
+          </span>
+          <span class="text-xs text-base-content/60">
+            Your codebase is indexed for symbol search ({{
+              banner.codeSymbolCount
+            }}
+            symbols). Memory entries will appear here after your next qualifying
+            conversation (5+ turns).
+          </span>
         </div>
       }
       @case ('indexing') {
         <div
-          class="alert shadow-sm py-2"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3"
           role="status"
           data-testid="memory-banner-indexing"
         >
-          <div class="flex flex-1 flex-col gap-0.5">
+          <div class="flex flex-1 flex-col gap-1">
             <span class="text-sm font-semibold">
               Indexing workspace… {{ banner.percent }}%
             </span>
             @if (banner.totalKnown) {
               <progress
-                class="progress progress-primary w-full h-1.5"
+                class="progress progress-primary h-1.5 w-full"
                 [value]="banner.percent"
                 max="100"
               ></progress>
             } @else {
               <progress
-                class="progress progress-primary w-full h-1.5"
+                class="progress progress-primary h-1.5 w-full"
               ></progress>
             }
           </div>
@@ -99,11 +97,11 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('paused') {
         <div
-          class="alert alert-warning shadow-sm py-2"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3"
           role="status"
           data-testid="memory-banner-paused"
         >
-          <span class="text-sm flex-1">
+          <span class="flex-1 text-sm">
             Indexing paused at {{ banner.percent }}%.
           </span>
           <button
@@ -124,11 +122,11 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('stale') {
         <div
-          class="alert alert-warning shadow-sm py-2"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3"
           role="status"
           data-testid="memory-banner-stale"
         >
-          <span class="text-sm flex-1">
+          <span class="flex-1 text-sm">
             Workspace changed since last index — re-index to keep memory search
             accurate.
           </span>
@@ -143,11 +141,11 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('error') {
         <div
-          class="alert alert-error shadow-sm py-2"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-error/40 bg-error/5 px-4 py-3"
           role="status"
           data-testid="memory-banner-error"
         >
-          <span class="text-sm flex-1">
+          <span class="flex-1 text-sm text-error">
             Indexing failed: {{ banner.message }}
           </span>
           <button

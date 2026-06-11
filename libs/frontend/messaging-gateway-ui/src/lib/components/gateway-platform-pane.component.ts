@@ -33,48 +33,48 @@ export interface PlatformCardConfig {
     PlatformBindingsPanelComponent,
   ],
   template: `
-    <div class="flex flex-col gap-4">
-      <section
-        class="card bg-base-200 shadow-sm"
-        [attr.aria-label]="config().label + ' adapter'"
-        [attr.data-testid]="'gateway-platform-card-' + config().id"
-      >
-        <div class="card-body p-4">
-          <div class="flex items-center justify-between">
-            <h3 class="card-title text-sm">{{ config().label }}</h3>
-            <span
-              class="badge badge-sm"
-              [attr.data-testid]="'gateway-platform-status-' + config().id"
-              [class.badge-success]="status() === 'running'"
-              [class.badge-warning]="status() === 'starting'"
-              [class.badge-error]="status() === 'error'"
-              [class.badge-ghost]="status() === 'stopped'"
-            >
-              {{ status() }}
-            </span>
-          </div>
+    <div
+      class="max-w-3xl space-y-6"
+      [attr.aria-label]="config().label + ' adapter'"
+      [attr.data-testid]="'gateway-platform-card-' + config().id"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold">{{ config().label }}</h2>
+        <span
+          class="inline-flex items-center gap-1.5 text-xs text-base-content/70"
+        >
+          <span
+            class="inline-block size-1.5 rounded-full"
+            [class.bg-success]="status() === 'running'"
+            [class.bg-warning]="status() === 'starting'"
+            [class.bg-error]="status() === 'error'"
+            [class.bg-base-content/30]="status() === 'stopped'"
+            aria-hidden="true"
+          ></span>
+          <span [attr.data-testid]="'gateway-platform-status-' + config().id">{{
+            status()
+          }}</span>
+        </span>
+      </div>
 
-          @if (errorMessage(); as msg) {
-            <div role="alert" class="alert alert-error mt-2 py-2 text-xs">
-              <span>{{ msg }}</span>
-            </div>
-          }
+      @if (errorMessage(); as msg) {
+        <div role="alert" class="alert alert-error py-2 text-xs">
+          <span>{{ msg }}</span>
+        </div>
+      }
 
+      <section class="space-y-2">
+        <h2 class="text-sm font-semibold">Connection</h2>
+        <p class="text-xs text-base-content/60">
+          Save a bot token to start the {{ config().label }} adapter.
+        </p>
+        <div class="rounded-xl border border-base-300 bg-base-200/40 p-4">
           <ptah-platform-token-form
             [platform]="config().id"
             [label]="config().label"
             [tokenPlaceholder]="config().tokenPlaceholder"
             [hasAppToken]="config().hasAppToken"
           />
-
-          <ptah-allow-list-editor
-            [platform]="config().id"
-            [label]="config().label"
-          />
-
-          @if (config().id === 'discord') {
-            <ptah-discord-integration-kit />
-          }
 
           <div class="mt-3 flex items-center gap-2">
             <button
@@ -98,7 +98,35 @@ export interface PlatformCardConfig {
         </div>
       </section>
 
-      <ptah-platform-bindings-panel [platform]="config().id" />
+      <section class="space-y-2">
+        <h2 class="text-sm font-semibold">Access</h2>
+        <p class="text-xs text-base-content/60">
+          Control who can reach this adapter and approve pairing requests.
+        </p>
+        <div
+          class="space-y-4 rounded-xl border border-base-300 bg-base-200/40 p-4"
+        >
+          <ptah-allow-list-editor
+            [platform]="config().id"
+            [label]="config().label"
+          />
+          <ptah-platform-bindings-panel [platform]="config().id" />
+        </div>
+      </section>
+
+      @if (config().id === 'discord') {
+        <section class="space-y-2">
+          <h2 class="text-sm font-semibold">Integration</h2>
+          <p class="text-xs text-base-content/60">
+            Generate an invite, register the
+            <span class="font-mono">/ptah</span> command, and pick allowed
+            servers.
+          </p>
+          <div class="rounded-xl border border-base-300 bg-base-200/40 p-4">
+            <ptah-discord-integration-kit />
+          </div>
+        </section>
+      }
     </div>
   `,
 })

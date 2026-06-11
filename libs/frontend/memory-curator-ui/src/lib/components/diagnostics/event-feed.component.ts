@@ -24,7 +24,7 @@ const MAX_ROWS = 10;
   template: `
     <div class="rounded-md border border-base-300 bg-base-100">
       <header
-        class="border-b border-base-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-base-content/70"
+        class="border-b border-base-300 px-3 py-2 text-sm font-semibold text-base-content"
       >
         Recent events
       </header>

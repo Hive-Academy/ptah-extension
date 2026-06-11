@@ -16,17 +16,19 @@ import type {
   template: `
     @if (candidate(); as sc) {
       <section
-        class="rounded-lg border border-base-300 bg-base-100 p-4"
+        class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
         aria-label="Invocation history"
       >
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold">
-            Invocations &mdash;
-            <span class="font-mono text-xs">{{ sc.name }}</span>
+        <div
+          class="flex items-center justify-between border-b border-base-300 px-4 py-3"
+        >
+          <h2 class="text-sm font-medium">
+            Invocations
+            <span class="ml-1 text-base-content/60">{{ sc.name }}</span>
           </h2>
           <button
             type="button"
-            class="btn btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs transition-colors duration-150"
             (click)="closed.emit()"
           >
             Close
@@ -34,42 +36,44 @@ import type {
         </div>
 
         @if (invocations().length === 0) {
-          <div class="mt-2 text-xs text-base-content/60">
+          <div class="px-4 py-8 text-center text-xs text-base-content/60">
             No invocations recorded for this candidate yet.
           </div>
         } @else {
-          <div class="mt-2 overflow-x-auto">
-            <table class="table table-xs">
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Session</th>
-                  <th scope="col">Outcome</th>
-                  <th scope="col">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (inv of invocations(); track inv.id) {
-                  <tr>
-                    <td class="font-mono text-xs">
-                      {{ formatTime(inv.invokedAt) }}
-                    </td>
-                    <td class="font-mono text-xs">{{ inv.sessionId }}</td>
-                    <td>
+          <table class="table table-sm">
+            <thead>
+              <tr class="text-xs text-base-content/50">
+                <th scope="col" class="font-normal">When</th>
+                <th scope="col" class="font-normal">Session</th>
+                <th scope="col" class="font-normal">Outcome</th>
+                <th scope="col" class="font-normal">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (inv of invocations(); track inv.id) {
+                <tr class="hover:bg-base-300/20">
+                  <td class="font-mono text-xs">
+                    {{ formatTime(inv.invokedAt) }}
+                  </td>
+                  <td class="font-mono text-xs">{{ inv.sessionId }}</td>
+                  <td>
+                    <span class="inline-flex items-center gap-1.5">
                       <span
-                        class="badge badge-xs"
-                        [class.badge-success]="inv.succeeded"
-                        [class.badge-error]="!inv.succeeded"
-                      >
+                        class="inline-block size-1.5 rounded-full"
+                        [class.bg-success]="inv.succeeded"
+                        [class.bg-error]="!inv.succeeded"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="text-xs text-base-content/70">
                         {{ inv.succeeded ? 'success' : 'failure' }}
                       </span>
-                    </td>
-                    <td class="text-xs">{{ inv.notes ?? '—' }}</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
+                    </span>
+                  </td>
+                  <td class="text-xs">{{ inv.notes ?? '—' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
         }
       </section>
     }

@@ -39,7 +39,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
     <div class="flex flex-col gap-3">
       <div class="rounded-md border border-base-300 bg-base-100">
         <header
-          class="border-b border-base-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-base-content/70"
+          class="border-b border-base-300 px-3 py-2 text-sm font-semibold text-base-content"
         >
           DB Health
         </header>
@@ -122,9 +122,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
         <header
           class="flex items-center justify-between border-b border-base-300 px-3 py-2"
         >
-          <span
-            class="text-xs font-semibold uppercase tracking-wide text-base-content/70"
-          >
+          <span class="text-sm font-semibold text-base-content">
             sqlite-vec
           </span>
           @if (vecAvailable()) {
@@ -211,9 +209,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
         <header
           class="flex items-center justify-between border-b border-base-300 px-3 py-2"
         >
-          <span
-            class="text-xs font-semibold uppercase tracking-wide text-base-content/70"
-          >
+          <span class="text-sm font-semibold text-base-content">
             Embedder
           </span>
           <span

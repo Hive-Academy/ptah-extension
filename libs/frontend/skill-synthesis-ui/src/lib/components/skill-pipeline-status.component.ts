@@ -14,37 +14,41 @@ import type {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div
-      class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-base-300 bg-base-100 px-4 py-2 text-xs text-base-content/70"
+    <section
+      class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
       data-testid="skills-pipeline-status"
       aria-label="Skill synthesis pipeline status"
     >
-      <span>
-        Last analysis:
-        <span class="font-medium text-base-content">{{
-          lastAnalysisLabel()
-        }}</span>
-      </span>
-      <span aria-hidden="true">&middot;</span>
-      <span>
-        today:
-        <span class="font-medium text-base-content">{{ acceptedToday() }}</span>
-        accepted,
-        <span class="font-medium text-base-content">{{
-          ineligibleToday()
-        }}</span>
-        ineligible
-      </span>
-      @if (reasonChip(); as chip) {
-        <span
-          class="badge badge-sm"
-          [class]="chip.badgeClass"
-          data-testid="skills-pipeline-reason"
-        >
-          {{ chip.label }}
-        </span>
-      }
-    </div>
+      <div class="border-b border-base-300 px-4 py-3">
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <span class="text-base-content/60">Last analysis:</span>
+          <span class="font-medium">{{ lastAnalysisLabel() }}</span>
+          @if (reasonChip(); as chip) {
+            <span
+              class="inline-flex items-center gap-1.5 text-xs text-base-content/70"
+              data-testid="skills-pipeline-reason"
+            >
+              <span
+                class="inline-block size-1.5 rounded-full bg-warning"
+                aria-hidden="true"
+              ></span>
+              {{ chip.label }}
+            </span>
+          }
+        </div>
+        <p class="mt-1 text-xs text-base-content/60">
+          Today:
+          <span class="tabular-nums text-base-content/80">{{
+            acceptedToday()
+          }}</span>
+          accepted,
+          <span class="tabular-nums text-base-content/80">{{
+            ineligibleToday()
+          }}</span>
+          ineligible
+        </p>
+      </div>
+    </section>
   `,
 })
 export class SkillPipelineStatusComponent {
@@ -70,16 +74,15 @@ export class SkillPipelineStatusComponent {
 
   protected readonly reasonChip = computed<{
     readonly label: string;
-    readonly badgeClass: string;
   } | null>(() => {
     const events = this.recentEvents();
     if (events.length === 0) return null;
     const latest = events[0];
     if (latest.kind === 'ineligible') {
-      return { label: 'ineligible', badgeClass: 'badge-warning' };
+      return { label: 'ineligible' };
     }
     if (latest.kind === 'rate-limited') {
-      return { label: 'rate-limited', badgeClass: 'badge-warning' };
+      return { label: 'rate-limited' };
     }
     return null;
   });

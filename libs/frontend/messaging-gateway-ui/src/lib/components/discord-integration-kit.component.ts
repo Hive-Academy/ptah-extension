@@ -22,19 +22,16 @@ function describeRegisterError(error: string): string {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div
-      class="mt-3 flex flex-col gap-2 rounded border border-base-300 p-3"
-      data-testid="gateway-discord-integration"
-    >
-      <h4 class="text-xs font-semibold">Discord integration</h4>
-
-      <label class="form-control w-full">
-        <span class="label-text text-xs"> Application (client) ID </span>
+    <div class="flex flex-col gap-4" data-testid="gateway-discord-integration">
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-base-content/60"
+          >Application (client) ID</span
+        >
         <div class="flex items-center gap-2">
           <input
             type="text"
             autocomplete="off"
-            class="input input-bordered input-sm w-full font-mono"
+            class="input input-sm input-bordered w-full font-mono"
             placeholder="e.g. 1512896140939362527"
             data-testid="gateway-discord-appid"
             [value]="discordAppIdValue()"
@@ -43,7 +40,7 @@ function describeRegisterError(error: string): string {
           />
           <button
             type="button"
-            class="btn btn-outline btn-sm"
+            class="btn btn-sm btn-outline"
             data-testid="gateway-discord-appid-save"
             (click)="onSaveDiscordAppId()"
           >
@@ -55,7 +52,7 @@ function describeRegisterError(error: string): string {
       <div class="flex flex-wrap items-center gap-2">
         @if (discordInviteUrl(); as url) {
           <a
-            class="btn btn-primary btn-sm"
+            class="btn btn-sm btn-outline"
             [href]="url"
             target="_blank"
             rel="noopener noreferrer"
@@ -70,7 +67,7 @@ function describeRegisterError(error: string): string {
         }
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-sm btn-outline"
           data-testid="gateway-discord-register"
           [disabled]="registering()"
           (click)="onRegisterDiscordCommands()"
@@ -90,17 +87,18 @@ function describeRegisterError(error: string): string {
           >{{ fb }}</span
         >
       }
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center justify-between">
-          <span class="label-text text-xs">
+
+      <div class="flex flex-col gap-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-xs text-base-content/60">
             Allowed servers
-            <span class="text-base-content/50">
+            <span class="text-base-content/40">
               — tick to allow; empty = any server the bot is in
             </span>
           </span>
           <button
             type="button"
-            class="btn btn-ghost btn-xs"
+            class="btn btn-xs btn-ghost"
             data-testid="gateway-discord-guilds-refresh"
             (click)="onRefreshGuilds()"
           >
