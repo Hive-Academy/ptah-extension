@@ -26,6 +26,7 @@ import {
   CliRunner,
   createTmpHome,
   type OneshotResult,
+  type RunnerHandle,
   type TmpHome,
 } from './_harness';
 
@@ -114,6 +115,50 @@ describe('5 RPC handlers registered (Bug 6)', () => {
     assertNoMethodNotFound(result, 'settings:import');
     const seen = methods(result);
     expect(seen).toEqual(expect.arrayContaining(['settings.imported']));
+  });
+});
+
+describe('Thoth RPC namespaces reachable via rpc.call', () => {
+  let tmp: TmpHome;
+  let runner: RunnerHandle | undefined;
+
+  beforeEach(async () => {
+    tmp = await createTmpHome();
+  });
+
+  afterEach(async () => {
+    if (runner) {
+      try {
+        await runner.shutdown();
+      } catch {
+        try {
+          await runner.kill();
+        } catch {
+          /* swallow */
+        }
+      }
+      runner = undefined;
+    }
+    await tmp.cleanup();
+  });
+
+  it('db:health is registered (not "method not found") over the interact transport', async () => {
+    runner = await CliRunner.spawn({
+      home: tmp,
+      args: ['--auto-approve'],
+      env: { ANTHROPIC_API_KEY: FAKE_API_KEY },
+    });
+
+    const response = await runner.request<{
+      success: boolean;
+      data?: unknown;
+      error?: string;
+    }>('rpc.call', { method: 'db:health', params: {} }, 30_000);
+
+    expect(typeof response.success).toBe('boolean');
+    expect(String(response.error ?? '').toLowerCase()).not.toContain(
+      'method not found',
+    );
   });
 });
 

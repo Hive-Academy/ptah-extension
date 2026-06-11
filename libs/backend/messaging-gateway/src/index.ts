@@ -58,6 +58,12 @@ export type {
 
 export { FfmpegDecoder } from './lib/voice/ffmpeg-decoder';
 export type { FfmpegBinaryResolver } from './lib/voice/ffmpeg-decoder';
+export {
+  VoiceAssetsUnavailableError,
+  VOICE_ASSETS_UNAVAILABLE,
+  VOICE_ASSETS_REMEDIATION,
+  isVoiceAssetsUnavailable,
+} from './lib/voice/voice-assets-error';
 export { WhisperTranscriber } from './lib/voice/whisper-transcriber';
 export type {
   NodejsWhisperApi,

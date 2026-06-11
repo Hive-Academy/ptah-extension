@@ -12,6 +12,11 @@ import type {
   FfmpegDecoder,
   WhisperTranscriber,
 } from '@ptah-extension/messaging-gateway';
+import {
+  VoiceAssetsUnavailableError,
+  VOICE_ASSETS_UNAVAILABLE,
+  VOICE_ASSETS_REMEDIATION,
+} from '@ptah-extension/messaging-gateway';
 
 import { VoiceRpcHandlers } from './voice-rpc.handlers';
 
@@ -201,6 +206,27 @@ describe('VoiceRpcHandlers', () => {
 
       expect(response.success).toBe(true);
       expect(response.data).toEqual({ ok: false, error: 'ffmpeg-boom' });
+      expect(whisper.transcribe).not.toHaveBeenCalled();
+    });
+
+    it('surfaces VOICE_ASSETS_UNAVAILABLE with remediation when assets are missing', async () => {
+      const { rpc, ffmpeg, whisper } = buildSuite();
+      (ffmpeg.decodeToPcm16Wav as jest.Mock).mockRejectedValue(
+        new VoiceAssetsUnavailableError('ffmpeg-static'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:transcribe',
+        params: { audioBase64: VALID_BASE64, mimeType: 'audio/webm' },
+        correlationId: 'voice-assets',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toMatchObject({
+        ok: false,
+        code: VOICE_ASSETS_UNAVAILABLE,
+        remediation: VOICE_ASSETS_REMEDIATION,
+      });
       expect(whisper.transcribe).not.toHaveBeenCalled();
     });
 

@@ -3,9 +3,11 @@
  *
  * Shared-handler fan-out + SDK / agent-event wiring moved to platform-agnostic
  * helpers; CLI opts out of worktree, wizard broadcast, Copilot permission,
- * and CLI session persistence. CLI exclusion list (~22 entries, webview-only
- * surfaces) keeps HarnessRpcHandlers active so the CLI exposes Electron parity
- * for every backend capability.
+ * and CLI session persistence. CLI exclusion list (webview-only surfaces:
+ * file pickers, command palette, embedded editor, persisted layout, embedded
+ * PTY) registers the full shared handler set — including the Thoth namespaces
+ * (cron/gateway/voice/memory/mem/corpus/skillSynthesis/db/embedder/indexing) —
+ * so the CLI exposes Electron parity for every backend capability.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -17,16 +19,6 @@ import {
   registerHarnessServices,
   verifyAndReportRpcRegistration,
   __debugAssertSharedHandlersDisjoint,
-  CorpusRpcHandlers,
-  CronRpcHandlers,
-  EmbedderRpcHandlers,
-  GatewayRpcHandlers,
-  IndexingRpcHandlers,
-  MemoryRpcHandlers,
-  MemRpcHandlers,
-  PersistenceRpcHandlers,
-  SkillsSynthesisRpcHandlers,
-  VoiceRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import {
   wireSdkCallbacks,
@@ -66,64 +58,6 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'layout:restore',
   'terminal:create',
   'terminal:kill',
-  'cron:list',
-  'cron:get',
-  'cron:create',
-  'cron:update',
-  'cron:delete',
-  'cron:toggle',
-  'cron:runNow',
-  'cron:runs',
-  'cron:nextFire',
-  'gateway:status',
-  'gateway:start',
-  'gateway:stop',
-  'gateway:setToken',
-  'gateway:listBindings',
-  'gateway:approveBinding',
-  'gateway:blockBinding',
-  'gateway:listMessages',
-  'gateway:test',
-  'voice:transcribe',
-  'voice:getConfig',
-  'voice:setConfig',
-  'memory:list',
-  'memory:search',
-  'memory:get',
-  'memory:pin',
-  'memory:unpin',
-  'memory:forget',
-  'memory:rebuildIndex',
-  'memory:stats',
-  'mem:searchIndex',
-  'mem:timeline',
-  'mem:getObservations',
-  'embedder:status',
-  'embedder:retry',
-  'corpus:list',
-  'corpus:get',
-  'corpus:build',
-  'corpus:prime',
-  'corpus:query',
-  'corpus:reprime',
-  'corpus:rebuild',
-  'corpus:delete',
-  'skillSynthesis:listCandidates',
-  'skillSynthesis:getCandidate',
-  'skillSynthesis:promote',
-  'skillSynthesis:reject',
-  'skillSynthesis:invocations',
-  'skillSynthesis:stats',
-  'db:health',
-  'db:reset',
-  'indexing:getStatus',
-  'indexing:start',
-  'indexing:pause',
-  'indexing:resume',
-  'indexing:cancel',
-  'indexing:setPipelineEnabled',
-  'indexing:dismissStale',
-  'indexing:acknowledgeDisclosure',
 ];
 
 /**
@@ -143,28 +77,16 @@ export class CliRpcMethodRegistrationService {
   }
 
   /**
-   * Register all RPC methods. CLI now registers the full shared handler set
-   * (including HarnessRpcHandlers) for Electron parity. Webview-only
-   * surfaces stay excluded via `CLI_EXCLUDED_RPC_METHODS`.
+   * Register all RPC methods. CLI registers the full shared handler set
+   * (including HarnessRpcHandlers and every Thoth namespace) for Electron
+   * parity. Only webview-only surfaces stay excluded via
+   * `CLI_EXCLUDED_RPC_METHODS`.
    */
   registerAll(): void {
     const c = this.container;
     registerChatServices(c);
     registerHarnessServices(c);
-    registerAllRpcHandlers(c, {
-      exclude: [
-        CronRpcHandlers,
-        EmbedderRpcHandlers,
-        GatewayRpcHandlers,
-        VoiceRpcHandlers,
-        MemoryRpcHandlers,
-        MemRpcHandlers,
-        CorpusRpcHandlers,
-        SkillsSynthesisRpcHandlers,
-        PersistenceRpcHandlers,
-        IndexingRpcHandlers,
-      ],
-    });
+    registerAllRpcHandlers(c);
     c.registerSingleton(CliAgentRpcHandlers);
     c.resolve(CliAgentRpcHandlers).register();
 

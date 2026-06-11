@@ -56,7 +56,6 @@ describe('buildSessionDescribe', () => {
       expect(result.serverName).toBe('ptah');
       expect(result.mode).toBe('interact');
       expect(result.version).toBe('0.1.5');
-      expect(result.schemaVersion).toBe('0.1');
       expect(result.schemaVersion).toBe(JSONRPC_SCHEMA_VERSION);
     });
 

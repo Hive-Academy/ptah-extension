@@ -27,7 +27,7 @@ export const JSON_RPC_VERSION = '2.0' as const;
  * to stderr but does NOT abort the process; callers can opt out of the
  * stderr warning with the global `--quiet` flag.
  */
-export const JSONRPC_SCHEMA_VERSION = '0.1' as const;
+export const JSONRPC_SCHEMA_VERSION = '0.2' as const;
 
 /** A JSON value that can appear inside `params`, `result`, or `error.data`. */
 export type JsonValue =

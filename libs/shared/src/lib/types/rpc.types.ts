@@ -1909,7 +1909,7 @@ export interface VoiceTranscribeParams {
 
 export type VoiceTranscribeResult =
   | { ok: true; transcript: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: string; remediation?: string };
 
 export interface VoiceConfigDto {
   whisperModel: string;

@@ -29,6 +29,9 @@ import {
   WhisperTranscriber,
   resolveWhisperModel,
   VOICE_WHISPER_MODEL_KEY,
+  VOICE_ASSETS_UNAVAILABLE,
+  VOICE_ASSETS_REMEDIATION,
+  isVoiceAssetsUnavailable,
 } from '@ptah-extension/messaging-gateway';
 import {
   VoiceSetConfigParamsSchema,
@@ -180,6 +183,17 @@ export class VoiceRpcHandlers {
       return { ok: true, transcript };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      if (isVoiceAssetsUnavailable(error)) {
+        this.logger.warn('[voice] transcription assets unavailable', {
+          mimeType,
+        });
+        return {
+          ok: false,
+          error: message,
+          code: VOICE_ASSETS_UNAVAILABLE,
+          remediation: VOICE_ASSETS_REMEDIATION,
+        };
+      }
       this.logger.error('[voice] transcription failed', {
         error: message,
         mimeType,
