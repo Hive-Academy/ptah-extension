@@ -45,12 +45,6 @@ import type {
   IStateStorage,
   ISecretStorage,
 } from '@ptah-extension/platform-core';
-import {
-  MEMORY_CONTRACT_TOKENS,
-  type IMemoryReader,
-  type IMemoryLister,
-  type ISymbolSink,
-} from '@ptah-extension/memory-contracts';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerVsCodeCorePlatformAgnostic } from '@ptah-extension/vscode-core';
@@ -110,6 +104,7 @@ import { CliMessageTransport } from '../transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter';
 import { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler';
 import { CliRpcMethodRegistrationService } from '../services/cli-rpc-method-registration.service';
+import { registerThothLibraries } from './thoth/register-thoth-libraries';
 
 /**
  * Options for bootstrapping the CLI DI container.
@@ -457,25 +452,6 @@ export class CliDIContainer {
 
     wireAgentAdapterAliases(container);
 
-    const noopMemoryReader: IMemoryReader = {
-      search: async () => ({ hits: [], bm25Only: true }),
-    };
-    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
-      useValue: noopMemoryReader,
-    });
-    const noopMemoryLister: IMemoryLister = {
-      listAll: () => ({ memories: [], total: 0 }),
-    };
-    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
-      useValue: noopMemoryLister,
-    });
-    const noopSymbolSink: ISymbolSink = {
-      deleteSymbolsForFile: () => 0,
-      insertSymbols: async () => undefined,
-    };
-    container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
-      useValue: noopSymbolSink,
-    });
     try {
       container.register(TOKENS.WEBVIEW_MESSAGE_HANDLER, { useValue: {} });
       container.register(TOKENS.WEBVIEW_HTML_GENERATOR, { useValue: {} });
@@ -499,6 +475,8 @@ export class CliDIContainer {
     logger.info(
       '[CLI DI] SETUP_WIZARD_SERVICE stub registered (no setup wizard in CLI)',
     );
+
+    registerThothLibraries(container, logger);
 
     phaseEnd('2', phase2Start);
     const phase3Start = phaseStart('3');

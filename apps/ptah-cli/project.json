@@ -106,6 +106,30 @@
         }
       }
     },
+    "build-embedder-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "dependsOn": ["build"],
+      "options": {
+        "outputPath": "dist/apps/ptah-cli",
+        "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
+        "outputFileName": "embedder-worker.mjs",
+        "tsConfig": "apps/ptah-cli/tsconfig.embedder-worker.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          }
+        },
+        "external": ["@huggingface/transformers"]
+      }
+    },
     "dev": {
       "executor": "nx:run-commands",
       "options": {
@@ -114,7 +138,7 @@
     },
     "serve": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build"],
+      "dependsOn": ["build-embedder-worker"],
       "options": {
         "command": "node dist/apps/ptah-cli/main.mjs"
       }
@@ -138,14 +162,14 @@
     },
     "e2e": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build"],
+      "dependsOn": ["build-embedder-worker"],
       "options": {
         "command": "jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand"
       }
     },
     "publish:dry-run": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build"],
+      "dependsOn": ["build-embedder-worker"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --dry-run --access public"
@@ -153,7 +177,7 @@
     },
     "publish": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build"],
+      "dependsOn": ["build-embedder-worker"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --access public --provenance"
