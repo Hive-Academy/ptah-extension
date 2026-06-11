@@ -62,6 +62,11 @@ export interface SessionListParams {
   limit?: number;
   /** Offset for pagination */
   offset?: number;
+  /**
+   * Lower bound (epoch ms) on `lastActivityAt`. When set, only sessions active
+   * at or after this timestamp are returned. Applied before pagination.
+   */
+  since?: number;
 }
 
 /** Response from session:list RPC method */
