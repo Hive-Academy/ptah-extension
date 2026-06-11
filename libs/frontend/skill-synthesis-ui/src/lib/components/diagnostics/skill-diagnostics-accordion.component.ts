@@ -140,6 +140,12 @@ import {
               (triggerChange)="onTriggerChange($event)"
             />
             <ptah-skill-trigger-toggle
+              key="turnComplete"
+              label="Turn complete"
+              [enabled]="triggers().turnComplete?.enabled ?? false"
+              (triggerChange)="onTriggerChange($event)"
+            />
+            <ptah-skill-trigger-toggle
               key="postToolUse"
               label="PostToolUse (edit+test)"
               [enabled]="triggers().postToolUse?.enabled ?? false"
@@ -263,6 +269,12 @@ export class SkillDiagnosticsAccordionComponent implements OnInit, OnDestroy {
     if (change.key === 'subagentStop' && typeof change.value === 'boolean') {
       void this.state.setTriggers({
         subagentStop: { enabled: change.value },
+      });
+      return;
+    }
+    if (change.key === 'turnComplete' && typeof change.value === 'boolean') {
+      void this.state.setTriggers({
+        turnComplete: { enabled: change.value },
       });
       return;
     }

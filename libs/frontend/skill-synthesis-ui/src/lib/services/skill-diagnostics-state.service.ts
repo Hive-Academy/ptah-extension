@@ -16,6 +16,7 @@ const DEFAULT_TRIGGERS: SkillTriggersDto = {
   sessionEnd: true,
   idleMs: 600_000,
   bootScan: true,
+  turnComplete: { enabled: true },
 };
 
 const DEFAULT_HISTOGRAM: EligibilityHistogramDto = {
