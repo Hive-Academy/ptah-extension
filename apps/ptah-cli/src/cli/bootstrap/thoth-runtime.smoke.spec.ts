@@ -104,8 +104,9 @@ describe('Thoth interim smoke — oneshot activate + clean dispose', () => {
 
     await disposeThoth(refs, makeLogger() as never);
 
-    expect(order[0]).toBe('chatBridge.stop');
-    expect(order[1]).toBe('gateway.stop');
+    expect(order[0]).toBe('push.dispose');
+    expect(order[1]).toBe('chatBridge.stop');
+    expect(order[2]).toBe('gateway.stop');
     expect(order.indexOf('embedder.dispose')).toBeLessThan(
       order.indexOf('sqlite.close'),
     );

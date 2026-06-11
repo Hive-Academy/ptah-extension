@@ -9,6 +9,14 @@
 import { EventEmitter } from 'node:events';
 import type { DependencyContainer } from 'tsyringe';
 
+const activateThothMock = jest.fn();
+const disposeThothMock = jest.fn();
+
+jest.mock('./thoth-runtime.js', () => ({
+  activateThoth: (...args: unknown[]) => activateThothMock(...args),
+  disposeThoth: (...args: unknown[]) => disposeThothMock(...args),
+}));
+
 import { withEngine, SdkInitFailedError } from './with-engine.js';
 import type {
   EngineContext,
@@ -564,6 +572,129 @@ describe('withEngine', () => {
         async () => undefined,
       );
       expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Thoth activation tier matrix', () => {
+    beforeEach(() => {
+      activateThothMock.mockReset();
+      disposeThothMock.mockReset();
+      activateThothMock.mockResolvedValue({ marker: 'thoth-refs' });
+      disposeThothMock.mockResolvedValue(undefined);
+    });
+
+    it('thoth defaulting to off never activates or disposes Thoth', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      await withEngine(
+        baseGlobals,
+        { mode: 'minimal', bootstrap },
+        async (ctx) => {
+          expect(ctx.thothRefs).toBeUndefined();
+          return undefined;
+        },
+      );
+      expect(activateThothMock).not.toHaveBeenCalled();
+      expect(disposeThothMock).not.toHaveBeenCalled();
+    });
+
+    it('thoth=off explicit is identical to default — no activation', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', thoth: 'off', bootstrap },
+        async () => undefined,
+      );
+      expect(activateThothMock).not.toHaveBeenCalled();
+      expect(disposeThothMock).not.toHaveBeenCalled();
+    });
+
+    it('thoth=oneshot activates with the oneshot tier and stashes refs', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let seenRefs: unknown;
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', thoth: 'oneshot', bootstrap },
+        async (ctx) => {
+          seenRefs = ctx.thothRefs;
+          return undefined;
+        },
+      );
+      expect(activateThothMock).toHaveBeenCalledTimes(1);
+      expect(activateThothMock.mock.calls[0]?.[1]).toBe('oneshot');
+      expect(seenRefs).toEqual({ marker: 'thoth-refs' });
+      expect(disposeThothMock).toHaveBeenCalledTimes(1);
+      expect(disposeThothMock.mock.calls[0]?.[0]).toEqual({
+        marker: 'thoth-refs',
+      });
+    });
+
+    it('thoth=runtime activates with the runtime tier', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', thoth: 'runtime', bootstrap },
+        async () => undefined,
+      );
+      expect(activateThothMock).toHaveBeenCalledTimes(1);
+      expect(activateThothMock.mock.calls[0]?.[1]).toBe('runtime');
+      expect(disposeThothMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('disposes Thoth BEFORE the container teardown', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const order: string[] = [];
+      disposeThothMock.mockImplementation(async () => {
+        order.push('thoth.dispose');
+      });
+      await withEngine(
+        baseGlobals,
+        {
+          mode: 'full',
+          thoth: 'oneshot',
+          bootstrap,
+          dispose: () => {
+            order.push('container.dispose');
+          },
+        },
+        async () => undefined,
+      );
+      expect(order).toEqual(['thoth.dispose', 'container.dispose']);
+    });
+
+    it('disposes Thoth on the throw path and re-throws the original error', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const userErr = new Error('fn-failed');
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', thoth: 'runtime', bootstrap },
+          async () => {
+            throw userErr;
+          },
+        ),
+      ).rejects.toBe(userErr);
+      expect(disposeThothMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('swallows a Thoth activation failure and still runs fn (non-fatal)', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      activateThothMock.mockRejectedValue(new Error('activate boom'));
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      const result = await withEngine(
+        baseGlobals,
+        { mode: 'full', thoth: 'oneshot', bootstrap },
+        async (ctx) => {
+          expect(ctx.thothRefs).toBeUndefined();
+          return 'ran';
+        },
+      );
+
+      expect(result).toBe('ran');
+      expect(disposeThothMock).not.toHaveBeenCalled();
+      stderrSpy.mockRestore();
     });
   });
 });

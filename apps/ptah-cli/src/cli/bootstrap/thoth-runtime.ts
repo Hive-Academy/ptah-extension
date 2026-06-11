@@ -60,6 +60,10 @@ export interface ThothRefs {
 const BACKUP_HANDLER_NAME = 'backup:daily';
 let vecDiagnosticEmitted = false;
 
+export function resetVecDiagnosticForTest(): void {
+  vecDiagnosticEmitted = false;
+}
+
 function emptyRefs(): ThothRefs {
   return {
     sqliteConnection: null,
@@ -142,6 +146,11 @@ export async function disposeThoth(
 ): Promise<void> {
   if (!refs) return;
 
+  for (const disposable of refs.pushDisposables) {
+    await guard('pushBridge.dispose', logger, async () => {
+      disposable.dispose();
+    });
+  }
   await guard('chatBridge.stop', logger, async () => {
     refs.chatBridge?.stop();
   });
@@ -163,11 +172,6 @@ export async function disposeThoth(
   await guard('memoryCurator.stop', logger, async () => {
     refs.memoryCurator?.stop();
   });
-  for (const disposable of refs.pushDisposables) {
-    await guard('pushBridge.dispose', logger, async () => {
-      disposable.dispose();
-    });
-  }
   await guard('embedderClient.dispose', logger, async () => {
     await refs.embedderClient?.dispose();
   });

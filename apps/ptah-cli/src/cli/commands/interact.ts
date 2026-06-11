@@ -289,7 +289,7 @@ export async function execute(
   let resolvedExitCode: number | null = null;
 
   try {
-    await engine(globals, { mode: 'full' }, async (ctx) => {
+    await engine(globals, { mode: 'full', thoth: 'runtime' }, async (ctx) => {
       const priorInteractActiveSet = Object.prototype.hasOwnProperty.call(
         process.env,
         'PTAH_INTERACT_ACTIVE',

@@ -102,6 +102,13 @@ export interface SessionOptions {
   scope?: string;
   /** Optional explicit cwd override (proxies `globals.cwd`). */
   cwd?: string;
+  /**
+   * Optional explicit Thoth tier override. When provided, `runStart` /
+   * `runResume` use it verbatim instead of deriving the tier from
+   * `once`/`task`. The `init` smoke-turn sets `'off'` so a setup command never
+   * opens the database.
+   */
+  thoth?: 'off' | 'oneshot' | 'runtime';
 }
 
 export interface SessionStderrLike {
@@ -159,6 +166,7 @@ export async function executeSessionStart(
     scope?: string;
     resumeId?: string;
     cwd?: string;
+    thoth?: 'off' | 'oneshot' | 'runtime';
   },
   globals?: GlobalOptions,
   hooks: SessionExecuteHooks = {},
@@ -174,6 +182,7 @@ export async function executeSessionStart(
         task: opts.task,
         scope: opts.scope,
         cwd: opts.cwd,
+        thoth: opts.thoth,
       }
     : {
         subcommand: 'start',
@@ -182,6 +191,7 @@ export async function executeSessionStart(
         once: opts.once,
         scope: opts.scope,
         cwd: opts.cwd,
+        thoth: opts.thoth,
       };
   const effectiveGlobals: GlobalOptions = globals ?? {
     json: true,
@@ -291,57 +301,64 @@ async function runStart(
   const uuid = hooks.randomUUID ?? randomUUID;
   const tabId = uuid();
 
-  const exitCode = await engine(globals, { mode: 'full' }, async (ctx) => {
-    const workspaceProvider = ctx.container.resolve<IWorkspaceProvider>(
-      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-    );
-    const storage = ctx.container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
-    );
-    const workspacePath =
-      workspaceProvider.getWorkspaceRoot() ?? globals.cwd ?? process.cwd();
-    const entry: PersistedSession = {
-      tabId,
-      createdAt: Date.now(),
-      workspacePath,
-    };
-    await persistSession(storage, entry);
-
-    await formatter.writeNotification('session.created', {
-      session_id: tabId,
-      tab_id: tabId,
-    });
-
-    return await runStreamingTurn({
-      ctx,
-      tabId,
-      formatter,
-      stderr,
-      hooks,
-      command: 'session.start',
-      task: opts.task,
-      rpcMethod: 'chat:start',
-      buildParams: () => ({
-        tabId,
-        prompt: opts.task,
-        workspacePath,
-        options: opts.profile ? { preset: opts.profile } : undefined,
-      }),
-      requireTask: false,
-      onSessionResolved: async (sdkSessionId) => {
-        const current = loadPersistedSession(storage, tabId);
-        if (current) {
-          await persistSession(storage, { ...current, sdkSessionId });
-        }
-        await formatter.writeNotification('session.id_resolved', {
-          tab_id: tabId,
-          session_id: sdkSessionId,
-        });
-      },
-    });
-  });
-
   const hasTask = typeof opts.task === 'string' && opts.task.trim().length > 0;
+  const thothTier: 'off' | 'oneshot' | 'runtime' =
+    opts.thoth ?? (opts.once === true || hasTask ? 'oneshot' : 'runtime');
+
+  const exitCode = await engine(
+    globals,
+    { mode: 'full', thoth: thothTier },
+    async (ctx) => {
+      const workspaceProvider = ctx.container.resolve<IWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      );
+      const storage = ctx.container.resolve<IStateStorage>(
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+      );
+      const workspacePath =
+        workspaceProvider.getWorkspaceRoot() ?? globals.cwd ?? process.cwd();
+      const entry: PersistedSession = {
+        tabId,
+        createdAt: Date.now(),
+        workspacePath,
+      };
+      await persistSession(storage, entry);
+
+      await formatter.writeNotification('session.created', {
+        session_id: tabId,
+        tab_id: tabId,
+      });
+
+      return await runStreamingTurn({
+        ctx,
+        tabId,
+        formatter,
+        stderr,
+        hooks,
+        command: 'session.start',
+        task: opts.task,
+        rpcMethod: 'chat:start',
+        buildParams: () => ({
+          tabId,
+          prompt: opts.task,
+          workspacePath,
+          options: opts.profile ? { preset: opts.profile } : undefined,
+        }),
+        requireTask: false,
+        onSessionResolved: async (sdkSessionId) => {
+          const current = loadPersistedSession(storage, tabId);
+          if (current) {
+            await persistSession(storage, { ...current, sdkSessionId });
+          }
+          await formatter.writeNotification('session.id_resolved', {
+            tab_id: tabId,
+            session_id: sdkSessionId,
+          });
+        },
+      });
+    },
+  );
+
   const shouldAutoExit = opts.once === true || hasTask;
 
   if (shouldAutoExit) {
@@ -393,7 +410,11 @@ async function runResume(
   }
   const id = opts.id;
 
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  const hasTask = typeof opts.task === 'string' && opts.task.trim().length > 0;
+  const thothTier: 'off' | 'oneshot' | 'runtime' =
+    opts.thoth ?? (hasTask ? 'oneshot' : 'off');
+
+  return engine(globals, { mode: 'full', thoth: thothTier }, async (ctx) => {
     const workspaceProvider = ctx.container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );

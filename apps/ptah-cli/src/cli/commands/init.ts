@@ -624,7 +624,7 @@ async function runSmokeTurn(
   spin.start('Running a quick test turn');
   try {
     const exit = await runSmoke(
-      { task: 'Reply with the single word: ready', once: true },
+      { task: 'Reply with the single word: ready', once: true, thoth: 'off' },
       { ...globals, json: true },
     );
     spin.stop(
