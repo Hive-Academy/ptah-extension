@@ -50,12 +50,6 @@
   "main": "./main.mjs",
   "icon": "assets/images/ptah-icon.png",
   "contributes": {
-    "authentication": [
-      {
-        "id": "ptah-google",
-        "label": "Google (Gemini AI)"
-      }
-    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -271,11 +265,6 @@
           "minimum": 1,
           "maximum": 10,
           "description": "Maximum number of concurrent CLI agent processes."
-        },
-        "ptah.agentOrchestration.geminiModel": {
-          "type": "string",
-          "default": "",
-          "description": "Default model for Gemini CLI agents (e.g. gemini-2.5-pro, gemini-2.5-flash). Leave empty for Gemini's default."
         },
         "ptah.browser.allowLocalhost": {
           "type": "boolean",

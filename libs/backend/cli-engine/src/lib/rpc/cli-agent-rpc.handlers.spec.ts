@@ -58,7 +58,6 @@ const buildCliDetectionStub = () => ({
   detectAll: jest.fn().mockResolvedValue([]),
   invalidateCache: jest.fn(),
   listModelsForAll: jest.fn().mockResolvedValue({
-    gemini: [],
     codex: [],
     copilot: [],
     cursor: [],
@@ -312,7 +311,6 @@ describe('CliAgentRpcHandlers — per-method dispatch parity', () => {
     )(undefined);
     expect(cliResult).toEqual(eleResult);
     expect(cliResult).toEqual({
-      gemini: [],
       codex: [],
       copilot: [],
       cursor: [],
@@ -384,7 +382,7 @@ describe('CliAgentRpcHandlers — per-method dispatch parity', () => {
 
     const params = {
       cliSessionId: 'sess-1',
-      cli: 'gemini' as const,
+      cli: 'codex' as const,
       task: 'do something',
     };
     const cliResult = await findHandler(

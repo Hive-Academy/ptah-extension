@@ -259,7 +259,7 @@ export interface ChatResumeResult {
   resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
   /**
    * CLI agent sessions linked to this parent session.
-   * Enables displaying and resuming CLI sessions (e.g., Gemini) when loading saved sessions.
+   * Enables displaying and resuming CLI sessions when loading saved sessions.
    * Populated from SessionMetadataStore.cliSessions[].
    */
   cliSessions?: import('../agent-process.types').CliSessionReference[];

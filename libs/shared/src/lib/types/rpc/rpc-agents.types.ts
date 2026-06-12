@@ -37,8 +37,7 @@ export interface SkillShEntry {
 export type SkillAgentTarget =
   | 'Claude Code'
   | 'GitHub Copilot'
-  | 'OpenAI Codex'
-  | 'Gemini CLI';
+  | 'OpenAI Codex';
 
 /** An installed skill detected on disk */
 export interface InstalledSkill {
@@ -70,14 +69,12 @@ export interface SkillDetectionResult {
 
 /** Agent orchestration configuration for settings UI */
 export interface AgentOrchestrationConfig {
-  /** Detected CLI agents (Gemini, Codex, Copilot) */
+  /** Detected CLI agents (Codex, Copilot) */
   detectedClis: import('../agent-process.types').CliDetectionResult[];
   /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */
   preferredAgentOrder: string[];
   /** Maximum concurrent agents (1-10) */
   maxConcurrentAgents: number;
-  /** Per-CLI model: Gemini CLI model (empty string = CLI default) */
-  geminiModel: string;
   /** Per-CLI model: Codex model (empty string = CLI default) */
   codexModel: string;
   /** Per-CLI model: Copilot model (empty string = default) */
@@ -96,7 +93,7 @@ export interface AgentOrchestrationConfig {
   copilotAutoApprove: boolean;
   /** MCP server port (default: 51820) */
   mcpPort: number;
-  /** CLI types that are disabled by the user (e.g., ['gemini', 'copilot']). Empty array means all enabled. */
+  /** CLI types that are disabled by the user (e.g., ['copilot']). Empty array means all enabled. */
   disabledClis: string[];
   /** MCP tool namespace groups disabled by the user (e.g., ['browser', 'git']). Empty array means all enabled. */
   disabledMcpNamespaces: string[];
@@ -114,7 +111,6 @@ export interface CliModelOption {
 
 /** Response from agent:listCliModels RPC method */
 export interface AgentListCliModelsResult {
-  gemini: CliModelOption[];
   codex: CliModelOption[];
   copilot: CliModelOption[];
   cursor: CliModelOption[];
@@ -126,8 +122,6 @@ export interface AgentSetConfigParams {
   preferredAgentOrder?: string[];
   /** Maximum concurrent agents (1-10) */
   maxConcurrentAgents?: number;
-  /** Gemini CLI model override (empty string = CLI default) */
-  geminiModel?: string;
   /** Codex model override (empty string = CLI default) */
   codexModel?: string;
   /** Copilot model override (empty string = default) */
@@ -146,7 +140,7 @@ export interface AgentSetConfigParams {
   copilotReasoningEffort?: string;
   /** MCP server port (1024-65535, default: 51820) */
   mcpPort?: number;
-  /** CLI types to disable (e.g., ['gemini', 'copilot']). Empty array enables all. */
+  /** CLI types to disable (e.g., ['copilot']). Empty array enables all. */
   disabledClis?: string[];
   /** MCP tool namespace groups to disable (e.g., ['browser', 'git']). Empty array enables all. */
   disabledMcpNamespaces?: string[];

@@ -34,7 +34,7 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'copilot',
 ];
 
-const TARGET_LABELS: Partial<Record<McpInstallTarget, string>> = {
+const TARGET_LABELS: Record<McpInstallTarget, string> = {
   vscode: 'VS Code',
   claude: 'Claude / Codex',
   cursor: 'Cursor',
@@ -624,7 +624,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   }
 
   getTargetLabel(target: McpInstallTarget): string {
-    return TARGET_LABELS[target] ?? target;
+    return TARGET_LABELS[target];
   }
 
   getConfigSummary(): string {

@@ -170,7 +170,7 @@ export interface SessionStatsEntry {
   readonly messageCount: number;
   /** Number of agent/subagent JSONL files found for this session */
   readonly agentSessionCount?: number;
-  /** CLI agent types used in this session (e.g., ['gemini', 'copilot']) */
+  /** CLI agent types used in this session (e.g., ['codex', 'copilot']) */
   readonly cliAgents?: readonly string[];
   /** Per-model usage breakdown (model, input/output tokens, cost) */
   readonly modelUsageList?: ReadonlyArray<{
