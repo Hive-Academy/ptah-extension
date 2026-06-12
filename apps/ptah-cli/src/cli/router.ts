@@ -16,6 +16,7 @@ import * as configCmd from './commands/config.js';
 import * as cronCmd from './commands/cron.js';
 import * as doctorCmd from './commands/doctor.js';
 import * as executeSpecCmd from './commands/execute-spec.js';
+import * as gatewayCmd from './commands/gateway.js';
 import * as gitCmd from './commands/git.js';
 import * as harnessCmd from './commands/harness.js';
 import * as initCmd from './commands/init.js';
@@ -34,6 +35,7 @@ import * as sessionCmd from './commands/session.js';
 import * as settingsCmd from './commands/settings.js';
 import * as setupCmd from './commands/setup.js';
 import * as skillCmd from './commands/skill.js';
+import * as skillSynthesisCmd from './commands/skill-synthesis.js';
 import * as websearchCmd from './commands/websearch.js';
 import * as wizardCmd from './commands/wizard.js';
 import * as workspaceCmd from './commands/workspace.js';
@@ -2634,6 +2636,270 @@ export function buildRouter(): Command {
     .action(async (id: string) => {
       const exit = await cronCmd.execute(
         { subcommand: 'next-fire', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah gateway ----------------------------------------------------------
+  // Backed by shared GatewayRpcHandlers over the `gateway:*` namespace. Runs
+  // under the Thoth one-shot tier — store-backed verbs only. Adapters serve
+  // live only in the long-running `runtime` tier (ptah interact / session /
+  // Ptah desktop), so `start` emits an honest adaptersLive:false notice rather
+  // than faking adapter liveness. `set-token` reads the secret from stdin or a
+  // masked prompt — never argv.
+  const gateway = program
+    .command('gateway')
+    .description(
+      'manage the messaging gateway (status / start / stop / set-token / bindings / approve / block / messages / test)',
+    );
+
+  gateway
+    .command('status')
+    .description('emit gateway.status via gateway:status')
+    .action(async () => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'status' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('start')
+    .description(
+      'persist enabled flags via gateway:start (one-shot — emits adaptersLive:false notice; adapters run only in long-running hosts)',
+    )
+    .option(
+      '--platform <id>',
+      'scope to a single platform (telegram|discord|slack)',
+    )
+    .action(async (opts: { platform?: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'start', platform: opts.platform },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('stop')
+    .description(
+      'clear enabled flags via gateway:stop and emit gateway.stopped',
+    )
+    .option(
+      '--platform <id>',
+      'scope to a single platform (telegram|discord|slack)',
+    )
+    .action(async (opts: { platform?: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'stop', platform: opts.platform },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('set-token <platform>')
+    .description(
+      'store a bot token via gateway:setToken — the secret is read from stdin (--stdin, machine-mode default) or a masked prompt under --human; NEVER from argv. Slack: pipe the bot token then the app token on a second line.',
+    )
+    .option(
+      '--stdin',
+      'read the token from stdin (default in machine mode)',
+      false,
+    )
+    .action(async (platform: string, opts: { stdin?: boolean }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'set-token', platform, stdin: opts.stdin === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('bindings')
+    .description('emit gateway.bindings via gateway:listBindings')
+    .option('--platform <id>', 'filter by platform (telegram|discord|slack)')
+    .option(
+      '--status <status>',
+      'filter by approval status (pending|approved|rejected|revoked)',
+    )
+    .action(async (opts: { platform?: string; status?: string }) => {
+      const exit = await gatewayCmd.execute(
+        {
+          subcommand: 'bindings',
+          filterPlatform: opts.platform,
+          status: opts.status,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('approve <bindingId>')
+    .description(
+      'approve a pending binding via gateway:approveBinding (--code is the 6-digit pairing code the bot sent the user)',
+    )
+    .requiredOption('--code <code>', 'pairing code from the bot message')
+    .action(async (bindingId: string, opts: { code: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'approve', bindingId, code: opts.code },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('block <bindingId>')
+    .description(
+      'block a binding via gateway:blockBinding and emit gateway.binding_blocked',
+    )
+    .option(
+      '--status <status>',
+      'terminal state (rejected|revoked; defaults to rejected)',
+    )
+    .action(async (bindingId: string, opts: { status?: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'block', bindingId, blockStatus: opts.status },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('messages')
+    .description('emit gateway.messages via gateway:listMessages')
+    .requiredOption('--binding-id <id>', 'binding id to read messages for')
+    .option('--limit <n>', 'max messages to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .option(
+      '--before <ts>',
+      'cursor: only messages with createdAt < ts',
+      (raw) => Number.parseInt(raw, 10),
+    )
+    .action(
+      async (opts: { bindingId: string; limit?: number; before?: number }) => {
+        const exit = await gatewayCmd.execute(
+          {
+            subcommand: 'messages',
+            bindingId: opts.bindingId,
+            limit: opts.limit,
+            before: opts.before,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  gateway
+    .command('test <platform>')
+    .description('issue a delivery test via gateway:test and emit gateway.test')
+    .option(
+      '--binding-id <id>',
+      'binding override (defaults to first approved)',
+    )
+    .action(async (platform: string, opts: { bindingId?: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'test', platform, testBindingId: opts.bindingId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah skill-synthesis --------------------------------------------------
+  // Backed by shared SkillSynthesisRpcHandlers over the `skillSynthesis:*`
+  // namespace. Sibling of `ptah skill` (skills.sh packs), which is untouched.
+  // Runs under the Thoth one-shot tier — store-backed candidate operations.
+  const skillSynthesis = program
+    .command('skill-synthesis')
+    .description(
+      'inspect synthesized-skill candidates (list / get / promote / reject / invocations / stats)',
+    );
+
+  skillSynthesis
+    .command('list')
+    .description('emit skill_synthesis.list via skillSynthesis:listCandidates')
+    .option(
+      '--status <status>',
+      'filter by status (candidate|promoted|rejected|all)',
+    )
+    .option('--limit <n>', 'max candidates to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (opts: { status?: string; limit?: number }) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'list', status: opts.status, limit: opts.limit },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('get <id>')
+    .description(
+      'emit skill_synthesis.candidate via skillSynthesis:getCandidate',
+    )
+    .action(async (id: string) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'get', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('promote <id>')
+    .description(
+      'promote a candidate via skillSynthesis:promote and emit skill_synthesis.promoted',
+    )
+    .action(async (id: string) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'promote', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('reject <id>')
+    .description(
+      'reject a candidate via skillSynthesis:reject and emit skill_synthesis.rejected',
+    )
+    .option('--reason <text>', 'optional rejection reason')
+    .action(async (id: string, opts: { reason?: string }) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'reject', id, reason: opts.reason },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('invocations <skillId>')
+    .description(
+      'emit skill_synthesis.invocations via skillSynthesis:invocations',
+    )
+    .option('--limit <n>', 'max invocations to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (skillId: string, opts: { limit?: number }) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'invocations', skillId, limit: opts.limit },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('stats')
+    .description('emit skill_synthesis.stats via skillSynthesis:stats')
+    .action(async () => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'stats' },
         resolveGlobals(program),
       );
       process.exitCode = exit;
