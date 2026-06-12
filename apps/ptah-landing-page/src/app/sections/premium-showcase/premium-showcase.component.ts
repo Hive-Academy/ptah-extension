@@ -272,7 +272,7 @@ export class PremiumShowcaseComponent {
       layout: 'left',
       eyebrow: 'Agent Orchestration',
       headline: 'Spawn a Team. Delegate. Conquer.',
-      body: 'Run Ptah CLI, Codex, GitHub Copilot, and Gemini agents as parallel workers. Fire-and-check orchestration with MCP lifecycle tools lets you delegate tasks across multiple AI agents simultaneously â€” each with its own provider and context.',
+      body: 'Run Ptah CLI, Codex, and GitHub Copilot agents as parallel workers. Fire-and-check orchestration with MCP lifecycle tools lets you delegate tasks across multiple AI agents simultaneously â€” each with its own provider and context.',
       features: [
         'Parallel subagent execution across providers',
         'Ptah CLI connects 200+ models via Claude Agent SDK',
