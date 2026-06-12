@@ -209,6 +209,70 @@ describe('GitRpcHandlers.register()', () => {
 });
 
 // ===========================================================================
+// git:info
+// ===========================================================================
+
+describe('git:info handler', () => {
+  it('uses the active workspace root when no path param is given', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    await handler({});
+
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/workspace');
+  });
+
+  it('scopes to params.path when it is a registered workspace folder', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['/workspace', '/other']);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    await handler({ path: '/other' });
+
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/other');
+  });
+
+  it('matches registered folders ignoring slash direction and trailing slashes', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['D:\\projects\\other']);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    await handler({ path: 'D:/projects/other/' });
+
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('D:/projects/other/');
+  });
+
+  it('returns the non-git default for an unregistered path', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    const result = (await handler({ path: '/elsewhere' })) as {
+      isGitRepo: boolean;
+      files: unknown[];
+    };
+
+    expect(result.isGitRepo).toBe(false);
+    expect(result.files).toEqual([]);
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+
+  it('returns the non-git default when no workspace is open', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite(null);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    const result = (await handler({})) as { isGitRepo: boolean };
+
+    expect(result.isGitRepo).toBe(false);
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
 // git:branches
 // ===========================================================================
 

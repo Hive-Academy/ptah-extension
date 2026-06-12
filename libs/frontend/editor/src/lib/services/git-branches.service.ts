@@ -102,6 +102,21 @@ export class GitBranchesService {
    */
   private _isRefreshing = false;
 
+  /**
+   * Set when a refresh request arrives while one is already in flight.
+   * The in-flight pass reruns (full refresh) before releasing the guard,
+   * so a workspace switch is never silently dropped by the guard.
+   */
+  private _refreshQueued = false;
+
+  /**
+   * Active workspace folder as told by the WorkspaceCoordinator. Takes
+   * precedence over `config().workspaceRoot`, which only updates after
+   * coordination completes. Used to drop `git:status-update` pushes that
+   * belong to a different workspace folder.
+   */
+  private _activeWorkspacePath: string | null = null;
+
   constructor() {
     this.restoreRecentBranches();
     this.destroyRef.onDestroy(() => this.stopListening());
@@ -121,10 +136,45 @@ export class GitBranchesService {
       const data = event.data;
       if (data?.type === 'git:status-update') {
         const payload = data.payload as GitStatusUpdatePayload | undefined;
+        if (
+          payload?.workspaceRoot &&
+          payload.workspaceRoot !== this.workspaceKey()
+        ) {
+          return;
+        }
         void this.refreshForCauses(payload?.causes);
       }
     };
     window.addEventListener('message', this._messageHandler);
+  }
+
+  /**
+   * Switch branch state to a different workspace folder. Resets all
+   * signals (branches are cheap to refetch — no per-workspace cache),
+   * reloads the recent-branches list for the new folder, and refetches.
+   */
+  switchWorkspace(workspacePath: string): void {
+    if (this._activeWorkspacePath === workspacePath) return;
+    this._activeWorkspacePath = workspacePath;
+    this.resetState();
+    this.restoreRecentBranches();
+    void this.refreshBranches();
+  }
+
+  /** Reset state when the active workspace folder is removed. */
+  removeWorkspaceState(workspacePath: string): void {
+    if (this._activeWorkspacePath !== workspacePath) return;
+    this._activeWorkspacePath = null;
+    this.resetState();
+  }
+
+  private resetState(): void {
+    this._branches.set(EMPTY_BRANCHES);
+    this._stashCount.set(0);
+    this._lastCommit.set(null);
+    this._remotes.set([]);
+    this._tags.set([]);
+    this._recentBranches.set([]);
   }
 
   /**
@@ -158,15 +208,26 @@ export class GitBranchesService {
       return;
     }
 
-    if (this._isRefreshing) return;
+    if (this._isRefreshing) {
+      this._refreshQueued = true;
+      return;
+    }
     this._isRefreshing = true;
     try {
       this._isLoading.set(true);
-      const tasks: Promise<unknown>[] = [];
-      if (wantsBranches) tasks.push(this.refreshBranchList());
-      if (wantsStash) tasks.push(this.refreshStashCount());
-      if (wantsLastCommit) tasks.push(this.refreshLastCommit());
-      await Promise.all(tasks);
+      let refreshBranches = wantsBranches;
+      let refreshStash = wantsStash;
+      let refreshLastCommit = wantsLastCommit;
+      for (;;) {
+        const tasks: Promise<unknown>[] = [];
+        if (refreshBranches) tasks.push(this.refreshBranchList());
+        if (refreshStash) tasks.push(this.refreshStashCount());
+        if (refreshLastCommit) tasks.push(this.refreshLastCommit());
+        await Promise.all(tasks);
+        if (!this._refreshQueued) break;
+        this._refreshQueued = false;
+        refreshBranches = refreshStash = refreshLastCommit = true;
+      }
       this._isLoading.set(false);
     } finally {
       this._isRefreshing = false;
@@ -338,10 +399,17 @@ export class GitBranchesService {
   }
 
   /**
-   * Workspace key used for per-repo persistence. Returns `null` when no
-   * workspace is set; callers must guard before reading/writing state.
+   * Workspace key used for per-repo persistence and push filtering.
+   * Prefers the coordinator-driven active path (updated synchronously on
+   * switch) over `config().workspaceRoot` (updated after coordination).
+   * Returns `null` when no workspace is set; callers must guard before
+   * reading/writing state.
    */
   private workspaceKey(): string | null {
-    return this.vscodeService.config().workspaceRoot ?? null;
+    return (
+      this._activeWorkspacePath ??
+      this.vscodeService.config().workspaceRoot ??
+      null
+    );
   }
 }

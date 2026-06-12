@@ -36,6 +36,7 @@ import type {
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
+  GitInfoParams,
   GitInfoResult,
   GitWorktreesResult,
   GitAddWorktreeParams,
@@ -121,26 +122,50 @@ export class GitRpcHandlers {
   }
 
   /**
-   * git:info - Returns branch info and changed file list for the active workspace.
-   * If no workspace is open or it's not a git repo, returns a non-git default.
+   * git:info - Returns branch info and changed file list for the workspace
+   * folder named in `params.path`, falling back to the active workspace when
+   * omitted. A `path` that is not a registered workspace folder, or no
+   * workspace at all, returns a non-git default.
    */
   private registerGitInfo(): void {
-    this.rpcHandler.registerMethod<Record<string, never>, GitInfoResult>(
+    this.rpcHandler.registerMethod<GitInfoParams, GitInfoResult>(
       'git:info',
-      async () => {
+      async (params) => {
+        const nonGit: GitInfoResult = {
+          isGitRepo: false,
+          branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+          files: [],
+        };
+
+        if (params?.path) {
+          if (!this.isRegisteredFolder(params.path)) {
+            this.logger.warn(
+              '[GitRpc] git:info called with unregistered path',
+              { path: params.path } as unknown as Error,
+            );
+            return nonGit;
+          }
+          return this.gitInfo.getGitInfo(params.path);
+        }
+
         const wsRoot = this.workspace.getWorkspaceRoot();
         if (!wsRoot) {
           this.logger.debug('[GitRpc] git:info called with no workspace open');
-          return {
-            isGitRepo: false,
-            branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
-            files: [],
-          };
+          return nonGit;
         }
 
         return this.gitInfo.getGitInfo(wsRoot);
       },
     );
+  }
+
+  private isRegisteredFolder(requested: string): boolean {
+    const normalize = (p: string): string =>
+      p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const target = normalize(requested);
+    return this.workspace
+      .getWorkspaceFolders()
+      .some((folder) => normalize(folder) === target);
   }
 
   /**

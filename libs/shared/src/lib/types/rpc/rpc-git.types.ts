@@ -27,7 +27,15 @@ export interface GitBranchInfo {
 }
 
 /** Parameters for git:info RPC method */
-export type GitInfoParams = Record<string, never>;
+export interface GitInfoParams {
+  /**
+   * Absolute path of the workspace folder to compute status for. Must be
+   * one of the registered workspace folders. When omitted, the backend's
+   * active workspace folder is used (legacy behavior — subject to switch
+   * timing; callers that know their workspace should always pass it).
+   */
+  path?: string;
+}
 
 /** Response from git:info RPC method */
 export interface GitInfoResult {
