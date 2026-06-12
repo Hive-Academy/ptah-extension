@@ -44,6 +44,7 @@ import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import { withEngine, SdkInitFailedError } from '../bootstrap/with-engine.js';
+import type { ThothTierOption } from '../bootstrap/thoth-runtime.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { emitFatalError } from '../output/stderr-json.js';
 import { ExitCode } from '../jsonrpc/types.js';
@@ -108,7 +109,7 @@ export interface SessionOptions {
    * `once`/`task`. The `init` smoke-turn sets `'off'` so a setup command never
    * opens the database.
    */
-  thoth?: 'off' | 'oneshot' | 'runtime';
+  thoth?: ThothTierOption;
 }
 
 export interface SessionStderrLike {
@@ -166,7 +167,7 @@ export async function executeSessionStart(
     scope?: string;
     resumeId?: string;
     cwd?: string;
-    thoth?: 'off' | 'oneshot' | 'runtime';
+    thoth?: ThothTierOption;
   },
   globals?: GlobalOptions,
   hooks: SessionExecuteHooks = {},
@@ -302,7 +303,7 @@ async function runStart(
   const tabId = uuid();
 
   const hasTask = typeof opts.task === 'string' && opts.task.trim().length > 0;
-  const thothTier: 'off' | 'oneshot' | 'runtime' =
+  const thothTier: ThothTierOption =
     opts.thoth ?? (opts.once === true || hasTask ? 'oneshot' : 'runtime');
 
   const exitCode = await engine(
@@ -411,7 +412,7 @@ async function runResume(
   const id = opts.id;
 
   const hasTask = typeof opts.task === 'string' && opts.task.trim().length > 0;
-  const thothTier: 'off' | 'oneshot' | 'runtime' =
+  const thothTier: ThothTierOption =
     opts.thoth ?? (hasTask ? 'oneshot' : 'off');
 
   return engine(globals, { mode: 'full', thoth: thothTier }, async (ctx) => {

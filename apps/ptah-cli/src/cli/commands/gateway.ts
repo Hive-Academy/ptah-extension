@@ -30,7 +30,7 @@ import { withEngine } from '../bootstrap/with-engine.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import { callRpc, oneshot } from './thoth-command-shared.js';
 import type {
   GatewayApproveBindingResult,
   GatewayBlockBindingResult,
@@ -205,6 +205,7 @@ async function runStart(
     await callRpc(ctx.transport, 'gateway:start', params);
     await formatter.writeNotification('gateway.started', {
       adaptersLive: false,
+      startConfirmed: false,
       notice: ADAPTERS_LIVE_NOTICE,
     });
     return ExitCode.Success;
@@ -304,7 +305,7 @@ async function runSetToken(
     await formatter.writeNotification('gateway.token_set', {
       platform,
       ok: true,
-      slackAppToken: slackAppToken !== undefined ? true : false,
+      slackAppToken: slackAppToken !== undefined,
     });
     return ExitCode.Success;
   });
@@ -484,14 +485,6 @@ async function runTest(
   });
 }
 
-function oneshot(): {
-  mode: 'full';
-  requireSdk: false;
-  thoth: 'oneshot';
-} {
-  return { mode: 'full', requireSdk: false, thoth: 'oneshot' };
-}
-
 function defaultIsInteractive(globals: GlobalOptions): boolean {
   if (globals.json === true) return false;
   if (globals.quiet === true) return false;
@@ -574,20 +567,4 @@ async function readAllStream(
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
-}
-
-async function callRpc<T = unknown>(
-  transport: CliMessageTransport,
-  method: string,
-  params: unknown,
-): Promise<T> {
-  const response = await transport.call<unknown, T>(method, params);
-  if (!response.success) {
-    const err = new Error(response.error ?? `${method} failed`);
-    if (response.errorCode) {
-      (err as unknown as { code: string }).code = response.errorCode;
-    }
-    throw err;
-  }
-  return (response.data as T) ?? (null as unknown as T);
 }

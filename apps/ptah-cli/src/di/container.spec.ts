@@ -10,8 +10,20 @@ import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 import { GATEWAY_TOKENS } from '@ptah-extension/messaging-gateway';
 import { SKILL_REPROPAGATION_TOKEN } from '@ptah-extension/skill-synthesis';
 
+import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
+
 import { registerThothLibraries } from './thoth/register-thoth-libraries';
 import { CliSkillRepropagation } from './thoth/cli-skill-repropagation';
+
+jest.mock('@ptah-extension/memory-curator', () => {
+  const actual = jest.requireActual('@ptah-extension/memory-curator');
+  return {
+    ...actual,
+    registerMemoryCuratorServices: jest.fn(
+      actual.registerMemoryCuratorServices,
+    ),
+  };
+});
 
 function makeLogger() {
   return {
@@ -118,6 +130,54 @@ describe('registerThothLibraries — per-subsystem degradation', () => {
 
     expect(c.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)).toBe(true);
     expect(c.isRegistered(GATEWAY_TOKENS.GATEWAY_SERVICE)).toBe(true);
+    expect((logger.warn as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+  });
+});
+
+describe('registerThothLibraries — memory-contract fallback when Track 1 throws', () => {
+  afterEach(() => {
+    (registerMemoryCuratorServices as jest.Mock).mockImplementation(
+      jest.requireActual('@ptah-extension/memory-curator')
+        .registerMemoryCuratorServices,
+    );
+  });
+
+  it('registers no-op MEMORY_READER/LISTER/SYMBOL_SINK when registerMemoryCuratorServices throws', async () => {
+    const c = buildBaseContainer();
+    const logger = c.resolve<import('@ptah-extension/vscode-core').Logger>(
+      TOKENS.LOGGER,
+    );
+
+    (registerMemoryCuratorServices as jest.Mock).mockImplementationOnce(() => {
+      throw new Error('forced memory curator failure');
+    });
+
+    expect(() => registerThothLibraries(c, logger)).not.toThrow();
+
+    expect(c.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)).toBe(true);
+    expect(c.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER)).toBe(true);
+    expect(c.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)).toBe(true);
+
+    const reader = c.resolve<{
+      search: (q: string) => Promise<{ hits: unknown[]; bm25Only: boolean }>;
+    }>(MEMORY_CONTRACT_TOKENS.MEMORY_READER);
+    await expect(reader.search('anything')).resolves.toEqual({
+      hits: [],
+      bm25Only: true,
+    });
+
+    const lister = c.resolve<{
+      listAll: () => { memories: unknown[]; total: number };
+    }>(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER);
+    expect(lister.listAll()).toEqual({ memories: [], total: 0 });
+
+    const sink = c.resolve<{
+      deleteSymbolsForFile: () => number;
+      insertSymbols: () => Promise<void>;
+    }>(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK);
+    expect(sink.deleteSymbolsForFile()).toBe(0);
+    await expect(sink.insertSymbols()).resolves.toBeUndefined();
+
     expect((logger.warn as jest.Mock).mock.calls.length).toBeGreaterThan(0);
   });
 });

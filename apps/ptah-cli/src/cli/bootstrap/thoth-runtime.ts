@@ -39,6 +39,7 @@ import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manag
 import { wireThothPushBridges } from './wire-thoth-push-bridges.js';
 
 export type ThothTier = 'oneshot' | 'runtime';
+export type ThothTierOption = ThothTier | 'off';
 
 interface EmbedderDisposable {
   dispose(): void | Promise<void>;

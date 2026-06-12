@@ -1,6 +1,9 @@
+import type { DependencyContainer } from 'tsyringe';
+
 import { activateThoth, disposeThoth, type ThothRefs } from './thoth-runtime';
 
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import type { Logger } from '@ptah-extension/vscode-core';
 
 interface FakeLogger {
   info: jest.Mock;
@@ -48,11 +51,9 @@ describe('Thoth interim smoke — oneshot activate + clean dispose', () => {
     const logger = makeLogger();
 
     const refs = await activateThoth(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      container as any,
+      container as unknown as DependencyContainer,
       'oneshot',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      logger as any,
+      logger as unknown as Logger,
     );
 
     expect(openAndMigrate).toHaveBeenCalledTimes(1);

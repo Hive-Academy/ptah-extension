@@ -4,6 +4,12 @@ import * as path from 'node:path';
 import type { DependencyContainer } from 'tsyringe';
 
 import { type Logger } from '@ptah-extension/vscode-core';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type IMemoryReader,
+  type IMemoryLister,
+  type ISymbolSink,
+} from '@ptah-extension/memory-contracts';
 import { registerCuratorAuthServices } from '@ptah-extension/auth-providers';
 import {
   registerPersistenceSqliteServices,
@@ -84,6 +90,8 @@ export function registerThothLibraries(
     });
   }
 
+  ensureMemoryContractFallbacks(container, logger);
+
   try {
     registerSkillSynthesisServices(container, logger);
     container.registerInstance(
@@ -120,5 +128,50 @@ export function registerThothLibraries(
     logger.warn('[CLI DI] Messaging gateway registration skipped (non-fatal)', {
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+}
+
+function ensureMemoryContractFallbacks(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
+  const missing: string[] = [];
+
+  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
+    const noopMemoryReader: IMemoryReader = {
+      search: async () => ({ hits: [], bm25Only: true }),
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
+      useValue: noopMemoryReader,
+    });
+    missing.push('MEMORY_READER');
+  }
+
+  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER)) {
+    const noopMemoryLister: IMemoryLister = {
+      listAll: () => ({ memories: [], total: 0 }),
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
+      useValue: noopMemoryLister,
+    });
+    missing.push('MEMORY_LISTER');
+  }
+
+  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)) {
+    const noopSymbolSink: ISymbolSink = {
+      deleteSymbolsForFile: () => 0,
+      insertSymbols: async () => undefined,
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
+      useValue: noopSymbolSink,
+    });
+    missing.push('SYMBOL_SINK');
+  }
+
+  if (missing.length > 0) {
+    logger.warn(
+      '[CLI DI] Memory-contract tokens unregistered after Track 1; installed no-op fallbacks so MemoryPromptInjector can resolve',
+      { tokens: missing },
+    );
   }
 }

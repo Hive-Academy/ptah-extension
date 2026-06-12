@@ -31,7 +31,7 @@ import {
   activateThoth,
   disposeThoth,
   type ThothRefs,
-  type ThothTier,
+  type ThothTierOption,
 } from './thoth-runtime.js';
 
 /**
@@ -172,7 +172,7 @@ export interface WithEngineOptions {
    * starts triggers, the cron loop, and gateway adapters for long-running
    * hosts (`ptah interact`, interactive `ptah session start`).
    */
-  thoth?: 'off' | 'oneshot' | 'runtime';
+  thoth?: ThothTierOption;
   /**
    * Override hook for tests — replaces `CliDIContainer.setup`. Production
    * callers omit this; the default invokes the real bootstrap.
@@ -342,11 +342,7 @@ export async function withEngine<T>(
   if (thothTier !== 'off') {
     try {
       const logger = ctx.container.resolve<Logger>(LOGGER_TOKEN);
-      ctx.thothRefs = await activateThoth(
-        ctx.container,
-        thothTier as ThothTier,
-        logger,
-      );
+      ctx.thothRefs = await activateThoth(ctx.container, thothTier, logger);
     } catch (activationErr) {
       process.stderr.write(
         `[ptah] withEngine: Thoth activation failed (non-fatal): ${

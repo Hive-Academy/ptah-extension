@@ -12,10 +12,22 @@ const SALT_LENGTH = 32;
 const PBKDF2_ITERATIONS = 100_000;
 const PBKDF2_DIGEST = 'sha512';
 
+export type VaultWarnSink = (message: string) => void;
+
 export class CliTokenVault implements ITokenVault {
   private readonly key: Buffer;
+  private readonly warn: VaultWarnSink;
+  private readonly saltPath: string;
 
-  constructor() {
+  constructor(warn?: VaultWarnSink, saltPath?: string) {
+    this.warn =
+      warn ??
+      ((message: string): void => {
+        process.emitWarning(message, 'CliTokenVault');
+      });
+    this.saltPath =
+      saltPath ??
+      path.join(os.homedir(), '.ptah', 'state', 'gateway-vault.salt');
     const salt = this.loadOrCreateSalt();
     this.key = crypto.pbkdf2Sync(
       this.computeMachineId(),
@@ -65,13 +77,17 @@ export class CliTokenVault implements ITokenVault {
     }
   }
 
-  private loadOrCreateSalt(): Buffer {
-    const saltPath = path.join(
-      os.homedir(),
-      '.ptah',
-      'state',
-      'gateway-vault.salt',
+  private warnSaltNotPersisted(saltPath: string, error: unknown): void {
+    const reason = error instanceof Error ? error.message : String(error);
+    this.warn(
+      `gateway token-vault salt could not be persisted to ${saltPath} (${reason}); ` +
+        'tokens encrypted in this process will not be readable after restart — ' +
+        're-run `ptah gateway set-token` once the state directory is writable',
     );
+  }
+
+  private loadOrCreateSalt(): Buffer {
+    const saltPath = this.saltPath;
     try {
       const existing = fs.readFileSync(saltPath);
       if (existing.length === SALT_LENGTH) {
@@ -84,8 +100,8 @@ export class CliTokenVault implements ITokenVault {
     try {
       fs.mkdirSync(path.dirname(saltPath), { recursive: true });
       fs.writeFileSync(saltPath, salt, { mode: 0o600 });
-    } catch {
-      void 0;
+    } catch (error: unknown) {
+      this.warnSaltNotPersisted(saltPath, error);
     }
     return salt;
   }
