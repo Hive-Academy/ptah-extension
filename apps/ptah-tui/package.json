@@ -1,0 +1,17 @@
+{
+  "name": "@ptah-extension/ptah-tui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@ptah-extension/cli-engine": "0.0.1",
+    "@ptah-extension/shared": "0.0.1",
+    "ink": "^7.0.0",
+    "ink-big-text": "^2.0.0",
+    "ink-gradient": "^4.0.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.0",
+    "reflect-metadata": "^0.2.2"
+  }
+}

@@ -36,6 +36,7 @@ import * as settingsCmd from './commands/settings.js';
 import * as setupCmd from './commands/setup.js';
 import * as skillCmd from './commands/skill.js';
 import * as skillSynthesisCmd from './commands/skill-synthesis.js';
+import * as tuiCmd from './commands/tui.js';
 import * as websearchCmd from './commands/websearch.js';
 import * as wizardCmd from './commands/wizard.js';
 import * as workspaceCmd from './commands/workspace.js';
@@ -2287,6 +2288,17 @@ export function buildRouter(): Command {
     .description('list running proxies registered in ~/.ptah/proxies/')
     .action(async () => {
       const exit = await proxyCmd.executeStatus({}, resolveGlobals(program));
+      process.exitCode = exit;
+    });
+
+  // -- ptah tui --------------------------------------------------------------
+  program
+    .command('tui')
+    .description(
+      'launch the interactive Ptah terminal UI (requires a real TTY)',
+    )
+    .action(async () => {
+      const exit = await tuiCmd.execute({}, resolveGlobals(program));
       process.exitCode = exit;
     });
 

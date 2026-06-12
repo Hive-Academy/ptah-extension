@@ -173,6 +173,7 @@ export interface WithEngineOptions {
    * hosts (`ptah interact`, interactive `ptah session start`).
    */
   thoth?: ThothTierOption;
+  pushAdapter?: CliWebviewManagerAdapter;
   /**
    * Override hook for tests — replaces `CliDIContainer.setup`. Production
    * callers omit this; the default invokes the real bootstrap.
@@ -223,6 +224,8 @@ export async function withEngine<T>(
     verbose: globals.verbose === true,
   };
   if (globals.cwd !== undefined) bootOptions.workspacePath = globals.cwd;
+  if (opts.pushAdapter !== undefined)
+    bootOptions.pushAdapter = opts.pushAdapter;
   const ptahDirOverride =
     globals.config ?? process.env['PTAH_CONFIG_PATH'] ?? undefined;
   if (ptahDirOverride) bootOptions.userDataPath = ptahDirOverride;
