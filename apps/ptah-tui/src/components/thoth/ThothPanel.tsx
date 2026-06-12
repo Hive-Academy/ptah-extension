@@ -12,6 +12,8 @@ import {
 import { KeyHint } from '../atoms/KeyHint.js';
 import { MemoryPanel } from './MemoryPanel.js';
 import { SkillsPanel } from './SkillsPanel.js';
+import { SchedulesPanel } from './SchedulesPanel.js';
+import { GatewayPanel } from './GatewayPanel.js';
 
 export type ThothTabId = 'memory' | 'skills' | 'cron' | 'gateway';
 
@@ -176,39 +178,19 @@ function ThothTabBody({
         <SkillsPanel isActive={isActive} degraded={degraded} reason={reason} />
       );
     case 'cron':
+      return (
+        <SchedulesPanel
+          isActive={isActive}
+          degraded={degraded}
+          reason={reason}
+        />
+      );
     case 'gateway':
     default:
-      return <ThothTabPlaceholder tab={tab} degraded={degraded} reason={reason} />;
+      return (
+        <GatewayPanel isActive={isActive} degraded={degraded} reason={reason} />
+      );
   }
 }
-
-function ThothTabPlaceholder({
-  tab,
-  degraded,
-  reason,
-}: {
-  tab: ThothTabId;
-  degraded: boolean;
-  reason?: string;
-}): React.JSX.Element {
-  const theme = useTheme();
-  return (
-    <Box flexDirection="column">
-      {degraded && reason ? (
-        <Box marginBottom={1}>
-          <Text color={theme.status.warning}>{reason}</Text>
-        </Box>
-      ) : null}
-      <Text dimColor>{TAB_PLACEHOLDER[tab]}</Text>
-    </Box>
-  );
-}
-
-const TAB_PLACEHOLDER: Record<ThothTabId, string> = {
-  memory: 'Memory panel loads here.',
-  skills: 'Skills panel loads here.',
-  cron: 'Schedules panel loads here.',
-  gateway: 'Gateway panel loads here.',
-};
 
 export default ThothPanel;
