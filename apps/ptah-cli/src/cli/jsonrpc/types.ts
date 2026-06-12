@@ -10,6 +10,8 @@
  * No DI, no IO. Pure types only — safe to import from any layer.
  */
 
+import type { FatalErrorCodeValue } from '@ptah-extension/cli-engine';
+
 /** JSON-RPC version literal. */
 export const JSON_RPC_VERSION = '2.0' as const;
 
@@ -314,6 +316,8 @@ export const PTAH_ERROR_CODES = [
 
 /** Ptah-specific error codes (carried in `error.data.ptah_code`). */
 export type PtahErrorCode = (typeof PTAH_ERROR_CODES)[number];
+
+type _FatalSubset = FatalErrorCodeValue extends PtahErrorCode ? true : never;
 
 /** Process exit codes. */
 export const ExitCode = {

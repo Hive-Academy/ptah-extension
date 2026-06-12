@@ -35,7 +35,7 @@ import {
   type GatewayChatBridge,
 } from '@ptah-extension/gateway-chat-bridge';
 
-import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 import { wireThothPushBridges } from './wire-thoth-push-bridges.js';
 
 export type ThothTier = 'oneshot' | 'runtime';

@@ -24,7 +24,7 @@ import {
   wireSdkCallbacks,
   wireAgentEventListeners,
 } from '@ptah-extension/cli-agent-runtime';
-import { CliAgentRpcHandlers } from './rpc/handlers/cli-agent-rpc.handlers.js';
+import { CliAgentRpcHandlers } from './cli-agent-rpc.handlers.js';
 
 /**
  * RPC methods that have NO sensible CLI implementation — they all sit on top

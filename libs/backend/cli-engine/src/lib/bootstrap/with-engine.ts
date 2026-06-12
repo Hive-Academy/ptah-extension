@@ -20,9 +20,9 @@ import {
   CliDIContainer,
   type CliBootstrapOptions,
   type CliBootstrapResult,
-} from '../../di/container.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
-import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+} from '../container.js';
+import type { CliMessageTransport } from '../transport/cli-message-transport.js';
+import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 import { emitFatalError } from '../output/stderr-json.js';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
@@ -269,44 +269,23 @@ export async function withEngine<T>(
   }
   let sdkAdapter: SdkAgentLifecycle | undefined;
   if (opts.mode === 'full' && opts.requireSdk !== false) {
-    try {
-      sdkAdapter =
-        ctx.container.resolve<SdkAgentLifecycle>(AGENT_ADAPTER_TOKEN);
-    } catch (resolveErr) {
-      const message =
-        resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
-      await runDispose(opts, ctx);
-      throw new SdkInitFailedError(message);
-    }
-
     if (globals.verbose === true) {
       process.stderr.write('[ptah] withEngine: initializing SDK adapter\n');
     }
 
-    let initialized = false;
-    let initErrorMessage: string | undefined;
-    try {
-      initialized = await sdkAdapter.initialize();
-    } catch (initErr) {
-      initErrorMessage =
-        initErr instanceof Error ? initErr.message : String(initErr);
-    }
+    const sdkResult = await initializeSdkAdapter(ctx.container);
+    sdkAdapter = sdkResult.adapter;
 
-    if (!initialized) {
-      let healthMessage: string | undefined;
-      try {
-        healthMessage = sdkAdapter.getHealth?.()?.errorMessage;
-      } catch {
-        // intentionally empty
-      }
+    if (!sdkResult.initialized) {
       const message =
-        initErrorMessage ??
-        healthMessage ??
+        sdkResult.errorMessage ??
         'SDK agent adapter initialize() returned false (auth not configured)';
-      emitFatalError('sdk_init_failed', message, {
-        command: 'engine.bootstrap',
-        bootstrap_mode: opts.mode,
-      });
+      if (sdkResult.adapter) {
+        emitFatalError('sdk_init_failed', message, {
+          command: 'engine.bootstrap',
+          bootstrap_mode: opts.mode,
+        });
+      }
       await runDispose(opts, ctx);
       throw new SdkInitFailedError(message);
     }
@@ -401,6 +380,51 @@ export class SdkInitFailedError extends Error {
     super(message);
     this.name = 'SdkInitFailedError';
   }
+}
+
+export interface InitializeSdkAdapterResult {
+  initialized: boolean;
+  errorMessage?: string;
+  adapter?: SdkAgentLifecycle;
+}
+
+export async function initializeSdkAdapter(
+  container: DependencyContainer,
+): Promise<InitializeSdkAdapterResult> {
+  let adapter: SdkAgentLifecycle;
+  try {
+    adapter = container.resolve<SdkAgentLifecycle>(AGENT_ADAPTER_TOKEN);
+  } catch (resolveErr) {
+    const message =
+      resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+    return { initialized: false, errorMessage: message };
+  }
+
+  let initialized = false;
+  let initErrorMessage: string | undefined;
+  try {
+    initialized = await adapter.initialize();
+  } catch (initErr) {
+    initErrorMessage =
+      initErr instanceof Error ? initErr.message : String(initErr);
+  }
+
+  if (initialized) {
+    return { initialized: true, adapter };
+  }
+
+  let healthMessage: string | undefined;
+  try {
+    healthMessage = adapter.getHealth?.()?.errorMessage;
+  } catch {
+    healthMessage = undefined;
+  }
+
+  return {
+    initialized: false,
+    errorMessage: initErrorMessage ?? healthMessage,
+    adapter,
+  };
 }
 
 /**

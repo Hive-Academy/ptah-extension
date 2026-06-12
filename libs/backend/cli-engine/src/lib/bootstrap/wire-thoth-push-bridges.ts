@@ -16,7 +16,7 @@ import {
   type CorpusStore,
 } from '@ptah-extension/memory-curator';
 
-import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 
 interface PushDisposable {
   dispose: () => void;

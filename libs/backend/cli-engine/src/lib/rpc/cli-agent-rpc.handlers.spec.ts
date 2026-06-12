@@ -27,7 +27,7 @@ import { CliAgentRpcHandlers } from './cli-agent-rpc.handlers.js';
 // `@nx/enforce-module-boundaries` rule normally rejects cross-app imports,
 // but parity guards are the documented exception.
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { AgentRpcHandlers } from '../../../../../ptah-electron/src/services/rpc/handlers/agent-rpc.handlers.js';
+import { AgentRpcHandlers } from '../../../../../../apps/ptah-electron/src/services/rpc/handlers/agent-rpc.handlers.js';
 
 interface RegisteredMethod {
   method: string;

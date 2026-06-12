@@ -14,17 +14,6 @@
  * spec's error code enum.
  */
 
-import type { PtahErrorCode } from '../jsonrpc/types.js';
-
-/**
- * Subset of `PtahErrorCode` codes that supervisors care about over stderr.
- * Authored as a const-object union (NOT an enum) so it compiles to a plain
- * string literal type and stays in sync with the canonical `PtahErrorCode`.
- *
- * Keep this list narrow: only fatal / non-recoverable codes belong here.
- * Recoverable codes (e.g. `rate_limited`, `provider_unavailable`) are
- * surface-level and stay on stdout JSON-RPC only.
- */
 export const FatalErrorCode = {
   SdkInitFailed: 'sdk_init_failed',
   InternalFailure: 'internal_failure',
@@ -36,7 +25,7 @@ export const FatalErrorCode = {
   ProxyInvalidRequest: 'proxy_invalid_request',
   PermissionGateUnavailable: 'permission_gate_unavailable',
   CliAgentUnavailable: 'cli_agent_unavailable',
-} as const satisfies Readonly<Record<string, PtahErrorCode>>;
+} as const;
 
 /** String-literal union of fatal error codes accepted by `emitFatalError`. */
 export type FatalErrorCodeValue =

@@ -23,12 +23,9 @@ import type {
   WithEngineGlobals,
   WithEngineOptions,
 } from './with-engine.js';
-import type {
-  CliBootstrapOptions,
-  CliBootstrapResult,
-} from '../../di/container.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
-import { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import type { CliBootstrapOptions, CliBootstrapResult } from '../container.js';
+import type { CliMessageTransport } from '../transport/cli-message-transport.js';
+import { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 
 // ---------------------------------------------------------------------------
 // Test doubles

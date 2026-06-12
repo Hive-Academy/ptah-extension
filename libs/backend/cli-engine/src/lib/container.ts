@@ -93,17 +93,20 @@ import {
   activateSessionLifecycleNotifier,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
-import { CliOutputManagerAdapter, CliLoggerAdapter } from './cli-adapters';
+import {
+  CliOutputManagerAdapter,
+  CliLoggerAdapter,
+} from './adapters/cli-adapters';
 import {
   CliPlatformCommands,
   CliPlatformAuth,
   CliSaveDialog,
   CliModelDiscovery,
-} from '../services/platform';
-import { CliMessageTransport } from '../transport/cli-message-transport';
-import { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter';
-import { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler';
-import { CliRpcMethodRegistrationService } from '../services/cli-rpc-method-registration.service';
+} from './platform';
+import { CliMessageTransport } from './transport/cli-message-transport';
+import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
+import { CliFireAndForgetHandler } from './transport/cli-fire-and-forget-handler';
+import { CliRpcMethodRegistrationService } from './rpc/cli-rpc-method-registration.service';
 import { registerThothLibraries } from './thoth/register-thoth-libraries';
 
 /**
@@ -131,6 +134,7 @@ export interface CliBootstrapOptions {
    * event-pipe under the global `--verbose` flag.
    */
   verbose?: boolean;
+  pushAdapter?: CliWebviewManagerAdapter;
 }
 
 /**
@@ -193,7 +197,7 @@ export class CliDIContainer {
     };
     const bootstrapMode: 'minimal' | 'full' = options.bootstrapMode ?? 'full';
     const verbose: boolean = options.verbose === true;
-    const pushAdapter = new CliWebviewManagerAdapter();
+    const pushAdapter = options.pushAdapter ?? new CliWebviewManagerAdapter();
     container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
 
     /**

@@ -246,8 +246,7 @@ export class CliLoggerAdapter {
     this.outputManager.show(CliLoggerAdapter.CHANNEL_NAME);
   }
 
-  dispose(): void {
-  }
+  dispose(): void {}
 
   private log(level: LogLevel, message: string, args: unknown[]): void {
     if (!this.shouldLog(level)) return;
