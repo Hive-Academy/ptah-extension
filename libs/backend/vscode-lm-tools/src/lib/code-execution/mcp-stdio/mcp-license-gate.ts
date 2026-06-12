@@ -13,7 +13,7 @@
  *
  *   - `session_submit`                                  → Pro (Team Leader)
  *   - `agent_spawn` when args.ptahCliId is set          → Pro (premium provider)
- *   - `agent_spawn` with cli=gemini|codex|copilot|...   → Free (user binaries)
+ *   - `agent_spawn` with cli=codex|copilot|cursor       → Free (user binaries)
  *   - `agent_status|read|stop|steer` against a Ptah CLI → Pro (no free-bypass)
  *   - `agent_status|read|stop|steer` against a rival    → Free (own binaries)
  *   - `agent_list`                                      → Free (read-only)
@@ -153,8 +153,8 @@ export class McpLicenseGate {
    *      call to prevent a caller from bypassing the premium gate by
    *      referencing an unknown agentId.
    *
-   * Returns `false` ONLY for confirmed rival-CLI agents (gemini, codex,
-   * copilot, cursor), which are free-tier.
+   * Returns `false` ONLY for confirmed rival-CLI agents (codex, copilot,
+   * cursor), which are free-tier.
    *
    * The polarity is intentional: the predicate answers
    * "should we gate this as a ptah-cli premium operation?", not

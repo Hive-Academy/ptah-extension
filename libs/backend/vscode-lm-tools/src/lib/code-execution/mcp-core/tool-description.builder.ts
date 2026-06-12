@@ -252,7 +252,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
     name: 'ptah_agent_spawn',
     description:
       'Spawn a headless agent to work on a task in the background. ' +
-      'Supports CLI agents (Gemini, Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
+      'Supports CLI agents (Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
@@ -272,7 +272,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['gemini', 'codex', 'copilot', 'cursor'],
+          enum: ['codex', 'copilot', 'cursor'],
           description:
             'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
@@ -309,7 +309,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         model: {
           type: 'string',
           description:
-            'Model override for the CLI agent (e.g., "gemini-2.5-pro" for Gemini, "claude-sonnet-4.6" for Copilot). ' +
+            'Model override for the CLI agent (e.g., "claude-sonnet-4.6" for Copilot). ' +
             'Uses user-configured default if omitted.',
         },
         modelTier: {
@@ -328,7 +328,6 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           type: 'string',
           description:
             'Resume a previous CLI agent session by its CLI-native session ID. ' +
-            'For Gemini, this is the UUID from the init event. ' +
             'The agent will continue from where the previous session left off.',
         },
       },
@@ -1349,7 +1348,7 @@ Use ptah.ast BEFORE reading files to understand structure at 40-60% token saving
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
 - ptah.orchestration.* - Workflow state management
-- ptah.agent.* - Agent orchestration (spawn, monitor Gemini CLI / Codex SDK / VS Code LM)
+- ptah.agent.* - Agent orchestration (spawn, monitor Codex SDK / Copilot SDK / VS Code LM)
 
 ## Error Handling
 If a call fails, it returns an error message. Use try-catch for robustness:
