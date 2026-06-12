@@ -1,0 +1,31 @@
+{
+  "name": "@ptah-extension/cli-engine",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "dependencies": {
+    "@ptah-extension/shared": "0.0.1",
+    "@ptah-extension/platform-core": "0.0.1",
+    "@ptah-extension/platform-cli": "0.0.1",
+    "@ptah-extension/vscode-core": "0.0.1",
+    "@ptah-extension/agent-sdk": "0.0.1",
+    "@ptah-extension/agent-generation": "0.0.1",
+    "@ptah-extension/auth-providers": "0.0.1",
+    "@ptah-extension/cli-agent-runtime": "0.0.1",
+    "@ptah-extension/workspace-intelligence": "0.0.1",
+    "@ptah-extension/rpc-handlers": "0.0.1",
+    "@ptah-extension/vscode-lm-tools": "0.0.1",
+    "@ptah-extension/settings-core": "0.0.1",
+    "@ptah-extension/persistence-sqlite": "0.0.1",
+    "@ptah-extension/memory-curator": "0.0.1",
+    "@ptah-extension/memory-contracts": "0.0.1",
+    "@ptah-extension/skill-synthesis": "0.0.1",
+    "@ptah-extension/cron-scheduler": "0.0.1",
+    "@ptah-extension/messaging-gateway": "0.0.1",
+    "@ptah-extension/gateway-chat-bridge": "0.0.1",
+    "tsyringe": "^4.10.0",
+    "reflect-metadata": "^0.2.2"
+  }
+}
