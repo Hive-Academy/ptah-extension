@@ -83,6 +83,13 @@ describe('registerThothLibraries — real Thoth registration', () => {
     expect(c.isRegistered(GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT)).toBe(true);
   });
 
+  it('resolves GATEWAY_TOKEN_VAULT to a working vault (not just registered)', () => {
+    const vault = c.resolve<{ isEncryptionAvailable: () => boolean }>(
+      GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT,
+    );
+    expect(vault.isEncryptionAvailable()).toBe(true);
+  });
+
   it('registers SKILL_REPROPAGATION_TOKEN as CliSkillRepropagation', () => {
     expect(c.isRegistered(SKILL_REPROPAGATION_TOKEN)).toBe(true);
     const repropagation = c.resolve(SKILL_REPROPAGATION_TOKEN);

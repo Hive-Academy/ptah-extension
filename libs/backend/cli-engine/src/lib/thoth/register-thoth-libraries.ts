@@ -119,7 +119,7 @@ export function registerThothLibraries(
 
   try {
     container.register(GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT, {
-      useClass: CliTokenVault,
+      useValue: new CliTokenVault(),
     });
     registerMessagingGatewayServices(container, logger);
     registerGatewayChatBridge(container, logger);
