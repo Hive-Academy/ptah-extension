@@ -5,14 +5,13 @@ import {
   computed,
   inject,
 } from '@angular/core';
-import { AppStateManager, type ThothActiveTabId } from '@ptah-extension/core';
+import type { ThothActiveTabId } from '@ptah-extension/core';
 import {
   LucideAngularModule,
   Brain,
   Sparkles,
   Clock3,
   RadioTower,
-  ChevronRight,
 } from 'lucide-angular';
 import { ThothStatusService } from '../../services/thoth-status.service';
 import type { ThothGatewayBadge } from '../../services/thoth-status.service';
@@ -54,11 +53,11 @@ const PILLARS: readonly PillarMeta[] = [
 /**
  * ThothStatusCardComponent
  *
- * Top dashboard row: four daisyUI stat tiles summarising the Thoth pillars
- * (memory, skills, cron, gateway) with a big primary number and a secondary
- * detail line. Each tile is keyboard-reachable and navigates to its tab via
- * {@link AppStateManager}. Data comes from {@link ThothStatusService.summary};
- * a one-shot lazy refresh fires on init (no polling).
+ * Four daisyUI stat tiles summarising the Thoth pillars (memory, skills, cron,
+ * gateway) with a big primary number and a secondary detail line. Rendered at
+ * the top of the Thoth page as read-only status; tiles are not interactive.
+ * Data comes from {@link ThothStatusService.summary}; a one-shot lazy refresh
+ * fires on init (no polling).
  */
 @Component({
   selector: 'ptah-thoth-status-card',
@@ -69,10 +68,6 @@ const PILLARS: readonly PillarMeta[] = [
 })
 export class ThothStatusCardComponent implements OnInit {
   private readonly thothStatus = inject(ThothStatusService);
-  private readonly appState = inject(AppStateManager);
-
-  readonly ChevronRightIcon = ChevronRight;
-  readonly RadioTowerIcon = RadioTower;
 
   readonly summary = this.thothStatus.summary;
   readonly isLoading = computed(() => this.summary().isLoading);
@@ -191,18 +186,6 @@ export class ThothStatusCardComponent implements OnInit {
 
   ngOnInit(): void {
     void this.thothStatus.refreshIfNeeded();
-  }
-
-  openTab(tabId: PillarId): void {
-    this.appState.setThothActiveTab(tabId);
-    this.appState.setCurrentView('thoth');
-  }
-
-  onRowKeydown(event: KeyboardEvent, tabId: PillarId): void {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      this.openTab(tabId);
-    }
   }
 
   badgeClassFor(state: ThothGatewayBadge): string {

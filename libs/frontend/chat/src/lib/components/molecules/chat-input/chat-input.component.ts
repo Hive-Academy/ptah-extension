@@ -14,7 +14,6 @@ import {
   Send,
   Zap,
   Square,
-  Clock,
   X,
   ImageIcon,
   Paperclip,
@@ -318,16 +317,6 @@ interface PastedImage {
         </div>
       </div>
 
-      <!-- Queued Message Indicator -->
-      @if (hasQueuedContent()) {
-        <div
-          class="flex items-center gap-2 px-2 py-1 bg-warning/10 rounded-lg text-warning text-xs"
-        >
-          <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
-          <span>Message queued - will send when response completes</span>
-        </div>
-      }
-
       <!-- Bottom Controls Row -->
       <div class="flex items-center justify-between gap-1.5 min-w-0">
         <!-- Left: Auth Method Badge + Model Selector -->
@@ -464,7 +453,6 @@ export class ChatInputComponent implements OnInit {
   readonly SendIcon = Send;
   readonly ZapIcon = Zap;
   readonly SquareIcon = Square;
-  readonly ClockIcon = Clock;
   readonly XIcon = X;
   readonly ImageIconRef = ImageIcon;
   readonly PaperclipIcon = Paperclip;
@@ -516,17 +504,6 @@ export class ChatInputComponent implements OnInit {
   ngOnInit(): void {
     this.fetchAuthMethodLabel();
   }
-  readonly hasQueuedContent = computed(() => {
-    const ctx = this._sessionContext;
-    if (ctx) {
-      const tabId = ctx();
-      if (!tabId) return false;
-      const tab = this.tabManager.tabs().find((t) => t.id === tabId);
-      return !!tab?.queuedContent?.trim();
-    }
-    const queued = this.tabManager.activeTabQueuedContent();
-    return !!queued?.trim();
-  });
 
   /**
    * Computed signal for filtered suggestions.

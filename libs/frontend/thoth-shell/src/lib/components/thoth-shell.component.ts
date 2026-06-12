@@ -3,12 +3,14 @@ import {
   Component,
   computed,
   inject,
+  signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ArrowLeft,
   Brain,
   CalendarClock,
+  ChevronDown,
   LucideAngularModule,
   MessagesSquare,
   RadioTower,
@@ -17,6 +19,7 @@ import {
 } from 'lucide-angular';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import { ThothStatusCardComponent } from '@ptah-extension/dashboard';
 import { MemoryCuratorTabComponent } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisTabComponent } from '@ptah-extension/skill-synthesis-ui';
 import { CronSchedulerTabComponent } from '@ptah-extension/cron-scheduler-ui';
@@ -47,6 +50,7 @@ interface ThothTabSpec {
   imports: [
     CommonModule,
     LucideAngularModule,
+    ThothStatusCardComponent,
     MemoryCuratorTabComponent,
     SkillSynthesisTabComponent,
     CronSchedulerTabComponent,
@@ -122,6 +126,29 @@ interface ThothTabSpec {
         [attr.aria-labelledby]="'thoth-tab-' + activeTab()"
       >
         <div class="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <div class="mb-6">
+            <button
+              type="button"
+              class="mb-2 flex items-center gap-1.5 text-xs font-medium text-base-content/60 transition-colors hover:text-base-content"
+              [attr.aria-expanded]="statusExpanded()"
+              aria-controls="thoth-status-region"
+              (click)="toggleStatus()"
+            >
+              <lucide-angular
+                [img]="ChevronDownIcon"
+                class="size-3.5 transition-transform duration-150"
+                [class.-rotate-90]="!statusExpanded()"
+                aria-hidden="true"
+              />
+              Status
+            </button>
+            @if (statusExpanded()) {
+              <div id="thoth-status-region">
+                <ptah-thoth-status-card class="block" />
+              </div>
+            }
+          </div>
+
           @switch (activeTab()) {
             @case ('memory') {
               <ptah-memory-curator-tab />
@@ -147,6 +174,15 @@ export class ThothShellComponent {
 
   protected readonly RadioTowerIcon = RadioTower;
   protected readonly ArrowLeftIcon = ArrowLeft;
+  protected readonly ChevronDownIcon = ChevronDown;
+
+  /** Whether the pillar status row is expanded. Defaults to open. */
+  protected readonly statusExpanded = signal(true);
+
+  /** Toggle the pillar status row open/closed. */
+  protected toggleStatus(): void {
+    this.statusExpanded.update((open) => !open);
+  }
 
   /**
    * All four tabs and their platform requirements. Memory and Skill-Synthesis

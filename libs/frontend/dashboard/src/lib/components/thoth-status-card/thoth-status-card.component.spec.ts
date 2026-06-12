@@ -1,6 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { AppStateManager } from '@ptah-extension/core';
 
 import { ThothStatusCardComponent } from './thoth-status-card.component';
 import {
@@ -25,17 +24,12 @@ describe('ThothStatusCardComponent', () => {
   let fixture: ComponentFixture<ThothStatusCardComponent>;
   let summary: ReturnType<typeof signal<ThothStatusSummary>>;
   let refreshIfNeeded: jest.Mock;
-  let appState: { setThothActiveTab: jest.Mock; setCurrentView: jest.Mock };
 
   beforeEach(async () => {
     summary = signal<ThothStatusSummary>(
       makeSummary({ available: false, reason: 'desktop-only' }),
     );
     refreshIfNeeded = jest.fn().mockResolvedValue(undefined);
-    appState = {
-      setThothActiveTab: jest.fn(),
-      setCurrentView: jest.fn(),
-    };
 
     await TestBed.configureTestingModule({
       imports: [ThothStatusCardComponent],
@@ -44,7 +38,6 @@ describe('ThothStatusCardComponent', () => {
           provide: ThothStatusService,
           useValue: { summary, refreshIfNeeded },
         },
-        { provide: AppStateManager, useValue: appState },
       ],
     }).compileComponents();
 

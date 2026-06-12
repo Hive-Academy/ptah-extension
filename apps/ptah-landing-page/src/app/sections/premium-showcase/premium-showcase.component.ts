@@ -61,9 +61,8 @@ interface ShowcaseSlide {
                 <img
                   [ngSrc]="slide.image"
                   [alt]="slide.imageAlt"
-                  width="1024"
-                  height="1024"
-                  class="w-full h-full object-cover object-center"
+                  fill
+                  class="object-cover object-center"
                 />
               </div>
               <div
