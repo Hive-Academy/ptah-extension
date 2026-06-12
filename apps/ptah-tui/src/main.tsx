@@ -14,6 +14,7 @@ import type { DependencyContainer } from 'tsyringe';
 
 import { TuiWebviewManagerAdapter } from './transport/tui-webview-manager-adapter.js';
 import { App } from './components/App.js';
+import { ThothLifecycle } from './lib/thoth-lifecycle.js';
 
 export const TUI_BUNDLE_API_VERSION = 1;
 
@@ -30,6 +31,7 @@ interface RootProps {
   workspacePath: string;
   initialAuthReady: boolean;
   initialAuthError?: string;
+  thothLifecycle: ThothLifecycle;
   onQuit: () => void;
 }
 
@@ -40,6 +42,7 @@ function Root({
   workspacePath,
   initialAuthReady,
   initialAuthError,
+  thothLifecycle,
   onQuit,
 }: RootProps): React.JSX.Element {
   const [authReady, setAuthReady] = useState(initialAuthReady);
@@ -63,6 +66,7 @@ function Root({
       authReady={authReady}
       authError={authError}
       reinitializeSdk={reinitializeSdk}
+      thothLifecycle={thothLifecycle}
       onQuit={onQuit}
     />
   );
@@ -95,16 +99,6 @@ function ensureRawModeSupport(): boolean {
   return false;
 }
 
-let thothActivationSeam: (ctx: EngineContext) => Promise<void> = async () => {
-  return;
-};
-
-export function __setThothActivationSeam(
-  seam: (ctx: EngineContext) => Promise<void>,
-): void {
-  thothActivationSeam = seam;
-}
-
 export async function runTui(globals: RunTuiGlobals): Promise<number> {
   const smoke = process.env['PTAH_TUI_SMOKE'] === '1';
 
@@ -114,6 +108,7 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
 
   const pushAdapter = new TuiWebviewManagerAdapter();
   const workspacePath = globals.cwd ?? process.cwd();
+  const thothLifecycle = new ThothLifecycle();
   let signalExitCode = 0;
 
   const exitCode = await withEngine(
@@ -132,6 +127,7 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
             workspacePath={workspacePath}
             initialAuthReady={sdk.initialized}
             initialAuthError={sdk.errorMessage}
+            thothLifecycle={thothLifecycle}
             onQuit={() => undefined}
           />,
           {
@@ -154,6 +150,7 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
           workspacePath={workspacePath}
           initialAuthReady={sdk.initialized}
           initialAuthError={sdk.errorMessage}
+          thothLifecycle={thothLifecycle}
           onQuit={() => {
             unmounted = true;
           }}
@@ -173,12 +170,14 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
       process.on('SIGINT', onSigint);
       process.on('SIGTERM', onSigterm);
 
+      void thothLifecycle.activate(ctx.container);
+
       try {
-        await thothActivationSeam(ctx);
         await app.waitUntilExit();
       } finally {
         process.off('SIGINT', onSigint);
         process.off('SIGTERM', onSigterm);
+        await thothLifecycle.dispose(ctx.container);
       }
 
       return signalExitCode;

@@ -54,3 +54,5 @@ export {
 
 export { emitFatalError, FatalErrorCode } from './lib/output/stderr-json.js';
 export type { FatalErrorCodeValue } from './lib/output/stderr-json.js';
+
+export type { Logger as ThothLogger } from '@ptah-extension/vscode-core';

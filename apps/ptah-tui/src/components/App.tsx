@@ -25,6 +25,8 @@ import type { PermissionDecision } from './common/PermissionPrompt.js';
 import { UserQuestionPrompt } from './common/UserQuestionPrompt.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
 import { ModelSelector } from './overlays/ModelSelector.js';
+import { ThothPanel } from './thoth/ThothPanel.js';
+import type { ThothLifecycle } from '../lib/thoth-lifecycle.js';
 
 type ActiveView = 'chat' | 'settings' | 'thoth';
 
@@ -36,6 +38,7 @@ interface AppProps {
   authReady: boolean;
   authError?: string;
   reinitializeSdk: () => Promise<boolean>;
+  thothLifecycle: ThothLifecycle;
   onQuit: () => void;
 }
 
@@ -44,6 +47,7 @@ interface AppShellProps {
   fireAndForget: CliFireAndForgetHandler;
   authReady: boolean;
   authError?: string;
+  thothLifecycle: ThothLifecycle;
   onQuit: () => void;
 }
 
@@ -52,6 +56,7 @@ function AppShell({
   fireAndForget,
   authReady,
   authError,
+  thothLifecycle,
   onQuit,
 }: AppShellProps): React.JSX.Element {
   const { exit } = useApp();
@@ -172,6 +177,10 @@ function AppShell({
         setActiveView((prev) => (prev === 'settings' ? 'chat' : 'settings'));
       }
 
+      if (key.ctrl && input === 't') {
+        setActiveView((prev) => (prev === 'thoth' ? 'chat' : 'thoth'));
+      }
+
       if (key.ctrl && input === 'k') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
@@ -239,13 +248,25 @@ function AppShell({
           onSwitchView={handleSwitchView}
           modalActive={modalActive}
         >
-          <ChatPanel
-            modalActive={modalActive}
-            onOverlayActiveChange={handleOverlayActiveChange}
-            onSettings={() => setActiveView('settings')}
-            onSessions={() => setSidebarVisible((prev) => !prev)}
-            onQuit={handleQuit}
-          />
+          {activeView === 'thoth' ? (
+            <ThothPanel
+              lifecycle={thothLifecycle}
+              pushAdapter={pushAdapter}
+              isActive={
+                process.stdin.isTTY === true &&
+                !modalActive &&
+                !overlayActive
+              }
+            />
+          ) : (
+            <ChatPanel
+              modalActive={modalActive}
+              onOverlayActiveChange={handleOverlayActiveChange}
+              onSettings={() => setActiveView('settings')}
+              onSessions={() => setSidebarVisible((prev) => !prev)}
+              onQuit={handleQuit}
+            />
+          )}
         </MainPanel>
       </Layout>
       <ModalOverlay visible={modalStack.length > 0}>{topModal}</ModalOverlay>
@@ -261,6 +282,7 @@ export function App({
   authReady,
   authError,
   reinitializeSdk,
+  thothLifecycle,
   onQuit,
 }: AppProps): React.JSX.Element {
   return (
@@ -283,6 +305,7 @@ export function App({
                 fireAndForget={fireAndForget}
                 authReady={authReady}
                 authError={authError}
+                thothLifecycle={thothLifecycle}
                 onQuit={onQuit}
               />
             </ModeProvider>
