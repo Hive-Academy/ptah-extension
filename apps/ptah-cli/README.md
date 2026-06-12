@@ -117,6 +117,7 @@ All commands accept the [global flags](#global-flags). Most commands emit JSON-R
 | `execute-spec --id <task-id>` | Execute a stored spec via the Team Leader agent.                                                            |
 | `interact`                    | Persistent bidirectional JSON-RPC 2.0 stdio session.                                                        |
 | `mcp-serve`                   | Serve Ptah as a stdio Model Context Protocol server for external hosts.                                     |
+| `tui`                         | Launch the interactive Ink/React terminal UI (requires a real TTY).                                         |
 
 ### init
 
@@ -411,6 +412,27 @@ attribution, cancellation/drain semantics, and troubleshooting — lives
 in the `ptah-cli-usage` skill, section 16 ("MCP-serve — Drive Ptah
 from external agents") at
 `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-cli-usage/SKILL.md`.
+
+### `tui` — interactive terminal UI
+
+`ptah tui` launches a chat-first Ink/React terminal interface over the same
+in-process agent backend that powers `interact`. It is a second bundle
+(`tui.mjs`) shipped inside this package and dynamic-imported next to
+`main.mjs`.
+
+```bash
+ptah tui
+```
+
+| Flag     | Description                                                                     |
+| -------- | ------------------------------------------------------------------------------- |
+| _(none)_ | Uses the [global flags](#global-flags) only (`--cwd`, `--config`, `--verbose`). |
+
+The TUI requires an interactive terminal with raw-mode support. Under piped
+or redirected stdin (CI, `ptah tui < file`, pipelines) it writes a short
+explanation to stderr, emits nothing on stdout, and exits non-zero — it
+never hangs and never produces JSON-RPC frames. Respects `NO_COLOR` /
+`FORCE_COLOR`.
 
 ## Global flags
 

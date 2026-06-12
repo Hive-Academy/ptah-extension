@@ -22,7 +22,9 @@
         "skipTypeCheck": true,
         "deleteOutputPath": true,
         "esbuildOptions": {
-          "outExtension": { ".js": ".mjs" },
+          "outExtension": {
+            ".js": ".mjs"
+          },
           "banner": {
             "js": "import 'reflect-metadata'; import { createRequire } from 'module'; import { fileURLToPath as __esm_fileURLToPath } from 'url'; import { dirname as __esm_dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
           }
@@ -130,6 +132,19 @@
         "external": ["@huggingface/transformers"]
       }
     },
+    "restore-cli-manifest": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build-embedder-worker",
+        {
+          "projects": ["ptah-tui"],
+          "target": "build"
+        }
+      ],
+      "options": {
+        "command": "node -e \"require('fs').copyFileSync('apps/ptah-cli/package.json','dist/apps/ptah-cli/package.json')\""
+      }
+    },
     "dev": {
       "executor": "nx:run-commands",
       "options": {
@@ -138,7 +153,7 @@
     },
     "serve": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-embedder-worker"],
+      "dependsOn": ["restore-cli-manifest"],
       "options": {
         "command": "node dist/apps/ptah-cli/main.mjs"
       }
@@ -162,14 +177,14 @@
     },
     "e2e": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-embedder-worker"],
+      "dependsOn": ["restore-cli-manifest"],
       "options": {
         "command": "jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand"
       }
     },
     "publish:dry-run": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-embedder-worker"],
+      "dependsOn": ["restore-cli-manifest"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --dry-run --access public"
@@ -177,7 +192,7 @@
     },
     "publish": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-embedder-worker"],
+      "dependsOn": ["restore-cli-manifest"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --access public --provenance"
