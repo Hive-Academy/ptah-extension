@@ -8,6 +8,7 @@ import { KeyHint, ProgressBar } from '../atoms/index.js';
 
 interface StatusBarProps {
   isStreaming: boolean;
+  fallbackModel?: string | null;
 }
 
 function formatTokens(count: number): string {
@@ -24,7 +25,10 @@ function formatCost(cost: number): string {
   return `$${cost.toFixed(2)}`;
 }
 
-export function StatusBar({ isStreaming }: StatusBarProps): React.JSX.Element { 
+export function StatusBar({
+  isStreaming,
+  fallbackModel = null,
+}: StatusBarProps): React.JSX.Element {
   const theme = useTheme();
   const { sessions, activeSessionId, stats } = useSessionContext();
   const { mode } = useModeContext();
@@ -33,7 +37,8 @@ export function StatusBar({ isStreaming }: StatusBarProps): React.JSX.Element {
     ? sessions.find((s) => s.id === activeSessionId)
     : null;
   const sessionName = activeSession?.name ?? null;
-  const modelName = stats?.model ?? activeSession?.model ?? null;
+  const modelName =
+    stats?.model ?? activeSession?.model ?? fallbackModel ?? null;
   const tokenCount =
     stats && (stats.inputTokens > 0 || stats.outputTokens > 0)
       ? { input: stats.inputTokens, output: stats.outputTokens }

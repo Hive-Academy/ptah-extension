@@ -13,6 +13,7 @@ interface LayoutProps {
   activeView: 'chat' | 'settings';
   isStreaming: boolean;
   modalActive?: boolean;
+  fallbackModel?: string | null;
   children: React.ReactNode;
 }
 
@@ -22,6 +23,7 @@ export function Layout({
   activeView,
   isStreaming,
   modalActive = false,
+  fallbackModel = null,
   children,
 }: LayoutProps): React.JSX.Element {
   void activeView;
@@ -65,7 +67,7 @@ export function Layout({
           </Panel>
         )}
       </Box>
-      <StatusBar isStreaming={isStreaming} />
+      <StatusBar isStreaming={isStreaming} fallbackModel={fallbackModel} />
     </Box>
   );
 }

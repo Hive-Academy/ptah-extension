@@ -27,6 +27,7 @@ import { CommandPalette } from './overlays/CommandPalette.js';
 import { ModelSelector } from './overlays/ModelSelector.js';
 import { ThothPanel } from './thoth/ThothPanel.js';
 import type { ThothLifecycle } from '../lib/thoth-lifecycle.js';
+import { useAgentConfig } from '../hooks/use-agent-config.js';
 
 type ActiveView = 'chat' | 'settings' | 'thoth';
 
@@ -61,6 +62,7 @@ function AppShell({
 }: AppShellProps): React.JSX.Element {
   const { exit } = useApp();
   const { setActiveSession } = useSessionContext();
+  const agentConfig = useAgentConfig();
 
   const [activeView, setActiveView] = useState<ActiveView>('chat');
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -181,6 +183,14 @@ function AppShell({
         setActiveView((prev) => (prev === 'thoth' ? 'chat' : 'thoth'));
       }
 
+      if (key.ctrl && input === 'r') {
+        void agentConfig.cycleEffort();
+      }
+
+      if (key.ctrl && input === 'p') {
+        void agentConfig.cyclePermission();
+      }
+
       if (key.ctrl && input === 'k') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
@@ -242,6 +252,7 @@ function AppShell({
         activeView={layoutView}
         isStreaming={isStreaming}
         modalActive={modalActive || overlayActive}
+        fallbackModel={agentConfig.model}
       >
         <MainPanel
           activeView={layoutView}
@@ -265,6 +276,8 @@ function AppShell({
               onSettings={() => setActiveView('settings')}
               onSessions={() => setSidebarVisible((prev) => !prev)}
               onQuit={handleQuit}
+              agentConfig={agentConfig}
+              authReady={authReady}
             />
           )}
         </MainPanel>

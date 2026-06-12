@@ -12,8 +12,10 @@ import { useFilePicker } from '../../hooks/use-file-picker.js';
 import type { FileEntry } from '../../hooks/use-file-picker.js';
 import { MessageList } from './MessageList.js';
 import { MessageInput } from './MessageInput.js';
+import { AgentConfigBar } from './AgentConfigBar.js';
 import { CommandOverlay } from '../overlays/CommandOverlay.js';
 import { FilePickerOverlay } from '../overlays/FilePickerOverlay.js';
+import type { UseAgentConfigResult } from '../../hooks/use-agent-config.js';
 
 interface ChatPanelProps {
   modalActive?: boolean;
@@ -23,6 +25,8 @@ interface ChatPanelProps {
   onSessions?: () => void;
   onQuit?: () => void;
   workspacePath?: string;
+  agentConfig?: UseAgentConfigResult;
+  authReady?: boolean;
 }
 
 export function ChatPanel({
@@ -33,6 +37,8 @@ export function ChatPanel({
   onSessions,
   onQuit,
   workspacePath,
+  agentConfig,
+  authReady = false,
 }: ChatPanelProps): React.JSX.Element {
   const { transport, pushAdapter } = useTuiContext();
   const { messages, isStreaming, send, stop, clear, addSystemMessage } =
@@ -204,6 +210,15 @@ export function ChatPanel({
           onSelect={handleFileSelect}
           onDismiss={handleOverlayDismiss}
           isActive={isFileOverlay && !modalActive}
+        />
+      )}
+      {agentConfig && (
+        <AgentConfigBar
+          model={agentConfig.model}
+          effort={agentConfig.effort}
+          permissionLevel={agentConfig.permissionLevel}
+          autopilotEnabled={agentConfig.autopilotEnabled}
+          authReady={authReady}
         />
       )}
       <MessageInput
