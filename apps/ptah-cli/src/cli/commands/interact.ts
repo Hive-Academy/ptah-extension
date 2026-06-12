@@ -45,7 +45,7 @@ import { randomUUID as nodeRandomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { EventPipe } from '../output/event-pipe.js';
 import { JsonRpcServer } from '../jsonrpc/server.js';
@@ -68,8 +68,8 @@ import {
   type AnthropicProxyConfig,
   type ProxyNotifier,
 } from '../../services/proxy/anthropic-proxy.service.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
-import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import type { CliWebviewManagerAdapter } from '@ptah-extension/cli-engine';
 
 export interface InteractOptions {
   /** Optional resume target — currently only echoed in `session.ready`. */

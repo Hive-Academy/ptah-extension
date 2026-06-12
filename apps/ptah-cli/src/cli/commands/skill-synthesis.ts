@@ -13,7 +13,7 @@
  *   stats                       RPC `skillSynthesis:stats`          -> skill_synthesis.stats
  */
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';

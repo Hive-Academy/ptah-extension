@@ -35,9 +35,9 @@
  * No commit, no backwards compat — direct in-place command.
  */
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { ExitCode, type ExitCodeValue } from '../jsonrpc/types.js';
-import { emitFatalError } from '../output/stderr-json.js';
+import { emitFatalError } from '@ptah-extension/cli-engine';
 import { buildFormatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
 import {

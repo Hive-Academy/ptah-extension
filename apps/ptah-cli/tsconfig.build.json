@@ -2,7 +2,10 @@
   "extends": "./tsconfig.app.json",
   "compilerOptions": {
     "paths": {
-      "vscode": ["../../apps/ptah-cli/src/shims/vscode-shim.ts"],
+      "vscode": ["../../libs/backend/cli-engine/src/lib/shims/vscode-shim.ts"],
+      "@ptah-extension/cli-engine": [
+        "../../libs/backend/cli-engine/src/index.ts"
+      ],
       "@ptah-extension/agent-generation": [
         "../../libs/backend/agent-generation/src/index.ts"
       ],

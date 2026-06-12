@@ -34,7 +34,7 @@ import type { Readable, Writable } from 'node:stream';
 
 import { ulid } from 'ulid';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { JsonRpcServer, InvalidParamsError } from '../jsonrpc/server.js';
 import { StdinReader } from '../io/stdin-reader.js';

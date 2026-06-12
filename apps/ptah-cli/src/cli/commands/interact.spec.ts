@@ -59,7 +59,7 @@ import {
   type JsonRpcMessage,
 } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import {
   PLATFORM_TOKENS,
   type IHttpServerProvider,

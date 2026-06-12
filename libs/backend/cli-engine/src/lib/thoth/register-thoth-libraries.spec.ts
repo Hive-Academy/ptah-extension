@@ -12,8 +12,8 @@ import { SKILL_REPROPAGATION_TOKEN } from '@ptah-extension/skill-synthesis';
 
 import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
 
-import { registerThothLibraries } from './thoth/register-thoth-libraries';
-import { CliSkillRepropagation } from './thoth/cli-skill-repropagation';
+import { registerThothLibraries } from './register-thoth-libraries';
+import { CliSkillRepropagation } from './cli-skill-repropagation';
 
 jest.mock('@ptah-extension/memory-curator', () => {
   const actual = jest.requireActual('@ptah-extension/memory-curator');

@@ -43,14 +43,14 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-import { withEngine, SdkInitFailedError } from '../bootstrap/with-engine.js';
-import type { ThothTierOption } from '../bootstrap/thoth-runtime.js';
+import { withEngine, SdkInitFailedError } from '@ptah-extension/cli-engine';
+import type { ThothTierOption } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
-import { emitFatalError } from '../output/stderr-json.js';
+import { emitFatalError } from '@ptah-extension/cli-engine';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { PtahErrorCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import { ChatBridge } from '../session/chat-bridge.js';
 import { ApprovalBridge } from '../session/approval-bridge.js';
 import {

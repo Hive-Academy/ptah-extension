@@ -1,4 +1,4 @@
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 export function oneshot(): {
   mode: 'full';

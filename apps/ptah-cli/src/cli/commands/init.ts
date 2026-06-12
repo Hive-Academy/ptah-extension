@@ -6,11 +6,11 @@ import type {
   EffectiveRouteResult,
 } from '@ptah-extension/auth-providers';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import { executeSessionStart } from './session.js';
 
 const CANCEL_EXIT_CODE = 130;
