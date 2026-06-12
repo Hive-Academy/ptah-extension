@@ -15,7 +15,7 @@ description: Terms used throughout the Ptah docs.
 
 **Plugin** — A bundle of agents, skills, and tools that extend Ptah for a specific domain. Plugins live under `~/.ptah/plugins/` and are enabled per workspace via `.ptah/plugins.json`.
 
-**Provider** — A source of language-model completions (Claude, Copilot, Codex, Gemini, Ollama, OpenRouter). Configured in **Settings → Providers**.
+**Provider** — A source of language-model completions (Claude, Copilot, Codex, Ollama, OpenRouter). Configured in **Settings → Providers**.
 
 **Session** — A single chat conversation, saved to disk and resumable. Sessions belong to a workspace.
 

@@ -56,7 +56,7 @@ Unlike human-facing CLIs, this tool must prioritize strict standard streams (`st
 
 OpenClaw needs a way to bootstrap its connection to your underlying engine and authenticate.
 
-- `ptah config set <key> <value>`: Sets global configurations (e.g., Anthropic API keys, Gemini endpoints, Claude subscriptions).
+- `ptah config set <key> <value>`: Sets global configurations (e.g., Anthropic API keys, OpenRouter endpoints, Claude subscriptions).
 - `ptah config proxy --port <number>`: Spins up a local proxy server that exposes your internal Anthropic-compatible API. This allows OpenClaw to point its base URL to `localhost:<port>` and utilize Ptah’s underlying orchestration transparently.
 
 #### 2. Workspace & Harness Provisioning
@@ -116,17 +116,16 @@ I'm working on the Ptah VS Code extension at D:\projects\ptah-extension. Two bug
 ## Environment
 
 - Workspace using the extension: D:\projects\SellTime_Portal_Workspace
-- All three CLIs verified installed and on PATH:
-  - gemini → C:\Users\abdal\AppData\Roaming\npm\gemini (works via ptah_agent_spawn)
+- Both CLIs verified installed and on PATH:
   - codex → C:\Users\abdal\AppData\Roaming\npm\codex (codex-cli 0.120.0)
   - copilot → C:\Users\abdal\AppData\Roaming\Code\User\globalStorage\github.copilot-chat\copilotCli\copilot (1.0.34)
-- All three are toggled ON in Settings → Ptah AI → Agent Orchestration → System CLIs (green toggles, "Installed" badges).
+- Both are toggled ON in Settings → Ptah AI → Agent Orchestration → System CLIs (green toggles, "Installed" badges).
 
 ## Bug A — Codex: enabled in UI but treated as disabled at runtime
 
 Repro:
 
-1. ptah_agent_list returns only { gemini, copilot } — codex is omitted entirely.
+1. ptah_agent_list returns only { copilot } — codex is omitted entirely.
 2. ptah_agent_spawn({ cli: "codex", task: "..." }) returns:
    "CLI agent 'codex' is disabled. Enable it in Agent Orchestration settings or use a different CLI."
    Suspicions to verify (don't trust — check the source):

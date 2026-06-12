@@ -1,6 +1,6 @@
 ---
 title: CLI Agents
-description: Spawn Copilot CLI, Gemini CLI, Codex CLI, and ptah-cli as parallel workers.
+description: Spawn Copilot CLI, Codex CLI, and ptah-cli as parallel workers.
 ---
 
 # CLI Agents
@@ -16,7 +16,6 @@ Ptah auto-detects these CLIs on your `PATH` at startup:
 | CLI             | Binary    | Notes                                |
 | --------------- | --------- | ------------------------------------ |
 | **ptah-cli**    | `ptah`    | First-party CLI, deepest integration |
-| **Gemini CLI**  | `gemini`  | Google Gemini, spawn-based adapter   |
 | **Codex CLI**   | `codex`   | OpenAI Codex, SDK adapter            |
 | **Copilot CLI** | `copilot` | GitHub Copilot, SDK adapter          |
 
@@ -29,9 +28,8 @@ npm-installed CLIs on Windows are `.cmd` wrapper scripts. Ptah handles this auto
 When a parent agent asks Ptah to "spawn a CLI helper" without specifying which, Ptah picks in this order:
 
 1. `ptah-cli`
-2. `gemini`
-3. `codex`
-4. `copilot`
+2. `codex`
+3. `copilot`
 
 You can override the default in **Settings → CLI Agents → Preferred CLI**.
 
@@ -91,7 +89,7 @@ Long-running CLI tasks can be resumed across Ptah restarts. When you spawn an ag
 
 ```json
 {
-  "cli": "gemini",
+  "cli": "codex",
   "resume_session_id": "sess_7a2f...",
   "prompt": "Continue with the test coverage pass we started."
 }
@@ -103,7 +101,7 @@ The CLI rehydrates from its own on-disk transcript. Session IDs are displayed in
 
 Ask any senior-tier agent to delegate. For example:
 
-> "Spawn three Gemini CLI agents in parallel to generate unit tests for `libs/backend/auth`, `libs/backend/billing`, and `libs/backend/users`. Merge the results."
+> "Spawn three Codex CLI agents in parallel to generate unit tests for `libs/backend/auth`, `libs/backend/billing`, and `libs/backend/users`. Merge the results."
 
 The orchestrator will manage spawn/poll/read and return a consolidated summary.
 

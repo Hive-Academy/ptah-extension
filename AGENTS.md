@@ -90,7 +90,7 @@ Each library has a dedicated `CLAUDE.md` file with architecture details, usage p
 - **[vscode-core](libs/backend/vscode-core/CLAUDE.md)** - Infrastructure layer: DI tokens (60+), API wrappers, logging, error handling, RPC infrastructure, agent session watching
 - **[agent-sdk](libs/backend/agent-sdk/CLAUDE.md)** - Official Claude Agent SDK integration (10x faster than CLI): IAIProvider implementation, session storage, message transformation, streaming
 - **[agent-generation](libs/backend/agent-generation/CLAUDE.md)** - Intelligent agent generation: Template storage, content generation, validation, agent selection, setup status tracking
-- **[llm-abstraction](libs/backend/llm-abstraction/CLAUDE.md)** - Multi-provider LLM abstraction (Langchain): Anthropic, OpenAI, Google Gemini, OpenRouter, VS Code LM, streaming support
+- **[llm-abstraction](libs/backend/llm-abstraction/CLAUDE.md)** - Multi-provider LLM abstraction (Langchain): Anthropic, OpenAI, OpenRouter, VS Code LM, streaming support
 - **[template-generation](libs/backend/template-generation/CLAUDE.md)** - Template processing: Variable interpolation, Zod validation, LLM-powered expansion, caching, frontmatter parsing
 - **[vscode-lm-tools](libs/backend/vscode-lm-tools/CLAUDE.md)** - VS Code LM Tools & MCP server: Code Execution MCP, Ptah API namespaces (workspace, search, symbols, diagnostics, git, ai, files, commands)
 - **[workspace-intelligence](libs/backend/workspace-intelligence/CLAUDE.md)** - Workspace analysis: Project detection (13+ types), file indexing, context orchestration, token optimization
@@ -6688,7 +6688,7 @@ Use Write tool to create `.ptah/specs/TASK_[ID]/tasks.md`:
 
 ## Batch 1: [Name] ⏸️ PENDING
 
-**Recommended Executor**: [backend-developer | frontend-developer | gemini CLI x N | codex CLI | ptah-cli]
+**Recommended Executor**: [backend-developer | frontend-developer | codex CLI x N | copilot CLI | ptah-cli]
 **Fallback Executor**: [sub-agent type to use if primary fails]
 **Execution Mode**: [sequential | parallel]
 **Rationale**: [1-2 sentences explaining why this executor and mode fit the batch shape]
@@ -6871,16 +6871,16 @@ You are NOT a delegator. You do NOT spawn CLI agents or sub-agents. You produce 
 
 Apply these heuristics when filling `Recommended Executor` + `Execution Mode` on each batch:
 
-| Batch Shape                             | Recommended Executor       | Mode       |
-| --------------------------------------- | -------------------------- | ---------- |
-| 3+ independent tasks, boilerplate       | CLI (gemini preferred) x N | parallel   |
-| 3+ independent tasks, standard logic    | CLI x N                    | parallel   |
-| Tightly coupled tasks in same file      | Sub-agent developer        | sequential |
-| Cross-file refactoring                  | Sub-agent developer        | sequential |
-| Architecture decisions required         | Sub-agent developer        | sequential |
-| Migration/scaffolding across many files | CLI x N                    | parallel   |
+| Batch Shape                             | Recommended Executor      | Mode       |
+| --------------------------------------- | ------------------------- | ---------- |
+| 3+ independent tasks, boilerplate       | CLI (codex preferred) x N | parallel   |
+| 3+ independent tasks, standard logic    | CLI x N                   | parallel   |
+| Tightly coupled tasks in same file      | Sub-agent developer       | sequential |
+| Cross-file refactoring                  | Sub-agent developer       | sequential |
+| Architecture decisions required         | Sub-agent developer       | sequential |
+| Migration/scaffolding across many files | CLI x N                   | parallel   |
 
-CLI selection priority (when recommending CLI): `ptah-cli > gemini > codex > copilot`.
+CLI selection priority (when recommending CLI): `ptah-cli > codex > copilot`.
 
 #### Parallel-Eligible Checklist
 

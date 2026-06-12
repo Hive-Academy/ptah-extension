@@ -1,11 +1,11 @@
 ---
 title: Syncing Agents to CLIs
-description: Distribute your Ptah agent roster to Copilot, Gemini, Codex, and Cursor.
+description: Distribute your Ptah agent roster to Copilot, Codex, and Cursor.
 ---
 
 # Syncing Agents to CLIs
 
-Once you've tuned a roster of agents in Ptah, you can push them to the external CLIs and editors you already use. The same prompts, tools, and personalities become available in Copilot CLI, Gemini CLI, Codex CLI, and Cursor — so your team gets consistent behavior everywhere.
+Once you've tuned a roster of agents in Ptah, you can push them to the external CLIs and editors you already use. The same prompts, tools, and personalities become available in Copilot CLI, Codex CLI, and Cursor — so your team gets consistent behavior everywhere.
 
 :::note[Pro-tier feature]
 Agent sync is available on **Ptah Pro**. The free tier supports using built-in and custom agents inside Ptah; sync to external CLIs requires an active Pro license. See [Signing in](/getting-started/signing-in/) to upgrade.
@@ -18,7 +18,6 @@ Agent sync is available on **Ptah Pro**. The free tier supports using built-in a
 | Target             | Installed to                  |
 | ------------------ | ----------------------------- |
 | **GitHub Copilot** | `~/.copilot/agents/`          |
-| **Gemini CLI**     | `~/.gemini/agents/`           |
 | **Codex CLI**      | `~/.codex/agents/`            |
 | **Cursor**         | `<workspace>/.cursor/agents/` |
 
@@ -60,7 +59,7 @@ Turn on **Settings → Agents → Auto-sync on save** to re-run sync every time 
 {
   "ptah.agents.autoSync": {
     "enabled": true,
-    "targets": ["copilot", "gemini", "codex", "cursor"],
+    "targets": ["copilot", "codex", "cursor"],
     "mode": "additive"
   }
 }
@@ -70,12 +69,12 @@ Turn on **Settings → Agents → Auto-sync on save** to re-run sync every time 
 
 Different CLIs expect slightly different frontmatter. Ptah handles the translation for you:
 
-| Ptah field    | Copilot         | Gemini    | Codex         | Cursor         |
-| ------------- | --------------- | --------- | ------------- | -------------- |
-| `name`        | `name`          | `id`      | `name`        | `name`         |
-| `description` | `description`   | `summary` | `description` | `description`  |
-| `tools`       | `allowed_tools` | `tools`   | `tools`       | `capabilities` |
-| `model`       | `model`         | `model`   | `model`       | (inferred)     |
+| Ptah field    | Copilot         | Codex         | Cursor         |
+| ------------- | --------------- | ------------- | -------------- |
+| `name`        | `name`          | `name`        | `name`         |
+| `description` | `description`   | `description` | `description`  |
+| `tools`       | `allowed_tools` | `tools`       | `capabilities` |
+| `model`       | `model`         | `model`       | (inferred)     |
 
 Where a target doesn't support a field, Ptah drops it with a warning in the sync log.
 
