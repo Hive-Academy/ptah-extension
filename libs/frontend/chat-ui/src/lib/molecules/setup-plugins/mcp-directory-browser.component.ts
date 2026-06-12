@@ -31,15 +31,13 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'vscode',
   'claude',
   'cursor',
-  'gemini',
   'copilot',
 ];
 
-const TARGET_LABELS: Record<McpInstallTarget, string> = {
+const TARGET_LABELS: Partial<Record<McpInstallTarget, string>> = {
   vscode: 'VS Code',
   claude: 'Claude / Codex',
   cursor: 'Cursor',
-  gemini: 'Gemini CLI',
   copilot: 'Copilot CLI',
 };
 
@@ -47,7 +45,7 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
  * McpDirectoryBrowserComponent - Browse, search, install, and manage MCP servers
  *
  * Mirrors the SkillShBrowserComponent pattern for the Official MCP Registry.
- * Supports multi-target installation (VS Code, Claude, Cursor, Gemini, Copilot).
+ * Supports multi-target installation (VS Code, Claude, Cursor, Copilot).
  *
  * Complexity Level: 2 (Medium - RPC communication + search debounce + install flow + dual views)
  * Patterns: Signal-based state, DaisyUI compact styling, debounced search, inline install panel
@@ -626,7 +624,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   }
 
   getTargetLabel(target: McpInstallTarget): string {
-    return TARGET_LABELS[target];
+    return TARGET_LABELS[target] ?? target;
   }
 
   getConfigSummary(): string {

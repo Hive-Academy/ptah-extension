@@ -33,7 +33,7 @@ export interface DashboardSessionEntry {
   readonly messageCount: number;
   /** Number of agent/subagent sessions (from agent-*.jsonl files). */
   readonly agentSessionCount: number;
-  /** CLI agent types used in this session (e.g., ['gemini', 'copilot']). */
+  /** CLI agent types used in this session (e.g., ['codex', 'copilot']). */
   readonly cliAgents: readonly string[];
   /** Per-model usage breakdown (model, tokens, cost). Empty when single/unknown model. */
   readonly modelUsageList: ReadonlyArray<{
