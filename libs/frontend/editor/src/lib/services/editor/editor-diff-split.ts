@@ -38,9 +38,11 @@ export class EditorDiffSplitHelper {
     this.state.isLoading.set(true);
     this.state.clearError();
 
+    const workspaceRoot = this.state.getActiveWorkspacePath();
     const [originalResult, currentResult] = await Promise.all([
       rpcCall<{ content: string }>(this.state.vscodeService, 'git:showFile', {
         path: relativePath,
+        ...(workspaceRoot ? { workspaceRoot } : {}),
       }),
       rpcCall<{ content: string; filePath: string }>(
         this.state.vscodeService,

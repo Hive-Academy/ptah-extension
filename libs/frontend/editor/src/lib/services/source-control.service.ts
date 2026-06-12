@@ -11,6 +11,7 @@ import type {
   GitCommitResult,
   GitShowFileResult,
 } from '@ptah-extension/shared';
+import { GitStatusService } from './git-status.service';
 
 /**
  * SourceControlService - Frontend RPC wrapper for git source control operations.
@@ -29,6 +30,7 @@ import type {
 @Injectable({ providedIn: 'root' })
 export class SourceControlService {
   private readonly vscodeService = inject(VSCodeService);
+  private readonly gitStatus = inject(GitStatusService);
 
   /**
    * Stage a single file.
@@ -37,6 +39,7 @@ export class SourceControlService {
   async stageFile(path: string): Promise<RpcCallResult<GitStageResult>> {
     return rpcCall<GitStageResult>(this.vscodeService, 'git:stage', {
       paths: [path],
+      ...this.scopeParams(),
     });
   }
 
@@ -47,6 +50,7 @@ export class SourceControlService {
   async unstageFile(path: string): Promise<RpcCallResult<GitUnstageResult>> {
     return rpcCall<GitUnstageResult>(this.vscodeService, 'git:unstage', {
       paths: [path],
+      ...this.scopeParams(),
     });
   }
 
@@ -56,6 +60,7 @@ export class SourceControlService {
   async stageAll(): Promise<RpcCallResult<GitStageResult>> {
     return rpcCall<GitStageResult>(this.vscodeService, 'git:stage', {
       paths: ['.'],
+      ...this.scopeParams(),
     });
   }
 
@@ -65,6 +70,7 @@ export class SourceControlService {
   async unstageAll(): Promise<RpcCallResult<GitUnstageResult>> {
     return rpcCall<GitUnstageResult>(this.vscodeService, 'git:unstage', {
       paths: ['.'],
+      ...this.scopeParams(),
     });
   }
 
@@ -76,6 +82,7 @@ export class SourceControlService {
   async discardChanges(path: string): Promise<RpcCallResult<GitDiscardResult>> {
     return rpcCall<GitDiscardResult>(this.vscodeService, 'git:discard', {
       paths: [path],
+      ...this.scopeParams(),
     });
   }
 
@@ -86,6 +93,7 @@ export class SourceControlService {
   async commit(message: string): Promise<RpcCallResult<GitCommitResult>> {
     return rpcCall<GitCommitResult>(this.vscodeService, 'git:commit', {
       message,
+      ...this.scopeParams(),
     });
   }
 
@@ -99,6 +107,18 @@ export class SourceControlService {
   ): Promise<RpcCallResult<GitShowFileResult>> {
     return rpcCall<GitShowFileResult>(this.vscodeService, 'git:showFile', {
       path: relativePath,
+      ...this.scopeParams(),
     });
+  }
+
+  /**
+   * Workspace-scoping params pinned to the workspace whose files are
+   * displayed (GitStatusService's active workspace), so mutating git ops
+   * can never land in a different repository if the backend's active
+   * folder changes underneath an in-flight UI action.
+   */
+  private scopeParams(): { workspaceRoot?: string } {
+    const root = this.gitStatus.activeWorkspacePath();
+    return root ? { workspaceRoot: root } : {};
   }
 }

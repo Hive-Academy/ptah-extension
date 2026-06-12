@@ -213,7 +213,7 @@ describe('GitRpcHandlers.register()', () => {
 // ===========================================================================
 
 describe('git:info handler', () => {
-  it('uses the active workspace root when no path param is given', async () => {
+  it('uses the active workspace root when no workspaceRoot param is given', async () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
     const handler = getHandler(rpc, 'git:info');
@@ -223,13 +223,13 @@ describe('git:info handler', () => {
     expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/workspace');
   });
 
-  it('scopes to params.path when it is a registered workspace folder', async () => {
+  it('scopes to params.workspaceRoot when it is a registered workspace folder', async () => {
     const { handlers, rpc, workspace, gitInfo } = buildSuite();
     workspace.getWorkspaceFolders.mockReturnValue(['/workspace', '/other']);
     handlers.register();
     const handler = getHandler(rpc, 'git:info');
 
-    await handler({ path: '/other' });
+    await handler({ workspaceRoot: '/other' });
 
     expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/other');
   });
@@ -240,17 +240,17 @@ describe('git:info handler', () => {
     handlers.register();
     const handler = getHandler(rpc, 'git:info');
 
-    await handler({ path: 'D:/projects/other/' });
+    await handler({ workspaceRoot: 'D:/projects/other/' });
 
     expect(gitInfo.getGitInfo).toHaveBeenCalledWith('D:/projects/other/');
   });
 
-  it('returns the non-git default for an unregistered path', async () => {
+  it('returns the non-git default for an unregistered workspaceRoot', async () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
     const handler = getHandler(rpc, 'git:info');
 
-    const result = (await handler({ path: '/elsewhere' })) as {
+    const result = (await handler({ workspaceRoot: '/elsewhere' })) as {
       isGitRepo: boolean;
       files: unknown[];
     };
@@ -293,6 +293,17 @@ describe('git:branches handler', () => {
     expect(result.remote).toEqual([]);
   });
 
+  it('scopes to params.workspaceRoot when it is a registered workspace folder', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['/workspace', '/other']);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:branches');
+
+    await handler({ includeRemote: false, workspaceRoot: '/other' });
+
+    expect(gitInfo.getBranches).toHaveBeenCalledWith('/other', false);
+  });
+
   it('delegates to gitInfo.getBranches with includeRemote param', async () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
@@ -312,6 +323,26 @@ describe('git:branches handler', () => {
 
     expect(gitInfo.getBranches).toHaveBeenCalledWith('/workspace', true);
     expect(result.current).toBe('main');
+  });
+});
+
+// ===========================================================================
+// git:discard — workspaceRoot scoping guard for a destructive operation
+// ===========================================================================
+
+describe('git:discard handler workspace scoping', () => {
+  it('rejects an unregistered workspaceRoot instead of falling back to the active folder', async () => {
+    const { handlers, rpc } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:discard');
+
+    const result = (await handler({
+      paths: ['src/main.ts'],
+      workspaceRoot: '/elsewhere',
+    })) as { success: boolean; error?: string };
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
   });
 });
 

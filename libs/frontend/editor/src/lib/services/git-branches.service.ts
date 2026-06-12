@@ -261,13 +261,17 @@ export class GitBranchesService {
   private async refreshBranchList(): Promise<void> {
     const result = await this.safeRpc<GitBranchesResult>('git:branches', {
       includeRemote: true,
+      ...this.scopeParams(),
     });
     if (result) this._branches.set(result);
   }
 
   /** Refresh the stash count badge signal. */
   private async refreshStashCount(): Promise<void> {
-    const result = await this.safeRpc<GitStashListResult>('git:stashList', {});
+    const result = await this.safeRpc<GitStashListResult>(
+      'git:stashList',
+      this.scopeParams(),
+    );
     if (result) this._stashCount.set(result.count);
   }
 
@@ -275,21 +279,37 @@ export class GitBranchesService {
   private async refreshLastCommit(): Promise<void> {
     const result = await this.safeRpc<GitLastCommitResult>(
       'git:lastCommit',
-      {},
+      this.scopeParams(),
     );
     if (result) this._lastCommit.set(result);
   }
 
   /** Lazy fetch of recent tags — call when the branch details popover opens. */
   async refreshTags(limit = 20): Promise<void> {
-    const result = await this.safeRpc<GitTagsResult>('git:tags', { limit });
+    const result = await this.safeRpc<GitTagsResult>('git:tags', {
+      limit,
+      ...this.scopeParams(),
+    });
     if (result) this._tags.set(result.tags);
   }
 
   /** Lazy fetch of configured remotes — call when the popover opens. */
   async refreshRemotes(): Promise<void> {
-    const result = await this.safeRpc<GitRemotesResult>('git:remotes', {});
+    const result = await this.safeRpc<GitRemotesResult>(
+      'git:remotes',
+      this.scopeParams(),
+    );
     if (result) this._remotes.set(result.remotes);
+  }
+
+  /**
+   * Workspace-scoping params for git RPCs so results always come from the
+   * workspace this service displays, independent of backend switch timing.
+   * Empty when no workspace is known (backend falls back to its active one).
+   */
+  private scopeParams(): { workspaceRoot?: string } {
+    const wsKey = this.workspaceKey();
+    return wsKey ? { workspaceRoot: wsKey } : {};
   }
 
   /**
@@ -322,10 +342,10 @@ export class GitBranchesService {
    */
   async checkout(params: GitCheckoutParams): Promise<GitCheckoutResult> {
     try {
-      const response = await rpcCall(
+      const response = await rpcCall<GitCheckoutResult>(
         this.vscodeService,
         'git:checkout',
-        params,
+        { ...this.scopeParams(), ...params },
       );
       if (response.success && response.data) {
         return response.data;

@@ -249,7 +249,7 @@ export class GitStatusService {
     const result = await rpcCall<GitInfoResult>(
       this.vscodeService,
       'git:info',
-      { path: workspaceAtFetchTime },
+      { workspaceRoot: workspaceAtFetchTime },
     );
 
     if (this._activeWorkspacePath() !== workspaceAtFetchTime) {
