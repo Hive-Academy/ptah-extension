@@ -49,15 +49,15 @@ describe('probeCliVersion', () => {
     const child = createFakeChild();
     mockCrossSpawn.mockReturnValueOnce(child);
 
-    const probe = probeCliVersion('/usr/local/bin/gemini');
+    const probe = probeCliVersion('/usr/local/bin/codex');
     // Drive the child to completion.
-    child.stdout.emit('data', 'gemini-cli 1.4.2\n');
+    child.stdout.emit('data', 'codex-cli 1.4.2\n');
     child.emit('close', 0);
 
-    await expect(probe).resolves.toBe('gemini-cli 1.4.2');
+    await expect(probe).resolves.toBe('codex-cli 1.4.2');
     expect(mockCrossSpawn).toHaveBeenCalledTimes(1);
     const [binary, args] = mockCrossSpawn.mock.calls[0] as [string, string[]];
-    expect(binary).toBe('/usr/local/bin/gemini');
+    expect(binary).toBe('/usr/local/bin/codex');
     expect(args).toEqual(['--version']);
   });
 

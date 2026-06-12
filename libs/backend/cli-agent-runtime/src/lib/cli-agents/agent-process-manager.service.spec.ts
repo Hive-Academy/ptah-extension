@@ -50,7 +50,7 @@ jest.mock('fs', () => {
 // Stub axios so resolveMcpPort()'s health check never performs a real HTTP
 // request. A rejection causes MCP to be disabled for the CLI agent, which
 // is the behavior we want in these unit tests (MCP wiring is out of scope
-// here — covered by the Copilot/Gemini MCP installer specs).
+// here — covered by the Copilot MCP installer specs).
 jest.mock('axios', () => ({
   __esModule: true,
   default: {

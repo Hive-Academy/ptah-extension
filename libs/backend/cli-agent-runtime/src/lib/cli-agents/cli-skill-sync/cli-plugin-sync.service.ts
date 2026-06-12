@@ -26,11 +26,10 @@ import type {
 } from './cli-skill-installer.interface';
 import { CodexSkillInstaller } from './codex-skill-installer';
 import { CopilotSkillInstaller } from './copilot-skill-installer';
-import { GeminiSkillInstaller } from './gemini-skill-installer';
 import { CursorSkillInstaller } from './cursor-skill-installer';
 import { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
 
-const SUPPORTED_CLIS: CliTarget[] = ['codex', 'copilot', 'gemini', 'cursor'];
+const SUPPORTED_CLIS: CliTarget[] = ['codex', 'copilot', 'cursor'];
 
 @injectable()
 export class CliPluginSyncService {
@@ -47,7 +46,6 @@ export class CliPluginSyncService {
   ) {
     this.installers.set('codex', new CodexSkillInstaller());
     this.installers.set('copilot', new CopilotSkillInstaller());
-    this.installers.set('gemini', new GeminiSkillInstaller());
     this.installers.set('cursor', new CursorSkillInstaller());
 
     this.logger.debug('[CliPluginSync] Service created');

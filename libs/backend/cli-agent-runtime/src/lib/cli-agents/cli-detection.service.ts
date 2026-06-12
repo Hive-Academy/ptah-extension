@@ -2,7 +2,7 @@
  * CLI Detection Service
  *
  * Detects on first call and caches results.
- * Registered adapters: Gemini CLI, Codex CLI, Copilot SDK, Cursor CLI.
+ * Registered adapters: Codex CLI, Copilot SDK, Cursor CLI.
  * Exposes detection results for MCP tools and namespace.
  */
 import { injectable, inject } from 'tsyringe';
@@ -13,7 +13,6 @@ import type {
   CliAdapter,
   CliModelInfo,
 } from './cli-adapters/cli-adapter.interface';
-import { GeminiCliAdapter } from './cli-adapters/gemini-cli.adapter';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
@@ -33,7 +32,6 @@ export class CliDetectionService {
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {
-    this.adapters.set('gemini', new GeminiCliAdapter());
     this.adapters.set('codex', new CodexCliAdapter());
     const permissionBridge = new CopilotPermissionBridge();
     this.adapters.set('copilot', new CopilotSdkAdapter(permissionBridge));
@@ -41,7 +39,7 @@ export class CliDetectionService {
     this.adapters.set('cursor', new CursorCliAdapter());
 
     this.logger.info(
-      '[CliDetection] Service initialized with adapters: gemini, codex, copilot, cursor',
+      '[CliDetection] Service initialized with adapters: codex, copilot, cursor',
     );
   }
 

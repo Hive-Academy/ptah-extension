@@ -633,7 +633,7 @@ export class EnhancedPromptsService {
    * Extracts the "## Project-Specific Guidance" section and all its subsections
    * (Project Context, Framework Guidelines, Coding Standards, Architecture Notes)
    * while excluding PTAH_CORE_SYSTEM_PROMPT and PTAH_SYSTEM_PROMPT which are
-   * Claude-specific and not applicable to CLI agents (Gemini, Codex, Copilot).
+   * Claude-specific and not applicable to CLI agents (Codex, Copilot).
    *
    * @param workspacePath - Workspace to get guidance for
    * @returns Project-specific guidance content, or null if disabled/unavailable
@@ -1027,10 +1027,7 @@ export class EnhancedPromptsService {
     }
     const allDeps = [...analysis.dependencies, ...analysis.devDependencies];
     const additionalTools = allDeps
-      .filter(
-        (dep) =>
-          !dep.startsWith('@types/') && !dep.startsWith('.'),
-      )
+      .filter((dep) => !dep.startsWith('@types/') && !dep.startsWith('.'))
       .slice(0, 15); // Limit for display purposes
 
     return {
