@@ -25,7 +25,6 @@ import {
  * Minimal skills.sh client surface the harness namespace consumes.
  */
 export interface HarnessSkillsDirectory {
-  hasKey(): Promise<boolean>;
   search(query: string, limit?: number): Promise<SkillShEntry[]>;
 }
 

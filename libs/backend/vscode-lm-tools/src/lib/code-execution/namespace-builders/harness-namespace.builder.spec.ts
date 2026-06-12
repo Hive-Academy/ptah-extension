@@ -67,7 +67,6 @@ interface McpRegistryMock {
 }
 
 interface SkillsDirectoryMock extends HarnessSkillsDirectory {
-  hasKey: jest.Mock;
   search: jest.Mock;
 }
 
@@ -290,7 +289,6 @@ describe('buildHarnessNamespace — searchSkills', () => {
 
   it('merges skills.sh results tagged source="skills.sh" with install metadata', async () => {
     const skillsDirectory: SkillsDirectoryMock = {
-      hasKey: jest.fn(async () => true),
       search: jest.fn(async () => [
         makeSkillShEntry({
           skillId: 'react-best-practices',
@@ -315,7 +313,6 @@ describe('buildHarnessNamespace — searchSkills', () => {
 
   it('does not call skills.sh when query is empty', async () => {
     const skillsDirectory: SkillsDirectoryMock = {
-      hasKey: jest.fn(async () => true),
       search: jest.fn(async () => []),
     };
     const { deps } = makeDeps({ skills: sample, skillsDirectory });
@@ -327,7 +324,6 @@ describe('buildHarnessNamespace — searchSkills', () => {
 
   it('degrades to local-only when skills.sh search throws', async () => {
     const skillsDirectory: SkillsDirectoryMock = {
-      hasKey: jest.fn(async () => true),
       search: jest.fn(async () => {
         throw new Error('network down');
       }),

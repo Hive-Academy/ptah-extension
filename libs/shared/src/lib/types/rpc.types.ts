@@ -908,18 +908,6 @@ export interface RpcMethodRegistry {
     params: Record<string, never>;
     result: SkillDetectionResult;
   };
-  'skillsSh:setApiKey': {
-    params: { apiKey: string };
-    result: { success: boolean };
-  };
-  'skillsSh:getApiKeyStatus': {
-    params: Record<string, never>;
-    result: { configured: boolean };
-  };
-  'skillsSh:deleteApiKey': {
-    params: Record<string, never>;
-    result: { success: boolean };
-  };
   'mcpDirectory:search': {
     params: McpDirectorySearchParams;
     result: McpDirectorySearchResult;
@@ -2160,9 +2148,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillsSh:uninstall': true,
   'skillsSh:getPopular': true,
   'skillsSh:detectRecommended': true,
-  'skillsSh:setApiKey': true,
-  'skillsSh:getApiKeyStatus': true,
-  'skillsSh:deleteApiKey': true,
   'mcpDirectory:search': true,
   'mcpDirectory:getDetails': true,
   'mcpDirectory:install': true,

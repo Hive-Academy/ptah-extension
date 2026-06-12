@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 
 import { SkillsShApiClient, SkillsApiError } from './skills-sh-api-client';
-import { SECRET_KEY } from './skills-sh-api.schema';
 
 class StubLogger {
   debug = jest.fn();
@@ -10,32 +9,19 @@ class StubLogger {
   error = jest.fn();
 }
 
-class StubSecretStorage {
-  readonly store_ = new Map<string, string>();
-  get = jest.fn(async (key: string) => this.store_.get(key));
-  store = jest.fn(async (key: string, value: string) => {
-    this.store_.set(key, value);
-  });
-  delete = jest.fn(async (key: string) => {
-    this.store_.delete(key);
-  });
-  onDidChange = jest.fn();
+function makeClient(): { client: SkillsShApiClient; logger: StubLogger } {
+  const logger = new StubLogger();
+  const client = new SkillsShApiClient(logger as unknown as never);
+  return { client, logger };
 }
 
-function makeClient(opts: { key?: string } = {}): {
-  client: SkillsShApiClient;
-  logger: StubLogger;
-  secrets: StubSecretStorage;
-} {
-  const logger = new StubLogger();
-  const secrets = new StubSecretStorage();
-  if (opts.key !== undefined) secrets.store_.set(SECRET_KEY, opts.key);
-  const client = new SkillsShApiClient(
-    logger as unknown as never,
-    secrets as unknown as never,
-  );
-  return { client, logger, secrets };
-}
+const apiSkill = {
+  id: 'vercel-labs/agent-skills/vercel-react-best-practices',
+  skillId: 'vercel-react-best-practices',
+  name: 'vercel-react-best-practices',
+  installs: 471810,
+  source: 'vercel-labs/agent-skills',
+};
 
 describe('SkillsShApiClient', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -49,26 +35,9 @@ describe('SkillsShApiClient', () => {
     jest.restoreAllMocks();
   });
 
-  describe('hasKey', () => {
-    it('returns false when no key is configured', async () => {
-      const { client } = makeClient();
-      expect(await client.hasKey()).toBe(false);
-    });
-
-    it('returns true when a non-blank key is configured', async () => {
-      const { client } = makeClient({ key: 'sk_live_abc' });
-      expect(await client.hasKey()).toBe(true);
-    });
-
-    it('treats a whitespace-only key as missing', async () => {
-      const { client } = makeClient({ key: '   ' });
-      expect(await client.hasKey()).toBe(false);
-    });
-  });
-
   describe('search', () => {
     it('returns [] for queries shorter than two characters without calling fetch', async () => {
-      const { client } = makeClient({ key: 'sk_live_abc' });
+      const { client } = makeClient();
       const fetchMock = jest.fn();
       globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
@@ -76,24 +45,28 @@ describe('SkillsShApiClient', () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('maps API skills to SkillShEntry and caches the result', async () => {
-      const { client } = makeClient({ key: 'sk_live_abc' });
+    it('calls the public endpoint without an Authorization header', async () => {
+      const { client } = makeClient();
       const fetchMock = jest.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({
-          data: [
-            {
-              id: 'id-1',
-              slug: 'react-best-practices',
-              name: 'React Best Practices',
-              source: 'vercel-labs/agent-skills',
-              installs: 1000,
-              sourceType: 'github',
-              url: 'https://skills.sh/x',
-            },
-          ],
-        }),
+        json: async () => ({ skills: [] }),
+      });
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+      await client.search('react');
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://skills.sh/api/search?q=react&limit=50');
+      expect(init.headers).not.toHaveProperty('Authorization');
+    });
+
+    it('maps API skills to SkillShEntry and caches the result', async () => {
+      const { client } = makeClient();
+      const fetchMock = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ skills: [apiSkill] }),
       });
       globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
@@ -101,10 +74,11 @@ describe('SkillsShApiClient', () => {
       expect(first).toHaveLength(1);
       expect(first[0]).toMatchObject({
         source: 'vercel-labs/agent-skills',
-        skillId: 'react-best-practices',
-        name: 'React Best Practices',
-        installs: 1000,
+        skillId: 'vercel-react-best-practices',
+        name: 'Vercel React Best Practices',
+        installs: 471810,
         isInstalled: false,
+        url: 'https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices',
       });
 
       const second = await client.search('react');
@@ -112,15 +86,22 @@ describe('SkillsShApiClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('throws SkillsApiError when no key is configured', async () => {
+    it('caps the limit at 50', async () => {
       const { client } = makeClient();
-      await expect(client.search('react')).rejects.toBeInstanceOf(
-        SkillsApiError,
-      );
+      const fetchMock = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ skills: [] }),
+      });
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+      await client.search('react', 200);
+
+      expect(fetchMock.mock.calls[0][0]).toContain('limit=50');
     });
 
     it('throws SkillsApiError on a non-ok response', async () => {
-      const { client } = makeClient({ key: 'sk_live_abc' });
+      const { client } = makeClient();
       globalThis.fetch = jest.fn().mockResolvedValue({
         ok: false,
         status: 500,
@@ -131,21 +112,35 @@ describe('SkillsShApiClient', () => {
         SkillsApiError,
       );
     });
+
+    it('throws SkillsApiError on a schema mismatch', async () => {
+      const { client, logger } = makeClient();
+      globalThis.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [apiSkill] }),
+      }) as unknown as typeof globalThis.fetch;
+
+      await expect(client.search('react')).rejects.toBeInstanceOf(
+        SkillsApiError,
+      );
+      expect(logger.warn).toHaveBeenCalled();
+    });
   });
 
   describe('invalidateInstallCaches', () => {
-    it('drops the popular cache so the next call refetches', async () => {
-      const { client } = makeClient({ key: 'sk_live_abc' });
+    it('drops the search cache so the next call refetches', async () => {
+      const { client } = makeClient();
       const fetchMock = jest.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({ data: [] }),
+        json: async () => ({ skills: [] }),
       });
       globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
-      await client.getPopular();
+      await client.search('react');
       client.invalidateInstallCaches();
-      await client.getPopular();
+      await client.search('react');
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });

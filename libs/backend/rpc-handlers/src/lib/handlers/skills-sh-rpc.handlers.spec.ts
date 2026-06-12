@@ -2,16 +2,15 @@
  * Surface + behaviour spec for the shared Skills.sh RPC Handlers.
  *
  * Verifies:
- *   - Method registration covers all nine `skillsSh:*` names in order.
- *   - API-first / CLI-fallback path for `search` and `getPopular`.
- *   - Curated API pool feeds `detectRecommended` when a key is present.
- *   - SecretStorage-backed key management methods round-trip correctly.
+ *   - Method registration covers all six `skillsSh:*` names in order.
+ *   - API-first / CLI-fallback path for `search`.
+ *   - CLI / curated-constant fallback chain for `getPopular`.
+ *   - Curated constants feed `detectRecommended`.
  */
 
 import 'reflect-metadata';
 
 import { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
-import { SECRET_KEY } from './skills-sh-rpc.schema';
 import type { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
 import type { SkillShEntry } from '@ptah-extension/shared';
 
@@ -61,23 +60,8 @@ class StubWorkspaceProvider {
   }
 }
 
-class StubSecretStorage {
-  readonly store_ = new Map<string, string>();
-  get = jest.fn(async (key: string) => this.store_.get(key));
-  store = jest.fn(async (key: string, value: string) => {
-    this.store_.set(key, value);
-  });
-  delete = jest.fn(async (key: string) => {
-    this.store_.delete(key);
-  });
-  onDidChange = jest.fn();
-}
-
 class StubApiClient {
-  hasKey = jest.fn(async () => false);
   search = jest.fn(async (_q: string, _limit?: number) => [] as SkillShEntry[]);
-  getPopular = jest.fn(async (_v?: string) => [] as SkillShEntry[]);
-  getCurated = jest.fn(async () => [] as SkillShEntry[]);
   invalidateInstallCaches = jest.fn();
 }
 
@@ -85,24 +69,21 @@ interface Harness {
   handlers: SkillsShRpcHandlers;
   rpc: StubRpcHandler;
   logger: StubLogger;
-  secrets: StubSecretStorage;
   api: StubApiClient;
 }
 
 function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
   const rpc = new StubRpcHandler();
   const logger = new StubLogger();
-  const secrets = new StubSecretStorage();
   const api = new StubApiClient();
   const handlers = new SkillsShRpcHandlers(
     logger as unknown as never,
     rpc as unknown as never,
     new StubWorkspaceProvider(opts.workspaceRoot) as unknown as never,
-    secrets as unknown as never,
     api as unknown as SkillsShApiClient,
   );
   handlers.register();
-  return { handlers, rpc, logger, secrets, api };
+  return { handlers, rpc, logger, api };
 }
 
 function makeFakeChild(
@@ -159,7 +140,7 @@ beforeEach(() => {
 });
 
 describe('SkillsShRpcHandlers (shared) — surface', () => {
-  it('exposes the nine skillsSh:* method names in registration order', () => {
+  it('exposes the six skillsSh:* method names in registration order', () => {
     expect([...SkillsShRpcHandlers.METHODS]).toEqual([
       'skillsSh:search',
       'skillsSh:listInstalled',
@@ -167,9 +148,6 @@ describe('SkillsShRpcHandlers (shared) — surface', () => {
       'skillsSh:uninstall',
       'skillsSh:getPopular',
       'skillsSh:detectRecommended',
-      'skillsSh:setApiKey',
-      'skillsSh:getApiKeyStatus',
-      'skillsSh:deleteApiKey',
     ]);
   });
 
@@ -181,9 +159,8 @@ describe('SkillsShRpcHandlers (shared) — surface', () => {
 });
 
 describe('SkillsShRpcHandlers — search', () => {
-  it('uses the API client when a key is configured', async () => {
+  it('uses the API client first without any key gate', async () => {
     const h = makeHarness();
-    h.api.hasKey.mockResolvedValue(true);
     h.api.search.mockResolvedValue([apiSkill({ skillId: 'react-pro' })]);
 
     const result = await h.rpc.call<{ skills: SkillShEntry[] }>(
@@ -199,7 +176,6 @@ describe('SkillsShRpcHandlers — search', () => {
 
   it('falls back to the CLI path when the API throws', async () => {
     const h = makeHarness();
-    h.api.hasKey.mockResolvedValue(true);
     h.api.search.mockRejectedValue(new Error('429 rate limited'));
     mockSpawnOnce('anthropics/skills@react-pro  100 installs\n');
 
@@ -212,38 +188,11 @@ describe('SkillsShRpcHandlers — search', () => {
     expect(result.skills.length).toBeGreaterThan(0);
     expect(h.logger.warn).toHaveBeenCalled();
   });
-
-  it('uses the CLI path when no API key is configured', async () => {
-    const h = makeHarness();
-    h.api.hasKey.mockResolvedValue(false);
-    mockSpawnOnce('anthropics/skills@react-pro  100 installs\n');
-
-    await h.rpc.call('skillsSh:search', { query: 'react' });
-
-    expect(h.api.search).not.toHaveBeenCalled();
-    expect(spawn).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe('SkillsShRpcHandlers — getPopular', () => {
-  it('uses the API client when a key is configured', async () => {
+  it('uses the CLI path first', async () => {
     const h = makeHarness();
-    h.api.hasKey.mockResolvedValue(true);
-    h.api.getPopular.mockResolvedValue([apiSkill()]);
-
-    const result = await h.rpc.call<{ skills: SkillShEntry[] }>(
-      'skillsSh:getPopular',
-    );
-
-    expect(h.api.getPopular).toHaveBeenCalledWith('hot');
-    expect(spawn).not.toHaveBeenCalled();
-    expect(result.skills.length).toBe(1);
-  });
-
-  it('falls back to the CLI path when the API throws', async () => {
-    const h = makeHarness();
-    h.api.hasKey.mockResolvedValue(true);
-    h.api.getPopular.mockRejectedValue(new Error('500'));
     mockSpawnOnce('anthropics/skills@webapp-testing  82000 installs\n');
 
     const result = await h.rpc.call<{ skills: SkillShEntry[] }>(
@@ -254,9 +203,8 @@ describe('SkillsShRpcHandlers — getPopular', () => {
     expect(result.skills.length).toBeGreaterThan(0);
   });
 
-  it('falls back to curated constants when both API and CLI fail', async () => {
+  it('falls back to curated constants when the CLI fails', async () => {
     const h = makeHarness();
-    h.api.hasKey.mockResolvedValue(false);
     mockSpawnOnce('', '', 1);
 
     const result = await h.rpc.call<{ skills: SkillShEntry[] }>(
@@ -268,25 +216,12 @@ describe('SkillsShRpcHandlers — getPopular', () => {
 });
 
 describe('SkillsShRpcHandlers — detectRecommended', () => {
-  it('uses the API curated pool when a key is configured', async () => {
-    const h = makeHarness({ workspaceRoot: '/no/such/path' });
-    h.api.hasKey.mockResolvedValue(true);
-    h.api.getCurated.mockResolvedValue([
-      apiSkill({ skillId: 'frontend-design' }),
-    ]);
-
-    await h.rpc.call('skillsSh:detectRecommended');
-
-    expect(h.api.getCurated).toHaveBeenCalled();
-  });
-
   it('returns empty detection when no workspace root is available', async () => {
     const h = makeHarness();
     const result = await h.rpc.call<{
       recommendedSkills: SkillShEntry[];
     }>('skillsSh:detectRecommended');
     expect(result.recommendedSkills).toEqual([]);
-    expect(h.api.getCurated).not.toHaveBeenCalled();
   });
 });
 
@@ -314,79 +249,5 @@ describe('SkillsShRpcHandlers — install/uninstall cache invalidation', () => {
     });
 
     expect(h.api.invalidateInstallCaches).toHaveBeenCalled();
-  });
-});
-
-describe('SkillsShRpcHandlers — API key management', () => {
-  it('setApiKey trims and stores at SECRET_KEY', async () => {
-    const h = makeHarness();
-
-    const result = await h.rpc.call<{ success: boolean }>(
-      'skillsSh:setApiKey',
-      { apiKey: '  sk_live_abc  ' },
-    );
-
-    expect(result.success).toBe(true);
-    expect(h.secrets.store).toHaveBeenCalledWith(SECRET_KEY, 'sk_live_abc');
-    expect(h.api.invalidateInstallCaches).toHaveBeenCalled();
-  });
-
-  it('setApiKey rejects empty input without touching SecretStorage', async () => {
-    const h = makeHarness();
-
-    await expect(
-      h.rpc.call('skillsSh:setApiKey', { apiKey: '   ' }),
-    ).rejects.toThrow(/cannot be empty/i);
-    expect(h.secrets.store).not.toHaveBeenCalled();
-  });
-
-  it('getApiKeyStatus returns configured=true when a key is stored', async () => {
-    const h = makeHarness();
-    h.secrets.store_.set(SECRET_KEY, 'sk_live_xyz');
-
-    const result = await h.rpc.call<{ configured: boolean }>(
-      'skillsSh:getApiKeyStatus',
-    );
-
-    expect(result.configured).toBe(true);
-  });
-
-  it('getApiKeyStatus returns configured=false for missing key', async () => {
-    const h = makeHarness();
-    const result = await h.rpc.call<{ configured: boolean }>(
-      'skillsSh:getApiKeyStatus',
-    );
-    expect(result.configured).toBe(false);
-  });
-
-  it('getApiKeyStatus treats whitespace-only stored value as unconfigured', async () => {
-    const h = makeHarness();
-    h.secrets.store_.set(SECRET_KEY, '   ');
-    const result = await h.rpc.call<{ configured: boolean }>(
-      'skillsSh:getApiKeyStatus',
-    );
-    expect(result.configured).toBe(false);
-  });
-
-  it('deleteApiKey removes the SecretStorage entry and invalidates caches', async () => {
-    const h = makeHarness();
-    h.secrets.store_.set(SECRET_KEY, 'sk_live_xyz');
-
-    const result = await h.rpc.call<{ success: boolean }>(
-      'skillsSh:deleteApiKey',
-    );
-
-    expect(result.success).toBe(true);
-    expect(h.secrets.delete).toHaveBeenCalledWith(SECRET_KEY);
-    expect(h.secrets.store_.has(SECRET_KEY)).toBe(false);
-    expect(h.api.invalidateInstallCaches).toHaveBeenCalled();
-  });
-
-  it('deleteApiKey is idempotent when no key is stored', async () => {
-    const h = makeHarness();
-    const result = await h.rpc.call<{ success: boolean }>(
-      'skillsSh:deleteApiKey',
-    );
-    expect(result.success).toBe(true);
   });
 });

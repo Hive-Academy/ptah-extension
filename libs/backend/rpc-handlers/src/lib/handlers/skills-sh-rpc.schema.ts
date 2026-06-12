@@ -57,20 +57,3 @@ export type SkillsShInstallParams = z.infer<typeof SkillsShInstallParamsSchema>;
 export type SkillsShUninstallParams = z.infer<
   typeof SkillsShUninstallParamsSchema
 >;
-
-/**
- * SecretStorage slot for the skills.sh API key. Must match SECRET_KEY in
- * libs/backend/cli-agent-runtime/src/lib/skills-directory/skills-sh-api.schema.ts
- * (the SkillsShApiClient owns the canonical copy).
- */
-export const SECRET_KEY = 'skillsSh.apiKey';
-
-export const SkillsShSetApiKeyParamsSchema = z.object({
-  apiKey: z.string().min(1),
-});
-
-export const SkillsShEmptyParamsSchema = z.object({}).strict();
-
-export type SkillsShSetApiKeyParams = z.infer<
-  typeof SkillsShSetApiKeyParamsSchema
->;
