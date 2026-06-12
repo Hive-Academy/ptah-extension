@@ -18,9 +18,9 @@ function buildService(): {
     }),
     getAvailableAgents: jest.fn().mockReturnValue([
       {
-        id: 'gemini',
-        name: 'Gemini CLI',
-        description: 'Google Gemini CLI',
+        id: 'codex',
+        name: 'Codex CLI',
+        description: 'OpenAI Codex CLI',
         type: 'cli',
         available: true,
       },
@@ -56,7 +56,7 @@ describe('HarnessWorkflowPromptService', () => {
     expect(prompt).toContain('proposeConfig');
     expect(prompt).toContain('isConfigComplete');
     expect(prompt).toContain('build a real estate CRM harness');
-    expect(prompt).toContain('Gemini CLI');
+    expect(prompt).toContain('Codex CLI');
     expect(prompt).toContain('Linter');
   });
 

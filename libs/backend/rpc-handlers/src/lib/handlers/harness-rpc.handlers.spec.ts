@@ -332,11 +332,11 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       },
       {
         method: 'harness:generate-prompt',
-        params: { persona, enabledAgents: ['gemini'], selectedSkills: ['s1'] },
+        params: { persona, enabledAgents: ['codex'], selectedSkills: ['s1'] },
         assert: (s) =>
           expect(s.promptBuilder.buildPromptSections).toHaveBeenCalledWith(
             persona,
-            ['gemini'],
+            ['codex'],
             ['s1'],
           ),
       },
@@ -350,11 +350,11 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       },
       {
         method: 'harness:design-agents',
-        params: { persona, existingAgents: ['gemini'] },
+        params: { persona, existingAgents: ['codex'] },
         assert: (s) =>
           expect(s.subagentDesign.designSubagentFleet).toHaveBeenCalledWith(
             persona,
-            ['gemini'],
+            ['codex'],
             undefined,
           ),
       },

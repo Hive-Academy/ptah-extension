@@ -230,13 +230,6 @@ export class HarnessWorkspaceContextService {
   getAvailableAgents(): AvailableAgent[] {
     return [
       {
-        id: 'gemini',
-        name: 'Gemini CLI',
-        description: 'Google Gemini CLI agent for code generation and analysis',
-        type: 'cli',
-        available: true,
-      },
-      {
         id: 'codex',
         name: 'Codex CLI',
         description: 'OpenAI Codex CLI agent for code completion and editing',
