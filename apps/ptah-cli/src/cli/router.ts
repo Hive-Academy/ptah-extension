@@ -625,13 +625,13 @@ export function buildRouter(): Command {
     });
 
   // -- ptah agent-cli --------------------------------------------------------
-  // Allowlist enforced — only `glm` and `gemini` are accepted for `--cli`;
+  // Allowlist enforced — only `glm` is accepted for `--cli`;
   // rejection emits ptah_code: cli_agent_unavailable and exits 3
   // (AuthRequired). NEVER bypassable via env vars.
   const agentCli = program
     .command('agent-cli')
     .description(
-      'manage CLI agents (detect / config / models / stop / resume) — allowlist: glm, gemini',
+      'manage CLI agents (detect / config / models / stop / resume) — allowlist: glm',
     );
 
   agentCli
@@ -682,9 +682,9 @@ export function buildRouter(): Command {
   agentCliModels
     .command('list')
     .description(
-      'emit agent_cli.models via agent:listCliModels (--cli optional; only glm/gemini accepted)',
+      'emit agent_cli.models via agent:listCliModels (--cli optional; only glm accepted)',
     )
-    .option('--cli <id>', 'scope to a single allowlisted CLI (glm|gemini)')
+    .option('--cli <id>', 'scope to a single allowlisted CLI (glm)')
     .action(async (opts: { cli?: string }) => {
       const exit = await agentCliCmd.execute(
         { subcommand: 'models-list', cli: opts.cli },
@@ -696,9 +696,9 @@ export function buildRouter(): Command {
   agentCli
     .command('stop <id>')
     .description(
-      'stop a running CLI agent via agent:stop (--cli required; only glm/gemini accepted)',
+      'stop a running CLI agent via agent:stop (--cli required; only glm accepted)',
     )
-    .requiredOption('--cli <id>', 'allowlisted CLI id (glm|gemini)')
+    .requiredOption('--cli <id>', 'allowlisted CLI id (glm)')
     .action(async (id: string, opts: { cli: string }) => {
       const exit = await agentCliCmd.execute(
         { subcommand: 'stop', agentId: id, cli: opts.cli },
@@ -710,9 +710,9 @@ export function buildRouter(): Command {
   agentCli
     .command('resume <id>')
     .description(
-      'resume a CLI agent session via agent:resumeCliSession (--cli required; only glm/gemini accepted)',
+      'resume a CLI agent session via agent:resumeCliSession (--cli required; only glm accepted)',
     )
-    .requiredOption('--cli <id>', 'allowlisted CLI id (glm|gemini)')
+    .requiredOption('--cli <id>', 'allowlisted CLI id (glm)')
     .option('--task <text>', 'free-form task prompt for the resumed session')
     .action(async (id: string, opts: { cli: string; task?: string }) => {
       const exit = await agentCliCmd.execute(
@@ -1321,7 +1321,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--target <id>',
-      'install target (vscode|claude|cursor|gemini|copilot)',
+      'install target (vscode|claude|cursor|copilot)',
     )
     .action(async (name: string, opts: { target: string }) => {
       const exit = await mcpCmd.execute(
@@ -1338,7 +1338,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--target <id>',
-      'install target (vscode|claude|cursor|gemini|copilot)',
+      'install target (vscode|claude|cursor|copilot)',
     )
     .action(async (key: string, opts: { target: string }) => {
       const exit = await mcpCmd.execute(

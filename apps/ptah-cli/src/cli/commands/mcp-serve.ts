@@ -2,7 +2,7 @@
  * `ptah mcp-serve` command — stdio MCP server for external hosts.
  *
  * Hosts Ptah as a Model Context Protocol server over stdin/stdout so external
- * MCP clients (Claude Code, Cursor, Gemini CLI, etc.) can drive Ptah's agent
+ * MCP clients (Claude Code, Cursor, etc.) can drive Ptah's agent
  * surface through their existing MCP integrations. The wire framing matches
  * `ptah interact` — JSON-RPC 2.0 over NDJSON — but the method namespace is
  * the MCP standard (`initialize`, `tools/list`, `tools/call`,

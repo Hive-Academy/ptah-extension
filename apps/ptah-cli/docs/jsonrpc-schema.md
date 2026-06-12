@@ -489,7 +489,7 @@ Errors are emitted as JSON-RPC error responses on stderr. Notifications never ca
 | `generation_failed`           | Agent-generation pipeline failed (`data.item_id` carries the failed item)                         | `1`          | Sometimes (retry-item)           |
 | `harness_invalid`             | `.ptah/` directory in invalid state                                                               | `1`          | Yes (re-run init)                |
 | `mcp_install_failed`          | MCP server install rejected by target CLI (`data.target` carries the target id)                   | `1`          | Sometimes                        |
-| `cli_agent_unavailable`       | Required CLI agent (gemini/glm) not on PATH OR rejected by allowlist                              | `3`          | No (user install)                |
+| `cli_agent_unavailable`       | Required CLI agent (glm) not on PATH OR rejected by allowlist                                     | `3`          | No (user install)                |
 | `proxy_bind_failed`           | Anthropic proxy could not bind requested host/port (`data.host`/`data.port`/`data.cause`)         | `1`          | Sometimes (try a different port) |
 | `proxy_invalid_request`       | Proxy received a malformed Anthropic Messages request (HTTP 400; `data.detail` carries the cause) | `1`          | Yes (caller fix)                 |
 | `permission_gate_unavailable` | `ptah proxy start` invoked without `--auto-approve` and not embedded in `ptah interact`           | `3`          | No (user action)                 |
