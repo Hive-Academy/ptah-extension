@@ -10,6 +10,8 @@ import {
   type ThothBadgeTone,
 } from '../../hooks/use-thoth-status.js';
 import { KeyHint } from '../atoms/KeyHint.js';
+import { MemoryPanel } from './MemoryPanel.js';
+import { SkillsPanel } from './SkillsPanel.js';
 
 export type ThothTabId = 'memory' | 'skills' | 'cron' | 'gateway';
 
@@ -75,13 +77,9 @@ export function ThothPanel({
   }, []);
 
   useInput(
-    (input, key) => {
-      if (key.tab || key.rightArrow) {
-        cycle(1);
-        return;
-      }
-      if (key.leftArrow) {
-        cycle(-1);
+    (_input, key) => {
+      if (key.tab) {
+        cycle(key.shift ? -1 : 1);
       }
     },
     { isActive },
@@ -139,13 +137,13 @@ export function ThothPanel({
         {activating ? (
           <Text color={theme.status.info}>Activating Thoth subsystems…</Text>
         ) : (
-          <ThothTabBody tab={activeTab} badge={activeBadge} />
+          <ThothTabBody tab={activeTab} badge={activeBadge} isActive={isActive} />
         )}
       </Box>
 
       <Box marginTop={1}>
-        <KeyHint keys="Tab/→" label="next tab" />
-        <KeyHint keys="←" label="prev tab" separator />
+        <KeyHint keys="Tab" label="next tab" />
+        <KeyHint keys="Shift+Tab" label="prev tab" separator />
         <KeyHint keys="Esc" label="back to chat" separator />
       </Box>
     </Box>
@@ -155,22 +153,50 @@ export function ThothPanel({
 interface ThothTabBodyProps {
   tab: ThothTabId;
   badge: ThothBadge | undefined;
+  isActive: boolean;
 }
 
-function ThothTabBody({ tab, badge }: ThothTabBodyProps): React.JSX.Element {
-  const theme = useTheme();
-
+function ThothTabBody({
+  tab,
+  badge,
+  isActive,
+}: ThothTabBodyProps): React.JSX.Element {
   const degraded = badge
     ? badge.tone === 'warning' || badge.tone === 'error'
     : false;
+  const reason = badge?.reason;
 
+  switch (tab) {
+    case 'memory':
+      return (
+        <MemoryPanel isActive={isActive} degraded={degraded} reason={reason} />
+      );
+    case 'skills':
+      return (
+        <SkillsPanel isActive={isActive} degraded={degraded} reason={reason} />
+      );
+    case 'cron':
+    case 'gateway':
+    default:
+      return <ThothTabPlaceholder tab={tab} degraded={degraded} reason={reason} />;
+  }
+}
+
+function ThothTabPlaceholder({
+  tab,
+  degraded,
+  reason,
+}: {
+  tab: ThothTabId;
+  degraded: boolean;
+  reason?: string;
+}): React.JSX.Element {
+  const theme = useTheme();
   return (
     <Box flexDirection="column">
-      {degraded && badge?.reason ? (
+      {degraded && reason ? (
         <Box marginBottom={1}>
-          <Text color={theme.status.warning}>
-            {badge.text} — {badge.reason}
-          </Text>
+          <Text color={theme.status.warning}>{reason}</Text>
         </Box>
       ) : null}
       <Text dimColor>{TAB_PLACEHOLDER[tab]}</Text>
