@@ -1,5 +1,5 @@
-import React from 'react';
-import { Box } from 'ink';
+import React, { useEffect, useState } from 'react';
+import { Box, useStdout } from 'ink';
 
 import { Header } from './Header.js';
 import { Sidebar } from '../sidebar/Sidebar.js';
@@ -26,8 +26,29 @@ export function Layout({
 }: LayoutProps): React.JSX.Element {
   void activeView;
 
+  const { stdout } = useStdout();
+  const [size, setSize] = useState({
+    rows: stdout.rows ?? 24,
+    columns: stdout.columns ?? 80,
+  });
+
+  useEffect(() => {
+    const onResize = (): void => {
+      setSize({ rows: stdout.rows ?? 24, columns: stdout.columns ?? 80 });
+    };
+    stdout.on('resize', onResize);
+    return () => {
+      stdout.off('resize', onResize);
+    };
+  }, [stdout]);
+
   return (
-    <Box flexDirection="column" width="100%" height="100%">
+    <Box
+      flexDirection="column"
+      width={size.columns}
+      height={size.rows}
+      overflow="hidden"
+    >
       <Header />
       <Box flexDirection="row" flexGrow={1}>
         {sidebarVisible && (

@@ -15,6 +15,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { TuiWebviewManagerAdapter } from './transport/tui-webview-manager-adapter.js';
 import { App } from './components/App.js';
 import { ThothLifecycle } from './lib/thoth-lifecycle.js';
+import { installConsoleCapture } from './lib/console-capture.js';
 
 export const TUI_BUNDLE_API_VERSION = 1;
 
@@ -141,6 +142,7 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
         return 0;
       }
 
+      const restoreConsole = installConsoleCapture();
       let unmounted = false;
       const app = render(
         <Root
@@ -178,6 +180,7 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
         process.off('SIGINT', onSigint);
         process.off('SIGTERM', onSigterm);
         await thothLifecycle.dispose(ctx.container);
+        restoreConsole();
       }
 
       return signalExitCode;
