@@ -92,6 +92,77 @@ describe('SessionController', () => {
     c.dispose();
   });
 
+  it('seeds stats on session load from session:stats-batch without a push', async () => {
+    const { transport, calls } = makeTransport((call) => {
+      if (call.method === 'session:stats-batch') {
+        return {
+          success: true,
+          data: {
+            sessionStats: [
+              {
+                totalCost: 0.12,
+                tokens: { input: 800, output: 300 },
+                modelUsageList: [
+                  {
+                    model: 'claude-opus',
+                    inputTokens: 800,
+                    outputTokens: 300,
+                    costUSD: 0.12,
+                  },
+                ],
+                status: 'ok',
+              },
+            ],
+          },
+        };
+      }
+      return { success: true };
+    });
+    const c = new SessionController(
+      transport,
+      new EventEmitter(),
+      '/work',
+      () => undefined,
+    );
+    await c.loadSession('sess-9');
+    expect(calls.some((call) => call.method === 'session:stats-batch')).toBe(
+      true,
+    );
+    expect(c.stats?.model).toBe('claude-opus');
+    expect(c.stats?.inputTokens).toBe(800);
+    expect(c.stats?.costUSD).toBe(0.12);
+    c.dispose();
+  });
+
+  it('clears stats on load when the session has no usage yet', async () => {
+    const { transport } = makeTransport((call) => {
+      if (call.method === 'session:stats-batch') {
+        return {
+          success: true,
+          data: {
+            sessionStats: [
+              {
+                totalCost: null,
+                tokens: { input: 0, output: 0 },
+                status: 'empty',
+              },
+            ],
+          },
+        };
+      }
+      return { success: true };
+    });
+    const c = new SessionController(
+      transport,
+      new EventEmitter(),
+      '/work',
+      () => undefined,
+    );
+    await c.loadSession('sess-empty');
+    expect(c.stats).toBeNull();
+    c.dispose();
+  });
+
   it('session:id-resolved promotes the active session to the real UUID', () => {
     const push = new EventEmitter();
     const { transport } = makeTransport();

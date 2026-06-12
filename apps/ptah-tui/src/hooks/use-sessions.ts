@@ -72,6 +72,57 @@ interface SessionListResponse {
   readonly sessions?: ReadonlyArray<SessionListItem>;
 }
 
+interface StatsBatchEntry {
+  readonly totalCost: number | null;
+  readonly tokens: {
+    readonly input: number;
+    readonly output: number;
+  };
+  readonly modelUsageList?: ReadonlyArray<{
+    readonly model: string;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly costUSD: number | null;
+  }>;
+  readonly status: 'ok' | 'error' | 'empty';
+}
+
+interface StatsBatchResponse {
+  readonly sessionStats?: ReadonlyArray<StatsBatchEntry>;
+}
+
+function deriveStatsFromBatch(
+  sessionId: string,
+  entry: StatsBatchEntry,
+): SessionStats | null {
+  if (entry.status !== 'ok') return null;
+  const usage = entry.modelUsageList ?? [];
+  const model =
+    usage.length > 0
+      ? pickPrimaryModel(
+          usage.map((u) => ({
+            model: u.model,
+            totalCost: u.costUSD ?? 0,
+            tokens: {
+              input: u.inputTokens,
+              output: u.outputTokens,
+              cacheRead: 0,
+            },
+          })),
+        )
+      : null;
+  return {
+    sessionId,
+    inputTokens: entry.tokens.input,
+    outputTokens: entry.tokens.output,
+    model,
+    costUSD: entry.totalCost ?? 0,
+    contextWindow: 0,
+    contextUsed: 0,
+    contextUsagePercent: 0,
+  };
+}
+
 function toModelUsageEntries(
   modelUsage: ReadonlyArray<StatsModelUsage>,
 ): ModelUsageEntry[] {
@@ -188,12 +239,31 @@ export class SessionController {
       >('session:load', { sessionId: id });
       if (response.success) {
         this.activeSessionId = id;
+        await this.seedStats(id);
       }
     } catch {
       // failed to load — keep current active session
     } finally {
       this.loading = false;
       this.onChange();
+    }
+  }
+
+  private async seedStats(id: string): Promise<void> {
+    try {
+      const response = await this.transport.call<
+        { sessionIds: string[]; workspacePath: string },
+        StatsBatchResponse
+      >('session:stats-batch', {
+        sessionIds: [id],
+        workspacePath: this.workspacePath,
+      });
+      const entry = response.success
+        ? response.data?.sessionStats?.[0]
+        : undefined;
+      this.stats = entry ? deriveStatsFromBatch(id, entry) : null;
+    } catch {
+      this.stats = null;
     }
   }
 
