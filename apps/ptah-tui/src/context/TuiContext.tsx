@@ -10,6 +10,7 @@ export interface TuiContextValue {
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
   fireAndForget: CliFireAndForgetHandler;
+  reinitializeSdk: () => Promise<boolean>;
 }
 
 const TuiContext = createContext<TuiContextValue | null>(null);
@@ -18,6 +19,7 @@ export interface TuiProviderProps {
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
   fireAndForget: CliFireAndForgetHandler;
+  reinitializeSdk: () => Promise<boolean>;
   children: React.ReactNode;
 }
 
@@ -25,11 +27,12 @@ export function TuiProvider({
   transport,
   pushAdapter,
   fireAndForget,
+  reinitializeSdk,
   children,
 }: TuiProviderProps): React.JSX.Element {
   const value = React.useMemo(
-    () => ({ transport, pushAdapter, fireAndForget }),
-    [transport, pushAdapter, fireAndForget],
+    () => ({ transport, pushAdapter, fireAndForget, reinitializeSdk }),
+    [transport, pushAdapter, fireAndForget, reinitializeSdk],
   );
 
   return <TuiContext.Provider value={value}>{children}</TuiContext.Provider>;

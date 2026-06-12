@@ -1,17 +1,19 @@
 import 'reflect-metadata';
 
-import React from 'react';
-import { render, Box, Text, useApp, useInput, useStdin } from 'ink';
+import React, { useState, useCallback } from 'react';
+import { PassThrough } from 'node:stream';
+import { render } from 'ink';
 import {
   withEngine,
   initializeSdkAdapter,
   CliFireAndForgetHandler,
   CliDIContainer,
   type EngineContext,
-  type CliWebviewManagerAdapter,
-  type CliMessageTransport,
 } from '@ptah-extension/cli-engine';
+import type { DependencyContainer } from 'tsyringe';
+
 import { TuiWebviewManagerAdapter } from './transport/tui-webview-manager-adapter.js';
+import { App } from './components/App.js';
 
 export const TUI_BUNDLE_API_VERSION = 1;
 
@@ -21,70 +23,63 @@ export interface RunTuiGlobals {
   verbose?: boolean;
 }
 
-interface AppProps {
-  transport: CliMessageTransport;
-  pushAdapter: CliWebviewManagerAdapter;
+interface RootProps {
+  ctx: EngineContext;
+  container: DependencyContainer;
   fireAndForget: CliFireAndForgetHandler;
-  authReady: boolean;
-  authError?: string;
+  workspacePath: string;
+  initialAuthReady: boolean;
+  initialAuthError?: string;
   onQuit: () => void;
 }
 
-interface ErrorBoundaryState {
-  error?: Error;
-}
+function Root({
+  ctx,
+  container,
+  fireAndForget,
+  workspacePath,
+  initialAuthReady,
+  initialAuthError,
+  onQuit,
+}: RootProps): React.JSX.Element {
+  const [authReady, setAuthReady] = useState(initialAuthReady);
+  const [authError, setAuthError] = useState<string | undefined>(
+    initialAuthError,
+  );
 
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  ErrorBoundaryState
-> {
-  override state: ErrorBoundaryState = {};
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { error };
-  }
-
-  override render(): React.ReactNode {
-    if (this.state.error) {
-      return (
-        <Box flexDirection="column">
-          <Text color="red">Ptah TUI render error</Text>
-          <Text>{this.state.error.message}</Text>
-        </Box>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-function QuitHandler({ onQuit }: { onQuit: () => void }): null {
-  const { exit } = useApp();
-  useInput((input, key) => {
-    if ((key.ctrl && input === 'q') || (key.ctrl && input === 'c')) {
-      onQuit();
-      exit();
-    }
-  });
-  return null;
-}
-
-function App({ authReady, authError, onQuit }: AppProps): React.ReactElement {
-  const { isRawModeSupported } = useStdin();
+  const reinitializeSdk = useCallback(async (): Promise<boolean> => {
+    const sdk = await initializeSdkAdapter(container);
+    setAuthReady(sdk.initialized);
+    setAuthError(sdk.errorMessage);
+    return sdk.initialized;
+  }, [container]);
 
   return (
-    <Box flexDirection="column">
-      {isRawModeSupported ? <QuitHandler onQuit={onQuit} /> : null}
-      <Text color="cyan">Ptah TUI</Text>
-      {authReady ? (
-        <Text color="green">agent ready</Text>
-      ) : (
-        <Text color="yellow">
-          agent not ready{authError ? ` — ${authError}` : ''} (Settings → Auth)
-        </Text>
-      )}
-      <Text dimColor>Ctrl+Q to quit</Text>
-    </Box>
+    <App
+      transport={ctx.transport}
+      pushAdapter={ctx.pushAdapter}
+      fireAndForget={fireAndForget}
+      workspacePath={workspacePath}
+      authReady={authReady}
+      authError={authError}
+      reinitializeSdk={reinitializeSdk}
+      onQuit={onQuit}
+    />
   );
+}
+
+function createSmokeStdin(): NodeJS.ReadStream {
+  const stream = new PassThrough() as unknown as NodeJS.ReadStream & {
+    isTTY: boolean;
+    setRawMode: (mode: boolean) => NodeJS.ReadStream;
+    ref: () => NodeJS.ReadStream;
+    unref: () => NodeJS.ReadStream;
+  };
+  stream.isTTY = true;
+  stream.setRawMode = () => stream;
+  stream.ref = () => stream;
+  stream.unref = () => stream;
+  return stream;
 }
 
 function ensureRawModeSupport(): boolean {
@@ -118,6 +113,7 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
   }
 
   const pushAdapter = new TuiWebviewManagerAdapter();
+  const workspacePath = globals.cwd ?? process.cwd();
   let signalExitCode = 0;
 
   const exitCode = await withEngine(
@@ -129,17 +125,20 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
 
       if (smoke) {
         const app = render(
-          <ErrorBoundary>
-            <App
-              transport={ctx.transport}
-              pushAdapter={pushAdapter}
-              fireAndForget={fireAndForget}
-              authReady={sdk.initialized}
-              authError={sdk.errorMessage}
-              onQuit={() => undefined}
-            />
-          </ErrorBoundary>,
-          { exitOnCtrlC: false, patchConsole: false },
+          <Root
+            ctx={ctx}
+            container={ctx.container}
+            fireAndForget={fireAndForget}
+            workspacePath={workspacePath}
+            initialAuthReady={sdk.initialized}
+            initialAuthError={sdk.errorMessage}
+            onQuit={() => undefined}
+          />,
+          {
+            exitOnCtrlC: false,
+            patchConsole: false,
+            stdin: createSmokeStdin(),
+          },
         );
         app.unmount();
         await app.waitUntilExit();
@@ -148,18 +147,17 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
 
       let unmounted = false;
       const app = render(
-        <ErrorBoundary>
-          <App
-            transport={ctx.transport}
-            pushAdapter={pushAdapter}
-            fireAndForget={fireAndForget}
-            authReady={sdk.initialized}
-            authError={sdk.errorMessage}
-            onQuit={() => {
-              unmounted = true;
-            }}
-          />
-        </ErrorBoundary>,
+        <Root
+          ctx={ctx}
+          container={ctx.container}
+          fireAndForget={fireAndForget}
+          workspacePath={workspacePath}
+          initialAuthReady={sdk.initialized}
+          initialAuthError={sdk.errorMessage}
+          onQuit={() => {
+            unmounted = true;
+          }}
+        />,
         { exitOnCtrlC: false },
       );
 
